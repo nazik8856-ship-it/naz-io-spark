@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import nazaiLogo from "@/assets/nazai-logo.png";
 
 interface LogoProps {
   size?: "sm" | "md" | "lg";
@@ -10,17 +11,14 @@ const Logo = ({ size = "md", linkTo }: LogoProps) => {
     sm: {
       icon: "w-7 h-7",
       text: "text-lg",
-      letter: "text-sm",
     },
     md: {
       icon: "w-8 h-8",
       text: "text-xl",
-      letter: "text-base",
     },
     lg: {
       icon: "w-10 h-10",
       text: "text-2xl",
-      letter: "text-lg",
     },
   };
 
@@ -29,9 +27,11 @@ const Logo = ({ size = "md", linkTo }: LogoProps) => {
   const LogoContent = () => (
     <div className="flex items-center gap-2">
       {/* Logo Icon */}
-      <div className={`${classes.icon} rounded-lg bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center`}>
-        <span className={`text-primary-foreground font-bold ${classes.letter}`}>N</span>
-      </div>
+      <img 
+        src={nazaiLogo} 
+        alt="NazAI Logo" 
+        className={`${classes.icon} rounded-lg object-cover`}
+      />
       {/* Logo Text - Satoshi font */}
       <span 
         className={`${classes.text} text-foreground`}
