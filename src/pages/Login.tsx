@@ -4,6 +4,7 @@ import { Label } from "@/components/ui/label";
 import { ArrowLeft, LogIn } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { useState } from "react";
+import Logo from "@/components/Logo";
 
 const Login = () => {
   const navigate = useNavigate();
@@ -40,11 +41,8 @@ const Login = () => {
           {/* Login Card */}
           <div className="p-8 rounded-3xl glass border-glow">
             {/* Logo */}
-            <div className="flex items-center gap-2 mb-6">
-              <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center">
-                <span className="text-primary-foreground font-bold text-xl">N</span>
-              </div>
-              <span className="text-2xl font-bold text-foreground">Naz.io</span>
+            <div className="mb-6">
+              <Logo size="lg" linkTo="/" />
             </div>
 
             <h1 className="text-2xl font-bold mb-2">Welcome Back</h1>
