@@ -1,3 +1,5 @@
+import Logo from "./Logo";
+
 const Footer = () => {
   const footerLinks = {
     Product: ["Features", "Pricing", "Integrations", "Changelog"],
@@ -12,12 +14,9 @@ const Footer = () => {
         <div className="grid md:grid-cols-5 gap-10">
           {/* Brand */}
           <div className="md:col-span-1">
-            <a href="#" className="flex items-center gap-2 mb-4">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center">
-                <span className="text-primary-foreground font-bold text-lg">N</span>
-              </div>
-              <span className="text-xl font-bold text-foreground">Naz.io</span>
-            </a>
+            <div className="mb-4">
+              <Logo linkTo="/" size="sm" />
+            </div>
             <p className="text-sm text-muted-foreground">
               Building the future of AI-powered software.
             </p>
