@@ -21,7 +21,7 @@ const Hero = () => {
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass border-glow mb-8">
             <Sparkles className="w-4 h-4 text-primary" />
             <span className="text-sm text-muted-foreground">
-              Introducing Naz.io AI Platform
+              Introducing NazAI Platform
             </span>
           </div>
 
