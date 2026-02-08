@@ -32,11 +32,11 @@ const Logo = ({ size = "md", linkTo }: LogoProps) => {
       <div className={`${classes.icon} rounded-lg bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center`}>
         <span className={`text-primary-foreground font-bold ${classes.letter}`}>N</span>
       </div>
-      {/* Logo Text - Intel-inspired clean tech font */}
+      {/* Logo Text - Satoshi font */}
       <span 
-        className={`${classes.text} font-bold text-foreground tracking-tight`}
+        className={`${classes.text} text-foreground`}
         style={{ 
-          fontFamily: "'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif",
+          fontFamily: "'Satoshi', sans-serif",
           fontWeight: 700,
           letterSpacing: '-0.02em'
         }}
