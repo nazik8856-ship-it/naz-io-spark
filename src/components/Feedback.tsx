@@ -1,14 +1,22 @@
-import { Star, Send } from "lucide-react";
+import { Star, Send, MessageSquare } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 
 const Feedback = () => {
   const [name, setName] = useState("");
   const [message, setMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [open, setOpen] = useState(false);
   const { toast } = useToast();
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -16,7 +24,6 @@ const Feedback = () => {
     if (!name.trim() || !message.trim()) return;
     
     setIsSubmitting(true);
-    // Simulate submission
     setTimeout(() => {
       toast({
         title: "Thank you for your feedback!",
@@ -25,6 +32,7 @@ const Feedback = () => {
       setName("");
       setMessage("");
       setIsSubmitting(false);
+      setOpen(false);
     }, 1000);
   };
 
@@ -62,7 +70,7 @@ const Feedback = () => {
           </p>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto mb-16">
+        <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto mb-12">
           {testimonials.map((testimonial, index) => (
             <div
               key={index}
@@ -84,37 +92,43 @@ const Feedback = () => {
           ))}
         </div>
 
-        {/* Visitor Feedback Form */}
-        <div className="max-w-lg mx-auto">
-          <div className="text-center mb-6">
-            <h3 className="text-xl font-semibold mb-2">Share Your Thoughts</h3>
-            <p className="text-sm text-muted-foreground">
-              We'd love to hear from you
-            </p>
-          </div>
-          
-          <form onSubmit={handleSubmit} className="p-6 rounded-2xl glass border-glow space-y-4">
-            <Input
-              placeholder="Your name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="bg-background/50 border-border/50"
-            />
-            <Textarea
-              placeholder="Your feedback..."
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              className="bg-background/50 border-border/50 min-h-[100px] resize-none"
-            />
-            <Button 
-              type="submit" 
-              className="w-full"
-              disabled={isSubmitting || !name.trim() || !message.trim()}
-            >
-              {isSubmitting ? "Sending..." : "Send Feedback"}
-              <Send className="w-4 h-4" />
-            </Button>
-          </form>
+        {/* Feedback Button & Dialog */}
+        <div className="text-center">
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+              <Button variant="heroOutline" size="lg">
+                <MessageSquare className="w-5 h-5" />
+                Give Feedback
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="glass border-glow">
+              <DialogHeader>
+                <DialogTitle>Share Your Feedback</DialogTitle>
+              </DialogHeader>
+              <form onSubmit={handleSubmit} className="space-y-4 pt-2">
+                <Input
+                  placeholder="Your name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="bg-background/50 border-border/50"
+                />
+                <Textarea
+                  placeholder="Your feedback..."
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  className="bg-background/50 border-border/50 min-h-[100px] resize-none"
+                />
+                <Button 
+                  type="submit" 
+                  className="w-full"
+                  disabled={isSubmitting || !name.trim() || !message.trim()}
+                >
+                  {isSubmitting ? "Sending..." : "Submit"}
+                  <Send className="w-4 h-4" />
+                </Button>
+              </form>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
     </section>
