@@ -1,6 +1,33 @@
-import { Star } from "lucide-react";
+import { Star, Send } from "lucide-react";
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { useToast } from "@/hooks/use-toast";
 
 const Feedback = () => {
+  const [name, setName] = useState("");
+  const [message, setMessage] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const { toast } = useToast();
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim() || !message.trim()) return;
+    
+    setIsSubmitting(true);
+    // Simulate submission
+    setTimeout(() => {
+      toast({
+        title: "Thank you for your feedback!",
+        description: "We appreciate you taking the time to share your thoughts.",
+      });
+      setName("");
+      setMessage("");
+      setIsSubmitting(false);
+    }, 1000);
+  };
+
   const testimonials = [
     {
       name: "Sarah Chen",
@@ -25,6 +52,7 @@ const Feedback = () => {
   return (
     <section className="py-20 relative">
       <div className="container mx-auto px-6">
+        {/* Testimonials */}
         <div className="text-center mb-12">
           <h2 className="text-2xl md:text-3xl font-bold mb-3">
             Trusted by <span className="text-gradient">Innovators</span>
@@ -34,7 +62,7 @@ const Feedback = () => {
           </p>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto">
+        <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto mb-16">
           {testimonials.map((testimonial, index) => (
             <div
               key={index}
@@ -54,6 +82,39 @@ const Feedback = () => {
               </div>
             </div>
           ))}
+        </div>
+
+        {/* Visitor Feedback Form */}
+        <div className="max-w-lg mx-auto">
+          <div className="text-center mb-6">
+            <h3 className="text-xl font-semibold mb-2">Share Your Thoughts</h3>
+            <p className="text-sm text-muted-foreground">
+              We'd love to hear from you
+            </p>
+          </div>
+          
+          <form onSubmit={handleSubmit} className="p-6 rounded-2xl glass border-glow space-y-4">
+            <Input
+              placeholder="Your name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="bg-background/50 border-border/50"
+            />
+            <Textarea
+              placeholder="Your feedback..."
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              className="bg-background/50 border-border/50 min-h-[100px] resize-none"
+            />
+            <Button 
+              type="submit" 
+              className="w-full"
+              disabled={isSubmitting || !name.trim() || !message.trim()}
+            >
+              {isSubmitting ? "Sending..." : "Send Feedback"}
+              <Send className="w-4 h-4" />
+            </Button>
+          </form>
         </div>
       </div>
     </section>
