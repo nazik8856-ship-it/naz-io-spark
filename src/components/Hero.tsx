@@ -27,8 +27,8 @@ const Hero = () => {
 
           {/* Headline */}
           <h1 className="text-5xl md:text-7xl font-bold tracking-tight mb-6">
-            Build the Future with{" "}
-            <span className="text-gradient">Intelligent AI</span>
+            Launch a Real Online Business using{" "}
+            <span className="text-gradient">AI in Minutes</span>
           </h1>
 
           {/* Subheadline */}
