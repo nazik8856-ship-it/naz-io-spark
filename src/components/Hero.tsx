@@ -33,8 +33,7 @@ const Hero = () => {
 
           {/* Subheadline */}
           <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto mb-10 leading-relaxed">
-            Transform your workflows with cutting-edge artificial intelligence.
-            Naz.io empowers teams to automate, analyze, and innovate at unprecedented speed.
+            NazAI turns your idea into a clear action
           </p>
 
           {/* CTA Buttons */}
