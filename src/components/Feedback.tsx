@@ -1,4 +1,5 @@
 import { Star, Send, MessageSquare } from "lucide-react";
+import profileSphere from "@/assets/profile-sphere.png";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -84,9 +85,12 @@ const Feedback = () => {
               <p className="text-muted-foreground text-sm mb-4 leading-relaxed">
                 "{testimonial.content}"
               </p>
-              <div>
-                <p className="font-semibold text-foreground text-sm">{testimonial.name}</p>
-                <p className="text-xs text-muted-foreground">{testimonial.role}</p>
+              <div className="flex items-center gap-3">
+                <img src={profileSphere} alt="Profile" className="w-8 h-8 rounded-full" />
+                <div>
+                  <p className="font-semibold text-foreground text-sm">{testimonial.name}</p>
+                  <p className="text-xs text-muted-foreground">{testimonial.role}</p>
+                </div>
               </div>
             </div>
           ))}
