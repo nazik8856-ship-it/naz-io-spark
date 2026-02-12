@@ -10,7 +10,7 @@ const Navbar = () => {
   const navLinks = [
     { name: "Features", href: "#features" },
     { name: "How it Works", href: "#how-it-works" },
-    { name: "Output Example", href: "#output-example" },
+    
     { name: "Feedback", href: "#feedback" },
     { name: "Pricing", href: "#pricing" },
   ];
