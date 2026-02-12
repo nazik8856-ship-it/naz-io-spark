@@ -25,7 +25,7 @@ const outputs = [
 
 const OutputExample = () => {
   return (
-    <section className="py-24 relative">
+    <section id="output-example" className="py-24 relative">
       <div className="container mx-auto px-6">
         {/* Header */}
         <div className="text-center mb-16">
