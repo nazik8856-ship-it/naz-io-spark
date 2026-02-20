@@ -29,53 +29,73 @@ const Navbar = () => {
           <div className="flex items-center gap-2">
             <Logo linkTo="/" />
             <svg
-              className="w-5 h-5"
-              viewBox="0 0 32 32"
+              className="w-6 h-6 overflow-visible"
+              viewBox="0 0 40 40"
               fill="none"
               xmlns="http://www.w3.org/2000/svg"
             >
-              {/* Coconut shell */}
+              {/* Left half of coconut */}
+              <g className="coconut-left-half">
+                <path
+                  d="M6 20 Q6 11 16 10 L16 28 Q6 27 6 20Z"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  fill="none"
+                  className="coconut-draw"
+                  style={{ strokeDasharray: 60, strokeDashoffset: 60 }}
+                />
+              </g>
+              {/* Right half of coconut */}
+              <g className="coconut-right-half">
+                <path
+                  d="M26 20 Q26 11 16 10 L16 28 Q26 27 26 20Z"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  fill="none"
+                  className="coconut-draw"
+                  style={{ strokeDasharray: 60, strokeDashoffset: 60 }}
+                />
+              </g>
+              {/* Shell texture */}
               <path
-                d="M6 18 Q6 10 16 10 Q26 10 26 18 Q26 26 16 26 Q6 26 6 18Z"
+                d="M9 17 Q12 14 16 16 Q20 18 23 15"
                 stroke="currentColor"
-                strokeWidth="1.6"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                fill="none"
-                className="coconut-draw"
-                style={{ strokeDasharray: 70, strokeDashoffset: 70 }}
-              />
-              {/* Shell texture line */}
-              <path
-                d="M9 16 Q12 13 16 15 Q20 17 23 14"
-                stroke="currentColor"
-                strokeWidth="1.2"
+                strokeWidth="1"
                 strokeLinecap="round"
                 fill="none"
-                opacity="0.5"
-                className="coconut-draw-delayed"
-                style={{ strokeDasharray: 30, strokeDashoffset: 30 }}
+                opacity="0.4"
+                className="coconut-draw-delayed coconut-texture"
               />
-              {/* Coconut top / stem nub */}
+              {/* Stem */}
               <path
                 d="M14 10 Q16 7 18 10"
                 stroke="currentColor"
-                strokeWidth="1.4"
+                strokeWidth="1.3"
                 strokeLinecap="round"
                 fill="none"
-                className="coconut-draw-delayed2"
-                style={{ strokeDasharray: 12, strokeDashoffset: 12 }}
+                className="coconut-draw-delayed2 coconut-stem"
               />
-              {/* Small leaf */}
+              {/* Leaf */}
               <path
-                d="M16 7 Q19 3 21 6"
+                d="M16 7 Q20 3 22 6"
                 stroke="currentColor"
-                strokeWidth="1.2"
+                strokeWidth="1.1"
                 strokeLinecap="round"
                 fill="none"
-                className="coconut-draw-delayed2"
-                style={{ strokeDasharray: 12, strokeDashoffset: 12 }}
+                className="coconut-draw-delayed2 coconut-stem"
               />
+              {/* Water drops */}
+              <line x1="14" y1="28" x2="13" y2="34" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" className="coconut-water-1" opacity="0" />
+              <line x1="16" y1="28" x2="16" y2="36" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" className="coconut-water-2" opacity="0" />
+              <line x1="18" y1="28" x2="19" y2="34" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" className="coconut-water-3" opacity="0" />
+              {/* Splash drops */}
+              <circle cx="12" cy="35" r="0.8" fill="currentColor" className="coconut-splash-1" opacity="0" />
+              <circle cx="16" cy="37" r="0.6" fill="currentColor" className="coconut-splash-2" opacity="0" />
+              <circle cx="20" cy="35" r="0.7" fill="currentColor" className="coconut-splash-3" opacity="0" />
             </svg>
           </div>
 
