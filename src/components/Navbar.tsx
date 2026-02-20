@@ -35,9 +35,9 @@ const Navbar = () => {
               xmlns="http://www.w3.org/2000/svg"
             >
               {/* Left half of coconut */}
-              <g className="coconut-left-half">
+              <g className="coconut-top-half">
                 <path
-                  d="M6 20 Q6 11 16 10 L16 28 Q6 27 6 20Z"
+                  d="M6 18 Q6 10 16 10 Q26 10 26 18 Z"
                   stroke="currentColor"
                   strokeWidth="1.5"
                   strokeLinecap="round"
@@ -48,9 +48,9 @@ const Navbar = () => {
                 />
               </g>
               {/* Right half of coconut */}
-              <g className="coconut-right-half">
+              <g className="coconut-bottom-half">
                 <path
-                  d="M26 20 Q26 11 16 10 L16 28 Q26 27 26 20Z"
+                  d="M6 18 Q6 27 16 28 Q26 27 26 18 Z"
                   stroke="currentColor"
                   strokeWidth="1.5"
                   strokeLinecap="round"
