@@ -26,9 +26,28 @@ const Navbar = () => {
       <div className="container mx-auto px-6 py-4">
         <div className="flex items-center justify-between">
           {/* Logo */}
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
             <Logo linkTo="/" />
-            <span className="text-lg animate-[bounce_2s_ease-in-out_infinite]">🥥</span>
+            <svg
+              className="w-5 h-5 animate-[wiggle_2.5s_ease-in-out_infinite]"
+              viewBox="0 0 32 32"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+              style={{ filter: "drop-shadow(0 0 4px hsl(var(--primary) / 0.4))" }}
+            >
+              {/* Coconut body */}
+              <ellipse cx="16" cy="18" rx="12" ry="10" stroke="hsl(var(--foreground))" strokeWidth="1.8" strokeLinecap="round" strokeDasharray="2 3" fill="none" />
+              {/* Inner detail lines - sketchy style */}
+              <path d="M10 15 Q13 12 16 14 Q19 16 22 13" stroke="hsl(var(--foreground))" strokeWidth="1.2" strokeLinecap="round" fill="none" opacity="0.6" />
+              {/* Eyes */}
+              <circle cx="12" cy="19" r="1.5" stroke="hsl(var(--foreground))" strokeWidth="1.2" fill="none" />
+              <circle cx="20" cy="19" r="1.5" stroke="hsl(var(--foreground))" strokeWidth="1.2" fill="none" />
+              {/* Mouth */}
+              <circle cx="16" cy="23" r="1" stroke="hsl(var(--foreground))" strokeWidth="1.2" fill="none" />
+              {/* Top tuft / leaf */}
+              <path d="M14 9 Q16 4 18 9" stroke="hsl(var(--foreground))" strokeWidth="1.4" strokeLinecap="round" fill="none" />
+              <path d="M12 10 Q14 6 16 8" stroke="hsl(var(--foreground))" strokeWidth="1" strokeLinecap="round" fill="none" opacity="0.5" />
+            </svg>
           </div>
 
           {/* Desktop Navigation */}
