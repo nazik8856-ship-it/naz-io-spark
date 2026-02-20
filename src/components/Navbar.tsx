@@ -29,24 +29,53 @@ const Navbar = () => {
           <div className="flex items-center gap-2">
             <Logo linkTo="/" />
             <svg
-              className="w-5 h-5 animate-[wiggle_2.5s_ease-in-out_infinite]"
+              className="w-5 h-5"
               viewBox="0 0 32 32"
               fill="none"
               xmlns="http://www.w3.org/2000/svg"
-              style={{ filter: "drop-shadow(0 0 4px hsl(var(--primary) / 0.4))" }}
             >
-              {/* Coconut body */}
-              <ellipse cx="16" cy="18" rx="12" ry="10" stroke="hsl(var(--foreground))" strokeWidth="1.8" strokeLinecap="round" strokeDasharray="2 3" fill="none" />
-              {/* Inner detail lines - sketchy style */}
-              <path d="M10 15 Q13 12 16 14 Q19 16 22 13" stroke="hsl(var(--foreground))" strokeWidth="1.2" strokeLinecap="round" fill="none" opacity="0.6" />
-              {/* Eyes */}
-              <circle cx="12" cy="19" r="1.5" stroke="hsl(var(--foreground))" strokeWidth="1.2" fill="none" />
-              <circle cx="20" cy="19" r="1.5" stroke="hsl(var(--foreground))" strokeWidth="1.2" fill="none" />
-              {/* Mouth */}
-              <circle cx="16" cy="23" r="1" stroke="hsl(var(--foreground))" strokeWidth="1.2" fill="none" />
-              {/* Top tuft / leaf */}
-              <path d="M14 9 Q16 4 18 9" stroke="hsl(var(--foreground))" strokeWidth="1.4" strokeLinecap="round" fill="none" />
-              <path d="M12 10 Q14 6 16 8" stroke="hsl(var(--foreground))" strokeWidth="1" strokeLinecap="round" fill="none" opacity="0.5" />
+              {/* Coconut shell */}
+              <path
+                d="M6 18 Q6 10 16 10 Q26 10 26 18 Q26 26 16 26 Q6 26 6 18Z"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                fill="none"
+                className="coconut-draw"
+                style={{ strokeDasharray: 70, strokeDashoffset: 70 }}
+              />
+              {/* Shell texture line */}
+              <path
+                d="M9 16 Q12 13 16 15 Q20 17 23 14"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinecap="round"
+                fill="none"
+                opacity="0.5"
+                className="coconut-draw-delayed"
+                style={{ strokeDasharray: 30, strokeDashoffset: 30 }}
+              />
+              {/* Coconut top / stem nub */}
+              <path
+                d="M14 10 Q16 7 18 10"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                strokeLinecap="round"
+                fill="none"
+                className="coconut-draw-delayed2"
+                style={{ strokeDasharray: 12, strokeDashoffset: 12 }}
+              />
+              {/* Small leaf */}
+              <path
+                d="M16 7 Q19 3 21 6"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinecap="round"
+                fill="none"
+                className="coconut-draw-delayed2"
+                style={{ strokeDasharray: 12, strokeDashoffset: 12 }}
+              />
             </svg>
           </div>
 
