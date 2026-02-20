@@ -117,14 +117,14 @@
   to { stroke-dashoffset: 0; }
 }
 
-@keyframes split-left {
+@keyframes split-top {
   0% { transform: translate(0, 0) rotate(0deg); }
-  100% { transform: translate(-3px, 2px) rotate(-12deg); }
+  100% { transform: translate(0, -4px) rotate(-8deg); }
 }
 
-@keyframes split-right {
+@keyframes split-bottom {
   0% { transform: translate(0, 0) rotate(0deg); }
-  100% { transform: translate(3px, 2px) rotate(12deg); }
+  100% { transform: translate(0, 4px) rotate(8deg); }
 }
 
 @keyframes water-drip {
@@ -162,14 +162,14 @@
 }
 
 /* Phase 2: Split open */
-.coconut-left-half {
-  transform-origin: 16px 20px;
-  animation: split-left 0.5s ease-in 2.2s forwards;
+.coconut-top-half {
+  transform-origin: 16px 18px;
+  animation: split-top 0.5s ease-in 2.2s forwards;
 }
 
-.coconut-right-half {
-  transform-origin: 16px 20px;
-  animation: split-right 0.5s ease-in 2.2s forwards;
+.coconut-bottom-half {
+  transform-origin: 16px 18px;
+  animation: split-bottom 0.5s ease-in 2.2s forwards;
 }
 
 .coconut-texture {
