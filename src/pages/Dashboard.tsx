@@ -1,80 +1,124 @@
 import { Button } from "@/components/ui/button";
-import { useState } from "react";
+import { Textarea } from "@/components/ui/textarea";
+import { useState, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { LogOut, Sparkles, ArrowRight, ArrowLeft, Building2, Target, Users, TrendingUp, CheckCircle2 } from "lucide-react";
-import BusinessWizard from "@/components/BusinessWizard";
-import GeneratedResults from "@/components/GeneratedResults";
+import { LogOut, Sparkles, Send, Loader2, Download, RefreshCw } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 
-export interface GeneratedBusiness {
-  name: string;
-  industry: string;
-  description: string;
-  targetAudience: string;
-  revenueModel: string;
-  competitiveAdvantage: string;
-  estimatedRevenue: string;
-  growthPotential: string;
-}
+const GENERATE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-website`;
 
 const Dashboard = () => {
-  const [showWizard, setShowWizard] = useState(false);
-  const [generatedResults, setGeneratedResults] = useState<GeneratedBusiness[]>([]);
+  const [prompt, setPrompt] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
+  const [generatedHTML, setGeneratedHTML] = useState("");
+  const [streamingHTML, setStreamingHTML] = useState("");
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const { toast } = useToast();
 
-  const handleGenerateBusiness = () => {
-    setShowWizard(true);
-  };
+  const handleGenerate = useCallback(async () => {
+    if (!prompt.trim() || isGenerating) return;
 
-  const handleWizardComplete = (data: Record<string, string>) => {
     setIsGenerating(true);
-    setShowWizard(false);
+    setGeneratedHTML("");
+    setStreamingHTML("");
 
-    // Simulate AI generation
-    setTimeout(() => {
-      const mockResults: GeneratedBusiness[] = [
-        {
-          name: `${data.industry || "Tech"} Solutions Pro`,
-          industry: data.industry || "Technology",
-          description: `An innovative ${data.businessType || "B2B"} platform leveraging AI to solve ${data.painPoint || "efficiency"} challenges.`,
-          targetAudience: data.targetAudience || "Small to medium businesses",
-          revenueModel: "SaaS subscription with tiered pricing",
-          competitiveAdvantage: "AI-powered automation with 10x faster processing",
-          estimatedRevenue: "$500K - $2M first year",
-          growthPotential: "High",
+    try {
+      const resp = await fetch(GENERATE_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
         },
-        {
-          name: `${data.industry || "Digital"} AI Hub`,
-          industry: data.industry || "Technology",
-          description: `A cutting-edge marketplace connecting ${data.targetAudience || "businesses"} with AI-driven solutions.`,
-          targetAudience: data.targetAudience || "Enterprise clients",
-          revenueModel: "Commission-based with premium features",
-          competitiveAdvantage: "First-mover advantage in niche market",
-          estimatedRevenue: "$1M - $5M first year",
-          growthPotential: "Very High",
-        },
-        {
-          name: `Smart ${data.industry || "Business"} Network`,
-          industry: data.industry || "Technology",
-          description: `An AI-powered networking platform that automates ${data.painPoint || "lead generation"} for ${data.businessType || "B2B"} companies.`,
-          targetAudience: data.targetAudience || "Growth-stage startups",
-          revenueModel: "Freemium with enterprise tiers",
-          competitiveAdvantage: "Proprietary AI matching algorithm",
-          estimatedRevenue: "$250K - $1M first year",
-          growthPotential: "Medium-High",
-        },
-      ];
-      
-      setGeneratedResults(mockResults);
+        body: JSON.stringify({ prompt: prompt.trim() }),
+      });
+
+      if (!resp.ok) {
+        const err = await resp.json();
+        throw new Error(err.error || "Failed to generate website");
+      }
+
+      if (!resp.body) throw new Error("No response stream");
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let fullHTML = "";
+      let done = false;
+
+      while (!done) {
+        const { done: readerDone, value } = await reader.read();
+        if (readerDone) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        let newlineIndex: number;
+        while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
+          let line = buffer.slice(0, newlineIndex);
+          buffer = buffer.slice(newlineIndex + 1);
+
+          if (line.endsWith("\r")) line = line.slice(0, -1);
+          if (line.startsWith(":") || line.trim() === "") continue;
+          if (!line.startsWith("data: ")) continue;
+
+          const jsonStr = line.slice(6).trim();
+          if (jsonStr === "[DONE]") {
+            done = true;
+            break;
+          }
+
+          try {
+            const parsed = JSON.parse(jsonStr);
+            const content = parsed.choices?.[0]?.delta?.content as string | undefined;
+            if (content) {
+              fullHTML += content;
+              setStreamingHTML(fullHTML);
+            }
+          } catch {
+            buffer = line + "\n" + buffer;
+            break;
+          }
+        }
+      }
+
+      // Clean up any markdown fences the model might add
+      let cleaned = fullHTML;
+      if (cleaned.startsWith("```html")) {
+        cleaned = cleaned.slice(7);
+      } else if (cleaned.startsWith("```")) {
+        cleaned = cleaned.slice(3);
+      }
+      if (cleaned.endsWith("```")) {
+        cleaned = cleaned.slice(0, -3);
+      }
+      cleaned = cleaned.trim();
+
+      setGeneratedHTML(cleaned);
+      setStreamingHTML("");
+    } catch (e: any) {
+      console.error(e);
+      toast({
+        title: "Generation failed",
+        description: e.message || "Something went wrong",
+        variant: "destructive",
+      });
+    } finally {
       setIsGenerating(false);
-    }, 3000);
+    }
+  }, [prompt, isGenerating, toast]);
+
+  const handleDownload = () => {
+    const blob = new Blob([generatedHTML], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "website.html";
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
-  const handleWizardClose = () => {
-    setShowWizard(false);
-  };
+  const displayHTML = generatedHTML || streamingHTML;
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background flex flex-col">
       {/* Header */}
       <header className="fixed top-0 left-0 right-0 z-50 glass">
         <div className="container mx-auto px-6 py-4">
@@ -85,7 +129,6 @@ const Dashboard = () => {
               </div>
               <span className="text-xl font-bold text-foreground">Naz.io</span>
             </Link>
-
             <Button variant="ghost" size="sm" asChild>
               <Link to="/">
                 <LogOut className="w-4 h-4" />
@@ -97,83 +140,125 @@ const Dashboard = () => {
       </header>
 
       {/* Main Content */}
-      <main className="pt-24 pb-12">
-        <div className="container mx-auto px-6">
-          {/* Welcome Section */}
-          <div className="mb-12">
-            <h1 className="text-3xl md:text-4xl font-bold mb-2">
-              Welcome to <span className="text-gradient">Naz.io</span>
-            </h1>
-            <p className="text-muted-foreground text-lg">
-              Generate AI-powered business ideas and opportunities
-            </p>
-          </div>
-
-          {/* Stats Cards */}
-          <div className="grid md:grid-cols-4 gap-4 mb-12">
-            {[
-              { icon: Building2, label: "Businesses Generated", value: generatedResults.length.toString() },
-              { icon: Target, label: "Success Rate", value: "94%" },
-              { icon: Users, label: "Active Users", value: "12K+" },
-              { icon: TrendingUp, label: "Avg. Growth", value: "340%" },
-            ].map((stat) => (
-              <div key={stat.label} className="p-6 rounded-2xl glass border-glow">
-                <stat.icon className="w-8 h-8 text-primary mb-3" />
-                <p className="text-2xl font-bold text-foreground">{stat.value}</p>
-                <p className="text-sm text-muted-foreground">{stat.label}</p>
-              </div>
-            ))}
-          </div>
-
-          {/* Generate Business CTA */}
-          {!showWizard && !isGenerating && (
-            <div className="text-center py-16">
+      <main className="pt-24 pb-6 flex-1 flex flex-col">
+        <div className="container mx-auto px-6 flex-1 flex flex-col">
+          {/* If no generated content yet, show centered prompt */}
+          {!displayHTML && !isGenerating ? (
+            <div className="flex-1 flex flex-col items-center justify-center max-w-2xl mx-auto w-full">
               <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass border-glow mb-6">
                 <Sparkles className="w-4 h-4 text-primary" />
-                <span className="text-sm text-muted-foreground">AI-Powered Generation</span>
+                <span className="text-sm text-muted-foreground">AI Website Generator</span>
               </div>
-              
-              <h2 className="text-2xl md:text-3xl font-bold mb-4">
-                Ready to discover your next{" "}
-                <span className="text-gradient">business opportunity</span>?
-              </h2>
-              <p className="text-muted-foreground max-w-xl mx-auto mb-8">
-                Our AI analyzes market trends, identifies gaps, and generates personalized business ideas tailored to your expertise and goals.
+
+              <h1 className="text-3xl md:text-4xl font-bold text-center mb-3">
+                Describe your <span className="text-gradient">dream website</span>
+              </h1>
+              <p className="text-muted-foreground text-center mb-8 max-w-lg">
+                Enter a prompt describing the website you want and we'll generate a fully designed, ready-to-use page instantly.
               </p>
-              
-              <Button variant="hero" size="xl" onClick={handleGenerateBusiness}>
-                <Sparkles className="w-5 h-5" />
-                Generate Business
-                <ArrowRight className="w-5 h-5" />
-              </Button>
-            </div>
-          )}
 
-          {/* Wizard */}
-          {showWizard && (
-            <BusinessWizard 
-              onComplete={handleWizardComplete} 
-              onClose={handleWizardClose}
-            />
-          )}
-
-          {/* Loading State */}
-          {isGenerating && (
-            <div className="text-center py-16">
-              <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/20 mb-6 animate-pulse">
-                <Sparkles className="w-8 h-8 text-primary animate-spin" />
+              <div className="w-full space-y-4">
+                <Textarea
+                  placeholder="e.g., A modern SaaS landing page for a project management tool with dark theme, pricing section, testimonials, and a hero with gradient background..."
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  className="min-h-[140px] bg-secondary/50 border-border resize-none text-base"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleGenerate();
+                  }}
+                />
+                <Button
+                  variant="hero"
+                  size="xl"
+                  onClick={handleGenerate}
+                  disabled={!prompt.trim()}
+                  className="w-full"
+                >
+                  <Sparkles className="w-5 h-5" />
+                  Generate Website
+                  <Send className="w-5 h-5" />
+                </Button>
+                <p className="text-xs text-muted-foreground text-center">
+                  Press Ctrl+Enter to generate • Powered by AI
+                </p>
               </div>
-              <h2 className="text-2xl font-bold mb-2">Generating Your Business Ideas...</h2>
-              <p className="text-muted-foreground">Our AI is analyzing market trends and opportunities</p>
             </div>
-          )}
+          ) : (
+            /* Generated content view */
+            <div className="flex-1 flex flex-col gap-4">
+              {/* Toolbar */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  {isGenerating && (
+                    <div className="flex items-center gap-2 text-primary">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span className="text-sm font-medium">Generating...</span>
+                    </div>
+                  )}
+                  {generatedHTML && !isGenerating && (
+                    <span className="text-sm text-muted-foreground">✓ Website generated</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  {generatedHTML && (
+                    <Button variant="outline" size="sm" onClick={handleDownload}>
+                      <Download className="w-4 h-4" />
+                      Download HTML
+                    </Button>
+                  )}
+                  <Button
+                    variant="heroOutline"
+                    size="sm"
+                    onClick={() => {
+                      setGeneratedHTML("");
+                      setStreamingHTML("");
+                      setPrompt("");
+                    }}
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                    New Website
+                  </Button>
+                </div>
+              </div>
 
-          {/* Generated Results */}
-          {generatedResults.length > 0 && !showWizard && !isGenerating && (
-            <GeneratedResults 
-              results={generatedResults} 
-              onGenerateMore={handleGenerateBusiness}
-            />
+              {/* Prompt bar (compact) */}
+              <div className="flex gap-2">
+                <Textarea
+                  placeholder="Describe changes or a new website..."
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  className="min-h-[48px] max-h-[100px] bg-secondary/50 border-border resize-none"
+                  rows={1}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleGenerate();
+                  }}
+                />
+                <Button
+                  variant="hero"
+                  size="icon"
+                  onClick={handleGenerate}
+                  disabled={!prompt.trim() || isGenerating}
+                  className="shrink-0 h-[48px] w-[48px]"
+                >
+                  {isGenerating ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <Send className="w-5 h-5" />
+                  )}
+                </Button>
+              </div>
+
+              {/* Preview iframe */}
+              <div className="flex-1 rounded-2xl overflow-hidden border border-border bg-white min-h-[500px]">
+                <iframe
+                  ref={iframeRef}
+                  srcDoc={displayHTML}
+                  className="w-full h-full min-h-[500px]"
+                  sandbox="allow-scripts"
+                  title="Generated Website Preview"
+                />
+              </div>
+            </div>
           )}
         </div>
       </main>
