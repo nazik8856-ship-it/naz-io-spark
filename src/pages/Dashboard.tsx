@@ -2,10 +2,11 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useState, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { LogOut, Sparkles, Send, Loader2, Download, RefreshCw } from "lucide-react";
+import { LogOut, Sparkles, Send, Loader2, Download, RefreshCw, Share2, Check, Copy } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import EditChat from "@/components/EditChat";
 import Logo from "@/components/Logo";
+import { supabase } from "@/integrations/supabase/client";
 
 const GENERATE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-website`;
 
@@ -15,8 +16,38 @@ const Dashboard = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [generatedHTML, setGeneratedHTML] = useState("");
   const [streamingHTML, setStreamingHTML] = useState("");
+  const [isSharing, setIsSharing] = useState(false);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const { toast } = useToast();
+
+  const handleShare = useCallback(async () => {
+    if (!generatedHTML || isSharing) return;
+    setIsSharing(true);
+
+    try {
+      const { data, error } = await supabase
+        .from("shared_websites")
+        .insert({ html: generatedHTML })
+        .select("id")
+        .single();
+
+      if (error) throw error;
+
+      const url = `${window.location.origin}/share/${data.id}`;
+      setShareUrl(url);
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+      toast({ title: "Link copied!", description: "Shareable link copied to clipboard" });
+    } catch (e: any) {
+      console.error(e);
+      toast({ title: "Share failed", description: e.message, variant: "destructive" });
+    } finally {
+      setIsSharing(false);
+    }
+  }, [generatedHTML, isSharing, toast]);
 
   const handleGenerate = useCallback(async () => {
     if (!prompt.trim() || isGenerating) return;
@@ -269,10 +300,16 @@ const Dashboard = () => {
                 </div>
                 <div className="flex items-center gap-2">
                   {generatedHTML && (
-                    <Button variant="outline" size="sm" onClick={handleDownload}>
-                      <Download className="w-4 h-4" />
-                      Download HTML
-                    </Button>
+                    <>
+                      <Button variant="outline" size="sm" onClick={handleShare} disabled={isSharing}>
+                        {copied ? <Check className="w-4 h-4" /> : <Share2 className="w-4 h-4" />}
+                        {copied ? "Copied!" : "Share"}
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={handleDownload}>
+                        <Download className="w-4 h-4" />
+                        Download
+                      </Button>
+                    </>
                   )}
                   <Button
                     variant="heroOutline"
