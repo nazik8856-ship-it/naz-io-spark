@@ -5,6 +5,7 @@ import { Link } from "react-router-dom";
 import { LogOut, Sparkles, Send, Loader2, Download, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import EditChat from "@/components/EditChat";
+import Logo from "@/components/Logo";
 
 const GENERATE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-website`;
 
