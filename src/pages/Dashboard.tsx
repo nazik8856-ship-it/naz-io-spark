@@ -5,6 +5,7 @@ import { Link } from "react-router-dom";
 import { LogOut, Sparkles, Send, Loader2, Download, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import EditChat from "@/components/EditChat";
+import Logo from "@/components/Logo";
 
 const GENERATE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-website`;
 
@@ -195,12 +196,7 @@ const Dashboard = () => {
       <header className="fixed top-0 left-0 right-0 z-50 glass">
         <div className="container mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
-            <Link to="/" className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center">
-                <span className="text-primary-foreground font-bold text-lg">N</span>
-              </div>
-              <span className="text-xl font-bold text-foreground">Naz.io</span>
-            </Link>
+            <Logo size="md" linkTo="/" />
             <Button variant="ghost" size="sm" asChild>
               <Link to="/">
                 <LogOut className="w-4 h-4" />
