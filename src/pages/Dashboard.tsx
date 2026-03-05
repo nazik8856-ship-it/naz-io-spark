@@ -318,6 +318,8 @@ const Dashboard = () => {
                       setGeneratedHTML("");
                       setStreamingHTML("");
                       setPrompt("");
+                      setShareUrl(null);
+                      setCopied(false);
                     }}
                   >
                     <RefreshCw className="w-4 h-4" />
