@@ -11,6 +11,7 @@ const GENERATE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate
 const Dashboard = () => {
   const [prompt, setPrompt] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
   const [generatedHTML, setGeneratedHTML] = useState("");
   const [streamingHTML, setStreamingHTML] = useState("");
   const iframeRef = useRef<HTMLIFrameElement>(null);
