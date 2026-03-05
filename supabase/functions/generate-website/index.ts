@@ -12,7 +12,7 @@ serve(async (req) => {
   }
 
   try {
-    const { prompt } = await req.json();
+    const { prompt, currentHTML, chatHistory } = await req.json();
 
     if (!prompt || typeof prompt !== "string" || prompt.trim().length === 0) {
       return new Response(
@@ -36,32 +36,7 @@ serve(async (req) => {
         },
         body: JSON.stringify({
           model: "google/gemini-3-flash-preview",
-          messages: [
-            {
-              role: "system",
-              content: `You are a world-class web designer and developer. The user will give you a description of a website they want. You must generate a COMPLETE, single-file HTML page with inline CSS and minimal inline JS.
-
-Rules:
-- Return ONLY the raw HTML code, no markdown fences, no explanations
-- The HTML must be a complete document with <!DOCTYPE html>, <html>, <head>, <body>
-- Use modern CSS (flexbox, grid, gradients, animations, custom properties)
-- Make it visually stunning with a bold, modern design
-- Use Google Fonts via CDN link in <head>
-- Include responsive design with media queries
-- Add subtle CSS animations and transitions
-- Use a cohesive color palette
-- Add placeholder images using https://placehold.co/WIDTHxHEIGHT/HEX_BG/HEX_TEXT
-- Include realistic placeholder text content
-- Make it look like a real, production-ready website
-- The page must be fully self-contained (no external JS frameworks)
-- Add smooth scroll behavior
-- Include a navigation bar, hero section, and footer at minimum`,
-            },
-            {
-              role: "user",
-              content: prompt,
-            },
-          ],
+          messages: buildMessages(prompt, currentHTML, chatHistory),
           stream: true,
         }),
       }
