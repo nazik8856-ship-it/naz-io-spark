@@ -370,6 +370,7 @@ const Dashboard = () => {
                       setShareUrl(null);
                       setCopied(false);
                       setPublishedUrl(null);
+                      setShowEditChat(false);
                     }}
                   >
                     <RefreshCw className="w-4 h-4" />
