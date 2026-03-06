@@ -21,6 +21,7 @@ const Dashboard = () => {
   const [copied, setCopied] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
+  const [showEditChat, setShowEditChat] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const { toast } = useToast();
 
@@ -349,6 +350,14 @@ const Dashboard = () => {
                         <Download className="w-4 h-4" />
                         Download
                       </Button>
+                      <Button
+                        variant={showEditChat ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setShowEditChat((v) => !v)}
+                      >
+                        <Pencil className="w-4 h-4" />
+                        Edit
+                      </Button>
                     </>
                   )}
                   <Button
@@ -381,7 +390,7 @@ const Dashboard = () => {
               </div>
 
               {/* Edit chat - only show after generation is complete */}
-              {generatedHTML && !isGenerating && (
+              {generatedHTML && !isGenerating && showEditChat && (
                 <EditChat onSendEdit={handleEdit} isGenerating={isEditing} />
               )}
             </div>
