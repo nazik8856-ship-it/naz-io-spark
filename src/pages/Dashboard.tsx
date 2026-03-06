@@ -327,6 +327,20 @@ const Dashboard = () => {
                 <div className="flex items-center gap-2">
                   {generatedHTML && (
                     <>
+                      {!publishedUrl ? (
+                        <Button variant="hero" size="sm" onClick={handlePublish} disabled={isPublishing}>
+                          {isPublishing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Globe className="w-4 h-4" />}
+                          {isPublishing ? "Publishing..." : "Publish"}
+                        </Button>
+                      ) : (
+                        <a href={publishedUrl} target="_blank" rel="noopener noreferrer">
+                          <Button variant="hero" size="sm" type="button">
+                            <Globe className="w-4 h-4" />
+                            View Live
+                            <ExternalLink className="w-3 h-3" />
+                          </Button>
+                        </a>
+                      )}
                       <Button variant="outline" size="sm" onClick={handleShare} disabled={isSharing}>
                         {copied ? <Check className="w-4 h-4" /> : <Share2 className="w-4 h-4" />}
                         {copied ? "Copied!" : "Share"}
