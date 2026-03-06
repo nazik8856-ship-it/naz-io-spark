@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useState, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { LogOut, Sparkles, Send, Loader2, Download, RefreshCw, Share2, Check, Copy } from "lucide-react";
+import { LogOut, Sparkles, Send, Loader2, Download, RefreshCw, Share2, Check, Copy, Globe, ExternalLink } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import EditChat from "@/components/EditChat";
 import Logo from "@/components/Logo";
@@ -19,6 +19,8 @@ const Dashboard = () => {
   const [isSharing, setIsSharing] = useState(false);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const { toast } = useToast();
 
@@ -48,6 +50,30 @@ const Dashboard = () => {
       setIsSharing(false);
     }
   }, [generatedHTML, isSharing, toast]);
+
+  const handlePublish = useCallback(async () => {
+    if (!generatedHTML || isPublishing) return;
+    setIsPublishing(true);
+
+    try {
+      const { data, error } = await supabase
+        .from("shared_websites")
+        .insert({ html: generatedHTML })
+        .select("id")
+        .single();
+
+      if (error) throw error;
+
+      const url = `${window.location.origin}/share/${data.id}`;
+      setPublishedUrl(url);
+      toast({ title: "Website published!", description: "Your website is now live." });
+    } catch (e: any) {
+      console.error(e);
+      toast({ title: "Publish failed", description: e.message, variant: "destructive" });
+    } finally {
+      setIsPublishing(false);
+    }
+  }, [generatedHTML, isPublishing, toast]);
 
   const handleGenerate = useCallback(async () => {
     if (!prompt.trim() || isGenerating) return;
@@ -301,6 +327,20 @@ const Dashboard = () => {
                 <div className="flex items-center gap-2">
                   {generatedHTML && (
                     <>
+                      {!publishedUrl ? (
+                        <Button variant="hero" size="sm" onClick={handlePublish} disabled={isPublishing}>
+                          {isPublishing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Globe className="w-4 h-4" />}
+                          {isPublishing ? "Publishing..." : "Publish"}
+                        </Button>
+                      ) : (
+                        <a href={publishedUrl} target="_blank" rel="noopener noreferrer">
+                          <Button variant="hero" size="sm" type="button">
+                            <Globe className="w-4 h-4" />
+                            View Live
+                            <ExternalLink className="w-3 h-3" />
+                          </Button>
+                        </a>
+                      )}
                       <Button variant="outline" size="sm" onClick={handleShare} disabled={isSharing}>
                         {copied ? <Check className="w-4 h-4" /> : <Share2 className="w-4 h-4" />}
                         {copied ? "Copied!" : "Share"}
@@ -320,6 +360,7 @@ const Dashboard = () => {
                       setPrompt("");
                       setShareUrl(null);
                       setCopied(false);
+                      setPublishedUrl(null);
                     }}
                   >
                     <RefreshCw className="w-4 h-4" />
