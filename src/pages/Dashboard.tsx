@@ -250,7 +250,7 @@ const Dashboard = () => {
               </div>
 
               <h1 className="text-3xl md:text-4xl font-bold text-center mb-3">
-                Describe your <span className="text-gradient">dream website</span>
+                Describe your <span className="text-gradient">website</span>
               </h1>
               <p className="text-muted-foreground text-center mb-8 max-w-lg">
                 Enter a prompt describing the website you want and we'll generate a fully designed, ready-to-use page instantly.
