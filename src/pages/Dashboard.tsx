@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useState, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { LogOut, Sparkles, Send, Loader2, Download, RefreshCw, Share2, Check, Copy, Globe, ExternalLink } from "lucide-react";
+import { LogOut, Sparkles, Send, Loader2, Download, RefreshCw, Share2, Check, Copy, Globe, ExternalLink, Pencil } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import EditChat from "@/components/EditChat";
 import Logo from "@/components/Logo";
@@ -21,6 +21,7 @@ const Dashboard = () => {
   const [copied, setCopied] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
+  const [showEditChat, setShowEditChat] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const { toast } = useToast();
 
@@ -349,6 +350,14 @@ const Dashboard = () => {
                         <Download className="w-4 h-4" />
                         Download
                       </Button>
+                      <Button
+                        variant={showEditChat ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setShowEditChat((v) => !v)}
+                      >
+                        <Pencil className="w-4 h-4" />
+                        Edit
+                      </Button>
                     </>
                   )}
                   <Button
@@ -361,6 +370,7 @@ const Dashboard = () => {
                       setShareUrl(null);
                       setCopied(false);
                       setPublishedUrl(null);
+                      setShowEditChat(false);
                     }}
                   >
                     <RefreshCw className="w-4 h-4" />
@@ -381,7 +391,7 @@ const Dashboard = () => {
               </div>
 
               {/* Edit chat - only show after generation is complete */}
-              {generatedHTML && !isGenerating && (
+              {generatedHTML && !isGenerating && showEditChat && (
                 <EditChat onSendEdit={handleEdit} isGenerating={isEditing} />
               )}
             </div>
