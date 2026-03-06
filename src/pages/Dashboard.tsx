@@ -346,6 +346,7 @@ const Dashboard = () => {
                       setPrompt("");
                       setShareUrl(null);
                       setCopied(false);
+                      setPublishedUrl(null);
                     }}
                   >
                     <RefreshCw className="w-4 h-4" />
