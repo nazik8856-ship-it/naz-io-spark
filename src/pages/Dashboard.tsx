@@ -51,6 +51,30 @@ const Dashboard = () => {
     }
   }, [generatedHTML, isSharing, toast]);
 
+  const handlePublish = useCallback(async () => {
+    if (!generatedHTML || isPublishing) return;
+    setIsPublishing(true);
+
+    try {
+      const { data, error } = await supabase
+        .from("shared_websites")
+        .insert({ html: generatedHTML })
+        .select("id")
+        .single();
+
+      if (error) throw error;
+
+      const url = `${window.location.origin}/share/${data.id}`;
+      setPublishedUrl(url);
+      toast({ title: "Website published!", description: "Your website is now live." });
+    } catch (e: any) {
+      console.error(e);
+      toast({ title: "Publish failed", description: e.message, variant: "destructive" });
+    } finally {
+      setIsPublishing(false);
+    }
+  }, [generatedHTML, isPublishing, toast]);
+
   const handleGenerate = useCallback(async () => {
     if (!prompt.trim() || isGenerating) return;
 
