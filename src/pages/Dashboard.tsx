@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useState, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { LogOut, Sparkles, Send, Loader2, Download, RefreshCw, Share2, Check, Copy } from "lucide-react";
+import { LogOut, Sparkles, Send, Loader2, Download, RefreshCw, Share2, Check, Copy, Globe, ExternalLink } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import EditChat from "@/components/EditChat";
 import Logo from "@/components/Logo";
