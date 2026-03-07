@@ -14,6 +14,24 @@ export type Database = {
   }
   public: {
     Tables: {
+      profiles: {
+        Row: {
+          created_at: string
+          credits: number
+          id: string
+        }
+        Insert: {
+          created_at?: string
+          credits?: number
+          id: string
+        }
+        Update: {
+          created_at?: string
+          credits?: number
+          id?: string
+        }
+        Relationships: []
+      }
       shared_websites: {
         Row: {
           created_at: string
@@ -40,7 +58,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      deduct_credit: { Args: { user_id: string }; Returns: boolean }
     }
     Enums: {
       [_ in never]: never
