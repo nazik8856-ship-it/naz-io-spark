@@ -16,17 +16,23 @@ const Signup = () => {
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [socialLoading, setSocialLoading] = useState<string | null>(null);
-  const [signupComplete, setSignupComplete] = useState(false);
+  const [step, setStep] = useState<"form" | "survey1" | "survey2" | "welcome">("form");
   const [formData, setFormData] = useState({ name: "", email: "", password: "" });
+  const [survey1, setSurvey1] = useState<string | null>(null);
+  const [survey1Other, setSurvey1Other] = useState("");
+  const [survey2, setSurvey2] = useState<string | null>(null);
+  const [survey2Other, setSurvey2Other] = useState("");
 
-  // If user is already logged in (e.g. after OAuth redirect), show credits then go to dashboard
   useEffect(() => {
-    if (user) {
-      setSignupComplete(true);
-      const timer = setTimeout(() => navigate("/dashboard"), 3000);
-      return () => clearTimeout(timer);
+    if (user && step === "form") {
+      setStep("survey1");
     }
-  }, [user, navigate]);
+  }, [user]);
+
+  const handleSurveyComplete = () => {
+    setStep("welcome");
+    setTimeout(() => navigate("/dashboard"), 3000);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
