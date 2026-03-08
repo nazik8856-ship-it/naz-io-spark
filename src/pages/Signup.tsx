@@ -64,8 +64,128 @@ const Signup = () => {
     }
   };
 
-  // Show welcome screen with credits after signup
-  if (signupComplete) {
+  // Survey 1: How did you hear about us?
+  if (step === "survey1") {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center relative overflow-hidden">
+        <div className="absolute inset-0 overflow-hidden">
+          <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-primary/20 rounded-full blur-3xl animate-float opacity-60" />
+          <div className="absolute bottom-1/4 left-1/4 w-80 h-80 bg-glow-secondary/20 rounded-full blur-3xl animate-float-delayed opacity-40" />
+        </div>
+        <div className="relative z-10 p-8 rounded-3xl glass border-glow max-w-md w-full mx-6">
+          <div className="mb-6"><Logo size="lg" linkTo="/" /></div>
+          <h2 className="text-2xl font-bold mb-2">How did you hear about us?</h2>
+          <p className="text-muted-foreground mb-6 text-sm">We'd love to know where you found us.</p>
+          <div className="space-y-3">
+            {["Youtube", "Tiktok", "Instagram"].map((option) => (
+              <button
+                key={option}
+                onClick={() => { setSurvey1(option); setSurvey1Other(""); }}
+                className={`w-full text-left px-4 py-3 rounded-xl border transition-all ${
+                  survey1 === option
+                    ? "border-primary bg-primary/10 text-foreground"
+                    : "border-border bg-secondary/30 text-muted-foreground hover:bg-secondary/60"
+                }`}
+              >
+                {option}
+              </button>
+            ))}
+            <button
+              onClick={() => setSurvey1("other")}
+              className={`w-full text-left px-4 py-3 rounded-xl border transition-all ${
+                survey1 === "other"
+                  ? "border-primary bg-primary/10 text-foreground"
+                  : "border-border bg-secondary/30 text-muted-foreground hover:bg-secondary/60"
+              }`}
+            >
+              Other
+            </button>
+            {survey1 === "other" && (
+              <Input
+                placeholder="Tell us more..."
+                value={survey1Other}
+                onChange={(e) => setSurvey1Other(e.target.value)}
+                className="bg-secondary/50 border-border mt-2"
+                autoFocus
+              />
+            )}
+          </div>
+          <Button
+            variant="hero"
+            size="lg"
+            className="w-full mt-6"
+            disabled={!survey1 || (survey1 === "other" && !survey1Other.trim())}
+            onClick={() => setStep("survey2")}
+          >
+            Next
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // Survey 2: Why are you using NazAI?
+  if (step === "survey2") {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center relative overflow-hidden">
+        <div className="absolute inset-0 overflow-hidden">
+          <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-primary/20 rounded-full blur-3xl animate-float opacity-60" />
+          <div className="absolute bottom-1/4 left-1/4 w-80 h-80 bg-glow-secondary/20 rounded-full blur-3xl animate-float-delayed opacity-40" />
+        </div>
+        <div className="relative z-10 p-8 rounded-3xl glass border-glow max-w-md w-full mx-6">
+          <div className="mb-6"><Logo size="lg" linkTo="/" /></div>
+          <h2 className="text-2xl font-bold mb-2">Why are you using NazAI?</h2>
+          <p className="text-muted-foreground mb-6 text-sm">Help us understand your goals.</p>
+          <div className="space-y-3">
+            {["For business", "Testing out", "For personal usage"].map((option) => (
+              <button
+                key={option}
+                onClick={() => { setSurvey2(option); setSurvey2Other(""); }}
+                className={`w-full text-left px-4 py-3 rounded-xl border transition-all ${
+                  survey2 === option
+                    ? "border-primary bg-primary/10 text-foreground"
+                    : "border-border bg-secondary/30 text-muted-foreground hover:bg-secondary/60"
+                }`}
+              >
+                {option}
+              </button>
+            ))}
+            <button
+              onClick={() => setSurvey2("other")}
+              className={`w-full text-left px-4 py-3 rounded-xl border transition-all ${
+                survey2 === "other"
+                  ? "border-primary bg-primary/10 text-foreground"
+                  : "border-border bg-secondary/30 text-muted-foreground hover:bg-secondary/60"
+              }`}
+            >
+              Other
+            </button>
+            {survey2 === "other" && (
+              <Input
+                placeholder="Tell us more..."
+                value={survey2Other}
+                onChange={(e) => setSurvey2Other(e.target.value)}
+                className="bg-secondary/50 border-border mt-2"
+                autoFocus
+              />
+            )}
+          </div>
+          <Button
+            variant="hero"
+            size="lg"
+            className="w-full mt-6"
+            disabled={!survey2 || (survey2 === "other" && !survey2Other.trim())}
+            onClick={handleSurveyComplete}
+          >
+            Continue
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // Welcome screen with credits
+  if (step === "welcome") {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center relative overflow-hidden">
         <div className="absolute inset-0 overflow-hidden">
