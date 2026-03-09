@@ -35,43 +35,42 @@ const Navbar = () => {
               xmlns="http://www.w3.org/2000/svg"
             >
               <g className="blossom-container">
-                {/* Authentic sakura - 5 wide, soft, overlapping round petals with heart-shaped notch at tip */}
-                {/* Each petal radiates from center (20,20), wide and rounded like real sakura */}
+                {/* Authentic sakura - 5 very wide, pillowy round petals with gentle notch */}
                 
-                {/* Petal 1 - top (12 o'clock) */}
+                {/* Petal 1 - top */}
                 <path
-                  d="M20 20 C16.5 17, 15 12, 16 8 C17 6, 19 5.5, 19.5 7 C19.8 5, 20.2 5, 20.5 7 C21 5.5, 23 6, 24 8 C25 12, 23.5 17, 20 20 Z"
-                  stroke="currentColor" strokeWidth="0.9" strokeLinejoin="round" fill="none"
+                  d="M20 20 C14 17, 12 11, 14 6 C15.5 3.5, 18.5 3, 19.5 5.5 C19.8 3, 20.2 3, 20.5 5.5 C21.5 3, 24.5 3.5, 26 6 C28 11, 26 17, 20 20 Z"
+                  stroke="currentColor" strokeWidth="0.8" strokeLinejoin="round" fill="none"
                   className="blossom-draw blossom-petal blossom-petal-1"
-                  style={{ strokeDasharray: 60, strokeDashoffset: 60 }}
+                  style={{ strokeDasharray: 75, strokeDashoffset: 75 }}
                 />
-                {/* Petal 2 - top-right (roughly 72°) */}
+                {/* Petal 2 - top-right */}
                 <path
-                  d="M20 20 C22 16.5, 26 14, 30 13.5 C32 13.5, 33 15, 31.5 16 C33.5 15.5, 33.5 16, 31.5 17 C33 18, 32 20, 30 20.5 C26 21, 22.5 19.5, 20 20 Z"
-                  stroke="currentColor" strokeWidth="0.9" strokeLinejoin="round" fill="none"
+                  d="M20 20 C23 15, 28 12, 33 11 C36 10.5, 37.5 13, 35.5 14.5 C38 13.5, 38 15, 35.5 16.5 C37.5 18, 36 20.5, 33 20.5 C28 20.5, 23.5 19, 20 20 Z"
+                  stroke="currentColor" strokeWidth="0.8" strokeLinejoin="round" fill="none"
                   className="blossom-draw blossom-petal blossom-petal-2"
-                  style={{ strokeDasharray: 60, strokeDashoffset: 60 }}
+                  style={{ strokeDasharray: 75, strokeDashoffset: 75 }}
                 />
-                {/* Petal 3 - bottom-right (roughly 144°) */}
+                {/* Petal 3 - bottom-right */}
                 <path
-                  d="M20 20 C22.5 21.5, 25 25, 25.5 29 C25.5 31, 24 32, 23 30.5 C24 32.5, 23.5 32.5, 22.5 30.5 C22.5 32, 20.5 31, 20 29 C19 25.5, 19.5 22, 20 20 Z"
-                  stroke="currentColor" strokeWidth="0.9" strokeLinejoin="round" fill="none"
+                  d="M20 20 C23.5 22, 27 27, 27.5 32 C27.5 35, 25 36.5, 23.5 34.5 C25 37, 24 37, 22.5 34.5 C22 36.5, 19.5 35, 19 32 C18 27, 19 22.5, 20 20 Z"
+                  stroke="currentColor" strokeWidth="0.8" strokeLinejoin="round" fill="none"
                   className="blossom-draw blossom-petal blossom-petal-3"
-                  style={{ strokeDasharray: 60, strokeDashoffset: 60 }}
+                  style={{ strokeDasharray: 75, strokeDashoffset: 75 }}
                 />
-                {/* Petal 4 - bottom-left (roughly 216°) */}
+                {/* Petal 4 - bottom-left */}
                 <path
-                  d="M20 20 C17.5 21.5, 15 25, 14.5 29 C14.5 31, 16 32, 17 30.5 C16 32.5, 16.5 32.5, 17.5 30.5 C17.5 32, 19.5 31, 20 29 C21 25.5, 20.5 22, 20 20 Z"
-                  stroke="currentColor" strokeWidth="0.9" strokeLinejoin="round" fill="none"
+                  d="M20 20 C16.5 22, 13 27, 12.5 32 C12.5 35, 15 36.5, 16.5 34.5 C15 37, 16 37, 17.5 34.5 C18 36.5, 20.5 35, 21 32 C22 27, 21 22.5, 20 20 Z"
+                  stroke="currentColor" strokeWidth="0.8" strokeLinejoin="round" fill="none"
                   className="blossom-draw blossom-petal blossom-petal-4"
-                  style={{ strokeDasharray: 60, strokeDashoffset: 60 }}
+                  style={{ strokeDasharray: 75, strokeDashoffset: 75 }}
                 />
-                {/* Petal 5 - top-left (roughly 288°) */}
+                {/* Petal 5 - top-left */}
                 <path
-                  d="M20 20 C18 16.5, 14 14, 10 13.5 C8 13.5, 7 15, 8.5 16 C6.5 15.5, 6.5 16, 8.5 17 C7 18, 8 20, 10 20.5 C14 21, 17.5 19.5, 20 20 Z"
-                  stroke="currentColor" strokeWidth="0.9" strokeLinejoin="round" fill="none"
+                  d="M20 20 C17 15, 12 12, 7 11 C4 10.5, 2.5 13, 4.5 14.5 C2 13.5, 2 15, 4.5 16.5 C2.5 18, 4 20.5, 7 20.5 C12 20.5, 16.5 19, 20 20 Z"
+                  stroke="currentColor" strokeWidth="0.8" strokeLinejoin="round" fill="none"
                   className="blossom-draw blossom-petal blossom-petal-5"
-                  style={{ strokeDasharray: 60, strokeDashoffset: 60 }}
+                  style={{ strokeDasharray: 75, strokeDashoffset: 75 }}
                 />
 
                 {/* Center pistil circle */}
