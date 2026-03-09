@@ -140,17 +140,19 @@
   100% { opacity: 0.8; transform: scale(1); }
 }
 
-/* Phase 2: Spin (1.8s - 3.8s) */
+/* Phase 2: Slow elegant spin (2s - 6s) */
 .blossom-container {
-  transform-origin: 20px 16px;
-  animation: blossom-spin 2s cubic-bezier(0.4, 0, 0.2, 1) 1.8s forwards;
+  transform-origin: 20px 20px;
+  animation: blossom-spin 4s cubic-bezier(0.25, 0.1, 0.25, 1) 1.8s forwards;
 }
 
 @keyframes blossom-spin {
-  0% { transform: rotate(0deg); }
-  60% { transform: rotate(720deg); }
-  80% { transform: rotate(700deg); }
-  100% { transform: rotate(720deg); }
+  0% { transform: rotate(0deg) scale(1); }
+  20% { transform: rotate(180deg) scale(1.05); }
+  50% { transform: rotate(540deg) scale(1.08); }
+  75% { transform: rotate(680deg) scale(1.03); }
+  90% { transform: rotate(710deg) scale(1); }
+  100% { transform: rotate(720deg) scale(1); }
 }
 
 /* Phase 3: Collapse into petals (4s+) */
