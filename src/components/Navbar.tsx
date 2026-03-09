@@ -29,73 +29,90 @@ const Navbar = () => {
           <div className="flex items-center gap-2">
             <Logo linkTo="/" />
             <svg
-              className="w-6 h-6 overflow-visible"
+              className="w-7 h-7 overflow-visible"
               viewBox="0 0 40 40"
               fill="none"
               xmlns="http://www.w3.org/2000/svg"
             >
-              {/* Left half of coconut */}
-              <g className="coconut-top-half">
+              {/* Cherry blossom flower - spins then collapses */}
+              <g className="blossom-container">
+                {/* Petal 1 - top */}
                 <path
-                  d="M6 18 Q6 10 16 10 Q26 10 26 18 Z"
+                  d="M20 8 Q17 12 20 16 Q23 12 20 8 Z"
                   stroke="currentColor"
-                  strokeWidth="1.5"
+                  strokeWidth="1.2"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   fill="none"
-                  className="coconut-draw"
-                  style={{ strokeDasharray: 60, strokeDashoffset: 60 }}
+                  className="blossom-draw blossom-petal blossom-petal-1"
+                  style={{ strokeDasharray: 40, strokeDashoffset: 40 }}
                 />
-              </g>
-              {/* Right half of coconut */}
-              <g className="coconut-bottom-half">
+                {/* Petal 2 - top-right */}
                 <path
-                  d="M6 18 Q6 27 16 28 Q26 27 26 18 Z"
+                  d="M27 12 Q23 12 21 16 Q25 15 27 12 Z"
                   stroke="currentColor"
-                  strokeWidth="1.5"
+                  strokeWidth="1.2"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   fill="none"
-                  className="coconut-draw"
-                  style={{ strokeDasharray: 60, strokeDashoffset: 60 }}
+                  className="blossom-draw blossom-petal blossom-petal-2"
+                  style={{ strokeDasharray: 40, strokeDashoffset: 40 }}
                 />
+                {/* Petal 3 - bottom-right */}
+                <path
+                  d="M26 23 Q24 19 20 18 Q22 22 26 23 Z"
+                  stroke="currentColor"
+                  strokeWidth="1.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  fill="none"
+                  className="blossom-draw blossom-petal blossom-petal-3"
+                  style={{ strokeDasharray: 40, strokeDashoffset: 40 }}
+                />
+                {/* Petal 4 - bottom-left */}
+                <path
+                  d="M14 23 Q16 19 20 18 Q18 22 14 23 Z"
+                  stroke="currentColor"
+                  strokeWidth="1.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  fill="none"
+                  className="blossom-draw blossom-petal blossom-petal-4"
+                  style={{ strokeDasharray: 40, strokeDashoffset: 40 }}
+                />
+                {/* Petal 5 - top-left */}
+                <path
+                  d="M13 12 Q17 12 19 16 Q15 15 13 12 Z"
+                  stroke="currentColor"
+                  strokeWidth="1.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  fill="none"
+                  className="blossom-draw blossom-petal blossom-petal-5"
+                  style={{ strokeDasharray: 40, strokeDashoffset: 40 }}
+                />
+                {/* Center stamen */}
+                <circle
+                  cx="20"
+                  cy="16"
+                  r="2"
+                  stroke="currentColor"
+                  strokeWidth="1"
+                  fill="none"
+                  className="blossom-draw-center blossom-center"
+                  style={{ strokeDasharray: 14, strokeDashoffset: 14 }}
+                />
+                {/* Stamen dots */}
+                <circle cx="20" cy="14" r="0.6" fill="currentColor" className="blossom-stamen blossom-stamen-1" opacity="0" />
+                <circle cx="21.5" cy="15.5" r="0.5" fill="currentColor" className="blossom-stamen blossom-stamen-2" opacity="0" />
+                <circle cx="18.5" cy="15.5" r="0.5" fill="currentColor" className="blossom-stamen blossom-stamen-3" opacity="0" />
               </g>
-              {/* Shell texture */}
-              <path
-                d="M9 17 Q12 14 16 16 Q20 18 23 15"
-                stroke="currentColor"
-                strokeWidth="1"
-                strokeLinecap="round"
-                fill="none"
-                opacity="0.4"
-                className="coconut-draw-delayed coconut-texture"
-              />
-              {/* Stem */}
-              <path
-                d="M14 10 Q16 7 18 10"
-                stroke="currentColor"
-                strokeWidth="1.3"
-                strokeLinecap="round"
-                fill="none"
-                className="coconut-draw-delayed2 coconut-stem"
-              />
-              {/* Leaf */}
-              <path
-                d="M16 7 Q20 3 22 6"
-                stroke="currentColor"
-                strokeWidth="1.1"
-                strokeLinecap="round"
-                fill="none"
-                className="coconut-draw-delayed2 coconut-stem"
-              />
-              {/* Water drops */}
-              <line x1="14" y1="28" x2="13" y2="34" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" className="coconut-water-1" opacity="0" />
-              <line x1="16" y1="28" x2="16" y2="36" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" className="coconut-water-2" opacity="0" />
-              <line x1="18" y1="28" x2="19" y2="34" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" className="coconut-water-3" opacity="0" />
-              {/* Splash drops */}
-              <circle cx="12" cy="35" r="0.8" fill="currentColor" className="coconut-splash-1" opacity="0" />
-              <circle cx="16" cy="37" r="0.6" fill="currentColor" className="coconut-splash-2" opacity="0" />
-              <circle cx="20" cy="35" r="0.7" fill="currentColor" className="coconut-splash-3" opacity="0" />
+              {/* Falling petals (appear during collapse) */}
+              <path d="M16 26 Q15 28 16 30" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round" fill="none" className="falling-petal falling-petal-1" opacity="0" />
+              <path d="M22 27 Q23 29 22 31" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round" fill="none" className="falling-petal falling-petal-2" opacity="0" />
+              <path d="M19 28 Q18 31 19 33" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round" fill="none" className="falling-petal falling-petal-3" opacity="0" />
+              <circle cx="14" cy="32" r="0.5" fill="currentColor" className="falling-petal falling-petal-4" opacity="0" />
+              <circle cx="24" cy="33" r="0.4" fill="currentColor" className="falling-petal falling-petal-5" opacity="0" />
             </svg>
           </div>
 
