@@ -35,80 +35,92 @@ const Navbar = () => {
               xmlns="http://www.w3.org/2000/svg"
             >
               <g className="blossom-container">
-                {/* Sakura - extremely wide, round, overlapping petals with tiny notch at tip */}
+                {/* 7 extremely wide, soft, overlapping sakura petals */}
                 
-                {/* Petal 1 - top: wide oval bulging outward */}
+                {/* Petal 1 - top */}
                 <path
-                  d="M20 20 C12 18, 8 12, 10 6 C11 3, 14 2, 16 3 C18 1, 19.5 1, 19.8 3.5 C20.2 3.5, 20.5 1, 22 1 C24 2, 29 3, 30 6 C32 12, 28 18, 20 20 Z"
-                  stroke="currentColor" strokeWidth="0.7" strokeLinejoin="round" fill="none"
+                  d="M20 20 C10 16, 6 8, 10 2 C12 -1, 16 -2, 18 1 C19 -1, 19.8 -1.5, 20 1 C20.2 -1.5, 21 -1, 22 1 C24 -2, 28 -1, 30 2 C34 8, 30 16, 20 20 Z"
+                  stroke="currentColor" strokeWidth="0.6" strokeLinejoin="round" fill="none"
                   className="blossom-draw blossom-petal blossom-petal-1"
-                  style={{ strokeDasharray: 90, strokeDashoffset: 90 }}
+                  style={{ strokeDasharray: 100, strokeDashoffset: 100 }}
                 />
-                {/* Petal 2 - right: wide oval */}
+                {/* Petal 2 - upper-right */}
                 <path
-                  d="M20 20 C22 12, 28 7, 34 6 C37 5.5, 39 8, 38 10 C40 8.5, 40 11, 38 13 C39 16, 37 19, 34 20 C28 22, 22 22, 20 20 Z"
-                  stroke="currentColor" strokeWidth="0.7" strokeLinejoin="round" fill="none"
+                  d="M20 20 C24 10, 32 4, 38 4 C42 4, 43 8, 41 10 C44 9, 44 12, 41 14 C43 17, 41 21, 37 22 C30 24, 24 23, 20 20 Z"
+                  stroke="currentColor" strokeWidth="0.6" strokeLinejoin="round" fill="none"
                   className="blossom-draw blossom-petal blossom-petal-2"
-                  style={{ strokeDasharray: 90, strokeDashoffset: 90 }}
+                  style={{ strokeDasharray: 100, strokeDashoffset: 100 }}
                 />
-                {/* Petal 3 - bottom-right */}
+                {/* Petal 3 - lower-right */}
                 <path
-                  d="M20 20 C26 23, 30 29, 29 35 C28.5 38, 26 39, 24.5 37.5 C26 40, 24 40, 23 37.5 C21 39, 18 37, 18 34 C17 28, 18 23, 20 20 Z"
-                  stroke="currentColor" strokeWidth="0.7" strokeLinejoin="round" fill="none"
+                  d="M20 20 C27 24, 33 31, 32 38 C31 42, 27 43, 26 41 C28 44, 26 44, 25 41 C24 43, 20 42, 19 38 C17 31, 18 24, 20 20 Z"
+                  stroke="currentColor" strokeWidth="0.6" strokeLinejoin="round" fill="none"
                   className="blossom-draw blossom-petal blossom-petal-3"
-                  style={{ strokeDasharray: 90, strokeDashoffset: 90 }}
+                  style={{ strokeDasharray: 100, strokeDashoffset: 100 }}
                 />
-                {/* Petal 4 - bottom-left */}
+                {/* Petal 4 - lower-left */}
                 <path
-                  d="M20 20 C14 23, 10 29, 11 35 C11.5 38, 14 39, 15.5 37.5 C14 40, 16 40, 17 37.5 C19 39, 22 37, 22 34 C23 28, 22 23, 20 20 Z"
-                  stroke="currentColor" strokeWidth="0.7" strokeLinejoin="round" fill="none"
+                  d="M20 20 C13 24, 7 31, 8 38 C9 42, 13 43, 14 41 C12 44, 14 44, 15 41 C16 43, 20 42, 21 38 C23 31, 22 24, 20 20 Z"
+                  stroke="currentColor" strokeWidth="0.6" strokeLinejoin="round" fill="none"
                   className="blossom-draw blossom-petal blossom-petal-4"
-                  style={{ strokeDasharray: 90, strokeDashoffset: 90 }}
+                  style={{ strokeDasharray: 100, strokeDashoffset: 100 }}
                 />
-                {/* Petal 5 - left: wide oval */}
+                {/* Petal 5 - upper-left */}
                 <path
-                  d="M20 20 C18 12, 12 7, 6 6 C3 5.5, 1 8, 2 10 C0 8.5, 0 11, 2 13 C1 16, 3 19, 6 20 C12 22, 18 22, 20 20 Z"
-                  stroke="currentColor" strokeWidth="0.7" strokeLinejoin="round" fill="none"
+                  d="M20 20 C16 10, 8 4, 2 4 C-2 4, -3 8, -1 10 C-4 9, -4 12, -1 14 C-3 17, -1 21, 3 22 C10 24, 16 23, 20 20 Z"
+                  stroke="currentColor" strokeWidth="0.6" strokeLinejoin="round" fill="none"
                   className="blossom-draw blossom-petal blossom-petal-5"
-                  style={{ strokeDasharray: 90, strokeDashoffset: 90 }}
+                  style={{ strokeDasharray: 100, strokeDashoffset: 100 }}
+                />
+                {/* Petal 6 - extra bottom-left (between petal 4 and 5) */}
+                <path
+                  d="M20 20 C14 20, 4 24, 1 30 C-1 34, 1 38, 4 37 C1 39, 2 40, 5 38 C4 41, 8 40, 10 37 C14 31, 17 24, 20 20 Z"
+                  stroke="currentColor" strokeWidth="0.6" strokeLinejoin="round" fill="none"
+                  className="blossom-draw blossom-petal blossom-petal-6"
+                  style={{ strokeDasharray: 100, strokeDashoffset: 100 }}
+                />
+                {/* Petal 7 - extra bottom-right (between petal 2 and 3) */}
+                <path
+                  d="M20 20 C26 20, 36 24, 39 30 C41 34, 39 38, 36 37 C39 39, 38 40, 35 38 C36 41, 32 40, 30 37 C26 31, 23 24, 20 20 Z"
+                  stroke="currentColor" strokeWidth="0.6" strokeLinejoin="round" fill="none"
+                  className="blossom-draw blossom-petal blossom-petal-7"
+                  style={{ strokeDasharray: 100, strokeDashoffset: 100 }}
                 />
 
                 {/* Center pistil circle */}
-                <circle cx="20" cy="20" r="3" stroke="currentColor" strokeWidth="0.8" fill="none"
+                <circle cx="20" cy="20" r="3.5" stroke="currentColor" strokeWidth="0.7" fill="none"
                   className="blossom-draw-center blossom-center"
-                  style={{ strokeDasharray: 19, strokeDashoffset: 19 }}
+                  style={{ strokeDasharray: 22, strokeDashoffset: 22 }}
                 />
 
-                {/* Delicate stamens radiating outward */}
-                <line x1="20" y1="17" x2="20" y2="14.5" stroke="currentColor" strokeWidth="0.5" strokeLinecap="round" className="blossom-stamen blossom-stamen-1" opacity="0" />
-                <line x1="22.8" y1="18.5" x2="24.8" y2="17" stroke="currentColor" strokeWidth="0.5" strokeLinecap="round" className="blossom-stamen blossom-stamen-2" opacity="0" />
-                <line x1="22" y1="21.5" x2="23.5" y2="23.5" stroke="currentColor" strokeWidth="0.5" strokeLinecap="round" className="blossom-stamen blossom-stamen-3" opacity="0" />
-                <line x1="18" y1="21.5" x2="16.5" y2="23.5" stroke="currentColor" strokeWidth="0.5" strokeLinecap="round" className="blossom-stamen blossom-stamen-2" opacity="0" />
-                <line x1="17.2" y1="18.5" x2="15.2" y2="17" stroke="currentColor" strokeWidth="0.5" strokeLinecap="round" className="blossom-stamen blossom-stamen-3" opacity="0" />
-                {/* Extra stamens for fullness */}
-                <line x1="21.5" y1="17.5" x2="22.5" y2="15.5" stroke="currentColor" strokeWidth="0.4" strokeLinecap="round" className="blossom-stamen blossom-stamen-1" opacity="0" />
-                <line x1="18.5" y1="17.5" x2="17.5" y2="15.5" stroke="currentColor" strokeWidth="0.4" strokeLinecap="round" className="blossom-stamen blossom-stamen-2" opacity="0" />
-                <line x1="23" y1="20" x2="25" y2="20" stroke="currentColor" strokeWidth="0.4" strokeLinecap="round" className="blossom-stamen blossom-stamen-3" opacity="0" />
-                <line x1="17" y1="20" x2="15" y2="20" stroke="currentColor" strokeWidth="0.4" strokeLinecap="round" className="blossom-stamen blossom-stamen-1" opacity="0" />
-
-                {/* Stamen tip dots (pollen) */}
-                <circle cx="20" cy="14" r="0.6" fill="currentColor" className="blossom-stamen blossom-stamen-1" opacity="0" />
-                <circle cx="25.2" cy="16.5" r="0.5" fill="currentColor" className="blossom-stamen blossom-stamen-2" opacity="0" />
-                <circle cx="24" cy="24" r="0.5" fill="currentColor" className="blossom-stamen blossom-stamen-3" opacity="0" />
-                <circle cx="16" cy="24" r="0.5" fill="currentColor" className="blossom-stamen blossom-stamen-2" opacity="0" />
-                <circle cx="14.8" cy="16.5" r="0.5" fill="currentColor" className="blossom-stamen blossom-stamen-3" opacity="0" />
-                <circle cx="22.8" cy="15" r="0.45" fill="currentColor" className="blossom-stamen blossom-stamen-1" opacity="0" />
-                <circle cx="17.2" cy="15" r="0.45" fill="currentColor" className="blossom-stamen blossom-stamen-2" opacity="0" />
-                <circle cx="25.5" cy="20" r="0.45" fill="currentColor" className="blossom-stamen blossom-stamen-3" opacity="0" />
-                <circle cx="14.5" cy="20" r="0.45" fill="currentColor" className="blossom-stamen blossom-stamen-1" opacity="0" />
+                {/* Delicate stamens */}
+                <line x1="20" y1="16.5" x2="20" y2="13" stroke="currentColor" strokeWidth="0.45" strokeLinecap="round" className="blossom-stamen blossom-stamen-1" opacity="0" />
+                <line x1="23" y1="17.5" x2="26" y2="15.5" stroke="currentColor" strokeWidth="0.45" strokeLinecap="round" className="blossom-stamen blossom-stamen-2" opacity="0" />
+                <line x1="23.5" y1="20" x2="27" y2="20" stroke="currentColor" strokeWidth="0.45" strokeLinecap="round" className="blossom-stamen blossom-stamen-3" opacity="0" />
+                <line x1="23" y1="22.5" x2="26" y2="24.5" stroke="currentColor" strokeWidth="0.45" strokeLinecap="round" className="blossom-stamen blossom-stamen-1" opacity="0" />
+                <line x1="20" y1="23.5" x2="20" y2="27" stroke="currentColor" strokeWidth="0.45" strokeLinecap="round" className="blossom-stamen blossom-stamen-2" opacity="0" />
+                <line x1="17" y1="22.5" x2="14" y2="24.5" stroke="currentColor" strokeWidth="0.45" strokeLinecap="round" className="blossom-stamen blossom-stamen-3" opacity="0" />
+                <line x1="16.5" y1="20" x2="13" y2="20" stroke="currentColor" strokeWidth="0.45" strokeLinecap="round" className="blossom-stamen blossom-stamen-1" opacity="0" />
+                <line x1="17" y1="17.5" x2="14" y2="15.5" stroke="currentColor" strokeWidth="0.45" strokeLinecap="round" className="blossom-stamen blossom-stamen-2" opacity="0" />
+                {/* Pollen dots */}
+                <circle cx="20" cy="12.5" r="0.6" fill="currentColor" className="blossom-stamen blossom-stamen-1" opacity="0" />
+                <circle cx="26.5" cy="15" r="0.5" fill="currentColor" className="blossom-stamen blossom-stamen-2" opacity="0" />
+                <circle cx="27.5" cy="20" r="0.5" fill="currentColor" className="blossom-stamen blossom-stamen-3" opacity="0" />
+                <circle cx="26.5" cy="25" r="0.5" fill="currentColor" className="blossom-stamen blossom-stamen-1" opacity="0" />
+                <circle cx="20" cy="27.5" r="0.5" fill="currentColor" className="blossom-stamen blossom-stamen-2" opacity="0" />
+                <circle cx="13.5" cy="25" r="0.5" fill="currentColor" className="blossom-stamen blossom-stamen-3" opacity="0" />
+                <circle cx="12.5" cy="20" r="0.5" fill="currentColor" className="blossom-stamen blossom-stamen-1" opacity="0" />
+                <circle cx="13.5" cy="15" r="0.5" fill="currentColor" className="blossom-stamen blossom-stamen-2" opacity="0" />
               </g>
 
-              {/* Falling sakura petals after collapse - small curved petal shapes */}
-              <path d="M14 30 C13 31, 12.5 33, 13.5 34 C13 33, 14.5 32, 14 30 Z" stroke="currentColor" strokeWidth="0.6" fill="none" className="falling-petal falling-petal-1" opacity="0" />
-              <path d="M24 31 C25 32, 25.5 34, 24.5 35 C25 34, 23.5 33, 24 31 Z" stroke="currentColor" strokeWidth="0.6" fill="none" className="falling-petal falling-petal-2" opacity="0" />
-              <path d="M19 32 C18 33.5, 18 35.5, 19 36 C18.5 35, 19.5 34, 19 32 Z" stroke="currentColor" strokeWidth="0.6" fill="none" className="falling-petal falling-petal-3" opacity="0" />
-              <path d="M10 33 C9.5 34, 10 35.5, 11 35 C10 35, 10.5 34, 10 33 Z" stroke="currentColor" strokeWidth="0.5" fill="none" className="falling-petal falling-petal-4" opacity="0" />
-              <path d="M28 34 C28.5 35, 28 36.5, 27 36 C28 36, 27.5 35, 28 34 Z" stroke="currentColor" strokeWidth="0.5" fill="none" className="falling-petal falling-petal-5" opacity="0" />
+              {/* Falling sakura petals */}
+              <path d="M12 32 C11 34, 10 37, 11 38 C10.5 37, 12 35, 12 32 Z" stroke="currentColor" strokeWidth="0.5" fill="none" className="falling-petal falling-petal-1" opacity="0" />
+              <path d="M26 33 C27 35, 27 38, 26 39 C27 38, 25 36, 26 33 Z" stroke="currentColor" strokeWidth="0.5" fill="none" className="falling-petal falling-petal-2" opacity="0" />
+              <path d="M19 34 C18 36, 18 39, 19 40 C18.5 39, 19.5 37, 19 34 Z" stroke="currentColor" strokeWidth="0.5" fill="none" className="falling-petal falling-petal-3" opacity="0" />
+              <path d="M8 35 C7 37, 7.5 39, 8.5 39 C7.5 39, 8.5 37, 8 35 Z" stroke="currentColor" strokeWidth="0.4" fill="none" className="falling-petal falling-petal-4" opacity="0" />
+              <path d="M30 36 C31 38, 30 40, 29 40 C30 39, 29 38, 30 36 Z" stroke="currentColor" strokeWidth="0.4" fill="none" className="falling-petal falling-petal-5" opacity="0" />
+              <path d="M15 36 C14 38, 14.5 40, 15.5 40 C14.5 40, 15.5 38, 15 36 Z" stroke="currentColor" strokeWidth="0.4" fill="none" className="falling-petal falling-petal-6" opacity="0" />
+              <path d="M23 35 C24 37, 23.5 39, 22.5 39 C23.5 39, 22.5 37, 23 35 Z" stroke="currentColor" strokeWidth="0.4" fill="none" className="falling-petal falling-petal-7" opacity="0" />
             </svg>
           </div>
 
