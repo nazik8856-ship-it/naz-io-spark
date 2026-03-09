@@ -206,14 +206,15 @@
 .falling-petal {
   animation: petal-drift 1s ease-in forwards;
 }
-.falling-petal-1 { animation-delay: 4.2s; }
-.falling-petal-2 { animation-delay: 4.3s; }
-.falling-petal-3 { animation-delay: 4.4s; }
-.falling-petal-4 { animation-delay: 4.5s; }
-.falling-petal-5 { animation-delay: 4.6s; }
+.falling-petal-1 { animation-delay: 6.3s; }
+.falling-petal-2 { animation-delay: 6.5s; }
+.falling-petal-3 { animation-delay: 6.7s; }
+.falling-petal-4 { animation-delay: 6.8s; }
+.falling-petal-5 { animation-delay: 6.9s; }
 
 @keyframes petal-drift {
   0% { opacity: 0; transform: translateY(0) rotate(0deg); }
-  30% { opacity: 0.7; }
-  100% { opacity: 0; transform: translateY(10px) rotate(45deg); }
+  20% { opacity: 0.7; }
+  50% { opacity: 0.5; transform: translateY(5px) rotate(20deg); }
+  100% { opacity: 0; transform: translateY(14px) rotate(60deg); }
 }
