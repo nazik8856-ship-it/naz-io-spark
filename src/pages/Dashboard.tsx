@@ -9,6 +9,8 @@ import Logo from "@/components/Logo";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useCredits } from "@/hooks/useCredits";
+import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { DashboardSidebar } from "@/components/DashboardSidebar";
 
 const GENERATE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-website`;
 
@@ -223,129 +225,138 @@ const Dashboard = () => {
   }
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      <header className="fixed top-0 left-0 right-0 z-50 glass">
-        <div className="container mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <Logo size="md" linkTo="/" />
-            <div className="flex items-center gap-4">
-              {credits !== null && (
-                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full glass border border-border">
-                  <Coins className="w-4 h-4 text-primary" />
-                  <span className="text-sm font-semibold">{credits}</span>
-                  <span className="text-xs text-muted-foreground">credits</span>
-                </div>
-              )}
-              <Button variant="ghost" size="sm" onClick={handleLogout}>
-                <LogOut className="w-4 h-4" />
-                Log out
-              </Button>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      <main className="pt-24 pb-6 flex-1 flex flex-col">
-        <div className="container mx-auto px-6 flex-1 flex flex-col">
-          {!displayHTML && !isGenerating ? (
-            <div className="flex-1 flex flex-col items-center justify-center max-w-2xl mx-auto w-full">
-              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass border-glow mb-6">
-                <Sparkles className="w-4 h-4 text-primary" />
-                <span className="text-sm text-muted-foreground">AI Website Generator</span>
-              </div>
-
-              <h1 className="text-3xl md:text-4xl font-bold text-center mb-3">
-                Describe your <span className="text-gradient">website</span>
-              </h1>
-              <p className="text-muted-foreground text-center mb-8 max-w-lg">
-                Enter a prompt describing the website you want and we'll generate a fully designed, ready-to-use page instantly.
-              </p>
-
-              <div className="w-full space-y-4">
-                <Textarea
-                  placeholder="e.g., A modern SaaS landing page for a project management tool with dark theme, pricing section, testimonials, and a hero with gradient background..."
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  className="min-h-[140px] bg-secondary/50 border-border resize-none text-base"
-                  onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleGenerate(); }}
-                />
-                <Button variant="hero" size="xl" onClick={handleGenerate} disabled={!prompt.trim() || (credits !== null && credits <= 0)} className="w-full">
-                  <Sparkles className="w-5 h-5" />
-                  Generate Website ({credits ?? "..."} credits left)
-                  <Send className="w-5 h-5" />
-                </Button>
-                <p className="text-xs text-muted-foreground text-center">
-                  Press Ctrl+Enter to generate • 1 credit per generation
-                </p>
-              </div>
-            </div>
-          ) : (
-            <div className="flex-1 flex flex-col gap-4">
+    <SidebarProvider>
+      <div className="min-h-screen flex w-full bg-background">
+        <DashboardSidebar />
+        
+        <div className="flex-1 flex flex-col">
+          <header className="fixed top-0 left-0 right-0 z-50 glass">
+            <div className="container mx-auto px-6 py-4">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  {isGenerating && (
-                    <div className="flex items-center gap-2 text-primary">
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span className="text-sm font-medium">Generating...</span>
+                <div className="flex items-center gap-2">
+                  <SidebarTrigger className="text-muted-foreground hover:text-foreground" />
+                  <Logo size="md" linkTo="/" />
+                </div>
+                <div className="flex items-center gap-4">
+                  {credits !== null && (
+                    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full glass border border-border">
+                      <Coins className="w-4 h-4 text-primary" />
+                      <span className="text-sm font-semibold">{credits}</span>
+                      <span className="text-xs text-muted-foreground">credits</span>
                     </div>
                   )}
-                  {generatedHTML && !isGenerating && (
-                    <span className="text-sm text-muted-foreground">✓ Website generated</span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  {generatedHTML && (
-                    <>
-                      {!publishedUrl ? (
-                        <Button variant="hero" size="sm" onClick={handlePublish} disabled={isPublishing}>
-                          {isPublishing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Globe className="w-4 h-4" />}
-                          {isPublishing ? "Publishing..." : "Publish"}
-                        </Button>
-                      ) : (
-                        <a href={publishedUrl} target="_blank" rel="noopener noreferrer">
-                          <Button variant="hero" size="sm" type="button">
-                            <Globe className="w-4 h-4" />
-                            View Live
-                            <ExternalLink className="w-3 h-3" />
-                          </Button>
-                        </a>
-                      )}
-                      <Button variant="outline" size="sm" onClick={handleShare} disabled={isSharing}>
-                        {copied ? <Check className="w-4 h-4" /> : <Share2 className="w-4 h-4" />}
-                        {copied ? "Copied!" : "Share"}
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={handleDownload}>
-                        <Download className="w-4 h-4" />
-                        Download
-                      </Button>
-                      <Button variant={showEditChat ? "default" : "outline"} size="sm" onClick={() => setShowEditChat((v) => !v)}>
-                        <Pencil className="w-4 h-4" />
-                        Edit
-                      </Button>
-                    </>
-                  )}
-                  <Button variant="heroOutline" size="sm" onClick={() => {
-                    setGeneratedHTML(""); setStreamingHTML(""); setPrompt("");
-                    setShareUrl(null); setCopied(false); setPublishedUrl(null); setShowEditChat(false);
-                  }}>
-                    <RefreshCw className="w-4 h-4" />
-                    New Website
+                  <Button variant="ghost" size="sm" onClick={handleLogout}>
+                    <LogOut className="w-4 h-4" />
+                    Log out
                   </Button>
                 </div>
               </div>
+            </div>
+          </header>
 
-              <div className="flex-1 rounded-2xl overflow-hidden border border-border bg-white min-h-[500px]">
-                <iframe ref={iframeRef} srcDoc={displayHTML} className="w-full h-full min-h-[500px]" sandbox="allow-scripts" title="Generated Website Preview" />
-              </div>
+          <main className="pt-24 pb-6 flex-1 flex flex-col">
+            <div className="container mx-auto px-6 flex-1 flex flex-col">
+              {!displayHTML && !isGenerating ? (
+                <div className="flex-1 flex flex-col items-center justify-center max-w-2xl mx-auto w-full">
+                  <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass border-glow mb-6">
+                    <Sparkles className="w-4 h-4 text-primary" />
+                    <span className="text-sm text-muted-foreground">AI Website Generator</span>
+                  </div>
 
-              {generatedHTML && !isGenerating && showEditChat && (
-                <EditChat onSendEdit={handleEdit} isGenerating={isEditing} />
+                  <h1 className="text-3xl md:text-4xl font-bold text-center mb-3">
+                    Describe your <span className="text-gradient">website</span>
+                  </h1>
+                  <p className="text-muted-foreground text-center mb-8 max-w-lg">
+                    Enter a prompt describing the website you want and we'll generate a fully designed, ready-to-use page instantly.
+                  </p>
+
+                  <div className="w-full space-y-4">
+                    <Textarea
+                      placeholder="e.g., A modern SaaS landing page for a project management tool with dark theme, pricing section, testimonials, and a hero with gradient background..."
+                      value={prompt}
+                      onChange={(e) => setPrompt(e.target.value)}
+                      className="min-h-[140px] bg-secondary/50 border-border resize-none text-base"
+                      onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleGenerate(); }}
+                    />
+                    <Button variant="hero" size="xl" onClick={handleGenerate} disabled={!prompt.trim() || (credits !== null && credits <= 0)} className="w-full">
+                      <Sparkles className="w-5 h-5" />
+                      Generate Website ({credits ?? "..."} credits left)
+                      <Send className="w-5 h-5" />
+                    </Button>
+                    <p className="text-xs text-muted-foreground text-center">
+                      Press Ctrl+Enter to generate • 1 credit per generation
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex-1 flex flex-col gap-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      {isGenerating && (
+                        <div className="flex items-center gap-2 text-primary">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span className="text-sm font-medium">Generating...</span>
+                        </div>
+                      )}
+                      {generatedHTML && !isGenerating && (
+                        <span className="text-sm text-muted-foreground">✓ Website generated</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {generatedHTML && (
+                        <>
+                          {!publishedUrl ? (
+                            <Button variant="hero" size="sm" onClick={handlePublish} disabled={isPublishing}>
+                              {isPublishing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Globe className="w-4 h-4" />}
+                              {isPublishing ? "Publishing..." : "Publish"}
+                            </Button>
+                          ) : (
+                            <a href={publishedUrl} target="_blank" rel="noopener noreferrer">
+                              <Button variant="hero" size="sm" type="button">
+                                <Globe className="w-4 h-4" />
+                                View Live
+                                <ExternalLink className="w-3 h-3" />
+                              </Button>
+                            </a>
+                          )}
+                          <Button variant="outline" size="sm" onClick={handleShare} disabled={isSharing}>
+                            {copied ? <Check className="w-4 h-4" /> : <Share2 className="w-4 h-4" />}
+                            {copied ? "Copied!" : "Share"}
+                          </Button>
+                          <Button variant="outline" size="sm" onClick={handleDownload}>
+                            <Download className="w-4 h-4" />
+                            Download
+                          </Button>
+                          <Button variant={showEditChat ? "default" : "outline"} size="sm" onClick={() => setShowEditChat((v) => !v)}>
+                            <Pencil className="w-4 h-4" />
+                            Edit
+                          </Button>
+                        </>
+                      )}
+                      <Button variant="heroOutline" size="sm" onClick={() => {
+                        setGeneratedHTML(""); setStreamingHTML(""); setPrompt("");
+                        setShareUrl(null); setCopied(false); setPublishedUrl(null); setShowEditChat(false);
+                      }}>
+                        <RefreshCw className="w-4 h-4" />
+                        New Website
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="flex-1 rounded-2xl overflow-hidden border border-border bg-white min-h-[500px]">
+                    <iframe ref={iframeRef} srcDoc={displayHTML} className="w-full h-full min-h-[500px]" sandbox="allow-scripts" title="Generated Website Preview" />
+                  </div>
+
+                  {generatedHTML && !isGenerating && showEditChat && (
+                    <EditChat onSendEdit={handleEdit} isGenerating={isEditing} />
+                  )}
+                </div>
               )}
             </div>
-          )}
+          </main>
         </div>
-      </main>
-    </div>
+      </div>
+    </SidebarProvider>
   );
 };
 
