@@ -39,52 +39,52 @@ const Navbar = () => {
                 
                 {/* Petal 1 - top */}
                 <path
-                  d="M20 20 C10 16, 6 8, 10 2 C12 -1, 16 -2, 18 1 C19 -1, 19.8 -1.5, 20 1 C20.2 -1.5, 21 -1, 22 1 C24 -2, 28 -1, 30 2 C34 8, 30 16, 20 20 Z"
-                  stroke="currentColor" strokeWidth="0.6" strokeLinejoin="round" fill="none"
+                  d="M20 20 C8 15, 2 6, 8 -2 C11 -5, 15 -4, 17 0 C18 -3, 19.5 -3, 20 0 C20.5 -3, 22 -3, 23 0 C25 -4, 29 -5, 32 -2 C38 6, 32 15, 20 20 Z"
+                  stroke="currentColor" strokeWidth="0.5" strokeLinejoin="round" fill="none"
                   className="blossom-draw blossom-petal blossom-petal-1"
-                  style={{ strokeDasharray: 100, strokeDashoffset: 100 }}
+                  style={{ strokeDasharray: 120, strokeDashoffset: 120 }}
                 />
                 {/* Petal 2 - upper-right */}
                 <path
-                  d="M20 20 C24 10, 32 4, 38 4 C42 4, 43 8, 41 10 C44 9, 44 12, 41 14 C43 17, 41 21, 37 22 C30 24, 24 23, 20 20 Z"
-                  stroke="currentColor" strokeWidth="0.6" strokeLinejoin="round" fill="none"
+                  d="M20 20 C25 8, 34 0, 42 -1 C46 -1, 47 4, 44 7 C48 5, 48 10, 44 13 C47 17, 44 22, 39 24 C30 26, 24 24, 20 20 Z"
+                  stroke="currentColor" strokeWidth="0.5" strokeLinejoin="round" fill="none"
                   className="blossom-draw blossom-petal blossom-petal-2"
-                  style={{ strokeDasharray: 100, strokeDashoffset: 100 }}
+                  style={{ strokeDasharray: 120, strokeDashoffset: 120 }}
                 />
                 {/* Petal 3 - lower-right */}
                 <path
-                  d="M20 20 C27 24, 33 31, 32 38 C31 42, 27 43, 26 41 C28 44, 26 44, 25 41 C24 43, 20 42, 19 38 C17 31, 18 24, 20 20 Z"
-                  stroke="currentColor" strokeWidth="0.6" strokeLinejoin="round" fill="none"
+                  d="M20 20 C28 25, 36 34, 34 42 C33 46, 28 47, 27 44 C29 48, 27 48, 26 44 C24 47, 20 46, 18 42 C15 34, 17 25, 20 20 Z"
+                  stroke="currentColor" strokeWidth="0.5" strokeLinejoin="round" fill="none"
                   className="blossom-draw blossom-petal blossom-petal-3"
-                  style={{ strokeDasharray: 100, strokeDashoffset: 100 }}
+                  style={{ strokeDasharray: 120, strokeDashoffset: 120 }}
                 />
                 {/* Petal 4 - lower-left */}
                 <path
-                  d="M20 20 C13 24, 7 31, 8 38 C9 42, 13 43, 14 41 C12 44, 14 44, 15 41 C16 43, 20 42, 21 38 C23 31, 22 24, 20 20 Z"
-                  stroke="currentColor" strokeWidth="0.6" strokeLinejoin="round" fill="none"
+                  d="M20 20 C12 25, 4 34, 6 42 C7 46, 12 47, 13 44 C11 48, 13 48, 14 44 C16 47, 20 46, 22 42 C25 34, 23 25, 20 20 Z"
+                  stroke="currentColor" strokeWidth="0.5" strokeLinejoin="round" fill="none"
                   className="blossom-draw blossom-petal blossom-petal-4"
-                  style={{ strokeDasharray: 100, strokeDashoffset: 100 }}
+                  style={{ strokeDasharray: 120, strokeDashoffset: 120 }}
                 />
                 {/* Petal 5 - upper-left */}
                 <path
-                  d="M20 20 C16 10, 8 4, 2 4 C-2 4, -3 8, -1 10 C-4 9, -4 12, -1 14 C-3 17, -1 21, 3 22 C10 24, 16 23, 20 20 Z"
-                  stroke="currentColor" strokeWidth="0.6" strokeLinejoin="round" fill="none"
+                  d="M20 20 C15 8, 6 0, -2 -1 C-6 -1, -7 4, -4 7 C-8 5, -8 10, -4 13 C-7 17, -4 22, 1 24 C10 26, 16 24, 20 20 Z"
+                  stroke="currentColor" strokeWidth="0.5" strokeLinejoin="round" fill="none"
                   className="blossom-draw blossom-petal blossom-petal-5"
-                  style={{ strokeDasharray: 100, strokeDashoffset: 100 }}
+                  style={{ strokeDasharray: 120, strokeDashoffset: 120 }}
                 />
-                {/* Petal 6 - extra bottom-left (between petal 4 and 5) */}
+                {/* Petal 6 - middle-left */}
                 <path
-                  d="M20 20 C14 20, 4 24, 1 30 C-1 34, 1 38, 4 37 C1 39, 2 40, 5 38 C4 41, 8 40, 10 37 C14 31, 17 24, 20 20 Z"
-                  stroke="currentColor" strokeWidth="0.6" strokeLinejoin="round" fill="none"
+                  d="M20 20 C10 17, 0 16, -4 20 C-7 23, -6 28, -3 27 C-7 29, -6 31, -3 29 C-5 33, -2 34, 1 31 C6 27, 14 23, 20 20 Z"
+                  stroke="currentColor" strokeWidth="0.5" strokeLinejoin="round" fill="none"
                   className="blossom-draw blossom-petal blossom-petal-6"
-                  style={{ strokeDasharray: 100, strokeDashoffset: 100 }}
+                  style={{ strokeDasharray: 120, strokeDashoffset: 120 }}
                 />
-                {/* Petal 7 - extra bottom-right (between petal 2 and 3) */}
+                {/* Petal 7 - middle-right */}
                 <path
-                  d="M20 20 C26 20, 36 24, 39 30 C41 34, 39 38, 36 37 C39 39, 38 40, 35 38 C36 41, 32 40, 30 37 C26 31, 23 24, 20 20 Z"
-                  stroke="currentColor" strokeWidth="0.6" strokeLinejoin="round" fill="none"
+                  d="M20 20 C30 17, 40 16, 44 20 C47 23, 46 28, 43 27 C47 29, 46 31, 43 29 C45 33, 42 34, 39 31 C34 27, 26 23, 20 20 Z"
+                  stroke="currentColor" strokeWidth="0.5" strokeLinejoin="round" fill="none"
                   className="blossom-draw blossom-petal blossom-petal-7"
-                  style={{ strokeDasharray: 100, strokeDashoffset: 100 }}
+                  style={{ strokeDasharray: 120, strokeDashoffset: 120 }}
                 />
 
                 {/* Center pistil circle */}
