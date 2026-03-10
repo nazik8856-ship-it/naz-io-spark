@@ -216,13 +216,13 @@
 .falling-petal {
   animation: petal-drift 1.5s ease-in forwards;
 }
-.falling-petal-1 { animation-delay: 10.5s; }
-.falling-petal-2 { animation-delay: 10.7s; }
-.falling-petal-3 { animation-delay: 10.9s; }
-.falling-petal-4 { animation-delay: 11s; }
-.falling-petal-5 { animation-delay: 11.1s; }
-.falling-petal-6 { animation-delay: 11.2s; }
-.falling-petal-7 { animation-delay: 11.3s; }
+.falling-petal-1 { animation-delay: 16.5s; }
+.falling-petal-2 { animation-delay: 16.7s; }
+.falling-petal-3 { animation-delay: 16.9s; }
+.falling-petal-4 { animation-delay: 17s; }
+.falling-petal-5 { animation-delay: 17.1s; }
+.falling-petal-6 { animation-delay: 17.2s; }
+.falling-petal-7 { animation-delay: 17.3s; }
 
 @keyframes petal-drift {
   0% { opacity: 0; transform: translateY(0) rotate(0deg); }
