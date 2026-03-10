@@ -159,31 +159,31 @@
   100% { transform: rotate(720deg) scale(1); }
 }
 
-/* Phase 3: Collapse into falling petals (10s+) */
+/* Phase 3: Collapse into falling petals (16s+) */
 .blossom-petal-1 {
-  animation: draw 1s ease-out 0.2s forwards, petal-fall-up 1.2s ease-in 10s forwards;
+  animation: draw 1s ease-out 0.2s forwards, petal-fall-up 1.2s ease-in 16s forwards;
 }
 .blossom-petal-2 {
-  animation: draw 1s ease-out 0.35s forwards, petal-fall-right 1.2s ease-in 10.2s forwards;
+  animation: draw 1s ease-out 0.35s forwards, petal-fall-right 1.2s ease-in 16.2s forwards;
 }
 .blossom-petal-3 {
-  animation: draw 1s ease-out 0.5s forwards, petal-fall-down-right 1.2s ease-in 10.4s forwards;
+  animation: draw 1s ease-out 0.5s forwards, petal-fall-down-right 1.2s ease-in 16.4s forwards;
 }
 .blossom-petal-4 {
-  animation: draw 1s ease-out 0.65s forwards, petal-fall-down-left 1.2s ease-in 10.35s forwards;
+  animation: draw 1s ease-out 0.65s forwards, petal-fall-down-left 1.2s ease-in 16.35s forwards;
 }
 .blossom-petal-5 {
-  animation: draw 1s ease-out 0.3s forwards, petal-fall-left 1.2s ease-in 10.15s forwards;
+  animation: draw 1s ease-out 0.3s forwards, petal-fall-left 1.2s ease-in 16.15s forwards;
 }
 .blossom-petal-6 {
-  animation: draw 1s ease-out 0.55s forwards, petal-fall-down-left 1.2s ease-in 10.5s forwards;
+  animation: draw 1s ease-out 0.55s forwards, petal-fall-left 1.2s ease-in 16.5s forwards;
 }
 .blossom-petal-7 {
-  animation: draw 1s ease-out 0.45s forwards, petal-fall-down-right 1.2s ease-in 10.45s forwards;
+  animation: draw 1s ease-out 0.45s forwards, petal-fall-right 1.2s ease-in 16.45s forwards;
 }
 
 .blossom-center {
-  animation: draw 0.5s ease-out 1.2s forwards, center-fade 0.8s ease-in 10s forwards;
+  animation: draw 0.5s ease-out 1.2s forwards, center-fade 0.8s ease-in 16s forwards;
 }
 
 @keyframes petal-fall-up {
