@@ -1,6 +1,6 @@
-import { Clock, FolderOpen, Trash2 } from "lucide-react";
+import { Clock, FolderOpen, Trash2, PlusCircle } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import {
   Sidebar,
@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/sidebar";
 
 const items = [
+  { title: "Create", url: "/dashboard/create", icon: PlusCircle },
   { title: "Recently", url: "/dashboard", icon: Clock },
   { title: "All Projects", url: "/dashboard/projects", icon: FolderOpen },
   { title: "Trash", url: "/dashboard/trash", icon: Trash2 },
