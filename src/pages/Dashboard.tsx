@@ -45,7 +45,8 @@ const Dashboard = () => {
 
   // Which sub-view to show
   const currentPath = location.pathname;
-  const showGenerator = generatedHTML || streamingHTML || isGenerating;
+  const isCreateRoute = currentPath === "/dashboard/create";
+  const showGenerator = generatedHTML || streamingHTML || isGenerating || isCreateRoute;
 
   useEffect(() => {
     if (!authLoading && !user) navigate("/login");
