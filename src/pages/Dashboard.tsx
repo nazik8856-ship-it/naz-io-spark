@@ -314,7 +314,7 @@ const Dashboard = () => {
 
           <main className="pt-24 pb-6 flex-1 flex flex-col">
             <div className="container mx-auto px-6 flex-1 flex flex-col">
-              {!showGenerator ? (
+              {!showGenerator || isCreateRoute && !generatedHTML && !streamingHTML && !isGenerating ? (
                 <div className="flex-1 flex flex-col">
                   {/* Prompt bar always visible */}
                   <div className="max-w-2xl mx-auto w-full mb-8">
@@ -337,7 +337,7 @@ const Dashboard = () => {
                   </div>
 
                   {/* Sub-view content */}
-                  {renderSubView()}
+                  {!isCreateRoute && renderSubView()}
                 </div>
               ) : (
                 <div className="flex-1 flex flex-col gap-4">
