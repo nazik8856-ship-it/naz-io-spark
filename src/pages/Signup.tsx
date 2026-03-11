@@ -49,7 +49,7 @@ const Signup = () => {
     if (error) {
       toast({ title: "Signup failed", description: error.message, variant: "destructive" });
     } else {
-      toast({ title: "Check your email", description: "We sent you a confirmation link. Please verify your email to continue." });
+      setStep("survey1");
     }
   };
 
