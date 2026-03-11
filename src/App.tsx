@@ -23,6 +23,7 @@ const App = () => (
           <Route path="/signup" element={<Signup />} />
           <Route path="/login" element={<Login />} />
           <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/dashboard/create" element={<Dashboard />} />
           <Route path="/dashboard/projects" element={<Dashboard />} />
           <Route path="/dashboard/trash" element={<Dashboard />} />
           <Route path="/share/:id" element={<SharedWebsite />} />
