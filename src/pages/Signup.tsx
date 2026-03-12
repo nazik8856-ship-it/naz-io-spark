@@ -25,9 +25,20 @@ const Signup = () => {
 
   useEffect(() => {
     if (user && step === "form") {
-      setStep("survey1");
+      // Check if user is new (created within last 5 minutes) or returning
+      const createdAt = new Date(user.created_at);
+      const now = new Date();
+      const minutesSinceCreation = (now.getTime() - createdAt.getTime()) / (1000 * 60);
+      
+      if (minutesSinceCreation < 5) {
+        // New user - show survey
+        setStep("survey1");
+      } else {
+        // Returning user - redirect to dashboard
+        navigate("/dashboard", { replace: true });
+      }
     }
-  }, [user]);
+  }, [user, navigate, step]);
 
   const handleSurveyComplete = () => {
     setStep("welcome");
