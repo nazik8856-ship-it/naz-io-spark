@@ -40,9 +40,15 @@ const Signup = () => {
     }
   }, [user, navigate, step]);
 
+  const [transitioning, setTransitioning] = useState(false);
+
   const handleSurveyComplete = () => {
     setStep("welcome");
-    setTimeout(() => navigate("/dashboard"), 3000);
+    // After showing welcome, trigger portal exit then navigate
+    setTimeout(() => {
+      setTransitioning(true);
+      setTimeout(() => navigate("/dashboard"), 900);
+    }, 2500);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
