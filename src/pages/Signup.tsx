@@ -204,17 +204,29 @@ const Signup = () => {
   // Welcome screen with credits
   if (step === "welcome") {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center relative overflow-hidden">
+      <div className={`min-h-screen bg-background flex items-center justify-center relative overflow-hidden`}>
         <div className="absolute inset-0 overflow-hidden">
           <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-primary/20 rounded-full blur-3xl animate-float opacity-60" />
           <div className="absolute bottom-1/4 left-1/4 w-80 h-80 bg-glow-secondary/20 rounded-full blur-3xl animate-float-delayed opacity-40" />
         </div>
-        <div className="relative z-10 text-center p-8 rounded-3xl glass border-glow max-w-md w-full mx-6">
+        {/* Screen flash overlay */}
+        {transitioning && (
+          <div className="absolute inset-0 z-50 bg-primary/20 animate-screen-flash pointer-events-none" />
+        )}
+        {/* Particle burst effect */}
+        {transitioning && (
+          <div className="absolute inset-0 z-40 flex items-center justify-center pointer-events-none">
+            <div className="w-32 h-32 rounded-full border-2 border-primary/40 animate-particles-burst" />
+            <div className="absolute w-20 h-20 rounded-full border border-primary/30 animate-particles-burst" style={{ animationDelay: "0.1s" }} />
+            <div className="absolute w-48 h-48 rounded-full border border-primary/20 animate-particles-burst" style={{ animationDelay: "0.2s" }} />
+          </div>
+        )}
+        <div className={`relative z-10 text-center p-8 rounded-3xl glass border-glow max-w-md w-full mx-6 ${transitioning ? 'animate-portal-exit' : 'animate-scale-in'}`}>
           <div className="mb-6"><Logo size="lg" linkTo="/" /></div>
           <div className="flex items-center justify-center gap-2 mb-4">
             <Sparkles className="w-8 h-8 text-primary" />
           </div>
-          <h1 className="text-3xl font-bold mb-3">Welcome! 🎉</h1>
+          <h1 className="text-3xl font-bold mb-3">Welcome! "&#x1F389;"</h1>
           <p className="text-muted-foreground mb-6">Your account has been created successfully.</p>
           <div className="inline-flex items-center gap-3 px-6 py-4 rounded-2xl glass border border-primary/30 mb-6">
             <Coins className="w-8 h-8 text-primary" />
@@ -224,7 +236,9 @@ const Signup = () => {
             </div>
           </div>
           <p className="text-sm text-muted-foreground mb-4">Each credit lets you generate or edit one website.</p>
-          <p className="text-xs text-muted-foreground animate-pulse">Redirecting to dashboard...</p>
+          <p className="text-xs text-muted-foreground animate-pulse">
+            {transitioning ? "Launching NazAI..." : "Redirecting to dashboard..."}
+          </p>
         </div>
       </div>
     );
