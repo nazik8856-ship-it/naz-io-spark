@@ -353,7 +353,6 @@ const Dashboard = () => {
                         <span className="text-sm text-muted-foreground">✓ Website generated</span>
                       )}
                     </div>
-                    </div>
                     <div className="flex items-center gap-2">
                       {generatedHTML && (
                         <>
