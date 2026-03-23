@@ -392,8 +392,13 @@ const Dashboard = () => {
                     </div>
                   </div>
 
-                  <div className="flex-1 rounded-2xl overflow-hidden border border-border bg-white min-h-[500px]">
-                    <iframe ref={iframeRef} srcDoc={displayHTML} className="w-full h-full min-h-[500px]" sandbox="allow-scripts" title="Generated Website Preview" />
+                  <div className="flex-1 rounded-2xl overflow-hidden border-4 border-foreground bg-white min-h-[500px] relative">
+                    {(isGenerating || isEditing) && !displayHTML && (
+                      <NeoSkeleton variant="preview" />
+                    )}
+                    {displayHTML && (
+                      <iframe ref={iframeRef} srcDoc={displayHTML} className="w-full h-full min-h-[500px]" sandbox="allow-scripts" title="Generated Website Preview" />
+                    )}
                   </div>
 
                   {generatedHTML && !isGenerating && showEditChat && (
