@@ -108,6 +108,21 @@
   }
 }
 
+@keyframes neo-pulse {
+  0% { opacity: 0.4; }
+  100% { opacity: 1; }
+}
+
+@keyframes navbar-slide-down {
+  0% { transform: translateY(-100%); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes section-rise {
+  0% { opacity: 0; transform: translateY(40px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
 @keyframes float {
   0%, 100% {
     transform: translateY(0px) rotate(0deg);
