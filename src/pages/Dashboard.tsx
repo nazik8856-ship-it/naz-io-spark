@@ -262,8 +262,8 @@ const Dashboard = () => {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      <div className="min-h-screen bg-background flex items-center justify-center p-12">
+        <NeoSkeleton variant="card" className="max-w-md w-full" />
       </div>
     );
   }
