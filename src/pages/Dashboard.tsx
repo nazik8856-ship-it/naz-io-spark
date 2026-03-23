@@ -5,6 +5,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { LogOut, Sparkles, Send, Loader2, Download, RefreshCw, Share2, Check, Copy, Globe, ExternalLink, Pencil, Coins } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import EditChat from "@/components/EditChat";
+import NeoSkeleton from "@/components/NeoSkeleton";
 import Logo from "@/components/Logo";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
