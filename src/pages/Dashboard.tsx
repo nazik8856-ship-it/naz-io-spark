@@ -308,10 +308,24 @@ const Dashboard = () => {
                       <span className="text-xs text-muted-foreground">credits</span>
                     </div>
                   )}
-                  <Button variant="ghost" size="sm" onClick={handleLogout}>
-                    <LogOut className="w-4 h-4" />
-                    Log out
-                  </Button>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button variant="ghost" size="sm">
+                        <LogOut className="w-4 h-4" />
+                        Log out
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent className="glass border-glow">
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                        <AlertDialogDescription>You'll be signed out of NazAI.</AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>No, stay</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleLogout}>Yes, log out</AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                 </div>
               </div>
             </div>

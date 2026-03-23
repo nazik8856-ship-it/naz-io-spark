@@ -64,7 +64,15 @@ const Signup = () => {
     });
     setLoading(false);
     if (error) {
-      toast({ title: "Signup failed", description: error.message, variant: "destructive" });
+      if (error.message?.toLowerCase().includes("already registered")) {
+        toast({
+          title: "Account already exists",
+          description: "This email is already registered. Redirecting to login...",
+        });
+        setTimeout(() => navigate("/login"), 1500);
+      } else {
+        toast({ title: "Signup failed", description: error.message, variant: "destructive" });
+      }
     } else {
       setStep("survey1");
     }
