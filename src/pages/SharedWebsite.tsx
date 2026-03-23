@@ -54,12 +54,14 @@ const SharedWebsite = () => {
   }
 
   return (
-    <iframe
-      srcDoc={html}
-      className="w-full h-screen border-0"
-      sandbox="allow-scripts"
-      title="Shared Website"
-    />
+    <div className="fixed inset-0 bg-white">
+      <iframe
+        srcDoc={html}
+        className="w-full h-full border-0"
+        sandbox="allow-scripts allow-same-origin"
+        title="Shared Website"
+      />
+    </div>
   );
 };
 
