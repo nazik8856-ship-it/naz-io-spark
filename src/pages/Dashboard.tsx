@@ -344,15 +344,15 @@ const Dashboard = () => {
                 <div className="flex-1 flex flex-col gap-4">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      {isGenerating && (
+                      {(isGenerating || isEditing) && (
                         <div className="flex items-center gap-2 text-primary">
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          <span className="text-sm font-medium">Generating...</span>
+                          <span className="text-sm font-bold uppercase tracking-wider">Building...</span>
                         </div>
                       )}
-                      {generatedHTML && !isGenerating && (
+                      {generatedHTML && !isGenerating && !isEditing && (
                         <span className="text-sm text-muted-foreground">✓ Website generated</span>
                       )}
+                    </div>
                     </div>
                     <div className="flex items-center gap-2">
                       {generatedHTML && (
