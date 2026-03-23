@@ -7,13 +7,7 @@ import { useAuth } from "@/hooks/useAuth";
 
 const Navbar = () => {
   const [isOpen, setIsOpen] = useState(false);
-  const [visible, setVisible] = useState(false);
   const { user } = useAuth();
-
-  useEffect(() => {
-    const timer = setTimeout(() => setVisible(true), 100);
-    return () => clearTimeout(timer);
-  }, []);
 
   const navLinks = [
     { name: "Features", href: "#features" },
