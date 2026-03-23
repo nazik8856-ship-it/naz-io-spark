@@ -91,6 +91,36 @@
   .animate-pulse-glow {
     animation: pulse-glow 4s ease-in-out infinite;
   }
+
+  .animate-neo-pulse {
+    animation: neo-pulse 1.2s ease-in-out infinite alternate;
+  }
+
+  /* Startup animations */
+  .animate-navbar-enter {
+    animation: navbar-slide-down 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  .animate-section-enter {
+    opacity: 0;
+    transform: translateY(40px);
+    animation: section-rise 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+}
+
+@keyframes neo-pulse {
+  0% { opacity: 0.4; }
+  100% { opacity: 1; }
+}
+
+@keyframes navbar-slide-down {
+  0% { transform: translateY(-100%); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes section-rise {
+  0% { opacity: 0; transform: translateY(40px); }
+  100% { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes float {
@@ -111,39 +141,6 @@
     opacity: 0.8;
     transform: scale(1.05);
   }
-}
-
-@keyframes draw {
-  to { stroke-dashoffset: 0; }
-}
-
-/* === Cherry Blossom Animation === */
-
-/* Phase 1: Draw petals (0s - 1.5s) */
-.blossom-draw {
-  animation: draw 0.8s ease-out 0.3s forwards;
-}
-
-.blossom-draw-center {
-  animation: draw 0.5s ease-out 1.2s forwards;
-}
-
-.blossom-stamen {
-  animation: stamen-appear 0.3s ease-out forwards;
-}
-.blossom-stamen-1 { animation-delay: 1.4s; }
-.blossom-stamen-2 { animation-delay: 1.5s; }
-.blossom-stamen-3 { animation-delay: 1.6s; }
-
-@keyframes stamen-appear {
-  0% { opacity: 0; transform: scale(0); }
-  100% { opacity: 0.8; transform: scale(1); }
-}
-
-/* Phase 2: Extremely slow elegant spin (2s - 14s) */
-.blossom-container {
-  transform-origin: 20px 20px;
-  animation: blossom-spin 8s cubic-bezier(0.15, 0.02, 0.1, 1) 1.8s forwards;
 }
 
 /* Signup transition animations */
@@ -184,90 +181,4 @@
 
 .animate-dashboard-enter {
   animation: dashboard-entrance 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
-@keyframes blossom-spin {
-  0% { transform: rotate(0deg) scale(1); }
-  10% { transform: rotate(45deg) scale(1.02); }
-  25% { transform: rotate(135deg) scale(1.04); }
-  40% { transform: rotate(240deg) scale(1.06); }
-  55% { transform: rotate(360deg) scale(1.05); }
-  70% { transform: rotate(480deg) scale(1.03); }
-  85% { transform: rotate(600deg) scale(1.01); }
-  92% { transform: rotate(680deg) scale(1); }
-  97% { transform: rotate(710deg) scale(1); }
-  100% { transform: rotate(720deg) scale(1); }
-}
-
-/* Phase 3: Collapse into falling petals (16s+) */
-.blossom-petal-1 {
-  animation: draw 1s ease-out 0.2s forwards, petal-fall-up 1.2s ease-in 16s forwards;
-}
-.blossom-petal-2 {
-  animation: draw 1s ease-out 0.35s forwards, petal-fall-right 1.2s ease-in 16.2s forwards;
-}
-.blossom-petal-3 {
-  animation: draw 1s ease-out 0.5s forwards, petal-fall-down-right 1.2s ease-in 16.4s forwards;
-}
-.blossom-petal-4 {
-  animation: draw 1s ease-out 0.65s forwards, petal-fall-down-left 1.2s ease-in 16.35s forwards;
-}
-.blossom-petal-5 {
-  animation: draw 1s ease-out 0.3s forwards, petal-fall-left 1.2s ease-in 16.15s forwards;
-}
-.blossom-petal-6 {
-  animation: draw 1s ease-out 0.55s forwards, petal-fall-left 1.2s ease-in 16.5s forwards;
-}
-.blossom-petal-7 {
-  animation: draw 1s ease-out 0.45s forwards, petal-fall-right 1.2s ease-in 16.45s forwards;
-}
-
-.blossom-center {
-  animation: draw 0.5s ease-out 1.2s forwards, center-fade 0.8s ease-in 16s forwards;
-}
-
-@keyframes petal-fall-up {
-  0% { transform: translate(0, 0) rotate(0deg); opacity: 1; }
-  100% { transform: translate(-3px, -10px) rotate(-35deg); opacity: 0; }
-}
-@keyframes petal-fall-right {
-  0% { transform: translate(0, 0) rotate(0deg); opacity: 1; }
-  100% { transform: translate(8px, -5px) rotate(30deg); opacity: 0; }
-}
-@keyframes petal-fall-down-right {
-  0% { transform: translate(0, 0) rotate(0deg); opacity: 1; }
-  100% { transform: translate(6px, 8px) rotate(45deg); opacity: 0; }
-}
-@keyframes petal-fall-down-left {
-  0% { transform: translate(0, 0) rotate(0deg); opacity: 1; }
-  100% { transform: translate(-6px, 8px) rotate(-45deg); opacity: 0; }
-}
-@keyframes petal-fall-left {
-  0% { transform: translate(0, 0) rotate(0deg); opacity: 1; }
-  100% { transform: translate(-8px, -5px) rotate(-30deg); opacity: 0; }
-}
-
-@keyframes center-fade {
-  0% { opacity: 1; transform: scale(1); }
-  100% { opacity: 0; transform: scale(0.2); }
-}
-
-/* Falling petal fragments */
-.falling-petal {
-  animation: petal-drift 1.5s ease-in forwards;
-}
-.falling-petal-1 { animation-delay: 16.5s; }
-.falling-petal-2 { animation-delay: 16.7s; }
-.falling-petal-3 { animation-delay: 16.9s; }
-.falling-petal-4 { animation-delay: 17s; }
-.falling-petal-5 { animation-delay: 17.1s; }
-.falling-petal-6 { animation-delay: 17.2s; }
-.falling-petal-7 { animation-delay: 17.3s; }
-
-@keyframes petal-drift {
-  0% { opacity: 0; transform: translateY(0) rotate(0deg); }
-  15% { opacity: 0.6; }
-  40% { opacity: 0.4; transform: translateY(6px) rotate(15deg); }
-  70% { opacity: 0.2; transform: translateY(12px) rotate(35deg); }
-  100% { opacity: 0; transform: translateY(18px) rotate(60deg); }
 }

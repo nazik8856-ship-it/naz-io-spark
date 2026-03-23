@@ -18,7 +18,7 @@ const Hero = () => {
       <div className="container mx-auto px-6 relative z-10">
         <div className="max-w-4xl mx-auto text-center">
           {/* Badge */}
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass border-glow mb-8">
+          <div className="animate-section-enter inline-flex items-center gap-2 px-4 py-2 rounded-full glass border-glow mb-8" style={{ animationDelay: "0.2s" }}>
             <Sparkles className="w-4 h-4 text-primary" />
             <span className="text-sm text-muted-foreground">
               Introducing NazAI Platform
@@ -26,18 +26,18 @@ const Hero = () => {
           </div>
 
           {/* Headline */}
-          <h1 className="text-5xl md:text-7xl font-bold tracking-tight mb-6">
+          <h1 className="animate-section-enter text-5xl md:text-7xl font-bold tracking-tight mb-6" style={{ animationDelay: "0.35s" }}>
             Launch a Real Online Business using{" "}
             <span className="text-gradient">AI in Minutes</span>
           </h1>
 
           {/* Subheadline */}
-          <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto mb-10 leading-relaxed">
+          <p className="animate-section-enter text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto mb-10 leading-relaxed" style={{ animationDelay: "0.5s" }}>
             NazAI turns your idea into a clear action
           </p>
 
           {/* CTA Buttons */}
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+          <div className="animate-section-enter flex flex-col sm:flex-row items-center justify-center gap-4" style={{ animationDelay: "0.65s" }}>
             <Button variant="hero" size="xl" asChild>
               <Link to="/signup">
                 Start for Free
@@ -50,7 +50,7 @@ const Hero = () => {
           </div>
 
           {/* Trust Indicators */}
-          <div className="mt-16 pt-8 border-t border-border/50">
+          <div className="animate-section-enter mt-16 pt-8 border-t border-border/50" style={{ animationDelay: "0.8s" }}>
             <p className="text-sm text-muted-foreground mb-6">
               Trusted by innovative teams worldwide
             </p>

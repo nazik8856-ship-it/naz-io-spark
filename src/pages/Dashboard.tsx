@@ -5,6 +5,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { LogOut, Sparkles, Send, Loader2, Download, RefreshCw, Share2, Check, Copy, Globe, ExternalLink, Pencil, Coins } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import EditChat from "@/components/EditChat";
+import NeoSkeleton from "@/components/NeoSkeleton";
 import Logo from "@/components/Logo";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -262,8 +263,8 @@ const Dashboard = () => {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      <div className="min-h-screen bg-background flex items-center justify-center p-12">
+        <NeoSkeleton variant="card" className="max-w-md w-full" />
       </div>
     );
   }
@@ -343,13 +344,12 @@ const Dashboard = () => {
                 <div className="flex-1 flex flex-col gap-4">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      {isGenerating && (
+                      {(isGenerating || isEditing) && (
                         <div className="flex items-center gap-2 text-primary">
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          <span className="text-sm font-medium">Generating...</span>
+                          <span className="text-sm font-bold uppercase tracking-wider">Building...</span>
                         </div>
                       )}
-                      {generatedHTML && !isGenerating && (
+                      {generatedHTML && !isGenerating && !isEditing && (
                         <span className="text-sm text-muted-foreground">✓ Website generated</span>
                       )}
                     </div>
@@ -391,8 +391,13 @@ const Dashboard = () => {
                     </div>
                   </div>
 
-                  <div className="flex-1 rounded-2xl overflow-hidden border border-border bg-white min-h-[500px]">
-                    <iframe ref={iframeRef} srcDoc={displayHTML} className="w-full h-full min-h-[500px]" sandbox="allow-scripts" title="Generated Website Preview" />
+                  <div className="flex-1 rounded-2xl overflow-hidden border-4 border-foreground bg-white min-h-[500px] relative">
+                    {(isGenerating || isEditing) && !displayHTML && (
+                      <NeoSkeleton variant="preview" />
+                    )}
+                    {displayHTML && (
+                      <iframe ref={iframeRef} srcDoc={displayHTML} className="w-full h-full min-h-[500px]" sandbox="allow-scripts" title="Generated Website Preview" />
+                    )}
                   </div>
 
                   {generatedHTML && !isGenerating && showEditChat && (
