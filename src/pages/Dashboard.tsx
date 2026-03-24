@@ -56,8 +56,14 @@ const Dashboard = () => {
   const isCreateRoute = currentPath === "/dashboard/create";
   const showGenerator = generatedHTML || streamingHTML || isGenerating || isCreateRoute;
 
+  // Only redirect to login after a short grace period to allow auth state to settle
   useEffect(() => {
-    if (!authLoading && !user) navigate("/login");
+    if (authLoading) return;
+    if (user) return;
+    const timeout = setTimeout(() => {
+      if (!user) navigate("/login");
+    }, 1500);
+    return () => clearTimeout(timeout);
   }, [authLoading, user, navigate]);
 
   const handleLogout = async () => {
