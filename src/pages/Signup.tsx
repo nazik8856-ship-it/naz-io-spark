@@ -264,8 +264,8 @@ const Signup = () => {
 
           <div className="p-8 rounded-3xl glass border-glow">
             <div className="mb-6"><Logo size="lg" linkTo="/" /></div>
-            <h1 className="text-2xl font-bold mb-2">Start for Free</h1>
-            <p className="text-muted-foreground mb-6">Create your account and get <span className="text-primary font-semibold">10 free credits</span> to generate websites.</p>
+            <h1 className="text-2xl font-bold mb-2">Sign In to NazAI</h1>
+            <p className="text-muted-foreground mb-6">Sign in or create a new account to start generating websites.</p>
 
             {/* Social Login Buttons */}
             <div className="space-y-3 mb-6">
