@@ -50,7 +50,6 @@ const Dashboard = () => {
   const [showWorkflowPreview, setShowWorkflowPreview] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const { toast } = useToast();
-  const { toast } = useToast();
 
   // Which sub-view to show
   const currentPath = location.pathname;
