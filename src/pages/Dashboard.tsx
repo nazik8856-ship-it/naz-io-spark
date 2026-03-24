@@ -350,13 +350,25 @@ const Dashboard = () => {
                         value={prompt}
                         onChange={(e) => setPrompt(e.target.value)}
                         className="min-h-[60px] bg-secondary/50 border-border resize-none text-sm"
-                        onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleGenerate(); }}
+                        onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) setShowWorkflowPreview(true); }}
                       />
-                      <Button variant="hero" size="lg" onClick={handleGenerate} disabled={!prompt.trim() || (credits !== null && credits <= 0)} className="shrink-0">
+                      <Button variant="hero" size="lg" onClick={() => setShowWorkflowPreview(true)} disabled={!prompt.trim() || (credits !== null && credits <= 0)} className="shrink-0">
                         <Send className="w-4 h-4" />
                       </Button>
                     </div>
                   </div>
+
+                  {/* Workflow preview card */}
+                  {showWorkflowPreview && prompt.trim() && (
+                    <div className="mb-8">
+                      <WorkflowPreview
+                        prompt={prompt.trim()}
+                        onApprove={() => { setShowWorkflowPreview(false); handleGenerate(); }}
+                        onCancel={() => setShowWorkflowPreview(false)}
+                        isGenerating={isGenerating}
+                      />
+                    </div>
+                  )
 
                   {/* Sub-view content */}
                   {!isCreateRoute && renderSubView()}
