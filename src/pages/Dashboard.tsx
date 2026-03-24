@@ -47,7 +47,9 @@ const Dashboard = () => {
   const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
   const [showEditChat, setShowEditChat] = useState(false);
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
+  const [showWorkflowPreview, setShowWorkflowPreview] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const { toast } = useToast();
   const { toast } = useToast();
 
   // Which sub-view to show
