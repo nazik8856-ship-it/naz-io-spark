@@ -433,6 +433,18 @@ const Dashboard = () => {
                     )}
                   </div>
 
+                  {/* Next-step suggestions after generation */}
+                  {generatedHTML && !isGenerating && !isEditing && !showEditChat && (
+                    <NextStepSuggestions
+                      onEdit={() => setShowEditChat(true)}
+                      onPublish={handlePublish}
+                      onShare={handleShare}
+                      onDownload={handleDownload}
+                      onNewWebsite={handleNewWebsite}
+                      isPublished={!!publishedUrl}
+                    />
+                  )}
+
                   {generatedHTML && !isGenerating && showEditChat && (
                     <EditChat onSendEdit={handleEdit} isGenerating={isEditing} />
                   )}
