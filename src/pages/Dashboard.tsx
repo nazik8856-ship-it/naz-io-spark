@@ -3,6 +3,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { LogOut, Sparkles, Send, Loader2, Download, RefreshCw, Share2, Check, Copy, Globe, ExternalLink, Pencil, Coins } from "lucide-react";
+import NextStepSuggestions from "@/components/NextStepSuggestions";
+import WorkflowPreview from "@/components/WorkflowPreview";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
@@ -45,6 +47,7 @@ const Dashboard = () => {
   const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
   const [showEditChat, setShowEditChat] = useState(false);
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
+  const [showWorkflowPreview, setShowWorkflowPreview] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const { toast } = useToast();
 
@@ -347,13 +350,25 @@ const Dashboard = () => {
                         value={prompt}
                         onChange={(e) => setPrompt(e.target.value)}
                         className="min-h-[60px] bg-secondary/50 border-border resize-none text-sm"
-                        onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleGenerate(); }}
+                        onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) setShowWorkflowPreview(true); }}
                       />
-                      <Button variant="hero" size="lg" onClick={handleGenerate} disabled={!prompt.trim() || (credits !== null && credits <= 0)} className="shrink-0">
+                      <Button variant="hero" size="lg" onClick={() => setShowWorkflowPreview(true)} disabled={!prompt.trim() || (credits !== null && credits <= 0)} className="shrink-0">
                         <Send className="w-4 h-4" />
                       </Button>
                     </div>
                   </div>
+
+                  {/* Workflow preview card */}
+                  {showWorkflowPreview && prompt.trim() && (
+                    <div className="mb-8">
+                      <WorkflowPreview
+                        prompt={prompt.trim()}
+                        onApprove={() => { setShowWorkflowPreview(false); handleGenerate(); }}
+                        onCancel={() => setShowWorkflowPreview(false)}
+                        isGenerating={isGenerating}
+                      />
+                    </div>
+                  )}
 
                   {/* Sub-view content */}
                   {!isCreateRoute && renderSubView()}
@@ -417,6 +432,18 @@ const Dashboard = () => {
                       <iframe ref={iframeRef} srcDoc={displayHTML} className="w-full h-full min-h-[500px]" sandbox="allow-scripts" title="Generated Website Preview" />
                     )}
                   </div>
+
+                  {/* Next-step suggestions after generation */}
+                  {generatedHTML && !isGenerating && !isEditing && !showEditChat && (
+                    <NextStepSuggestions
+                      onEdit={() => setShowEditChat(true)}
+                      onPublish={handlePublish}
+                      onShare={handleShare}
+                      onDownload={handleDownload}
+                      onNewWebsite={handleNewWebsite}
+                      isPublished={!!publishedUrl}
+                    />
+                  )}
 
                   {generatedHTML && !isGenerating && showEditChat && (
                     <EditChat onSendEdit={handleEdit} isGenerating={isEditing} />
