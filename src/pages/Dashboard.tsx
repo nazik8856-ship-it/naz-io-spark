@@ -368,7 +368,7 @@ const Dashboard = () => {
                         isGenerating={isGenerating}
                       />
                     </div>
-                  )
+                  )}
 
                   {/* Sub-view content */}
                   {!isCreateRoute && renderSubView()}
