@@ -81,7 +81,7 @@ const Signup = () => {
   const handleSocialSignup = async (provider: "google" | "apple") => {
     setSocialLoading(provider);
     const { error } = await lovable.auth.signInWithOAuth(provider, {
-      redirect_uri: window.location.origin + "/signup",
+      redirect_uri: window.location.origin + "/auth/callback",
     });
     if (error) {
       toast({ title: "Sign in failed", description: String(error), variant: "destructive" });
