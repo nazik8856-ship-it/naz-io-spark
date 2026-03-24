@@ -1,13 +1,20 @@
-// Singleton guard: ensures Supabase env vars are available
-let isReady = false;
+import { supabase } from "@/integrations/supabase/client";
 
-export function checkSupabaseEnv(): { ready: boolean; missing: string[] } {
-  if (isReady) return { ready: true, missing: [] };
+let verified = false;
 
-  const missing: string[] = [];
-  if (!import.meta.env.VITE_SUPABASE_URL) missing.push('VITE_SUPABASE_URL');
-  if (!import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY) missing.push('VITE_SUPABASE_PUBLISHABLE_KEY');
+export function getSupabaseClient() {
+  if (!verified) {
+    const url = import.meta.env.VITE_SUPABASE_URL;
+    const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+    if (!url || !key) {
+      console.warn("[NazAI] Supabase env vars not yet available:", { url: !!url, key: !!key });
+      return null;
+    }
+    verified = true;
+  }
+  return supabase;
+}
 
-  if (missing.length === 0) isReady = true;
-  return { ready: isReady, missing };
+export function isSupabaseReady(): boolean {
+  return !!(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY);
 }
