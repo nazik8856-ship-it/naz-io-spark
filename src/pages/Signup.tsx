@@ -74,7 +74,7 @@ const Signup = () => {
         toast({ title: "Signup failed", description: error.message, variant: "destructive" });
       }
     } else {
-      setStep("survey1");
+      navigate("/dashboard");
     }
   };
 
