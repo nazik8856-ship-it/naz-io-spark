@@ -43,7 +43,21 @@ const Signup = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    const { error } = await supabase.auth.signUp({
+
+    // First try signing in (returning user)
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email: formData.email,
+      password: formData.password,
+    });
+
+    if (!signInError) {
+      setLoading(false);
+      navigate("/dashboard");
+      return;
+    }
+
+    // If sign-in failed, try signing up (new user)
+    const { error: signUpError } = await supabase.auth.signUp({
       email: formData.email,
       password: formData.password,
       options: {
@@ -52,16 +66,9 @@ const Signup = () => {
       },
     });
     setLoading(false);
-    if (error) {
-      if (error.message?.toLowerCase().includes("already registered")) {
-        toast({
-          title: "Account already exists",
-          description: "This email is already registered. Redirecting to login...",
-        });
-        setTimeout(() => navigate("/login"), 1500);
-      } else {
-        toast({ title: "Signup failed", description: error.message, variant: "destructive" });
-      }
+
+    if (signUpError) {
+      toast({ title: "Authentication failed", description: signUpError.message, variant: "destructive" });
     } else {
       navigate("/dashboard");
     }
