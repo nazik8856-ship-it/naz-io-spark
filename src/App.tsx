@@ -19,8 +19,7 @@ const queryClient = new QueryClient();
 
 const App = () => {
   const [ready, setReady] = useState(isSupabaseReady());
-  const isStaticLegalPage =
-    typeof window !== "undefined" && ["/privacy", "/terms"].includes(window.location.pathname);
+  const isStaticLegalPage = typeof window !== "undefined" && ["/privacy", "/terms"].includes(window.location.pathname);
 
   useEffect(() => {
     if (ready) return;
@@ -55,7 +54,7 @@ const App = () => {
       <TooltipProvider>
         <Toaster />
         <Sonner />
-        <HashRouter>
+        <BrowserRouter>
           <Routes>
             <Route path="/privacy" element={<Privacy />} />
             <Route path="/terms" element={<Terms />} />
@@ -70,7 +69,7 @@ const App = () => {
             <Route path="/share/:id" element={<SharedWebsite />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
-        </HashRouter>
+        </BrowserRouter>
       </TooltipProvider>
     </QueryClientProvider>
   );
