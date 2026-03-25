@@ -69,7 +69,7 @@ const App = () => {
             <Route path="/share/:id" element={<SharedWebsite />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
-        </BrowserRouter>
+        </HashRouter>
       </TooltipProvider>
     </QueryClientProvider>
   );
