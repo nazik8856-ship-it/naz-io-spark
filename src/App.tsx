@@ -19,6 +19,8 @@ const queryClient = new QueryClient();
 
 const App = () => {
   const [ready, setReady] = useState(isSupabaseReady());
+  const isStaticLegalPage =
+    typeof window !== "undefined" && ["/privacy", "/terms"].includes(window.location.pathname);
 
   useEffect(() => {
     if (ready) return;
@@ -37,7 +39,7 @@ const App = () => {
     return () => clearInterval(interval);
   }, [ready]);
 
-  if (!ready) {
+  if (!ready && !isStaticLegalPage) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="border-4 border-foreground/20 p-8 text-center space-y-3 max-w-sm">
@@ -55,6 +57,8 @@ const App = () => {
         <Sonner />
         <BrowserRouter>
           <Routes>
+            <Route path="/privacy" element={<Privacy />} />
+            <Route path="/terms" element={<Terms />} />
             <Route path="/" element={<Index />} />
             <Route path="/signup" element={<Signup />} />
             <Route path="/login" element={<Login />} />
@@ -64,8 +68,6 @@ const App = () => {
             <Route path="/dashboard/projects" element={<Dashboard />} />
             <Route path="/dashboard/trash" element={<Dashboard />} />
             <Route path="/share/:id" element={<SharedWebsite />} />
-            <Route path="/privacy" element={<Privacy />} />
-            <Route path="/terms" element={<Terms />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
