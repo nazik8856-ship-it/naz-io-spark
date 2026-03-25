@@ -12,6 +12,8 @@ import Dashboard from "./pages/Dashboard";
 import SharedWebsite from "./pages/SharedWebsite";
 import AuthCallback from "./pages/AuthCallback";
 import NotFound from "./pages/NotFound";
+import Privacy from "./pages/Privacy";
+import Terms from "./pages/Terms";
 
 const queryClient = new QueryClient();
 
