@@ -3,54 +3,82 @@ import { ArrowLeft } from "lucide-react";
 
 const Terms = () => {
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <div className="container mx-auto px-6 py-16 max-w-3xl">
-        <Link to="/" className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors mb-10">
+    <div className="min-h-screen bg-white text-black">
+      <div className="mx-auto flex min-h-screen w-full max-w-4xl flex-col px-6 py-16 sm:px-8">
+        <Link
+          to="/"
+          className="mb-10 inline-flex items-center gap-2 text-sm font-medium text-black/70 transition-colors hover:text-black"
+        >
           <ArrowLeft size={16} />
           Back to Home
         </Link>
 
-        <h1 className="text-4xl font-bold mb-2">Terms of Service</h1>
-        <p className="text-muted-foreground mb-10">Last updated: March 25, 2026</p>
+        <main className="space-y-8">
+          <header className="space-y-3">
+            <h1 className="text-4xl font-bold tracking-tight">Terms of Service</h1>
+            <p className="text-sm text-black/70">Last updated: March 25, 2026</p>
+          </header>
 
-        <div className="space-y-8 text-muted-foreground leading-relaxed">
-          <section>
-            <h2 className="text-xl font-semibold text-foreground mb-3">Usage</h2>
-            <p>You must be at least 16 years old to use NazAI. By creating an account, you confirm that you meet this age requirement and agree to these Terms of Service.</p>
+          <section className="space-y-4 text-base leading-8 text-black/85">
+            <p>
+              These Terms of Service govern your use of NazAI. By accessing or using the service, you agree to these
+              terms. If you do not agree, please do not use the platform.
+            </p>
           </section>
 
-          <section>
-            <h2 className="text-xl font-semibold text-foreground mb-3">Your Responsibility</h2>
-            <p>You are responsible for all content you generate using NazAI and for the security of your account credentials. You agree not to use the service for any unlawful or prohibited purposes.</p>
+          <section className="space-y-3">
+            <h2 className="text-2xl font-semibold">Eligibility and Usage</h2>
+            <p className="leading-8 text-black/85">
+              You must be at least 16 years old to use NazAI. You agree to use the service only for lawful purposes
+              and in a way that does not misuse the platform, interfere with operations, or violate the rights of
+              others.
+            </p>
           </section>
 
-          <section>
-            <h2 className="text-xl font-semibold text-foreground mb-3">Service Availability</h2>
-            <p>NazAI is provided "as is." We strive for high availability but do not guarantee uninterrupted access. We may update, modify, or discontinue features at any time.</p>
+          <section className="space-y-3">
+            <h2 className="text-2xl font-semibold">Your Responsibility</h2>
+            <p className="leading-8 text-black/85">
+              You are responsible for the content you create, generate, upload, or publish through NazAI, and for
+              maintaining the confidentiality of your account credentials.
+            </p>
           </section>
 
-          <section>
-            <h2 className="text-xl font-semibold text-foreground mb-3">Termination</h2>
-            <p>We reserve the right to suspend or terminate your account if these terms are violated. You may also delete your account at any time.</p>
+          <section className="space-y-3">
+            <h2 className="text-2xl font-semibold">Accounts and Access</h2>
+            <p className="leading-8 text-black/85">
+              We may update, improve, suspend, or limit parts of the service at any time. We also reserve the right to
+              refuse access or suspend accounts that violate these terms or create risk for the platform.
+            </p>
           </section>
 
-          <section>
-            <h2 className="text-xl font-semibold text-foreground mb-3">Limitation of Liability</h2>
-            <p>NazAI shall not be liable for any indirect, incidental, or consequential damages arising from your use of the service.</p>
+          <section className="space-y-3">
+            <h2 className="text-2xl font-semibold">Termination</h2>
+            <p className="leading-8 text-black/85">
+              We reserve the right to stop providing service or terminate access if these Terms are violated. You may
+              stop using the service at any time.
+            </p>
           </section>
 
-          <section>
-            <h2 className="text-xl font-semibold text-foreground mb-3">Contact</h2>
-            <p>If you have any questions about these Terms, please reach out to us through our website.</p>
+          <section className="space-y-3">
+            <h2 className="text-2xl font-semibold">Disclaimer and Liability</h2>
+            <p className="leading-8 text-black/85">
+              NazAI is provided on an as-is and as-available basis. To the fullest extent permitted by law, we disclaim
+              warranties and are not liable for indirect, incidental, special, or consequential damages arising from
+              your use of the service.
+            </p>
           </section>
-        </div>
 
-        <div className="mt-16 pt-8 border-t border-border text-sm text-muted-foreground">
-          © {new Date().getFullYear()} NazAI. All rights reserved.
-        </div>
+          <section className="space-y-3">
+            <h2 className="text-2xl font-semibold">Contact</h2>
+            <p className="leading-8 text-black/85">
+              If you have questions about these Terms of Service, please contact us through the NazAI website.
+            </p>
+          </section>
+        </main>
       </div>
     </div>
   );
 };
 
 export default Terms;
+
