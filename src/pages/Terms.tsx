@@ -1,84 +1,71 @@
 import { Link } from "react-router-dom";
-import { ArrowLeft } from "lucide-react";
 
 const Terms = () => {
   return (
-    <div className="min-h-screen bg-white text-black">
-      <div className="mx-auto flex min-h-screen w-full max-w-4xl flex-col px-6 py-16 sm:px-8">
-        <Link
-          to="/"
-          className="mb-10 inline-flex items-center gap-2 text-sm font-medium text-black/70 transition-colors hover:text-black"
-        >
-          <ArrowLeft size={16} />
-          Back to Home
-        </Link>
+    <div style={{ backgroundColor: "#ffffff", color: "#000000", minHeight: "100vh", width: "100%" }}>
+      <div style={{ maxWidth: "860px", margin: "0 auto", padding: "48px 24px", fontFamily: "Arial, sans-serif", lineHeight: 1.7 }}>
+        <div style={{ marginBottom: "24px" }}>
+          <Link to="/" style={{ color: "#000000", textDecoration: "none", fontSize: "14px" }}>
+            ← Back to Home
+          </Link>
+        </div>
 
-        <main className="space-y-8">
-          <header className="space-y-3">
-            <h1 className="text-4xl font-bold tracking-tight">Terms of Service</h1>
-            <p className="text-sm text-black/70">Last updated: March 25, 2026</p>
-          </header>
+        <div>
+          <h1 style={{ fontSize: "40px", margin: "0 0 12px 0", color: "#000000" }}>Terms of Service</h1>
+          <p style={{ margin: "0 0 32px 0", color: "#333333" }}>Last updated: March 25, 2026</p>
 
-          <section className="space-y-4 text-base leading-8 text-black/85">
-            <p>
+          <div>
+            <h2 style={{ fontSize: "28px", margin: "0 0 12px 0", color: "#000000" }}>Introduction</h2>
+            <p style={{ margin: "0 0 24px 0" }}>
               These Terms of Service govern your use of NazAI. By accessing or using the service, you agree to these
-              terms. If you do not agree, please do not use the platform.
+              terms. If you do not agree to these Terms, please do not use the platform.
             </p>
-          </section>
 
-          <section className="space-y-3">
-            <h2 className="text-2xl font-semibold">Eligibility and Usage</h2>
-            <p className="leading-8 text-black/85">
-              You must be at least 16 years old to use NazAI. You agree to use the service only for lawful purposes
-              and in a way that does not misuse the platform, interfere with operations, or violate the rights of
-              others.
+            <h2 style={{ fontSize: "28px", margin: "32px 0 12px 0", color: "#000000" }}>Eligibility</h2>
+            <p style={{ margin: "0 0 24px 0" }}>
+              You must be at least 16 years old to use NazAI. By using the platform, you confirm that you meet this
+              minimum age requirement.
             </p>
-          </section>
 
-          <section className="space-y-3">
-            <h2 className="text-2xl font-semibold">Your Responsibility</h2>
-            <p className="leading-8 text-black/85">
-              You are responsible for the content you create, generate, upload, or publish through NazAI, and for
-              maintaining the confidentiality of your account credentials.
+            <h2 style={{ fontSize: "28px", margin: "32px 0 12px 0", color: "#000000" }}>Your Responsibility</h2>
+            <p style={{ margin: "0 0 24px 0" }}>
+              You are responsible for the content you create, generate, publish, or store through NazAI. You are also
+              responsible for keeping your account credentials secure.
             </p>
-          </section>
 
-          <section className="space-y-3">
-            <h2 className="text-2xl font-semibold">Accounts and Access</h2>
-            <p className="leading-8 text-black/85">
-              We may update, improve, suspend, or limit parts of the service at any time. We also reserve the right to
-              refuse access or suspend accounts that violate these terms or create risk for the platform.
+            <h2 style={{ fontSize: "28px", margin: "32px 0 12px 0", color: "#000000" }}>Acceptable Use</h2>
+            <p style={{ margin: "0 0 24px 0" }}>
+              You agree not to misuse the service, attempt unauthorized access, disrupt the platform, or use NazAI for
+              unlawful, harmful, or abusive purposes.
             </p>
-          </section>
 
-          <section className="space-y-3">
-            <h2 className="text-2xl font-semibold">Termination</h2>
-            <p className="leading-8 text-black/85">
-              We reserve the right to stop providing service or terminate access if these Terms are violated. You may
-              stop using the service at any time.
+            <h2 style={{ fontSize: "28px", margin: "32px 0 12px 0", color: "#000000" }}>Termination</h2>
+            <p style={{ margin: "0 0 24px 0" }}>
+              We reserve the right to suspend or terminate access to the service if these Terms are violated or if use
+              of the platform creates risk for NazAI or other users.
             </p>
-          </section>
 
-          <section className="space-y-3">
-            <h2 className="text-2xl font-semibold">Disclaimer and Liability</h2>
-            <p className="leading-8 text-black/85">
-              NazAI is provided on an as-is and as-available basis. To the fullest extent permitted by law, we disclaim
-              warranties and are not liable for indirect, incidental, special, or consequential damages arising from
-              your use of the service.
+            <h2 style={{ fontSize: "28px", margin: "32px 0 12px 0", color: "#000000" }}>Disclaimer</h2>
+            <p style={{ margin: "0 0 24px 0" }}>
+              NazAI is provided on an as-is and as-available basis without warranties of any kind. We do not guarantee
+              uninterrupted availability or error-free performance.
             </p>
-          </section>
 
-          <section className="space-y-3">
-            <h2 className="text-2xl font-semibold">Contact</h2>
-            <p className="leading-8 text-black/85">
-              If you have questions about these Terms of Service, please contact us through the NazAI website.
+            <h2 style={{ fontSize: "28px", margin: "32px 0 12px 0", color: "#000000" }}>Limitation of Liability</h2>
+            <p style={{ margin: "0 0 24px 0" }}>
+              To the fullest extent permitted by law, NazAI is not liable for indirect, incidental, special, or
+              consequential damages arising from your use of the service.
             </p>
-          </section>
-        </main>
+
+            <h2 style={{ fontSize: "28px", margin: "32px 0 12px 0", color: "#000000" }}>Contact</h2>
+            <p style={{ margin: "0" }}>
+              If you have any questions about these Terms of Service, please contact us through the NazAI website.
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );
 };
 
 export default Terms;
-
