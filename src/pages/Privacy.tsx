@@ -1,83 +1,67 @@
 import { Link } from "react-router-dom";
-import { ArrowLeft } from "lucide-react";
 
 const Privacy = () => {
   return (
-    <div className="min-h-screen bg-white text-black">
-      <div className="mx-auto flex min-h-screen w-full max-w-4xl flex-col px-6 py-16 sm:px-8">
-        <Link
-          to="/"
-          className="mb-10 inline-flex items-center gap-2 text-sm font-medium text-black/70 transition-colors hover:text-black"
-        >
-          <ArrowLeft size={16} />
-          Back to Home
-        </Link>
+    <div style={{ backgroundColor: "#ffffff", color: "#000000", minHeight: "100vh", width: "100%" }}>
+      <div style={{ maxWidth: "860px", margin: "0 auto", padding: "48px 24px", fontFamily: "Arial, sans-serif", lineHeight: 1.7 }}>
+        <div style={{ marginBottom: "24px" }}>
+          <Link to="/" style={{ color: "#000000", textDecoration: "none", fontSize: "14px" }}>
+            ← Back to Home
+          </Link>
+        </div>
 
-        <main className="space-y-8">
-          <header className="space-y-3">
-            <h1 className="text-4xl font-bold tracking-tight">Privacy Policy</h1>
-            <p className="text-sm text-black/70">Last updated: March 25, 2026</p>
-          </header>
+        <div>
+          <h1 style={{ fontSize: "40px", margin: "0 0 12px 0", color: "#000000" }}>Privacy Policy</h1>
+          <p style={{ margin: "0 0 32px 0", color: "#333333" }}>Last updated: March 25, 2026</p>
 
-          <section className="space-y-4 text-base leading-8 text-black/85">
-            <p>
-              NazAI respects your privacy and is committed to protecting the personal information you share with us.
-              This Privacy Policy explains what information we collect, how we use it, and the choices you have.
+          <div>
+            <h2 style={{ fontSize: "28px", margin: "0 0 12px 0", color: "#000000" }}>Introduction</h2>
+            <p style={{ margin: "0 0 24px 0" }}>
+              NazAI respects your privacy and is committed to protecting your personal information. This Privacy Policy
+              explains what information we collect, how we use it, and the choices available to you when using our
+              services.
             </p>
-          </section>
 
-          <section className="space-y-3">
-            <h2 className="text-2xl font-semibold">What We Collect</h2>
-            <p className="leading-8 text-black/85">
-              We collect your name and email address when you sign in with Google or create an account so we can set
-              up and maintain your NazAI account. We may also store the projects and content you create inside the
-              platform so you can access them later.
+            <h2 style={{ fontSize: "28px", margin: "32px 0 12px 0", color: "#000000" }}>What We Collect</h2>
+            <p style={{ margin: "0 0 24px 0" }}>
+              We collect your name and email address when you create an account or sign in with Google. We also store
+              the projects, prompts, and generated content you create inside NazAI so you can access and manage your
+              work later.
             </p>
-          </section>
 
-          <section className="space-y-3">
-            <h2 className="text-2xl font-semibold">How We Use Your Information</h2>
-            <p className="leading-8 text-black/85">
-              We use your information to provide our AI business services, save your projects, support account access,
-              improve product reliability, and communicate important service-related updates.
+            <h2 style={{ fontSize: "28px", margin: "32px 0 12px 0", color: "#000000" }}>How We Use It</h2>
+            <p style={{ margin: "0 0 24px 0" }}>
+              We use your information to provide our AI business services, save your projects, support authentication,
+              improve reliability, and communicate essential product updates.
             </p>
-          </section>
 
-          <section className="space-y-3">
-            <h2 className="text-2xl font-semibold">Third-Party Services</h2>
-            <p className="leading-8 text-black/85">
-              We use Google for authentication and backend infrastructure providers to securely operate the product.
-              We do not sell your personal data, and we do not share it with advertisers.
+            <h2 style={{ fontSize: "28px", margin: "32px 0 12px 0", color: "#000000" }}>Third Parties</h2>
+            <p style={{ margin: "0 0 24px 0" }}>
+              We use Google for authentication and trusted service providers to operate the platform. We do not sell,
+              rent, or trade your personal data.
             </p>
-          </section>
 
-          <section className="space-y-3">
-            <h2 className="text-2xl font-semibold">Data Security</h2>
-            <p className="leading-8 text-black/85">
-              We take reasonable technical and organizational measures to protect your information. However, no online
-              service can guarantee absolute security, so you use the service with that understanding.
+            <h2 style={{ fontSize: "28px", margin: "32px 0 12px 0", color: "#000000" }}>Data Security</h2>
+            <p style={{ margin: "0 0 24px 0" }}>
+              We take reasonable technical and organizational measures to help protect your data. However, no online
+              system can guarantee absolute security.
             </p>
-          </section>
 
-          <section className="space-y-3">
-            <h2 className="text-2xl font-semibold">Your Choices</h2>
-            <p className="leading-8 text-black/85">
-              You may stop using NazAI at any time. If you need help with account-related privacy requests, you can
-              contact us through the website.
+            <h2 style={{ fontSize: "28px", margin: "32px 0 12px 0", color: "#000000" }}>Your Choices</h2>
+            <p style={{ margin: "0 0 24px 0" }}>
+              You may stop using NazAI at any time. If you have questions about your data or need account-related
+              support, please contact us through the website.
             </p>
-          </section>
 
-          <section className="space-y-3">
-            <h2 className="text-2xl font-semibold">Contact</h2>
-            <p className="leading-8 text-black/85">
-              If you have questions about this Privacy Policy, please reach out through the NazAI website.
+            <h2 style={{ fontSize: "28px", margin: "32px 0 12px 0", color: "#000000" }}>Contact</h2>
+            <p style={{ margin: "0" }}>
+              If you have any questions about this Privacy Policy, please reach out through the NazAI website.
             </p>
-          </section>
-        </main>
+          </div>
+        </div>
       </div>
     </div>
   );
 };
 
 export default Privacy;
-
