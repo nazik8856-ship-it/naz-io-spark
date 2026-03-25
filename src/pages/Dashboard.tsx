@@ -264,14 +264,6 @@ const Dashboard = () => {
 
   const displayHTML = generatedHTML || streamingHTML;
 
-  if (authLoading) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-12">
-        <NeoSkeleton variant="card" className="max-w-md w-full" />
-      </div>
-    );
-  }
-
   // Determine which sub-view to render
   const renderSubView = () => {
     if (showGenerator) return null; // Generator view takes over
