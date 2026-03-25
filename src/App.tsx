@@ -12,6 +12,8 @@ import Dashboard from "./pages/Dashboard";
 import SharedWebsite from "./pages/SharedWebsite";
 import AuthCallback from "./pages/AuthCallback";
 import NotFound from "./pages/NotFound";
+import Privacy from "./pages/Privacy";
+import Terms from "./pages/Terms";
 
 const queryClient = new QueryClient();
 
@@ -62,6 +64,8 @@ const App = () => {
             <Route path="/dashboard/projects" element={<Dashboard />} />
             <Route path="/dashboard/trash" element={<Dashboard />} />
             <Route path="/share/:id" element={<SharedWebsite />} />
+            <Route path="/privacy" element={<Privacy />} />
+            <Route path="/terms" element={<Terms />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
