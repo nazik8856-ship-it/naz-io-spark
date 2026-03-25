@@ -1,16 +1,30 @@
 import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/integrations/supabase/client";
 
 const AuthCallback = () => {
   const navigate = useNavigate();
   const { user, loading, refreshSession } = useAuth();
   const hasRedirectedRef = useRef(false);
+  const hasProcessedRef = useRef(false);
 
+  // Handle OAuth hash fragment (direct Supabase OAuth returns tokens in URL hash)
   useEffect(() => {
-    refreshSession().catch((error) => {
-      console.error("Auth callback error:", error);
-    });
+    if (hasProcessedRef.current) return;
+    hasProcessedRef.current = true;
+
+    const hashParams = new URLSearchParams(window.location.hash.substring(1));
+    const accessToken = hashParams.get("access_token");
+    const refreshToken = hashParams.get("refresh_token");
+
+    if (accessToken && refreshToken) {
+      supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken })
+        .then(() => refreshSession())
+        .catch((err) => console.error("Session set error:", err));
+    } else {
+      refreshSession().catch((err) => console.error("Auth callback error:", err));
+    }
   }, [refreshSession]);
 
   useEffect(() => {
