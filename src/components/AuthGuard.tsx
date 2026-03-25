@@ -1,26 +1,37 @@
-import { Navigate, Outlet, useLocation } from "react-router-dom";
-import { useAuth } from "@/hooks/useAuth";
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { supabase } from "@/lib/supabase";
 
-const AuthGuard = () => {
-  const { user, loading } = useAuth();
-  const location = useLocation();
+export const AuthGuard = ({ children }: { children: React.ReactNode }) => {
+  const [loading, setLoading] = useState(true);
+  const [session, setSession] = useState<any>(null);
+  const navigate = useNavigate();
 
+  useEffect(() => {
+    // 1. Check for session immediately
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setLoading(false);
+      if (!session) navigate("/login");
+    });
+
+    // 2. Listen for changes (Login/Logout)
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      setLoading(false);
+      if (!session) navigate("/login");
+    });
+
+    return () => subscription.unsubscribe();
+  }, [navigate]);
+
+  // 3. CRITICAL: Show nothing (or a spinner) while loading
+  // This prevents the "Infinite Loop"
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="border-4 border-foreground/20 p-8 text-center space-y-3 max-w-sm">
-          <div className="w-10 h-10 border-4 border-foreground border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="font-mono text-foreground text-lg font-bold">Restoring your session…</p>
-        </div>
-      </div>
-    );
+    return <div className="flex h-screen items-center justify-center">Loading NazAI...</div>;
   }
 
-  if (!user) {
-    return <Navigate to="/login" replace state={{ from: location }} />;
-  }
-
-  return <Outlet />;
+  return session ? <>{children}</> : null;
 };
-
-export default AuthGuard;
