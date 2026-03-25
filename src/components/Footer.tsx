@@ -1,4 +1,10 @@
+import { Link } from "react-router-dom";
 import Logo from "./Logo";
+
+const linkMap: Record<string, string> = {
+  Privacy: "/privacy",
+  Terms: "/terms",
+};
 
 const Footer = () => {
   const footerLinks = {
