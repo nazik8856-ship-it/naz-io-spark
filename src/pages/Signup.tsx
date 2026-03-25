@@ -3,58 +3,107 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ArrowLeft, Sparkles, Loader2 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useToast } from "@/hooks/use-toast";
 import Logo from "@/components/Logo";
 import { supabase } from "@/integrations/supabase/client";
 import { lovable } from "@/integrations/lovable/index";
 import { useAuth } from "@/hooks/useAuth";
 
+const getAuthErrorMessage = (message: string) => {
+  const normalized = message.toLowerCase();
+
+  if (normalized.includes("email rate limit")) {
+    return {
+      title: "Too many email attempts",
+      description: "Please wait a few minutes before trying email again, or continue with Google or Apple.",
+    };
+  }
+
+  if (normalized.includes("invalid login credentials")) {
+    return {
+      title: "Couldn’t sign you in",
+      description: "That email or password didn’t match. Double-check it, or continue with Google or Apple.",
+    };
+  }
+
+  if (normalized.includes("email not confirmed")) {
+    return {
+      title: "Confirm your email first",
+      description: "Check your inbox, confirm your email, then come back and sign in.",
+    };
+  }
+
+  return {
+    title: "Authentication failed",
+    description: message,
+  };
+};
+
 const Signup = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, refreshSession } = useAuth();
   const [loading, setLoading] = useState(false);
   const [socialLoading, setSocialLoading] = useState<string | null>(null);
   const [formData, setFormData] = useState({ name: "", email: "", password: "" });
+  const hasRedirectedRef = useRef(false);
 
   useEffect(() => {
-    if (!authLoading && user) {
+    if (authLoading || !user || hasRedirectedRef.current) return;
+
+    hasRedirectedRef.current = true;
       navigate("/dashboard/create", { replace: true });
-    }
   }, [authLoading, user, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    hasRedirectedRef.current = false;
 
-    // Try signing in first (returning user)
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email: formData.email,
-      password: formData.password,
-    });
+    try {
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: formData.email,
+        password: formData.password,
+      });
 
-    if (!signInError) {
+      if (!signInError) {
+        await refreshSession();
+        return;
+      }
+
+      if (signInError.message.toLowerCase().includes("email rate limit")) {
+        const friendlyError = getAuthErrorMessage(signInError.message);
+        toast({ title: friendlyError.title, description: friendlyError.description, variant: "destructive" });
+        return;
+      }
+
+      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+        email: formData.email,
+        password: formData.password,
+        options: {
+          data: { full_name: formData.name },
+          emailRedirectTo: window.location.origin,
+        },
+      });
+
+      if (signUpError) {
+        const friendlyError = getAuthErrorMessage(signUpError.message);
+        toast({ title: friendlyError.title, description: friendlyError.description, variant: "destructive" });
+        return;
+      }
+
+      if (signUpData.session) {
+        await refreshSession();
+        return;
+      }
+
+      toast({
+        title: "Check your email",
+        description: "Your account was created. Please confirm your email, then sign in to continue.",
+      });
+    } finally {
       setLoading(false);
-      navigate("/dashboard/create", { replace: true });
-      return;
-    }
-
-    // If sign-in failed, try signing up (new user)
-    const { error: signUpError } = await supabase.auth.signUp({
-      email: formData.email,
-      password: formData.password,
-      options: {
-        data: { full_name: formData.name },
-        emailRedirectTo: window.location.origin,
-      },
-    });
-    setLoading(false);
-
-    if (signUpError) {
-      toast({ title: "Authentication failed", description: signUpError.message, variant: "destructive" });
-    } else {
-      navigate("/dashboard/create", { replace: true });
     }
   };
 

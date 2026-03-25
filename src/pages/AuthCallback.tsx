@@ -1,10 +1,11 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 
 const AuthCallback = () => {
   const navigate = useNavigate();
   const { user, loading, refreshSession } = useAuth();
+  const hasRedirectedRef = useRef(false);
 
   useEffect(() => {
     refreshSession().catch((error) => {
@@ -13,8 +14,10 @@ const AuthCallback = () => {
   }, [refreshSession]);
 
   useEffect(() => {
-    if (loading) return;
-    navigate(user ? "/dashboard/create" : "/login", { replace: true });
+    if (loading || hasRedirectedRef.current) return;
+
+    hasRedirectedRef.current = true;
+    navigate(user ? "/dashboard/create" : "/signup", { replace: true });
   }, [loading, user, navigate]);
 
   return (
