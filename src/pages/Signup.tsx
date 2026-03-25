@@ -109,11 +109,33 @@ const Signup = () => {
 
   const handleSocialSignup = async (provider: "google" | "apple") => {
     setSocialLoading(provider);
-    const { error } = await lovable.auth.signInWithOAuth(provider, {
-      redirect_uri: window.location.origin + "/auth/callback",
-    });
-    if (error) {
-      toast({ title: "Sign in failed", description: String(error), variant: "destructive" });
+    const isLovableDomain = window.location.hostname.endsWith(".lovable.app");
+    
+    try {
+      if (isLovableDomain) {
+        // Use Lovable managed OAuth on lovable.app domains
+        const { error } = await lovable.auth.signInWithOAuth(provider, {
+          redirect_uri: window.location.origin + "/auth/callback",
+        });
+        if (error) {
+          toast({ title: "Sign in failed", description: String(error), variant: "destructive" });
+          setSocialLoading(null);
+        }
+      } else {
+        // Use direct Supabase OAuth on custom domains (Vercel, etc.)
+        const { error } = await supabase.auth.signInWithOAuth({
+          provider,
+          options: {
+            redirectTo: window.location.origin + "/auth/callback",
+          },
+        });
+        if (error) {
+          toast({ title: "Sign in failed", description: error.message, variant: "destructive" });
+          setSocialLoading(null);
+        }
+      }
+    } catch (err) {
+      toast({ title: "Sign in failed", description: String(err), variant: "destructive" });
       setSocialLoading(null);
     }
   };

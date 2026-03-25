@@ -1,1 +1,5 @@
 project_id = "qaeduinfirtljnbecyzq"
+
+[auth]
+site_url = "https://naz-io.vercel.app"
+additional_redirect_urls = ["https://naz-io.vercel.app", "https://naz-io.vercel.app/auth/callback", "https://naz-io-spark.lovable.app", "https://naz-io-spark.lovable.app/auth/callback"]
