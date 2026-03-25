@@ -1,34 +1,21 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
 
 const AuthCallback = () => {
   const navigate = useNavigate();
+  const { user, loading, refreshSession } = useAuth();
 
   useEffect(() => {
-    const handleCallback = async () => {
-      // Supabase will pick up the tokens from the URL hash automatically
-      const { data: { session }, error } = await supabase.auth.getSession();
+    refreshSession().catch((error) => {
+      console.error("Auth callback error:", error);
+    });
+  }, [refreshSession]);
 
-      if (error) {
-        console.error("Auth callback error:", error.message);
-        navigate("/login", { replace: true });
-        return;
-      }
-
-      if (session) {
-        navigate("/dashboard/create", { replace: true });
-      } else {
-        // Wait briefly for session to settle
-        setTimeout(async () => {
-          const { data: { session: retrySession } } = await supabase.auth.getSession();
-          navigate(retrySession ? "/dashboard/create" : "/login", { replace: true });
-        }, 1500);
-      }
-    };
-
-    handleCallback();
-  }, [navigate]);
+  useEffect(() => {
+    if (loading) return;
+    navigate(user ? "/dashboard/create" : "/login", { replace: true });
+  }, [loading, user, navigate]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background">

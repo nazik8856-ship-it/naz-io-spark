@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { LogOut, Sparkles, Send, Loader2, Download, RefreshCw, Share2, Check, Copy, Globe, ExternalLink, Pencil, Coins } from "lucide-react";
 import NextStepSuggestions from "@/components/NextStepSuggestions";
@@ -28,7 +28,7 @@ const GENERATE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate
 const Dashboard = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, loading: authLoading, signOut } = useAuth();
+  const { user, signOut } = useAuth();
   const { credits, deductCredit, refetchCredits } = useCredits(user?.id);
   const {
     recentProjects, activeProjects, trashedProjects, loading: projectsLoading,
@@ -55,16 +55,6 @@ const Dashboard = () => {
   const currentPath = location.pathname;
   const isCreateRoute = currentPath === "/dashboard/create";
   const showGenerator = generatedHTML || streamingHTML || isGenerating || isCreateRoute;
-
-  // Only redirect to login after a short grace period to allow auth state to settle
-  useEffect(() => {
-    if (authLoading) return;
-    if (user) return;
-    const timeout = setTimeout(() => {
-      if (!user) navigate("/login");
-    }, 1500);
-    return () => clearTimeout(timeout);
-  }, [authLoading, user, navigate]);
 
   const handleLogout = async () => {
     await signOut();

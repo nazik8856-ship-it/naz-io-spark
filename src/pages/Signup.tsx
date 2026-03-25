@@ -13,16 +13,16 @@ import { useAuth } from "@/hooks/useAuth";
 const Signup = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [loading, setLoading] = useState(false);
   const [socialLoading, setSocialLoading] = useState<string | null>(null);
   const [formData, setFormData] = useState({ name: "", email: "", password: "" });
 
   useEffect(() => {
-    if (user) {
+    if (!authLoading && user) {
       navigate("/dashboard/create", { replace: true });
     }
-  }, [user, navigate]);
+  }, [authLoading, user, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,7 +36,7 @@ const Signup = () => {
 
     if (!signInError) {
       setLoading(false);
-      navigate("/dashboard/create");
+      navigate("/dashboard/create", { replace: true });
       return;
     }
 
@@ -54,7 +54,7 @@ const Signup = () => {
     if (signUpError) {
       toast({ title: "Authentication failed", description: signUpError.message, variant: "destructive" });
     } else {
-      navigate("/dashboard/create");
+      navigate("/dashboard/create", { replace: true });
     }
   };
 
