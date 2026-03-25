@@ -64,8 +64,8 @@ const App = () => {
             <Route path="/dashboard/projects" element={<Dashboard />} />
             <Route path="/dashboard/trash" element={<Dashboard />} />
             <Route path="/share/:id" element={<SharedWebsite />} />
-            <Route path="/privacy" element={<div className="text-white"><Privacy /></div>} />
-            <Route path="/terms" element={<div className="text-white"><Terms /></div>} />
+            <Route path="/privacy" element={<Privacy />} />
+            <Route path="/terms" element={<Terms />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
