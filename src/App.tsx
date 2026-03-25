@@ -54,7 +54,7 @@ const App = () => {
       <TooltipProvider>
         <Toaster />
         <Sonner />
-        <BrowserRouter>
+        <HashRouter>
           <Routes>
             <Route path="/privacy" element={<Privacy />} />
             <Route path="/terms" element={<Terms />} />
