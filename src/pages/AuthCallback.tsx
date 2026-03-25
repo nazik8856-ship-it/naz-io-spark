@@ -17,12 +17,12 @@ const AuthCallback = () => {
       }
 
       if (session) {
-        navigate("/dashboard", { replace: true });
+        navigate("/dashboard/create", { replace: true });
       } else {
         // Wait briefly for session to settle
         setTimeout(async () => {
           const { data: { session: retrySession } } = await supabase.auth.getSession();
-          navigate(retrySession ? "/dashboard" : "/login", { replace: true });
+          navigate(retrySession ? "/dashboard/create" : "/login", { replace: true });
         }, 1500);
       }
     };
