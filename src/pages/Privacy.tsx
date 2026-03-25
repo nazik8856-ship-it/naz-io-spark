@@ -3,49 +3,81 @@ import { ArrowLeft } from "lucide-react";
 
 const Privacy = () => {
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <div className="container mx-auto px-6 py-16 max-w-3xl">
-        <Link to="/" className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors mb-10">
+    <div className="min-h-screen bg-white text-black">
+      <div className="mx-auto flex min-h-screen w-full max-w-4xl flex-col px-6 py-16 sm:px-8">
+        <Link
+          to="/"
+          className="mb-10 inline-flex items-center gap-2 text-sm font-medium text-black/70 transition-colors hover:text-black"
+        >
           <ArrowLeft size={16} />
           Back to Home
         </Link>
 
-        <h1 className="text-4xl font-bold mb-2">Privacy Policy</h1>
-        <p className="text-muted-foreground mb-10">Last updated: March 25, 2026</p>
+        <main className="space-y-8">
+          <header className="space-y-3">
+            <h1 className="text-4xl font-bold tracking-tight">Privacy Policy</h1>
+            <p className="text-sm text-black/70">Last updated: March 25, 2026</p>
+          </header>
 
-        <div className="space-y-8 text-muted-foreground leading-relaxed">
-          <section>
-            <h2 className="text-xl font-semibold text-foreground mb-3">What We Collect</h2>
-            <p>We collect your name and email address via Google Login to create your NazAI account. We do not collect any additional personal information beyond what is necessary to provide our services.</p>
+          <section className="space-y-4 text-base leading-8 text-black/85">
+            <p>
+              NazAI respects your privacy and is committed to protecting the personal information you share with us.
+              This Privacy Policy explains what information we collect, how we use it, and the choices you have.
+            </p>
           </section>
 
-          <section>
-            <h2 className="text-xl font-semibold text-foreground mb-3">How We Use It</h2>
-            <p>Your information is used solely to provide our AI business services, save your projects, and maintain your account. We use this data to personalize your experience and ensure your generated websites are stored securely.</p>
+          <section className="space-y-3">
+            <h2 className="text-2xl font-semibold">What We Collect</h2>
+            <p className="leading-8 text-black/85">
+              We collect your name and email address when you sign in with Google or create an account so we can set
+              up and maintain your NazAI account. We may also store the projects and content you create inside the
+              platform so you can access them later.
+            </p>
           </section>
 
-          <section>
-            <h2 className="text-xl font-semibold text-foreground mb-3">Third Parties</h2>
-            <p>We use Supabase for secure database storage and Google for authentication. We do not sell, rent, or share your personal data with any third parties for marketing purposes.</p>
+          <section className="space-y-3">
+            <h2 className="text-2xl font-semibold">How We Use Your Information</h2>
+            <p className="leading-8 text-black/85">
+              We use your information to provide our AI business services, save your projects, support account access,
+              improve product reliability, and communicate important service-related updates.
+            </p>
           </section>
 
-          <section>
-            <h2 className="text-xl font-semibold text-foreground mb-3">Data Security</h2>
-            <p>We implement industry-standard security measures to protect your data. However, no method of electronic transmission or storage is 100% secure, and we cannot guarantee absolute security.</p>
+          <section className="space-y-3">
+            <h2 className="text-2xl font-semibold">Third-Party Services</h2>
+            <p className="leading-8 text-black/85">
+              We use Google for authentication and backend infrastructure providers to securely operate the product.
+              We do not sell your personal data, and we do not share it with advertisers.
+            </p>
           </section>
 
-          <section>
-            <h2 className="text-xl font-semibold text-foreground mb-3">Contact</h2>
-            <p>If you have any questions about this Privacy Policy, please reach out to us through our website.</p>
+          <section className="space-y-3">
+            <h2 className="text-2xl font-semibold">Data Security</h2>
+            <p className="leading-8 text-black/85">
+              We take reasonable technical and organizational measures to protect your information. However, no online
+              service can guarantee absolute security, so you use the service with that understanding.
+            </p>
           </section>
-        </div>
 
-        <div className="mt-16 pt-8 border-t border-border text-sm text-muted-foreground">
-          © {new Date().getFullYear()} NazAI. All rights reserved.
-        </div>
+          <section className="space-y-3">
+            <h2 className="text-2xl font-semibold">Your Choices</h2>
+            <p className="leading-8 text-black/85">
+              You may stop using NazAI at any time. If you need help with account-related privacy requests, you can
+              contact us through the website.
+            </p>
+          </section>
+
+          <section className="space-y-3">
+            <h2 className="text-2xl font-semibold">Contact</h2>
+            <p className="leading-8 text-black/85">
+              If you have questions about this Privacy Policy, please reach out through the NazAI website.
+            </p>
+          </section>
+        </main>
       </div>
     </div>
   );
 };
 
 export default Privacy;
+
