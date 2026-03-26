@@ -26,7 +26,9 @@ const NextStepSuggestions = ({
   onDownload,
   onNewWebsite,
   isPublished,
+  onStrategyQuestion,
 }: NextStepSuggestionsProps) => {
+  const [strategyInput, setStrategyInput] = React.useState("");
   const actions: NextStepAction[] = [
     {
       icon: <Pencil className="w-5 h-5" />,
