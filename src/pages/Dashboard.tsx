@@ -49,6 +49,7 @@ const Dashboard = () => {
   const [showEditChat, setShowEditChat] = useState(false);
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const [showWorkflowPreview, setShowWorkflowPreview] = useState(false);
+  const [businessType, setBusinessType] = useState<string | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const { toast } = useToast();
 
