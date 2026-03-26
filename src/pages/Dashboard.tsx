@@ -2,8 +2,9 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useState, useRef, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { LogOut, Sparkles, Send, Loader2, Download, RefreshCw, Share2, Check, Copy, Globe, ExternalLink, Pencil, Coins } from "lucide-react";
+import { LogOut, Sparkles, Send, Loader2, Download, RefreshCw, Share2, Check, Copy, Globe, ExternalLink, Pencil, Coins, Palette, Zap } from "lucide-react";
 import NextStepSuggestions from "@/components/NextStepSuggestions";
+import DecisionFork from "@/components/DecisionFork";
 import WorkflowPreview from "@/components/WorkflowPreview";
 import BusinessTypeSelector from "@/components/BusinessTypeSelector";
 import {
@@ -50,6 +51,8 @@ const Dashboard = () => {
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const [showWorkflowPreview, setShowWorkflowPreview] = useState(false);
   const [businessType, setBusinessType] = useState<string | null>(null);
+  const [designChoice, setDesignChoice] = useState<string | null>(null);
+  const [showDecisionFork, setShowDecisionFork] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const { toast } = useToast();
 
@@ -83,6 +86,9 @@ const Dashboard = () => {
     setPublishedUrl(null);
     setShowEditChat(false);
     setCurrentProjectId(null);
+    setDesignChoice(null);
+    setShowDecisionFork(false);
+    setShowWorkflowPreview(false);
   }, []);
 
   const handleShare = useCallback(async () => {
@@ -183,7 +189,7 @@ const Dashboard = () => {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.data.session?.access_token || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
         },
-        body: JSON.stringify({ prompt: prompt.trim() }),
+        body: JSON.stringify({ prompt: `${prompt.trim()}${designChoice ? `. Use a ${designChoice === "minimal" ? "minimal, clean, whitespace-driven" : "bold, dynamic, vivid"} design style.` : ""}` }),
       });
 
       if (!resp.ok) {
@@ -351,21 +357,47 @@ const Dashboard = () => {
                             value={prompt}
                             onChange={(e) => setPrompt(e.target.value)}
                             className="min-h-[60px] bg-secondary/50 border-border resize-none text-sm"
-                            onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) setShowWorkflowPreview(true); }}
+                            onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) setShowDecisionFork(true); }}
                           />
-                          <Button variant="hero" size="lg" onClick={() => setShowWorkflowPreview(true)} disabled={!prompt.trim() || (credits !== null && credits <= 0)} className="shrink-0">
+                          <Button variant="hero" size="lg" onClick={() => setShowDecisionFork(true)} disabled={!prompt.trim() || (credits !== null && credits <= 0)} className="shrink-0">
                             <Send className="w-4 h-4" />
                           </Button>
                         </div>
                       </div>
 
-                      {/* Workflow preview card */}
+                      {/* Decision Fork: style choice */}
+                      {showDecisionFork && !showWorkflowPreview && prompt.trim() && (
+                        <div className="mb-8">
+                          <DecisionFork
+                            question="What design direction fits your vision?"
+                            options={[
+                              {
+                                label: "Minimal & Clean",
+                                description: "Whitespace-driven, elegant typography, subtle accents",
+                                icon: <Palette className="w-5 h-5" />,
+                              },
+                              {
+                                label: "Bold & Dynamic",
+                                description: "Vivid colors, strong gradients, eye-catching animations",
+                                icon: <Zap className="w-5 h-5" />,
+                              },
+                            ]}
+                            onSelect={(i) => {
+                              setDesignChoice(i === 0 ? "minimal" : "bold");
+                              setShowDecisionFork(false);
+                              setShowWorkflowPreview(true);
+                            }}
+                          />
+                        </div>
+                      )}
+
+                      {/* Workflow preview card (Plan → Act → Reflect) */}
                       {showWorkflowPreview && prompt.trim() && (
                         <div className="mb-8">
                           <WorkflowPreview
-                            prompt={prompt.trim()}
-                            onApprove={() => { setShowWorkflowPreview(false); handleGenerate(); }}
-                            onCancel={() => setShowWorkflowPreview(false)}
+                            prompt={`${prompt.trim()}${designChoice ? ` [Style: ${designChoice}]` : ""}`}
+                            onApprove={() => { setShowWorkflowPreview(false); setShowDecisionFork(false); handleGenerate(); }}
+                            onCancel={() => { setShowWorkflowPreview(false); setShowDecisionFork(true); }}
                             isGenerating={isGenerating}
                           />
                         </div>
@@ -445,6 +477,14 @@ const Dashboard = () => {
                       onDownload={handleDownload}
                       onNewWebsite={handleNewWebsite}
                       isPublished={!!publishedUrl}
+                      onStrategyQuestion={(q) => {
+                        setShowEditChat(true);
+                        // Send strategy question through edit chat
+                        setTimeout(() => {
+                          const event = new CustomEvent("strategy-question", { detail: q });
+                          window.dispatchEvent(event);
+                        }, 100);
+                      }}
                     />
                   )}
 
