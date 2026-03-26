@@ -8,20 +8,15 @@ import CTA from "@/components/CTA";
 import Footer from "@/components/Footer";
 
 const Index = () => {
-  const [showToast, setShowToast] = React.useState(false);
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
-      <Hero onStart={() => {
-      setShowToast(true);
-      setTimeout(() => setShowToast(false),(3000);
-      }} />
+      <Hero />
       <Features />
       <HowItWorks />
       <Feedback />
       <CTA />
       <Footer />
-      {showToast && <div className="success-toast">Project launched successfully! 🚀</div>};
     </div>
   );
 };
