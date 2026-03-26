@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { ArrowRight, Sparkles } from "lucide-react";
 import { Link } from "react-router-dom";
 
-const Hero = ({ onStart }: { onStart: () => void }) => {
+const Hero = ({ onStart }: { onStart?: () => void }) => {
   return (
     <section className="relative min-h-screen flex items-center justify-center overflow-hidden pt-20">
       {/* Grid Pattern */}
