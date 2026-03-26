@@ -86,6 +86,9 @@ const Dashboard = () => {
     setPublishedUrl(null);
     setShowEditChat(false);
     setCurrentProjectId(null);
+    setDesignChoice(null);
+    setShowDecisionFork(false);
+    setShowWorkflowPreview(false);
   }, []);
 
   const handleShare = useCallback(async () => {
