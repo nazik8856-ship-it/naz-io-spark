@@ -63,10 +63,6 @@ const Index = () => {
     <div className="min-h-screen bg-background">
       <Navbar />
       <Hero />
-      <div className="container mx-auto py-10">
-        <h2 className="text-3xl font-bold text-center mb-8">Choose your business type</h2>
-        <BusinessTypeCards onSelectionChange={(val) => console.log(val)} />
-      </div>
       <Features />
       <HowItWorks />
       <Feedback />
