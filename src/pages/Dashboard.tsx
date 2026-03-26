@@ -2,8 +2,9 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useState, useRef, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { LogOut, Sparkles, Send, Loader2, Download, RefreshCw, Share2, Check, Copy, Globe, ExternalLink, Pencil, Coins } from "lucide-react";
+import { LogOut, Sparkles, Send, Loader2, Download, RefreshCw, Share2, Check, Copy, Globe, ExternalLink, Pencil, Coins, Palette, Zap } from "lucide-react";
 import NextStepSuggestions from "@/components/NextStepSuggestions";
+import DecisionFork from "@/components/DecisionFork";
 import WorkflowPreview from "@/components/WorkflowPreview";
 import BusinessTypeSelector from "@/components/BusinessTypeSelector";
 import {
