@@ -96,6 +96,41 @@ const NextStepSuggestions = ({
           </button>
         ))}
       </div>
+
+      {/* Strategy question prompt */}
+      {onStrategyQuestion && (
+        <div className="rounded-xl border-2 border-border bg-secondary/30 p-4">
+          <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">
+            Ask a strategy question
+          </p>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              placeholder="e.g. Should I add a pricing page or a lead form?"
+              value={strategyInput}
+              onChange={(e) => setStrategyInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && strategyInput.trim()) {
+                  onStrategyQuestion(strategyInput.trim());
+                  setStrategyInput("");
+                }
+              }}
+              className="flex-1 h-10 rounded-lg border border-border bg-background px-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            />
+            <button
+              onClick={() => {
+                if (strategyInput.trim()) {
+                  onStrategyQuestion(strategyInput.trim());
+                  setStrategyInput("");
+                }
+              }}
+              className="h-10 w-10 rounded-lg bg-primary text-primary-foreground flex items-center justify-center hover:bg-primary/90 transition-colors"
+            >
+              <Send className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
