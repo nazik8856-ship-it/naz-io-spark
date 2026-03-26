@@ -214,17 +214,6 @@ const Dashboard = () => {
   const handleGenerate = useCallback(async () => {
     if (!prompt.trim() || isGenerating) return;
 
-    if (credits !== null && credits <= 0) {
-      toast({ title: "No credits left", description: "You've used all your credits.", variant: "destructive" });
-      return;
-    }
-
-    const success = await deductCredit();
-    if (!success) {
-      toast({ title: "No credits left", description: "You've used all your credits.", variant: "destructive" });
-      return;
-    }
-
     setIsGenerating(true);
     setGeneratedHTML("");
     setStreamingHTML("");
