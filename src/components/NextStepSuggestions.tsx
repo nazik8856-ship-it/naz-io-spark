@@ -1,5 +1,5 @@
-import { Pencil, Globe, Download, Share2, Sparkles, Palette, Layout, Type } from "lucide-react";
-import { cn } from "@/lib/utils";
+import React, { useState } from "react";
+import { Pencil, Globe, Download, Share2, Sparkles, Palette, Layout, Type, Send } from "lucide-react";
 
 interface NextStepAction {
   icon: React.ReactNode;
