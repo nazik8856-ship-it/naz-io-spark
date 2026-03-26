@@ -189,7 +189,7 @@ const Dashboard = () => {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.data.session?.access_token || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
         },
-        body: JSON.stringify({ prompt: prompt.trim() }),
+        body: JSON.stringify({ prompt: `${prompt.trim()}${designChoice ? `. Use a ${designChoice === "minimal" ? "minimal, clean, whitespace-driven" : "bold, dynamic, vivid"} design style.` : ""}` }),
       });
 
       if (!resp.ok) {
