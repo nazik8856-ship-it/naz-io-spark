@@ -2,14 +2,37 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useState, useRef, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { LogOut, Sparkles, Send, Loader2, Download, RefreshCw, Share2, Check, Copy, Globe, ExternalLink, Pencil, Coins, Palette, Zap } from "lucide-react";
+import {
+  LogOut,
+  Sparkles,
+  Send,
+  Loader2,
+  Download,
+  RefreshCw,
+  Share2,
+  Check,
+  Copy,
+  Globe,
+  ExternalLink,
+  Pencil,
+  Coins,
+  Palette,
+  Zap,
+} from "lucide-react";
 import NextStepSuggestions from "@/components/NextStepSuggestions";
 import DecisionFork from "@/components/DecisionFork";
 import WorkflowPreview from "@/components/WorkflowPreview";
 import BusinessTypeSelector from "@/components/BusinessTypeSelector";
 import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import EditChat from "@/components/EditChat";
@@ -33,8 +56,16 @@ const Dashboard = () => {
   const { user, signOut } = useAuth();
   const { credits, deductCredit, refetchCredits } = useCredits(user?.id);
   const {
-    recentProjects, activeProjects, trashedProjects, loading: projectsLoading,
-    saveProject, updateProjectHTML, trashProject, restoreProject, deleteProject, fetchProjects,
+    recentProjects,
+    activeProjects,
+    trashedProjects,
+    loading: projectsLoading,
+    saveProject,
+    updateProjectHTML,
+    trashProject,
+    restoreProject,
+    deleteProject,
+    fetchProjects,
   } = useProjects(user?.id);
 
   const [prompt, setPrompt] = useState("");
@@ -95,7 +126,11 @@ const Dashboard = () => {
     if (!generatedHTML || isSharing) return;
     setIsSharing(true);
     try {
-      const { data, error } = await supabase.from("shared_websites").insert({ html: generatedHTML }).select("id").single();
+      const { data, error } = await supabase
+        .from("shared_websites")
+        .insert({ html: generatedHTML })
+        .select("id")
+        .single();
       if (error) throw error;
       const url = `${window.location.origin}/share/${data.id}`;
       setShareUrl(url);
@@ -114,7 +149,11 @@ const Dashboard = () => {
     if (!generatedHTML || isPublishing) return;
     setIsPublishing(true);
     try {
-      const { data, error } = await supabase.from("shared_websites").insert({ html: generatedHTML }).select("id").single();
+      const { data, error } = await supabase
+        .from("shared_websites")
+        .insert({ html: generatedHTML })
+        .select("id")
+        .single();
       if (error) throw error;
       const url = `${window.location.origin}/share/${data.id}`;
       setPublishedUrl(url);
@@ -147,12 +186,21 @@ const Dashboard = () => {
         if (line.startsWith(":") || line.trim() === "") continue;
         if (!line.startsWith("data: ")) continue;
         const jsonStr = line.slice(6).trim();
-        if (jsonStr === "[DONE]") { done = true; break; }
+        if (jsonStr === "[DONE]") {
+          done = true;
+          break;
+        }
         try {
           const parsed = JSON.parse(jsonStr);
           const content = parsed.choices?.[0]?.delta?.content as string | undefined;
-          if (content) { fullHTML += content; setStreamingHTML(fullHTML); }
-        } catch { buffer = line + "\n" + buffer; break; }
+          if (content) {
+            fullHTML += content;
+            setStreamingHTML(fullHTML);
+          }
+        } catch {
+          buffer = line + "\n" + buffer;
+          break;
+        }
       }
     }
 
@@ -189,7 +237,9 @@ const Dashboard = () => {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.data.session?.access_token || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
         },
-        body: JSON.stringify({ prompt: `${prompt.trim()}${designChoice ? `. Use a ${designChoice === "minimal" ? "minimal, clean, whitespace-driven" : "bold, dynamic, vivid"} design style.` : ""}` }),
+        body: JSON.stringify({
+          prompt: `${prompt.trim()}${designChoice ? `. Use a ${designChoice === "minimal" ? "minimal, clean, whitespace-driven" : "bold, dynamic, vivid"} design style.` : ""}`,
+        }),
       });
 
       if (!resp.ok) {
@@ -212,53 +262,46 @@ const Dashboard = () => {
     }
   }, [prompt, isGenerating, credits, deductCredit, toast, saveProject]);
 
-  const handleEdit = useCallback(async (message: string, chatHistory: Array<{role: string, content: string}>) => {
-    if (isEditing) return;
+  const handleEdit = useCallback(
+    async (message: string, chatHistory: Array<{ role: string; content: string }>) => {
+      if (isEditing) return;
 
-    if (credits !== null && credits <= 0) {
-      toast({ title: "No credits left", description: "You've used all your credits.", variant: "destructive" });
-      return;
-    }
-    const success = await deductCredit();
-    if (!success) {
-      toast({ title: "No credits left", description: "You've used all your credits.", variant: "destructive" });
-      return;
-    }
-
-    setIsEditing(true);
-    setStreamingHTML("");
-
-    try {
-      const session = await supabase.auth.getSession();
-      const resp = await fetch(GENERATE_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.data.session?.access_token || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-        },
-        body: JSON.stringify({ prompt: message, currentHTML: generatedHTML, chatHistory }),
-      });
-
-      if (!resp.ok) {
-        const err = await resp.json();
-        throw new Error(err.error || "Failed to edit website");
-      }
-
-      const cleaned = await processStream(resp);
-      setGeneratedHTML(cleaned);
+      setIsEditing(true);
       setStreamingHTML("");
 
-      // Update the project in DB
-      if (currentProjectId) {
-        await updateProjectHTML(currentProjectId, cleaned);
+      try {
+        const session = await supabase.auth.getSession();
+        const resp = await fetch(GENERATE_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.data.session?.access_token || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+          },
+          body: JSON.stringify({ prompt: message, currentHTML: generatedHTML, chatHistory }),
+        });
+
+        if (!resp.ok) {
+          const err = await resp.json();
+          throw new Error(err.error || "Failed to edit website");
+        }
+
+        const cleaned = await processStream(resp);
+        setGeneratedHTML(cleaned);
+        setStreamingHTML("");
+
+        // Update the project in DB
+        if (currentProjectId) {
+          await updateProjectHTML(currentProjectId, cleaned);
+        }
+      } catch (e: any) {
+        toast({ title: "Edit failed", description: e.message || "Something went wrong", variant: "destructive" });
+        throw e;
+      } finally {
+        setIsEditing(false);
       }
-    } catch (e: any) {
-      toast({ title: "Edit failed", description: e.message || "Something went wrong", variant: "destructive" });
-      throw e;
-    } finally {
-      setIsEditing(false);
-    }
-  }, [generatedHTML, isEditing, credits, deductCredit, toast, currentProjectId, updateProjectHTML]);
+    },
+    [generatedHTML, isEditing, credits, deductCredit, toast, currentProjectId, updateProjectHTML],
+  );
 
   const handleDownload = () => {
     const blob = new Blob([generatedHTML], { type: "text/html" });
@@ -277,13 +320,36 @@ const Dashboard = () => {
     if (showGenerator) return null; // Generator view takes over
 
     if (currentPath === "/dashboard/projects") {
-      return <DashboardAllProjects projects={activeProjects} loading={projectsLoading} onTrash={trashProject} onOpenProject={handleOpenProject} />;
+      return (
+        <DashboardAllProjects
+          projects={activeProjects}
+          loading={projectsLoading}
+          onTrash={trashProject}
+          onOpenProject={handleOpenProject}
+        />
+      );
     }
     if (currentPath === "/dashboard/trash") {
-      return <DashboardTrash projects={trashedProjects} loading={projectsLoading} onRestore={restoreProject} onDelete={deleteProject} onSaveToAll={restoreProject} onOpenProject={handleOpenProject} />;
+      return (
+        <DashboardTrash
+          projects={trashedProjects}
+          loading={projectsLoading}
+          onRestore={restoreProject}
+          onDelete={deleteProject}
+          onSaveToAll={restoreProject}
+          onOpenProject={handleOpenProject}
+        />
+      );
     }
     // Default: Recently
-    return <DashboardRecently projects={recentProjects} loading={projectsLoading} onTrash={trashProject} onOpenProject={handleOpenProject} />;
+    return (
+      <DashboardRecently
+        projects={recentProjects}
+        loading={projectsLoading}
+        onTrash={trashProject}
+        onOpenProject={handleOpenProject}
+      />
+    );
   };
 
   return (
@@ -332,7 +398,7 @@ const Dashboard = () => {
 
           <main className="pt-24 pb-6 flex-1 flex flex-col">
             <div className="container mx-auto px-6 flex-1 flex flex-col">
-              {!showGenerator || isCreateRoute && !generatedHTML && !streamingHTML && !isGenerating ? (
+              {!showGenerator || (isCreateRoute && !generatedHTML && !streamingHTML && !isGenerating) ? (
                 <div className="flex-1 flex flex-col">
                   {/* Business type selector for create route (shown before prompt) */}
                   {isCreateRoute && !businessType && (
@@ -353,13 +419,25 @@ const Dashboard = () => {
                         </div>
                         <div className="flex gap-2">
                           <Textarea
-                            placeholder={businessType ? `Describe your ${businessType} website...` : "Describe the website you want to generate..."}
+                            placeholder={
+                              businessType
+                                ? `Describe your ${businessType} website...`
+                                : "Describe the website you want to generate..."
+                            }
                             value={prompt}
                             onChange={(e) => setPrompt(e.target.value)}
                             className="min-h-[60px] bg-secondary/50 border-border resize-none text-sm"
-                            onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) setShowDecisionFork(true); }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) setShowDecisionFork(true);
+                            }}
                           />
-                          <Button variant="hero" size="lg" onClick={() => setShowDecisionFork(true)} disabled={!prompt.trim() || (credits !== null && credits <= 0)} className="shrink-0">
+                          <Button
+                            variant="hero"
+                            size="lg"
+                            onClick={() => setShowDecisionFork(true)}
+                            disabled={!prompt.trim() || (credits !== null && credits <= 0)}
+                            className="shrink-0"
+                          >
                             <Send className="w-4 h-4" />
                           </Button>
                         </div>
@@ -396,8 +474,15 @@ const Dashboard = () => {
                         <div className="mb-8">
                           <WorkflowPreview
                             prompt={`${prompt.trim()}${designChoice ? ` [Style: ${designChoice}]` : ""}`}
-                            onApprove={() => { setShowWorkflowPreview(false); setShowDecisionFork(false); handleGenerate(); }}
-                            onCancel={() => { setShowWorkflowPreview(false); setShowDecisionFork(true); }}
+                            onApprove={() => {
+                              setShowWorkflowPreview(false);
+                              setShowDecisionFork(false);
+                              handleGenerate();
+                            }}
+                            onCancel={() => {
+                              setShowWorkflowPreview(false);
+                              setShowDecisionFork(true);
+                            }}
                             isGenerating={isGenerating}
                           />
                         </div>
@@ -426,7 +511,11 @@ const Dashboard = () => {
                         <>
                           {!publishedUrl ? (
                             <Button variant="hero" size="sm" onClick={handlePublish} disabled={isPublishing}>
-                              {isPublishing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Globe className="w-4 h-4" />}
+                              {isPublishing ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <Globe className="w-4 h-4" />
+                              )}
                               {isPublishing ? "Publishing..." : "Publish"}
                             </Button>
                           ) : (
@@ -446,7 +535,11 @@ const Dashboard = () => {
                             <Download className="w-4 h-4" />
                             Download
                           </Button>
-                          <Button variant={showEditChat ? "default" : "outline"} size="sm" onClick={() => setShowEditChat((v) => !v)}>
+                          <Button
+                            variant={showEditChat ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => setShowEditChat((v) => !v)}
+                          >
                             <Pencil className="w-4 h-4" />
                             Edit
                           </Button>
@@ -460,11 +553,15 @@ const Dashboard = () => {
                   </div>
 
                   <div className="flex-1 rounded-2xl overflow-hidden border-4 border-foreground bg-white min-h-[500px] relative">
-                    {(isGenerating || isEditing) && !displayHTML && (
-                      <NeoSkeleton variant="preview" />
-                    )}
+                    {(isGenerating || isEditing) && !displayHTML && <NeoSkeleton variant="preview" />}
                     {displayHTML && (
-                      <iframe ref={iframeRef} srcDoc={displayHTML} className="w-full h-full min-h-[500px]" sandbox="allow-scripts" title="Generated Website Preview" />
+                      <iframe
+                        ref={iframeRef}
+                        srcDoc={displayHTML}
+                        className="w-full h-full min-h-[500px]"
+                        sandbox="allow-scripts"
+                        title="Generated Website Preview"
+                      />
                     )}
                   </div>
 
