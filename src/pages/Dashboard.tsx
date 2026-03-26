@@ -328,36 +328,49 @@ const Dashboard = () => {
             <div className="container mx-auto px-6 flex-1 flex flex-col">
               {!showGenerator || isCreateRoute && !generatedHTML && !streamingHTML && !isGenerating ? (
                 <div className="flex-1 flex flex-col">
-                  {/* Prompt bar always visible */}
-                  <div className="max-w-2xl mx-auto w-full mb-8">
-                    <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass border-glow mb-4">
-                      <Sparkles className="w-4 h-4 text-primary" />
-                      <span className="text-sm text-muted-foreground">AI Website Generator</span>
+                  {/* Business type selector for create route (shown before prompt) */}
+                  {isCreateRoute && !businessType && (
+                    <div className="flex-1 flex items-center justify-center py-12">
+                      <BusinessTypeSelector onSelect={(type) => setBusinessType(type)} />
                     </div>
-                    <div className="flex gap-2">
-                      <Textarea
-                        placeholder="Describe the website you want to generate..."
-                        value={prompt}
-                        onChange={(e) => setPrompt(e.target.value)}
-                        className="min-h-[60px] bg-secondary/50 border-border resize-none text-sm"
-                        onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) setShowWorkflowPreview(true); }}
-                      />
-                      <Button variant="hero" size="lg" onClick={() => setShowWorkflowPreview(true)} disabled={!prompt.trim() || (credits !== null && credits <= 0)} className="shrink-0">
-                        <Send className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </div>
+                  )}
 
-                  {/* Workflow preview card */}
-                  {showWorkflowPreview && prompt.trim() && (
-                    <div className="mb-8">
-                      <WorkflowPreview
-                        prompt={prompt.trim()}
-                        onApprove={() => { setShowWorkflowPreview(false); handleGenerate(); }}
-                        onCancel={() => setShowWorkflowPreview(false)}
-                        isGenerating={isGenerating}
-                      />
-                    </div>
+                  {/* Prompt bar visible after business type is chosen or on non-create routes */}
+                  {(!isCreateRoute || businessType) && (
+                    <>
+                      <div className="max-w-2xl mx-auto w-full mb-8">
+                        <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass border-glow mb-4">
+                          <Sparkles className="w-4 h-4 text-primary" />
+                          <span className="text-sm text-muted-foreground">
+                            {businessType ? `Building a ${businessType} website` : "AI Website Generator"}
+                          </span>
+                        </div>
+                        <div className="flex gap-2">
+                          <Textarea
+                            placeholder={businessType ? `Describe your ${businessType} website...` : "Describe the website you want to generate..."}
+                            value={prompt}
+                            onChange={(e) => setPrompt(e.target.value)}
+                            className="min-h-[60px] bg-secondary/50 border-border resize-none text-sm"
+                            onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) setShowWorkflowPreview(true); }}
+                          />
+                          <Button variant="hero" size="lg" onClick={() => setShowWorkflowPreview(true)} disabled={!prompt.trim() || (credits !== null && credits <= 0)} className="shrink-0">
+                            <Send className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* Workflow preview card */}
+                      {showWorkflowPreview && prompt.trim() && (
+                        <div className="mb-8">
+                          <WorkflowPreview
+                            prompt={prompt.trim()}
+                            onApprove={() => { setShowWorkflowPreview(false); handleGenerate(); }}
+                            onCancel={() => setShowWorkflowPreview(false)}
+                            isGenerating={isGenerating}
+                          />
+                        </div>
+                      )}
+                    </>
                   )}
 
                   {/* Sub-view content */}
