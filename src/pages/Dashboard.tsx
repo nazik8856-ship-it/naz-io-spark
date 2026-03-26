@@ -477,6 +477,14 @@ const Dashboard = () => {
                       onDownload={handleDownload}
                       onNewWebsite={handleNewWebsite}
                       isPublished={!!publishedUrl}
+                      onStrategyQuestion={(q) => {
+                        setShowEditChat(true);
+                        // Send strategy question through edit chat
+                        setTimeout(() => {
+                          const event = new CustomEvent("strategy-question", { detail: q });
+                          window.dispatchEvent(event);
+                        }, 100);
+                      }}
                     />
                   )}
 
