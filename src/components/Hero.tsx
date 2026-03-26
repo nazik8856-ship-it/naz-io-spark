@@ -2,47 +2,47 @@ import { Button } from "@/components/ui/button";
 import { ArrowRight, Sparkles } from "lucide-react";
 import { Link } from "react-router-dom";
 
-const Hero = () => {
+const Hero = ({ onStart }: { onStart: () => void }) => {
   return (
     <section className="relative min-h-screen flex items-center justify-center overflow-hidden pt-20">
-      {/* Background Gradient Orbs */}
-      <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-primary/20 rounded-full blur-3xl animate-float opacity-60" />
-        <div className="absolute bottom-1/4 right-1/4 w-80 h-80 bg-glow-secondary/20 rounded-full blur-3xl animate-float-delayed opacity-40" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-primary/10 rounded-full blur-3xl animate-pulse-glow" />
-      </div>
-
       {/* Grid Pattern */}
       <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:64px_64px]" />
 
       <div className="container mx-auto px-6 relative z-10">
         <div className="max-w-4xl mx-auto text-center">
           {/* Badge */}
-          <div className="animate-section-enter inline-flex items-center gap-2 px-4 py-2 rounded-full glass border-glow mb-8" style={{ animationDelay: "0.2s" }}>
+          <div
+            className="animate-section-enter inline-flex items-center gap-2 px-4 py-2 rounded-full glass border-glow mb-8"
+            style={{ animationDelay: "0.2s" }}
+          >
             <Sparkles className="w-4 h-4 text-primary" />
-            <span className="text-sm text-muted-foreground">
-              Introducing NazAI Platform
-            </span>
+            <span className="text-sm text-muted-foreground">Introducing NazAI Platform</span>
           </div>
 
           {/* Headline */}
-          <h1 className="animate-section-enter text-5xl md:text-7xl font-bold tracking-tight mb-6" style={{ animationDelay: "0.35s" }}>
-            Launch a Real Online Business using{" "}
-            <span className="text-gradient">AI in Minutes</span>
+          <h1
+            className="animate-section-enter text-5xl md:text-7xl font-bold tracking-tight mb-6"
+            style={{ animationDelay: "0.35s" }}
+          >
+            Launch a Real Online Business using <span className="text-gradient">AI in Minutes</span>
           </h1>
 
           {/* Subheadline */}
-          <p className="animate-section-enter text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto mb-10 leading-relaxed" style={{ animationDelay: "0.5s" }}>
+          <p
+            className="animate-section-enter text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto mb-10 leading-relaxed"
+            style={{ animationDelay: "0.5s" }}
+          >
             NazAI turns your idea into a clear action
           </p>
 
           {/* CTA Buttons */}
-          <div className="animate-section-enter flex flex-col sm:flex-row items-center justify-center gap-4" style={{ animationDelay: "0.65s" }}>
-            <Button variant="hero" size="xl" asChild>
-              <Link to="/signup">
-                Start for Free
-                <ArrowRight className="w-5 h-5" />
-              </Link>
+          <div
+            className="animate-section-enter flex flex-col sm:flex-row items-center justify-center gap-4"
+            style={{ animationDelay: "0.65s" }}
+          >
+            <Button variant="hero" size="xl" onClick={onStart}>
+              Start for Free
+              <ArrowRight className="w-5 h-5 ml-2" />
             </Button>
             <Button variant="heroOutline" size="xl">
               Watch Demo
@@ -50,21 +50,17 @@ const Hero = () => {
           </div>
 
           {/* Trust Indicators */}
-          <div className="animate-section-enter mt-16 pt-8 border-t border-border/50" style={{ animationDelay: "0.8s" }}>
-            <p className="text-sm text-muted-foreground mb-6">
-              Trusted by innovative teams worldwide
-            </p>
+          <div
+            className="animate-section-enter mt-16 pt-8 border-t border-border/50"
+            style={{ animationDelay: "0.8s" }}
+          >
+            <p className="text-sm text-muted-foreground mb-6">Trusted by innovative teams worldwide</p>
             <div className="flex flex-wrap items-center justify-center gap-8 opacity-50">
-              {["TechCorp", "InnovateLab", "DataFlow", "CloudScale", "AIFirst"].map(
-                (company) => (
-                  <span
-                    key={company}
-                    className="text-lg font-semibold text-muted-foreground"
-                  >
-                    {company}
-                  </span>
-                )
-              )}
+              {["TechCorp", "InnovateLab", "DataFlow", "CloudScale", "AIFirst"].map((company) => (
+                <span key={company} className="text-lg font-semibold text-muted-foreground">
+                  {company}
+                </span>
+              ))}
             </div>
           </div>
         </div>
