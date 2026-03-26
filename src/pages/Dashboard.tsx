@@ -5,6 +5,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { LogOut, Sparkles, Send, Loader2, Download, RefreshCw, Share2, Check, Copy, Globe, ExternalLink, Pencil, Coins } from "lucide-react";
 import NextStepSuggestions from "@/components/NextStepSuggestions";
 import WorkflowPreview from "@/components/WorkflowPreview";
+import BusinessTypeSelector from "@/components/BusinessTypeSelector";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
