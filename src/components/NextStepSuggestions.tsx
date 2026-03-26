@@ -16,6 +16,7 @@ interface NextStepSuggestionsProps {
   onDownload: () => void;
   onNewWebsite: () => void;
   isPublished: boolean;
+  onStrategyQuestion?: (question: string) => void;
 }
 
 const NextStepSuggestions = ({
