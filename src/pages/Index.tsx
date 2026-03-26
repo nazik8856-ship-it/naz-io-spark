@@ -12,7 +12,10 @@ const Index = () => {
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
-      <Hero />
+      <Hero onStart={() => {
+      setShowToast(true);
+      setTimeout(() => setShowToast(false),(3000);
+      }} />
       <Features />
       <HowItWorks />
       <Feedback />
