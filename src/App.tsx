@@ -16,6 +16,7 @@ import AuthCallback from "./pages/AuthCallback";
 import NotFound from "./pages/NotFound";
 import Privacy from "./pages/Privacy";
 import Terms from "./pages/Terms";
+import Auth from "./pages/Auth";
 
 const queryClient = new QueryClient();
 
