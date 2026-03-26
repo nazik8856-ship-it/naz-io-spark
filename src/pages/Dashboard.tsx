@@ -354,21 +354,47 @@ const Dashboard = () => {
                             value={prompt}
                             onChange={(e) => setPrompt(e.target.value)}
                             className="min-h-[60px] bg-secondary/50 border-border resize-none text-sm"
-                            onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) setShowWorkflowPreview(true); }}
+                            onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) setShowDecisionFork(true); }}
                           />
-                          <Button variant="hero" size="lg" onClick={() => setShowWorkflowPreview(true)} disabled={!prompt.trim() || (credits !== null && credits <= 0)} className="shrink-0">
+                          <Button variant="hero" size="lg" onClick={() => setShowDecisionFork(true)} disabled={!prompt.trim() || (credits !== null && credits <= 0)} className="shrink-0">
                             <Send className="w-4 h-4" />
                           </Button>
                         </div>
                       </div>
 
-                      {/* Workflow preview card */}
+                      {/* Decision Fork: style choice */}
+                      {showDecisionFork && !showWorkflowPreview && prompt.trim() && (
+                        <div className="mb-8">
+                          <DecisionFork
+                            question="What design direction fits your vision?"
+                            options={[
+                              {
+                                label: "Minimal & Clean",
+                                description: "Whitespace-driven, elegant typography, subtle accents",
+                                icon: <Palette className="w-5 h-5" />,
+                              },
+                              {
+                                label: "Bold & Dynamic",
+                                description: "Vivid colors, strong gradients, eye-catching animations",
+                                icon: <Zap className="w-5 h-5" />,
+                              },
+                            ]}
+                            onSelect={(i) => {
+                              setDesignChoice(i === 0 ? "minimal" : "bold");
+                              setShowDecisionFork(false);
+                              setShowWorkflowPreview(true);
+                            }}
+                          />
+                        </div>
+                      )}
+
+                      {/* Workflow preview card (Plan → Act → Reflect) */}
                       {showWorkflowPreview && prompt.trim() && (
                         <div className="mb-8">
                           <WorkflowPreview
-                            prompt={prompt.trim()}
-                            onApprove={() => { setShowWorkflowPreview(false); handleGenerate(); }}
-                            onCancel={() => setShowWorkflowPreview(false)}
+                            prompt={`${prompt.trim()}${designChoice ? ` [Style: ${designChoice}]` : ""}`}
+                            onApprove={() => { setShowWorkflowPreview(false); setShowDecisionFork(false); handleGenerate(); }}
+                            onCancel={() => { setShowWorkflowPreview(false); setShowDecisionFork(true); }}
                             isGenerating={isGenerating}
                           />
                         </div>
