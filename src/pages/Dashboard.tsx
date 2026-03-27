@@ -219,6 +219,7 @@ const Dashboard = () => {
     setIsGenerating(true);
     setGeneratedHTML("");
     setStreamingHTML("");
+    setGenerationError(null);
 
     try {
       const fullPrompt = `${prompt.trim()}${designChoice ? `. Use a ${designChoice === "minimal" ? "minimal, clean, whitespace-driven" : "bold, dynamic, vivid"} design style.` : ""}`;
