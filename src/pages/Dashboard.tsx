@@ -113,6 +113,7 @@ const Dashboard = () => {
   const [showEditChat, setShowEditChat] = useState(false);
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const [showWorkflowPreview, setShowWorkflowPreview] = useState(false);
+  const [generationError, setGenerationError] = useState<string | null>(null);
   const [businessType, setBusinessType] = useState<string | null>(null);
   const [designChoice, setDesignChoice] = useState<string | null>(null);
   const [showDecisionFork, setShowDecisionFork] = useState(false);
