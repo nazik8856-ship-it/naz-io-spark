@@ -600,7 +600,6 @@ const Dashboard = () => {
                     <EditChat onSendEdit={handleEdit} isGenerating={isEditing} />
                   )}
                  
-};
                 </div>
               )}
             </div>
