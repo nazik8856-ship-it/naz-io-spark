@@ -316,12 +316,24 @@ const Dashboard = () => {
 
   const handleSidebarAction = (action: string) => {
     switch (action) {
-      case "idea-helper": setShowIdeaHelper(true); break;
-      case "edit": setShowEditChat(true); break;
-      case "preview": setShowEditChat(false); break;
-      case "publish": handlePublish(); break;
-      case "share": handleShare(); break;
-      case "download": handleDownload(); break;
+      case "idea-helper":
+        setShowIdeaHelper(true);
+        break;
+      case "edit":
+        setShowEditChat(true);
+        break;
+      case "preview":
+        setShowEditChat(false);
+        break;
+      case "publish":
+        handlePublish();
+        break;
+      case "share":
+        handleShare();
+        break;
+      case "download":
+        handleDownload();
+        break;
     }
   };
 
@@ -351,6 +363,24 @@ const Dashboard = () => {
         />
       );
     }
+
+    {
+      /* Credit Section in Sidebar */
+    }
+    <div className="mt-auto pt-4 border-t border-white/10">
+      <div className="px-3 py-2 bg-zinc-900/50 rounded-lg border border-neon-green/20">
+        <div className="flex justify-between items-center mb-2">
+          <span className="text-xs text-zinc-400">Credits</span>
+          <span className="text-xs font-bold text-neon-green">{userCredits}/3</span>
+        </div>
+        <button
+          onClick={() => setShowCreditModal(true)}
+          className="w-full py-2 text-xs bg-neon-green text-black font-bold rounded hover:bg-white transition-all"
+        >
+          GET MORE CREDITS
+        </button>
+      </div>
+    </div>;
     // Default: Recently
     return (
       <DashboardRecently
@@ -451,7 +481,12 @@ const Dashboard = () => {
                             <Send className="w-4 h-4" />
                           </Button>
                         </div>
-                        <IdeaHelper onSelectIdea={(idea) => { setPrompt(idea); setShowIdeaHelper(false); }} />
+                        <IdeaHelper
+                          onSelectIdea={(idea) => {
+                            setPrompt(idea);
+                            setShowIdeaHelper(false);
+                          }}
+                        />
                       </div>
 
                       {/* Decision Fork: style choice */}
@@ -599,7 +634,6 @@ const Dashboard = () => {
                   {generatedHTML && !isGenerating && showEditChat && (
                     <EditChat onSendEdit={handleEdit} isGenerating={isEditing} />
                   )}
-                 
                 </div>
               )}
             </div>
