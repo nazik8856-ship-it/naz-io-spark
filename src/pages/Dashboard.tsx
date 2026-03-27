@@ -565,7 +565,16 @@ const Dashboard = () => {
                   </div>
 
                   <div className="flex-1 rounded-2xl overflow-hidden border-4 border-foreground bg-white min-h-[500px] relative">
-                    {(isGenerating || isEditing) && !displayHTML && <NeoSkeleton variant="preview" />}
+                    {(isGenerating || isEditing) && !displayHTML && !generationError && <NeoSkeleton variant="preview" />}
+                    {generationError && !isGenerating && !displayHTML && (
+                      <div className="flex flex-col items-center justify-center h-full min-h-[300px] gap-4">
+                        <p className="text-destructive font-medium text-center max-w-md">{generationError}</p>
+                        <Button variant="outline" onClick={() => { setGenerationError(null); handleGenerate(); }}>
+                          <RefreshCw className="w-4 h-4 mr-2" />
+                          Retry
+                        </Button>
+                      </div>
+                    )}
                     {displayHTML && (
                       <iframe
                         ref={iframeRef}
