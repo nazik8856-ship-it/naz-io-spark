@@ -4,10 +4,17 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import Logo from "./Logo";
 import { useAuth } from "@/hooks/useAuth";
+import { useNavigate } from "react-router-dom";
 
 const Navbar = () => {
   const [isOpen, setIsOpen] = useState(false);
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
+  const navigate = useNavigate();
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate("/");
+  };
 
   const navLinks = [
     { name: "Features", href: "#features" },
@@ -42,13 +49,18 @@ const Navbar = () => {
           {/* CTA Buttons */}
           <div className="hidden md:flex items-center gap-4">
             {user ? (
-              <Button variant="default" size="sm" asChild>
-                <Link to="/dashboard">Dashboard</Link>
-              </Button>
+              <>
+                <Button variant="default" size="sm" asChild>
+                  <Link to="/dashboard">Dashboard</Link>
+                </Button>
+                <Button variant="ghost" size="sm" onClick={handleSignOut}>
+                  Sign Out
+                </Button>
+              </>
             ) : (
               <>
                 <Button variant="ghost" size="sm" asChild>
-                  <Link to="/login">Log in</Link>
+                  <Link to="/login">Sign In</Link>
                 </Button>
                 <Button variant="default" size="sm" asChild>
                   <Link to="/signup">Get Started</Link>
@@ -82,13 +94,18 @@ const Navbar = () => {
               ))}
               <div className="flex flex-col gap-2 pt-4 border-t border-border">
                 {user ? (
-                  <Button variant="default" size="sm" asChild>
-                    <Link to="/dashboard" onClick={() => setIsOpen(false)}>Dashboard</Link>
-                  </Button>
+                  <>
+                    <Button variant="default" size="sm" asChild>
+                      <Link to="/dashboard" onClick={() => setIsOpen(false)}>Dashboard</Link>
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => { setIsOpen(false); handleSignOut(); }}>
+                      Sign Out
+                    </Button>
+                  </>
                 ) : (
                   <>
                     <Button variant="ghost" size="sm" asChild>
-                      <Link to="/login" onClick={() => setIsOpen(false)}>Log in</Link>
+                      <Link to="/login" onClick={() => setIsOpen(false)}>Sign In</Link>
                     </Button>
                     <Button variant="default" size="sm" asChild>
                       <Link to="/signup" onClick={() => setIsOpen(false)}>Get Started</Link>
