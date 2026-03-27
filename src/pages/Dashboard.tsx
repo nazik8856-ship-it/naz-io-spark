@@ -50,7 +50,7 @@ import DashboardRecently from "@/pages/DashboardRecently";
 import DashboardAllProjects from "@/pages/DashboardAllProjects";
 import DashboardTrash from "@/pages/DashboardTrash";
 
-const GENERATE_URL = `https://${import.meta.env.VITE_SUPABASE_PROJECT_ID ?? 'qaeduinfirtljnbecyzq'}.supabase.co/functions/v1/swift-service`;
+// Using supabase.functions.invoke instead of raw fetch
 
 const Dashboard = () => {
   const navigate = useNavigate();
