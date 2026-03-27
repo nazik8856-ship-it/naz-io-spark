@@ -1,4 +1,4 @@
-import { Clock, FolderOpen, Trash2, PlusCircle, Pencil, Eye, Share2, Download, Globe, Lightbulb } from "lucide-react";
+import { Clock, FolderOpen, Trash2, PlusCircle, Pencil, Eye, Share2, Download, Globe, Lightbulb, Coins } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
 
@@ -27,6 +27,8 @@ export type DashboardContext = "prompt" | "preview" | "edit" | "browse";
 interface DashboardSidebarProps {
   context?: DashboardContext;
   onAction?: (action: string) => void;
+  credits?: number | null;
+  onRefillClick?: () => void;
 }
 
 const contextSections: Record<DashboardContext, { label: string; items: { title: string; icon: React.ElementType; action: string }[] }> = {
@@ -56,7 +58,7 @@ const contextSections: Record<DashboardContext, { label: string; items: { title:
   browse: { label: "", items: [] },
 };
 
-export function DashboardSidebar({ context = "browse", onAction }: DashboardSidebarProps) {
+export function DashboardSidebar({ context = "browse", onAction, credits, onRefillClick }: DashboardSidebarProps) {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
   const location = useLocation();
@@ -67,7 +69,7 @@ export function DashboardSidebar({ context = "browse", onAction }: DashboardSide
 
   return (
     <Sidebar collapsible="icon" className="border-r border-border bg-card/40 backdrop-blur-xl">
-      <SidebarContent className="pt-20">
+      <SidebarContent className="pt-20 flex flex-col h-full">
         <SidebarGroup>
           <SidebarGroupLabel className="text-xs uppercase tracking-wider text-muted-foreground/70">
             Projects
@@ -125,6 +127,35 @@ export function DashboardSidebar({ context = "browse", onAction }: DashboardSide
             </SidebarGroup>
           </>
         )}
+
+        {/* Credits Section — pinned to bottom */}
+        <div className="mt-auto p-3">
+          {collapsed ? (
+            <button
+              onClick={onRefillClick}
+              className="w-full flex items-center justify-center p-2 rounded-lg bg-zinc-900/60 border border-[#22c55e]/20 hover:border-[#22c55e]/50 transition-all"
+              title={`Credits: ${credits ?? 0}/3`}
+            >
+              <Coins className="h-4 w-4 text-[#22c55e]" />
+            </button>
+          ) : (
+            <div className="rounded-lg bg-zinc-900/60 border border-[#22c55e]/20 p-3">
+              <div className="flex justify-between items-center mb-2.5">
+                <div className="flex items-center gap-1.5">
+                  <Coins className="h-3.5 w-3.5 text-[#22c55e]" />
+                  <span className="text-xs text-zinc-400 font-medium">Credits</span>
+                </div>
+                <span className="text-xs font-bold text-[#22c55e]">{credits ?? 0}/3</span>
+              </div>
+              <button
+                onClick={onRefillClick}
+                className="w-full py-2 text-xs font-bold rounded bg-[#22c55e] text-black hover:shadow-[0_0_16px_rgba(34,197,94,0.4)] transition-all"
+              >
+                REFILL CREDITS
+              </button>
+            </div>
+          )}
+        </div>
       </SidebarContent>
     </Sidebar>
   );
