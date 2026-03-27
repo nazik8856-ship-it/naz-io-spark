@@ -4,10 +4,17 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import Logo from "./Logo";
 import { useAuth } from "@/hooks/useAuth";
+import { useNavigate } from "react-router-dom";
 
 const Navbar = () => {
   const [isOpen, setIsOpen] = useState(false);
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
+  const navigate = useNavigate();
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate("/");
+  };
 
   const navLinks = [
     { name: "Features", href: "#features" },
