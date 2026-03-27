@@ -5,18 +5,33 @@ export function useCredits(userId: string | undefined) {
   const [credits, setCredits] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const ensureProfile = useCallback(async () => {
+    if (!userId) return;
+    const { data } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("id", userId)
+      .maybeSingle();
+    if (!data) {
+      await supabase.from("profiles").insert({ id: userId, credits: 3 });
+    }
+  }, [userId]);
+
   const fetchCredits = useCallback(async () => {
     if (!userId) return;
+    await ensureProfile();
     const { data, error } = await supabase
       .from("profiles")
       .select("credits")
       .eq("id", userId)
       .single();
     if (!error && data) {
-      setCredits(data.credits);
+      setCredits(data.credits ?? 0);
+    } else {
+      setCredits(0);
     }
     setLoading(false);
-  }, [userId]);
+  }, [userId, ensureProfile]);
 
   useEffect(() => {
     fetchCredits();
