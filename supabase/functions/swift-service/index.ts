@@ -55,7 +55,7 @@ serve(async (req) => {
     const { data: profile } = await supabaseClient
       .from('profiles')
       .select('credits')
-      .eq('id', user.id)
+      .eq('id', userId)
       .single()
 
     if (!profile || profile.credits <= 0) {
