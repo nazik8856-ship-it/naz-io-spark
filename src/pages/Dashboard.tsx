@@ -229,20 +229,14 @@ const Dashboard = () => {
     setStreamingHTML("");
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) {
-        toast({ title: "Please sign in", description: "You need to be logged in to generate websites.", variant: "destructive" });
-        navigate("/signup");
-        return;
-      }
       const resp = await fetch(GENERATE_URL, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({
           prompt: `${prompt.trim()}${designChoice ? `. Use a ${designChoice === "minimal" ? "minimal, clean, whitespace-driven" : "bold, dynamic, vivid"} design style.` : ""}`,
+          userId: "00000000-0000-0000-0000-000000000000",
         }),
       });
 
