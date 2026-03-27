@@ -251,11 +251,7 @@ const Dashboard = () => {
       setStreamingHTML("");
 
       try {
-        const { data, error } = await supabase.functions.invoke('swift-service', {
-          body: { prompt: message, currentHTML: generatedHTML, chatHistory, userId: "00000000-0000-0000-0000-000000000000" },
-        });
-
-        if (error) throw new Error(error.message || 'Edit failed');
+        const data = await invokeSwiftService({ prompt: message, currentHTML: generatedHTML, chatHistory, userId: "00000000-0000-0000-0000-000000000000" });
         if (data?.error) throw new Error(data.error);
 
         const cleaned = cleanHTML(data.content || '');
