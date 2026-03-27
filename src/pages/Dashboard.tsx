@@ -69,7 +69,11 @@ async function invokeSwiftService(body: Record<string, unknown>) {
       Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify(body),
+    cache: 'no-store',
   });
+
+  console.log("Response Status Code:", res.status);
+  console.log("API Key Prefix Used:", SUPABASE_ANON_KEY?.substring(0, 5));
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -109,6 +113,7 @@ const Dashboard = () => {
   const [showEditChat, setShowEditChat] = useState(false);
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const [showWorkflowPreview, setShowWorkflowPreview] = useState(false);
+  const [generationError, setGenerationError] = useState<string | null>(null);
   const [businessType, setBusinessType] = useState<string | null>(null);
   const [designChoice, setDesignChoice] = useState<string | null>(null);
   const [showDecisionFork, setShowDecisionFork] = useState(false);
@@ -214,6 +219,7 @@ const Dashboard = () => {
     setIsGenerating(true);
     setGeneratedHTML("");
     setStreamingHTML("");
+    setGenerationError(null);
 
     try {
       const fullPrompt = `${prompt.trim()}${designChoice ? `. Use a ${designChoice === "minimal" ? "minimal, clean, whitespace-driven" : "bold, dynamic, vivid"} design style.` : ""}`;
@@ -237,6 +243,7 @@ const Dashboard = () => {
       });
 
     } catch (e: any) {
+      setGenerationError(e.message || "Something went wrong");
       toast({ title: "Generation failed", description: e.message || "Something went wrong", variant: "destructive" });
     } finally {
       setIsGenerating(false);
@@ -558,7 +565,16 @@ const Dashboard = () => {
                   </div>
 
                   <div className="flex-1 rounded-2xl overflow-hidden border-4 border-foreground bg-white min-h-[500px] relative">
-                    {(isGenerating || isEditing) && !displayHTML && <NeoSkeleton variant="preview" />}
+                    {(isGenerating || isEditing) && !displayHTML && !generationError && <NeoSkeleton variant="preview" />}
+                    {generationError && !isGenerating && !displayHTML && (
+                      <div className="flex flex-col items-center justify-center h-full min-h-[300px] gap-4">
+                        <p className="text-destructive font-medium text-center max-w-md">{generationError}</p>
+                        <Button variant="outline" onClick={() => { setGenerationError(null); handleGenerate(); }}>
+                          <RefreshCw className="w-4 h-4 mr-2" />
+                          Retry
+                        </Button>
+                      </div>
+                    )}
                     {displayHTML && (
                       <iframe
                         ref={iframeRef}
