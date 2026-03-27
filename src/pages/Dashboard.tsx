@@ -55,18 +55,12 @@ const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const SWIFT_SERVICE_URL = `${SUPABASE_URL}/functions/v1/swift-service`;
 
 async function invokeSwiftService(body: Record<string, unknown>) {
-  let token = SUPABASE_ANON_KEY;
-  try {
-    const { data } = await supabase.auth.getSession();
-    if (data?.session?.access_token) token = data.session.access_token;
-  } catch { /* use anon key as fallback */ }
-
   const res = await fetch(SWIFT_SERVICE_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       apikey: SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
     },
     body: JSON.stringify(body),
     cache: 'no-store',
