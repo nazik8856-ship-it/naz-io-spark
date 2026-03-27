@@ -50,7 +50,7 @@ import DashboardRecently from "@/pages/DashboardRecently";
 import DashboardAllProjects from "@/pages/DashboardAllProjects";
 import DashboardTrash from "@/pages/DashboardTrash";
 
-const GENERATE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-website`;
+const GENERATE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/smart-worker`;
 
 const Dashboard = () => {
   const navigate = useNavigate();
