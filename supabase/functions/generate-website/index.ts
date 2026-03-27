@@ -45,7 +45,7 @@ serve(async (req) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: Create a professional business and website structure for: ${prompt} }] }]
+        contents: [{ parts: [{ text: `Create a professional business and website structure for: ${prompt}` }] }]
       }),
     })
 
