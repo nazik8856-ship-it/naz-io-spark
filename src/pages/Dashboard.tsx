@@ -69,7 +69,11 @@ async function invokeSwiftService(body: Record<string, unknown>) {
       Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify(body),
+    cache: 'no-store',
   });
+
+  console.log("Response Status Code:", res.status);
+  console.log("API Key Prefix Used:", SUPABASE_ANON_KEY?.substring(0, 5));
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
