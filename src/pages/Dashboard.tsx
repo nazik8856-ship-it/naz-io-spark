@@ -45,6 +45,7 @@ import { useProjects, type Project } from "@/hooks/useProjects";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { DashboardSidebar, type DashboardContext } from "@/components/DashboardSidebar";
 import IdeaHelper from "@/components/IdeaHelper";
+import CreditRefillModal from "@/components/CreditRefillModal";
 import DashboardRecently from "@/pages/DashboardRecently";
 import DashboardAllProjects from "@/pages/DashboardAllProjects";
 import DashboardTrash from "@/pages/DashboardTrash";
@@ -86,6 +87,7 @@ const Dashboard = () => {
   const [designChoice, setDesignChoice] = useState<string | null>(null);
   const [showDecisionFork, setShowDecisionFork] = useState(false);
   const [showIdeaHelper, setShowIdeaHelper] = useState(false);
+  const [showCreditModal, setShowCreditModal] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const { toast } = useToast();
 
@@ -216,6 +218,12 @@ const Dashboard = () => {
   const handleGenerate = useCallback(async () => {
     if (!prompt.trim() || isGenerating) return;
 
+    // Credit gating
+    if (credits !== null && credits <= 0) {
+      setShowCreditModal(true);
+      return;
+    }
+
     setIsGenerating(true);
     setGeneratedHTML("");
     setStreamingHTML("");
@@ -241,6 +249,9 @@ const Dashboard = () => {
       const cleaned = await processStream(resp);
       setGeneratedHTML(cleaned);
       setStreamingHTML("");
+
+      // Deduct credit after successful generation
+      await deductCredit();
 
       // Save as a new project
       const title = prompt.trim().slice(0, 60) || "Untitled Project";
@@ -364,22 +375,7 @@ const Dashboard = () => {
       );
     }
 
-    {
-      /* Credit Section in Sidebar */
-    }
-    <div className="mt-auto pt-4 border-t border-white/10">
-      <div className="px-3 py-2 bg-zinc-900/50 rounded-lg border border-neon-green/20">
-        <div className="flex justify-between items-center mb-2">
-          <span className="text-xs text-zinc-400">Credits</span>
-          <span className="text-xs font-bold text-neon-green">{credits ?? 0}/3</span>
-        </div>
-        <button
-          className="w-full py-2 text-xs bg-neon-green text-black font-bold rounded hover:bg-white transition-all"
-        >
-          GET MORE CREDITS
-        </button>
-      </div>
-    </div>;
+    // Default: Recently
     // Default: Recently
     return (
       <DashboardRecently
@@ -392,9 +388,10 @@ const Dashboard = () => {
   };
 
   return (
+    <>
     <SidebarProvider>
       <div className="min-h-screen flex w-full bg-background animate-dashboard-enter">
-        <DashboardSidebar context={sidebarContext} onAction={handleSidebarAction} />
+        <DashboardSidebar context={sidebarContext} onAction={handleSidebarAction} credits={credits} onRefillClick={() => setShowCreditModal(true)} />
 
         <div className="flex-1 flex flex-col">
           <header className="fixed top-0 left-0 right-0 z-50 glass">
@@ -640,6 +637,8 @@ const Dashboard = () => {
         </div>
       </div>
     </SidebarProvider>
+    <CreditRefillModal open={showCreditModal} onOpenChange={setShowCreditModal} userId={user?.id} />
+    </>
   );
 };
 
