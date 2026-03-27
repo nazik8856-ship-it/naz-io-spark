@@ -306,6 +306,25 @@ const Dashboard = () => {
 
   const displayHTML = generatedHTML || streamingHTML;
 
+  // Determine sidebar context
+  const sidebarContext: DashboardContext = (() => {
+    if (showEditChat && generatedHTML) return "edit";
+    if (generatedHTML && !isGenerating) return "preview";
+    if (isCreateRoute || prompt) return "prompt";
+    return "browse";
+  })();
+
+  const handleSidebarAction = (action: string) => {
+    switch (action) {
+      case "idea-helper": setShowIdeaHelper(true); break;
+      case "edit": setShowEditChat(true); break;
+      case "preview": setShowEditChat(false); break;
+      case "publish": handlePublish(); break;
+      case "share": handleShare(); break;
+      case "download": handleDownload(); break;
+    }
+  };
+
   // Determine which sub-view to render
   const renderSubView = () => {
     if (showGenerator) return null; // Generator view takes over
