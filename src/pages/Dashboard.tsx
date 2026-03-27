@@ -388,6 +388,7 @@ const Dashboard = () => {
   };
 
   return (
+    <>
     <SidebarProvider>
       <div className="min-h-screen flex w-full bg-background animate-dashboard-enter">
         <DashboardSidebar context={sidebarContext} onAction={handleSidebarAction} credits={credits} onRefillClick={() => setShowCreditModal(true)} />
