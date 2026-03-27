@@ -242,8 +242,12 @@ const Dashboard = () => {
       });
 
       if (!resp.ok) {
-        const err = await resp.json();
-        throw new Error(err.error || "Failed to generate website");
+        let errMsg = `Server error ${resp.status}`;
+        try {
+          const err = await resp.json();
+          errMsg = err.error || err.message || JSON.stringify(err);
+        } catch { /* non-JSON response */ }
+        throw new Error(errMsg);
       }
 
       const cleaned = await processStream(resp);
