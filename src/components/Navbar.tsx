@@ -87,13 +87,18 @@ const Navbar = () => {
               ))}
               <div className="flex flex-col gap-2 pt-4 border-t border-border">
                 {user ? (
-                  <Button variant="default" size="sm" asChild>
-                    <Link to="/dashboard" onClick={() => setIsOpen(false)}>Dashboard</Link>
-                  </Button>
+                  <>
+                    <Button variant="default" size="sm" asChild>
+                      <Link to="/dashboard" onClick={() => setIsOpen(false)}>Dashboard</Link>
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => { setIsOpen(false); handleSignOut(); }}>
+                      Sign Out
+                    </Button>
+                  </>
                 ) : (
                   <>
                     <Button variant="ghost" size="sm" asChild>
-                      <Link to="/login" onClick={() => setIsOpen(false)}>Log in</Link>
+                      <Link to="/login" onClick={() => setIsOpen(false)}>Sign In</Link>
                     </Button>
                     <Button variant="default" size="sm" asChild>
                       <Link to="/signup" onClick={() => setIsOpen(false)}>Get Started</Link>
