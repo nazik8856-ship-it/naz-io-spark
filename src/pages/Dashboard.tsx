@@ -218,11 +218,7 @@ const Dashboard = () => {
     try {
       const fullPrompt = `${prompt.trim()}${designChoice ? `. Use a ${designChoice === "minimal" ? "minimal, clean, whitespace-driven" : "bold, dynamic, vivid"} design style.` : ""}`;
       
-      const { data, error } = await supabase.functions.invoke('swift-service', {
-        body: { prompt: fullPrompt, userId: "00000000-0000-0000-0000-000000000000" },
-      });
-
-      if (error) throw new Error(error.message || 'Generation failed');
+      const data = await invokeSwiftService({ prompt: fullPrompt, userId: "00000000-0000-0000-0000-000000000000" });
       if (data?.error) throw new Error(data.error);
 
       const cleaned = cleanHTML(data.content || '');
