@@ -365,7 +365,7 @@ const Dashboard = () => {
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full bg-background animate-dashboard-enter">
-        <DashboardSidebar />
+        <DashboardSidebar context={sidebarContext} onAction={handleSidebarAction} />
 
         <div className="flex-1 flex flex-col">
           <header className="fixed top-0 left-0 right-0 z-50 glass">
