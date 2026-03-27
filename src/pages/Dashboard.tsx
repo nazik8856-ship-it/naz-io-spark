@@ -636,6 +636,7 @@ const Dashboard = () => {
         </div>
       </div>
     </SidebarProvider>
+    <CreditRefillModal open={showCreditModal} onOpenChange={setShowCreditModal} userId={user?.id} />
   );
 };
 
