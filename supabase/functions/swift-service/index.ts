@@ -25,31 +25,15 @@ serve(async (req) => {
 
     const supabaseClient = createClient(supabaseUrl, serviceRoleKey)
 
-    // Identify the user via JWT claims
-    const authHeader = req.headers.get('Authorization')
-    if (!authHeader?.startsWith('Bearer ')) {
+    // Get request body
+    const { prompt, userId, currentHTML, chatHistory } = await req.json()
+
+    if (!userId) {
       return new Response(
-        JSON.stringify({ error: 'Missing authorization header' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ error: 'userId is required in request body' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
-
-    const anonClient = createClient(supabaseUrl, Deno.env.get('SUPABASE_ANON_KEY')!, {
-      global: { headers: { Authorization: authHeader } }
-    })
-
-    const token = authHeader.replace('Bearer ', '')
-    const { data: claimsData, error: claimsError } = await anonClient.auth.getClaims(token)
-
-    if (claimsError || !claimsData?.claims?.sub) {
-      console.error('Auth error:', claimsError?.message)
-      return new Response(
-        JSON.stringify({ error: 'Not authenticated' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
-
-    const userId = claimsData.claims.sub as string
 
     // Check credits
     const { data: profile } = await supabaseClient
@@ -57,16 +41,6 @@ serve(async (req) => {
       .select('credits')
       .eq('id', userId)
       .single()
-
-    if (!profile || profile.credits <= 0) {
-      return new Response(
-        JSON.stringify({ error: 'No credits left! Complete tasks to earn more.' }),
-        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
-
-    // Get the prompt
-    const { prompt } = await req.json()
     const apiKey = Deno.env.get('GEMINI_API_KEY')
 
     if (!apiKey) {
