@@ -364,22 +364,7 @@ const Dashboard = () => {
       );
     }
 
-    {
-      /* Credit Section in Sidebar */
-    }
-    <div className="mt-auto pt-4 border-t border-white/10">
-      <div className="px-3 py-2 bg-zinc-900/50 rounded-lg border border-neon-green/20">
-        <div className="flex justify-between items-center mb-2">
-          <span className="text-xs text-zinc-400">Credits</span>
-          <span className="text-xs font-bold text-neon-green">{credits ?? 0}/3</span>
-        </div>
-        <button
-          className="w-full py-2 text-xs bg-neon-green text-black font-bold rounded hover:bg-white transition-all"
-        >
-          GET MORE CREDITS
-        </button>
-      </div>
-    </div>;
+    // Default: Recently
     // Default: Recently
     return (
       <DashboardRecently
