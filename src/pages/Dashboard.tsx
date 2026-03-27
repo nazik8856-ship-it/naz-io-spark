@@ -451,6 +451,7 @@ const Dashboard = () => {
                             <Send className="w-4 h-4" />
                           </Button>
                         </div>
+                        <IdeaHelper onSelectIdea={(idea) => { setPrompt(idea); setShowIdeaHelper(false); }} />
                       </div>
 
                       {/* Decision Fork: style choice */}
