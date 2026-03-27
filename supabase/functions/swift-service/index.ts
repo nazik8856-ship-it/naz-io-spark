@@ -12,8 +12,8 @@ serve(async (req) => {
   }
 
   try {
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')
-    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 
     if (!supabaseUrl || !serviceRoleKey) {
       console.error('Missing env vars:', { hasUrl: !!supabaseUrl, hasKey: !!serviceRoleKey })
@@ -26,7 +26,14 @@ serve(async (req) => {
     const supabaseClient = createClient(supabaseUrl, serviceRoleKey)
 
     // Identify the user
-    const authHeader = req.headers.get('Authorization')!
+    const authHeader = req.headers.get('Authorization')
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ error: 'Missing authorization header' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
     const token = authHeader.replace('Bearer ', '')
     const { data: { user } } = await supabaseClient.auth.getUser(token)
 
