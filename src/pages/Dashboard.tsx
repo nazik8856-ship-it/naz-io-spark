@@ -218,6 +218,12 @@ const Dashboard = () => {
   const handleGenerate = useCallback(async () => {
     if (!prompt.trim() || isGenerating) return;
 
+    // Credit gating
+    if (credits !== null && credits <= 0) {
+      setShowCreditModal(true);
+      return;
+    }
+
     setIsGenerating(true);
     setGeneratedHTML("");
     setStreamingHTML("");
@@ -243,6 +249,9 @@ const Dashboard = () => {
       const cleaned = await processStream(resp);
       setGeneratedHTML(cleaned);
       setStreamingHTML("");
+
+      // Deduct credit after successful generation
+      await deductCredit();
 
       // Save as a new project
       const title = prompt.trim().slice(0, 60) || "Untitled Project";
