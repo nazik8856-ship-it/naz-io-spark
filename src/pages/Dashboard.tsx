@@ -43,7 +43,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { useCredits } from "@/hooks/useCredits";
 import { useProjects, type Project } from "@/hooks/useProjects";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
-import { DashboardSidebar } from "@/components/DashboardSidebar";
+import { DashboardSidebar, type DashboardContext } from "@/components/DashboardSidebar";
+import IdeaHelper from "@/components/IdeaHelper";
 import DashboardRecently from "@/pages/DashboardRecently";
 import DashboardAllProjects from "@/pages/DashboardAllProjects";
 import DashboardTrash from "@/pages/DashboardTrash";
@@ -84,6 +85,7 @@ const Dashboard = () => {
   const [businessType, setBusinessType] = useState<string | null>(null);
   const [designChoice, setDesignChoice] = useState<string | null>(null);
   const [showDecisionFork, setShowDecisionFork] = useState(false);
+  const [showIdeaHelper, setShowIdeaHelper] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const { toast } = useToast();
 
@@ -304,6 +306,25 @@ const Dashboard = () => {
 
   const displayHTML = generatedHTML || streamingHTML;
 
+  // Determine sidebar context
+  const sidebarContext: DashboardContext = (() => {
+    if (showEditChat && generatedHTML) return "edit";
+    if (generatedHTML && !isGenerating) return "preview";
+    if (isCreateRoute || prompt) return "prompt";
+    return "browse";
+  })();
+
+  const handleSidebarAction = (action: string) => {
+    switch (action) {
+      case "idea-helper": setShowIdeaHelper(true); break;
+      case "edit": setShowEditChat(true); break;
+      case "preview": setShowEditChat(false); break;
+      case "publish": handlePublish(); break;
+      case "share": handleShare(); break;
+      case "download": handleDownload(); break;
+    }
+  };
+
   // Determine which sub-view to render
   const renderSubView = () => {
     if (showGenerator) return null; // Generator view takes over
@@ -344,7 +365,7 @@ const Dashboard = () => {
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full bg-background animate-dashboard-enter">
-        <DashboardSidebar />
+        <DashboardSidebar context={sidebarContext} onAction={handleSidebarAction} />
 
         <div className="flex-1 flex flex-col">
           <header className="fixed top-0 left-0 right-0 z-50 glass">
@@ -430,6 +451,7 @@ const Dashboard = () => {
                             <Send className="w-4 h-4" />
                           </Button>
                         </div>
+                        <IdeaHelper onSelectIdea={(idea) => { setPrompt(idea); setShowIdeaHelper(false); }} />
                       </div>
 
                       {/* Decision Fork: style choice */}
