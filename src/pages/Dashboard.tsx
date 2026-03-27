@@ -50,7 +50,33 @@ import DashboardRecently from "@/pages/DashboardRecently";
 import DashboardAllProjects from "@/pages/DashboardAllProjects";
 import DashboardTrash from "@/pages/DashboardTrash";
 
-// Using supabase.functions.invoke instead of raw fetch
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+const SWIFT_SERVICE_URL = `${SUPABASE_URL}/functions/v1/swift-service`;
+
+async function invokeSwiftService(body: Record<string, unknown>) {
+  let token = SUPABASE_ANON_KEY;
+  try {
+    const { data } = await supabase.auth.getSession();
+    if (data?.session?.access_token) token = data.session.access_token;
+  } catch { /* use anon key as fallback */ }
+
+  const res = await fetch(SWIFT_SERVICE_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error || `Function failed with status ${res.status}`);
+  }
+  return res.json();
+}
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -192,11 +218,7 @@ const Dashboard = () => {
     try {
       const fullPrompt = `${prompt.trim()}${designChoice ? `. Use a ${designChoice === "minimal" ? "minimal, clean, whitespace-driven" : "bold, dynamic, vivid"} design style.` : ""}`;
       
-      const { data, error } = await supabase.functions.invoke('swift-service', {
-        body: { prompt: fullPrompt, userId: "00000000-0000-0000-0000-000000000000" },
-      });
-
-      if (error) throw new Error(error.message || 'Generation failed');
+      const data = await invokeSwiftService({ prompt: fullPrompt, userId: "00000000-0000-0000-0000-000000000000" });
       if (data?.error) throw new Error(data.error);
 
       const cleaned = cleanHTML(data.content || '');
@@ -229,11 +251,7 @@ const Dashboard = () => {
       setStreamingHTML("");
 
       try {
-        const { data, error } = await supabase.functions.invoke('swift-service', {
-          body: { prompt: message, currentHTML: generatedHTML, chatHistory, userId: "00000000-0000-0000-0000-000000000000" },
-        });
-
-        if (error) throw new Error(error.message || 'Edit failed');
+        const data = await invokeSwiftService({ prompt: message, currentHTML: generatedHTML, chatHistory, userId: "00000000-0000-0000-0000-000000000000" });
         if (data?.error) throw new Error(data.error);
 
         const cleaned = cleanHTML(data.content || '');
