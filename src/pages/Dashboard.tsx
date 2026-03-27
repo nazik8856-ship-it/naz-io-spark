@@ -50,7 +50,7 @@ import DashboardRecently from "@/pages/DashboardRecently";
 import DashboardAllProjects from "@/pages/DashboardAllProjects";
 import DashboardTrash from "@/pages/DashboardTrash";
 
-const GENERATE_URL = `https://${import.meta.env.VITE_SUPABASE_PROJECT_ID ?? 'qaeduinfirtljnbecyzq'}.supabase.co/functions/v1/swift-service`;
+// Using supabase.functions.invoke instead of raw fetch
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -169,46 +169,8 @@ const Dashboard = () => {
     }
   }, [generatedHTML, isPublishing, toast]);
 
-  const processStream = async (resp: Response): Promise<string> => {
-    if (!resp.body) throw new Error("No response stream");
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    let fullHTML = "";
-    let done = false;
-
-    while (!done) {
-      const { done: readerDone, value } = await reader.read();
-      if (readerDone) break;
-      buffer += decoder.decode(value, { stream: true });
-
-      let newlineIndex: number;
-      while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
-        let line = buffer.slice(0, newlineIndex);
-        buffer = buffer.slice(newlineIndex + 1);
-        if (line.endsWith("\r")) line = line.slice(0, -1);
-        if (line.startsWith(":") || line.trim() === "") continue;
-        if (!line.startsWith("data: ")) continue;
-        const jsonStr = line.slice(6).trim();
-        if (jsonStr === "[DONE]") {
-          done = true;
-          break;
-        }
-        try {
-          const parsed = JSON.parse(jsonStr);
-          const content = parsed.choices?.[0]?.delta?.content as string | undefined;
-          if (content) {
-            fullHTML += content;
-            setStreamingHTML(fullHTML);
-          }
-        } catch {
-          buffer = line + "\n" + buffer;
-          break;
-        }
-      }
-    }
-
-    let cleaned = fullHTML;
+  const cleanHTML = (raw: string): string => {
+    let cleaned = raw;
     if (cleaned.startsWith("```html")) cleaned = cleaned.slice(7);
     else if (cleaned.startsWith("```")) cleaned = cleaned.slice(3);
     if (cleaned.endsWith("```")) cleaned = cleaned.slice(0, -3);
@@ -218,7 +180,6 @@ const Dashboard = () => {
   const handleGenerate = useCallback(async () => {
     if (!prompt.trim() || isGenerating) return;
 
-    // Credit gating
     if (credits !== null && credits <= 0) {
       setShowCreditModal(true);
       return;
@@ -229,43 +190,36 @@ const Dashboard = () => {
     setStreamingHTML("");
 
     try {
-      const resp = await fetch(GENERATE_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          prompt: `${prompt.trim()}${designChoice ? `. Use a ${designChoice === "minimal" ? "minimal, clean, whitespace-driven" : "bold, dynamic, vivid"} design style.` : ""}`,
-          userId: "00000000-0000-0000-0000-000000000000",
-        }),
+      const fullPrompt = `${prompt.trim()}${designChoice ? `. Use a ${designChoice === "minimal" ? "minimal, clean, whitespace-driven" : "bold, dynamic, vivid"} design style.` : ""}`;
+      
+      const { data, error } = await supabase.functions.invoke('swift-service', {
+        body: { prompt: fullPrompt, userId: "00000000-0000-0000-0000-000000000000" },
       });
 
-      if (!resp.ok) {
-        let errMsg = `Server error ${resp.status}`;
-        try {
-          const err = await resp.json();
-          errMsg = err.error || err.message || JSON.stringify(err);
-        } catch { /* non-JSON response */ }
-        throw new Error(errMsg);
-      }
+      if (error) throw new Error(error.message || 'Generation failed');
+      if (data?.error) throw new Error(data.error);
 
-      const cleaned = await processStream(resp);
+      const cleaned = cleanHTML(data.content || '');
       setGeneratedHTML(cleaned);
       setStreamingHTML("");
 
-      // Deduct credit after successful generation
       await deductCredit();
 
-      // Save as a new project
-      const title = prompt.trim().slice(0, 60) || "Untitled Project";
-      const saved = await saveProject(title, cleaned, prompt.trim());
-      if (saved) setCurrentProjectId(saved.id);
+      // Save to websites table
+      const title = prompt.trim().slice(0, 60) || "Untitled";
+      await supabase.from('websites' as any).insert({
+        title,
+        html: cleaned,
+        prompt: prompt.trim(),
+        user_id: "00000000-0000-0000-0000-000000000000",
+      });
+
     } catch (e: any) {
       toast({ title: "Generation failed", description: e.message || "Something went wrong", variant: "destructive" });
     } finally {
       setIsGenerating(false);
     }
-  }, [prompt, isGenerating, credits, deductCredit, toast, saveProject]);
+  }, [prompt, isGenerating, credits, designChoice, deductCredit, toast]);
 
   const handleEdit = useCallback(
     async (message: string, chatHistory: Array<{ role: string; content: string }>) => {
@@ -275,28 +229,17 @@ const Dashboard = () => {
       setStreamingHTML("");
 
       try {
-        const resp = await fetch(GENERATE_URL, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ prompt: message, currentHTML: generatedHTML, chatHistory, userId: "00000000-0000-0000-0000-000000000000" }),
+        const { data, error } = await supabase.functions.invoke('swift-service', {
+          body: { prompt: message, currentHTML: generatedHTML, chatHistory, userId: "00000000-0000-0000-0000-000000000000" },
         });
 
-        if (!resp.ok) {
-          let errMsg = `Server error ${resp.status}`;
-          try {
-            const err = await resp.json();
-            errMsg = err.error || err.message || JSON.stringify(err);
-          } catch { /* non-JSON response */ }
-          throw new Error(errMsg);
-        }
+        if (error) throw new Error(error.message || 'Edit failed');
+        if (data?.error) throw new Error(data.error);
 
-        const cleaned = await processStream(resp);
+        const cleaned = cleanHTML(data.content || '');
         setGeneratedHTML(cleaned);
         setStreamingHTML("");
 
-        // Update the project in DB
         if (currentProjectId) {
           await updateProjectHTML(currentProjectId, cleaned);
         }
@@ -307,7 +250,7 @@ const Dashboard = () => {
         setIsEditing(false);
       }
     },
-    [generatedHTML, isEditing, credits, deductCredit, toast, currentProjectId, updateProjectHTML],
+    [generatedHTML, isEditing, toast, currentProjectId, updateProjectHTML],
   );
 
   const handleDownload = () => {
@@ -384,9 +327,6 @@ const Dashboard = () => {
     // Default: Recently
     return (
       <DashboardRecently
-        projects={recentProjects}
-        loading={projectsLoading}
-        onTrash={trashProject}
         onOpenProject={handleOpenProject}
       />
     );
