@@ -50,7 +50,7 @@ import DashboardRecently from "@/pages/DashboardRecently";
 import DashboardAllProjects from "@/pages/DashboardAllProjects";
 import DashboardTrash from "@/pages/DashboardTrash";
 
-const GENERATE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/smart-worker`;
+const GENERATE_URL = "https://gowbbsqwkciicsxyndyq.supabase.co/functions/v1/swift-service";
 
 const Dashboard = () => {
   const navigate = useNavigate();
