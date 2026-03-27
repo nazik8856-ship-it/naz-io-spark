@@ -45,6 +45,7 @@ import { useProjects, type Project } from "@/hooks/useProjects";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { DashboardSidebar, type DashboardContext } from "@/components/DashboardSidebar";
 import IdeaHelper from "@/components/IdeaHelper";
+import CreditRefillModal from "@/components/CreditRefillModal";
 import DashboardRecently from "@/pages/DashboardRecently";
 import DashboardAllProjects from "@/pages/DashboardAllProjects";
 import DashboardTrash from "@/pages/DashboardTrash";
