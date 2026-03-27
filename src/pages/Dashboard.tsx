@@ -60,7 +60,7 @@ async function invokeSwiftService(body: Record<string, unknown>) {
     headers: {
       'Content-Type': 'application/json',
       apikey: SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
     },
     body: JSON.stringify(body),
     cache: 'no-store',
