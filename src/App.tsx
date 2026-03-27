@@ -67,12 +67,10 @@ const App = () => {
               <Route path="/login" element={<Login />} />
               <Route path="/auth" element={<Auth />} />
               <Route path="/auth/callback" element={<AuthCallback />} />
-              <Route element={<AuthGuard />}>
-                <Route path="/dashboard" element={<Dashboard />} />
-                <Route path="/dashboard/create" element={<Dashboard />} />
-                <Route path="/dashboard/projects" element={<Dashboard />} />
-                <Route path="/dashboard/trash" element={<Dashboard />} />
-              </Route>
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/dashboard/create" element={<Dashboard />} />
+              <Route path="/dashboard/projects" element={<Dashboard />} />
+              <Route path="/dashboard/trash" element={<Dashboard />} />
               <Route path="/share/:id" element={<SharedWebsite />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
