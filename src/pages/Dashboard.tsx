@@ -85,6 +85,7 @@ const Dashboard = () => {
   const [businessType, setBusinessType] = useState<string | null>(null);
   const [designChoice, setDesignChoice] = useState<string | null>(null);
   const [showDecisionFork, setShowDecisionFork] = useState(false);
+  const [showIdeaHelper, setShowIdeaHelper] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const { toast } = useToast();
 
