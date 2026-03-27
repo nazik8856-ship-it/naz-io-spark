@@ -327,9 +327,6 @@ const Dashboard = () => {
     // Default: Recently
     return (
       <DashboardRecently
-        projects={recentProjects}
-        loading={projectsLoading}
-        onTrash={trashProject}
         onOpenProject={handleOpenProject}
       />
     );
