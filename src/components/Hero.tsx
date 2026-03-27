@@ -16,7 +16,7 @@ const Hero = ({ onStart }: { onStart?: () => void }) => {
             style={{ animationDelay: "0.2s" }}
           >
             <Sparkles className="w-4 h-4 text-primary" />
-            <span className="text-sm text-muted-foreground">Introducing NazAI Platform</span>
+            <span className="text-sm text-muted-foreground">AI-Powered Business Launcher</span>
           </div>
 
           {/* Headline */}
@@ -32,7 +32,7 @@ const Hero = ({ onStart }: { onStart?: () => void }) => {
             className="animate-section-enter text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto mb-10 leading-relaxed"
             style={{ animationDelay: "0.5s" }}
           >
-            NazAI turns your idea into a clear action
+            Describe your idea. NazAI validates it, writes the plan, and deploys it live — in minutes.
           </p>
 
           {/* CTA Buttons */}
@@ -54,9 +54,9 @@ const Hero = ({ onStart }: { onStart?: () => void }) => {
             className="animate-section-enter mt-16 pt-8 border-t border-border/50"
             style={{ animationDelay: "0.8s" }}
           >
-            <p className="text-sm text-muted-foreground mb-6">Trusted by innovative teams worldwide</p>
+            <p className="text-sm text-muted-foreground mb-6">Built for</p>
             <div className="flex flex-wrap items-center justify-center gap-8 opacity-50">
-              {["TechCorp", "InnovateLab", "DataFlow", "CloudScale", "AIFirst"].map((company) => (
+              {["Founders", "Solo Builders", "Startups", "Dev Teams", "Entrepreneurs"].map((company) => (
                 <span key={company} className="text-lg font-semibold text-muted-foreground">
                   {company}
                 </span>

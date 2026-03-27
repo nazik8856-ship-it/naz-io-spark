@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 @import url("https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,900&display=swap");
 
 @tailwind base;
@@ -40,6 +41,11 @@
     --sidebar-accent-foreground: 210 20% 98%;
     --sidebar-border: 220 15% 18%;
     --sidebar-ring: 175 80% 50%;
+
+    /* Neo-Brutalist design tokens */
+    --accent-lime: #C8FF00;
+    --font-display: 'Space Grotesk', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
   }
 }
 

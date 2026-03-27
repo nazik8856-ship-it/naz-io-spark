@@ -3,21 +3,21 @@ import { ArrowRight } from "lucide-react";
 const steps = [
   {
     number: "01",
-    title: "Connect Your Data",
+    title: "Describe Your Idea",
     description:
-      "Seamlessly integrate with your existing tools and data sources through our secure APIs.",
+      "Tell NazAI about your business concept, target market, and unique value proposition in simple terms.",
   },
   {
     number: "02",
-    title: "Train & Customize",
+    title: "AI Validates & Plans",
     description:
-      "Fine-tune AI models to understand your unique business context and requirements.",
+      "NazAI analyzes your idea, validates market fit, and generates a comprehensive business plan with actionable steps.",
   },
   {
     number: "03",
-    title: "Deploy & Scale",
+    title: "Deploy & Launch",
     description:
-      "Launch your AI solutions instantly with automatic scaling and global distribution.",
+      "Get a live, deployed product with landing page, documentation, and everything needed to start selling.",
   },
 ];
 
@@ -71,7 +71,7 @@ const HowItWorks = () => {
         {/* CTA */}
         <div className="text-center mt-12">
           <a
-            href="#"
+            href="https://docs.nazai.net"
             className="inline-flex items-center gap-2 text-primary hover:text-primary/80 font-medium transition-colors group"
           >
             View detailed documentation
