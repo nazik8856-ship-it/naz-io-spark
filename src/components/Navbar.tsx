@@ -42,13 +42,18 @@ const Navbar = () => {
           {/* CTA Buttons */}
           <div className="hidden md:flex items-center gap-4">
             {user ? (
-              <Button variant="default" size="sm" asChild>
-                <Link to="/dashboard">Dashboard</Link>
-              </Button>
+              <>
+                <Button variant="default" size="sm" asChild>
+                  <Link to="/dashboard">Dashboard</Link>
+                </Button>
+                <Button variant="ghost" size="sm" onClick={handleSignOut}>
+                  Sign Out
+                </Button>
+              </>
             ) : (
               <>
                 <Button variant="ghost" size="sm" asChild>
-                  <Link to="/login">Log in</Link>
+                  <Link to="/login">Sign In</Link>
                 </Button>
                 <Button variant="default" size="sm" asChild>
                   <Link to="/signup">Get Started</Link>
