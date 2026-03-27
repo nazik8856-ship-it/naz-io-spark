@@ -599,6 +599,8 @@ const Dashboard = () => {
                   {generatedHTML && !isGenerating && showEditChat && (
                     <EditChat onSendEdit={handleEdit} isGenerating={isEditing} />
                   )}
+                 
+};
                 </div>
               )}
             </div>
