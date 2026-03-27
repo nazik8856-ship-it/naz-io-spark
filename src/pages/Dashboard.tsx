@@ -243,6 +243,7 @@ const Dashboard = () => {
       });
 
     } catch (e: any) {
+      setGenerationError(e.message || "Something went wrong");
       toast({ title: "Generation failed", description: e.message || "Something went wrong", variant: "destructive" });
     } finally {
       setIsGenerating(false);
