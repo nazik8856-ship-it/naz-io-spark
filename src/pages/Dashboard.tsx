@@ -219,6 +219,22 @@ const Dashboard = () => {
       return;
     }
 
+    // Open the new tab IMMEDIATELY (synchronous, user-initiated) to avoid popup blocker
+    const newTab = window.open("about:blank", "_blank");
+    if (newTab) {
+      newTab.document.write(`
+        <html>
+          <head><title>NazAI – Building...</title></head>
+          <body style="margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#0a0a0a;color:#fff;font-family:system-ui,sans-serif;">
+            <div style="text-align:center">
+              <h1 style="font-size:2rem;margin-bottom:0.5rem;">NazAI is building...</h1>
+              <p style="opacity:0.6">This usually takes 30-40 seconds</p>
+            </div>
+          </body>
+        </html>
+      `);
+    }
+
     setIsGenerating(true);
     setGeneratedHTML("");
     setStreamingHTML("");
@@ -234,24 +250,14 @@ const Dashboard = () => {
 
       setGeneratedHTML(cleaned);
 
-      // --- PASTE THE NEW LOGIC BELOW ---
-      if (cleaned) {
-        // Create a virtual HTML file
-        const blob = new Blob([cleaned], { type: "text/html" });
-        const url = URL.createObjectURL(blob);
-
-        // Launch the new tab
-        const newTab = window.open(url, "_blank");
-
-        // Focus the new tab if the browser allows it
-        if (newTab) {
-          newTab.focus();
-        } else {
-          // If blocked, this alert tells the user why nothing happened
-          alert("Website generated! Please allow popups to see it in a new tab.");
-        }
+      // Write the generated HTML into the already-open tab
+      if (newTab && !newTab.closed) {
+        newTab.document.open();
+        newTab.document.write(cleaned);
+        newTab.document.close();
+        newTab.focus();
       }
-      // --- END OF NEW LOGIC ---
+
       setStreamingHTML("");
 
       await deductCredit();
@@ -265,6 +271,21 @@ const Dashboard = () => {
         user_id: "00000000-0000-0000-0000-000000000000",
       });
     } catch (e: any) {
+      // Close the loading tab on error
+      if (newTab && !newTab.closed) {
+        newTab.document.open();
+        newTab.document.write(`
+          <html>
+            <body style="margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#0a0a0a;color:#ff6b6b;font-family:system-ui,sans-serif;">
+              <div style="text-align:center">
+                <h1>Generation Failed</h1>
+                <p>${e.message || "Something went wrong"}</p>
+              </div>
+            </body>
+          </html>
+        `);
+        newTab.document.close();
+      }
       setGenerationError(e.message || "Something went wrong");
       toast({ title: "Generation failed", description: e.message || "Something went wrong", variant: "destructive" });
     } finally {
