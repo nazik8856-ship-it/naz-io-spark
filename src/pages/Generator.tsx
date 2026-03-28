@@ -11,27 +11,52 @@ const Generator = () => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const navigate = useNavigate();
 
+  const extractHTML = (text: string): string => {
+    // Try to extract HTML from markdown code fences
+    const match = text.match(/```html?\s*\n([\s\S]*?)```/);
+    if (match) return match[1].trim();
+    // If already raw HTML, return as-is
+    if (text.trim().startsWith("<!") || text.trim().startsWith("<html") || text.trim().startsWith("<head")) {
+      return text.trim();
+    }
+    return text;
+  };
+
   const handleGenerate = async () => {
     if (!prompt.trim() || loading) return;
     setLoading(true);
     setError("");
     setGeneratedCode("");
 
+    console.log("[NazAI] 🚀 Starting generation with prompt:", prompt.trim());
+
     try {
+      console.log("[NazAI] 📡 Invoking swift-service edge function...");
       const { data, error: fnError } = await supabase.functions.invoke(
         "swift-service",
         {
-          body: { prompt: prompt.trim() },
+          body: {
+            prompt: prompt.trim(),
+            userId: "00000000-0000-0000-0000-000000000000",
+          },
         }
       );
 
+      console.log("[NazAI] 📦 Response received:", { data, error: fnError });
+
       if (fnError) throw fnError;
 
-      const code = data?.code || data?.html || "";
-      if (!code) throw new Error("No code returned from the AI.");
+      const raw = data?.content || data?.code || data?.html || "";
+      console.log("[NazAI] 📝 Raw AI text length:", raw.length);
+
+      if (!raw) throw new Error("No code returned from the AI.");
+
+      const code = extractHTML(raw);
+      console.log("[NazAI] ✅ Extracted HTML length:", code.length);
 
       setGeneratedCode(code);
     } catch (err: any) {
+      console.error("[NazAI] ❌ Generation error:", err);
       setError(err.message || "Generation failed. Try again.");
     } finally {
       setLoading(false);
