@@ -352,10 +352,10 @@ const Dashboard = () => {
     }
 
     // Default: Recently
-    // Default: Recently
     return (
       <DashboardRecently
         onOpenProject={handleOpenProject}
+        onEditPrompt={handleEditPromptFromCard}
       />
     );
   };
