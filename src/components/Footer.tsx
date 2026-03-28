@@ -123,14 +123,17 @@ const Footer = () => {
           <p className="text-sm text-muted-foreground">
             © {new Date().getFullYear()} Naz.io. All rights reserved.
           </p>
-          <div className="flex items-center gap-6">
-            {["Twitter", "GitHub", "LinkedIn"].map((social) => (
+          <div className="flex items-center gap-5">
+            {socialLinks.map(({ name, href, icon: Icon, label }) => (
               <a
-                key={social}
-                href="#"
-                className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                key={name}
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={label}
+                className="flex items-center justify-center w-9 h-9 rounded-lg border border-border bg-card/60 text-muted-foreground hover:text-primary hover:border-primary/50 hover:bg-primary/10 transition-all duration-200 hover:scale-110"
               >
-                {social}
+                <Icon />
               </a>
             ))}
           </div>
