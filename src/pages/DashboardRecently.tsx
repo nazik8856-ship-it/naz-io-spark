@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Loader2, Clock } from "lucide-react";
+import { Loader2, Clock, Pencil } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
 interface Website {
@@ -12,12 +12,13 @@ interface Website {
 
 interface Props {
   onOpenProject?: (website: any) => void;
+  onEditPrompt?: (website: any) => void;
   projects?: any[];
   loading?: boolean;
   onTrash?: (id: string) => void;
 }
 
-export default function DashboardRecently({ onOpenProject }: Props) {
+export default function DashboardRecently({ onOpenProject, onEditPrompt }: Props) {
   const [websites, setWebsites] = useState<Website[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -56,18 +57,16 @@ export default function DashboardRecently({ onOpenProject }: Props) {
     );
   }
 
-  const handleClick = (w: Website) => {
-    onOpenProject?.({
-      id: w.id,
-      html: w.html,
-      title: w.title,
-      prompt: w.prompt,
-      last_opened_at: w.created_at,
-      created_at: w.created_at,
-      user_id: '',
-      status: 'active',
-    });
-  };
+  const toProject = (w: Website) => ({
+    id: w.id,
+    html: w.html,
+    title: w.title,
+    prompt: w.prompt,
+    last_opened_at: w.created_at,
+    created_at: w.created_at,
+    user_id: '',
+    status: 'active',
+  });
 
   return (
     <div>
@@ -76,10 +75,23 @@ export default function DashboardRecently({ onOpenProject }: Props) {
         {websites.map((w) => (
           <div
             key={w.id}
-            onClick={() => handleClick(w)}
-            className="cursor-pointer rounded-xl border border-border bg-card p-4 transition-all duration-200 hover:border-primary/60 hover:shadow-lg hover:shadow-primary/10 hover:-translate-y-0.5 hover:bg-accent/40 group"
+            onClick={() => onOpenProject?.(toProject(w))}
+            className="cursor-pointer rounded-xl border border-border bg-card p-4 transition-all duration-200 hover:border-primary/60 hover:shadow-lg hover:shadow-primary/10 hover:-translate-y-0.5 hover:bg-accent/40 group relative"
           >
-            <h3 className="font-medium text-sm truncate group-hover:text-primary transition-colors">{w.title}</h3>
+            {/* Edit icon — loads prompt into input without triggering generation */}
+            {onEditPrompt && w.prompt && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEditPrompt(toProject(w));
+                }}
+                className="absolute top-3 right-3 p-1.5 rounded-md opacity-0 group-hover:opacity-100 transition-opacity bg-secondary/80 hover:bg-primary/20 text-muted-foreground hover:text-primary"
+                title="Edit prompt"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+              </button>
+            )}
+            <h3 className="font-medium text-sm truncate group-hover:text-primary transition-colors pr-8">{w.title}</h3>
             <p className="text-xs text-muted-foreground mt-1 truncate">{w.prompt || "No prompt"}</p>
             <p className="text-xs text-muted-foreground mt-2">
               {new Date(w.created_at).toLocaleDateString()}
