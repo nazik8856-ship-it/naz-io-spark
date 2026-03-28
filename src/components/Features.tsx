@@ -52,7 +52,7 @@ const Features = () => {
             Powerful <span className="text-gradient">Features</span>
           </h2>
           <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
-            Everything you need to build, deploy, and scale AI-powered applications
+            From idea to live product — NazAI handles validation, planning, building, and deployment.
           </p>
         </div>
 
