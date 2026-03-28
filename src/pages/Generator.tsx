@@ -31,16 +31,13 @@ const Generator = () => {
     console.log("[NazAI] 🚀 Starting generation with prompt:", prompt.trim());
 
     try {
-      console.log("[NazAI] 📡 Invoking swift-service edge function...");
-      const { data, error: fnError } = await supabase.functions.invoke(
-        "swift-service",
-        {
-          body: {
-            prompt: prompt.trim(),
-            userId: "00000000-0000-0000-0000-000000000000",
-          },
-        }
-      );
+      console.log("[NazAI] 📡 Invoking naz-io-spark edge function...");
+      const { data, error: fnError } = await supabase.functions.invoke("naz-io-spark", {
+        body: {
+          prompt: prompt.trim(),
+          userId: "00000000-0000-0000-0000-000000000000",
+        },
+      });
 
       console.log("[NazAI] 📦 Response received:", { data, error: fnError });
 
@@ -90,9 +87,7 @@ const Generator = () => {
       <main className="relative z-10 max-w-5xl mx-auto px-6 py-10 flex flex-col gap-8">
         {/* Prompt section */}
         <div className="space-y-4">
-          <label className="text-xs uppercase tracking-[0.25em] text-[#0ff]/60 font-mono">
-            Describe your website
-          </label>
+          <label className="text-xs uppercase tracking-[0.25em] text-[#0ff]/60 font-mono">Describe your website</label>
 
           <div className="relative group">
             {/* Glow border */}
@@ -115,23 +110,17 @@ const Generator = () => {
               disabled={loading || !prompt.trim()}
               className="relative group/btn flex items-center gap-2 px-8 py-3 rounded-lg font-bold text-sm uppercase tracking-wider transition-all duration-300 disabled:opacity-30 disabled:cursor-not-allowed"
               style={{
-                background: loading
-                  ? "linear-gradient(135deg, #f0f, #0ff)"
-                  : "linear-gradient(135deg, #0ff, #f0f)",
+                background: loading ? "linear-gradient(135deg, #f0f, #0ff)" : "linear-gradient(135deg, #0ff, #f0f)",
                 color: "#0a0a0a",
               }}
             >
               {/* Button glow */}
               <div className="absolute inset-0 rounded-lg bg-gradient-to-r from-[#0ff] to-[#f0f] opacity-0 group-hover/btn:opacity-40 blur-xl transition-opacity duration-500" />
               <Zap className={`w-4 h-4 ${loading ? "animate-pulse" : ""}`} />
-              <span className="relative z-10">
-                {loading ? "Glitching..." : "Generate"}
-              </span>
+              <span className="relative z-10">{loading ? "Glitching..." : "Generate"}</span>
             </button>
 
-            <span className="text-xs text-white/20 font-mono">
-              ⌘ + Enter
-            </span>
+            <span className="text-xs text-white/20 font-mono">⌘ + Enter</span>
           </div>
         </div>
 
@@ -177,9 +166,7 @@ const Generator = () => {
                   <div className="w-16 h-16 rounded-2xl border border-white/5 bg-white/[0.02] flex items-center justify-center">
                     <Sparkles className="w-7 h-7 text-white/10" />
                   </div>
-                  <p className="text-white/15 text-sm font-mono">
-                    Your website will appear here
-                  </p>
+                  <p className="text-white/15 text-sm font-mono">Your website will appear here</p>
                 </div>
               )}
             </div>
