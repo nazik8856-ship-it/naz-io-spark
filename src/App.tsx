@@ -17,7 +17,7 @@ import NotFound from "./pages/NotFound";
 import Privacy from "./pages/Privacy";
 import Terms from "./pages/Terms";
 import Auth from "./pages/Auth";
-import Generator from "./pages/Generator";
+
 
 const queryClient = new QueryClient();
 
