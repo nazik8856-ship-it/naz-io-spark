@@ -33,12 +33,6 @@ const socialLinks = [
     icon: YouTubeIcon,
     label: "Subscribe to NazAI on YouTube",
   },
-  {
-    name: "Telegram",
-    href: "https://t.me/nazai",
-    icon: TelegramIcon,
-    label: "Join NazAI on Telegram",
-  },
 ];
 
 const linkMap: Record<string, string> = {
@@ -49,7 +43,6 @@ const linkMap: Record<string, string> = {
 const externalLinkMap: Record<string, string> = {
   "TikTok": "https://www.tiktok.com/@nazai.ai.business?_r=1&_t=ZS-953jYmNUtiH",
   "YouTube": "https://www.youtube.com/@NazAI-n8b",
-  "Telegram": "https://t.me/nazai",
 };
 
 const Footer = () => {
@@ -57,7 +50,7 @@ const Footer = () => {
     Product: ["Features", "Pricing", "Integrations", "Changelog"],
     Company: ["About", "Blog", "Careers", "Press"],
     Resources: ["Documentation", "API Reference", "Support"],
-    Community: ["TikTok", "YouTube", "Telegram"],
+    Community: ["TikTok", "YouTube"],
     Legal: ["Privacy", "Terms", "Security", "Cookies"],
   };
 
