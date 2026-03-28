@@ -128,13 +128,22 @@ const Dashboard = () => {
 
   const handleOpenProject = useCallback((project: Project) => {
     setGeneratedHTML(project.html);
-    setPrompt(project.prompt || "");
+    setPrompt(""); // Don't restore old prompt — just show preview
     setCurrentProjectId(project.id);
     setShareUrl(null);
     setPublishedUrl(null);
     setShowEditChat(false);
-    // Update last_opened_at
-    supabase.from("projects").update({ last_opened_at: new Date().toISOString() }).eq("id", project.id).then();
+    setShowDecisionFork(false);
+    setShowWorkflowPreview(false);
+  }, []);
+
+  const handleEditPromptFromCard = useCallback((project: Project) => {
+    setPrompt(project.prompt || "");
+    setGeneratedHTML(""); // Stay on prompt view, don't open preview
+    setCurrentProjectId(project.id);
+    setShareUrl(null);
+    setPublishedUrl(null);
+    setShowEditChat(false);
   }, []);
 
   const handleNewWebsite = useCallback(() => {
