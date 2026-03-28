@@ -11,8 +11,7 @@ interface Website {
 }
 
 interface Props {
-  onOpenProject?: (website: Website) => void;
-  // Keep legacy props optional so existing callers don't break
+  onOpenProject?: (website: any) => void;
   projects?: any[];
   loading?: boolean;
   onTrash?: (id: string) => void;
