@@ -11,8 +11,7 @@ interface Website {
 }
 
 interface Props {
-  onOpenProject?: (website: Website) => void;
-  // Keep legacy props optional so existing callers don't break
+  onOpenProject?: (website: any) => void;
   projects?: any[];
   loading?: boolean;
   onTrash?: (id: string) => void;
@@ -57,6 +56,19 @@ export default function DashboardRecently({ onOpenProject }: Props) {
     );
   }
 
+  const handleClick = (w: Website) => {
+    onOpenProject?.({
+      id: w.id,
+      html: w.html,
+      title: w.title,
+      prompt: w.prompt,
+      last_opened_at: w.created_at,
+      created_at: w.created_at,
+      user_id: '',
+      status: 'active',
+    });
+  };
+
   return (
     <div>
       <h2 className="text-lg font-semibold mb-4">Recently Generated</h2>
@@ -64,10 +76,10 @@ export default function DashboardRecently({ onOpenProject }: Props) {
         {websites.map((w) => (
           <div
             key={w.id}
-            onClick={() => onOpenProject?.(w)}
-            className="cursor-pointer rounded-xl border border-border bg-card p-4 hover:border-primary/50 transition-colors"
+            onClick={() => handleClick(w)}
+            className="cursor-pointer rounded-xl border border-border bg-card p-4 transition-all duration-200 hover:border-primary/60 hover:shadow-lg hover:shadow-primary/10 hover:-translate-y-0.5 hover:bg-accent/40 group"
           >
-            <h3 className="font-medium text-sm truncate">{w.title}</h3>
+            <h3 className="font-medium text-sm truncate group-hover:text-primary transition-colors">{w.title}</h3>
             <p className="text-xs text-muted-foreground mt-1 truncate">{w.prompt || "No prompt"}</p>
             <p className="text-xs text-muted-foreground mt-2">
               {new Date(w.created_at).toLocaleDateString()}
