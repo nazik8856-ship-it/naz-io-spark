@@ -61,7 +61,7 @@ const App = () => {
           <Sonner />
           <BrowserRouter>
             <Routes>
-              <Route path="/generate" element={<Generator />} />
+              <Route path="/generate" element={<Dashboard />} />
               <Route path="/privacy" element={<Privacy />} />
               <Route path="/terms" element={<Terms />} />
               <Route path="/" element={<Index />} />
