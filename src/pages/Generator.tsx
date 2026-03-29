@@ -64,7 +64,7 @@ const Generator = () => {
     setGeneratedCode("");
 
     try {
-=======
+
 import { useState, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { ArrowLeft, Zap, Sparkles } from "lucide-react";
@@ -129,7 +129,7 @@ const Generator = () => {
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Something went wrong.";
       setError(message);
-=======
+
       if (fnError) throw fnError;
 
       const raw = data?.content || data?.code || data?.html || "";
@@ -327,7 +327,7 @@ const Generator = () => {
               <p className="text-xs text-center" style={{ color: "rgba(255,255,255,0.25)" }}>
                 A new tab was opened with your site. The preview above is a local copy.
               </p>
-=======
+
     <div className="min-h-screen bg-[#0a0a0a] text-white font-mono relative overflow-hidden">
       {/* The Ambient Grid You Liked */}
       <div className="fixed inset-0 bg-[linear-gradient(rgba(0,255,255,0.015)_1px,transparent_1px),linear-gradient(90deg,rgba(0,255,255,0.015)_1px,transparent_1px)] bg-[size:48px_48px] pointer-events-none" />
