@@ -1,84 +1,80 @@
-import { useState, useRef } from "react";
+import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { ArrowLeft, Zap, Sparkles } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useToast } from "@/hooks/use-toast";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
-export default function Generator() {
+const Generator = () => {
   const [prompt, setPrompt] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [generatedCode, setGeneratedCode] = useState("");
-  const [error, setError] = useState("");
-  const navigate = useNavigate();
+  const [generatedHtml, setGeneratedHtml] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const { toast } = useToast();
 
   const handleGenerate = async () => {
-    if (!prompt.trim() || loading) return;
-    setLoading(true);
-    setError("");
-
-    console.log("[NazAI] 🚀 Calling naz-io-spark...");
+    if (!prompt) return;
+    setIsLoading(true);
+    toast({ title: "Connecting", description: "NazAI is starting the workshop..." });
 
     try {
-      // FIXED: Using "naz-io-spark" instead of "swift-service"
-      const { data, error: fnError } = await supabase.functions.invoke("naz-io-spark", {
-        body: { prompt: prompt.trim() },
+      console.log("[NazAI] 📡 Sending handshake to naz-io-spark...");
+
+      // THIS IS THE CRITICAL LOGIC THAT FIXES THE CONNECTION
+      const { data, error } = await supabase.functions.invoke("naz-io-spark", {
+        body: { prompt },
       });
 
-      if (fnError) throw fnError;
+      if (error) throw error;
 
-      // Ensure we grab the code regardless of property name
-      const code = data?.code || data?.content || data?.html || "";
-      if (!code) throw new Error("AI returned empty code.");
-
-      // Clean markdown fences if they exist
-      const cleanCode = code.replace(/```html|```/g, "").trim();
-      setGeneratedCode(cleanCode);
+      if (data?.code) {
+        // AI logic often sends backticks. This cleans them.
+        const cleanHtml = data.code.replace(/```html|```/g, "").trim();
+        setGeneratedHtml(cleanHtml);
+        toast({ title: "Success!", description: "AI code loaded into the preview." });
+      } else {
+        throw new Error("AI returned empty code.");
+      }
     } catch (err: any) {
-      console.error("[NazAI] ❌ Error:", err);
-      setError(err.message || "Connection failed. Check Supabase logs.");
+      console.error("[NazAI] ❌ Connection error:", err);
+      toast({
+        variant: "destructive",
+        title: "Handshake Failed",
+        description: err.message || "Failed to talk to the Edge Function.",
+      });
     } finally {
-      setLoading(false);
+      isLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-white p-6 font-mono">
-      <div className="max-w-5xl mx-auto">
-        <header className="flex justify-between items-center mb-12">
-          <button onClick={() => navigate("/")} className="text-white/40 hover:text-[#0ff] flex items-center gap-2">
-            <ArrowLeft size={16} /> BACK
-          </button>
-          <div className="text-xl font-bold tracking-tighter">
-            NAZ<span className="text-[#0ff]">AI</span> // GENERATOR
-          </div>
-          <div className="w-20" />
-        </header>
+    <div className="min-h-screen bg-[#0a0a0a] text-white p-8 font-sans">
+      <div className="max-w-4xl mx-auto space-y-8">
+        <h1 className="text-4xl font-bold text-[#0ff] drop-shadow-[0_0_10px_#0ff]">NazAI Workshop</h1>
 
-        <div className="space-y-6">
-          <textarea
-            className="w-full bg-black border border-white/10 p-4 rounded-xl text-[#0ff] focus:border-[#f0f] outline-none transition-all"
-            placeholder="Describe your obsidian-style landing page..."
-            rows={4}
+        <div className="flex gap-4">
+          <Input
+            placeholder="A chocolate factory with neon borders..."
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
+            className="bg-black border-[#f0f] text-white focus:ring-[#f0f]"
           />
-
-          <button
+          <Button
             onClick={handleGenerate}
-            disabled={loading}
-            className="w-full py-4 bg-gradient-to-r from-[#0ff] to-[#f0f] text-black font-black uppercase tracking-widest rounded-xl hover:opacity-90 disabled:opacity-50"
+            disabled={isLoading}
+            className="bg-[#f0f] hover:bg-[#d0d] text-black font-bold px-8"
           >
-            {loading ? "GLITCHING..." : "ACTIVATE AI"}
-          </button>
-
-          {error && <div className="p-4 border border-red-500/50 bg-red-500/10 text-red-500 rounded-lg">{error}</div>}
-
-          {generatedCode && (
-            <div className="mt-8 border border-white/10 rounded-2xl overflow-hidden shadow-[0_0_50px_rgba(0,255,255,0.1)]">
-              <iframe srcDoc={generatedCode} className="w-full h-[600px] bg-white" title="Preview" />
-            </div>
-          )}
+            {isLoading ? "Generating..." : "Generate"}
+          </Button>
         </div>
+
+        {/* THE PREVIEW WINDOW - This is where the old look comes alive */}
+        {generatedHtml && (
+          <div className="border-2 border-[#0ff] rounded-lg overflow-hidden shadow-[0_0_30px_rgba(0,255,255,0.2)]">
+            <iframe srcDoc={generatedHtml} className="w-full h-[600px] bg-white" title="Preview" />
+          </div>
+        )}
       </div>
     </div>
   );
-}
+};
+
+export default Generator;
