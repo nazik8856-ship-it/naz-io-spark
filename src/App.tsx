@@ -15,8 +15,8 @@ import Privacy from "./pages/Privacy";
 import Terms from "./pages/Terms";
 import Auth from "./pages/Auth";
 import Generator from "./pages/Generator";
-=======
-import Generator from "./pages/Generator";
+
+
 import { AuthProvider } from "./hooks/useAuth";
  main
 
@@ -51,7 +51,7 @@ const App = () => (
             </Routes>
           </BrowserRouter>
         </AuthProvider>
-=======
+
         <Toaster />
         <Sonner />
         <BrowserRouter>
