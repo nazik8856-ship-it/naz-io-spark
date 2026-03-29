@@ -6,63 +6,57 @@ const Index = () => {
   const navigate = useNavigate();
 
   return (
-    <div className="min-h-screen bg-black text-white">
-      <nav className="flex justify-between items-center p-6 max-w-7xl mx-auto">
-        <div className="flex items-center gap-2 font-bold text-xl tracking-tighter">
-          <Zap size={20} className="text-cyan-400" fill="currentColor" />
-          NazAI
-        </div>
-        <Button 
-          variant="ghost" 
-          onClick={() => navigate("/generate")}
-          className="text-zinc-400 hover:text-white"
-        >
-          Sign In
-        </Button>
-      </nav>
-
-      <main className="pt-20 pb-32 px-6">
-        <div className="max-w-4xl mx-auto text-center space-y-8">
-          <h1 className="text-6xl md:text-7xl font-bold tracking-tight">
-            Launch your AI business <br /> 
-            <span className="text-cyan-400 font-mono">in seconds.</span>
+    <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-6">
+      {/* Manus Style: Minimalist & High-Impact */}
+      <div className="max-w-4xl w-full text-center space-y-12">
+        <div className="space-y-4">
+          <div className="flex justify-center mb-6">
+            <div className="p-3 bg-cyan-500/10 border border-cyan-500/20 rounded-2xl">
+              <Zap size={40} className="text-cyan-400" fill="currentColor" />
+            </div>
+          </div>
+          <h1 className="text-5xl md:text-7xl font-extrabold tracking-tighter">
+            NazAI <span className="text-cyan-400">Launcher</span>
           </h1>
-          
-          <p className="text-zinc-400 text-lg md:text-xl max-w-2xl mx-auto">
-            The ultimate AI website generator for modern entrepreneurs. 
-            Build, preview, and deploy without touching code.
+          <p className="text-zinc-500 text-lg md:text-xl max-w-2xl mx-auto">
+            The autonomous AI agent for building and launching 
+            software businesses in record time.
           </p>
-
-          <div className="flex justify-center pt-4">
-            <Button 
-              size="lg" 
-              onClick={() => navigate("/generate")}
-              className="bg-cyan-500 hover:bg-cyan-400 text-black font-bold h-14 px-8 text-lg rounded-xl transition-all hover:scale-105"
-            >
-              Get Started Now
-              <ArrowRight className="ml-2" size={20} />
-            </Button>
-          </div>
         </div>
 
-        <div className="max-w-7xl mx-auto mt-32 grid grid-cols-1 md:grid-cols-3 gap-8">
-          <div className="p-8 rounded-2xl bg-zinc-900/50 border border-zinc-800">
-            <Zap className="text-cyan-400 mb-4" />
-            <h3 className="text-xl font-bold mb-2">Lightning Fast</h3>
-            <p className="text-zinc-400">Generate high-quality landing pages faster than you can write a prompt.</p>
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+          <Button 
+            size="lg" 
+            onClick={() => navigate("/generate")}
+            className="bg-white text-black hover:bg-zinc-200 h-14 px-10 text-lg font-bold rounded-full transition-all hover:scale-105"
+          >
+            Start Building
+            <ArrowRight className="ml-2" size={20} />
+          </Button>
+          <Button 
+            variant="outline"
+            size="lg"
+            className="border-zinc-800 text-zinc-400 hover:text-white h-14 px-10 rounded-full"
+          >
+            Documentation
+          </Button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-12">
+          <div className="p-6 rounded-2xl bg-zinc-900/30 border border-zinc-800/50">
+            <p className="text-xs font-mono text-cyan-500 mb-2">01. PROMPT</p>
+            <h3 className="font-bold">Describe Idea</h3>
           </div>
-          <div className="p-8 rounded-2xl bg-zinc-900/50 border border-zinc-800">
-            <Shield className="text-cyan-400 mb-4" />
-            <h3 className="text-xl font-bold mb-2">Secure & Private</h3>
-            <p className="text-zinc-400">Your data and generated code are protected with enterprise-grade security.</p>
+          <div className="p-6 rounded-2xl bg-zinc-900/30 border border-zinc-800/50">
+            <p className="text-xs font-mono text-cyan-500 mb-2">02. GENERATE</p>
+            <h3 className="font-bold">AI Codes Site</h3>
           </div>
-          <div className="p-8 rounded-2xl bg-zinc-900/50 border border-zinc-800">
-            <Rocket className="text-cyan-400 mb-4" />
-            <h3 className="text-xl font-bold mb-2">Ready to Launch</h3>
-            <p className="text-zinc-400">Download your code and host it anywhere instantly.</p>
+          <div className="p-6 rounded-2xl bg-zinc-900/30 border border-zinc-800/50">
+            <p className="text-xs font-mono text-cyan-500 mb-2">03. LAUNCH</p>
+            <h3 className="font-bold">Go Live Instantly</h3>
           </div>
         </div>
-      </main>
+      </div>
     </div>
   );
 };
