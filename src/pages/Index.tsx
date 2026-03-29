@@ -14,7 +14,7 @@ const Index = () => {
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
-      <Hero onStart={() => navigate("/signup")} />
+      <Hero onStart={() => navigate("/generate")} />
       <Features />
       <HowItWorks />
       <Pricing />
