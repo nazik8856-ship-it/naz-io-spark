@@ -1,78 +1,120 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { useToast } from "@/hooks/use-toast";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { ArrowLeft, Zap, Sparkles } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 const Generator = () => {
   const [prompt, setPrompt] = useState("");
-  const [generatedHtml, setGeneratedHtml] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const { toast } = useToast();
+  const [loading, setLoading] = useState(false);
+  const [generatedCode, setGeneratedCode] = useState("");
+  const [error, setError] = useState("");
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const navigate = useNavigate();
+
+  const extractHTML = (text: string): string => {
+    const match = text.match(/```html?\s*\n([\s\S]*?)```/);
+    if (match) return match[1].trim();
+    if (text.trim().startsWith("<!") || text.trim().startsWith("<html")) return text.trim();
+    return text;
+  };
 
   const handleGenerate = async () => {
-    if (!prompt) return;
-    setIsLoading(true);
-    toast({ title: "Connecting", description: "NazAI is starting the workshop..." });
+    if (!prompt.trim() || loading) return;
+    setLoading(true);
+    setError("");
+    setGeneratedCode("");
 
     try {
-      console.log("[NazAI] 📡 Sending handshake to naz-io-spark...");
-
-      // THIS IS THE CRITICAL LOGIC THAT FIXES THE CONNECTION
-      const { data, error } = await supabase.functions.invoke("naz-io-spark", {
-        body: { prompt },
+      // FIXED: Correct Function Name
+      const { data, error: fnError } = await supabase.functions.invoke("naz-io-spark", {
+        body: { prompt: prompt.trim() },
       });
 
-      if (error) throw error;
+      if (fnError) throw fnError;
 
-      if (data?.code) {
-        // AI logic often sends backticks. This cleans them.
-        const cleanHtml = data.code.replace(/```html|```/g, "").trim();
-        setGeneratedHtml(cleanHtml);
-        toast({ title: "Success!", description: "AI code loaded into the preview." });
-      } else {
-        throw new Error("AI returned empty code.");
-      }
+      const raw = data?.content || data?.code || data?.html || "";
+      if (!raw) throw new Error("No code returned from the AI.");
+
+      const code = extractHTML(raw);
+      setGeneratedCode(code);
     } catch (err: any) {
-      console.error("[NazAI] ❌ Connection error:", err);
-      toast({
-        variant: "destructive",
-        title: "Handshake Failed",
-        description: err.message || "Failed to talk to the Edge Function.",
-      });
+      console.error("[NazAI] ❌ Error:", err);
+      setError(err.message || "Generation failed. Try again.");
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-white p-8 font-sans">
-      <div className="max-w-4xl mx-auto space-y-8">
-        <h1 className="text-4xl font-bold text-[#0ff] drop-shadow-[0_0_10px_#0ff]">NazAI Workshop</h1>
+    <div className="min-h-screen bg-[#0a0a0a] text-white font-mono relative overflow-hidden">
+      {/* The Ambient Grid You Liked */}
+      <div className="fixed inset-0 bg-[linear-gradient(rgba(0,255,255,0.015)_1px,transparent_1px),linear-gradient(90deg,rgba(0,255,255,0.015)_1px,transparent_1px)] bg-[size:48px_48px] pointer-events-none" />
 
-        <div className="flex gap-4">
-          <Input
-            placeholder="A chocolate factory with neon borders..."
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            className="bg-black border-[#f0f] text-white focus:ring-[#f0f]"
-          />
-          <Button
+      <header className="relative z-10 flex items-center justify-between px-6 py-4 border-b border-white/5 bg-black/50 backdrop-blur-md">
+        <button
+          onClick={() => navigate("/")}
+          className="flex items-center gap-2 text-sm text-white/50 hover:text-[#0ff] transition-colors"
+        >
+          <ArrowLeft className="w-4 h-4" /> Back
+        </button>
+        <div className="flex items-center gap-2">
+          <Sparkles className="w-5 h-5 text-[#0ff]" />
+          <span className="text-lg font-bold">
+            Naz<span className="text-[#0ff]">AI</span> Generator
+          </span>
+        </div>
+        <div className="w-16" />
+      </header>
+
+      <main className="relative z-10 max-w-5xl mx-auto px-6 py-10 flex flex-col gap-8">
+        <div className="space-y-4">
+          <label className="text-xs uppercase tracking-widest text-[#0ff]/60">Describe your website</label>
+          <div className="relative group">
+            <div className="absolute -inset-[1px] rounded-xl bg-gradient-to-r from-[#0ff] via-[#f0f] to-[#0ff] opacity-30 blur-sm" />
+            <textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="A dark-themed landing page..."
+              rows={4}
+              className="relative w-full bg-[#0a0a0a] border border-white/10 rounded-xl px-5 py-4 text-white focus:outline-none focus:border-[#0ff]/50 transition-all"
+            />
+          </div>
+          <button
             onClick={handleGenerate}
-            disabled={isLoading}
-            className="bg-[#f0f] hover:bg-[#d0d] text-black font-bold px-8"
+            disabled={loading || !prompt.trim()}
+            className="flex items-center gap-2 px-8 py-3 rounded-lg font-bold bg-gradient-to-r from-[#0ff] to-[#f0f] text-black uppercase tracking-wider hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50"
           >
-            {isLoading ? "Generating..." : "Generate"}
-          </Button>
+            <Zap className={loading ? "animate-pulse" : ""} />
+            {loading ? "Glitching..." : "Generate"}
+          </button>
         </div>
 
-        {/* THE PREVIEW WINDOW - This is where the old look comes alive */}
-        {generatedHtml && (
-          <div className="border-2 border-[#0ff] rounded-lg overflow-hidden shadow-[0_0_30px_rgba(0,255,255,0.2)]">
-            <iframe srcDoc={generatedHtml} className="w-full h-[600px] bg-white" title="Preview" />
+        {error && (
+          <div className="p-4 rounded-lg border border-red-500/30 bg-red-500/5 text-red-400 font-mono text-sm">
+            {error}
           </div>
         )}
-      </div>
+
+        {/* The Browser Chrome Preview You Liked */}
+        <div className="relative bg-[#111] border border-white/5 rounded-xl overflow-hidden min-h-[500px]">
+          <div className="flex items-center gap-2 px-4 py-2.5 border-b border-white/5 bg-[#0a0a0a]">
+            <div className="flex gap-1.5">
+              <div className="w-2.5 h-2.5 rounded-full bg-red-500/60" />
+              <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/60" />
+              <div className="w-2.5 h-2.5 rounded-full bg-green-500/60" />
+            </div>
+            <div className="flex-1 ml-3 px-3 py-1 rounded bg-white/5 text-[11px] text-white/25">naz-ai://preview</div>
+          </div>
+          {generatedCode ? (
+            <iframe srcDoc={generatedCode} className="w-full h-[500px] bg-white" title="Preview" />
+          ) : (
+            <div className="h-[500px] flex flex-col items-center justify-center text-white/10">
+              <Sparkles className="w-12 h-12 mb-4" />
+              <p className="font-mono text-sm">Waiting for prompt...</p>
+            </div>
+          )}
+        </div>
+      </main>
     </div>
   );
 };
