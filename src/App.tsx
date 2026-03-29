@@ -17,6 +17,7 @@ import NotFound from "./pages/NotFound";
 import Privacy from "./pages/Privacy";
 import Terms from "./pages/Terms";
 import Auth from "./pages/Auth";
+import Generator from "./pages/Generator";
 
 const queryClient = new QueryClient();
 
@@ -72,6 +73,7 @@ const App = () => {
                 <Route path="/dashboard/create" element={<Dashboard />} />
                 <Route path="/dashboard/projects" element={<Dashboard />} />
                 <Route path="/dashboard/trash" element={<Dashboard />} />
+                <Route path="/generate" element={<Generator />} />
               </Route>
               <Route path="/share/:id" element={<SharedWebsite />} />
               <Route path="*" element={<NotFound />} />
