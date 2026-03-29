@@ -41,7 +41,7 @@ const Generator = () => {
         description: err.message || "Failed to talk to the Edge Function.",
       });
     } finally {
-      isLoading(false);
+      setIsLoading(false);
     }
   };
 
