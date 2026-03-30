@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { Zap, Shield, Rocket, ArrowRight, Sparkles, Cpu, ZapOff, Lock, BarChart3, Globe, Code2, MessageSquare, Twitter, RefreshCcw } from "lucide-react";
+import { Zap, Shield, Rocket, ArrowRight, Sparkles, Cpu, Lock, Code2, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const Index = () => {
@@ -12,19 +12,15 @@ const Index = () => {
            style={{ backgroundImage: 'linear-gradient(#0ff 1px, transparent 1px), linear-gradient(90deg, #0ff 1px, transparent 1px)', backgroundSize: '48px 48px' }}>
       </div>
 
-      {/* NAVBAR: HIGH-GLOW NEON INTEGRATION */}
+      {/* NAVBAR: UNBREAKABLE NEON SVG */}
       <nav className="relative z-50 flex justify-between items-center px-8 py-6 max-w-7xl mx-auto border-b border-white/5 bg-black/50 backdrop-blur-md sticky top-0">
         <div className="flex items-center gap-4 cursor-pointer" onClick={() => navigate("/")}>
-          {/* THE EXACT NEON LOGO STYLE FROM ATTACHMENT */}
-          <img 
-            src="/logo.png" 
-            alt="NazAI Logo" 
-            className="w-12 h-12 rounded-[14px] object-contain 
-                       brightness-110 contrast-125
-                       drop-shadow-[0_0_10px_rgba(0,163,255,0.8)] 
-                       drop-shadow-[0_0_25px_rgba(0,163,255,0.3)]
-                       transition-all duration-300 hover:scale-110" 
-          />
+          {/* REPLACED BROKEN IMAGE WITH PURE SVG NEON 'N' */}
+          <div className="w-12 h-12 rounded-[14px] bg-black flex items-center justify-center border border-white/10 shadow-[0_0_20px_rgba(0,163,255,0.2)]">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="drop-shadow-[0_0_8px_rgba(0,163,255,0.8)]">
+              <path d="M7 19V5L17 19V5" stroke="#00A3FF" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </div>
           <div className="flex flex-col">
             <div className="text-2xl font-black tracking-tighter uppercase italic leading-none text-white">
               Naz<span className="text-emerald-400">AI</span>
@@ -37,7 +33,6 @@ const Index = () => {
         
         <div className="hidden md:flex items-center gap-8 text-zinc-500 font-bold text-[10px] uppercase tracking-[0.2em]">
           <a href="#features" className="hover:text-emerald-400 transition-colors">Features</a>
-          <a href="#how-it-works" className="hover:text-emerald-400 transition-colors">Process</a>
           <a href="#pricing" className="hover:text-emerald-400 transition-colors">Pricing</a>
         </div>
 
@@ -45,7 +40,7 @@ const Index = () => {
           <button onClick={() => navigate("/generate")} className="font-bold text-xs uppercase tracking-widest text-zinc-500 hover:text-white transition-colors">Sign In</button>
           <Button 
             onClick={() => navigate("/generate")} 
-            className="bg-emerald-500 text-black hover:bg-emerald-400 px-6 h-10 rounded-lg text-xs font-black uppercase tracking-tighter"
+            className="bg-emerald-500 text-black hover:bg-emerald-400 px-6 h-10 rounded-lg text-xs font-black uppercase tracking-tighter shadow-[0_0_15px_rgba(16,185,129,0.3)]"
           >
             Get Started
           </Button>
@@ -70,7 +65,6 @@ const Index = () => {
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-24">
-            {/* LASER BUTTON EFFECT */}
             <div className="laser-border group transition-transform active:scale-95">
                 <div className="laser-content">
                     <Button onClick={() => navigate("/generate")} className="bg-emerald-500 text-black hover:bg-emerald-400 h-16 px-12 text-xl font-black rounded-xl">
@@ -132,15 +126,26 @@ const Index = () => {
         <div className="flex flex-col md:flex-row justify-between items-start gap-12">
           <div className="space-y-4">
             <div className="flex items-center gap-3 text-2xl font-black italic">
-              {/* MATCHED GLOW FOR FOOTER LOGO */}
-              <img src="/logo.png" className="w-8 h-8 object-contain drop-shadow-[0_0_8px_rgba(0,163,255,0.6)]" alt="NazAI" />
+              <div className="w-8 h-8 rounded-lg bg-black flex items-center justify-center border border-white/10">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M7 19V5L17 19V5" stroke="#00A3FF" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </div>
               Naz<span className="text-emerald-400">AI</span>
             </div>
             <p className="text-zinc-600 text-[10px] uppercase font-bold tracking-widest max-w-[250px]">Building the future of autonomous entrepreneurship in Sumy, Ukraine.</p>
           </div>
-          <div className="flex gap-16">
-            <FooterLinks title="Engine" links={["Models", "Infrastructure", "Speed"]} />
-            <FooterLinks title="Legal" links={["Privacy", "Terms", "Security"]} />
+          <div className="flex gap-16 text-zinc-500 text-[10px] uppercase font-black tracking-widest">
+            <div className="space-y-4">
+              <p className="text-white">Engine</p>
+              <p>Models</p>
+              <p>Infrastructure</p>
+            </div>
+            <div className="space-y-4">
+              <p className="text-white">Legal</p>
+              <p>Privacy</p>
+              <p>Security</p>
+            </div>
           </div>
         </div>
         <div className="mt-20 pt-8 border-t border-white/5 flex justify-between items-center text-zinc-700 text-[10px] font-black uppercase tracking-[0.3em]">
@@ -155,7 +160,7 @@ const Index = () => {
   );
 };
 
-// Helper Components
+// Sub-components
 const FeatureCard = ({ icon, title, desc }: any) => (
   <div className="glass p-12 rounded-[40px] hover:bg-white/[0.05] transition-all group border-white/5">
     <div className="w-16 h-16 rounded-2xl bg-black border border-white/10 flex items-center justify-center mb-8 group-hover:scale-110 group-hover:border-emerald-500/50 transition-all">{icon}</div>
@@ -177,18 +182,9 @@ const PriceCard = ({ price, tier, features, btnText, highlight }: any) => (
         ))}
       </ul>
     </div>
-    <Button className={`w-full h-16 rounded-2xl text-lg font-black uppercase ${highlight ? 'bg-emerald-500 text-black hover:bg-emerald-400' : 'bg-white/5 text-white hover:bg-white/10 border border-white/10'}`}>
+    <Button className={`w-full h-16 rounded-2xl text-lg font-black uppercase ${highlight ? 'bg-emerald-500 text-black hover:bg-emerald-400 shadow-[0_0_20px_rgba(16,185,129,0.2)]' : 'bg-white/5 text-white hover:bg-white/10 border border-white/10'}`}>
       {btnText}
     </Button>
-  </div>
-);
-
-const FooterLinks = ({ title, links }: any) => (
-  <div className="space-y-6">
-    <h4 className="font-black text-[10px] uppercase tracking-[0.4em] text-zinc-800">{title}</h4>
-    <ul className="space-y-3 text-zinc-500 text-xs font-bold uppercase tracking-tighter">
-      {links.map((l: string) => <li key={l} className="hover:text-emerald-400 transition-colors cursor-pointer">{l}</li>)}
-    </ul>
   </div>
 );
 
