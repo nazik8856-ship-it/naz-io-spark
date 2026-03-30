@@ -39,21 +39,29 @@ const Generator = () => {
 
       <main className="relative z-10 max-w-7xl mx-auto p-6 space-y-8">
         
-        {/* HEADER: NEON LOGO INTEGRATION */}
-        <header className="flex justify-between items-center py-4 border-b border-white/5">
-          <div className="flex items-center gap-4 cursor-pointer" onClick={() => navigate("/")}>
-            <img 
-              src="/logo.png" 
-              alt="NazAI" 
-              className="w-10 h-10 rounded-xl object-contain drop-shadow-[0_0_15px_rgba(0,255,255,0.3)]" 
-            />
-            <div className="flex flex-col">
-              <h1 className="text-2xl font-black tracking-tighter uppercase italic leading-none">
-                Naz<span className="text-emerald-400">AI</span>
-              </div>
-              <span className="text-[8px] font-mono text-zinc-600 uppercase tracking-[0.3em]">Neural Interface v3.0</span>
-            </div>
-          </div>
+        {/* HEADER: NEON LOGO INTEGRATION (FIXED & UPGRADED) */}
+<header className="flex justify-between items-center py-4 border-b border-white/5">
+  <div className="flex items-center gap-4 cursor-pointer" onClick={() => navigate("/")}>
+    {/* THE "EXACT" NEON LOGO STYLE */}
+    <img 
+      src="/logo.png" 
+      alt="NazAI" 
+      className="w-12 h-12 rounded-[14px] object-contain 
+                 brightness-110 contrast-125
+                 drop-shadow-[0_0_8px_rgba(0,163,255,0.8)] 
+                 drop-shadow-[0_0_20px_rgba(0,163,255,0.4)]
+                 transition-transform duration-300 hover:scale-110" 
+    />
+    <div className="flex flex-col">
+      <h1 className="text-2xl font-black tracking-tighter uppercase italic leading-none text-white">
+        Naz<span className="text-emerald-400">AI</span>
+      </h1>
+      <span className="text-[8px] font-mono text-zinc-600 uppercase tracking-[0.3em] mt-1">
+        Neural Interface v3.0
+      </span>
+    </div>
+  </div>
+</header>
           
           <div className="flex items-center gap-4">
             <Button variant="ghost" className="text-zinc-500 hover:text-white group">
