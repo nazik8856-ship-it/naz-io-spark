@@ -7,21 +7,31 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-black text-white selection:bg-emerald-500/30 font-sans">
-      {/* 48px Branding Grid - Matches Generator */}
+      {/* 48px Branding Grid - NazAI Signature */}
       <div className="fixed inset-0 z-0 opacity-[0.03] pointer-events-none" 
            style={{ backgroundImage: 'linear-gradient(#0ff 1px, transparent 1px), linear-gradient(90deg, #0ff 1px, transparent 1px)', backgroundSize: '48px 48px' }}>
       </div>
 
+      {/* NAVBAR: HIGH-GLOW NEON INTEGRATION */}
       <nav className="relative z-50 flex justify-between items-center px-8 py-6 max-w-7xl mx-auto border-b border-white/5 bg-black/50 backdrop-blur-md sticky top-0">
-        <div className="flex items-center gap-3">
-          {/* THE NEW NEON LOGO */}
+        <div className="flex items-center gap-4 cursor-pointer" onClick={() => navigate("/")}>
+          {/* THE EXACT NEON LOGO STYLE FROM ATTACHMENT */}
           <img 
             src="/logo.png" 
             alt="NazAI Logo" 
-            className="w-10 h-10 rounded-xl object-contain drop-shadow-[0_0_15px_rgba(0,255,255,0.3)]" 
+            className="w-12 h-12 rounded-[14px] object-contain 
+                       brightness-110 contrast-125
+                       drop-shadow-[0_0_10px_rgba(0,163,255,0.8)] 
+                       drop-shadow-[0_0_25px_rgba(0,163,255,0.3)]
+                       transition-all duration-300 hover:scale-110" 
           />
-          <div className="text-2xl font-black tracking-tighter uppercase italic">
-            Naz<span className="text-emerald-400">AI</span>
+          <div className="flex flex-col">
+            <div className="text-2xl font-black tracking-tighter uppercase italic leading-none text-white">
+              Naz<span className="text-emerald-400">AI</span>
+            </div>
+            <span className="text-[8px] font-mono text-emerald-500/50 uppercase tracking-[0.4em] mt-1">
+              Orchestrator v3
+            </span>
           </div>
         </div>
         
@@ -43,7 +53,7 @@ const Index = () => {
       </nav>
 
       <main className="relative z-10">
-        {/* Hero Section - UPDATED WITH LASER INPUT STYLE */}
+        {/* Hero Section */}
         <section className="pt-32 pb-20 px-6 text-center">
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-500/5 border border-emerald-500/20 text-emerald-400 text-[10px] font-bold uppercase tracking-widest mb-10 animate-pulse">
             <Sparkles size={14} />
@@ -75,13 +85,13 @@ const Index = () => {
 
           <div className="space-y-4">
             <p className="text-[10px] uppercase tracking-[0.4em] text-zinc-700 font-black">Trusted by Solo-Builders at</p>
-            <div className="flex flex-wrap justify-center gap-8 md:gap-16 opacity-30 grayscale font-black text-zinc-500 italic uppercase">
+            <div className="flex flex-wrap justify-center gap-8 md:gap-16 opacity-30 grayscale font-black text-zinc-500 italic uppercase text-[12px]">
               <span>Founders</span> <span>33rd Lyceum</span> <span>SaaS Teams</span> <span>Devs</span>
             </div>
           </div>
         </section>
 
-        {/* Features Section - GLASS STYLE */}
+        {/* Features Section */}
         <section id="features" className="py-32 px-6 max-w-7xl mx-auto">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             <FeatureCard icon={<Cpu className="text-emerald-500" />} title="Neural Models" desc="Powered by Claude 3.5 Sonnet & GPT-4o for precise business logic and error-free code." />
@@ -91,16 +101,15 @@ const Index = () => {
           </div>
         </section>
 
-        {/* Pricing - THE LASER CARD */}
+        {/* Pricing */}
         <section id="pricing" className="py-24 px-6 max-w-7xl mx-auto">
           <div className="text-center mb-20">
-            <h2 className="text-5xl md:text-7xl font-black tracking-tighter uppercase italic">The <span className="text-emerald-400">Investment</span></h2>
+            <h2 className="text-5xl md:text-7xl font-black tracking-tighter uppercase italic text-white">The <span className="text-emerald-400">Investment</span></h2>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             <PriceCard price="$0" tier="Explorer" features={["1 Active Project", "Basic Code Generation", "Community Support"]} btnText="Access System" />
             
-            {/* HIGHLIGHTED LASER CARD */}
             <div className="laser-border">
                 <div className="laser-content">
                     <PriceCard 
@@ -118,12 +127,13 @@ const Index = () => {
         </section>
       </main>
 
-      {/* Footer - NEON STYLE */}
+      {/* Footer */}
       <footer className="relative z-10 px-8 py-20 border-t border-white/5 max-w-7xl mx-auto">
         <div className="flex flex-col md:flex-row justify-between items-start gap-12">
           <div className="space-y-4">
             <div className="flex items-center gap-3 text-2xl font-black italic">
-              <img src="/logo.png" className="w-8 h-8" alt="" />
+              {/* MATCHED GLOW FOR FOOTER LOGO */}
+              <img src="/logo.png" className="w-8 h-8 object-contain drop-shadow-[0_0_8px_rgba(0,163,255,0.6)]" alt="NazAI" />
               Naz<span className="text-emerald-400">AI</span>
             </div>
             <p className="text-zinc-600 text-[10px] uppercase font-bold tracking-widest max-w-[250px]">Building the future of autonomous entrepreneurship in Sumy, Ukraine.</p>
@@ -145,6 +155,7 @@ const Index = () => {
   );
 };
 
+// Helper Components
 const FeatureCard = ({ icon, title, desc }: any) => (
   <div className="glass p-12 rounded-[40px] hover:bg-white/[0.05] transition-all group border-white/5">
     <div className="w-16 h-16 rounded-2xl bg-black border border-white/10 flex items-center justify-center mb-8 group-hover:scale-110 group-hover:border-emerald-500/50 transition-all">{icon}</div>
