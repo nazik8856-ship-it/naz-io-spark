@@ -7,15 +7,14 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-black text-white selection:bg-emerald-500/30 font-sans">
-      {/* 48px Branding Grid - NazAI Signature */}
+      {/* 48px Branding Grid */}
       <div className="fixed inset-0 z-0 opacity-[0.03] pointer-events-none" 
            style={{ backgroundImage: 'linear-gradient(#0ff 1px, transparent 1px), linear-gradient(90deg, #0ff 1px, transparent 1px)', backgroundSize: '48px 48px' }}>
       </div>
 
-      {/* NAVBAR: UNBREAKABLE NEON SVG */}
+      {/* NAVBAR: SVG VERSION */}
       <nav className="relative z-50 flex justify-between items-center px-8 py-6 max-w-7xl mx-auto border-b border-white/5 bg-black/50 backdrop-blur-md sticky top-0">
         <div className="flex items-center gap-4 cursor-pointer" onClick={() => navigate("/")}>
-          {/* THE "N" SVG: ZERO EXTERNAL DEPENDENCIES */}
           <div className="w-12 h-12 rounded-[14px] bg-black flex items-center justify-center border border-white/10 shadow-[0_0_20px_rgba(0,163,255,0.2)]">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="drop-shadow-[0_0_8px_rgba(0,163,255,0.8)]">
               <path d="M7 19V5L17 19V5" stroke="#00A3FF" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
@@ -121,12 +120,12 @@ const Index = () => {
         </section>
       </main>
 
-      {/* Footer */}
+      {/* FOOTER: FIXED - NO BROKEN IMAGES HERE EITHER */}
       <footer className="relative z-10 px-8 py-20 border-t border-white/5 max-w-7xl mx-auto">
         <div className="flex flex-col md:flex-row justify-between items-start gap-12">
           <div className="space-y-4">
             <div className="flex items-center gap-3 text-2xl font-black italic">
-              <div className="w-8 h-8 rounded-lg bg-black flex items-center justify-center border border-white/10">
+              <div className="w-8 h-8 rounded-lg bg-black flex items-center justify-center border border-white/10 shadow-[0_0_10px_rgba(0,163,255,0.3)]">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <path d="M7 19V5L17 19V5" stroke="#00A3FF" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
