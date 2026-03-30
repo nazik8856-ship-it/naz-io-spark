@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { Zap, Shield, Rocket, ArrowRight, Sparkles, Cpu, Lock, Code2, ArrowLeft } from "lucide-react";
+import { Zap, Shield, Rocket, ArrowRight, Sparkles, Cpu, Lock, Code2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const Index = () => {
@@ -15,7 +15,7 @@ const Index = () => {
       {/* NAVBAR: UNBREAKABLE NEON SVG */}
       <nav className="relative z-50 flex justify-between items-center px-8 py-6 max-w-7xl mx-auto border-b border-white/5 bg-black/50 backdrop-blur-md sticky top-0">
         <div className="flex items-center gap-4 cursor-pointer" onClick={() => navigate("/")}>
-          {/* REPLACED BROKEN IMAGE WITH PURE SVG NEON 'N' */}
+          {/* THE "N" SVG: ZERO EXTERNAL DEPENDENCIES */}
           <div className="w-12 h-12 rounded-[14px] bg-black flex items-center justify-center border border-white/10 shadow-[0_0_20px_rgba(0,163,255,0.2)]">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="drop-shadow-[0_0_8px_rgba(0,163,255,0.8)]">
               <path d="M7 19V5L17 19V5" stroke="#00A3FF" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
@@ -89,9 +89,9 @@ const Index = () => {
         <section id="features" className="py-32 px-6 max-w-7xl mx-auto">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             <FeatureCard icon={<Cpu className="text-emerald-500" />} title="Neural Models" desc="Powered by Claude 3.5 Sonnet & GPT-4o for precise business logic and error-free code." />
-            <FeatureCard icon={<Zap className="text-cyan-500" />} title="Laser Deployment" desc="Instant Vercel-ready previews. No more waiting for builds — see your vision live instantly." />
-            <FeatureCard icon={<Lock className="text-emerald-500" />} title="Vault Privacy" desc="Your ideas remain yours. All project data is encrypted and stored in your private Supabase vault." />
-            <FeatureCard icon={<Code2 className="text-cyan-500" />} title="Clean Code" desc="Production-grade React & Tailwind code that you can actually own, download, and scale." />
+            <FeatureCard icon={<Zap className="text-cyan-500" />} title="Laser Deployment" desc="Instant Vercel-ready previews. No more waiting for builds." />
+            <FeatureCard icon={<Lock className="text-emerald-500" />} title="Vault Privacy" desc="Your ideas remain yours. All project data is encrypted and private." />
+            <FeatureCard icon={<Code2 className="text-cyan-500" />} title="Clean Code" desc="Production-grade React & Tailwind code that you own and scale." />
           </div>
         </section>
 
@@ -102,21 +102,21 @@ const Index = () => {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            <PriceCard price="$0" tier="Explorer" features={["1 Active Project", "Basic Code Generation", "Community Support"]} btnText="Access System" />
+            <PriceCard price="$0" tier="Explorer" features={["1 Active Project", "Basic Code Gen"]} btnText="Access System" />
             
             <div className="laser-border">
                 <div className="laser-content">
                     <PriceCard 
                         price="$29" 
                         tier="Founder" 
-                        features={["Unlimited Launches", "Advanced Live Preview", "Custom Domain Export", "Priority AI Queue"]} 
+                        features={["Unlimited Launches", "Advanced Live Preview", "Custom Domain Export"]} 
                         btnText="Go Pro" 
                         highlight 
                     />
                 </div>
             </div>
 
-            <PriceCard price="$99" tier="Scale" features={["Team Orchestration", "API Direct Access", "Custom System Prompts"]} btnText="Contact Ops" />
+            <PriceCard price="$99" tier="Scale" features={["Team Orchestration", "API Access"]} btnText="Contact Ops" />
           </div>
         </section>
       </main>
@@ -135,32 +135,13 @@ const Index = () => {
             </div>
             <p className="text-zinc-600 text-[10px] uppercase font-bold tracking-widest max-w-[250px]">Building the future of autonomous entrepreneurship in Sumy, Ukraine.</p>
           </div>
-          <div className="flex gap-16 text-zinc-500 text-[10px] uppercase font-black tracking-widest">
-            <div className="space-y-4">
-              <p className="text-white">Engine</p>
-              <p>Models</p>
-              <p>Infrastructure</p>
-            </div>
-            <div className="space-y-4">
-              <p className="text-white">Legal</p>
-              <p>Privacy</p>
-              <p>Security</p>
-            </div>
-          </div>
-        </div>
-        <div className="mt-20 pt-8 border-t border-white/5 flex justify-between items-center text-zinc-700 text-[10px] font-black uppercase tracking-[0.3em]">
-          <p>© 2026 NazAI Orchestrator</p>
-          <div className="flex gap-4">
-            <span className="hover:text-emerald-400 cursor-pointer">Twitter</span>
-            <span className="hover:text-cyan-400 cursor-pointer">TikTok</span>
-          </div>
         </div>
       </footer>
     </div>
   );
 };
 
-// Sub-components
+// Helper Components
 const FeatureCard = ({ icon, title, desc }: any) => (
   <div className="glass p-12 rounded-[40px] hover:bg-white/[0.05] transition-all group border-white/5">
     <div className="w-16 h-16 rounded-2xl bg-black border border-white/10 flex items-center justify-center mb-8 group-hover:scale-110 group-hover:border-emerald-500/50 transition-all">{icon}</div>
