@@ -218,11 +218,43 @@ const Workflower = () => {
           </div>
         </section>
 
-        {/* ── FOOTER ── */}
-        <footer className="py-24 px-8 bg-[#030303] border-t border-white/5">
-          <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-20">
+        {/* ── FOOTER: BRANDED EVOLUTION ── */}
+        <footer className="py-24 px-8 bg-[#030303] border-t border-white/5 relative overflow-hidden">
+          {/* Subtitle Glow for the Logo */}
+          <div className="absolute left-0 top-0 w-64 h-64 bg-[#00A3FF]/5 blur-[100px] -translate-x-1/2 -translate-y-1/2 pointer-events-none" />
+
+          <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-20 relative z-10">
+            {/* NEW LOGO & BRAND SECTION */}
             <div className="space-y-8">
-              <Shield size={28} className="text-[#00A3FF]" />
+              <div className="flex items-center gap-4 group cursor-default">
+                {/* CUSTOM NazAI SVG LOGO */}
+                <div className="relative">
+                  <div className="absolute inset-0 bg-[#00A3FF]/20 blur-md rounded-full animate-pulse" />
+                  <svg
+                    width="40"
+                    height="40"
+                    viewBox="0 0 40 40"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="relative z-10 text-[#00A3FF] drop-shadow-[0_0_8px_rgba(0,163,255,0.8)]"
+                  >
+                    <circle
+                      cx="20"
+                      cy="20"
+                      r="18"
+                      stroke="currentColor"
+                      strokeWidth="1"
+                      strokeDasharray="4 4"
+                      className="animate-[spin_20s_linear_infinite]"
+                    />
+                    <path d="M12 28V12L28 28V12" stroke="currentColor" strokeWidth="2.5" strokeLinecap="square" />
+                  </svg>
+                </div>
+                <h2 className="text-2xl font-black uppercase tracking-tighter italic">
+                  Naz<span className="text-[#00A3FF]">AI</span>
+                </h2>
+              </div>
+
               <p className="text-[11px] text-white/30 leading-loose uppercase tracking-[0.3em]">
                 Autonomous_Logic_Deployment
                 <br />
@@ -230,23 +262,30 @@ const Workflower = () => {
                 <br />© 2026_NazAI_Systems
               </p>
             </div>
+
+            {/* CORE INDEX */}
             <div className="flex flex-col gap-6">
               <span className="text-[12px] font-black text-[#10B981] uppercase tracking-[0.5em] mb-4">Core_Index</span>
               {["Workflower", "Security", "Global_API"].map((l) => (
                 <span
                   key={l}
-                  className="text-[10px] text-white/40 hover:text-[#39FF14] cursor-pointer uppercase tracking-[0.4em] font-bold"
+                  className="text-[10px] text-white/40 hover:text-[#39FF14] hover:tracking-[0.6em] transition-all cursor-pointer uppercase tracking-[0.4em] font-bold"
                 >
                   {l}
                 </span>
               ))}
             </div>
+
+            {/* SYSTEM STATUS */}
             <div className="flex flex-col md:items-end gap-4 text-right">
               <p className="text-[11px] text-[#00A3FF] uppercase tracking-[0.4em] flex items-center gap-3">
                 99.999%_STABLE
                 <Globe size={16} className="text-[#00A3FF]/40 animate-pulse" />
               </p>
-              <p className="text-[8px] text-white/10 uppercase tracking-[0.7em] mt-24">BUILD_2026.03.31_GLOBAL</p>
+              <div className="mt-24 space-y-1">
+                <p className="text-[8px] text-white/10 uppercase tracking-[0.7em]">BUILD_2026.03.31_GLOBAL</p>
+                <p className="text-[8px] text-[#00A3FF]/20 uppercase tracking-[0.3em]">SUMY_UKRAINE_NODE_01</p>
+              </div>
             </div>
           </div>
         </footer>
