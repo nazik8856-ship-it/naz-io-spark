@@ -49,7 +49,13 @@ const Workflower = () => {
   }, [logs]);
 
   return (
-    <div className="min-h-screen w-full font-mono text-white overflow-hidden" style={{ background: "#050505" }}>
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.2 }}
+      className="min-h-screen w-full font-mono text-white overflow-hidden"
+      style={{ background: "#050505" }}
+    >
       {/* Subtle grid */}
       <div className="fixed inset-0 opacity-[0.025] pointer-events-none"
            style={{ backgroundImage: "linear-gradient(#00A3FF 1px, transparent 1px), linear-gradient(90deg, #00A3FF 1px, transparent 1px)", backgroundSize: "60px 60px" }} />
