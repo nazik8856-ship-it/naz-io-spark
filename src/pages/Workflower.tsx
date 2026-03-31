@@ -121,7 +121,7 @@ const Workflower = () => {
             </div>
 
             {/* INTERACTIVE SCHEMATIC CANVAS */}
-            
+            <div className="relative">
               <div className="absolute inset-0 flex items-center justify-around px-10">
                 {NODES.map((node, i) => (
                   <div
