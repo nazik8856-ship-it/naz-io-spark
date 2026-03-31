@@ -321,25 +321,41 @@ const Workflower = () => {
         </div>
 
         {/* ── FOOTER ── */}
-        <footer className="px-8 py-8 border-t" style={{ borderColor: "rgba(0,163,255,0.08)", background: "rgba(0,163,255,0.01)" }}>
-          <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-8 items-start">
-            <div className="flex items-center gap-3">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style={{ filter: "drop-shadow(0 0 6px #00A3FF)" }}>
-                <path d="M7 19V5L17 19V5" stroke="#00A3FF" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-              <span className="text-[10px] font-black uppercase tracking-wider italic">Naz<span style={{ color: "#00A3FF" }}>AI</span></span>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              {["Workflower", "Generator", "Diagnostics"].map((l) => (
-                <span key={l} className="text-[9px] uppercase tracking-wider cursor-pointer hover:underline" style={{ color: "rgba(0,163,255,0.3)" }}>{l}</span>
-              ))}
-            </div>
-            <div className="text-right">
-              <p className="text-[8px] uppercase tracking-[0.3em]" style={{ color: "rgba(0,163,255,0.15)" }}>© 2026 NazAI Systems</p>
-              <p className="text-[7px] uppercase tracking-wider mt-1" style={{ color: "rgba(255,255,255,0.08)" }}>Automotive Logic Flow v1.0</p>
-            </div>
-          </div>
-        </footer>
+        <footer className="px-8 py-12 border-t border-white/5 bg-black/40 backdrop-blur-md">
+  <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-8">
+    
+    {/* Column 1: Identity */}
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center gap-2">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="drop-shadow-[0_0_8px_#00A3FF]">
+          <path d="M7 19V5L17 19V5" stroke="#00A3FF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+        <span className="text-[11px] font-black uppercase tracking-[0.2em] text-white">NazAI_OS</span>
+      </div>
+      <p className="text-[9px] text-white/30 uppercase tracking-widest leading-relaxed">
+        Automotive_Logic_Orchestrator<br/>Build_V3.1.0_Stable
+      </p>
+    </div>
+
+    {/* Column 2: System Links */}
+    <div className="flex flex-col gap-2">
+      <span className="text-[10px] font-bold text-[#10B981] uppercase tracking-[0.3em] mb-1">Navigation_Index</span>
+      {["Workflower", "Generator", "Diagnostics", "Security"].map((link) => (
+        <span key={link} className="text-[9px] text-white/40 uppercase tracking-wider cursor-pointer hover:text-[#00A3FF] transition-all">
+          {link}
+        </a>
+      ))}
+    </div>
+
+    {/* Column 3: Live Status */}
+    <div className="flex flex-col items-end gap-1">
+      <span className="text-[10px] font-bold text-[#BF00FF] uppercase tracking-[0.3em] mb-1">System_Status</span>
+      <p className="text-[9px] text-[#00A3FF] uppercase tracking-[0.2em] animate-pulse">● Live_Uptime: 99.9%</p>
+      <p className="text-[8px] text-white/20 uppercase tracking-[0.4em] mt-2">© 2026_All_Systems_Go</p>
+    </div>
+
+  </div>
+</footer>
       </div>
     </motion.div>
   );
