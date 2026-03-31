@@ -143,7 +143,7 @@ const Workflower = () => {
     flex items-center gap-2
   ">
     START_MISSION_NOW
-    <span className="text-[10px]" aria-hidden="true">&gt;&gt;</span>
+    <span className="text-[10px]">>></span>
   </button>
 
   {/* SECONDARY: GHOST GREEN */}
@@ -153,7 +153,7 @@ const Workflower = () => {
     hover:bg-[#39FF14]/10 hover:scale-105 active:scale-95 transition-all duration-200
     backdrop-blur-sm
   ">
-    FIND_SOLUTIONS
+    View Plans
   </button>
 
 </div>
