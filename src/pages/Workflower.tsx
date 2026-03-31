@@ -119,10 +119,10 @@ const Workflower = () => {
               </h2>
               <div className="h-1 w-24 bg-[#00A3FF] rounded-full shadow-[0_0_10px_#00A3FF]" />
             </div>
+          </div>
+        </section>
 
-            {/* INTERACTIVE SCHEMATIC CANVAS */}
-            
-             
+        {/* ── INTERACTIVE SCHEMATIC CANVAS ── */}
         <div className="px-8 py-12">
           <div className="max-w-6xl mx-auto h-[450px] rounded-3xl border border-white/10 bg-black/40 relative overflow-hidden backdrop-blur-lg">
             <svg className="absolute inset-0 w-full h-full">
