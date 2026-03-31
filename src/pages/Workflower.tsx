@@ -121,25 +121,8 @@ const Workflower = () => {
             </div>
 
             {/* INTERACTIVE SCHEMATIC CANVAS */}
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center justify-around px-10">
-                {NODES.map((node, i) => (
-                  <div
-                    key={i}
-                    className="flex flex-col items-center gap-6 p-8 rounded-2xl border border-[#00A3FF]/20 bg-[#0A192F]/80 shadow-[0_0_40px_rgba(0,0,0,0.5)] transition-all hover:border-[#00A3FF]/60 group"
-                  >
-                    <div className="w-14 h-14 rounded-full border border-[#00A3FF]/40 flex items-center justify-center bg-[#00A3FF]/10 group-hover:bg-[#00A3FF]/20 transition-colors">
-                      <node.icon size={28} className="text-[#00A3FF]" />
-                    </div>
-                    <span className="text-[10px] font-black text-[#00A3FF] tracking-[0.3em] uppercase">
-                      {node.label}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </section>
+            
+             
         <div className="px-8 py-12">
           <div className="max-w-6xl mx-auto h-[450px] rounded-3xl border border-white/10 bg-black/40 relative overflow-hidden backdrop-blur-lg">
             <svg className="absolute inset-0 w-full h-full">
