@@ -143,7 +143,7 @@ const Workflower = () => {
     flex items-center gap-2
   ">
     START_MISSION_NOW
-    <span className="text-[10px]">>></span>
+    <span className="text-[10px]">&gt;&gt;</span>
   </button>
 
   {/* SECONDARY: GHOST GREEN */}
