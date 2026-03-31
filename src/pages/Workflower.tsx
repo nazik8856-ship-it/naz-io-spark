@@ -92,7 +92,7 @@ const Workflower = () => {
           {/* --- BRIGHT NEON BUTTONS (HEADLINE ADJACENT) --- */}
           <div className="flex flex-wrap items-center justify-center gap-6 mt-12 mb-10">
             <button className="px-10 py-4 bg-[#39FF14] text-black font-black uppercase tracking-[0.2em] text-xs hover:bg-[#10B981] hover:scale-105 transition-all drop-shadow-[0_0_25px_rgba(57,255,20,0.7)] border-b-4 border-[#059669]">
-              START_MISSION_NOW >>
+              START_MISSION_NOW &gt;&gt;
             </button>
             <button className="px-10 py-4 bg-transparent text-[#39FF14] border-2 border-[#39FF14] font-black uppercase tracking-[0.2em] text-xs hover:bg-[#39FF14]/10 backdrop-blur-sm">
               VIEW_BLUEPRINTS
