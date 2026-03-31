@@ -1,29 +1,21 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Activity, Cpu, Zap, Radio } from "lucide-react";
 
 const NODES = [
-  { id: "input", label: "INPUT SENSOR", desc: "Signal Capture", icon: Radio, color: "#00A3FF" },
-  { id: "logic", label: "LOGIC GATE", desc: "Decision Matrix", icon: Cpu, color: "#00A3FF" },
-  { id: "engine", label: "AUTO ENGINE", desc: "Process Core", icon: Activity, color: "#00A3FF" },
-  { id: "exec", label: "EXECUTION", desc: "Deploy Signal", icon: Zap, color: "#00A3FF" },
+  { id: "input", label: "INPUT SENSOR", desc: "SIGNAL CAPTURE & VALIDATION", icon: Radio, color: "#00A3FF" },
+  { id: "logic", label: "LOGIC GATE", desc: "DECISION MATRIX ARCHITECT", icon: Cpu, color: "#00A3FF" },
+  { id: "engine", label: "AUTO ENGINE", desc: "PROCESS CORE EXECUTION", icon: Activity, color: "#00A3FF" },
+  { id: "exec", label: "EXECUTION", desc: "DEPLOY & LIVE SIGNAL", icon: Zap, color: "#00A3FF" },
 ];
 
 const LOG_SEQUENCE = [
   "NAZAI_OS: LINKED",
-  "WORKFLOWER: ACTIVE",
-  "SENSOR ARRAY: CALIBRATING...",
-  "LOGIC GATE: HANDSHAKE OK",
+  "THERMAL_CORE: STABILIZED",
+  "BLUE_RED_GRADIENT: ACTIVE",
+  "MISSION_READY: 100%",
   "ENGINE CORE: SPINNING UP — 12ms",
   "EXECUTION PIPELINE: ARMED",
-  "SIGNAL INTEGRITY: 99.7%",
-  "NEURAL HANDSHAKE: CONFIRMED",
-  "DATA THROUGHPUT: 2.4 GB/s",
-  "CYCLE LATENCY: 8ms",
-  "AUTOMOTIVE BUS: CAN-FD ACTIVE",
-  "TELEMETRY STREAM: NOMINAL",
-  "WATCHDOG TIMER: RESET",
-  "WORKFLOWER CYCLE: COMPLETE",
 ];
 
 const Workflower = () => {
@@ -51,337 +43,114 @@ const Workflower = () => {
     return () => clearInterval(iv);
   }, []);
 
-  useEffect(() => {
-    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
-  }, [logs]);
-
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.2 }}
-      className="min-h-screen w-full font-mono text-white overflow-hidden"
-      style={{ background: "radial-gradient(ellipse at 50% 40%, #0A192F 0%, #050505 70%)" }}
+      className="min-h-screen w-full font-mono text-white overflow-x-hidden"
+      /* FIX: THE BLUE-RED THERMAL GRADIENT */
+      style={{ background: "linear-gradient(180deg, #0A192F 0%, #1A0B0B 100%)", backgroundAttachment: "fixed" }}
     >
-      {/* 3D parallax grid overlay */}
-      <div className="fixed inset-0 opacity-[0.06] pointer-events-none"
-           style={{
-             backgroundImage: "linear-gradient(#00A3FF 1px, transparent 1px), linear-gradient(90deg, #00A3FF 1px, transparent 1px)",
-             backgroundSize: "60px 60px",
-             transform: `translateY(${scrollY * 0.08}px)`,
-             willChange: "transform",
-           }} />
-
       <div className="relative z-10 flex flex-col min-h-screen">
+        
         {/* ── HEADER ── */}
-        <header className="flex items-center justify-between px-8 py-5 border-b" style={{ borderColor: "rgba(0,163,255,0.08)" }}>
+        <header className="flex items-center justify-between px-8 py-5 border-b border-white/5 bg-black/20 backdrop-blur-md">
           <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-xl flex items-center justify-center border"
-                 style={{ borderColor: "rgba(0,163,255,0.25)", background: "rgba(0,163,255,0.04)", boxShadow: "0 0 24px rgba(0,163,255,0.12)" }}>
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" style={{ filter: "drop-shadow(0 0 8px #00A3FF)" }}>
+            <div className="w-12 h-12 rounded-xl flex items-center justify-center border border-[#00A3FF]/30 bg-[#00A3FF]/5 shadow-[0_0_24px_rgba(0,163,255,0.15)]">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="drop-shadow-[0_0_8px_#00A3FF]">
                 <path d="M7 19V5L17 19V5" stroke="#00A3FF" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
             </div>
             <div>
               <h1 className="text-xl font-black tracking-tighter uppercase italic leading-none">
-                Naz<span style={{ color: "#00A3FF" }}>AI</span>
-                <span className="text-white/20 text-sm ml-2 not-italic font-medium tracking-normal">Workflower</span>
+                Naz<span className="text-[#00A3FF]">AI</span>
+                <span className="text-white/20 text-sm ml-2 not-italic font-medium">Workflower</span>
               </h1>
-              <p className="text-[8px] uppercase tracking-[0.5em] mt-1" style={{ color: "rgba(0,163,255,0.3)" }}>
-                Automotive Logic Flow v1.0
+              <p className="text-[8px] uppercase tracking-[0.5em] mt-1 text-[#00A3FF]/50">
+                Automotive Logic Flow v3.1
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border" style={{ borderColor: "rgba(0,163,255,0.15)", background: "rgba(0,163,255,0.04)" }}>
-              <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: "#00A3FF", boxShadow: "0 0 6px #00A3FF" }} />
-              <span className="text-[9px] font-bold uppercase tracking-[0.2em]" style={{ color: "#00A3FF" }}>System Online</span>
-            </div>
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-[#39FF14]/20 bg-[#39FF14]/5">
+            <div className="w-1.5 h-1.5 rounded-full animate-pulse bg-[#39FF14] shadow-[0_0_6px_#39FF14]" />
+            <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#39FF14]">System Online</span>
           </div>
         </header>
 
         {/* ── HERO HEADLINE ── */}
-        <div className="relative px-8 py-14 text-center overflow-hidden">
-          {/* Scanline overlay */}
-          <div className="absolute inset-0 pointer-events-none opacity-[0.04]"
-               style={{ backgroundImage: "repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.08) 2px, rgba(255,255,255,0.08) 4px)", backgroundSize: "100% 4px" }} />
-          <h2 className="relative text-3xl md:text-5xl font-black uppercase tracking-tight leading-tight" style={{ opacity: 1, display: "block" }}>
-            <span style={{ color: "#FFFFFF" }}>Welcome to </span>
-            <span style={{
-              background: "linear-gradient(90deg, #00A3FF, #00E0FF)",
-              WebkitBackgroundClip: "text",
-              WebkitTextFillColor: "transparent",
-              textShadow: "0 0 15px #00A3FF",
-              filter: "drop-shadow(0 0 15px rgba(0,163,255,0.6))",
-            }}>NazAI</span>
-            <span style={{ color: "#FFFFFF" }}>.</span>
+        <div className="relative px-8 py-20 text-center">
+          <h2 className="text-4xl md:text-6xl font-black uppercase tracking-tight leading-tight">
+            <span className="text-white">Welcome to </span>
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#00A3FF] to-[#00E0FF] drop-shadow-[0_0_15px_rgba(0,163,255,0.6)]">NazAI</span>
+            <span className="text-white">.</span>
             <br />
-            <span style={{
-              background: "linear-gradient(90deg, #10B981, #39FF14)",
-              WebkitBackgroundClip: "text",
-              WebkitTextFillColor: "transparent",
-              textShadow: "0 0 20px #10B981",
-              filter: "drop-shadow(0 0 20px rgba(16,185,129,0.6))",
-            }}>One Prompt, </span>
-            <span style={{
-              background: "linear-gradient(90deg, #BF00FF, #FF00FF)",
-              WebkitBackgroundClip: "text",
-              WebkitTextFillColor: "transparent",
-              textShadow: "0 0 25px #BF00FF",
-              filter: "drop-shadow(0 0 25px rgba(191,0,255,0.6))",
-            }}>Solutions Orchestrated</span>
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#10B981] to-[#39FF14] drop-shadow-[0_0_20px_rgba(16,185,129,0.6)]">One Prompt, </span>
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#FF0055] to-[#990033] drop-shadow-[0_0_25px_rgba(255,0,85,0.6)]">Solutions Orchestrated</span>
           </h2>
 
-          {/* --- HEADLINE BUTTONS --- */}
-<div className="flex flex-wrap items-center justify-center gap-6 mt-12 mb-20 animate-in fade-in slide-in-from-bottom-4 duration-1000">
-  
-  {/* PRIMARY: BRIGHT NEON GREEN */}
-  <button className="
-    px-10 py-4 bg-[#39FF14] text-black font-black uppercase tracking-[0.2em] text-xs
-    hover:bg-[#10B981] hover:scale-105 active:scale-95 transition-all duration-200
-    drop-shadow-[0_0_25px_rgba(57,255,20,0.7)] border-b-4 border-[#059669]
-    flex items-center gap-2
-  ">
-    START_MISSION_NOW
-    <span className="text-[10px]">&gt;&gt;</span>
-  </button>
-
-  {/* SECONDARY: GHOST GREEN */}
-  <button className="
-    px-10 py-4 bg-transparent text-[#39FF14] border-2 border-[#39FF14]
-    font-black uppercase tracking-[0.2em] text-xs
-    hover:bg-[#39FF14]/10 hover:scale-105 active:scale-95 transition-all duration-200
-    backdrop-blur-sm
-  ">
-    View Plans
-  </button>
-
-</div>
+          {/* --- BRIGHT NEON BUTTONS (HEADLINE ADJACENT) --- */}
+          <div className="flex flex-wrap items-center justify-center gap-6 mt-12 mb-10">
+            <button className="px-10 py-4 bg-[#39FF14] text-black font-black uppercase tracking-[0.2em] text-xs hover:bg-[#10B981] hover:scale-105 transition-all drop-shadow-[0_0_25px_rgba(57,255,20,0.7)] border-b-4 border-[#059669]">
+              START_MISSION_NOW >>
+            </button>
+            <button className="px-10 py-4 bg-transparent text-[#39FF14] border-2 border-[#39FF14] font-black uppercase tracking-[0.2em] text-xs hover:bg-[#39FF14]/10 backdrop-blur-sm">
+              VIEW_BLUEPRINTS
+            </button>
+          </div>
         </div>
 
-        {/* ── CANVAS ── */}
-        <div className="flex-1 relative flex items-center justify-center px-8 py-6">
-          <div className="w-full max-w-5xl rounded-2xl border relative overflow-hidden"
-               style={{ borderColor: "rgba(0,163,255,0.08)", background: "rgba(0,163,255,0.015)", height: "clamp(320px, 50vh, 460px)" }}>
-
-            {/* Decorative corner markers */}
-            {["top-3 left-3", "top-3 right-3", "bottom-3 left-3", "bottom-3 right-3"].map((pos, i) => (
-              <div key={i} className={`absolute ${pos} w-3 h-3 border opacity-20`}
-                   style={{ borderColor: "#00A3FF", borderWidth: i < 2 ? "1px 0 0 1px" : "0 1px 1px 0", transform: `rotate(${i * 90}deg)` }} />
-            ))}
-
-            {/* SVG connections */}
-            <svg className="absolute inset-0 w-full h-full" preserveAspectRatio="none" viewBox="0 0 1000 460">
-              <defs>
-                <linearGradient id="lineGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" stopColor="#00A3FF" stopOpacity="0.05" />
-                  <stop offset="50%" stopColor="#00A3FF" stopOpacity="0.2" />
-                  <stop offset="100%" stopColor="#00A3FF" stopOpacity="0.05" />
-                </linearGradient>
-                <filter id="glow">
-                  <feGaussianBlur stdDeviation="3" result="blur" />
-                  <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
-                </filter>
-              </defs>
-
-              {/* Three connection segments */}
-              {[0, 1, 2].map((i) => {
-                const x1 = 155 + i * 250;
-                const x2 = x1 + 190;
-                const y = 230;
-                return (
-                  <g key={`conn-${i}`}>
-                    {/* Base line */}
-                    <line x1={x1} y1={y} x2={x2} y2={y} stroke="url(#lineGrad)" strokeWidth="1" />
-                    {/* Pulse dot */}
-                    <circle r="3" fill="#00A3FF" filter="url(#glow)">
-                      <animateMotion dur={`${1.2 + i * 0.2}s`} repeatCount="indefinite"
-                        path={`M${x1},${y} L${x2},${y}`} />
-                    </circle>
-                    <circle r="8" fill="#00A3FF" opacity="0.1">
-                      <animateMotion dur={`${1.2 + i * 0.2}s`} repeatCount="indefinite"
-                        path={`M${x1},${y} L${x2},${y}`} />
-                    </circle>
-                    {/* Arrow */}
-                    <text x={(x1 + x2) / 2} y={y - 14} textAnchor="middle" fill="#00A3FF" opacity="0.15" fontSize="10" fontFamily="monospace">▸</text>
-                  </g>
-                );
-              })}
-            </svg>
-
-            {/* Interactive Nodes */}
-            <div className="absolute inset-0 flex items-center justify-around px-12">
-              {NODES.map((node, idx) => {
-                const Icon = node.icon;
-                const isHovered = hoveredNode === node.id;
-                return (
-                  <motion.div
-                    key={node.id}
-                    className="relative cursor-pointer select-none"
-                    style={{ width: 130 }}
-                    onHoverStart={() => setHoveredNode(node.id)}
-                    onHoverEnd={() => setHoveredNode(null)}
-                    initial={{ opacity: 1, y: 0 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.3 }}
-                  >
-                    <motion.div
-                      className="rounded-xl border p-5 flex flex-col items-center text-center gap-3"
-                      animate={{
-                        borderColor: isHovered ? "rgba(0,163,255,0.6)" : "rgba(0,163,255,0.12)",
-                        background: isHovered ? "rgba(0,163,255,0.08)" : "rgba(0,163,255,0.02)",
-                        boxShadow: isHovered
-                          ? "0 0 50px rgba(0,163,255,0.2), 0 0 100px rgba(0,163,255,0.05), inset 0 0 30px rgba(0,163,255,0.03)"
-                          : "0 0 0px rgba(0,163,255,0)",
-                      }}
-                      transition={{ duration: 0.35 }}
-                      whileHover={{ scale: 1.06 }}
-                    >
-                      {/* Icon container */}
-                      <motion.div
-                        className="w-10 h-10 rounded-lg flex items-center justify-center border"
-                        animate={{
-                          borderColor: isHovered ? "rgba(0,163,255,0.5)" : "rgba(0,163,255,0.15)",
-                          background: isHovered ? "rgba(0,163,255,0.15)" : "rgba(0,163,255,0.05)",
-                        }}
-                        transition={{ duration: 0.35 }}
-                      >
-                        <Icon
-                          size={18}
-                          color="#00A3FF"
-                          style={{
-                            filter: isHovered ? "drop-shadow(0 0 8px #00A3FF)" : "none",
-                            transition: "filter 0.3s ease",
-                          }}
-                        />
-                      </motion.div>
-
-                      <div>
-                        <p className="text-[8px] font-black uppercase tracking-[0.15em] leading-tight" style={{ color: "#00A3FF" }}>
-                          {node.label}
-                        </p>
-                        <p className="text-[7px] uppercase tracking-wider mt-1" style={{ color: "rgba(255,255,255,0.15)" }}>
-                          {node.desc}
-                        </p>
-                      </div>
-
-                      {/* Sequence number */}
-                      <span className="text-[7px] font-bold" style={{ color: "rgba(0,163,255,0.2)" }}>
-                        NODE.0{idx + 1}
-                      </span>
-                    </motion.div>
-                  </motion.div>
-                );
-              })}
-            </div>
+        {/* ── USAGE BLUEPRINT (ILLUMINATED) ── */}
+        <div className="px-8 py-16 bg-black/40 border-y border-white/5">
+          <h2 className="text-[10px] font-black uppercase tracking-[0.5em] mb-12 text-center text-[#00A3FF] drop-shadow-[0_0_10px_#00A3FF]">
+            Usage_Blueprint_V3
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 max-w-6xl mx-auto">
+            {NODES.map((node, idx) => {
+              const Icon = node.icon;
+              return (
+                <div key={node.id} className="group rounded-xl border border-[#00A3FF]/20 p-6 flex flex-col gap-4 bg-[#0A192F]/40 hover:border-[#00A3FF]/60 transition-all">
+                  <div className="w-10 h-10 rounded-lg flex items-center justify-center border border-[#00A3FF]/30 bg-[#00A3FF]/10">
+                    <Icon size={20} color="#00A3FF" className="group-hover:drop-shadow-[0_0_8px_#00A3FF]" />
+                  </div>
+                  {/* FIX: BRIGHT NAMES AND WHITE TEXT */}
+                  <h3 className="text-xs font-black text-[#00A3FF] uppercase tracking-widest drop-shadow-[0_0_8px_rgba(0,163,255,0.8)]">
+                    {node.label}
+                  </h3>
+                  <p className="text-[10px] text-white font-medium uppercase tracking-widest leading-relaxed opacity-90">
+                    {node.desc}
+                  </p>
+                  <span className="text-[8px] text-white/20 font-mono tracking-[0.4em]">NODE.0{idx + 1}</span>
+                </div>
+              );
+            })}
           </div>
         </div>
 
         {/* ── SYSTEM LOG ── */}
-        <div className="border-t" style={{ borderColor: "rgba(0,163,255,0.08)" }}>
-          <div className="flex items-center gap-2 px-6 py-2 border-b" style={{ borderColor: "rgba(0,163,255,0.06)", background: "rgba(0,163,255,0.02)" }}>
-            <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: "#00A3FF", boxShadow: "0 0 4px #00A3FF" }} />
-            <span className="text-[8px] font-black uppercase tracking-[0.4em]" style={{ color: "#00A3FF" }}>
-              System Log
-            </span>
-            <span className="text-[7px] ml-auto" style={{ color: "rgba(0,163,255,0.2)" }}>
-              {logs.length} entries
-            </span>
+        <div className="border-t border-white/5 bg-black/60">
+          <div className="flex items-center gap-2 px-6 py-2 border-b border-white/5 bg-white/5">
+            <div className="w-1.5 h-1.5 rounded-full animate-pulse bg-[#39FF14]" />
+            <span className="text-[8px] font-black uppercase tracking-[0.4em] text-[#00A3FF]">Live_Telemetry</span>
           </div>
-          <div ref={logRef} className="px-6 py-3 overflow-y-auto" style={{ height: "clamp(100px, 18vh, 160px)" }}>
-            <AnimatePresence initial={false}>
-              {logs.map((log, i) => (
-                <motion.div
-                  key={`${i}-${log}`}
-                  initial={{ opacity: 0, x: -8 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ duration: 0.3 }}
-                  className="flex items-start gap-2 py-0.5"
-                >
-                  <span className="text-[9px] shrink-0" style={{ color: "rgba(0,163,255,0.12)" }}>▸</span>
-                  <span className="text-[9px] leading-relaxed" style={{ color: "rgba(0,163,255,0.4)" }}>{log}</span>
-                </motion.div>
-              ))}
-            </AnimatePresence>
-          </div>
-        </div>
-        {/* ── SYSTEM MANUAL ── */}
-        <div className="px-8 py-10 border-t" style={{ borderColor: "rgba(0,163,255,0.08)" }}>
-          <h2 className="text-[9px] font-black uppercase tracking-[0.5em] mb-6 text-center" style={{ color: "#00A3FF" }}>
-            System_Manual
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-5xl mx-auto">
-            {[
-              { title: "TRIGGER", desc: "Define input sensors and event listeners that initiate your automation pipeline.", icon: "01" },
-              { title: "LOGIC", desc: "Configure conditional gates, decision matrices, and branching rules for data routing.", icon: "02" },
-              { title: "ACTION", desc: "Deploy execution commands, API calls, and output signals to complete the workflow cycle.", icon: "03" },
-            ].map((card) => (
-              <div key={card.title} className="rounded-xl border p-6 flex flex-col gap-3"
-                   style={{ borderColor: "rgba(0,163,255,0.1)", background: "rgba(0,163,255,0.02)" }}>
-                <span className="text-[8px] font-bold tracking-[0.3em]" style={{ color: "rgba(0,163,255,0.25)" }}>NODE.{card.icon}</span>
-                <h3 className="text-xs font-black uppercase tracking-wider" style={{ color: "#00A3FF" }}>{card.title}</h3>
-                <p className="text-[10px] leading-relaxed" style={{ color: "rgba(255,255,255,0.3)" }}>{card.desc}</p>
-              </div>
+          <div className="px-6 py-4 h-32 overflow-y-auto font-mono text-[9px] text-[#00A3FF]/60">
+            {logs.map((log, i) => (
+              <div key={i} className="py-0.5">▸ {log}</div>
             ))}
           </div>
         </div>
 
-        {/* ── FEEDBACK / BUG REPORT ── */}
-        <div className="px-8 py-10 border-t" style={{ borderColor: "rgba(0,163,255,0.08)" }}>
-          <div className="max-w-lg mx-auto rounded-xl border p-6" style={{ borderColor: "rgba(0,163,255,0.15)", background: "rgba(0,163,255,0.02)" }}>
-            <h2 className="text-[9px] font-black uppercase tracking-[0.5em] mb-1 text-center" style={{ color: "#00A3FF" }}>
-              Diagnostics Portal
-            </h2>
-            <p className="text-[8px] uppercase tracking-[0.3em] text-center mb-6" style={{ color: "rgba(0,163,255,0.2)" }}>Bug Report / Feedback</p>
-            <form onSubmit={(e) => e.preventDefault()} className="flex flex-col gap-4">
-              <input type="text" placeholder="CALLSIGN" className="w-full rounded-lg border px-4 py-2.5 text-[10px] font-mono uppercase tracking-wider placeholder:uppercase focus:outline-none"
-                     style={{ borderColor: "rgba(0,163,255,0.15)", background: "rgba(0,163,255,0.04)", color: "#00A3FF" }} />
-              <textarea rows={4} placeholder="DESCRIBE THE ANOMALY..." className="w-full rounded-lg border px-4 py-2.5 text-[10px] font-mono uppercase tracking-wider placeholder:uppercase focus:outline-none resize-none"
-                        style={{ borderColor: "rgba(0,163,255,0.15)", background: "rgba(0,163,255,0.04)", color: "#00A3FF" }} />
-              <button type="submit" className="w-full rounded-lg py-2.5 text-[9px] font-black uppercase tracking-[0.3em] border transition-all duration-300 hover:shadow-[0_0_30px_rgba(0,163,255,0.3)]"
-                      style={{ borderColor: "rgba(0,163,255,0.4)", background: "rgba(0,163,255,0.08)", color: "#00A3FF" }}>
-                Transmit Report
-              </button>
-            </form>
-          </div>
-        </div>
-
         {/* ── FOOTER ── */}
-        <footer className="px-8 py-12 border-t border-white/5 bg-black/40 backdrop-blur-md">
-  <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-8">
-    
-    {/* Column 1: Identity */}
-    <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-2">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="drop-shadow-[0_0_8px_#00A3FF]">
-          <path d="M7 19V5L17 19V5" stroke="#00A3FF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-        </svg>
-        <span className="text-[11px] font-black uppercase tracking-[0.2em] text-white">NazAI_OS</span>
-      </div>
-      <p className="text-[9px] text-white/30 uppercase tracking-widest leading-relaxed">
-        Automotive_Logic_Orchestrator<br/>Build_V3.1.0_Stable
-      </p>
-    </div>
+        <footer className="px-8 py-12 border-t border-white/5 bg-black/80">
+          <div className="max-w-5xl mx-auto flex justify-between items-center text-[9px] text-white/40 uppercase tracking-widest">
+            <span>© 2026_NAZAI_SYSTEMS</span>
+            <div className="flex gap-8">
+              <span className="hover:text-[#39FF14] cursor-pointer">Diagnostics</span>
+              <span className="hover:text-[#39FF14] cursor-pointer">Security_Protocol</span>
+            </div>
+          </div>
+        </footer>
 
-    {/* Column 2: System Links */}
-    <div className="flex flex-col gap-2">
-      <span className="text-[10px] font-bold text-[#10B981] uppercase tracking-[0.3em] mb-1">Navigation_Index</span>
-      {["Workflower", "Generator", "Diagnostics", "Security"].map((link) => (
-        <span key={link} className="text-[9px] text-white/40 uppercase tracking-wider cursor-pointer hover:text-[#00A3FF] transition-all">
-          {link}
-        </span>
-      ))}
-    </div>
-
-    {/* Column 3: Live Status */}
-    <div className="flex flex-col items-end gap-1">
-      <span className="text-[10px] font-bold text-[#BF00FF] uppercase tracking-[0.3em] mb-1">System_Status</span>
-      <p className="text-[9px] text-[#00A3FF] uppercase tracking-[0.2em] animate-pulse">● Live_Uptime: 99.9%</p>
-      <p className="text-[8px] text-white/20 uppercase tracking-[0.4em] mt-2">© 2026_All_Systems_Go</p>
-    </div>
-
-  </div>
-</footer>
       </div>
     </motion.div>
   );
