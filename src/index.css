@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
 @import url("https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,900&display=swap");
 
 @tailwind base;
@@ -14,7 +14,7 @@
     --card-foreground: 210 20% 98%;
     --popover: 220 18% 8%;
     --popover-foreground: 210 20% 98%;
-    
+
     /* NazAI Signature: Emerald (142) to Cyan (175) */
     --primary: 142 100% 50%;
     --primary-foreground: 220 20% 4%;
@@ -22,7 +22,7 @@
     --secondary-foreground: 210 20% 98%;
     --muted: 240 5% 10%;
     --muted-foreground: 215 15% 55%;
-    --accent: 175 80% 50%; 
+    --accent: 175 80% 50%;
     --accent-foreground: 220 20% 4%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 210 20% 98%;
@@ -32,8 +32,8 @@
     --radius: 0.75rem;
 
     /* Tech Stack Fonts */
-    --font-display: 'Space Grotesk', sans-serif;
-    --font-mono: 'JetBrains Mono', monospace;
+    --font-display: "Space Grotesk", sans-serif;
+    --font-mono: "JetBrains Mono", monospace;
   }
 
   * {
@@ -41,9 +41,12 @@
   }
 
   body {
-    @apply bg-background text-foreground antialiased;
-    font-feature-settings: "rlig" 1, "calt" 1;
-    background-color: #020202; /* Pure Obsidian */
+    margin: 0;
+    /* Deep Navy at the top, fading into a very dark Wine-Red at the bottom */
+    background: linear-gradient(180deg, #0a192f 0%, #1a0b0b 100%);
+    color: white;
+    min-height: 100vh;
+    background-attachment: fixed; /* Keeps the gradient still as you scroll */
   }
 
   html {
@@ -54,8 +57,12 @@
 @layer utilities {
   /* --- INNOVATIVE LASER SYSTEM --- */
   @keyframes laser-rotate {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
   }
 
   .laser-border {
@@ -67,7 +74,7 @@
   }
 
   .laser-border::before {
-    content: '';
+    content: "";
     position: absolute;
     width: 250%;
     height: 250%;
@@ -122,5 +129,8 @@
 }
 
 @keyframes section-rise {
-  to { opacity: 1; transform: translateY(0); }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
