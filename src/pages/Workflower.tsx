@@ -129,7 +129,7 @@ const Workflower = () => {
               WebkitTextFillColor: "transparent",
               textShadow: "0 0 25px #BF00FF",
               filter: "drop-shadow(0 0 25px rgba(191,0,255,0.6))",
-            }}>Website Appears</span>
+            }}>Solutions Orchestrated</span>
           </h2>
         </div>
 
@@ -343,7 +343,7 @@ const Workflower = () => {
       {["Workflower", "Generator", "Diagnostics", "Security"].map((link) => (
         <span key={link} className="text-[9px] text-white/40 uppercase tracking-wider cursor-pointer hover:text-[#00A3FF] transition-all">
           {link}
-        </span>
+        </a>
       ))}
     </div>
 
