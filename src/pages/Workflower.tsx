@@ -49,7 +49,13 @@ const Workflower = () => {
   }, [logs]);
 
   return (
-    <div className="min-h-screen w-full font-mono text-white overflow-hidden" style={{ background: "#050505" }}>
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.2 }}
+      className="min-h-screen w-full font-mono text-white overflow-hidden"
+      style={{ background: "#050505" }}
+    >
       {/* Subtle grid */}
       <div className="fixed inset-0 opacity-[0.025] pointer-events-none"
            style={{ backgroundImage: "linear-gradient(#00A3FF 1px, transparent 1px), linear-gradient(90deg, #00A3FF 1px, transparent 1px)", backgroundSize: "60px 60px" }} />
@@ -159,9 +165,9 @@ const Workflower = () => {
                     style={{ width: 130 }}
                     onHoverStart={() => setHoveredNode(node.id)}
                     onHoverEnd={() => setHoveredNode(null)}
-                    initial={{ opacity: 0, y: 20 }}
+                    initial={{ opacity: 1, y: 0 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: idx * 0.15, duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+                    transition={{ duration: 0.3 }}
                   >
                     <motion.div
                       className="rounded-xl border p-5 flex flex-col items-center text-center gap-3"
@@ -305,7 +311,7 @@ const Workflower = () => {
           </div>
         </footer>
       </div>
-    </div>
+    </motion.div>
   );
 };
 
