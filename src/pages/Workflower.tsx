@@ -93,13 +93,31 @@ const Workflower = () => {
           {/* Scanline overlay */}
           <div className="absolute inset-0 pointer-events-none opacity-[0.04]"
                style={{ backgroundImage: "repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.08) 2px, rgba(255,255,255,0.08) 4px)", backgroundSize: "100% 4px" }} />
-          <h2 className="relative text-3xl md:text-5xl font-black uppercase tracking-tight leading-tight">
+          <h2 className="relative text-3xl md:text-5xl font-black uppercase tracking-tight leading-tight" style={{ opacity: 1, display: "block" }}>
             <span style={{ color: "#FFFFFF" }}>Welcome to </span>
-            <span style={{ color: "#00A3FF", textShadow: "0 0 10px #00A3FF, 0 0 20px rgba(0,163,255,0.4)" }}>NazAI</span>
+            <span style={{
+              background: "linear-gradient(90deg, #00A3FF, #00E0FF)",
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+              textShadow: "0 0 15px #00A3FF",
+              filter: "drop-shadow(0 0 15px rgba(0,163,255,0.6))",
+            }}>NazAI</span>
             <span style={{ color: "#FFFFFF" }}>.</span>
             <br />
-            <span style={{ color: "#10B981", textShadow: "0 0 10px #10B981, 0 0 20px rgba(16,185,129,0.4)" }}>One Prompt, </span>
-            <span style={{ color: "#BF00FF", textShadow: "0 0 10px #BF00FF, 0 0 20px rgba(191,0,255,0.4)" }}>Website Appears</span>
+            <span style={{
+              background: "linear-gradient(90deg, #10B981, #39FF14)",
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+              textShadow: "0 0 20px #10B981",
+              filter: "drop-shadow(0 0 20px rgba(16,185,129,0.6))",
+            }}>One Prompt, </span>
+            <span style={{
+              background: "linear-gradient(90deg, #BF00FF, #FF00FF)",
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+              textShadow: "0 0 25px #BF00FF",
+              filter: "drop-shadow(0 0 25px rgba(191,0,255,0.6))",
+            }}>Website Appears</span>
           </h2>
         </div>
 
