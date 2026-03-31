@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Activity, Cpu, Zap, Radio, Terminal, Shield, MessageSquare, ChevronRight, Share2, Globe } from "lucide-react";
+import { Activity, Cpu, Zap, Radio, Terminal, Shield, MessageSquare, ChevronRight, Share2, Globe, AlertTriangle } from "lucide-react";
 
+// IMAGE 1 REFERENCE: The Nodes
 const NODES = [
   { id: "input", label: "INPUT SENSOR", desc: "SIGNAL CAPTURE & VALIDATION", icon: Radio },
   { id: "logic", label: "LOGIC GATE", desc: "DECISION MATRIX ARCHITECT", icon: Cpu },
@@ -35,6 +36,7 @@ const Workflower = () => {
       className="min-h-screen w-full font-mono text-white selection:bg-[#39FF14] selection:text-black overflow-x-hidden"
       style={{ background: "linear-gradient(180deg, #0A192F 0%, #1A0B0B 100%)", backgroundAttachment: "fixed" }}
     >
+      {/* GLOBAL CRT ANIMATION KEYFRAMES */}
       <style>{`
         @keyframes shimmer { 100% { transform: translateX(100%); } }
         @keyframes scanline { 0% { transform: translateY(-100%); } 100% { transform: translateY(100%); } }
@@ -58,8 +60,8 @@ const Workflower = () => {
               <span className="text-[#00A3FF] font-black text-xl italic">N</span>
             </div>
             <div>
-              <h1 className="text-lg font-black uppercase tracking-tighter italic">Naz<span className="text-[#00A3FF]">AI</span></h1>
-              <p className="text-[7px] text-white/40 tracking-[0.4em] uppercase font-bold">Global_Systems_v3.1</p>
+              <h1 className="text-lg font-black uppercase tracking-tighter italic leading-none">Naz<span className="text-[#00A3FF]">AI</span></h1>
+              <p className="text-[7px] text-white/40 tracking-[0.4em] uppercase font-bold mt-0.5">Global_Systems_v3.1</p>
             </div>
           </div>
           <div className="flex items-center gap-2 px-3 py-1.5 rounded border border-[#39FF14]/20 bg-[#39FF14]/5">
@@ -69,7 +71,7 @@ const Workflower = () => {
         </header>
 
         {/* ── HERO ── */}
-        <div className="py-32 text-center px-6 relative">
+        <div className="py-32 text-center px-6 relative overflow-hidden">
           <h2 className="text-5xl md:text-8xl font-black uppercase tracking-tighter mb-12 leading-[0.9]">
             <span className="text-white">Welcome to </span>
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#00A3FF] to-[#00E0FF] drop-shadow-[0_0_25px_#00A3FF]">NazAI</span>
@@ -79,24 +81,25 @@ const Workflower = () => {
           </h2>
           
           <div className="flex flex-wrap justify-center gap-8">
-            <button className="group relative px-12 py-5 bg-[#39FF14] text-black font-black uppercase text-[11px] border-b-4 border-[#059669] hover:scale-105 transition-all overflow-hidden shadow-[0_0_40px_rgba(57,255,20,0.4)]">
+            <button className="group relative px-12 py-5 bg-[#39FF14] text-black font-black uppercase text-[11px] border-b-4 border-[#059669] hover:scale-105 active:scale-95 transition-all overflow-hidden shadow-[0_0_40px_rgba(57,255,20,0.4)]">
               <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent -translate-x-full group-hover:animate-[shimmer_1s_infinite]" />
               START_MISSION_NOW
             </button>
             <button className="px-12 py-5 border-2 border-[#39FF14] text-[#39FF14] font-black uppercase text-[11px] hover:bg-[#39FF14]/10 backdrop-blur-md transition-all tracking-[0.2em]">
-              VIEW_BLUEPRINTS
+              VIEW_PLANS
             </button>
           </div>
         </div>
 
-        {/* ── INTERACTIVE CANVAS ── */}
+        {/* ── INTERACTIVE SCHEMATIC CANVAS ── */}
         <div className="px-8 py-12">
-          <div className="max-w-6xl mx-auto h-[400px] rounded-3xl border border-white/10 bg-black/40 relative overflow-hidden backdrop-blur-lg">
+          <div className="max-w-6xl mx-auto h-[450px] rounded-3xl border border-white/10 bg-black/40 relative overflow-hidden backdrop-blur-lg">
             <svg className="absolute inset-0 w-full h-full">
               {[0, 1, 2].map((i) => (
                 <g key={i}>
-                  <circle r="3" fill="#00A3FF" opacity="0.5">
-                    <animateMotion dur="2s" repeatCount="indefinite" path={`M ${240 + i * 240} 200 L ${440 + i * 240} 200`} />
+                  <line x1={`${28 + i * 24}%`} y1="50%" x2={`${48 + i * 24}%`} y2="50%" stroke="#00A3FF" strokeWidth="1" strokeDasharray="5 5" opacity="0.2" />
+                  <circle r="4" fill="#00A3FF" filter="drop-shadow(0 0 5px #00A3FF)">
+                    <animateMotion dur="2s" repeatCount="indefinite" path={`M ${260 + i * 240} 225 L ${460 + i * 240} 225`} />
                   </circle>
                 </g>
               ))}
@@ -114,7 +117,7 @@ const Workflower = () => {
           </div>
         </div>
 
-        {/* ── BLUEPRINT SECTION (THE UPDATED TITLE) ── */}
+        {/* ── THEME FIX: SECTION TITLE ── */}
         <section className="py-28 px-8 bg-black/60 border-y border-white/5">
           <div className="max-w-6xl mx-auto">
             <div className="flex items-center gap-4 mb-20 justify-center">
@@ -128,7 +131,7 @@ const Workflower = () => {
               {NODES.map((node, i) => (
                 <div key={i} className="group p-8 border border-white/5 bg-[#0A192F]/40 hover:border-[#00A3FF]/40 transition-all">
                   <h3 className="text-xs font-black text-[#00A3FF] uppercase mb-6 tracking-widest border-l-2 border-[#39FF14] pl-3">0{i+1}_{node.label}</h3>
-                  <p className="text-[12px] text-white font-medium uppercase leading-relaxed tracking-wider opacity-100 italic">
+                  <p className="text-[12px] text-white font-medium uppercase leading-relaxed tracking-wider opacity-100">
                     {node.desc}
                   </p>
                 </div>
@@ -137,22 +140,48 @@ const Workflower = () => {
           </div>
         </section>
 
-        {/* ── DIAGNOSTICS PORTAL ── */}
+        {/* ── THEME FIX: DIAGNOSTICS PORTAL ── */}
         <section className="py-28 px-8">
-          <div className="max-w-2xl mx-auto border border-[#00A3FF]/30 bg-black/80 p-12 rounded-3xl shadow-2xl">
-            <div className="flex items-center gap-3 mb-10">
-              <MessageSquare size={22} className="text-[#39FF14]" />
-              <h2 className="text-sm font-black uppercase tracking-[0.5em] text-[#39FF14]">Diagnostics</h2>
+          <div className="max-w-2xl mx-auto border border-[#00A3FF]/30 bg-black/80 p-12 rounded-3xl shadow-2xl backdrop-blur-xl">
+            <div className="flex items-center justify-between mb-10 border-b border-white/5 pb-6">
+              <div className="flex items-center gap-3">
+                <MessageSquare size={22} className="text-[#39FF14]" />
+                <h2 className="text-sm font-black uppercase tracking-[0.5em] text-[#39FF14]">Diagnostics</h2>
+              </div>
+              <span className="text-[8px] text-white/20 font-mono tracking-widest uppercase italic">Secure_Channel</span>
             </div>
+            
             <form className="space-y-8" onSubmit={(e) => e.preventDefault()}>
-              <input type="text" placeholder="OPERATOR_CALLSIGN" className="w-full bg-white/5 border border-white/10 p-5 text-[11px] text-white focus:border-[#39FF14] outline-none transition-all placeholder:text-white/10" />
-              <textarea rows={5} placeholder="TRANSMIT_SYSTEM_ANOMALY..." className="w-full bg-white/5 border border-white/10 p-5 text-[11px] text-white focus:border-[#39FF14] outline-none transition-all resize-none placeholder:text-white/10" />
+              <div className="space-y-2">
+                <label className="text-[9px] text-white/40 tracking-[0.3em] font-bold">OPERATOR_ID</label>
+                {/* Prompt visibility fix: 100% white */}
+                <input 
+                  type="text" 
+                  placeholder="OPERATOR_CALLSIGN" 
+                  className="w-full bg-white/5 border border-white/10 p-5 text-[11px] text-white placeholder:text-white font-medium focus:border-[#39FF14] outline-none transition-all" 
+                />
+              </div>
+              
+              <div className="space-y-2 relative">
+                <label className="text-[9px] text-white/40 tracking-[0.3em] font-bold">ANOMALY_DATA</label>
+                {/* Prompt visibility fix: 100% white */}
+                <textarea 
+                  rows={5} 
+                  placeholder="TRANSMIT_SYSTEM_ANOMALY..." 
+                  className="w-full bg-white/5 border border-white/10 p-5 text-[11px] text-white placeholder:text-white font-medium focus:border-[#39FF14] outline-none transition-all resize-none" 
+                />
+                <div className="absolute bottom-4 right-4 flex items-center gap-2 px-3 py-1.5 rounded bg-[#FF0055]/10 border border-[#FF0055]/30">
+                  <AlertTriangle size={14} className="text-[#FF0055]" />
+                  <span className="text-[8px] text-[#FF0055] uppercase font-black">Anomaly!</span>
+                </div>
+              </div>
+              
               <button className="w-full py-5 bg-[#39FF14]/10 border border-[#39FF14]/40 text-[#39FF14] font-black uppercase text-[11px] tracking-[0.4em] hover:bg-[#39FF14] hover:text-black transition-all">TRANSMIT_TO_CORE</button>
             </form>
           </div>
         </section>
 
-        {/* ── LIVE TELEMETRY LOG ── */}
+        {/* ── TELEMETRY LOG ── */}
         <div className="h-48 bg-black border-t border-white/10 p-8 font-mono">
           <div className="max-w-6xl mx-auto">
             <div className="flex items-center gap-3 mb-6">
@@ -162,26 +191,25 @@ const Workflower = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {logs.map((log, i) => (
                 <div key={i} className="text-[11px] text-[#00A3FF]/40 uppercase tracking-tighter flex items-center gap-2">
-                  <span className="text-[#39FF14]">&gt;&gt;</span> {log}
+                  <span className="text-[#39FF14]">>></span> {log}
                 </div>
               ))}
             </div>
           </div>
         </div>
 
-        {/* ── FOOTER (GLOBAL ENTERPRISE) ── */}
+        {/* ── FOOTER ── */}
         <footer className="py-24 px-8 bg-[#030303] border-t border-white/5">
           <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-20">
             <div className="space-y-8">
               <div className="flex items-center gap-4">
-                <Shield size={28} className="text-[#00A3FF]" />
-                <span className="text-lg font-black uppercase tracking-[0.2em] text-white italic">NazAI_Global</span>
+                <Shield size={28} className="text-[#00A3FF] drop-shadow-[0_0_10px_#00A3FF]" />
+                <span className="text-lg font-black uppercase tracking-[0.2em] text-white">NazAI_Global</span>
               </div>
               <p className="text-[11px] text-white/30 leading-loose uppercase tracking-[0.3em]">
                 Autonomous_Logic_Deployment<br />
                 Global_Sector_Alpha<br />
-                Operational_Status:_Nominal<br />
-                Build_2026.Q1
+                © 2026_NazAI_Systems
               </p>
             </div>
             <div className="flex flex-col gap-6">
@@ -196,7 +224,7 @@ const Workflower = () => {
                 99.999%_STABLE
                 <Globe size={16} className="text-[#00A3FF]/40 animate-pulse" />
               </p>
-              <p className="text-[9px] text-white/10 uppercase tracking-[1em] mt-24 italic">© 2026_NazAI_Systems</p>
+              <p className="text-[8px] text-white/10 uppercase tracking-[0.7em] mt-24">03.31.2026_09:00:00_NOMINAL</p>
             </div>
           </div>
         </footer>
