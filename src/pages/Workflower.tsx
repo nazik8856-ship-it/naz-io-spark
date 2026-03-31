@@ -108,61 +108,60 @@ const Workflower = () => {
           </div>
         </div>
 
-        {/* ── INTERACTIVE CANVAS ── */}
         {/* ── FEATURES SECTION ── */}
         <section className="py-24 px-8 relative">
-          <div className="max-w-6xl mx-auto">
-            {/* NEW WHITE HEADER */}
-            <div className="flex flex-col items-center mb-16">
-              <h2 className="text-white text-3xl md:text-5xl font-black uppercase tracking-[0.3em] mb-4 drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]">
+          <div className="max-w-6xl mx-auto flex flex-col items-center">
+            {/* Header with blue accent bar */}
+            <div className="flex flex-col items-center mb-0 z-20">
+              <h2 className="text-white text-3xl md:text-6xl font-black uppercase tracking-[0.4em] mb-4 drop-shadow-[0_0_20px_rgba(255,255,255,0.3)]">
                 Our Features
               </h2>
-              <div className="h-1 w-24 bg-[#00A3FF] rounded-full shadow-[0_0_10px_#00A3FF]" />
+              <div className="h-1.5 w-32 bg-[#00A3FF] rounded-full shadow-[0_0_15px_#00A3FF]" />
+            </div>
+
+            {/* Interactive Schematic Canvas shifted upward */}
+            <div className="w-full -mt-12 h-[450px] rounded-3xl border border-white/10 bg-black/40 relative overflow-hidden backdrop-blur-lg shadow-2xl z-10">
+              <svg className="absolute inset-0 w-full h-full">
+                {[0, 1, 2].map((i) => (
+                  <g key={i}>
+                    <line
+                      x1={`${28 + i * 24}%`}
+                      y1="50%"
+                      x2={`${48 + i * 24}%`}
+                      y2="50%"
+                      stroke="#00A3FF"
+                      strokeWidth="1"
+                      strokeDasharray="5 5"
+                      opacity="0.2"
+                    />
+                    <circle r="4" fill="#00A3FF" filter="drop-shadow(0 0 5px #00A3FF)">
+                      <animateMotion
+                        dur="2s"
+                        repeatCount="indefinite"
+                        path={`M ${260 + i * 240} 225 L ${460 + i * 240} 225`}
+                      />
+                    </circle>
+                  </g>
+                ))}
+              </svg>
+              <div className="absolute inset-0 flex items-center justify-around px-10 pt-8">
+                {NODES.map((node, i) => (
+                  <div
+                    key={i}
+                    className="flex flex-col items-center gap-6 p-8 rounded-2xl border border-[#00A3FF]/20 bg-[#0A192F]/80 shadow-[0_0_40px_rgba(0,0,0,0.5)] transition-all hover:border-[#00A3FF]/60 group"
+                  >
+                    <div className="w-14 h-14 rounded-full border border-[#00A3FF]/40 flex items-center justify-center bg-[#00A3FF]/10 group-hover:bg-[#00A3FF]/20 transition-colors">
+                      <node.icon size={28} className="text-[#00A3FF]" />
+                    </div>
+                    <span className="text-[10px] font-black text-[#00A3FF] tracking-[0.3em] uppercase">
+                      {node.label}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </section>
-
-        {/* ── INTERACTIVE SCHEMATIC CANVAS ── */}
-        <div className="px-8 py-12">
-          <div className="max-w-6xl mx-auto h-[450px] rounded-3xl border border-white/10 bg-black/40 relative overflow-hidden backdrop-blur-lg">
-            <svg className="absolute inset-0 w-full h-full">
-              {[0, 1, 2].map((i) => (
-                <g key={i}>
-                  <line
-                    x1={`${28 + i * 24}%`}
-                    y1="50%"
-                    x2={`${48 + i * 24}%`}
-                    y2="50%"
-                    stroke="#00A3FF"
-                    strokeWidth="1"
-                    strokeDasharray="5 5"
-                    opacity="0.2"
-                  />
-                  <circle r="4" fill="#00A3FF" filter="drop-shadow(0 0 5px #00A3FF)">
-                    <animateMotion
-                      dur="2s"
-                      repeatCount="indefinite"
-                      path={`M ${260 + i * 240} 225 L ${460 + i * 240} 225`}
-                    />
-                  </circle>
-                </g>
-              ))}
-            </svg>
-            <div className="absolute inset-0 flex items-center justify-around px-10">
-              {NODES.map((node, i) => (
-                <div
-                  key={i}
-                  className="flex flex-col items-center gap-6 p-8 rounded-2xl border border-[#00A3FF]/20 bg-[#0A192F]/80 shadow-[0_0_40px_rgba(0,0,0,0.5)]"
-                >
-                  <div className="w-14 h-14 rounded-full border border-[#00A3FF]/40 flex items-center justify-center bg-[#00A3FF]/10">
-                    <node.icon size={28} className="text-[#00A3FF]" />
-                  </div>
-                  <span className="text-[10px] font-black text-[#00A3FF] tracking-[0.3em] uppercase">{node.label}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
 
         {/* ── LOGIC_ORCHESTRATION_CORE SECTION ── */}
         <section className="py-28 px-8 bg-black/60 border-y border-white/5">
