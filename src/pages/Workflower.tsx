@@ -311,7 +311,7 @@ const Workflower = () => {
           </div>
         </footer>
       </div>
-    </div>
+    </motion.div>
   );
 };
 
