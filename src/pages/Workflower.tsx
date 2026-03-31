@@ -61,11 +61,16 @@ const Workflower = () => {
       animate={{ opacity: 1 }}
       transition={{ duration: 0.2 }}
       className="min-h-screen w-full font-mono text-white overflow-hidden"
-      style={{ background: "#050505" }}
+      style={{ background: "radial-gradient(ellipse at 50% 40%, #0A192F 0%, #050505 70%)" }}
     >
-      {/* Subtle grid */}
-      <div className="fixed inset-0 opacity-[0.025] pointer-events-none"
-           style={{ backgroundImage: "linear-gradient(#00A3FF 1px, transparent 1px), linear-gradient(90deg, #00A3FF 1px, transparent 1px)", backgroundSize: "60px 60px" }} />
+      {/* 3D parallax grid overlay */}
+      <div className="fixed inset-0 opacity-[0.06] pointer-events-none"
+           style={{
+             backgroundImage: "linear-gradient(#00A3FF 1px, transparent 1px), linear-gradient(90deg, #00A3FF 1px, transparent 1px)",
+             backgroundSize: "60px 60px",
+             transform: `translateY(${scrollY * 0.08}px)`,
+             willChange: "transform",
+           }} />
 
       <div className="relative z-10 flex flex-col min-h-screen">
         {/* ── HEADER ── */}
