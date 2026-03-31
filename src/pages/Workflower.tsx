@@ -51,7 +51,6 @@ const Workflower = () => {
         }}
       />
 
-      {/* ── MAIN ANIMATED WRAPPER: SHIFT DOWN ON LOAD ── */}
       <motion.div
         initial={{ y: -30, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
@@ -61,6 +60,7 @@ const Workflower = () => {
         {/* ── HEADER ── */}
         <header className="flex items-center justify-between px-8 py-5 border-b border-white/5 bg-black/60 backdrop-blur-xl sticky top-0 z-50">
           <div className="flex items-center gap-4">
+            {/* BRAND LOGO ICON */}
             <div className="w-10 h-10 rounded-lg border border-[#00A3FF]/40 flex items-center justify-center bg-[#00A3FF]/10 shadow-[0_0_20px_rgba(0,163,255,0.3)]">
               <span className="text-[#00A3FF] font-black text-xl italic">N</span>
             </div>
@@ -108,20 +108,20 @@ const Workflower = () => {
           </div>
         </div>
 
-        {/* ── FEATURES SECTION ── */}
-        <section className="py-24 px-8 relative">
+        {/* ── UPDATED FEATURES SECTION: RESPONSIVE FIX ── */}
+        <section className="py-12 md:py-24 px-4 md:px-8 relative">
           <div className="max-w-6xl mx-auto flex flex-col items-center">
-            {/* Header with blue accent bar */}
-            <div className="flex flex-col items-center mb-0 z-20">
-              <h2 className="text-white text-3xl md:text-6xl font-black uppercase tracking-[0.4em] mb-4 drop-shadow-[0_0_20px_rgba(255,255,255,0.3)]">
+            <div className="flex flex-col items-center mb-0 z-20 w-full">
+              <h2 className="text-white text-3xl md:text-6xl font-black uppercase tracking-[0.2em] md:tracking-[0.4em] mb-4 drop-shadow-[0_0_20px_rgba(255,255,255,0.3)] text-center">
                 Our Features
               </h2>
-              <div className="h-1.5 w-32 bg-[#00A3FF] rounded-full shadow-[0_0_15px_#00A3FF]" />
+              <div className="h-1 md:h-1.5 w-24 md:w-32 bg-[#00A3FF] rounded-full shadow-[0_0_15px_#00A3FF]" />
             </div>
 
-            {/* Interactive Schematic Canvas shifted upward */}
-            <div className="w-full -mt-12 h-[450px] rounded-3xl border border-white/10 bg-black/40 relative overflow-hidden backdrop-blur-lg shadow-2xl z-10">
-              <svg className="absolute inset-0 w-full h-full">
+            {/* Container with dynamic height for mobile */}
+            <div className="w-full -mt-8 md:-mt-12 min-h-[450px] md:h-[450px] rounded-3xl border border-white/10 bg-black/40 relative overflow-hidden backdrop-blur-lg shadow-2xl z-10 p-6 md:p-0">
+              {/* DESKTOP-ONLY SVG SCHEMATIC */}
+              <svg className="absolute inset-0 w-full h-full hidden md:block">
                 {[0, 1, 2].map((i) => (
                   <g key={i}>
                     <line
@@ -144,16 +144,18 @@ const Workflower = () => {
                   </g>
                 ))}
               </svg>
-              <div className="absolute inset-0 flex items-center justify-around px-10 pt-8">
+
+              {/* RESPONSIVE FLEXBOX */}
+              <div className="relative md:absolute md:inset-0 flex flex-col md:flex-row items-center justify-around gap-6 md:gap-0 px-4 md:px-10 pt-16 md:pt-8 pb-8 md:pb-0">
                 {NODES.map((node, i) => (
                   <div
                     key={i}
-                    className="flex flex-col items-center gap-6 p-8 rounded-2xl border border-[#00A3FF]/20 bg-[#0A192F]/80 shadow-[0_0_40px_rgba(0,0,0,0.5)] transition-all hover:border-[#00A3FF]/60 group"
+                    className="w-full md:w-auto flex flex-col items-center gap-4 md:gap-6 p-6 md:p-8 rounded-2xl border border-[#00A3FF]/20 bg-[#0A192F]/80 shadow-[0_0_40px_rgba(0,0,0,0.5)] transition-all hover:border-[#00A3FF]/60 group"
                   >
-                    <div className="w-14 h-14 rounded-full border border-[#00A3FF]/40 flex items-center justify-center bg-[#00A3FF]/10 group-hover:bg-[#00A3FF]/20 transition-colors">
-                      <node.icon size={28} className="text-[#00A3FF]" />
+                    <div className="w-12 h-12 md:w-14 md:h-14 rounded-full border border-[#00A3FF]/40 flex items-center justify-center bg-[#00A3FF]/10 group-hover:bg-[#00A3FF]/20 transition-colors">
+                      <node.icon size={24} className="text-[#00A3FF]" />
                     </div>
-                    <span className="text-[10px] font-black text-[#00A3FF] tracking-[0.3em] uppercase">
+                    <span className="text-[9px] md:text-[10px] font-black text-[#00A3FF] tracking-[0.2em] md:tracking-[0.3em] uppercase text-center">
                       {node.label}
                     </span>
                   </div>
@@ -220,14 +222,11 @@ const Workflower = () => {
 
         {/* ── FOOTER: BRANDED EVOLUTION ── */}
         <footer className="py-24 px-8 bg-[#030303] border-t border-white/5 relative overflow-hidden">
-          {/* Subtitle Glow for the Logo */}
           <div className="absolute left-0 top-0 w-64 h-64 bg-[#00A3FF]/5 blur-[100px] -translate-x-1/2 -translate-y-1/2 pointer-events-none" />
 
           <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-20 relative z-10">
-            {/* NEW LOGO & BRAND SECTION */}
             <div className="space-y-8">
               <div className="flex items-center gap-4 group cursor-default">
-                {/* CUSTOM NazAI SVG LOGO */}
                 <div className="relative">
                   <div className="absolute inset-0 bg-[#00A3FF]/20 blur-md rounded-full animate-pulse" />
                   <svg
@@ -263,7 +262,6 @@ const Workflower = () => {
               </p>
             </div>
 
-            {/* CORE INDEX */}
             <div className="flex flex-col gap-6">
               <span className="text-[12px] font-black text-[#10B981] uppercase tracking-[0.5em] mb-4">Core_Index</span>
               {["Workflower", "Security", "Global_API"].map((l) => (
@@ -276,7 +274,6 @@ const Workflower = () => {
               ))}
             </div>
 
-            {/* SYSTEM STATUS */}
             <div className="flex flex-col md:items-end gap-4 text-right">
               <p className="text-[11px] text-[#00A3FF] uppercase tracking-[0.4em] flex items-center gap-3">
                 99.999%_STABLE
