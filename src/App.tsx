@@ -17,6 +17,7 @@ import Privacy from "./pages/Privacy";
 import Terms from "./pages/Terms";
 import Auth from "./pages/Auth";
 import Generator from "./pages/Generator";
+import Workflower from "./pages/Workflower";
 
 const queryClient = new QueryClient();
 
@@ -41,6 +42,7 @@ const App = () => (
             {/* Protected App Routes */}
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/generate" element={<Generator />} />
+            <Route path="/workflower" element={<Workflower />} />
             
             {/* Redirects & 404 */}
             <Route path="/dashboard/create" element={<Navigate to="/generate" replace />} />
