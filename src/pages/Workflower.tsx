@@ -343,7 +343,7 @@ const Workflower = () => {
       {["Workflower", "Generator", "Diagnostics", "Security"].map((link) => (
         <span key={link} className="text-[9px] text-white/40 uppercase tracking-wider cursor-pointer hover:text-[#00A3FF] transition-all">
           {link}
-        </a>
+        </span>
       ))}
     </div>
 
