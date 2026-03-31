@@ -42,11 +42,15 @@
 
   body {
     margin: 0;
-    /* Deep Navy at the top, fading into a very dark Wine-Red at the bottom */
+    /* THE THERMAL GRADIENT: Professional Blue to Industrial Red */
     background: linear-gradient(180deg, #0a192f 0%, #1a0b0b 100%);
     color: white;
     min-height: 100vh;
-    background-attachment: fixed; /* Keeps the gradient still as you scroll */
+    background-attachment: fixed;
+    /* Add a subtle "Noise" texture to make the gradient look like high-end metal */
+    background-image:
+      linear-gradient(180deg, #0a192f 0%, #1a0b0b 100%),
+      url("https://www.transparenttextures.com/patterns/carbon-fibre.png");
   }
 
   html {
