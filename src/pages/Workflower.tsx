@@ -1,8 +1,7 @@
-import React, { useState, useEffect, useRef } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import React, { useState, useEffect } from "react";
+import { motion } from "framer-motion";
 import { Activity, Cpu, Zap, Radio, Terminal, Shield, MessageSquare, ChevronRight, Share2, Globe, AlertTriangle } from "lucide-react";
 
-// IMAGE 1 REFERENCE: The Nodes
 const NODES = [
   { id: "input", label: "INPUT SENSOR", desc: "SIGNAL CAPTURE & VALIDATION", icon: Radio },
   { id: "logic", label: "LOGIC GATE", desc: "DECISION MATRIX ARCHITECT", icon: Cpu },
@@ -36,10 +35,8 @@ const Workflower = () => {
       className="min-h-screen w-full font-mono text-white selection:bg-[#39FF14] selection:text-black overflow-x-hidden"
       style={{ background: "linear-gradient(180deg, #0A192F 0%, #1A0B0B 100%)", backgroundAttachment: "fixed" }}
     >
-      {/* GLOBAL CRT ANIMATION KEYFRAMES */}
       <style>{`
         @keyframes shimmer { 100% { transform: translateX(100%); } }
-        @keyframes scanline { 0% { transform: translateY(-100%); } 100% { transform: translateY(100%); } }
       `}</style>
 
       {/* 3D PARALLAX GRID */}
@@ -71,7 +68,7 @@ const Workflower = () => {
         </header>
 
         {/* ── HERO ── */}
-        <div className="py-32 text-center px-6 relative overflow-hidden">
+        <div className="py-32 text-center px-6 relative">
           <h2 className="text-5xl md:text-8xl font-black uppercase tracking-tighter mb-12 leading-[0.9]">
             <span className="text-white">Welcome to </span>
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#00A3FF] to-[#00E0FF] drop-shadow-[0_0_25px_#00A3FF]">NazAI</span>
@@ -81,11 +78,15 @@ const Workflower = () => {
           </h2>
           
           <div className="flex flex-wrap justify-center gap-8">
+            {/* PRIMARY BUTTON */}
             <button className="group relative px-12 py-5 bg-[#39FF14] text-black font-black uppercase text-[11px] border-b-4 border-[#059669] hover:scale-105 active:scale-95 transition-all overflow-hidden shadow-[0_0_40px_rgba(57,255,20,0.4)]">
               <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent -translate-x-full group-hover:animate-[shimmer_1s_infinite]" />
               START_MISSION_NOW
             </button>
-            <button className="px-12 py-5 border-2 border-[#39FF14] text-[#39FF14] font-black uppercase text-[11px] hover:bg-[#39FF14]/10 backdrop-blur-md transition-all tracking-[0.2em]">
+
+            {/* UPDATED SECONDARY BUTTON WITH SHIMMER */}
+            <button className="group relative px-12 py-5 border-2 border-[#39FF14] text-[#39FF14] font-black uppercase text-[11px] hover:bg-[#39FF14]/10 backdrop-blur-md transition-all tracking-[0.2em] overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-[#39FF14]/20 to-transparent -translate-x-full group-hover:animate-[shimmer_1s_infinite]" />
               VIEW_PLANS
             </button>
           </div>
@@ -117,7 +118,7 @@ const Workflower = () => {
           </div>
         </div>
 
-        {/* ── THEME FIX: SECTION TITLE ── */}
+        {/* ── SECTION TITLE: LOGIC_ORCHESTRATION_CORE ── */}
         <section className="py-28 px-8 bg-black/60 border-y border-white/5">
           <div className="max-w-6xl mx-auto">
             <div className="flex items-center gap-4 mb-20 justify-center">
@@ -140,7 +141,7 @@ const Workflower = () => {
           </div>
         </section>
 
-        {/* ── THEME FIX: DIAGNOSTICS PORTAL ── */}
+        {/* ── DIAGNOSTICS PORTAL ── */}
         <section className="py-28 px-8">
           <div className="max-w-2xl mx-auto border border-[#00A3FF]/30 bg-black/80 p-12 rounded-3xl shadow-2xl backdrop-blur-xl">
             <div className="flex items-center justify-between mb-10 border-b border-white/5 pb-6">
@@ -148,13 +149,11 @@ const Workflower = () => {
                 <MessageSquare size={22} className="text-[#39FF14]" />
                 <h2 className="text-sm font-black uppercase tracking-[0.5em] text-[#39FF14]">Diagnostics</h2>
               </div>
-              <span className="text-[8px] text-white/20 font-mono tracking-widest uppercase italic">Secure_Channel</span>
             </div>
             
             <form className="space-y-8" onSubmit={(e) => e.preventDefault()}>
               <div className="space-y-2">
                 <label className="text-[9px] text-white/40 tracking-[0.3em] font-bold">OPERATOR_ID</label>
-                {/* Prompt visibility fix: 100% white */}
                 <input 
                   type="text" 
                   placeholder="OPERATOR_CALLSIGN" 
@@ -164,7 +163,6 @@ const Workflower = () => {
               
               <div className="space-y-2 relative">
                 <label className="text-[9px] text-white/40 tracking-[0.3em] font-bold">ANOMALY_DATA</label>
-                {/* Prompt visibility fix: 100% white */}
                 <textarea 
                   rows={5} 
                   placeholder="TRANSMIT_SYSTEM_ANOMALY..." 
@@ -191,8 +189,7 @@ const Workflower = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {logs.map((log, i) => (
                 <div key={i} className="text-[11px] text-[#00A3FF]/40 uppercase tracking-tighter flex items-center gap-2">
-                  <span className="text-[#39FF14]">{">>"}
-</span> {log}
+                  <span className="text-[#39FF14]">>></span> {log}
                 </div>
               ))}
             </div>
@@ -225,7 +222,7 @@ const Workflower = () => {
                 99.999%_STABLE
                 <Globe size={16} className="text-[#00A3FF]/40 animate-pulse" />
               </p>
-              <p className="text-[8px] text-white/10 uppercase tracking-[0.7em] mt-24">03.31.2026_09:00:00_NOMINAL</p>
+              <p className="text-[8px] text-white/10 uppercase tracking-[0.7em] mt-24 italic">BUILD_2026.03.31_GLOBAL</p>
             </div>
           </div>
         </footer>
