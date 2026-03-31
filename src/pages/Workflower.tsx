@@ -131,6 +131,32 @@ const Workflower = () => {
               filter: "drop-shadow(0 0 25px rgba(191,0,255,0.6))",
             }}>Solutions Orchestrated</span>
           </h2>
+
+          {/* --- HEADLINE BUTTONS --- */}
+<div className="flex flex-wrap items-center justify-center gap-6 mt-12 mb-20 animate-in fade-in slide-in-from-bottom-4 duration-1000">
+  
+  {/* PRIMARY: BRIGHT NEON GREEN */}
+  <button className="
+    px-10 py-4 bg-[#39FF14] text-black font-black uppercase tracking-[0.2em] text-xs
+    hover:bg-[#10B981] hover:scale-105 active:scale-95 transition-all duration-200
+    drop-shadow-[0_0_25px_rgba(57,255,20,0.7)] border-b-4 border-[#059669]
+    flex items-center gap-2
+  ">
+    START_MISSION_NOW
+    <span className="text-[10px]">>></span>
+  </button>
+
+  {/* SECONDARY: GHOST GREEN */}
+  <button className="
+    px-10 py-4 bg-transparent text-[#39FF14] border-2 border-[#39FF14]
+    font-black uppercase tracking-[0.2em] text-xs
+    hover:bg-[#39FF14]/10 hover:scale-105 active:scale-95 transition-all duration-200
+    backdrop-blur-sm
+  ">
+    FIND_SOLUTIONS
+  </button>
+
+</div>
         </div>
 
         {/* ── CANVAS ── */}
