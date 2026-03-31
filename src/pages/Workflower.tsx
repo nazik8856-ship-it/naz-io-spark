@@ -82,6 +82,21 @@ const Workflower = () => {
           </div>
         </header>
 
+        {/* ── HERO HEADLINE ── */}
+        <div className="relative px-8 py-14 text-center overflow-hidden">
+          {/* Scanline overlay */}
+          <div className="absolute inset-0 pointer-events-none opacity-[0.04]"
+               style={{ backgroundImage: "repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.08) 2px, rgba(255,255,255,0.08) 4px)", backgroundSize: "100% 4px" }} />
+          <h2 className="relative text-3xl md:text-5xl font-black uppercase tracking-tight leading-tight">
+            <span style={{ color: "#FFFFFF" }}>Welcome to </span>
+            <span style={{ color: "#00A3FF", textShadow: "0 0 10px #00A3FF, 0 0 20px rgba(0,163,255,0.4)" }}>NazAI</span>
+            <span style={{ color: "#FFFFFF" }}>.</span>
+            <br />
+            <span style={{ color: "#10B981", textShadow: "0 0 10px #10B981, 0 0 20px rgba(16,185,129,0.4)" }}>One Prompt, </span>
+            <span style={{ color: "#BF00FF", textShadow: "0 0 10px #BF00FF, 0 0 20px rgba(191,0,255,0.4)" }}>Website Appears</span>
+          </h2>
+        </div>
+
         {/* ── CANVAS ── */}
         <div className="flex-1 relative flex items-center justify-center px-8 py-6">
           <div className="w-full max-w-5xl rounded-2xl border relative overflow-hidden"
