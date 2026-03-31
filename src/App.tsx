@@ -42,6 +42,7 @@ const App = () => (
             {/* Protected App Routes */}
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/generate" element={<Generator />} />
+            <Route path="/workflower" element={<Workflower />} />
             
             {/* Redirects & 404 */}
             <Route path="/dashboard/create" element={<Navigate to="/generate" replace />} />
