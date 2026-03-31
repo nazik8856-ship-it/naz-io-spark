@@ -188,8 +188,8 @@ const Workflower = () => {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {logs.map((log, i) => (
-                <div key={i} className="text-[11px] text-[#00A3FF]/40 uppercase tracking-tighter flex items-center gap-2">
-                  <span className="text-[#39FF14]">>></span> {log}
+                  <div key={i} className="text-[11px] text-[#00A3FF]/40 uppercase tracking-tighter flex items-center gap-2">
+                    <span className="text-[#39FF14]">{'>>'}</span> {log}
                 </div>
               ))}
             </div>
