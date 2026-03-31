@@ -54,7 +54,7 @@ const Workflower = () => {
       <div className="fixed inset-0 opacity-[0.025] pointer-events-none"
            style={{ backgroundImage: "linear-gradient(#00A3FF 1px, transparent 1px), linear-gradient(90deg, #00A3FF 1px, transparent 1px)", backgroundSize: "60px 60px" }} />
 
-      <div className="relative z-10 flex flex-col h-screen">
+      <div className="relative z-10 flex flex-col min-h-screen">
         {/* ── HEADER ── */}
         <header className="flex items-center justify-between px-8 py-5 border-b" style={{ borderColor: "rgba(0,163,255,0.08)" }}>
           <div className="flex items-center gap-4">
