@@ -121,30 +121,7 @@ const Workflower = () => {
             </div>
 
             {/* INTERACTIVE SCHEMATIC CANVAS */}
-            <div className="h-[450px] rounded-3xl border border-white/10 bg-black/40 relative overflow-hidden backdrop-blur-lg shadow-2xl">
-              <svg className="absolute inset-0 w-full h-full">
-                {[0, 1, 2].map((i) => (
-                  <g key={i}>
-                    <line
-                      x1={`${28 + i * 24}%`}
-                      y1="50%"
-                      x2={`${48 + i * 24}%`}
-                      y2="50%"
-                      stroke="#00A3FF"
-                      strokeWidth="1"
-                      strokeDasharray="5 5"
-                      opacity="0.2"
-                    />
-                    <circle r="4" fill="#00A3FF" filter="drop-shadow(0 0 5px #00A3FF)">
-                      <animateMotion
-                        dur="2s"
-                        repeatCount="indefinite"
-                        path={`M ${260 + i * 240} 225 L ${460 + i * 240} 225`}
-                      />
-                    </circle>
-                  </g>
-                ))}
-              </svg>
+            
               <div className="absolute inset-0 flex items-center justify-around px-10">
                 {NODES.map((node, i) => (
                   <div
