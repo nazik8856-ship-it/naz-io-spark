@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Menu } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -8,12 +8,20 @@ import ActionTerminal from "./ActionTerminal";
 interface MissionWorkspaceProps {
   open: boolean;
   onClose: () => void;
+  initialSector?: string;
 }
 
-const MissionWorkspace: React.FC<MissionWorkspaceProps> = ({ open, onClose }) => {
-  const [activeSection, setActiveSection] = useState("home");
+const MissionWorkspace: React.FC<MissionWorkspaceProps> = ({ open, onClose, initialSector = "home" }) => {
+  const [activeSection, setActiveSection] = useState(initialSector);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const isMobile = useIsMobile();
+
+  useEffect(() => {
+    if (open) {
+      setActiveSection(initialSector);
+      setSidebarOpen(false);
+    }
+  }, [initialSector, open]);
 
   if (!open) return null;
 
