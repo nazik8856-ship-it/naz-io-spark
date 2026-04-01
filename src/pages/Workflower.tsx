@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Activity, Cpu, Zap, Radio, Terminal, Shield, MessageSquare, Globe, AlertTriangle } from "lucide-react";
+import MissionWorkspace from "@/components/mission/MissionWorkspace";
 
 const NODES = [
   { id: "input", label: "INPUT SENSOR", desc: "SIGNAL CAPTURE & VALIDATION", icon: Radio },
@@ -12,6 +13,7 @@ const NODES = [
 const Workflower = () => {
   const [logs, setLogs] = useState<string[]>([]);
   const [scrollY, setScrollY] = useState(0);
+  const [missionOpen, setMissionOpen] = useState(false);
 
   useEffect(() => {
     const onScroll = () => setScrollY(window.scrollY);
@@ -96,7 +98,10 @@ const Workflower = () => {
           </h2>
 
           <div className="flex flex-wrap justify-center gap-8">
-            <button className="group relative px-12 py-5 bg-[#39FF14] text-black font-black uppercase text-[11px] border-b-4 border-[#059669] hover:scale-105 transition-all overflow-hidden shadow-[0_0_40px_rgba(57,255,20,0.4)]">
+            <button
+              onClick={() => setMissionOpen(true)}
+              className="group relative px-12 py-5 bg-[#39FF14] text-black font-black uppercase text-[11px] border-b-4 border-[#059669] hover:scale-105 transition-all overflow-hidden shadow-[0_0_40px_rgba(57,255,20,0.4)]"
+            >
               <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent -translate-x-full group-hover:animate-[shimmer_1s_infinite]" />
               START_MISSION_NOW
             </button>
@@ -287,6 +292,8 @@ const Workflower = () => {
           </div>
         </footer>
       </motion.div>
+
+      <MissionWorkspace open={missionOpen} onClose={() => setMissionOpen(false)} />
     </motion.div>
   );
 };
