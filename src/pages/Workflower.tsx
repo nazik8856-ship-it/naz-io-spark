@@ -13,6 +13,7 @@ const NODES = [
 const Workflower = () => {
   const [logs, setLogs] = useState<string[]>([]);
   const [scrollY, setScrollY] = useState(0);
+  const [missionOpen, setMissionOpen] = useState(false);
 
   useEffect(() => {
     const onScroll = () => setScrollY(window.scrollY);
