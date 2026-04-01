@@ -302,7 +302,7 @@ const Workflower = () => {
       </motion.div>
 
       {/* MODIFIED: Pass activeSector to the Mission Workspace */}
-      <MissionWorkspace open={missionOpen} onClose={() => setMissionOpen(false)} initialSector={activeSector} />
+      <MissionWorkspace open={missionOpen} onClose={() => setMissionOpen(false)} />
     </motion.div>
   );
 };
