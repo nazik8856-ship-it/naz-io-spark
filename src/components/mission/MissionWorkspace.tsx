@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Menu } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -8,7 +8,7 @@ import ActionTerminal from "./ActionTerminal";
 interface MissionWorkspaceProps {
   open: boolean;
   onClose: () => void;
-  initialSector?: string;
+  initialSector?: string; // NEW: Accept the sector from Workflower
 }
 
 const MissionWorkspace: React.FC<MissionWorkspaceProps> = ({ open, onClose, initialSector = "home" }) => {
@@ -16,10 +16,10 @@ const MissionWorkspace: React.FC<MissionWorkspaceProps> = ({ open, onClose, init
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const isMobile = useIsMobile();
 
+  // Sync internal state when initialSector changes (e.g., clicking Archives vs Start Mission)
   useEffect(() => {
     if (open) {
       setActiveSection(initialSector);
-      setSidebarOpen(false);
     }
   }, [initialSector, open]);
 
@@ -34,15 +34,11 @@ const MissionWorkspace: React.FC<MissionWorkspaceProps> = ({ open, onClose, init
         exit={{ opacity: 0 }}
         className="fixed inset-0 z-[100] flex font-mono"
       >
-        {/* Backdrop */}
         <div className="absolute inset-0 bg-black/95" />
 
-        {/* Content layer */}
         <div className="relative z-10 flex w-full h-full">
-          {/* MOBILE: slide-out drawer sidebar */}
           {isMobile ? (
             <>
-              {/* Mobile toggle */}
               <button
                 onClick={() => setSidebarOpen(true)}
                 className="fixed top-3 left-3 z-[120] w-10 h-10 flex items-center justify-center border border-[#00A3FF]/40 bg-black shadow-[0_0_10px_rgba(0,163,255,0.2)]"
@@ -50,7 +46,6 @@ const MissionWorkspace: React.FC<MissionWorkspaceProps> = ({ open, onClose, init
                 <Menu size={18} className="text-[#00A3FF]" />
               </button>
 
-              {/* Drawer overlay */}
               <AnimatePresence>
                 {sidebarOpen && (
                   <>
@@ -81,28 +76,21 @@ const MissionWorkspace: React.FC<MissionWorkspaceProps> = ({ open, onClose, init
                 )}
               </AnimatePresence>
 
-              {/* Mobile terminal (full width) */}
               <div className="flex-1 pt-14">
                 <ActionTerminal activeSection={activeSection} />
               </div>
             </>
           ) : (
             <>
-              {/* DESKTOP: fixed slim sidebar */}
               <motion.div
                 initial={{ x: -200 }}
                 animate={{ x: 0 }}
                 transition={{ type: "spring", damping: 25, stiffness: 250 }}
                 className="w-56 shrink-0 h-full"
               >
-                <MissionSidebar
-                  activeSection={activeSection}
-                  onSectionChange={setActiveSection}
-                  onClose={onClose}
-                />
+                <MissionSidebar activeSection={activeSection} onSectionChange={setActiveSection} onClose={onClose} />
               </motion.div>
 
-              {/* DESKTOP: action terminal */}
               <motion.div
                 initial={{ opacity: 0, x: 40 }}
                 animate={{ opacity: 1, x: 0 }}
