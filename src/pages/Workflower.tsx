@@ -292,6 +292,8 @@ const Workflower = () => {
           </div>
         </footer>
       </motion.div>
+
+      <MissionWorkspace open={missionOpen} onClose={() => setMissionOpen(false)} />
     </motion.div>
   );
 };
