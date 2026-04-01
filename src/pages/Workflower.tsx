@@ -14,6 +14,8 @@ const Workflower = () => {
   const [logs, setLogs] = useState<string[]>([]);
   const [scrollY, setScrollY] = useState(0);
   const [missionOpen, setMissionOpen] = useState(false);
+  // NEW: Track the specific sector for the Mission Workspace
+  const [activeSector, setActiveSector] = useState("home");
 
   useEffect(() => {
     const onScroll = () => setScrollY(window.scrollY);
@@ -29,6 +31,12 @@ const Workflower = () => {
     }, 2500);
     return () => clearInterval(interval);
   }, []);
+
+  // Handler to open mission in a specific section
+  const launchMission = (sector = "home") => {
+    setActiveSector(sector);
+    setMissionOpen(true);
+  };
 
   return (
     <motion.div
@@ -62,7 +70,6 @@ const Workflower = () => {
         {/* ── HEADER ── */}
         <header className="flex items-center justify-between px-8 py-5 border-b border-white/5 bg-black/60 backdrop-blur-xl sticky top-0 z-50">
           <div className="flex items-center gap-4">
-            {/* BRAND LOGO ICON */}
             <div className="w-10 h-10 rounded-lg border border-[#00A3FF]/40 flex items-center justify-center bg-[#00A3FF]/10 shadow-[0_0_20px_rgba(0,163,255,0.3)]">
               <span className="text-[#00A3FF] font-black text-xl italic">N</span>
             </div>
@@ -75,6 +82,7 @@ const Workflower = () => {
               </p>
             </div>
           </div>
+          {/* Diagnostic Active Badge */}
           <div className="flex items-center gap-2 px-3 py-1.5 rounded border border-[#39FF14]/20 bg-[#39FF14]/5">
             <div className="w-1.5 h-1.5 rounded-full bg-[#39FF14] animate-pulse" />
             <span className="text-[8px] text-[#39FF14] uppercase tracking-[0.2em] font-black">System_Active</span>
@@ -99,21 +107,24 @@ const Workflower = () => {
 
           <div className="flex flex-wrap justify-center gap-8">
             <button
-              onClick={() => setMissionOpen(true)}
+              onClick={() => launchMission("home")}
               className="group relative px-12 py-5 bg-[#39FF14] text-black font-black uppercase text-[11px] border-b-4 border-[#059669] hover:scale-105 transition-all overflow-hidden shadow-[0_0_40px_rgba(57,255,20,0.4)]"
             >
               <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent -translate-x-full group-hover:animate-[shimmer_1s_infinite]" />
               START_MISSION_NOW
             </button>
 
-            <button className="group relative px-12 py-5 border-2 border-[#39FF14] text-[#39FF14] font-black uppercase text-[11px] hover:bg-[#39FF14]/10 backdrop-blur-md transition-all tracking-[0.2em] overflow-hidden">
+            <button
+              onClick={() => launchMission("archives")}
+              className="group relative px-12 py-5 border-2 border-[#39FF14] text-[#39FF14] font-black uppercase text-[11px] hover:bg-[#39FF14]/10 backdrop-blur-md transition-all tracking-[0.2em] overflow-hidden"
+            >
               <div className="absolute inset-0 bg-gradient-to-r from-transparent via-[#39FF14]/20 to-transparent -translate-x-full group-hover:animate-[shimmer_1s_infinite]" />
-              VIEW_PLANS
+              ACCESS_ARCHIVES
             </button>
           </div>
         </div>
 
-        {/* ── UPDATED FEATURES SECTION: RESPONSIVE FIX ── */}
+        {/* ── FEATURES SECTION ── */}
         <section className="py-12 md:py-24 px-4 md:px-8 relative">
           <div className="max-w-6xl mx-auto flex flex-col items-center">
             <div className="flex flex-col items-center mb-0 z-20 w-full">
@@ -123,9 +134,7 @@ const Workflower = () => {
               <div className="h-1 md:h-1.5 w-24 md:w-32 bg-[#00A3FF] rounded-full shadow-[0_0_15px_#00A3FF]" />
             </div>
 
-            {/* Container with dynamic height for mobile */}
             <div className="w-full -mt-8 md:-mt-12 min-h-[450px] md:h-[450px] rounded-3xl border border-white/10 bg-black/40 relative overflow-hidden backdrop-blur-lg shadow-2xl z-10 p-6 md:p-0">
-              {/* DESKTOP-ONLY SVG SCHEMATIC */}
               <svg className="absolute inset-0 w-full h-full hidden md:block">
                 {[0, 1, 2].map((i) => (
                   <g key={i}>
@@ -150,12 +159,11 @@ const Workflower = () => {
                 ))}
               </svg>
 
-              {/* RESPONSIVE FLEXBOX */}
               <div className="relative md:absolute md:inset-0 flex flex-col md:flex-row items-center justify-around gap-6 md:gap-0 px-4 md:px-10 pt-16 md:pt-8 pb-8 md:pb-0">
                 {NODES.map((node, i) => (
                   <div
                     key={i}
-                    className="w-full md:w-auto flex flex-col items-center gap-4 md:gap-6 p-6 md:p-8 rounded-2xl border border-[#00A3FF]/20 bg-[#0A192F]/80 shadow-[0_0_40px_rgba(0,0,0,0.5)] transition-all hover:border-[#00A3FF]/60 group"
+                    className="w-full md:w-auto flex flex-col items-center gap-4 md:gap-6 p-6 md:p-8 rounded-2xl border border-[#00A3FF]/20 bg-[#0A192F]/80 shadow-[0_0_40px_rgba(0,0,0,0.5)] transition-all hover:border-[#00A3FF]/60 group cursor-pointer"
                   >
                     <div className="w-12 h-12 md:w-14 md:h-14 rounded-full border border-[#00A3FF]/40 flex items-center justify-center bg-[#00A3FF]/10 group-hover:bg-[#00A3FF]/20 transition-colors">
                       <node.icon size={24} className="text-[#00A3FF]" />
@@ -170,7 +178,7 @@ const Workflower = () => {
           </div>
         </section>
 
-        {/* ── LOGIC_ORCHESTRATION_CORE SECTION ── */}
+        {/* ── LOGIC_ORCHESTRATION_CORE ── */}
         <section className="py-28 px-8 bg-black/60 border-y border-white/5">
           <div className="max-w-6xl mx-auto text-center">
             <h2 className="text-[11px] font-black uppercase tracking-[0.6em] text-[#00A3FF] mb-16 drop-shadow-[0_0_10px_rgba(0,163,255,0.4)]">
@@ -225,7 +233,7 @@ const Workflower = () => {
           </div>
         </section>
 
-        {/* ── FOOTER: BRANDED EVOLUTION ── */}
+        {/* ── FOOTER ── */}
         <footer className="py-24 px-8 bg-[#030303] border-t border-white/5 relative overflow-hidden">
           <div className="absolute left-0 top-0 w-64 h-64 bg-[#00A3FF]/5 blur-[100px] -translate-x-1/2 -translate-y-1/2 pointer-events-none" />
 
@@ -293,7 +301,8 @@ const Workflower = () => {
         </footer>
       </motion.div>
 
-      <MissionWorkspace open={missionOpen} onClose={() => setMissionOpen(false)} />
+      {/* MODIFIED: Pass activeSector to the Mission Workspace */}
+      <MissionWorkspace open={missionOpen} onClose={() => setMissionOpen(false)} initialSector={activeSector} />
     </motion.div>
   );
 };
