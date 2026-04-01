@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Activity, Cpu, Zap, Radio, Terminal, Shield, MessageSquare, Globe, AlertTriangle } from "lucide-react";
+import MissionWorkspace from "@/components/mission/MissionWorkspace";
 
 const NODES = [
   { id: "input", label: "INPUT SENSOR", desc: "SIGNAL CAPTURE & VALIDATION", icon: Radio },
