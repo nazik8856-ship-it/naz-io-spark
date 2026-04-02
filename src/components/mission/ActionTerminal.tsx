@@ -17,6 +17,7 @@ import {
   ChevronLeft,
   RefreshCcw,
   Save,
+  FileEdit, // Added for Drafts icon
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import AuthModal from "@/components/AuthModal";
@@ -31,6 +32,7 @@ interface ActionTerminalProps {
 
 const SECTION_LABELS: Record<string, string> = {
   home: "Home",
+  drafts: "Drafts", // Added
   recents: "Recents",
   archives: "Archives",
   trash: "Trash",
@@ -68,6 +70,11 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
 
   const isAuthorized = !!user;
 
+  // Sync initial directive if it changes from props (useful for loading drafts)
+  useEffect(() => {
+    if (initialDirective) setDirective(initialDirective);
+  }, [initialDirective]);
+
   // Handle clicking outside upload menu
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -80,7 +87,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
   }, []);
 
   const addLog = (msg: string, type: "error" | "info" = "info", retryFile?: File) => {
-    setTerminalLogs((prev) => [...prev, { msg, type, retryFile }]);
+    setTerminalLogs((prev) => [...prev, { msg, type, retryFile }].slice(-5)); // Keep last 5 for UI cleanliness
   };
 
   // --- MANUAL SAVE HANDLER ---
@@ -96,6 +103,8 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
 
     try {
       const urls = attachments.map((a) => a.url);
+      // Logic assumes saveMission handles the 'draft' status automatically
+      // or you can pass a flag if your hook supports it
       const result = await saveMission(directive, urls);
 
       if (result?.error) {
@@ -228,11 +237,10 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
             if (result?.error) {
               addLog(`SYNC_ERROR // ${result.error.message.toUpperCase()}`, "error");
             } else {
-              addLog("DATA_LOCKED // LATENCY_0ms");
+              addLog("DATA_LOCKED // MISSION_CREATED");
             }
 
             const generateHumanAnalysis = (input: string) => {
-              const text = input.toLowerCase();
               const topic = input.length > 5 ? `"${input.substring(0, 30)}..."` : "your mission parameters";
               let summary = `I've analyzed your request regarding ${topic}. I am currently aligning our autonomous agents...`;
               let goal = `Successfully launch and optimize the project workflow for ${input.split(" ")[0] || "this mission"}.`;
@@ -311,7 +319,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
 
       {/* CONTENT AREA */}
       <div className="flex-1 flex flex-col p-8 overflow-y-auto">
-        {activeSection === "home" ? (
+        {activeSection === "home" || activeSection === "drafts" ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-12">
             {!missionStarted ? (
               <form onSubmit={handleStartMission} className="w-full max-w-2xl space-y-4">
@@ -358,7 +366,9 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
                   <textarea
                     value={directive}
                     onChange={(e) => setDirective(e.target.value)}
-                    placeholder="ENTER MISSION PARAMETERS..."
+                    placeholder={
+                      activeSection === "drafts" ? "CONTINUE WORKING ON DRAFT..." : "ENTER MISSION PARAMETERS..."
+                    }
                     className="flex-1 rounded-2xl p-6 min-h-[120px] transition-all duration-300 outline-none font-sans text-sm text-white bg-white/[0.06] border-2 border-[#00A3FF]/40 focus:border-[#00A3FF] shadow-neon-blue-soft resize-none"
                   />
                 </div>
@@ -366,10 +376,13 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
                 <div className="flex justify-between items-center pt-2">
                   <div className="flex items-center gap-4">
                     <p className="text-[9px] text-white/20 uppercase tracking-[0.25em] font-medium">
-                      {isAuthorized ? "READY_FOR_EXECUTION" : "AUTH_REQUIRED"}
+                      {isAuthorized
+                        ? activeSection === "drafts"
+                          ? "DRAFT_MODE_ACTIVE"
+                          : "READY_FOR_EXECUTION"
+                        : "AUTH_REQUIRED"}
                     </p>
 
-                    {/* MANUAL SAVE BUTTON */}
                     <button
                       type="button"
                       onClick={handleManualSave}
@@ -393,7 +406,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
                     disabled={(!directive.trim() && attachments.length === 0) || uploading}
                     className="px-10 py-3.5 bg-[#00A3FF] text-white text-[10px] font-black uppercase tracking-[0.3em] rounded-xl hover:bg-blue-400 hover:shadow-[0_0_30px_rgba(0,163,255,0.4)] transition-all disabled:opacity-10"
                   >
-                    Start Mission Now
+                    {activeSection === "drafts" ? "Finish Mission" : "Start Mission Now"}
                   </button>
                 </div>
               </form>
@@ -435,7 +448,9 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center border border-dashed border-white/10 rounded-2xl bg-blue-500/[0.02] p-12 text-center">
             <ShieldCheck size={22} className="text-[#00A3FF]/20 mb-4" />
-            <p className="text-[10px] text-white/20 uppercase tracking-[0.3em]">Secure_Node // Synchronized</p>
+            <p className="text-[10px] text-white/20 uppercase tracking-[0.3em]">
+              {sectionLabel.toUpperCase()} // SYNCHRONIZED
+            </p>
           </div>
         )}
       </div>
