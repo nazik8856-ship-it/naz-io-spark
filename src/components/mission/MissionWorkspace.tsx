@@ -94,7 +94,7 @@ const MissionWorkspace: React.FC<MissionWorkspaceProps> = ({ open, onClose, init
                 transition={{ delay: 0.1 }}
                 className="flex-1 h-full overflow-hidden"
               >
-                <ActionTerminal activeSection={activeSection} />
+                <ActionTerminal activeSection={activeSection} initialDirective={initialDirective} />
               </motion.div>
             </>
           )}

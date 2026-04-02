@@ -30,6 +30,7 @@ const App = () => (
           <Routes>
             <Route path="/" element={<Workflower />} />
             <Route path="/workflower" element={<Workflower />} />
+            <Route path="/workspace" element={<Workspace />} />
             <Route path="/signup" element={<Signup />} />
             <Route path="/login" element={<Signup />} />
             <Route path="/auth/callback" element={<AuthCallback />} />

@@ -32,8 +32,8 @@ const WORKFLOW_STEPS = [
   { label: "Execution", icon: Rocket },
 ];
 
-const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection }) => {
-  const [directive, setDirective] = useState("");
+const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialDirective = "" }) => {
+  const [directive, setDirective] = useState(initialDirective);
   const [workflowActive, setWorkflowActive] = useState(false);
   const [workflowStep, setWorkflowStep] = useState(-1);
 
