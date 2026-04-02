@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Activity, Cpu, Zap, Radio, Terminal, Shield, MessageSquare, Globe, AlertTriangle } from "lucide-react";
+import { Activity, Cpu, Zap, Radio, MessageSquare, Globe, AlertTriangle } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/hooks/useAuth";
+import AuthModal from "@/components/AuthModal";
 import MissionWorkspace from "@/components/mission/MissionWorkspace";
 
 const NODES = [
@@ -11,11 +14,12 @@ const NODES = [
 ];
 
 const Workflower = () => {
-  const [logs, setLogs] = useState<string[]>([]);
   const [scrollY, setScrollY] = useState(0);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
   const [missionOpen, setMissionOpen] = useState(false);
-  // TRACKING: State to manage which section is active in the workspace
   const [activeSector, setActiveSector] = useState("home");
+  const { user } = useAuth();
+  const navigate = useNavigate();
 
   useEffect(() => {
     const onScroll = () => setScrollY(window.scrollY);
@@ -23,19 +27,20 @@ const Workflower = () => {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const ts = new Date().toISOString().slice(11, 19);
-      const entries = ["CORE_STABLE", "SIGNAL_100%", "BUS_ACTIVE", "LINK_SECURE", "GLOBAL_SYNC_OK"];
-      setLogs((p) => [...p, `[${ts}] ${entries[Math.floor(Math.random() * entries.length)]}`].slice(-12));
-    }, 2500);
-    return () => clearInterval(interval);
-  }, []);
-
-  // HANDLER: Standardized logic to set sector before opening workspace
   const launchMission = (sector = "home") => {
     setActiveSector(sector);
-    setMissionOpen(true);
+    if (user) {
+      // Authenticated — go directly to workspace
+      navigate("/workspace");
+    } else {
+      // Not authenticated — show auth modal
+      setAuthModalOpen(true);
+    }
+  };
+
+  const handleAuthSuccess = () => {
+    setAuthModalOpen(false);
+    navigate("/workspace");
   };
 
   return (
@@ -45,16 +50,13 @@ const Workflower = () => {
       className="min-h-screen w-full font-mono text-white selection:bg-[#39FF14] selection:text-black overflow-x-hidden"
       style={{ background: "linear-gradient(180deg, #0A192F 0%, #1A0B0B 100%)", backgroundAttachment: "fixed" }}
     >
-      <style>{`
-        @keyframes shimmer { 100% { transform: translateX(100%); } }
-      `}</style>
+      <style>{`@keyframes shimmer { 100% { transform: translateX(100%); } }`}</style>
 
       {/* 3D PARALLAX GRID */}
       <div
         className="fixed inset-0 opacity-[0.08] pointer-events-none"
         style={{
-          backgroundImage:
-            "linear-gradient(#00A3FF 1px, transparent 1px), linear-gradient(90deg, #00A3FF 1px, transparent 1px)",
+          backgroundImage: "linear-gradient(#00A3FF 1px, transparent 1px), linear-gradient(90deg, #00A3FF 1px, transparent 1px)",
           backgroundSize: "60px 60px",
           transform: `translateY(${scrollY * 0.12}px) rotateX(10deg)`,
           willChange: "transform",
@@ -67,7 +69,7 @@ const Workflower = () => {
         transition={{ duration: 1, ease: [0.22, 1, 0.36, 1] }}
         className="relative z-10 flex flex-col"
       >
-        {/* ── HEADER ── */}
+        {/* HEADER */}
         <header className="flex items-center justify-between px-8 py-5 border-b border-white/5 bg-black/60 backdrop-blur-xl sticky top-0 z-50">
           <div className="flex items-center gap-4">
             <div className="w-10 h-10 rounded-lg border border-[#00A3FF]/40 flex items-center justify-center bg-[#00A3FF]/10 shadow-[0_0_20px_rgba(0,163,255,0.3)]">
@@ -78,7 +80,7 @@ const Workflower = () => {
                 Naz<span className="text-[#00A3FF]">AI</span>
               </h1>
               <p className="text-[7px] text-white/40 tracking-[0.4em] uppercase font-bold mt-0.5">
-                Global_Systems_v3.1
+                Global Systems
               </p>
             </div>
           </div>
@@ -88,7 +90,7 @@ const Workflower = () => {
           </div>
         </header>
 
-        {/* ── HERO ── */}
+        {/* HERO */}
         <div className="py-32 text-center px-6 relative">
           <h2 className="text-5xl md:text-8xl font-black uppercase tracking-tighter mb-12 leading-[0.9]">
             <span className="text-white">Welcome to </span>
@@ -123,7 +125,7 @@ const Workflower = () => {
           </div>
         </div>
 
-        {/* ── FEATURES SECTION ── */}
+        {/* FEATURES SECTION */}
         <section className="py-12 md:py-24 px-4 md:px-8 relative">
           <div className="max-w-6xl mx-auto flex flex-col items-center">
             <div className="flex flex-col items-center mb-0 z-20 w-full">
@@ -137,22 +139,9 @@ const Workflower = () => {
               <svg className="absolute inset-0 w-full h-full hidden md:block">
                 {[0, 1, 2].map((i) => (
                   <g key={i}>
-                    <line
-                      x1={`${28 + i * 24}%`}
-                      y1="50%"
-                      x2={`${48 + i * 24}%`}
-                      y2="50%"
-                      stroke="#00A3FF"
-                      strokeWidth="1"
-                      strokeDasharray="5 5"
-                      opacity="0.2"
-                    />
+                    <line x1={`${28 + i * 24}%`} y1="50%" x2={`${48 + i * 24}%`} y2="50%" stroke="#00A3FF" strokeWidth="1" strokeDasharray="5 5" opacity="0.2" />
                     <circle r="4" fill="#00A3FF" filter="drop-shadow(0 0 5px #00A3FF)">
-                      <animateMotion
-                        dur="2s"
-                        repeatCount="indefinite"
-                        path={`M ${260 + i * 240} 225 L ${460 + i * 240} 225`}
-                      />
+                      <animateMotion dur="2s" repeatCount="indefinite" path={`M ${260 + i * 240} 225 L ${460 + i * 240} 225`} />
                     </circle>
                   </g>
                 ))}
@@ -177,7 +166,7 @@ const Workflower = () => {
           </div>
         </section>
 
-        {/* ── LOGIC_ORCHESTRATION_CORE ── */}
+        {/* LOGIC ORCHESTRATION */}
         <section className="py-28 px-8 bg-black/60 border-y border-white/5">
           <div className="max-w-6xl mx-auto text-center">
             <h2 className="text-[11px] font-black uppercase tracking-[0.6em] text-[#00A3FF] mb-16 drop-shadow-[0_0_10px_rgba(0,163,255,0.4)]">
@@ -185,10 +174,7 @@ const Workflower = () => {
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-10">
               {NODES.map((node, i) => (
-                <div
-                  key={i}
-                  className="group p-8 border border-white/5 bg-[#0A192F]/40 hover:border-[#00A3FF]/40 transition-all text-left"
-                >
+                <div key={i} className="group p-8 border border-white/5 bg-[#0A192F]/40 hover:border-[#00A3FF]/40 transition-all text-left">
                   <h3 className="text-xs font-black text-[#00A3FF] uppercase mb-6 tracking-widest border-l-2 border-[#39FF14] pl-3">
                     0{i + 1}_{node.label}
                   </h3>
@@ -201,7 +187,7 @@ const Workflower = () => {
           </div>
         </section>
 
-        {/* ── DIAGNOSTICS PORTAL ── */}
+        {/* DIAGNOSTICS */}
         <section className="py-28 px-8">
           <div className="max-w-2xl mx-auto border border-[#00A3FF]/30 bg-black/80 p-12 rounded-3xl shadow-2xl backdrop-blur-xl">
             <div className="flex items-center gap-3 mb-10 border-b border-white/5 pb-6">
@@ -209,17 +195,9 @@ const Workflower = () => {
               <h2 className="text-sm font-black uppercase tracking-[0.5em] text-[#39FF14]">Diagnostics</h2>
             </div>
             <form className="space-y-8" onSubmit={(e) => e.preventDefault()}>
-              <input
-                type="text"
-                placeholder="OPERATOR_CALLSIGN"
-                className="w-full bg-white/5 border border-white/10 p-5 text-[11px] text-white placeholder:text-white font-medium focus:border-[#39FF14] outline-none transition-all"
-              />
+              <input type="text" placeholder="OPERATOR_CALLSIGN" className="w-full bg-white/5 border border-white/10 p-5 text-[11px] text-white placeholder:text-white font-medium focus:border-[#39FF14] outline-none transition-all" />
               <div className="relative">
-                <textarea
-                  rows={5}
-                  placeholder="TRANSMIT_SYSTEM_ANOMALY..."
-                  className="w-full bg-white/5 border border-white/10 p-5 text-[11px] text-white placeholder:text-white font-medium focus:border-[#39FF14] outline-none transition-all resize-none"
-                />
+                <textarea rows={5} placeholder="TRANSMIT_SYSTEM_ANOMALY..." className="w-full bg-white/5 border border-white/10 p-5 text-[11px] text-white placeholder:text-white font-medium focus:border-[#39FF14] outline-none transition-all resize-none" />
                 <div className="absolute bottom-4 right-4 flex items-center gap-2 px-3 py-1.5 rounded bg-[#FF0055]/10 border border-[#FF0055]/30">
                   <AlertTriangle size={14} className="text-[#FF0055]" />
                   <span className="text-[8px] text-[#FF0055] uppercase font-black tracking-tighter">Anomaly!</span>
@@ -232,32 +210,16 @@ const Workflower = () => {
           </div>
         </section>
 
-        {/* ── FOOTER ── */}
+        {/* FOOTER */}
         <footer className="py-24 px-8 bg-[#030303] border-t border-white/5 relative overflow-hidden">
           <div className="absolute left-0 top-0 w-64 h-64 bg-[#00A3FF]/5 blur-[100px] -translate-x-1/2 -translate-y-1/2 pointer-events-none" />
-
           <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-20 relative z-10">
             <div className="space-y-8">
               <div className="flex items-center gap-4 group cursor-default">
                 <div className="relative">
                   <div className="absolute inset-0 bg-[#00A3FF]/20 blur-md rounded-full animate-pulse" />
-                  <svg
-                    width="40"
-                    height="40"
-                    viewBox="0 0 40 40"
-                    fill="none"
-                    xmlns="http://www.w3.org/2000/svg"
-                    className="relative z-10 text-[#00A3FF] drop-shadow-[0_0_8px_rgba(0,163,255,0.8)]"
-                  >
-                    <circle
-                      cx="20"
-                      cy="20"
-                      r="18"
-                      stroke="currentColor"
-                      strokeWidth="1"
-                      strokeDasharray="4 4"
-                      className="animate-[spin_20s_linear_infinite]"
-                    />
+                  <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" className="relative z-10 text-[#00A3FF] drop-shadow-[0_0_8px_rgba(0,163,255,0.8)]">
+                    <circle cx="20" cy="20" r="18" stroke="currentColor" strokeWidth="1" strokeDasharray="4 4" className="animate-[spin_20s_linear_infinite]" />
                     <path d="M12 28V12L28 28V12" stroke="currentColor" strokeWidth="2.5" strokeLinecap="square" />
                   </svg>
                 </div>
@@ -265,22 +227,18 @@ const Workflower = () => {
                   Naz<span className="text-[#00A3FF]">AI</span>
                 </h2>
               </div>
-
               <p className="text-[11px] text-white/30 leading-loose uppercase tracking-[0.3em]">
-                Autonomous_Logic_Deployment
+                Autonomous Logic Deployment
                 <br />
-                Global_Sector_Alpha
-                <br />© 2026_NazAI_Systems
+                Global Sector Alpha
+                <br />© {new Date().getFullYear()} NazAI Systems
               </p>
             </div>
 
             <div className="flex flex-col gap-6">
               <span className="text-[12px] font-black text-[#10B981] uppercase tracking-[0.5em] mb-4">Core_Index</span>
               {["Workflower", "Security", "Global_API"].map((l) => (
-                <span
-                  key={l}
-                  className="text-[10px] text-white/40 hover:text-[#39FF14] hover:tracking-[0.6em] transition-all cursor-pointer uppercase tracking-[0.4em] font-bold"
-                >
+                <span key={l} className="text-[10px] text-white/40 hover:text-[#39FF14] hover:tracking-[0.6em] transition-all cursor-pointer uppercase tracking-[0.4em] font-bold">
                   {l}
                 </span>
               ))}
@@ -288,19 +246,22 @@ const Workflower = () => {
 
             <div className="flex flex-col md:items-end gap-4 text-right">
               <p className="text-[11px] text-[#00A3FF] uppercase tracking-[0.4em] flex items-center gap-3">
-                99.999%_STABLE
+                System Operational
                 <Globe size={16} className="text-[#00A3FF]/40 animate-pulse" />
               </p>
-              <div className="mt-24 space-y-1">
-                <p className="text-[8px] text-white/10 uppercase tracking-[0.7em]">BUILD_2026.03.31_GLOBAL</p>
-                <p className="text-[8px] text-[#00A3FF]/20 uppercase tracking-[0.3em]">SUMY_UKRAINE_NODE_01</p>
-              </div>
             </div>
           </div>
         </footer>
       </motion.div>
 
-      {/* FINAL UPDATE: Passing the state accurately to MissionWorkspace */}
+      {/* Auth Modal */}
+      <AuthModal
+        open={authModalOpen}
+        onClose={() => setAuthModalOpen(false)}
+        onSuccess={handleAuthSuccess}
+      />
+
+      {/* Inline workspace (for when opened from within the page) */}
       <MissionWorkspace open={missionOpen} onClose={() => setMissionOpen(false)} initialSector={activeSector} />
     </motion.div>
   );

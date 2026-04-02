@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { lazy, Suspense } from "react";
 
 const Workflower = lazy(() => import("./pages/Workflower"));
+const Workspace = lazy(() => import("./pages/Workspace"));
 const Signup = lazy(() => import("./pages/Signup"));
 const AuthCallback = lazy(() => import("./pages/AuthCallback"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
@@ -29,6 +30,7 @@ const App = () => (
           <Routes>
             <Route path="/" element={<Workflower />} />
             <Route path="/workflower" element={<Workflower />} />
+            <Route path="/workspace" element={<Workspace />} />
             <Route path="/signup" element={<Signup />} />
             <Route path="/login" element={<Signup />} />
             <Route path="/auth/callback" element={<AuthCallback />} />

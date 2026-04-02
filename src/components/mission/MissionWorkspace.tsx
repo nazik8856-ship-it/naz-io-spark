@@ -9,9 +9,10 @@ interface MissionWorkspaceProps {
   open: boolean;
   onClose: () => void;
   initialSector?: string;
+  initialDirective?: string;
 }
 
-const MissionWorkspace: React.FC<MissionWorkspaceProps> = ({ open, onClose, initialSector = "home" }) => {
+const MissionWorkspace: React.FC<MissionWorkspaceProps> = ({ open, onClose, initialSector = "home", initialDirective = "" }) => {
   const [activeSection, setActiveSection] = useState(initialSector);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const isMobile = useIsMobile();
@@ -74,7 +75,7 @@ const MissionWorkspace: React.FC<MissionWorkspaceProps> = ({ open, onClose, init
               </AnimatePresence>
 
               <div className="flex-1 pt-16">
-                <ActionTerminal activeSection={activeSection} />
+                <ActionTerminal activeSection={activeSection} initialDirective={initialDirective} />
               </div>
             </>
           ) : (
@@ -93,7 +94,7 @@ const MissionWorkspace: React.FC<MissionWorkspaceProps> = ({ open, onClose, init
                 transition={{ delay: 0.1 }}
                 className="flex-1 h-full overflow-hidden"
               >
-                <ActionTerminal activeSection={activeSection} />
+                <ActionTerminal activeSection={activeSection} initialDirective={initialDirective} />
               </motion.div>
             </>
           )}
