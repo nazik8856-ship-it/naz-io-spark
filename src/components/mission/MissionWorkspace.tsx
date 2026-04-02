@@ -12,7 +12,7 @@ interface MissionWorkspaceProps {
   initialDirective?: string;
 }
 
-const MissionWorkspace: React.FC<MissionWorkspaceProps> = ({ open, onClose, initialSector = "home" }) => {
+const MissionWorkspace: React.FC<MissionWorkspaceProps> = ({ open, onClose, initialSector = "home", initialDirective = "" }) => {
   const [activeSection, setActiveSection] = useState(initialSector);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const isMobile = useIsMobile();
