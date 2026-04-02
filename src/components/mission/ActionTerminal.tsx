@@ -226,7 +226,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
       icon: Clock,
       action: () => {
         setShowUploadMenu(false);
-        fetchHistory("HISTORY // No previous imports found");
+        addLog("HISTORY // No previous imports found");
       },
     },
     {
