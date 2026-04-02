@@ -15,6 +15,7 @@ import { motion } from "framer-motion";
 
 interface ActionTerminalProps {
   activeSection: string;
+  initialDirective?: string;
 }
 
 const SECTION_LABELS: Record<string, string> = {
