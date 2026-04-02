@@ -1,5 +1,20 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Terminal, Zap, Cpu, Settings, Rocket, Database, ShieldCheck, Plus, Paperclip, Image, Video, FileText, Camera, Clock, Link } from "lucide-react";
+import {
+  Terminal,
+  Zap,
+  Cpu,
+  Settings,
+  Rocket,
+  Database,
+  ShieldCheck,
+  Plus,
+  Image,
+  Video,
+  FileText,
+  Camera,
+  Clock,
+  Link,
+} from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import AuthModal from "@/components/AuthModal";
 import { supabase } from "@/integrations/supabase/client";
@@ -48,7 +63,6 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
     }
   }, [loading, isAuthorized, sessionRestored]);
 
-  // Close menu on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
@@ -69,19 +83,25 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
       return;
     }
 
+    // 5MB Size Constraint
+    if (file.size > 5 * 1024 * 1024) {
+      addLog(`ERROR // ${file.name.toUpperCase()} // EXCEEDS_5MB_LIMIT`);
+      return;
+    }
+
     setUploading(true);
-    const filePath = `${user.id}/${Date.now()}_${file.name}`;
+    addLog(`INITIALIZING_UPLOAD // ${file.name.toUpperCase()}...`);
+
+    const fileExt = file.name.split(".").pop();
+    const fileName = `${Math.random().toString(36).substring(2)}_${Date.now()}.${fileExt}`;
+    const filePath = `${user.id}/${fileName}`;
 
     try {
-      const { error } = await supabase.storage
-        .from("mission-assets")
-        .upload(filePath, file);
+      const { error: uploadError } = await supabase.storage.from("mission-assets").upload(filePath, file);
 
-      if (error) throw error;
+      if (uploadError) throw uploadError;
 
-      const { data: urlData } = supabase.storage
-        .from("mission-assets")
-        .getPublicUrl(filePath);
+      const { data: urlData } = supabase.storage.from("mission-assets").getPublicUrl(filePath);
 
       const newAttachment: Attachment = {
         name: file.name,
@@ -90,9 +110,9 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
       };
 
       setAttachments((prev) => [...prev, newAttachment]);
-      addLog(`FILE_IMPORTED // ${file.name}`);
+      addLog(`ASSET_SYNCHRONIZED // ${file.name.toUpperCase()} // READY`);
     } catch (err: any) {
-      addLog(`UPLOAD_ERROR // ${err.message || "Unknown error"}`);
+      addLog(`UPLOAD_FAILED // ${err.message || "SERVER_REJECTION"}`);
     } finally {
       setUploading(false);
       setShowUploadMenu(false);
@@ -106,17 +126,17 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
     e.target.value = "";
   };
 
-  const triggerFileInput = (accept?: string) => {
+  const triggerFileInput = (acceptType: string) => {
     if (fileInputRef.current) {
-      fileInputRef.current.accept = accept || "*/*";
+      fileInputRef.current.accept = acceptType;
       fileInputRef.current.click();
     }
+    setShowUploadMenu(false);
   };
 
   const handleScreenshot = async () => {
     setShowUploadMenu(false);
     addLog("SCREENSHOT // Capturing viewport...");
-    // Use canvas to capture - simplified placeholder for real screenshot
     try {
       const canvas = document.createElement("canvas");
       canvas.width = window.innerWidth;
@@ -168,46 +188,53 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
     setWorkflowActive(true);
     setWorkflowStep(0);
     WORKFLOW_STEPS.forEach((_, i) => {
-      setTimeout(() => {
-        setWorkflowStep(i);
-        if (i === WORKFLOW_STEPS.length - 1) {
-          setTimeout(() => {
-            setWorkflowActive(false);
-            setWorkflowStep(-1);
-          }, 1200);
-        }
-      }, (i + 1) * 900);
+      setTimeout(
+        () => {
+          setWorkflowStep(i);
+          if (i === WORKFLOW_STEPS.length - 1) {
+            setTimeout(() => {
+              setWorkflowActive(false);
+              setWorkflowStep(-1);
+            }, 1200);
+          }
+        },
+        (i + 1) * 900,
+      );
     });
   };
 
   const sectionLabel = SECTION_LABELS[activeSection] || "Home";
 
   const UPLOAD_MENU_ITEMS = [
-    { label: "Upload File", icon: FileText, action: () => triggerFileInput("*/*") },
+    { label: "Screenshot", icon: Camera, action: handleScreenshot },
     { label: "Image", icon: Image, action: () => triggerFileInput("image/*") },
     { label: "Video", icon: Video, action: () => triggerFileInput("video/*") },
-    { label: "Screenshot", icon: Camera, action: handleScreenshot },
-    { label: "History", icon: Clock, action: () => { setShowUploadMenu(false); addLog("HISTORY // No previous imports found"); } },
-    { label: "Connectors", icon: Link, action: () => { setShowUploadMenu(false); addLog("CONNECTORS // No active connectors"); } },
+    { label: "Document", icon: FileText, action: () => triggerFileInput(".pdf,.doc,.docx,.txt") },
+    {
+      label: "History",
+      icon: Clock,
+      action: () => {
+        setShowUploadMenu(false);
+        addLog("ARCHIVE_QUERY // NO_LOCAL_ASSETS_FOUND");
+      },
+    },
+    {
+      label: "Connectors",
+      icon: Link,
+      action: () => {
+        setShowUploadMenu(false);
+        addLog("SYSTEM // EXTERNAL_BRIDGE_OFFLINE");
+      },
+    },
   ];
 
   return (
     <div className="flex-1 flex flex-col bg-[#020617] h-full selection:bg-blue-500/30 overflow-hidden relative">
       {!isAuthorized && (
-        <AuthModal
-          open={showAuthModal}
-          onClose={() => setShowAuthModal(false)}
-          onSuccess={handleAuthSuccess}
-        />
+        <AuthModal open={showAuthModal} onClose={() => setShowAuthModal(false)} onSuccess={handleAuthSuccess} />
       )}
 
-      <input
-        ref={fileInputRef}
-        type="file"
-        className="hidden"
-        onChange={handleFileSelect}
-        multiple
-      />
+      <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileSelect} multiple />
 
       {/* ── HEADER ── */}
       <div className="flex items-center gap-3 px-6 py-4 border-b border-white/5 bg-[#020617]/50 backdrop-blur-md shrink-0">
@@ -226,9 +253,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
       {/* ── SESSION RESTORED ── */}
       {sessionRestored && (
         <div className="px-6 py-2 border-b border-white/5 bg-emerald-500/[0.04]">
-          <p className="text-[10px] font-mono text-emerald-400/80 tracking-widest">
-            AUTH_SUCCESS // SESSION_RESTORED
-          </p>
+          <p className="text-[10px] font-mono text-emerald-400/80 tracking-widest">AUTH_SUCCESS // SESSION_RESTORED</p>
         </div>
       )}
 
@@ -249,7 +274,6 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
           <div className="flex-1 flex flex-col items-center justify-center gap-12">
             {!missionStarted ? (
               <form onSubmit={handleStartMission} className="w-full max-w-2xl space-y-4">
-                {/* Attachment Chips */}
                 {attachments.length > 0 && (
                   <div className="flex flex-wrap gap-2">
                     {attachments.map((att, i) => (
@@ -262,9 +286,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
                   </div>
                 )}
 
-                {/* Input Area with + button */}
                 <div className="relative flex items-start gap-3">
-                  {/* Upload Menu Button */}
                   <div className="relative pt-5" ref={menuRef}>
                     <button
                       type="button"
@@ -275,7 +297,6 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
                       <Plus size={16} className={`${uploading ? "animate-spin text-[#00A3FF]" : "text-white/40"}`} />
                     </button>
 
-                    {/* Dropdown Menu */}
                     {showUploadMenu && (
                       <div className="absolute left-0 bottom-full mb-2 w-48 bg-[#0a1628]/95 backdrop-blur-2xl border border-white/10 rounded-xl overflow-hidden z-50 shadow-2xl">
                         {UPLOAD_MENU_ITEMS.map((item) => {
@@ -298,7 +319,6 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
                     )}
                   </div>
 
-                  {/* Textarea */}
                   <textarea
                     value={directive}
                     onChange={(e) => setDirective(e.target.value)}
@@ -397,9 +417,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
               <p className="text-[11px] text-white/30 uppercase tracking-[0.25em] font-mono font-medium">
                 Secure_Node // Synchronized
               </p>
-              <p className="text-[9px] text-white/15 uppercase tracking-[0.2em] mt-2">
-                No active records found
-              </p>
+              <p className="text-[9px] text-white/15 uppercase tracking-[0.2em] mt-2">No active records found</p>
             </div>
           </div>
         )}
