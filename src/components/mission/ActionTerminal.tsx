@@ -34,8 +34,8 @@ const WORKFLOW_STEPS = [
   { label: "EXECUTION", icon: Rocket },
 ];
 
-const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection }) => {
-  const [directive, setDirective] = useState("");
+const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialDirective = "" }) => {
+  const [directive, setDirective] = useState(initialDirective);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [isAuthorized, setIsAuthorized] = useState(false); // New state to show solution after login
