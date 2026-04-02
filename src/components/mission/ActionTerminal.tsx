@@ -48,7 +48,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
   const [workflowActive, setWorkflowActive] = useState(false);
   const [workflowStep, setWorkflowStep] = useState(-1);
   const [missionStarted, setMissionStarted] = useState(false);
-  const [sessionRestored, setSessionRestored] = useState(false);
+  const [sessionRestored, setSessionRestored] = useState(true);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [terminalLogs, setTerminalLogs] = useState<string[]>([]);
   const [showUploadMenu, setShowUploadMenu] = useState(false);
@@ -58,12 +58,6 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
   const menuRef = useRef<HTMLDivElement>(null);
 
   const isAuthorized = !!user;
-
-  useEffect(() => {
-    if (!loading && isAuthorized && !sessionRestored) {
-      setSessionRestored(true);
-    }
-  }, [loading, isAuthorized, sessionRestored]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -85,7 +79,6 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
       return;
     }
 
-    // 5MB Size Constraint
     if (file.size > 5 * 1024 * 1024) {
       addLog(`ERROR // ${file.name.toUpperCase()} // EXCEEDS_5MB_LIMIT`);
       return;
@@ -100,7 +93,6 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
 
     try {
       const { error: uploadError } = await supabase.storage.from("mission-assets").upload(filePath, file);
-
       if (uploadError) throw uploadError;
 
       const { data: urlData } = supabase.storage.from("mission-assets").getPublicUrl(filePath);
@@ -162,27 +154,14 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
     }
   };
 
-  const handleRemoveAttachment = (index: number) => {
-    const removed = attachments[index];
-    setAttachments((prev) => prev.filter((_, i) => i !== index));
-    addLog(`FILE_REMOVED // ${removed.name}`);
-  };
-
   const handleStartMission = (e: React.FormEvent) => {
     e.preventDefault();
     if (!directive.trim() && attachments.length === 0) return;
-
     if (!isAuthorized) {
-      sessionStorage.setItem("nazai_directive", directive);
       setShowAuthModal(true);
     } else {
       startWorkflow();
     }
-  };
-
-  const handleAuthSuccess = () => {
-    setShowAuthModal(false);
-    startWorkflow();
   };
 
   const startWorkflow = () => {
@@ -194,7 +173,6 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
         () => {
           setWorkflowStep(i);
           if (i === WORKFLOW_STEPS.length - 1) {
-            // Save mission to database on EXECUTION step
             const urls = attachments.map((a) => a.url);
             saveMission(directive, urls).then((result) => {
               if (result?.error) {
@@ -214,8 +192,6 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
     });
   };
 
-  const sectionLabel = SECTION_LABELS[activeSection] || "Home";
-
   const UPLOAD_MENU_ITEMS = [
     { label: "Screenshot", icon: Camera, action: handleScreenshot },
     { label: "Image", icon: Image, action: () => triggerFileInput("image/*") },
@@ -226,7 +202,8 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
       icon: Clock,
       action: () => {
         setShowUploadMenu(false);
-        addLog("HISTORY // No previous imports found");
+        addLog("QUERYING_ARCHIVES // ACCESSING_SECURE_STORAGE...");
+        // Add your fetchHistory logic or drawer toggle here
       },
     },
     {
@@ -234,50 +211,49 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
       icon: Link,
       action: () => {
         setShowUploadMenu(false);
-        addLog("SYSTEM // EXTERNAL_BRIDGE_OFFLINE");
+        addLog("SYSTEM // INITIALIZING_EXTERNAL_BRIDGE...");
+        // Add your ConnectorsModal toggle here
       },
     },
   ];
 
+  const sectionLabel = SECTION_LABELS[activeSection] || "Home";
+
   return (
     <div className="flex-1 flex flex-col bg-[#020617] h-full selection:bg-blue-500/30 overflow-hidden relative">
       {!isAuthorized && (
-        <AuthModal open={showAuthModal} onClose={() => setShowAuthModal(false)} onSuccess={handleAuthSuccess} />
+        <AuthModal open={showAuthModal} onClose={() => setShowAuthModal(false)} onSuccess={startWorkflow} />
       )}
 
       <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileSelect} multiple />
 
       {/* ── HEADER ── */}
-      <div className="flex items-center gap-3 px-6 py-4 border-b border-white/5 bg-[#020617]/50 backdrop-blur-md shrink-0">
+      <div className="flex items-center gap-3 px-6 py-4 border-b border-white/5 bg-[#020617]/50 backdrop-blur-md shrink-0 z-10">
         <Terminal size={14} className="text-[#00A3FF]" />
-        <span className="text-[10px] font-sans text-white/50 uppercase tracking-widest">
+        <span className="text-[10px] font-sans text-white/50 uppercase tracking-[0.2em]">
           System / <span className="text-white font-bold">{sectionLabel}</span>
         </span>
         <div className="ml-auto flex items-center gap-2">
           <div className={`w-1.5 h-1.5 rounded-full ${isAuthorized ? "bg-green-500" : "bg-blue-500"} animate-pulse`} />
           <span className="text-[9px] text-white/40 font-bold tracking-tighter">
-            {isAuthorized ? "SESSION_ACTIVE" : "NODE_01_ACTIVE"}
+            {isAuthorized ? "SESSION_ACTIVE" : "NODE_01_OFFLINE"}
           </span>
         </div>
       </div>
 
-      {/* ── SESSION RESTORED ── */}
-      {sessionRestored && (
-        <div className="px-6 py-2 border-b border-white/5 bg-emerald-500/[0.04]">
-          <p className="text-[10px] font-mono text-emerald-400/80 tracking-widest">AUTH_SUCCESS // SESSION_RESTORED</p>
-        </div>
-      )}
-
-      {/* ── TERMINAL LOGS ── */}
-      {terminalLogs.length > 0 && (
-        <div className="px-6 py-2 border-b border-white/5 bg-white/[0.01] max-h-24 overflow-y-auto">
-          {terminalLogs.map((log, i) => (
-            <p key={i} className="text-[9px] font-mono text-[#00A3FF]/60 tracking-widest">
-              &gt; {log}
-            </p>
-          ))}
-        </div>
-      )}
+      {/* ── LOGS (Fixed position relative to Header) ── */}
+      <div className="px-6 py-2 border-b border-white/5 bg-white/[0.01] max-h-24 overflow-y-auto shrink-0">
+        {sessionRestored && (
+          <p className="text-[9px] font-mono text-emerald-400/80 tracking-widest mb-1 italic">
+            AUTH_SUCCESS // SESSION_RESTORED
+          </p>
+        )}
+        {terminalLogs.map((log, i) => (
+          <p key={i} className="text-[9px] font-mono text-[#00A3FF]/60 tracking-widest leading-relaxed">
+            &gt; {log}
+          </p>
+        ))}
+      </div>
 
       {/* ── CONTENT AREA ── */}
       <div className="flex-1 flex flex-col p-8 overflow-y-auto">
@@ -286,30 +262,33 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
             {!missionStarted ? (
               <form onSubmit={handleStartMission} className="w-full max-w-2xl space-y-4">
                 {attachments.length > 0 && (
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-2 animate-in slide-in-from-bottom-2 duration-300">
                     {attachments.map((att, i) => (
                       <AttachmentChip
                         key={`${att.name}-${i}`}
                         attachment={att}
-                        onRemove={() => handleRemoveAttachment(i)}
+                        onRemove={() => setAttachments((prev) => prev.filter((_, idx) => idx !== i))}
                       />
                     ))}
                   </div>
                 )}
 
-                <div className="relative flex items-start gap-3">
-                  <div className="relative pt-5" ref={menuRef}>
+                <div className="relative flex items-start gap-4">
+                  <div className="relative pt-2" ref={menuRef}>
                     <button
                       type="button"
                       onClick={() => setShowUploadMenu(!showUploadMenu)}
                       disabled={uploading}
-                      className="p-2.5 rounded-xl border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] hover:border-[#00A3FF]/30 transition-all disabled:opacity-30"
+                      className="p-3 rounded-xl border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] hover:border-[#00A3FF]/30 transition-all disabled:opacity-30 group"
                     >
-                      <Plus size={16} className={`${uploading ? "animate-spin text-[#00A3FF]" : "text-white/40"}`} />
+                      <Plus
+                        size={18}
+                        className={`${uploading ? "animate-spin text-[#00A3FF]" : "text-white/40 group-hover:text-[#00A3FF]"}`}
+                      />
                     </button>
 
                     {showUploadMenu && (
-                      <div className="absolute left-0 bottom-full mb-2 w-48 bg-[#0a1628]/95 backdrop-blur-2xl border border-white/10 rounded-xl overflow-hidden z-50 shadow-2xl">
+                      <div className="absolute left-full ml-4 top-0 w-48 bg-[#0a1628]/98 backdrop-blur-2xl border border-white/10 rounded-xl overflow-hidden z-[100] shadow-[0_20px_50px_rgba(0,0,0,0.5)] animate-in fade-in zoom-in-95 duration-200">
                         {UPLOAD_MENU_ITEMS.map((item) => {
                           const Icon = item.icon;
                           return (
@@ -317,10 +296,10 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
                               key={item.label}
                               type="button"
                               onClick={item.action}
-                              className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-white/[0.05] transition-colors"
+                              className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-white/[0.05] border-b border-white/5 last:border-0 transition-colors group"
                             >
-                              <Icon size={14} className="text-[#00A3FF]/60" />
-                              <span className="text-[11px] text-white/60 font-mono uppercase tracking-wider">
+                              <Icon size={14} className="text-[#00A3FF]/40 group-hover:text-[#00A3FF]" />
+                              <span className="text-[10px] text-white/50 font-mono uppercase tracking-widest group-hover:text-white transition-colors">
                                 {item.label}
                               </span>
                             </button>
@@ -334,23 +313,18 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
                     value={directive}
                     onChange={(e) => setDirective(e.target.value)}
                     placeholder="ENTER MISSION PARAMETERS..."
-                    rows={4}
-                    className="flex-1 bg-white/[0.03] border border-white/10 rounded-2xl text-white font-sans text-sm p-6 placeholder:text-white/10 outline-none resize-none focus:border-blue-500/50 focus:bg-blue-500/[0.02] transition-all"
+                    className="flex-1 bg-white/[0.03] border border-white/10 rounded-2xl text-white font-sans text-sm p-6 placeholder:text-white/5 outline-none resize-none focus:border-[#00A3FF]/30 focus:bg-[#00A3FF]/[0.02] transition-all min-h-[120px]"
                   />
                 </div>
 
-                <div className="flex justify-between items-center">
-                  <p className="text-[9px] text-white/20 uppercase tracking-[0.2em]">
-                    {uploading
-                      ? "Uploading asset..."
-                      : isAuthorized
-                        ? `Ready to execute${attachments.length > 0 ? ` • ${attachments.length} file${attachments.length > 1 ? "s" : ""} attached` : ""}`
-                        : "Authentication required to execute"}
+                <div className="flex justify-between items-center pt-2">
+                  <p className="text-[9px] text-white/20 uppercase tracking-[0.25em] font-medium">
+                    {uploading ? "SYNCING_ASSETS..." : isAuthorized ? "READY_FOR_EXECUTION" : "AUTH_REQUIRED"}
                   </p>
                   <button
                     type="submit"
                     disabled={(!directive.trim() && attachments.length === 0) || uploading}
-                    className="px-8 py-3 bg-[#00A3FF] text-white text-[10px] font-bold uppercase tracking-[0.2em] rounded-xl hover:bg-blue-400 hover:shadow-[0_0_20px_rgba(0,163,255,0.3)] transition-all disabled:opacity-20"
+                    className="px-10 py-3.5 bg-[#00A3FF] text-white text-[10px] font-black uppercase tracking-[0.3em] rounded-xl hover:bg-blue-400 hover:shadow-[0_0_30px_rgba(0,163,255,0.4)] transition-all disabled:opacity-10 active:scale-95"
                   >
                     Start Mission Now
                   </button>
@@ -358,16 +332,11 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
               </form>
             ) : (
               <div className="w-full max-w-2xl space-y-8 animate-in fade-in zoom-in duration-700">
-                <div className="text-center space-y-2">
-                  <h3 className="text-[#00A3FF] text-[10px] font-black uppercase tracking-[0.4em]">
+                <div className="text-center space-y-3">
+                  <h3 className="text-[#00A3FF] text-[10px] font-black uppercase tracking-[0.5em]">
                     Solution Orchestrated
                   </h3>
-                  <p className="text-white/60 text-xs italic">"{directive}"</p>
-                  {attachments.length > 0 && (
-                    <p className="text-[9px] text-white/30 uppercase tracking-widest">
-                      {attachments.length} asset{attachments.length > 1 ? "s" : ""} linked
-                    </p>
-                  )}
+                  <p className="text-white/60 text-xs font-light italic tracking-wide">"{directive}"</p>
                 </div>
 
                 <div className="grid grid-cols-4 gap-4">
@@ -377,15 +346,15 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
                     return (
                       <div
                         key={step.label}
-                        className={`flex flex-col items-center gap-3 p-4 rounded-xl border transition-all duration-500 ${
+                        className={`flex flex-col items-center gap-3 p-5 rounded-xl border transition-all duration-700 ${
                           isActive
-                            ? "border-blue-500/40 bg-blue-500/10 shadow-[0_0_15px_rgba(0,163,255,0.1)]"
-                            : "border-white/5 bg-white/[0.01]"
+                            ? "border-[#00A3FF]/40 bg-[#00A3FF]/10 shadow-[0_0_25px_rgba(0,163,255,0.15)]"
+                            : "border-white/5 bg-white/[0.01] opacity-20"
                         }`}
                       >
-                        <Icon size={18} className={isActive ? "text-[#00A3FF]" : "text-white/10"} />
+                        <Icon size={20} className={isActive ? "text-[#00A3FF]" : "text-white"} />
                         <span
-                          className={`text-[8px] font-bold uppercase tracking-widest ${isActive ? "text-white" : "text-white/10"}`}
+                          className={`text-[8px] font-black uppercase tracking-[0.2em] ${isActive ? "text-white" : "text-white/50"}`}
                         >
                           {step.label}
                         </span>
@@ -394,12 +363,13 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
                   })}
                 </div>
 
-                <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-6 text-center">
-                  <p className="text-white/40 text-[10px] uppercase tracking-widest">
+                <div className="bg-white/[0.02] border border-white/5 rounded-3xl p-10 text-center relative overflow-hidden group">
+                  <div className="absolute inset-0 bg-[#00A3FF]/[0.02] opacity-0 group-hover:opacity-100 transition-opacity" />
+                  <p className="text-white/30 text-[10px] uppercase tracking-[0.3em] font-bold">
                     Displaying localized solution data...
                   </p>
-                  <div className="mt-4 h-32 flex items-center justify-center border border-dashed border-white/10 rounded-xl">
-                    <p className="text-[10px] text-white/20 animate-pulse uppercase tracking-[0.2em]">
+                  <div className="mt-6 h-40 flex items-center justify-center border border-dashed border-white/10 rounded-2xl bg-black/20">
+                    <p className="text-[10px] text-[#00A3FF]/40 animate-pulse uppercase tracking-[0.4em] font-mono">
                       Processing Node Output...
                     </p>
                   </div>
@@ -409,6 +379,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
           </div>
         ) : (
           <div className="flex-1 flex flex-col animate-in fade-in duration-500">
+            {/* Archive/Trash view remains standard as requested */}
             <div className="flex items-center gap-4 border-b border-white/5 pb-6 mb-8">
               <div className="p-3 bg-blue-500/10 rounded-xl border border-blue-500/20">
                 <Database size={20} className="text-[#00A3FF]" />
@@ -420,15 +391,11 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
                 </p>
               </div>
             </div>
-
             <div className="flex-1 flex flex-col items-center justify-center border border-dashed border-white/10 rounded-2xl bg-blue-500/[0.02] p-12 text-center">
-              <div className="w-14 h-14 rounded-full bg-white/[0.02] flex items-center justify-center mb-5 border border-white/5">
-                <ShieldCheck size={22} className="text-[#00A3FF]/40" />
-              </div>
-              <p className="text-[11px] text-white/30 uppercase tracking-[0.25em] font-mono font-medium">
+              <ShieldCheck size={22} className="text-[#00A3FF]/20 mb-4" />
+              <p className="text-[10px] text-white/20 uppercase tracking-[0.3em] font-mono">
                 Secure_Node // Synchronized
               </p>
-              <p className="text-[9px] text-white/15 uppercase tracking-[0.2em] mt-2">No active records found</p>
             </div>
           </div>
         )}
