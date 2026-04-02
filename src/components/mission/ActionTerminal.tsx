@@ -194,6 +194,15 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
         () => {
           setWorkflowStep(i);
           if (i === WORKFLOW_STEPS.length - 1) {
+            // Save mission to database on EXECUTION step
+            const urls = attachments.map((a) => a.url);
+            saveMission(directive, urls).then((result) => {
+              if (result?.error) {
+                addLog(`MISSION_SAVE_ERROR // ${result.error.message}`);
+              } else {
+                addLog("MISSION_PERSISTED // DATABASE_SYNC_COMPLETE");
+              }
+            });
             setTimeout(() => {
               setWorkflowActive(false);
               setWorkflowStep(-1);
