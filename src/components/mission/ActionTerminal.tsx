@@ -1,23 +1,9 @@
-import React, { useState, useEffect } from "react";
-import {
-  Terminal,
-  Zap,
-  Cpu,
-  Settings,
-  Rocket,
-  Activity,
-  Database,
-  Trash2,
-  FolderOpen,
-  Mail,
-  X,
-  Loader2,
-} from "lucide-react";
+import React, { useState } from "react";
+import { Terminal, Zap, Cpu, Settings, Rocket, Database, FolderOpen, Mail, X, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface ActionTerminalProps {
   activeSection: string;
-  initialDirective?: string;
 }
 
 const SECTION_LABELS: Record<string, string> = {
@@ -34,22 +20,20 @@ const WORKFLOW_STEPS = [
   { label: "EXECUTION", icon: Rocket },
 ];
 
-const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialDirective = "" }) => {
-  const [directive, setDirective] = useState(initialDirective);
+const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection }) => {
+  const [directive, setDirective] = useState("");
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
-  const [isAuthorized, setIsAuthorized] = useState(false); // New state to show solution after login
+  const [isAuthorized, setIsAuthorized] = useState(false);
   const [workflowActive, setWorkflowActive] = useState(false);
   const [workflowStep, setWorkflowStep] = useState(-1);
 
-  // TRIGGER 1: Click "Start Mission" -> Show Auth Modal
   const handleStartMission = (e: React.FormEvent) => {
     e.preventDefault();
     if (!directive.trim()) return;
     setShowAuthModal(true);
   };
 
-  // TRIGGER 2: Mock Authentication Completion
   const simulateLogin = (provider: string) => {
     setIsAuthenticating(true);
     // Simulate high-class SaaS delay for "Connection"
@@ -72,7 +56,6 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
             setTimeout(() => {
               setWorkflowActive(false);
               setWorkflowStep(-1);
-              // This is where you'd typically navigate to a /solution page
             }, 1200);
           }
         },
@@ -172,7 +155,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
         )}
       </AnimatePresence>
 
-      {/* ── MAIN TERMINAL UI ── */}
+      {/* ── HEADER ── */}
       <div className="flex items-center gap-3 px-6 py-4 border-b border-white/5 bg-[#020617]/50 backdrop-blur-md shrink-0">
         <Terminal size={14} className="text-[#00A3FF]" />
         <span className="text-[10px] font-sans text-white/50 uppercase tracking-widest">
@@ -186,6 +169,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
         </div>
       </div>
 
+      {/* ── CONTENT AREA ── */}
       <div className="flex-1 flex flex-col p-8 overflow-y-auto">
         {activeSection === "home" ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-12">
@@ -214,7 +198,6 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
                 </div>
               </form>
             ) : (
-              /* ── SOLUTION VIEW (POST-AUTH) ── */
               <div className="w-full max-w-2xl space-y-8 animate-in fade-in zoom-in duration-700">
                 <div className="text-center space-y-2">
                   <h3 className="text-[#00A3FF] text-[10px] font-black uppercase tracking-[0.4em]">
@@ -223,7 +206,6 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
                   <p className="text-white/60 text-xs italic">"{directive}"</p>
                 </div>
 
-                {/* Workflow Display */}
                 <div className="grid grid-cols-4 gap-4">
                   {WORKFLOW_STEPS.map((step, i) => {
                     const isActive = workflowActive && workflowStep >= i;
@@ -262,14 +244,29 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
             )}
           </div>
         ) : (
-          /* ── OTHER SECTIONS REMAIN CLEAN ── */
-          <div className="flex-1 flex flex-col items-center justify-center border border-dashed border-white/10 rounded-2xl bg-blue-500/[0.02] p-12 text-center">
-            <div className="w-12 h-12 rounded-full bg-white/[0.02] flex items-center justify-center mb-4 border border-white/5">
-              <FolderOpen size={18} className="text-white/20" />
+          <div className="flex-1 flex flex-col animate-in fade-in duration-500">
+            {/* Professional Archive/Section Header */}
+            <div className="flex items-center gap-4 border-b border-white/5 pb-6 mb-8">
+              <div className="p-3 bg-blue-500/10 rounded-xl border border-blue-500/20">
+                <Database size={20} className="text-[#00A3FF]" />
+              </div>
+              <div>
+                <h2 className="text-sm font-bold text-white uppercase tracking-[0.2em]">{sectionLabel} Archives</h2>
+                <p className="text-[10px] text-white/40 uppercase tracking-widest mt-1">
+                  Verified mission historical records
+                </p>
+              </div>
             </div>
-            <p className="text-[11px] text-white/30 uppercase tracking-[0.2em] font-medium">
-              Node Synchronized // No Records Found
-            </p>
+
+            {/* Empty State replaces circled trash logs */}
+            <div className="flex-1 flex flex-col items-center justify-center border border-dashed border-white/10 rounded-2xl bg-blue-500/[0.02] p-12 text-center">
+              <div className="w-12 h-12 rounded-full bg-white/[0.02] flex items-center justify-center mb-4 border border-white/5">
+                <FolderOpen size={18} className="text-white/20" />
+              </div>
+              <p className="text-[11px] text-white/30 uppercase tracking-[0.2em] font-medium">
+                Node Synchronized // No Records Found
+              </p>
+            </div>
           </div>
         )}
       </div>
