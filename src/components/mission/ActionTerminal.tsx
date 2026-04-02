@@ -60,10 +60,45 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
   const [uploading, setUploading] = useState(false);
   const [missionOutput, setMissionOutput] = useState<string | null>(null);
 
+  // New state for autosave feedback
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const isAuthorized = !!user;
+
+  // --- AUTOSAVE LOGIC ---
+  useEffect(() => {
+    // Requirements: User must be logged in, have text, and not currently running a mission
+    if (!directive.trim() || !isAuthorized || missionStarted) {
+      setSaveStatus("idle");
+      return;
+    }
+
+    setSaveStatus("saving");
+
+    const delayDebounceFn = setTimeout(async () => {
+      try {
+        const urls = attachments.map((a) => a.url);
+        const result = await saveMission(directive, urls);
+
+        if (result?.error) {
+          setSaveStatus("error");
+          addLog("AUTOSAVE_ERROR // SYNC_FAILED", "error");
+        } else {
+          setSaveStatus("saved");
+          // Silent log to keep terminal clean but informative
+          console.log("Mission draft synchronized.");
+        }
+      } catch (err) {
+        setSaveStatus("error");
+        console.error("Autosave failed:", err);
+      }
+    }, 2000); // 2-second typing pause threshold
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [directive, attachments, isAuthorized, missionStarted, saveMission]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -200,7 +235,6 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
               addLog("DATA_LOCKED // LATENCY_0ms");
             }
 
-            // --- SMART DYNAMIC OUTPUT LOGIC ---
             const generateHumanAnalysis = (input: string) => {
               const text = input.toLowerCase();
               const topic = input.length > 5 ? `"${input.substring(0, 30)}..."` : "your mission parameters";
@@ -257,6 +291,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
     setDirective("");
     setAttachments([]);
     setWorkflowStep(-1);
+    setSaveStatus("idle");
     addLog("SYSTEM_RESET // READY_FOR_INPUT");
   };
 
@@ -396,9 +431,40 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
                 </div>
 
                 <div className="flex justify-between items-center pt-2">
-                  <p className="text-[9px] text-white/20 uppercase tracking-[0.25em] font-medium">
-                    {uploading ? "SYNCING_ASSETS..." : isAuthorized ? "READY_FOR_EXECUTION" : "AUTH_REQUIRED"}
-                  </p>
+                  <div className="flex items-center gap-3">
+                    <p className="text-[9px] text-white/20 uppercase tracking-[0.25em] font-medium">
+                      {uploading ? "SYNCING_ASSETS..." : isAuthorized ? "READY_FOR_EXECUTION" : "AUTH_REQUIRED"}
+                    </p>
+                    {/* Visual Autosave Indicator */}
+                    {saveStatus !== "idle" && (
+                      <div className="flex items-center gap-1.5 animate-in fade-in duration-300">
+                        <div
+                          className={`w-1 h-1 rounded-full ${
+                            saveStatus === "saving"
+                              ? "bg-amber-500 animate-pulse"
+                              : saveStatus === "saved"
+                                ? "bg-emerald-500"
+                                : "bg-red-500"
+                          }`}
+                        />
+                        <span
+                          className={`text-[8px] font-bold tracking-widest ${
+                            saveStatus === "saving"
+                              ? "text-amber-500/50"
+                              : saveStatus === "saved"
+                                ? "text-emerald-500/50"
+                                : "text-red-500/50"
+                          }`}
+                        >
+                          {saveStatus === "saving"
+                            ? "SYNCHRONIZING..."
+                            : saveStatus === "saved"
+                              ? "DRAFT_LOCKED"
+                              : "SYNC_ERROR"}
+                        </span>
+                      </div>
+                    )}
+                  </div>
                   <button
                     type="submit"
                     disabled={(!directive.trim() && attachments.length === 0) || uploading}
