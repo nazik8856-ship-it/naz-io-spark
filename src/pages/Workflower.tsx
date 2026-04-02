@@ -118,7 +118,7 @@ const Workflower = () => {
               className="group relative px-12 py-5 border-2 border-[#39FF14] text-[#39FF14] font-black uppercase text-[11px] hover:bg-[#39FF14]/10 backdrop-blur-md transition-all tracking-[0.2em] overflow-hidden"
             >
               <div className="absolute inset-0 bg-gradient-to-r from-transparent via-[#39FF14]/20 to-transparent -translate-x-full group-hover:animate-[shimmer_1s_infinite]" />
-              ACCESS_ARCHIVES
+              VIEW PLANS
             </button>
           </div>
         </div>
