@@ -74,17 +74,19 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
   };
 
   const handleFileUpload = async (file: File) => {
-    // SECURE SESSION GATEWAY // Target: Fixing "exp" claim timestamp error
+    // 1. FORCE SESSION REFRESH // Targets the "exp" claim error by getting a fresh JWT
     const {
       data: { session },
-    } = await supabase.auth.getSession();
+      error: sessionError,
+    } = await supabase.auth.refreshSession();
 
-    if (!session) {
+    if (sessionError || !session) {
       addLog("ERROR // SESSION_EXPIRED // RE-AUTHENTICATING...");
       setShowAuthModal(true);
       return;
     }
 
+    // 2. SIZE VALIDATION
     if (file.size > 5 * 1024 * 1024) {
       addLog(`ERROR // ${file.name.toUpperCase()} // EXCEEDS_5MB_LIMIT`);
       return;
@@ -99,7 +101,11 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
     const filePath = `${session.user.id}/${fileName}`;
 
     try {
-      const { error: uploadError } = await supabase.storage.from("mission-assets").upload(filePath, file);
+      // 3. EXECUTE UPLOAD WITH FRESH AUTH HEADER
+      const { error: uploadError } = await supabase.storage.from("mission-assets").upload(filePath, file, {
+        cacheControl: "3600",
+        upsert: false,
+      });
 
       if (uploadError) throw uploadError;
 
