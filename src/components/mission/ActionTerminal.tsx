@@ -15,6 +15,7 @@ import {
   Clock,
   Link,
   ChevronLeft,
+  RefreshCcw,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import AuthModal from "@/components/AuthModal";
@@ -41,6 +42,10 @@ const WORKFLOW_STEPS = [
   { label: "EXECUTION", icon: Rocket },
 ];
 
+// Configuration Constants
+const MAX_FILE_SIZE_MB = 50; // Increased from 5MB based on user needs
+const MAX_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+
 const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialDirective = "" }) => {
   const { user } = useAuth();
   const { saveMission } = useMissions();
@@ -51,7 +56,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
   const [missionStarted, setMissionStarted] = useState(false);
   const [sessionRestored, setSessionRestored] = useState(true);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const [terminalLogs, setTerminalLogs] = useState<string[]>([]);
+  const [terminalLogs, setTerminalLogs] = useState<{ msg: string; type?: "error" | "info"; retryFile?: File }[]>([]);
   const [showUploadMenu, setShowUploadMenu] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [missionOutput, setMissionOutput] = useState<string | null>(null);
@@ -71,24 +76,26 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  const addLog = (msg: string) => {
-    setTerminalLogs((prev) => [...prev, msg]);
+  const addLog = (msg: string, type: "error" | "info" = "info", retryFile?: File) => {
+    setTerminalLogs((prev) => [...prev, { msg, type, retryFile }]);
   };
 
   const handleFileUpload = async (file: File) => {
+    // 1. Force a session refresh to prevent "exp" claim timestamp failures
     const {
       data: { session },
       error: sessionError,
     } = await supabase.auth.refreshSession();
 
     if (sessionError || !session) {
-      addLog("ERROR // SESSION_EXPIRED // RE-AUTHENTICATING...");
+      addLog("ERROR // SESSION_EXPIRED // RE-AUTHENTICATING...", "error");
       setShowAuthModal(true);
       return;
     }
 
-    if (file.size > 5 * 1024 * 1024) {
-      addLog(`ERROR // ${file.name.toUpperCase()} // EXCEEDS_5MB_LIMIT`);
+    // 2. Updated Size Check (Now 50MB)
+    if (file.size > MAX_BYTES) {
+      addLog(`ERROR // ${file.name.toUpperCase()} // EXCEEDS_${MAX_FILE_SIZE_MB}MB_LIMIT`, "error");
       return;
     }
 
@@ -118,7 +125,9 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
       setAttachments((prev) => [...prev, newAttachment]);
       addLog(`ASSET_SYNCHRONIZED // ${file.name.toUpperCase()} // READY`);
     } catch (err: any) {
-      addLog(`UPLOAD_FAILED // ${err.message?.toUpperCase() || "SERVER_REJECTION"}`);
+      const errorMsg = err.message?.toUpperCase() || "SERVER_REJECTION";
+      // If timestamp failure occurs, provide a retry option with the file preserved in state
+      addLog(`UPLOAD_FAILED // ${errorMsg}`, "error", file);
     } finally {
       setUploading(false);
       setShowUploadMenu(false);
@@ -162,7 +171,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
         }
       });
     } catch {
-      addLog("SCREENSHOT_ERROR // Could not capture");
+      addLog("SCREENSHOT_ERROR // Could not capture", "error");
     }
   };
 
@@ -182,32 +191,25 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
     setWorkflowStep(0);
     addLog("NODE_INIT // PARALLEL_EXECUTION_START");
 
-    // 1. FIRE DATABASE SYNC IMMEDIATELY (Parallel)
     const urls = attachments.map((a) => a.url);
     const missionPromise = saveMission(directive, urls);
 
-    // 2. HIGH-VELOCITY UI SEQUENCING (300ms intervals)
     const stepInterval = setInterval(() => {
       setWorkflowStep((currentStep) => {
         const nextStep = currentStep + 1;
-
         if (nextStep >= WORKFLOW_STEPS.length) {
           clearInterval(stepInterval);
-
-          // 3. FINALIZE ONCE DB PROMISE RESOLVES
           missionPromise.then((result) => {
             if (result?.error) {
-              addLog(`SYNC_ERROR // ${result.error.message.toUpperCase()}`);
+              addLog(`SYNC_ERROR // ${result.error.message.toUpperCase()}`, "error");
             } else {
               addLog("DATA_LOCKED // LATENCY_0ms");
             }
-
             setMissionOutput(
               `NAZ_AI >> SUCCESS\n\nDirective: "${directive}"\nStatus: Deployed to Cluster\nAssets: ${attachments.length} Synced\n\nAutomated logic is now active. All nodes are reporting nominal status.`,
             );
             setWorkflowActive(false);
           });
-
           return currentStep;
         }
         return nextStep;
@@ -271,17 +273,29 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
         </div>
       </div>
 
-      {/* LOGS */}
-      <div className="px-6 py-2 border-b border-white/5 bg-white/[0.01] max-h-24 overflow-y-auto shrink-0">
+      {/* TERMINAL LOGS WITH RETRY LOGIC */}
+      <div className="px-6 py-2 border-b border-white/5 bg-white/[0.01] max-h-32 overflow-y-auto shrink-0 scrollbar-hide">
         {sessionRestored && (
           <p className="text-[9px] font-mono text-emerald-400/80 tracking-widest mb-1 italic">
             AUTH_SUCCESS // SESSION_RESTORED
           </p>
         )}
         {terminalLogs.map((log, i) => (
-          <p key={i} className="text-[9px] font-mono text-[#00A3FF]/60 tracking-widest leading-relaxed">
-            &gt; {log}
-          </p>
+          <div key={i} className="flex items-center gap-3 group">
+            <p
+              className={`text-[9px] font-mono tracking-widest leading-relaxed ${log.type === "error" ? "text-red-400" : "text-[#00A3FF]/60"}`}
+            >
+              &gt; {log.msg}
+            </p>
+            {log.retryFile && (
+              <button
+                onClick={() => handleFileUpload(log.retryFile!)}
+                className="flex items-center gap-1 text-[8px] text-white/40 hover:text-[#00A3FF] transition-colors font-black uppercase"
+              >
+                <RefreshCcw size={8} /> Retry
+              </button>
+            )}
+          </div>
         ))}
       </div>
 
