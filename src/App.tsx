@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { lazy, Suspense } from "react";
 
 const Workflower = lazy(() => import("./pages/Workflower"));
+const Workspace = lazy(() => import("./pages/Workspace"));
 const Signup = lazy(() => import("./pages/Signup"));
 const AuthCallback = lazy(() => import("./pages/AuthCallback"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
