@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 
 interface ActionTerminalProps {
   activeSection: string;
+  initialDirective?: string;
 }
 
 const SECTION_LABELS: Record<string, string> = {
@@ -20,8 +21,8 @@ const WORKFLOW_STEPS = [
   { label: "EXECUTION", icon: Rocket },
 ];
 
-const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection }) => {
-  const [directive, setDirective] = useState("");
+const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialDirective = "" }) => {
+  const [directive, setDirective] = useState(initialDirective);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [isAuthorized, setIsAuthorized] = useState(false);
