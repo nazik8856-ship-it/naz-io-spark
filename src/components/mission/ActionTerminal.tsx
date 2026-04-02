@@ -42,6 +42,7 @@ const WORKFLOW_STEPS = [
 
 const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialDirective = "" }) => {
   const { user, loading } = useAuth();
+  const { saveMission } = useMissions();
   const [directive, setDirective] = useState(initialDirective);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [workflowActive, setWorkflowActive] = useState(false);
