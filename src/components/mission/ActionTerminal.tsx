@@ -19,6 +19,7 @@ import { useAuth } from "@/hooks/useAuth";
 import AuthModal from "@/components/AuthModal";
 import { supabase } from "@/integrations/supabase/client";
 import AttachmentChip, { type Attachment } from "./AttachmentChip";
+import { useMissions } from "@/hooks/useMissions";
 
 interface ActionTerminalProps {
   activeSection: string;
@@ -41,6 +42,7 @@ const WORKFLOW_STEPS = [
 
 const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialDirective = "" }) => {
   const { user, loading } = useAuth();
+  const { saveMission } = useMissions();
   const [directive, setDirective] = useState(initialDirective);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [workflowActive, setWorkflowActive] = useState(false);
@@ -192,6 +194,15 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
         () => {
           setWorkflowStep(i);
           if (i === WORKFLOW_STEPS.length - 1) {
+            // Save mission to database on EXECUTION step
+            const urls = attachments.map((a) => a.url);
+            saveMission(directive, urls).then((result) => {
+              if (result?.error) {
+                addLog(`MISSION_SAVE_ERROR // ${result.error.message}`);
+              } else {
+                addLog("MISSION_PERSISTED // DATABASE_SYNC_COMPLETE");
+              }
+            });
             setTimeout(() => {
               setWorkflowActive(false);
               setWorkflowStep(-1);
