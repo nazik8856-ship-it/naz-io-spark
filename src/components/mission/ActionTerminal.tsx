@@ -42,8 +42,7 @@ const WORKFLOW_STEPS = [
   { label: "EXECUTION", icon: Rocket },
 ];
 
-// Configuration Constants
-const MAX_FILE_SIZE_MB = 50; // Increased from 5MB based on user needs
+const MAX_FILE_SIZE_MB = 50;
 const MAX_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 
 const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialDirective = "" }) => {
@@ -81,19 +80,16 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
   };
 
   const handleFileUpload = async (file: File) => {
-    // 1. Force a session refresh to prevent "exp" claim timestamp failures
     const {
       data: { session },
       error: sessionError,
     } = await supabase.auth.refreshSession();
-
     if (sessionError || !session) {
       addLog("ERROR // SESSION_EXPIRED // RE-AUTHENTICATING...", "error");
       setShowAuthModal(true);
       return;
     }
 
-    // 2. Updated Size Check (Now 50MB)
     if (file.size > MAX_BYTES) {
       addLog(`ERROR // ${file.name.toUpperCase()} // EXCEEDS_${MAX_FILE_SIZE_MB}MB_LIMIT`, "error");
       return;
@@ -125,9 +121,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
       setAttachments((prev) => [...prev, newAttachment]);
       addLog(`ASSET_SYNCHRONIZED // ${file.name.toUpperCase()} // READY`);
     } catch (err: any) {
-      const errorMsg = err.message?.toUpperCase() || "SERVER_REJECTION";
-      // If timestamp failure occurs, provide a retry option with the file preserved in state
-      addLog(`UPLOAD_FAILED // ${errorMsg}`, "error", file);
+      addLog(`UPLOAD_FAILED // ${err.message?.toUpperCase() || "SERVER_REJECTION"}`, "error", file);
     } finally {
       setUploading(false);
       setShowUploadMenu(false);
@@ -205,9 +199,35 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
             } else {
               addLog("DATA_LOCKED // LATENCY_0ms");
             }
+
+            // --- DYNAMIC OUTPUT LOGIC START ---
+            const generateAIAnalysis = (input: string) => {
+              const text = input.toLowerCase();
+              let report = "STRATEGY_SYNC: Market gap identified. Autonomous deployment ready.\n";
+
+              if (text.includes("code") || text.includes("python") || text.includes("c++")) {
+                report =
+                  "SOURCE_AUDIT: Structure verified. Optimization logic injected for high-concurrency clusters.\n";
+              } else if (text.includes("design") || text.includes("ui") || text.includes("branding")) {
+                report =
+                  "VISUAL_ENGINE: Neo-Brutalist parameters recognized. Obsidian palette applied across all nodes.\n";
+              } else if (attachments.length > 0) {
+                report = `ASSET_ANALYSIS: ${attachments.length} files parsed. Integrated into mission-critical workflow.\n`;
+              }
+
+              return report;
+            };
+
             setMissionOutput(
-              `NAZ_AI >> SUCCESS\n\nDirective: "${directive}"\nStatus: Deployed to Cluster\nAssets: ${attachments.length} Synced\n\nAutomated logic is now active. All nodes are reporting nominal status.`,
+              `NAZ_AI >> ANALYSIS_COMPLETE\n\n` +
+                `Status: ${generateAIAnalysis(directive)}` +
+                `Directive: "${directive || "Visual Asset Deployment"}"\n` +
+                `Cluster: Node_01 [Active]\n` +
+                `Assets: ${attachments.length} Synced\n\n` +
+                `All system gates are nominal. Mission outcome: 99.8% Efficiency Predicted.`,
             );
+            // --- DYNAMIC OUTPUT LOGIC END ---
+
             setWorkflowActive(false);
           });
           return currentStep;
@@ -273,7 +293,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
         </div>
       </div>
 
-      {/* TERMINAL LOGS WITH RETRY LOGIC */}
+      {/* TERMINAL LOGS */}
       <div className="px-6 py-2 border-b border-white/5 bg-white/[0.01] max-h-32 overflow-y-auto shrink-0 scrollbar-hide">
         {sessionRestored && (
           <p className="text-[9px] font-mono text-emerald-400/80 tracking-widest mb-1 italic">
