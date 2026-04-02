@@ -8,11 +8,7 @@ import {
   ShieldCheck,
   Plus,
   Image,
-  Video,
   FileText,
-  Camera,
-  Clock,
-  Link,
   ChevronLeft,
   RefreshCcw,
   Save,
@@ -46,25 +42,21 @@ const WORKFLOW_STEPS = [
 const MAX_FILE_SIZE_MB = 50;
 const MAX_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 
-// --- SUB-COMPONENT: HUMAN-CENTRIC SOLUTION DISPLAY ---
 const SolutionDisplay = ({ data }: { data: string }) => {
   try {
     const parsed = JSON.parse(data);
     return (
       <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-1000">
-        {/* The Direct Answer */}
         <div className="border-l-2 border-[#00A3FF] pl-6 py-1">
           <h3 className="text-[10px] uppercase tracking-[0.3em] text-[#00A3FF] mb-3 font-black">The Solution</h3>
           <p className="text-white text-base leading-relaxed font-medium">{parsed.solution}</p>
         </div>
 
-        {/* The Human Explanation */}
         <div className="bg-white/[0.03] rounded-2xl p-6 border border-white/5">
           <h3 className="text-[9px] uppercase tracking-[0.2em] text-white/30 mb-3 font-bold">Analysis & Reasoning</h3>
           <p className="text-white/80 text-sm leading-relaxed">{parsed.explanation}</p>
         </div>
 
-        {/* Actionable Milestones */}
         <div className="flex flex-wrap gap-3">
           {parsed.actions?.map((action: string, i: number) => (
             <div
@@ -79,7 +71,6 @@ const SolutionDisplay = ({ data }: { data: string }) => {
       </div>
     );
   } catch (e) {
-    // Fallback if data isn't JSON
     return <div className="text-white/80 text-sm whitespace-pre-wrap">{data}</div>;
   }
 };
@@ -121,29 +112,6 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
     setTerminalLogs((prev) => [...prev, { msg, type }].slice(-5));
   };
 
-  const handleManualSave = async () => {
-    if (!isAuthorized) {
-      setShowAuthModal(true);
-      return;
-    }
-    if (!directive.trim() && attachments.length === 0) return;
-    setIsSaving(true);
-    addLog("MANUAL_SYNC // INITIALIZING_DRAFT_LOCK...");
-    try {
-      const urls = attachments.map((a) => a.url);
-      const result = await saveMission(directive, urls);
-      if (result?.error) {
-        addLog(`SYNC_FAILED // ${result.error.message.toUpperCase()}`, "error");
-      } else {
-        addLog("DRAFT_SYNCHRONIZED // CLOUD_STAMP_READY");
-      }
-    } catch (err) {
-      addLog("CRITICAL_SYNC_ERROR // CHECK_CONNECTION", "error");
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
   const handleFileUpload = async (file: File) => {
     const {
       data: { session },
@@ -175,37 +143,56 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
     }
   };
 
-  const startWorkflow = () => {
+  const startWorkflow = async () => {
+    if (!directive.trim()) return;
+
     setMissionStarted(true);
     setWorkflowActive(true);
     setWorkflowStep(0);
     addLog("NODE_INIT // PARALLEL_EXECUTION_START");
 
-    const missionPromise = saveMission(
-      directive,
-      attachments.map((a) => a.url),
-    );
-
-    const stepInterval = setInterval(() => {
-      setWorkflowStep((curr) => {
-        if (curr >= WORKFLOW_STEPS.length - 1) {
-          clearInterval(stepInterval);
-          missionPromise.then(() => {
-            // Simulated Brain Output - Focuses on direct solutions and human language
-            const solutionObj = {
-              solution: `We're going to build exactly what you described, prioritizing a high-performance architecture. I've mapped out the database schema and the frontend flow to ensure it's intuitive for the end-user while remaining technically robust.`,
-              explanation: `Standard approaches usually clutter the UI with unnecessary steps. By using a direct-link state management system, we reduce user friction by nearly 30% and keep the codebase clean for future scaling.`,
-              actions: ["Schema Deployment", "UI Flow Injection", "Edge Performance Audit"],
-            };
-            setMissionOutput(JSON.stringify(solutionObj));
-            setWorkflowActive(false);
-            addLog("DATA_LOCKED // SOLUTION_READY");
-          });
-          return curr;
-        }
-        return curr + 1;
+    try {
+      // 1. Trigger the actual Intelligence Bridge (Edge Function)
+      // This happens in parallel with the UI animation
+      const aiRequest = supabase.functions.invoke("process-mission", {
+        body: { directive },
       });
-    }, 400);
+
+      // 2. Animate the workflow steps for UX feel
+      const stepInterval = setInterval(() => {
+        setWorkflowStep((curr) => {
+          if (curr >= WORKFLOW_STEPS.length - 1) {
+            clearInterval(stepInterval);
+
+            // 3. Resolve the AI Request and Display
+            aiRequest
+              .then(({ data, error }) => {
+                if (error) throw error;
+
+                setMissionOutput(JSON.stringify(data));
+                setWorkflowActive(false);
+                addLog("DATA_LOCKED // SOLUTION_READY");
+
+                // 4. Persistence: Save the completed mission to DB
+                saveMission(
+                  directive,
+                  attachments.map((a) => a.url),
+                );
+              })
+              .catch((err) => {
+                addLog(`CORE_LOGIC_FAILURE // ${err.message?.toUpperCase()}`, "error");
+                setWorkflowActive(false);
+              });
+
+            return curr;
+          }
+          return curr + 1;
+        });
+      }, 400);
+    } catch (err: any) {
+      addLog(`CRITICAL_ERR // ${err.message.toUpperCase()}`, "error");
+      setWorkflowActive(false);
+    }
   };
 
   const resetMission = () => {
@@ -326,21 +313,10 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
                 </div>
 
                 <div className="flex justify-between items-center pt-2">
-                  <div className="flex items-center gap-4">
-                    <button
-                      type="button"
-                      onClick={handleManualSave}
-                      disabled={isSaving || !directive.trim()}
-                      className="flex items-center gap-2 px-4 py-2 rounded-lg border border-white/5 bg-white/[0.02] hover:bg-white/[0.05] transition-all disabled:opacity-20"
-                    >
-                      <Save size={12} className={isSaving ? "animate-spin text-[#00A3FF]" : "text-white/30"} />
-                      <span className="text-[8px] font-black uppercase tracking-[0.2em] text-white/30">Save Draft</span>
-                    </button>
-                  </div>
                   <button
                     type="submit"
                     disabled={!directive.trim() || uploading}
-                    className="px-10 py-3.5 bg-[#00A3FF] text-white text-[10px] font-black uppercase tracking-[0.3em] rounded-xl hover:bg-blue-400 transition-all disabled:opacity-10"
+                    className="ml-auto px-10 py-3.5 bg-[#00A3FF] text-white text-[10px] font-black uppercase tracking-[0.3em] rounded-xl hover:bg-blue-400 transition-all disabled:opacity-10"
                   >
                     Get Solution
                   </button>
