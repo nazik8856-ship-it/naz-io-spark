@@ -1,5 +1,16 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Terminal, ChevronRight, Zap, Cpu, Settings, Rocket } from "lucide-react";
+import {
+  Terminal,
+  ChevronRight,
+  Zap,
+  Cpu,
+  Settings,
+  Rocket,
+  Activity,
+  Database,
+  Trash2,
+  FolderOpen,
+} from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface ActionTerminalProps {
@@ -13,6 +24,7 @@ const SECTION_LABELS: Record<string, string> = {
   trash: "Trash",
 };
 
+// Logic steps for the Home execution engine
 const WORKFLOW_STEPS = [
   { label: "INPUT_SENSOR", icon: Zap },
   { label: "LOGIC_GATE", icon: Cpu },
@@ -20,60 +32,11 @@ const WORKFLOW_STEPS = [
   { label: "EXECUTION", icon: Rocket },
 ];
 
-const SECTION_CONTENT: Record<string, string[]> = {
-  recents: [
-    "[LOG] Recent mission activity:",
-    "",
-    "  [01] DEPLOY_LANDING_v2  — 2m ago  — SUCCESS",
-    "  [02] SCAN_ANOMALY_#447  — 14m ago — RESOLVED",
-    "  [03] PATCH_AUTH_MODULE   — 1h ago  — SUCCESS",
-    "  [04] REBUILD_CACHE       — 3h ago  — SUCCESS",
-    "",
-    "[SYS] 4 operations in the last 24h.",
-  ],
-  archives: [
-    "[ARCHIVE] Stored mission records:",
-    "",
-    "  2026-03-28  GLOBAL_DEPLOY_v1.9   COMPLETE",
-    "  2026-03-15  SECURITY_AUDIT_Q1    PASSED",
-    "  2026-03-01  INFRA_MIGRATION      COMPLETE",
-    "",
-    "[SYS] 3 archived records found.",
-  ],
-  trash: [
-    "[TRASH] Pending permanent deletion:",
-    "",
-    "  — draft_campaign_old    (7d remaining)",
-    "  — test_endpoint_v0      (3d remaining)",
-    "",
-    "[WARN] Items auto-purge after 30 days.",
-  ],
-};
-
 const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection }) => {
-  const [lines, setLines] = useState<string[]>([]);
   const [directive, setDirective] = useState("");
   const [workflowActive, setWorkflowActive] = useState(false);
   const [workflowStep, setWorkflowStep] = useState(-1);
   const scrollRef = useRef<HTMLDivElement>(null);
-
-  // Non-home sections: typed log lines
-  useEffect(() => {
-    if (activeSection === "home") return;
-    setLines([]);
-    const content = SECTION_CONTENT[activeSection] || [];
-    content.forEach((line, i) => {
-      setTimeout(() => {
-        setLines((prev) => [...prev, line]);
-      }, i * 80);
-    });
-  }, [activeSection]);
-
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [lines]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,141 +45,144 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection }) => {
     setWorkflowStep(0);
 
     WORKFLOW_STEPS.forEach((_, i) => {
-      setTimeout(() => {
-        setWorkflowStep(i);
-        if (i === WORKFLOW_STEPS.length - 1) {
-          setTimeout(() => {
-            setWorkflowActive(false);
-            setWorkflowStep(-1);
-            setDirective("");
-          }, 1200);
-        }
-      }, (i + 1) * 900);
+      setTimeout(
+        () => {
+          setWorkflowStep(i);
+          if (i === WORKFLOW_STEPS.length - 1) {
+            setTimeout(() => {
+              setWorkflowActive(false);
+              setWorkflowStep(-1);
+              setDirective("");
+            }, 1200);
+          }
+        },
+        (i + 1) * 900,
+      );
     });
   };
 
   const sectionLabel = SECTION_LABELS[activeSection] || "Home";
 
+  // RENDER HELPERS FOR SECTIONS
+  const renderHeader = (title: string, subtitle: string, Icon: any) => (
+    <div className="flex items-center gap-4 border-b border-white/5 pb-6 mb-8">
+      <div className="p-3 bg-blue-500/10 rounded-xl border border-blue-500/20">
+        <Icon size={20} className="text-[#00A3FF]" />
+      </div>
+      <div>
+        <h2 className="text-sm font-bold text-white uppercase tracking-[0.2em]">{title}</h2>
+        <p className="text-[10px] text-white/40 uppercase tracking-widest mt-1">{subtitle}</p>
+      </div>
+    </div>
+  );
+
+  const renderEmptyState = (message: string) => (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="flex-1 flex flex-col items-center justify-center border border-dashed border-white/10 rounded-2xl bg-blue-500/[0.02] p-12 text-center"
+    >
+      <div className="w-12 h-12 rounded-full bg-white/[0.02] flex items-center justify-center mb-4 border border-white/5">
+        <FolderOpen size={18} className="text-white/20" />
+      </div>
+      <p className="text-[11px] text-white/30 uppercase tracking-[0.2em] font-medium">{message}</p>
+      <div className="mt-4 flex gap-2">
+        <div className="w-1 h-1 rounded-full bg-blue-500/40" />
+        <div className="w-1 h-1 rounded-full bg-blue-500/20" />
+        <div className="w-1 h-1 rounded-full bg-blue-500/10" />
+      </div>
+    </motion.div>
+  );
+
   return (
-    <div className="flex-1 flex flex-col bg-black h-full">
-      {/* Dynamic header */}
-      <div className="flex items-center gap-3 px-5 py-3 border-b border-[#00A3FF]/20 bg-black shrink-0">
+    <div className="flex-1 flex flex-col bg-[#020617] h-full selection:bg-blue-500/30">
+      {/* Top Bar Navigation Info */}
+      <div className="flex items-center gap-3 px-6 py-4 border-b border-white/5 bg-[#020617]/50 backdrop-blur-md shrink-0">
         <Terminal size={14} className="text-[#00A3FF]" />
-        <span className="text-[11px] font-mono text-white/70">
-          Welcome to the <span className="text-[#00A3FF] font-black">{sectionLabel}</span> section.
+        <span className="text-[10px] font-sans text-white/50 uppercase tracking-widest">
+          System / <span className="text-white font-bold">{sectionLabel}</span>
         </span>
-        <div className="ml-auto flex items-center gap-1.5">
-          <div className="w-2 h-2 bg-[#39FF14] shadow-[0_0_4px_#39FF14]" />
-          <div className="w-2 h-2 bg-[#00A3FF] shadow-[0_0_4px_#00A3FF]" />
-          <div className="w-2 h-2 bg-[#FF0055] shadow-[0_0_4px_#FF0055]" />
+        <div className="ml-auto flex items-center gap-2">
+          <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+          <span className="text-[9px] text-blue-500/80 font-bold tracking-tighter">NODE_01_ACTIVE</span>
         </div>
       </div>
 
-      {activeSection === "home" ? (
-        /* ── HOME: Orchestration Hub ── */
-        <div className="flex-1 flex flex-col items-center justify-center p-6 gap-8">
-          {/* Centered directive input */}
-          <form onSubmit={handleSubmit} className="w-full max-w-2xl flex flex-col gap-4">
-            <textarea
-              value={directive}
-              onChange={(e) => setDirective(e.target.value)}
-              placeholder="ENTER_MISSION_DIRECTIVE...."
-              disabled={workflowActive}
-              rows={5}
-              className="w-full bg-black border border-[#39FF14]/50 shadow-[0_0_15px_rgba(57,255,20,0.15),inset_0_0_15px_rgba(57,255,20,0.05)] text-white font-mono text-sm p-4 placeholder:text-white/20 outline-none resize-none focus:border-[#39FF14] focus:shadow-[0_0_25px_rgba(57,255,20,0.25),inset_0_0_20px_rgba(57,255,20,0.08)] transition-all disabled:opacity-50"
-            />
-            <button
-              type="submit"
-              disabled={workflowActive || !directive.trim()}
-              className="self-end px-6 py-2 border border-[#39FF14]/50 bg-[#39FF14]/10 text-[#39FF14] text-[10px] font-black uppercase tracking-[0.3em] hover:bg-[#39FF14]/20 hover:shadow-[0_0_15px_rgba(57,255,20,0.2)] transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-            >
-              EXECUTE
-            </button>
-          </form>
+      <div className="flex-1 flex flex-col p-8 overflow-y-auto">
+        {activeSection === "home" ? (
+          <div className="flex-1 flex flex-col items-center justify-center gap-12">
+            <form onSubmit={handleSubmit} className="w-full max-w-2xl space-y-6">
+              <div className="relative">
+                <textarea
+                  value={directive}
+                  onChange={(e) => setDirective(e.target.value)}
+                  placeholder="ENTER MISSION PARAMETERS..."
+                  disabled={workflowActive}
+                  rows={4}
+                  className="w-full bg-white/[0.03] border border-white/10 rounded-2xl text-white font-sans text-sm p-6 placeholder:text-white/10 outline-none resize-none focus:border-blue-500/50 focus:bg-blue-500/[0.02] transition-all disabled:opacity-50"
+                />
+              </div>
+              <div className="flex justify-between items-center">
+                <p className="text-[9px] text-white/20 uppercase tracking-[0.2em]">Ready for orchestration</p>
+                <button
+                  type="submit"
+                  disabled={workflowActive || !directive.trim()}
+                  className="px-8 py-3 bg-[#00A3FF] text-white text-[10px] font-bold uppercase tracking-[0.2em] rounded-xl hover:bg-blue-400 hover:shadow-[0_0_20px_rgba(0,163,255,0.3)] transition-all disabled:opacity-20"
+                >
+                  Start Mission
+                </button>
+              </div>
+            </form>
 
-          {/* Workflow Animator */}
-          <div className="w-full max-w-2xl">
-            <div className="flex items-center justify-between gap-0">
+            {/* Workflow Progress */}
+            <div className="w-full max-w-2xl grid grid-cols-4 gap-4">
               {WORKFLOW_STEPS.map((step, i) => {
                 const isActive = workflowActive && workflowStep >= i;
-                const isCurrent = workflowActive && workflowStep === i;
                 const Icon = step.icon;
-
                 return (
-                  <React.Fragment key={step.label}>
-                    <motion.div
-                      className={`flex flex-col items-center gap-2 px-3 py-3 border transition-all ${
+                  <div key={step.label} className="relative">
+                    <div
+                      className={`flex flex-col items-center gap-3 p-4 rounded-xl border transition-all duration-500 ${
                         isActive
-                          ? "border-[#39FF14]/60 bg-[#39FF14]/10 shadow-[0_0_12px_rgba(57,255,20,0.2)]"
-                          : "border-white/10 bg-white/[0.02]"
+                          ? "border-blue-500/40 bg-blue-500/10 shadow-[0_0_15px_rgba(0,163,255,0.1)]"
+                          : "border-white/5 bg-white/[0.01]"
                       }`}
-                      animate={isCurrent ? { scale: [1, 1.05, 1] } : {}}
-                      transition={{ repeat: Infinity, duration: 0.8 }}
                     >
-                      <Icon
-                        size={16}
-                        className={isActive ? "text-[#39FF14]" : "text-white/20"}
-                      />
+                      <Icon size={18} className={isActive ? "text-[#00A3FF]" : "text-white/10"} />
                       <span
-                        className={`text-[7px] font-black uppercase tracking-[0.2em] ${
-                          isActive ? "text-[#39FF14]" : "text-white/20"
-                        }`}
+                        className={`text-[8px] font-bold uppercase tracking-widest ${isActive ? "text-white" : "text-white/10"}`}
                       >
                         {step.label}
                       </span>
-                    </motion.div>
-                    {i < WORKFLOW_STEPS.length - 1 && (
-                      <div
-                        className={`flex-1 h-px mx-1 transition-all duration-500 ${
-                          workflowActive && workflowStep > i
-                            ? "bg-[#39FF14] shadow-[0_0_6px_#39FF14]"
-                            : "bg-white/10"
-                        }`}
-                      />
-                    )}
-                  </React.Fragment>
+                    </div>
+                  </div>
                 );
               })}
             </div>
           </div>
-        </div>
-      ) : (
-        /* ── OTHER SECTIONS: Log terminal ── */
-        <>
-          <div ref={scrollRef} className="flex-1 overflow-y-auto p-5 space-y-1 font-mono">
-            {lines.map((line, i) => (
-              <div
-                key={i}
-                className={`text-[11px] leading-relaxed ${
-                  line.startsWith("[WARN]")
-                    ? "text-[#FF0055]"
-                    : line.startsWith("[SYS]") || line.startsWith("[LOG]") || line.startsWith("[ARCHIVE]") || line.startsWith("[TRASH]") || line.startsWith("[TIP]")
-                    ? "text-[#00A3FF]"
-                    : line.startsWith(">")
-                    ? "text-[#39FF14]"
-                    : "text-white/60"
-                }`}
-              >
-                {line || "\u00A0"}
-              </div>
-            ))}
+        ) : (
+          <div className="flex-1 flex flex-col">
+            {activeSection === "recents" && (
+              <>
+                {renderHeader("Operations Feed", "Real-time deployment tracking", Activity)}
+                {renderEmptyState("No active operations detected in this node")}
+              </>
+            )}
+            {activeSection === "archives" && (
+              <>
+                {renderHeader("Data Archives", "Verified mission historical records", Database)}
+                {renderEmptyState("Archive database currently synchronized")}
+              </>
+            )}
+            {activeSection === "trash" && (
+              <>
+                {renderHeader("Recycle Bin", "Redundant data pending cleanup", Trash2)}
+                {renderEmptyState("No data marked for decommissioning")}
+              </>
+            )}
           </div>
-
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-            }}
-            className="shrink-0 flex items-center gap-2 px-5 py-3 border-t border-[#00A3FF]/20 bg-black"
-          >
-            <ChevronRight size={12} className="text-[#39FF14] shrink-0" />
-            <input
-              type="text"
-              placeholder="ENTER_COMMAND..."
-              className="flex-1 bg-transparent text-[11px] text-white font-mono placeholder:text-white/20 outline-none caret-[#39FF14]"
-            />
-          </form>
-        </>
-      )}
+        )}
+      </div>
     </div>
   );
 };
