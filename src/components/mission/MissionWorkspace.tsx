@@ -75,7 +75,7 @@ const MissionWorkspace: React.FC<MissionWorkspaceProps> = ({ open, onClose, init
               </AnimatePresence>
 
               <div className="flex-1 pt-16">
-                <ActionTerminal activeSection={activeSection} />
+                <ActionTerminal activeSection={activeSection} initialDirective={initialDirective} />
               </div>
             </>
           ) : (
