@@ -16,6 +16,7 @@ import {
   Link,
   ChevronLeft,
   RefreshCcw,
+  Save,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import AuthModal from "@/components/AuthModal";
@@ -53,53 +54,21 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
   const [workflowActive, setWorkflowActive] = useState(false);
   const [workflowStep, setWorkflowStep] = useState(-1);
   const [missionStarted, setMissionStarted] = useState(false);
-  const [sessionRestored, setSessionRestored] = useState(true);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [terminalLogs, setTerminalLogs] = useState<{ msg: string; type?: "error" | "info"; retryFile?: File }[]>([]);
   const [showUploadMenu, setShowUploadMenu] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [missionOutput, setMissionOutput] = useState<string | null>(null);
 
-  // New state for autosave feedback
-  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  // State for manual save feedback
+  const [isSaving, setIsSaving] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const isAuthorized = !!user;
 
-  // --- AUTOSAVE LOGIC ---
-  useEffect(() => {
-    // Requirements: User must be logged in, have text, and not currently running a mission
-    if (!directive.trim() || !isAuthorized || missionStarted) {
-      setSaveStatus("idle");
-      return;
-    }
-
-    setSaveStatus("saving");
-
-    const delayDebounceFn = setTimeout(async () => {
-      try {
-        const urls = attachments.map((a) => a.url);
-        const result = await saveMission(directive, urls);
-
-        if (result?.error) {
-          setSaveStatus("error");
-          addLog("AUTOSAVE_ERROR // SYNC_FAILED", "error");
-        } else {
-          setSaveStatus("saved");
-          // Silent log to keep terminal clean but informative
-          console.log("Mission draft synchronized.");
-        }
-      } catch (err) {
-        setSaveStatus("error");
-        console.error("Autosave failed:", err);
-      }
-    }, 2000); // 2-second typing pause threshold
-
-    return () => clearTimeout(delayDebounceFn);
-  }, [directive, attachments, isAuthorized, missionStarted, saveMission]);
-
+  // Handle clicking outside upload menu
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
@@ -112,6 +81,33 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
 
   const addLog = (msg: string, type: "error" | "info" = "info", retryFile?: File) => {
     setTerminalLogs((prev) => [...prev, { msg, type, retryFile }]);
+  };
+
+  // --- MANUAL SAVE HANDLER ---
+  const handleManualSave = async () => {
+    if (!isAuthorized) {
+      setShowAuthModal(true);
+      return;
+    }
+    if (!directive.trim() && attachments.length === 0) return;
+
+    setIsSaving(true);
+    addLog("MANUAL_SYNC // INITIALIZING_DRAFT_LOCK...");
+
+    try {
+      const urls = attachments.map((a) => a.url);
+      const result = await saveMission(directive, urls);
+
+      if (result?.error) {
+        addLog(`SYNC_FAILED // ${result.error.message.toUpperCase()}`, "error");
+      } else {
+        addLog("DRAFT_SYNCHRONIZED // CLOUD_STAMP_READY");
+      }
+    } catch (err) {
+      addLog("CRITICAL_SYNC_ERROR // CHECK_CONNECTION", "error");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleFileUpload = async (file: File) => {
@@ -238,42 +234,15 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
             const generateHumanAnalysis = (input: string) => {
               const text = input.toLowerCase();
               const topic = input.length > 5 ? `"${input.substring(0, 30)}..."` : "your mission parameters";
-
-              let summary = `I've analyzed your request regarding ${topic}. I am currently aligning our autonomous agents to execute this mission with a focus on high-efficiency output and market relevance.`;
+              let summary = `I've analyzed your request regarding ${topic}. I am currently aligning our autonomous agents...`;
               let goal = `Successfully launch and optimize the project workflow for ${input.split(" ")[0] || "this mission"}.`;
-
-              if (text.includes("code") || text.includes("python") || text.includes("c++") || text.includes("app")) {
-                summary = `Technical requirements for ${topic} have been mapped. I'm configuring a robust backend architecture that prioritizes speed, security, and high-concurrency performance.`;
-                goal = "Deploy a professional-grade software solution.";
-              } else if (
-                text.includes("design") ||
-                text.includes("ui") ||
-                text.includes("branding") ||
-                text.includes("site")
-              ) {
-                summary = `Aesthetic preferences for ${topic} processed. The system is generating a high-contrast, modern interface using our signature Neo-Brutalist obsidian palette.`;
-                goal = "Create a premium visual identity and high-converting web presence.";
-              } else if (attachments.length > 0) {
-                summary = `I have successfully reviewed the ${attachments.length} file(s) provided for ${topic}. These assets are now being integrated into your project's mission-critical workflow.`;
-                goal = "Synchronize and optimize provided media assets for production.";
-              }
-
               return { summary, goal };
             };
 
             const analysis = generateHumanAnalysis(directive);
 
             setMissionOutput(
-              `MISSION SUMMARY\n` +
-                `--------------------------------------------\n` +
-                `WHAT WE'RE DOING:\n` +
-                `${analysis.summary}\n\n` +
-                `PRIMARY GOAL:\n` +
-                `${analysis.goal}\n\n` +
-                `AI CONFIDENCE: 98% (High)\n` +
-                `STATUS: DEPLOYMENT_ACTIVE\n` +
-                `--------------------------------------------\n` +
-                `I am now managing the background execution. Your results will be available in the Archives shortly.`,
+              `MISSION SUMMARY\n--------------------------------------------\nWHAT WE'RE DOING:\n${analysis.summary}\n\nPRIMARY GOAL:\n${analysis.goal}\n\nAI CONFIDENCE: 98%\nSTATUS: DEPLOYMENT_ACTIVE\n--------------------------------------------`,
             );
 
             setWorkflowActive(false);
@@ -291,7 +260,6 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
     setDirective("");
     setAttachments([]);
     setWorkflowStep(-1);
-    setSaveStatus("idle");
     addLog("SYSTEM_RESET // READY_FOR_INPUT");
   };
 
@@ -300,22 +268,8 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
     { label: "Image", icon: Image, action: () => triggerFileInput("image/*") },
     { label: "Video", icon: Video, action: () => triggerFileInput("video/*") },
     { label: "Document", icon: FileText, action: () => triggerFileInput(".pdf,.doc,.docx,.txt") },
-    {
-      label: "History",
-      icon: Clock,
-      action: () => {
-        setShowUploadMenu(false);
-        addLog("QUERY_ARCHIVES // ACCESSING...");
-      },
-    },
-    {
-      label: "Connectors",
-      icon: Link,
-      action: () => {
-        setShowUploadMenu(false);
-        addLog("SYSTEM // BRIDGE_INIT...");
-      },
-    },
+    { label: "History", icon: Clock, action: () => addLog("QUERY_ARCHIVES // ACCESSING...") },
+    { label: "Connectors", icon: Link, action: () => addLog("SYSTEM // BRIDGE_INIT...") },
   ];
 
   const sectionLabel = SECTION_LABELS[activeSection] || "Home";
@@ -336,7 +290,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
         </span>
         <div className="ml-auto flex items-center gap-2">
           <div className={`w-1.5 h-1.5 rounded-full ${isAuthorized ? "bg-green-500" : "bg-blue-500"} animate-pulse`} />
-          <span className="text-[9px] text-white/40 font-bold tracking-tighter">
+          <span className="text-[9px] text-white/40 font-bold tracking-tighter uppercase">
             {isAuthorized ? "SESSION_ACTIVE" : "NODE_01_OFFLINE"}
           </span>
         </div>
@@ -344,26 +298,13 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
 
       {/* TERMINAL LOGS */}
       <div className="px-6 py-2 border-b border-white/5 bg-white/[0.01] max-h-32 overflow-y-auto shrink-0 scrollbar-hide">
-        {sessionRestored && (
-          <p className="text-[9px] font-mono text-emerald-400/80 tracking-widest mb-1 italic">
-            AUTH_SUCCESS // SESSION_RESTORED
-          </p>
-        )}
         {terminalLogs.map((log, i) => (
-          <div key={i} className="flex items-center gap-3 group">
+          <div key={i} className="flex items-center gap-3">
             <p
-              className={`text-[9px] font-mono tracking-widest leading-relaxed ${log.type === "error" ? "text-red-400" : "text-[#00A3FF]/60"}`}
+              className={`text-[9px] font-mono tracking-widest ${log.type === "error" ? "text-red-400" : "text-[#00A3FF]/60"}`}
             >
               &gt; {log.msg}
             </p>
-            {log.retryFile && (
-              <button
-                onClick={() => handleFileUpload(log.retryFile!)}
-                className="flex items-center gap-1 text-[8px] text-white/40 hover:text-[#00A3FF] transition-colors font-black uppercase"
-              >
-                <RefreshCcw size={8} /> Retry
-              </button>
-            )}
           </div>
         ))}
       </div>
@@ -375,7 +316,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
             {!missionStarted ? (
               <form onSubmit={handleStartMission} className="w-full max-w-2xl space-y-4">
                 {attachments.length > 0 && (
-                  <div className="flex flex-wrap gap-2 animate-in slide-in-from-bottom-2 duration-300">
+                  <div className="flex flex-wrap gap-2">
                     {attachments.map((att, i) => (
                       <AttachmentChip
                         key={`${att.name}-${i}`}
@@ -391,33 +332,25 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
                     <button
                       type="button"
                       onClick={() => setShowUploadMenu(!showUploadMenu)}
-                      disabled={uploading}
-                      className="p-3 rounded-xl border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] hover:border-[#00A3FF]/30 transition-all disabled:opacity-30 group"
+                      className="p-3 rounded-xl border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] transition-all group"
                     >
-                      <Plus
-                        size={18}
-                        className={`${uploading ? "animate-spin text-[#00A3FF]" : "text-white/40 group-hover:text-[#00A3FF]"}`}
-                      />
+                      <Plus size={18} className="text-white/40 group-hover:text-[#00A3FF]" />
                     </button>
-
                     {showUploadMenu && (
-                      <div className="absolute left-full ml-4 top-0 w-48 bg-[#0a1628]/98 backdrop-blur-2xl border border-white/10 rounded-xl overflow-hidden z-[100] shadow-[0_20px_50px_rgba(0,0,0,0.5)] animate-in fade-in zoom-in-95 duration-200">
-                        {UPLOAD_MENU_ITEMS.map((item) => {
-                          const Icon = item.icon;
-                          return (
-                            <button
-                              key={item.label}
-                              type="button"
-                              onClick={item.action}
-                              className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-white/[0.05] border-b border-white/5 last:border-0 transition-colors group"
-                            >
-                              <Icon size={14} className="text-[#00A3FF]/40 group-hover:text-[#00A3FF]" />
-                              <span className="text-[10px] text-white/50 font-mono uppercase tracking-widest group-hover:text-white transition-colors">
-                                {item.label}
-                              </span>
-                            </button>
-                          );
-                        })}
+                      <div className="absolute left-full ml-4 top-0 w-48 bg-[#0a1628]/98 border border-white/10 rounded-xl overflow-hidden z-[100] shadow-2xl">
+                        {UPLOAD_MENU_ITEMS.map((item) => (
+                          <button
+                            key={item.label}
+                            type="button"
+                            onClick={item.action}
+                            className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-white/[0.05] border-b border-white/5 last:border-0"
+                          >
+                            <item.icon size={14} className="text-[#00A3FF]/40" />
+                            <span className="text-[10px] text-white/50 font-mono uppercase tracking-widest">
+                              {item.label}
+                            </span>
+                          </button>
+                        ))}
                       </div>
                     )}
                   </div>
@@ -426,49 +359,39 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
                     value={directive}
                     onChange={(e) => setDirective(e.target.value)}
                     placeholder="ENTER MISSION PARAMETERS..."
-                    className="flex-1 rounded-2xl p-6 min-h-[120px] transition-all duration-300 resize-none outline-none font-sans text-sm text-white placeholder:text-white/10 bg-white/[0.06] border-2 border-[#00A3FF]/40 shadow-neon-blue-soft hover:border-[#00A3FF]/60 hover:shadow-neon-blue-hard focus:border-[#00A3FF] focus:shadow-neon-blue-hard focus:bg-[#00A3FF]/[0.03] focus:animate-neon-pulse"
+                    className="flex-1 rounded-2xl p-6 min-h-[120px] transition-all duration-300 outline-none font-sans text-sm text-white bg-white/[0.06] border-2 border-[#00A3FF]/40 focus:border-[#00A3FF] shadow-neon-blue-soft resize-none"
                   />
                 </div>
 
                 <div className="flex justify-between items-center pt-2">
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-4">
                     <p className="text-[9px] text-white/20 uppercase tracking-[0.25em] font-medium">
-                      {uploading ? "SYNCING_ASSETS..." : isAuthorized ? "READY_FOR_EXECUTION" : "AUTH_REQUIRED"}
+                      {isAuthorized ? "READY_FOR_EXECUTION" : "AUTH_REQUIRED"}
                     </p>
-                    {/* Visual Autosave Indicator */}
-                    {saveStatus !== "idle" && (
-                      <div className="flex items-center gap-1.5 animate-in fade-in duration-300">
-                        <div
-                          className={`w-1 h-1 rounded-full ${
-                            saveStatus === "saving"
-                              ? "bg-amber-500 animate-pulse"
-                              : saveStatus === "saved"
-                                ? "bg-emerald-500"
-                                : "bg-red-500"
-                          }`}
-                        />
-                        <span
-                          className={`text-[8px] font-bold tracking-widest ${
-                            saveStatus === "saving"
-                              ? "text-amber-500/50"
-                              : saveStatus === "saved"
-                                ? "text-emerald-500/50"
-                                : "text-red-500/50"
-                          }`}
-                        >
-                          {saveStatus === "saving"
-                            ? "SYNCHRONIZING..."
-                            : saveStatus === "saved"
-                              ? "DRAFT_LOCKED"
-                              : "SYNC_ERROR"}
-                        </span>
-                      </div>
-                    )}
+
+                    {/* MANUAL SAVE BUTTON */}
+                    <button
+                      type="button"
+                      onClick={handleManualSave}
+                      disabled={isSaving || (!directive.trim() && attachments.length === 0)}
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg border border-white/5 bg-white/[0.02] hover:bg-white/[0.05] hover:border-[#00A3FF]/30 transition-all group disabled:opacity-20"
+                    >
+                      <Save
+                        size={12}
+                        className={
+                          isSaving ? "animate-spin text-[#00A3FF]" : "text-white/30 group-hover:text-[#00A3FF]"
+                        }
+                      />
+                      <span className="text-[8px] font-black uppercase tracking-[0.2em] text-white/30 group-hover:text-white">
+                        {isSaving ? "Syncing..." : "Save Draft"}
+                      </span>
+                    </button>
                   </div>
+
                   <button
                     type="submit"
                     disabled={(!directive.trim() && attachments.length === 0) || uploading}
-                    className="px-10 py-3.5 bg-[#00A3FF] text-white text-[10px] font-black uppercase tracking-[0.3em] rounded-xl hover:bg-blue-400 hover:shadow-[0_0_30px_rgba(0,163,255,0.4)] transition-all disabled:opacity-10 active:scale-95"
+                    className="px-10 py-3.5 bg-[#00A3FF] text-white text-[10px] font-black uppercase tracking-[0.3em] rounded-xl hover:bg-blue-400 hover:shadow-[0_0_30px_rgba(0,163,255,0.4)] transition-all disabled:opacity-10"
                   >
                     Start Mission Now
                   </button>
@@ -479,93 +402,40 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
                 <div className="flex items-center justify-between">
                   <button
                     onClick={resetMission}
-                    className="flex items-center gap-2 text-[9px] text-white/40 hover:text-[#00A3FF] transition-colors uppercase font-black tracking-widest"
+                    className="flex items-center gap-2 text-[9px] text-white/40 hover:text-[#00A3FF] transition-colors uppercase font-black"
                   >
                     <ChevronLeft size={12} /> New Mission
                   </button>
-                  <div className="text-right">
-                    <h3 className="text-[#00A3FF] text-[10px] font-black uppercase tracking-[0.5em]">
-                      Solution Orchestrated
-                    </h3>
-                    <p className="text-white/30 text-[9px] mt-1 font-mono">
-                      ID: {Math.random().toString(36).substr(2, 9).toUpperCase()}
-                    </p>
-                  </div>
                 </div>
-
                 <div className="grid grid-cols-4 gap-4">
                   {WORKFLOW_STEPS.map((step, i) => {
                     const isActive = workflowActive && workflowStep >= i;
                     const isDone = !workflowActive && missionOutput;
-                    const Icon = step.icon;
                     return (
                       <div
                         key={step.label}
-                        className={`flex flex-col items-center gap-3 p-5 rounded-xl border transition-all duration-300 ${
-                          isActive || isDone
-                            ? "border-[#00A3FF]/40 bg-[#00A3FF]/10 shadow-[0_0_25px_rgba(0,163,255,0.15)]"
-                            : "border-white/5 bg-white/[0.01] opacity-20"
-                        }`}
+                        className={`flex flex-col items-center gap-3 p-5 rounded-xl border transition-all ${isActive || isDone ? "border-[#00A3FF]/40 bg-[#00A3FF]/10" : "border-white/5 opacity-20"}`}
                       >
-                        <Icon size={20} className={isActive || isDone ? "text-[#00A3FF]" : "text-white"} />
-                        <span
-                          className={`text-[8px] font-black uppercase tracking-[0.2em] ${isActive || isDone ? "text-white" : "text-white/50"}`}
-                        >
-                          {step.label}
-                        </span>
+                        <step.icon size={20} className={isActive || isDone ? "text-[#00A3FF]" : "text-white"} />
+                        <span className="text-[8px] font-black uppercase tracking-[0.2em]">{step.label}</span>
                       </div>
                     );
                   })}
                 </div>
-
-                <div className="bg-white/[0.02] border border-white/5 rounded-3xl p-8 relative overflow-hidden group min-h-[300px]">
-                  <div className="absolute inset-0 bg-[#00A3FF]/[0.01] pointer-events-none" />
-
+                <div className="bg-white/[0.02] border border-white/5 rounded-3xl p-8 min-h-[200px]">
                   {missionOutput ? (
-                    <div className="animate-in fade-in slide-in-from-bottom-4 duration-700">
-                      <div className="flex items-center gap-2 mb-6">
-                        <div className="w-2 h-2 rounded-full bg-[#00A3FF] animate-pulse" />
-                        <span className="text-[10px] text-[#00A3FF] font-mono font-bold uppercase tracking-widest">
-                          Mission_Brief_Ready
-                        </span>
-                      </div>
-                      <div className="text-white/80 font-sans text-xs leading-relaxed whitespace-pre-wrap">
-                        {missionOutput}
-                      </div>
-                    </div>
+                    <div className="text-white/80 text-xs whitespace-pre-wrap">{missionOutput}</div>
                   ) : (
-                    <div className="h-40 flex flex-col items-center justify-center gap-4">
-                      <p className="text-[10px] text-[#00A3FF]/40 animate-pulse uppercase tracking-[0.4em] font-mono">
-                        Orchestrating Strategy...
-                      </p>
-                      <div className="w-48 h-1 bg-white/5 rounded-full overflow-hidden">
-                        <div className="h-full bg-[#00A3FF] animate-progress-loading" style={{ width: "60%" }} />
-                      </div>
-                    </div>
+                    <p className="text-[10px] text-[#00A3FF] animate-pulse uppercase">Orchestrating...</p>
                   )}
                 </div>
               </div>
             )}
           </div>
         ) : (
-          <div className="flex-1 flex flex-col animate-in fade-in duration-500">
-            <div className="flex items-center gap-4 border-b border-white/5 pb-6 mb-8">
-              <div className="p-3 bg-blue-500/10 rounded-xl border border-blue-500/20">
-                <Database size={20} className="text-[#00A3FF]" />
-              </div>
-              <div>
-                <h2 className="text-sm font-bold text-white uppercase tracking-[0.2em]">{sectionLabel} Archives</h2>
-                <p className="text-[10px] text-white/40 uppercase tracking-widest mt-1">
-                  Verified mission historical records
-                </p>
-              </div>
-            </div>
-            <div className="flex-1 flex flex-col items-center justify-center border border-dashed border-white/10 rounded-2xl bg-blue-500/[0.02] p-12 text-center">
-              <ShieldCheck size={22} className="text-[#00A3FF]/20 mb-4" />
-              <p className="text-[10px] text-white/20 uppercase tracking-[0.3em] font-mono">
-                Secure_Node // Synchronized
-              </p>
-            </div>
+          <div className="flex-1 flex flex-col items-center justify-center border border-dashed border-white/10 rounded-2xl bg-blue-500/[0.02] p-12 text-center">
+            <ShieldCheck size={22} className="text-[#00A3FF]/20 mb-4" />
+            <p className="text-[10px] text-white/20 uppercase tracking-[0.3em]">Secure_Node // Synchronized</p>
           </div>
         )}
       </div>
