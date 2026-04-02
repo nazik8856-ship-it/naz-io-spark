@@ -41,7 +41,7 @@ const WORKFLOW_STEPS = [
 ];
 
 const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialDirective = "" }) => {
-  const { user, loading } = useAuth();
+  const { user } = useAuth();
   const { saveMission } = useMissions();
   const [directive, setDirective] = useState(initialDirective);
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -74,7 +74,13 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
   };
 
   const handleFileUpload = async (file: File) => {
-    if (!user) {
+    // SECURE SESSION GATEWAY // Target: Fixing "exp" claim timestamp error
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session) {
+      addLog("ERROR // SESSION_EXPIRED // RE-AUTHENTICATING...");
       setShowAuthModal(true);
       return;
     }
@@ -89,10 +95,12 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
 
     const fileExt = file.name.split(".").pop();
     const fileName = `${Math.random().toString(36).substring(2)}_${Date.now()}.${fileExt}`;
-    const filePath = `${user.id}/${fileName}`;
+    // Using verified session user ID for path precision
+    const filePath = `${session.user.id}/${fileName}`;
 
     try {
       const { error: uploadError } = await supabase.storage.from("mission-assets").upload(filePath, file);
+
       if (uploadError) throw uploadError;
 
       const { data: urlData } = supabase.storage.from("mission-assets").getPublicUrl(filePath);
@@ -106,7 +114,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
       setAttachments((prev) => [...prev, newAttachment]);
       addLog(`ASSET_SYNCHRONIZED // ${file.name.toUpperCase()} // READY`);
     } catch (err: any) {
-      addLog(`UPLOAD_FAILED // ${err.message || "SERVER_REJECTION"}`);
+      addLog(`UPLOAD_FAILED // ${err.message?.toUpperCase() || "SERVER_REJECTION"}`);
     } finally {
       setUploading(false);
       setShowUploadMenu(false);
@@ -203,7 +211,6 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
       action: () => {
         setShowUploadMenu(false);
         addLog("QUERYING_ARCHIVES // ACCESSING_SECURE_STORAGE...");
-        // Add your fetchHistory logic or drawer toggle here
       },
     },
     {
@@ -212,7 +219,6 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
       action: () => {
         setShowUploadMenu(false);
         addLog("SYSTEM // INITIALIZING_EXTERNAL_BRIDGE...");
-        // Add your ConnectorsModal toggle here
       },
     },
   ];
@@ -227,7 +233,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
 
       <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileSelect} multiple />
 
-      {/* ── HEADER ── */}
+      {/* HEADER */}
       <div className="flex items-center gap-3 px-6 py-4 border-b border-white/5 bg-[#020617]/50 backdrop-blur-md shrink-0 z-10">
         <Terminal size={14} className="text-[#00A3FF]" />
         <span className="text-[10px] font-sans text-white/50 uppercase tracking-[0.2em]">
@@ -241,7 +247,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
         </div>
       </div>
 
-      {/* ── LOGS (Fixed position relative to Header) ── */}
+      {/* LOGS */}
       <div className="px-6 py-2 border-b border-white/5 bg-white/[0.01] max-h-24 overflow-y-auto shrink-0">
         {sessionRestored && (
           <p className="text-[9px] font-mono text-emerald-400/80 tracking-widest mb-1 italic">
@@ -255,7 +261,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
         ))}
       </div>
 
-      {/* ── CONTENT AREA ── */}
+      {/* CONTENT AREA */}
       <div className="flex-1 flex flex-col p-8 overflow-y-auto">
         {activeSection === "home" ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-12">
@@ -379,7 +385,6 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
           </div>
         ) : (
           <div className="flex-1 flex flex-col animate-in fade-in duration-500">
-            {/* Archive/Trash view remains standard as requested */}
             <div className="flex items-center gap-4 border-b border-white/5 pb-6 mb-8">
               <div className="p-3 bg-blue-500/10 rounded-xl border border-blue-500/20">
                 <Database size={20} className="text-[#00A3FF]" />
