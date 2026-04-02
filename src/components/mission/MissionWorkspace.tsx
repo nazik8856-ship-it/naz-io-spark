@@ -9,6 +9,7 @@ interface MissionWorkspaceProps {
   open: boolean;
   onClose: () => void;
   initialSector?: string;
+  initialDirective?: string;
 }
 
 const MissionWorkspace: React.FC<MissionWorkspaceProps> = ({ open, onClose, initialSector = "home" }) => {
