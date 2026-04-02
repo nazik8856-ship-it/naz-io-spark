@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from "react";
-import { Terminal, Zap, Cpu, Settings, Rocket, Database, FolderOpen, ShieldCheck } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import { Terminal, Zap, Cpu, Settings, Rocket, Database, ShieldCheck, Plus, Paperclip, Image, Video, FileText, Camera, Clock, Link } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import AuthModal from "@/components/AuthModal";
-import { useNavigate } from "react-router-dom";
+import { supabase } from "@/integrations/supabase/client";
+import AttachmentChip, { type Attachment } from "./AttachmentChip";
 
 interface ActionTerminalProps {
   activeSection: string;
@@ -25,26 +26,129 @@ const WORKFLOW_STEPS = [
 
 const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialDirective = "" }) => {
   const { user, loading } = useAuth();
-  const navigate = useNavigate();
   const [directive, setDirective] = useState(initialDirective);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [workflowActive, setWorkflowActive] = useState(false);
   const [workflowStep, setWorkflowStep] = useState(-1);
   const [missionStarted, setMissionStarted] = useState(false);
   const [sessionRestored, setSessionRestored] = useState(false);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [terminalLogs, setTerminalLogs] = useState<string[]>([]);
+  const [showUploadMenu, setShowUploadMenu] = useState(false);
+  const [uploading, setUploading] = useState(false);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   const isAuthorized = !!user;
 
-  // Autoverification: detect returning user session
   useEffect(() => {
     if (!loading && isAuthorized && !sessionRestored) {
       setSessionRestored(true);
     }
   }, [loading, isAuthorized, sessionRestored]);
 
+  // Close menu on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setShowUploadMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const addLog = (msg: string) => {
+    setTerminalLogs((prev) => [...prev, msg]);
+  };
+
+  const handleFileUpload = async (file: File) => {
+    if (!user) {
+      setShowAuthModal(true);
+      return;
+    }
+
+    setUploading(true);
+    const filePath = `${user.id}/${Date.now()}_${file.name}`;
+
+    try {
+      const { error } = await supabase.storage
+        .from("mission-assets")
+        .upload(filePath, file);
+
+      if (error) throw error;
+
+      const { data: urlData } = supabase.storage
+        .from("mission-assets")
+        .getPublicUrl(filePath);
+
+      const newAttachment: Attachment = {
+        name: file.name,
+        url: urlData.publicUrl,
+        type: file.type || "application/octet-stream",
+      };
+
+      setAttachments((prev) => [...prev, newAttachment]);
+      addLog(`FILE_IMPORTED // ${file.name}`);
+    } catch (err: any) {
+      addLog(`UPLOAD_ERROR // ${err.message || "Unknown error"}`);
+    } finally {
+      setUploading(false);
+      setShowUploadMenu(false);
+    }
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files?.length) return;
+    Array.from(files).forEach(handleFileUpload);
+    e.target.value = "";
+  };
+
+  const triggerFileInput = (accept?: string) => {
+    if (fileInputRef.current) {
+      fileInputRef.current.accept = accept || "*/*";
+      fileInputRef.current.click();
+    }
+  };
+
+  const handleScreenshot = async () => {
+    setShowUploadMenu(false);
+    addLog("SCREENSHOT // Capturing viewport...");
+    // Use canvas to capture - simplified placeholder for real screenshot
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.fillStyle = "#020617";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#00A3FF";
+        ctx.font = "14px monospace";
+        ctx.fillText("NazAI Terminal Screenshot", 20, 30);
+      }
+      canvas.toBlob((blob) => {
+        if (blob) {
+          const file = new File([blob], `screenshot_${Date.now()}.png`, { type: "image/png" });
+          handleFileUpload(file);
+        }
+      });
+    } catch {
+      addLog("SCREENSHOT_ERROR // Could not capture");
+    }
+  };
+
+  const handleRemoveAttachment = (index: number) => {
+    const removed = attachments[index];
+    setAttachments((prev) => prev.filter((_, i) => i !== index));
+    addLog(`FILE_REMOVED // ${removed.name}`);
+  };
+
   const handleStartMission = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!directive.trim()) return;
+    if (!directive.trim() && attachments.length === 0) return;
 
     if (!isAuthorized) {
       sessionStorage.setItem("nazai_directive", directive);
@@ -78,9 +182,17 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
 
   const sectionLabel = SECTION_LABELS[activeSection] || "Home";
 
+  const UPLOAD_MENU_ITEMS = [
+    { label: "Upload File", icon: FileText, action: () => triggerFileInput("*/*") },
+    { label: "Image", icon: Image, action: () => triggerFileInput("image/*") },
+    { label: "Video", icon: Video, action: () => triggerFileInput("video/*") },
+    { label: "Screenshot", icon: Camera, action: handleScreenshot },
+    { label: "History", icon: Clock, action: () => { setShowUploadMenu(false); addLog("HISTORY // No previous imports found"); } },
+    { label: "Connectors", icon: Link, action: () => { setShowUploadMenu(false); addLog("CONNECTORS // No active connectors"); } },
+  ];
+
   return (
     <div className="flex-1 flex flex-col bg-[#020617] h-full selection:bg-blue-500/30 overflow-hidden relative">
-      {/* Auth Modal — never shown for returning users with valid session */}
       {!isAuthorized && (
         <AuthModal
           open={showAuthModal}
@@ -88,6 +200,14 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
           onSuccess={handleAuthSuccess}
         />
       )}
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        className="hidden"
+        onChange={handleFileSelect}
+        multiple
+      />
 
       {/* ── HEADER ── */}
       <div className="flex items-center gap-3 px-6 py-4 border-b border-white/5 bg-[#020617]/50 backdrop-blur-md shrink-0">
@@ -103,7 +223,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
         </div>
       </div>
 
-      {/* ── SESSION RESTORED CONFIRMATION ── */}
+      {/* ── SESSION RESTORED ── */}
       {sessionRestored && (
         <div className="px-6 py-2 border-b border-white/5 bg-emerald-500/[0.04]">
           <p className="text-[10px] font-mono text-emerald-400/80 tracking-widest">
@@ -112,28 +232,93 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
         </div>
       )}
 
+      {/* ── TERMINAL LOGS ── */}
+      {terminalLogs.length > 0 && (
+        <div className="px-6 py-2 border-b border-white/5 bg-white/[0.01] max-h-24 overflow-y-auto">
+          {terminalLogs.map((log, i) => (
+            <p key={i} className="text-[9px] font-mono text-[#00A3FF]/60 tracking-widest">
+              &gt; {log}
+            </p>
+          ))}
+        </div>
+      )}
+
       {/* ── CONTENT AREA ── */}
       <div className="flex-1 flex flex-col p-8 overflow-y-auto">
         {activeSection === "home" ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-12">
             {!missionStarted ? (
-              <form onSubmit={handleStartMission} className="w-full max-w-2xl space-y-6">
-                <div className="relative">
+              <form onSubmit={handleStartMission} className="w-full max-w-2xl space-y-4">
+                {/* Attachment Chips */}
+                {attachments.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {attachments.map((att, i) => (
+                      <AttachmentChip
+                        key={`${att.name}-${i}`}
+                        attachment={att}
+                        onRemove={() => handleRemoveAttachment(i)}
+                      />
+                    ))}
+                  </div>
+                )}
+
+                {/* Input Area with + button */}
+                <div className="relative flex items-start gap-3">
+                  {/* Upload Menu Button */}
+                  <div className="relative pt-5" ref={menuRef}>
+                    <button
+                      type="button"
+                      onClick={() => setShowUploadMenu(!showUploadMenu)}
+                      disabled={uploading}
+                      className="p-2.5 rounded-xl border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] hover:border-[#00A3FF]/30 transition-all disabled:opacity-30"
+                    >
+                      <Plus size={16} className={`${uploading ? "animate-spin text-[#00A3FF]" : "text-white/40"}`} />
+                    </button>
+
+                    {/* Dropdown Menu */}
+                    {showUploadMenu && (
+                      <div className="absolute left-0 bottom-full mb-2 w-48 bg-[#0a1628]/95 backdrop-blur-2xl border border-white/10 rounded-xl overflow-hidden z-50 shadow-2xl">
+                        {UPLOAD_MENU_ITEMS.map((item) => {
+                          const Icon = item.icon;
+                          return (
+                            <button
+                              key={item.label}
+                              type="button"
+                              onClick={item.action}
+                              className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-white/[0.05] transition-colors"
+                            >
+                              <Icon size={14} className="text-[#00A3FF]/60" />
+                              <span className="text-[11px] text-white/60 font-mono uppercase tracking-wider">
+                                {item.label}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Textarea */}
                   <textarea
                     value={directive}
                     onChange={(e) => setDirective(e.target.value)}
                     placeholder="ENTER MISSION PARAMETERS..."
                     rows={4}
-                    className="w-full bg-white/[0.03] border border-white/10 rounded-2xl text-white font-sans text-sm p-6 placeholder:text-white/10 outline-none resize-none focus:border-blue-500/50 focus:bg-blue-500/[0.02] transition-all"
+                    className="flex-1 bg-white/[0.03] border border-white/10 rounded-2xl text-white font-sans text-sm p-6 placeholder:text-white/10 outline-none resize-none focus:border-blue-500/50 focus:bg-blue-500/[0.02] transition-all"
                   />
                 </div>
+
                 <div className="flex justify-between items-center">
                   <p className="text-[9px] text-white/20 uppercase tracking-[0.2em]">
-                    {isAuthorized ? "Ready to execute" : "Authentication required to execute"}
+                    {uploading
+                      ? "Uploading asset..."
+                      : isAuthorized
+                        ? `Ready to execute${attachments.length > 0 ? ` • ${attachments.length} file${attachments.length > 1 ? "s" : ""} attached` : ""}`
+                        : "Authentication required to execute"}
                   </p>
                   <button
                     type="submit"
-                    disabled={!directive.trim()}
+                    disabled={(!directive.trim() && attachments.length === 0) || uploading}
                     className="px-8 py-3 bg-[#00A3FF] text-white text-[10px] font-bold uppercase tracking-[0.2em] rounded-xl hover:bg-blue-400 hover:shadow-[0_0_20px_rgba(0,163,255,0.3)] transition-all disabled:opacity-20"
                   >
                     Start Mission Now
@@ -147,6 +332,11 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
                     Solution Orchestrated
                   </h3>
                   <p className="text-white/60 text-xs italic">"{directive}"</p>
+                  {attachments.length > 0 && (
+                    <p className="text-[9px] text-white/30 uppercase tracking-widest">
+                      {attachments.length} asset{attachments.length > 1 ? "s" : ""} linked
+                    </p>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-4 gap-4">
@@ -200,7 +390,6 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
               </div>
             </div>
 
-            {/* Dynamic empty state — no hardcoded logs */}
             <div className="flex-1 flex flex-col items-center justify-center border border-dashed border-white/10 rounded-2xl bg-blue-500/[0.02] p-12 text-center">
               <div className="w-14 h-14 rounded-full bg-white/[0.02] flex items-center justify-center mb-5 border border-white/5">
                 <ShieldCheck size={22} className="text-[#00A3FF]/40" />
