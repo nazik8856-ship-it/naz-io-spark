@@ -1,5 +1,5 @@
 import React from "react";
-import { Home, Clock, Archive, Trash2, X, Cpu } from "lucide-react";
+import { Home, Clock, Archive, Trash2, X, Cpu, ShieldCheck } from "lucide-react";
 
 const NAV_ITEMS = [
   { id: "home", label: "Home", icon: Home },
@@ -62,11 +62,13 @@ const MissionSidebar: React.FC<MissionSidebarProps> = ({ activeSection, onSectio
         })}
       </nav>
 
-      {/* Status footer */}
-      <div className="px-5 py-4 border-t border-white/5">
-        <div className="flex items-center gap-2">
-          <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-          <span className="text-[11px] text-white/25 font-medium">Connected</span>
+      {/* Synchronized status footer */}
+      <div className="px-4 py-4 border-t border-white/5">
+        <div className="flex flex-col items-center gap-2 py-3">
+          <ShieldCheck size={16} className="text-[#00A3FF]/30" />
+          <span className="text-[9px] font-mono text-white/20 uppercase tracking-[0.2em]">
+            Secure_Node // Synchronized
+          </span>
         </div>
       </div>
     </div>

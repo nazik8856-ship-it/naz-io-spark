@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { Terminal, Zap, Cpu, Settings, Rocket, Database, FolderOpen } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { Terminal, Zap, Cpu, Settings, Rocket, Database, FolderOpen, ShieldCheck } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import AuthModal from "@/components/AuthModal";
 import { useNavigate } from "react-router-dom";
@@ -24,15 +24,23 @@ const WORKFLOW_STEPS = [
 ];
 
 const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialDirective = "" }) => {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
   const navigate = useNavigate();
   const [directive, setDirective] = useState(initialDirective);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [workflowActive, setWorkflowActive] = useState(false);
   const [workflowStep, setWorkflowStep] = useState(-1);
   const [missionStarted, setMissionStarted] = useState(false);
+  const [sessionRestored, setSessionRestored] = useState(false);
 
   const isAuthorized = !!user;
+
+  // Autoverification: detect returning user session
+  useEffect(() => {
+    if (!loading && isAuthorized && !sessionRestored) {
+      setSessionRestored(true);
+    }
+  }, [loading, isAuthorized, sessionRestored]);
 
   const handleStartMission = (e: React.FormEvent) => {
     e.preventDefault();
@@ -72,12 +80,14 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
 
   return (
     <div className="flex-1 flex flex-col bg-[#020617] h-full selection:bg-blue-500/30 overflow-hidden relative">
-      {/* Auth Modal */}
-      <AuthModal
-        open={showAuthModal}
-        onClose={() => setShowAuthModal(false)}
-        onSuccess={handleAuthSuccess}
-      />
+      {/* Auth Modal — never shown for returning users with valid session */}
+      {!isAuthorized && (
+        <AuthModal
+          open={showAuthModal}
+          onClose={() => setShowAuthModal(false)}
+          onSuccess={handleAuthSuccess}
+        />
+      )}
 
       {/* ── HEADER ── */}
       <div className="flex items-center gap-3 px-6 py-4 border-b border-white/5 bg-[#020617]/50 backdrop-blur-md shrink-0">
@@ -92,6 +102,15 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
           </span>
         </div>
       </div>
+
+      {/* ── SESSION RESTORED CONFIRMATION ── */}
+      {sessionRestored && (
+        <div className="px-6 py-2 border-b border-white/5 bg-emerald-500/[0.04]">
+          <p className="text-[10px] font-mono text-emerald-400/80 tracking-widest">
+            AUTH_SUCCESS // SESSION_RESTORED
+          </p>
+        </div>
+      )}
 
       {/* ── CONTENT AREA ── */}
       <div className="flex-1 flex flex-col p-8 overflow-y-auto">
@@ -181,13 +200,16 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
               </div>
             </div>
 
-            {/* Empty State — no hardcoded logs */}
+            {/* Dynamic empty state — no hardcoded logs */}
             <div className="flex-1 flex flex-col items-center justify-center border border-dashed border-white/10 rounded-2xl bg-blue-500/[0.02] p-12 text-center">
-              <div className="w-12 h-12 rounded-full bg-white/[0.02] flex items-center justify-center mb-4 border border-white/5">
-                <FolderOpen size={18} className="text-white/20" />
+              <div className="w-14 h-14 rounded-full bg-white/[0.02] flex items-center justify-center mb-5 border border-white/5">
+                <ShieldCheck size={22} className="text-[#00A3FF]/40" />
               </div>
-              <p className="text-[11px] text-white/30 uppercase tracking-[0.2em] font-medium">
-                Node Synchronized // No Records Found
+              <p className="text-[11px] text-white/30 uppercase tracking-[0.25em] font-mono font-medium">
+                Secure_Node // Synchronized
+              </p>
+              <p className="text-[9px] text-white/15 uppercase tracking-[0.2em] mt-2">
+                No active records found
               </p>
             </div>
           </div>
