@@ -200,33 +200,49 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
               addLog("DATA_LOCKED // LATENCY_0ms");
             }
 
-            // --- DYNAMIC OUTPUT LOGIC START ---
-            const generateAIAnalysis = (input: string) => {
+            // --- HUMAN-CENTRIC OUTPUT LOGIC START ---
+            const generateHumanAnalysis = (input: string) => {
               const text = input.toLowerCase();
-              let report = "STRATEGY_SYNC: Market gap identified. Autonomous deployment ready.\n";
+              let summary =
+                "I've analyzed your mission parameters and initialized the deployment sequence. We're focusing on creating a scalable foundation for your business idea.";
+              let goal = "Establish a high-impact, autonomous presence for your project.";
 
-              if (text.includes("code") || text.includes("python") || text.includes("c++")) {
-                report =
-                  "SOURCE_AUDIT: Structure verified. Optimization logic injected for high-concurrency clusters.\n";
-              } else if (text.includes("design") || text.includes("ui") || text.includes("branding")) {
-                report =
-                  "VISUAL_ENGINE: Neo-Brutalist parameters recognized. Obsidian palette applied across all nodes.\n";
+              if (text.includes("code") || text.includes("python") || text.includes("c++") || text.includes("app")) {
+                summary =
+                  "Your technical requirements have been mapped. I'm configuring a robust backend architecture that prioritizes speed, security, and high-concurrency performance.";
+                goal = "Deploy a professional-grade software solution.";
+              } else if (
+                text.includes("design") ||
+                text.includes("ui") ||
+                text.includes("branding") ||
+                text.includes("site")
+              ) {
+                summary =
+                  "I've processed your aesthetic preferences. The system is generating a high-contrast, modern interface using our signature Neo-Brutalist obsidian palette.";
+                goal = "Create a premium visual identity and high-converting web presence.";
               } else if (attachments.length > 0) {
-                report = `ASSET_ANALYSIS: ${attachments.length} files parsed. Integrated into mission-critical workflow.\n`;
+                summary = `I have successfully reviewed the ${attachments.length} file(s) you provided. These assets are now being integrated into your project's mission-critical workflow.`;
+                goal = "Synchronize and optimize provided media assets for production.";
               }
 
-              return report;
+              return { summary, goal };
             };
 
+            const analysis = generateHumanAnalysis(directive);
+
             setMissionOutput(
-              `NAZ_AI >> ANALYSIS_COMPLETE\n\n` +
-                `Status: ${generateAIAnalysis(directive)}` +
-                `Directive: "${directive || "Visual Asset Deployment"}"\n` +
-                `Cluster: Node_01 [Active]\n` +
-                `Assets: ${attachments.length} Synced\n\n` +
-                `All system gates are nominal. Mission outcome: 99.8% Efficiency Predicted.`,
+              `MISSION SUMMARY\n` +
+                `--------------------------------------------\n` +
+                `WHAT WE'RE DOING:\n` +
+                `${analysis.summary}\n\n` +
+                `PRIMARY GOAL:\n` +
+                `${analysis.goal}\n\n` +
+                `AI CONFIDENCE: 98% (High)\n` +
+                `STATUS: DEPLOYMENT_ACTIVE\n` +
+                `--------------------------------------------\n` +
+                `I am now managing the background execution. Your results will be available in the Archives shortly.`,
             );
-            // --- DYNAMIC OUTPUT LOGIC END ---
+            // --- HUMAN-CENTRIC OUTPUT LOGIC END ---
 
             setWorkflowActive(false);
           });
@@ -446,17 +462,17 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
                       <div className="flex items-center gap-2 mb-6">
                         <div className="w-2 h-2 rounded-full bg-[#00A3FF] animate-pulse" />
                         <span className="text-[10px] text-[#00A3FF] font-mono font-bold uppercase tracking-widest">
-                          Output_Stream_Verified
+                          Mission_Brief_Ready
                         </span>
                       </div>
-                      <div className="text-white/80 font-mono text-xs leading-relaxed whitespace-pre-wrap">
+                      <div className="text-white/80 font-sans text-xs leading-relaxed whitespace-pre-wrap">
                         {missionOutput}
                       </div>
                     </div>
                   ) : (
                     <div className="h-40 flex flex-col items-center justify-center gap-4">
                       <p className="text-[10px] text-[#00A3FF]/40 animate-pulse uppercase tracking-[0.4em] font-mono">
-                        Processing Node Output...
+                        Orchestrating Strategy...
                       </p>
                       <div className="w-48 h-1 bg-white/5 rounded-full overflow-hidden">
                         <div className="h-full bg-[#00A3FF] animate-progress-loading" style={{ width: "60%" }} />
