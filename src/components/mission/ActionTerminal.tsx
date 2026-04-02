@@ -14,6 +14,7 @@ import {
   Camera,
   Clock,
   Link,
+  ChevronLeft,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import AuthModal from "@/components/AuthModal";
@@ -54,6 +55,9 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
   const [showUploadMenu, setShowUploadMenu] = useState(false);
   const [uploading, setUploading] = useState(false);
 
+  // NEW: State for the generated AI response
+  const [missionOutput, setMissionOutput] = useState<string | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -74,7 +78,6 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
   };
 
   const handleFileUpload = async (file: File) => {
-    // 1. FORCE SESSION REFRESH // Targets the "exp" claim error by getting a fresh JWT
     const {
       data: { session },
       error: sessionError,
@@ -86,7 +89,6 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
       return;
     }
 
-    // 2. SIZE VALIDATION
     if (file.size > 5 * 1024 * 1024) {
       addLog(`ERROR // ${file.name.toUpperCase()} // EXCEEDS_5MB_LIMIT`);
       return;
@@ -97,11 +99,9 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
 
     const fileExt = file.name.split(".").pop();
     const fileName = `${Math.random().toString(36).substring(2)}_${Date.now()}.${fileExt}`;
-    // Using verified session user ID for path precision
     const filePath = `${session.user.id}/${fileName}`;
 
     try {
-      // 3. EXECUTE UPLOAD WITH FRESH AUTH HEADER
       const { error: uploadError } = await supabase.storage.from("mission-assets").upload(filePath, file, {
         cacheControl: "3600",
         upsert: false,
@@ -182,19 +182,27 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
     setMissionStarted(true);
     setWorkflowActive(true);
     setWorkflowStep(0);
+
+    // Simulate engine logic and then save
     WORKFLOW_STEPS.forEach((_, i) => {
       setTimeout(
         () => {
           setWorkflowStep(i);
           if (i === WORKFLOW_STEPS.length - 1) {
             const urls = attachments.map((a) => a.url);
+
             saveMission(directive, urls).then((result) => {
               if (result?.error) {
                 addLog(`MISSION_SAVE_ERROR // ${result.error.message}`);
               } else {
                 addLog("MISSION_PERSISTED // DATABASE_SYNC_COMPLETE");
+                // MOCK OUTPUT: In a real app, this would come from your AI Edge Function
+                setMissionOutput(
+                  `NAZ_AI_OUTPUT // DIRECTIVE: ${directive}\n\n[STATUS: SUCCESS]\n[NODE: CLUSTER_01]\n\nYour automated business logic is now active. All assets have been processed and indexed into the NazAI secure archives.`,
+                );
               }
             });
+
             setTimeout(() => {
               setWorkflowActive(false);
               setWorkflowStep(-1);
@@ -204,6 +212,14 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
         (i + 1) * 900,
       );
     });
+  };
+
+  const resetMission = () => {
+    setMissionStarted(false);
+    setMissionOutput(null);
+    setDirective("");
+    setAttachments([]);
+    addLog("SYSTEM_RESET // READY_FOR_NEW_DIRECTIVE");
   };
 
   const UPLOAD_MENU_ITEMS = [
@@ -216,7 +232,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
       icon: Clock,
       action: () => {
         setShowUploadMenu(false);
-        addLog("QUERYING_ARCHIVES // ACCESSING_SECURE_STORAGE...");
+        addLog("QUERY_ARCHIVES // ACCESSING_SECURE_STORAGE...");
       },
     },
     {
@@ -343,30 +359,41 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
                 </div>
               </form>
             ) : (
-              <div className="w-full max-w-2xl space-y-8 animate-in fade-in zoom-in duration-700">
-                <div className="text-center space-y-3">
-                  <h3 className="text-[#00A3FF] text-[10px] font-black uppercase tracking-[0.5em]">
-                    Solution Orchestrated
-                  </h3>
-                  <p className="text-white/60 text-xs font-light italic tracking-wide">"{directive}"</p>
+              <div className="w-full max-w-3xl space-y-8 animate-in fade-in zoom-in duration-700">
+                <div className="flex items-center justify-between">
+                  <button
+                    onClick={resetMission}
+                    className="flex items-center gap-2 text-[9px] text-white/40 hover:text-[#00A3FF] transition-colors uppercase font-black tracking-widest"
+                  >
+                    <ChevronLeft size={12} /> New Mission
+                  </button>
+                  <div className="text-right">
+                    <h3 className="text-[#00A3FF] text-[10px] font-black uppercase tracking-[0.5em]">
+                      Solution Orchestrated
+                    </h3>
+                    <p className="text-white/30 text-[9px] mt-1 font-mono">
+                      ID: {Math.random().toString(36).substr(2, 9).toUpperCase()}
+                    </p>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-4 gap-4">
                   {WORKFLOW_STEPS.map((step, i) => {
                     const isActive = workflowActive && workflowStep >= i;
+                    const isDone = !workflowActive && missionOutput;
                     const Icon = step.icon;
                     return (
                       <div
                         key={step.label}
                         className={`flex flex-col items-center gap-3 p-5 rounded-xl border transition-all duration-700 ${
-                          isActive
+                          isActive || isDone
                             ? "border-[#00A3FF]/40 bg-[#00A3FF]/10 shadow-[0_0_25px_rgba(0,163,255,0.15)]"
                             : "border-white/5 bg-white/[0.01] opacity-20"
                         }`}
                       >
-                        <Icon size={20} className={isActive ? "text-[#00A3FF]" : "text-white"} />
+                        <Icon size={20} className={isActive || isDone ? "text-[#00A3FF]" : "text-white"} />
                         <span
-                          className={`text-[8px] font-black uppercase tracking-[0.2em] ${isActive ? "text-white" : "text-white/50"}`}
+                          className={`text-[8px] font-black uppercase tracking-[0.2em] ${isActive || isDone ? "text-white" : "text-white/50"}`}
                         >
                           {step.label}
                         </span>
@@ -375,16 +402,31 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
                   })}
                 </div>
 
-                <div className="bg-white/[0.02] border border-white/5 rounded-3xl p-10 text-center relative overflow-hidden group">
-                  <div className="absolute inset-0 bg-[#00A3FF]/[0.02] opacity-0 group-hover:opacity-100 transition-opacity" />
-                  <p className="text-white/30 text-[10px] uppercase tracking-[0.3em] font-bold">
-                    Displaying localized solution data...
-                  </p>
-                  <div className="mt-6 h-40 flex items-center justify-center border border-dashed border-white/10 rounded-2xl bg-black/20">
-                    <p className="text-[10px] text-[#00A3FF]/40 animate-pulse uppercase tracking-[0.4em] font-mono">
-                      Processing Node Output...
-                    </p>
-                  </div>
+                <div className="bg-white/[0.02] border border-white/5 rounded-3xl p-8 relative overflow-hidden group min-h-[300px]">
+                  <div className="absolute inset-0 bg-[#00A3FF]/[0.01] pointer-events-none" />
+
+                  {missionOutput ? (
+                    <div className="animate-in fade-in slide-in-from-bottom-4 duration-1000">
+                      <div className="flex items-center gap-2 mb-6">
+                        <div className="w-2 h-2 rounded-full bg-[#00A3FF] animate-pulse" />
+                        <span className="text-[10px] text-[#00A3FF] font-mono font-bold uppercase tracking-widest">
+                          Output_Stream_Verified
+                        </span>
+                      </div>
+                      <div className="text-white/80 font-mono text-xs leading-relaxed whitespace-pre-wrap">
+                        {missionOutput}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="h-40 flex flex-col items-center justify-center gap-4">
+                      <p className="text-[10px] text-[#00A3FF]/40 animate-pulse uppercase tracking-[0.4em] font-mono">
+                        Processing Node Output...
+                      </p>
+                      <div className="w-48 h-1 bg-white/5 rounded-full overflow-hidden">
+                        <div className="h-full bg-[#00A3FF] animate-progress-loading" style={{ width: "40%" }} />
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
