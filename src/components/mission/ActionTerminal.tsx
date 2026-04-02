@@ -19,6 +19,7 @@ import { useAuth } from "@/hooks/useAuth";
 import AuthModal from "@/components/AuthModal";
 import { supabase } from "@/integrations/supabase/client";
 import AttachmentChip, { type Attachment } from "./AttachmentChip";
+import { useMissions } from "@/hooks/useMissions";
 
 interface ActionTerminalProps {
   activeSection: string;
