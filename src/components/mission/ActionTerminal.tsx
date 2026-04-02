@@ -200,16 +200,16 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
               addLog("DATA_LOCKED // LATENCY_0ms");
             }
 
-            // --- HUMAN-CENTRIC OUTPUT LOGIC START ---
+            // --- SMART DYNAMIC OUTPUT LOGIC ---
             const generateHumanAnalysis = (input: string) => {
               const text = input.toLowerCase();
-              let summary =
-                "I've analyzed your mission parameters and initialized the deployment sequence. We're focusing on creating a scalable foundation for your business idea.";
-              let goal = "Establish a high-impact, autonomous presence for your project.";
+              const topic = input.length > 5 ? `"${input.substring(0, 30)}..."` : "your mission parameters";
+
+              let summary = `I've analyzed your request regarding ${topic}. I am currently aligning our autonomous agents to execute this mission with a focus on high-efficiency output and market relevance.`;
+              let goal = `Successfully launch and optimize the project workflow for ${input.split(" ")[0] || "this mission"}.`;
 
               if (text.includes("code") || text.includes("python") || text.includes("c++") || text.includes("app")) {
-                summary =
-                  "Your technical requirements have been mapped. I'm configuring a robust backend architecture that prioritizes speed, security, and high-concurrency performance.";
+                summary = `Technical requirements for ${topic} have been mapped. I'm configuring a robust backend architecture that prioritizes speed, security, and high-concurrency performance.`;
                 goal = "Deploy a professional-grade software solution.";
               } else if (
                 text.includes("design") ||
@@ -217,11 +217,10 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
                 text.includes("branding") ||
                 text.includes("site")
               ) {
-                summary =
-                  "I've processed your aesthetic preferences. The system is generating a high-contrast, modern interface using our signature Neo-Brutalist obsidian palette.";
+                summary = `Aesthetic preferences for ${topic} processed. The system is generating a high-contrast, modern interface using our signature Neo-Brutalist obsidian palette.`;
                 goal = "Create a premium visual identity and high-converting web presence.";
               } else if (attachments.length > 0) {
-                summary = `I have successfully reviewed the ${attachments.length} file(s) you provided. These assets are now being integrated into your project's mission-critical workflow.`;
+                summary = `I have successfully reviewed the ${attachments.length} file(s) provided for ${topic}. These assets are now being integrated into your project's mission-critical workflow.`;
                 goal = "Synchronize and optimize provided media assets for production.";
               }
 
@@ -242,7 +241,6 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
                 `--------------------------------------------\n` +
                 `I am now managing the background execution. Your results will be available in the Archives shortly.`,
             );
-            // --- HUMAN-CENTRIC OUTPUT LOGIC END ---
 
             setWorkflowActive(false);
           });
@@ -393,7 +391,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
                     value={directive}
                     onChange={(e) => setDirective(e.target.value)}
                     placeholder="ENTER MISSION PARAMETERS..."
-                    className="flex-1 bg-white/[0.03] border border-white/10 rounded-2xl text-white font-sans text-sm p-6 placeholder:text-white/5 outline-none resize-none focus:border-[#00A3FF]/30 focus:bg-[#00A3FF]/[0.02] transition-all min-h-[120px]"
+                    className="flex-1 rounded-2xl p-6 min-h-[120px] transition-all duration-300 resize-none outline-none font-sans text-sm text-white placeholder:text-white/10 bg-white/[0.06] border-2 border-[#00A3FF]/40 shadow-neon-blue-soft hover:border-[#00A3FF]/60 hover:shadow-neon-blue-hard focus:border-[#00A3FF] focus:shadow-neon-blue-hard focus:bg-[#00A3FF]/[0.03] focus:animate-neon-pulse"
                   />
                 </div>
 
