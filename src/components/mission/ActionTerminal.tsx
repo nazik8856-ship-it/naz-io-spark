@@ -54,8 +54,6 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
   const [terminalLogs, setTerminalLogs] = useState<string[]>([]);
   const [showUploadMenu, setShowUploadMenu] = useState(false);
   const [uploading, setUploading] = useState(false);
-
-  // NEW: State for the generated AI response
   const [missionOutput, setMissionOutput] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -182,36 +180,39 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
     setMissionStarted(true);
     setWorkflowActive(true);
     setWorkflowStep(0);
+    addLog("NODE_INIT // PARALLEL_EXECUTION_START");
 
-    // Simulate engine logic and then save
-    WORKFLOW_STEPS.forEach((_, i) => {
-      setTimeout(
-        () => {
-          setWorkflowStep(i);
-          if (i === WORKFLOW_STEPS.length - 1) {
-            const urls = attachments.map((a) => a.url);
+    // 1. FIRE DATABASE SYNC IMMEDIATELY (Parallel)
+    const urls = attachments.map((a) => a.url);
+    const missionPromise = saveMission(directive, urls);
 
-            saveMission(directive, urls).then((result) => {
-              if (result?.error) {
-                addLog(`MISSION_SAVE_ERROR // ${result.error.message}`);
-              } else {
-                addLog("MISSION_PERSISTED // DATABASE_SYNC_COMPLETE");
-                // MOCK OUTPUT: In a real app, this would come from your AI Edge Function
-                setMissionOutput(
-                  `NAZ_AI_OUTPUT // DIRECTIVE: ${directive}\n\n[STATUS: SUCCESS]\n[NODE: CLUSTER_01]\n\nYour automated business logic is now active. All assets have been processed and indexed into the NazAI secure archives.`,
-                );
-              }
-            });
+    // 2. HIGH-VELOCITY UI SEQUENCING (300ms intervals)
+    const stepInterval = setInterval(() => {
+      setWorkflowStep((currentStep) => {
+        const nextStep = currentStep + 1;
 
-            setTimeout(() => {
-              setWorkflowActive(false);
-              setWorkflowStep(-1);
-            }, 1200);
-          }
-        },
-        (i + 1) * 900,
-      );
-    });
+        if (nextStep >= WORKFLOW_STEPS.length) {
+          clearInterval(stepInterval);
+
+          // 3. FINALIZE ONCE DB PROMISE RESOLVES
+          missionPromise.then((result) => {
+            if (result?.error) {
+              addLog(`SYNC_ERROR // ${result.error.message.toUpperCase()}`);
+            } else {
+              addLog("DATA_LOCKED // LATENCY_0ms");
+            }
+
+            setMissionOutput(
+              `NAZ_AI >> SUCCESS\n\nDirective: "${directive}"\nStatus: Deployed to Cluster\nAssets: ${attachments.length} Synced\n\nAutomated logic is now active. All nodes are reporting nominal status.`,
+            );
+            setWorkflowActive(false);
+          });
+
+          return currentStep;
+        }
+        return nextStep;
+      });
+    }, 300);
   };
 
   const resetMission = () => {
@@ -219,7 +220,8 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
     setMissionOutput(null);
     setDirective("");
     setAttachments([]);
-    addLog("SYSTEM_RESET // READY_FOR_NEW_DIRECTIVE");
+    setWorkflowStep(-1);
+    addLog("SYSTEM_RESET // READY_FOR_INPUT");
   };
 
   const UPLOAD_MENU_ITEMS = [
@@ -232,7 +234,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
       icon: Clock,
       action: () => {
         setShowUploadMenu(false);
-        addLog("QUERY_ARCHIVES // ACCESSING_SECURE_STORAGE...");
+        addLog("QUERY_ARCHIVES // ACCESSING...");
       },
     },
     {
@@ -240,7 +242,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
       icon: Link,
       action: () => {
         setShowUploadMenu(false);
-        addLog("SYSTEM // INITIALIZING_EXTERNAL_BRIDGE...");
+        addLog("SYSTEM // BRIDGE_INIT...");
       },
     },
   ];
@@ -385,7 +387,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
                     return (
                       <div
                         key={step.label}
-                        className={`flex flex-col items-center gap-3 p-5 rounded-xl border transition-all duration-700 ${
+                        className={`flex flex-col items-center gap-3 p-5 rounded-xl border transition-all duration-300 ${
                           isActive || isDone
                             ? "border-[#00A3FF]/40 bg-[#00A3FF]/10 shadow-[0_0_25px_rgba(0,163,255,0.15)]"
                             : "border-white/5 bg-white/[0.01] opacity-20"
@@ -406,7 +408,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
                   <div className="absolute inset-0 bg-[#00A3FF]/[0.01] pointer-events-none" />
 
                   {missionOutput ? (
-                    <div className="animate-in fade-in slide-in-from-bottom-4 duration-1000">
+                    <div className="animate-in fade-in slide-in-from-bottom-4 duration-700">
                       <div className="flex items-center gap-2 mb-6">
                         <div className="w-2 h-2 rounded-full bg-[#00A3FF] animate-pulse" />
                         <span className="text-[10px] text-[#00A3FF] font-mono font-bold uppercase tracking-widest">
@@ -423,7 +425,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
                         Processing Node Output...
                       </p>
                       <div className="w-48 h-1 bg-white/5 rounded-full overflow-hidden">
-                        <div className="h-full bg-[#00A3FF] animate-progress-loading" style={{ width: "40%" }} />
+                        <div className="h-full bg-[#00A3FF] animate-progress-loading" style={{ width: "60%" }} />
                       </div>
                     </div>
                   )}
