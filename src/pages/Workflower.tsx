@@ -110,7 +110,7 @@ const Workflower = () => {
               className="group relative px-12 py-5 bg-[#39FF14] text-black font-black uppercase text-[11px] border-b-4 border-[#059669] hover:scale-105 transition-all overflow-hidden shadow-[0_0_40px_rgba(57,255,20,0.4)]"
             >
               <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent -translate-x-full group-hover:animate-[shimmer_1s_infinite]" />
-              START_MISSION_NOW
+              START MISSION NOW
             </button>
 
             <button
