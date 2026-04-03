@@ -43,6 +43,21 @@ const WORKFLOW_STEPS = [
 const MAX_FILE_SIZE_MB = 50;
 const MAX_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 
+const PROMPT_TEMPLATES = [
+  {
+    label: "Go-to-Market Strategy",
+    prompt: "Design a complete go-to-market strategy for a B2B SaaS product targeting SMEs, including pricing tiers, acquisition channels, and a 90-day launch plan.",
+  },
+  {
+    label: "E-Commerce Business",
+    prompt: "Create a full e-commerce business plan including product sourcing strategy, platform selection, conversion optimization tactics, and a profitable scaling framework.",
+  },
+  {
+    label: "AI Automation",
+    prompt: "Architect an AI automation system for a service business that reduces manual work by 80%, including tool stack recommendations, workflow diagrams, and ROI projections.",
+  },
+];
+
 const SolutionDisplay = ({ data }: { data: string }) => {
   try {
     const parsed = JSON.parse(data);
