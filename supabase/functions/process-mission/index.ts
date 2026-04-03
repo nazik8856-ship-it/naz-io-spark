@@ -35,34 +35,57 @@ serve(async (req) => {
       })
     }
 
-    // Process directive with Gemini
+    // Process directive with Lovable AI Gateway
     const { directive } = await req.json()
-    const apiKey = Deno.env.get('GEMINI_API_KEY')
+    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY')
+    if (!LOVABLE_API_KEY) throw new Error('LOVABLE_API_KEY is not configured')
 
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{
-              text: `You are a senior problem-solving AI. Analyze the following problem and return a JSON object with exactly these keys:
+    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'google/gemini-3-flash-preview',
+        messages: [
+          {
+            role: 'system',
+            content: `You are a senior problem-solving AI. Analyze problems and return a JSON object with exactly these keys:
 - "solution": A clear, actionable solution (2-3 sentences).
 - "explanation": The reasoning behind it (2-3 sentences).
 - "actions": An array of 3-5 short action steps (each under 5 words).
 
-Return ONLY valid JSON. No markdown, no code fences.
+Return ONLY valid JSON. No markdown, no code fences.`
+          },
+          {
+            role: 'user',
+            content: directive
+          }
+        ],
+      }),
+    })
 
-Problem: ${directive}`
-            }]
-          }]
-        }),
+    if (!response.ok) {
+      if (response.status === 429) {
+        return new Response(JSON.stringify({ error: "Rate limit exceeded. Please try again shortly." }), {
+          status: 429,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
       }
-    )
+      if (response.status === 402) {
+        return new Response(JSON.stringify({ error: "AI credits exhausted. Please add funds." }), {
+          status: 402,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
+      const errText = await response.text()
+      console.error('AI gateway error:', response.status, errText)
+      throw new Error('AI gateway error')
+    }
 
     const data = await response.json()
-    const aiText = data.candidates?.[0]?.content?.parts?.[0]?.text
+    const aiText = data.choices?.[0]?.message?.content
 
     if (!aiText) throw new Error('No response from AI')
 
