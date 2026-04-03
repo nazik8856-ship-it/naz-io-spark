@@ -293,6 +293,56 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
         multiple
       />
 
+      {/* /help PANEL */}
+      <AnimatePresence>
+        {showHelpPanel && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-50 bg-[#020617]/95 backdrop-blur-md flex flex-col items-center justify-center p-8 overflow-y-auto"
+          >
+            <div className="w-full max-w-2xl space-y-6">
+              <div className="flex items-center justify-between">
+                <h2 className="text-[10px] font-mono font-black uppercase tracking-[0.3em] text-[#00ff88]">
+                  📋 Golden Business Prompts
+                </h2>
+                <button
+                  onClick={() => setShowHelpPanel(false)}
+                  className="text-[9px] font-mono uppercase tracking-widest text-white/40 hover:text-white transition-colors"
+                >
+                  [ESC] Close
+                </button>
+              </div>
+              <div className="h-px bg-[#00ff88]/20" />
+              <div className="grid gap-3">
+                {HELP_PROMPTS.map((item, i) => (
+                  <motion.button
+                    key={item.label}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.06, duration: 0.3 }}
+                    onClick={() => {
+                      setDirective(item.prompt);
+                      setShowHelpPanel(false);
+                    }}
+                    className="w-full text-left p-4 rounded-xl border border-[#00ff88]/20 bg-[#0a0a0a] hover:border-[#00ff88]/50 hover:scale-[1.02] transition-all duration-200 group"
+                    style={{ boxShadow: "0 0 8px rgba(0, 255, 136, 0.05)" }}
+                  >
+                    <span className="text-[9px] font-mono font-black uppercase tracking-[0.2em] text-[#00ff88]/70 group-hover:text-[#00ff88]">
+                      {item.label}
+                    </span>
+                    <p className="text-[11px] text-white/50 mt-1.5 leading-relaxed group-hover:text-white/70 transition-colors">
+                      {item.prompt}
+                    </p>
+                  </motion.button>
+                ))}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* HEADER */}
       <div className="flex items-center gap-3 px-6 py-4 border-b border-white/5 bg-[#020617]/50 backdrop-blur-md shrink-0 z-10">
         <Terminal size={14} className="text-[#00A3FF]" />
