@@ -248,6 +248,8 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
     setDirective("");
     setAttachments([]);
     setWorkflowStep(-1);
+    setIsDecrypting(false);
+    setDecryptionIndex(0);
     addLog("SYSTEM_RESET // READY_FOR_INPUT");
   };
 
