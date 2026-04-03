@@ -415,6 +415,22 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
                 <div className="bg-white/[0.02] border border-white/5 rounded-[2rem] p-10 min-h-[300px] shadow-2xl">
                   {missionOutput ? (
                     <SolutionDisplay data={missionOutput} />
+                  ) : isDecrypting ? (
+                    <div className="flex flex-col gap-2 font-mono">
+                      <AnimatePresence>
+                        {DECRYPTION_LINES.slice(0, decryptionIndex + 1).map((line, i) => (
+                          <motion.div
+                            key={line}
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.35, ease: "easeOut" }}
+                            className="text-[10px] tracking-widest text-[#00ff88]/80"
+                          >
+                            {line}
+                          </motion.div>
+                        ))}
+                      </AnimatePresence>
+                    </div>
                   ) : (
                     <div className="flex flex-col items-center justify-center h-48 gap-4">
                       <RefreshCcw className="animate-spin text-[#00A3FF]/40" size={24} />
