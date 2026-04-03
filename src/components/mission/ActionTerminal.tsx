@@ -289,6 +289,21 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
                   </div>
                 )}
 
+                {!directive.trim() && (
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {PROMPT_TEMPLATES.map((tpl) => (
+                      <button
+                        key={tpl.label}
+                        type="button"
+                        onClick={() => setDirective(tpl.prompt)}
+                        className="px-3 py-1.5 text-[9px] font-bold uppercase tracking-widest rounded-lg border border-[#00A3FF]/20 bg-[#00A3FF]/5 text-[#00A3FF]/70 hover:bg-[#00A3FF]/15 hover:text-[#00A3FF] transition-all"
+                      >
+                        {tpl.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
                 <div className="relative flex items-start gap-4">
                   <div className="relative pt-2" ref={menuRef}>
                     <button
