@@ -140,6 +140,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
   const [isSaving, setIsSaving] = useState(false);
   const [isDecrypting, setIsDecrypting] = useState(false);
   const [decryptionIndex, setDecryptionIndex] = useState(0);
+  const [showHelpPanel, setShowHelpPanel] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
