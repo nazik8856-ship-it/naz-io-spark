@@ -392,11 +392,19 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
 
                   <textarea
                     value={directive}
-                    onChange={(e) => setDirective(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val.trim().toLowerCase() === "/help") {
+                        setShowHelpPanel(true);
+                        setDirective("");
+                        return;
+                      }
+                      setDirective(val);
+                    }}
                     placeholder={
                       activeSection === "drafts"
                         ? "CONTINUE WORKING ON DRAFT..."
-                        : "WHAT IS THE PROBLEM WE ARE SOLVING?"
+                        : 'TYPE /help FOR PROMPTS — OR DESCRIBE YOUR PROBLEM'
                     }
                     className="flex-1 rounded-2xl p-6 min-h-[140px] transition-all duration-300 outline-none font-sans text-sm text-white bg-white/[0.06] border-2 border-[#00A3FF]/40 focus:border-[#00A3FF] shadow-neon-blue-soft resize-none"
                   />
