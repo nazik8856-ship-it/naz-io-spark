@@ -1,31 +1,47 @@
-import { Terminal as TerminalIcon } from "lucide-react";
-import Terminal from "./components/Terminal"; // Ensure this path matches your folder!
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { AuthProvider } from "@/hooks/useAuth";
+import { Toaster } from "@/components/ui/toaster";
+import { lazy, Suspense } from "react";
 
-const App = () => {
-  return (
-    <div className="min-h-screen bg-black text-[#00FF41] font-mono p-4 flex flex-col items-center justify-center">
-      {/* Header Area */}
-      <div className="w-full max-w-4xl mb-4 flex items-center justify-between border-b border-[#00FF41]/30 pb-2">
-        <div className="flex items-center gap-2">
-          <TerminalIcon className="w-6 h-6 animate-pulse" />
-          <span className="text-xl font-bold tracking-tighter">NAZAI.TERMINAL_CORE</span>
-        </div>
-        <div className="text-xs opacity-50 uppercase tracking-widest">
-          Status: <span className="text-green-400">System_Active</span>
-        </div>
-      </div>
+const Workflower = lazy(() => import("./pages/Workflower"));
+const Workspace = lazy(() => import("./pages/Workspace"));
+const Signup = lazy(() => import("./pages/Signup"));
+const AuthCallback = lazy(() => import("./pages/AuthCallback"));
+const Dashboard = lazy(() => import("./pages/Dashboard"));
 
-      {/* The Main Terminal Window */}
-      <main className="w-full max-w-4xl h-[70vh] border border-[#00FF41]/20 rounded-lg overflow-hidden shadow-[0_0_20px_rgba(0,255,65,0.1)]">
-        <Terminal />
-      </main>
+const queryClient = new QueryClient();
 
-      {/* Footer */}
-      <footer className="mt-4 text-[10px] opacity-30 text-center uppercase">
-        NazAI v2.0 // Sumy Architect Division // 2026
-      </footer>
+// Obsidian loading skeleton
+const PageSkeleton = () => (
+  <div className="min-h-screen flex items-center justify-center" style={{ background: "#020617" }}>
+    <div className="flex flex-col items-center gap-4">
+      <div className="w-10 h-10 border-2 border-[#00A3FF]/30 border-t-[#00A3FF] rounded-full animate-spin" />
+      <p className="text-sm text-white/30 font-medium">Loading…</p>
     </div>
-  );
-};
+  </div>
+);
+
+const App = () => (
+  <QueryClientProvider client={queryClient}>
+    <AuthProvider>
+      <BrowserRouter>
+        <Suspense fallback={<PageSkeleton />}>
+          <Routes>
+            <Route path="/" element={<Workflower />} />
+            <Route path="/workflower" element={<Workflower />} />
+            <Route path="/workspace" element={<Workspace />} />
+            <Route path="/signup" element={<Signup />} />
+            <Route path="/login" element={<Signup />} />
+            <Route path="/auth/callback" element={<AuthCallback />} />
+            <Route path="/dashboard/*" element={<Dashboard />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </Suspense>
+        <Toaster />
+      </BrowserRouter>
+    </AuthProvider>
+  </QueryClientProvider>
+);
 
 export default App;
