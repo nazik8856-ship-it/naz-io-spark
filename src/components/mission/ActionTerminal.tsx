@@ -18,6 +18,7 @@ import AuthModal from "@/components/AuthModal";
 import { supabase } from "@/integrations/supabase/client";
 import AttachmentChip, { type Attachment } from "./AttachmentChip";
 import { useMissions } from "@/hooks/useMissions";
+import { PROCESS_MISSION_FUNCTION } from "@/constants";
 
 interface ActionTerminalProps {
   activeSection: string;
@@ -154,8 +155,12 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
     try {
       // 1. Trigger the actual Intelligence Bridge (Edge Function)
       // This happens in parallel with the UI animation
-      const aiRequest = supabase.functions.invoke("process-mission", {
+      const { data: { session } } = await supabase.auth.getSession();
+      const aiRequest = supabase.functions.invoke(PROCESS_MISSION_FUNCTION, {
         body: { directive },
+        headers: {
+          Authorization: `Bearer ${session?.access_token}`,
+        },
       });
 
       // 2. Animate the workflow steps for UX feel
