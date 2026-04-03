@@ -13,6 +13,7 @@ import {
   RefreshCcw,
   Save,
 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/hooks/useAuth";
 import AuthModal from "@/components/AuthModal";
 import { supabase } from "@/integrations/supabase/client";
