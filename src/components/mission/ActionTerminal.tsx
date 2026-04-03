@@ -155,8 +155,12 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
     try {
       // 1. Trigger the actual Intelligence Bridge (Edge Function)
       // This happens in parallel with the UI animation
-      const aiRequest = supabase.functions.invoke("process-mission", {
+      const { data: { session } } = await supabase.auth.getSession();
+      const aiRequest = supabase.functions.invoke(PROCESS_MISSION_FUNCTION, {
         body: { directive },
+        headers: {
+          Authorization: `Bearer ${session?.access_token}`,
+        },
       });
 
       // 2. Animate the workflow steps for UX feel
