@@ -81,6 +81,10 @@ const HELP_PROMPTS = [
     label: "Pitch Deck Strategy",
     prompt: "Create a compelling investor pitch deck strategy including narrative arc, market sizing, competitive moat, and financial projections for a Series A raise.",
   },
+  {
+    label: "Client Onboarding",
+    prompt: "Design a fully automated client onboarding system that delivers a 5-star experience without human intervention.",
+  },
 ];
 
 const DECRYPTION_LINES = [
