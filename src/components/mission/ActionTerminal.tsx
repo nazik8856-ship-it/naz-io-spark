@@ -114,6 +114,8 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
   const [uploading, setUploading] = useState(false);
   const [missionOutput, setMissionOutput] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isDecrypting, setIsDecrypting] = useState(false);
+  const [decryptionIndex, setDecryptionIndex] = useState(0);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
