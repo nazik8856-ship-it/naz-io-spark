@@ -18,6 +18,7 @@ import AuthModal from "@/components/AuthModal";
 import { supabase } from "@/integrations/supabase/client";
 import AttachmentChip, { type Attachment } from "./AttachmentChip";
 import { useMissions } from "@/hooks/useMissions";
+import { PROCESS_MISSION_FUNCTION } from "@/constants";
 
 interface ActionTerminalProps {
   activeSection: string;
