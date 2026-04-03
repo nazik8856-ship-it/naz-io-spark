@@ -13,6 +13,7 @@ import {
   RefreshCcw,
   Save,
 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/hooks/useAuth";
 import AuthModal from "@/components/AuthModal";
 import { supabase } from "@/integrations/supabase/client";
@@ -56,6 +57,14 @@ const PROMPT_TEMPLATES = [
     label: "AI Automation",
     prompt: "Architect an AI automation system for a service business that reduces manual work by 80%, including tool stack recommendations, workflow diagrams, and ROI projections.",
   },
+];
+
+const DECRYPTION_LINES = [
+  "▶ DECRYPTING_PAYLOAD // AES-256-GCM ...",
+  "▶ VERIFYING_SIGNATURE // RSA-4096 ...",
+  "▶ DECOMPRESSING_STREAM // ZSTD-L19 ...",
+  "▶ PARSING_INTELLIGENCE // NEURAL_MAP ...",
+  "▶ ASSEMBLING_OUTPUT // RENDER_READY ✓",
 ];
 
 const SolutionDisplay = ({ data }: { data: string }) => {
@@ -105,6 +114,8 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
   const [uploading, setUploading] = useState(false);
   const [missionOutput, setMissionOutput] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isDecrypting, setIsDecrypting] = useState(false);
+  const [decryptionIndex, setDecryptionIndex] = useState(0);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -189,15 +200,31 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
               .then(({ data, error }) => {
                 if (error) throw error;
 
-                setMissionOutput(JSON.stringify(data));
+                // Start decryption phase
                 setWorkflowActive(false);
-                addLog("DATA_LOCKED // SOLUTION_READY");
+                setIsDecrypting(true);
+                setDecryptionIndex(0);
+                addLog("DECRYPTION_SEQUENCE // INITIATED");
 
-                // 4. Persistence: Save the completed mission to DB
-                saveMission(
-                  directive,
-                  attachments.map((a) => a.url),
-                );
+                // Animate decryption lines one by one
+                let lineIdx = 0;
+                const decryptInterval = setInterval(() => {
+                  lineIdx++;
+                  setDecryptionIndex(lineIdx);
+                  if (lineIdx >= DECRYPTION_LINES.length) {
+                    clearInterval(decryptInterval);
+                    // After all lines shown, wait a beat then reveal output
+                    setTimeout(() => {
+                      setIsDecrypting(false);
+                      setMissionOutput(JSON.stringify(data));
+                      addLog("DATA_LOCKED // SOLUTION_READY");
+                      saveMission(
+                        directive,
+                        attachments.map((a) => a.url),
+                      );
+                    }, 800);
+                  }
+                }, 500);
               })
               .catch((err) => {
                 addLog(`CORE_LOGIC_FAILURE // ${err.message?.toUpperCase()}`, "error");
@@ -221,6 +248,8 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
     setDirective("");
     setAttachments([]);
     setWorkflowStep(-1);
+    setIsDecrypting(false);
+    setDecryptionIndex(0);
     addLog("SYSTEM_RESET // READY_FOR_INPUT");
   };
 
@@ -386,6 +415,22 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
                 <div className="bg-white/[0.02] border border-white/5 rounded-[2rem] p-10 min-h-[300px] shadow-2xl">
                   {missionOutput ? (
                     <SolutionDisplay data={missionOutput} />
+                  ) : isDecrypting ? (
+                    <div className="flex flex-col gap-2 font-mono">
+                      <AnimatePresence>
+                        {DECRYPTION_LINES.slice(0, decryptionIndex + 1).map((line, i) => (
+                          <motion.div
+                            key={line}
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.35, ease: "easeOut" }}
+                            className="text-[10px] tracking-widest text-[#00ff88]/80"
+                          >
+                            {line}
+                          </motion.div>
+                        ))}
+                      </AnimatePresence>
+                    </div>
                   ) : (
                     <div className="flex flex-col items-center justify-center h-48 gap-4">
                       <RefreshCcw className="animate-spin text-[#00A3FF]/40" size={24} />
