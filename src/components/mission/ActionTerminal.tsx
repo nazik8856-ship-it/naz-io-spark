@@ -59,6 +59,14 @@ const PROMPT_TEMPLATES = [
   },
 ];
 
+const DECRYPTION_LINES = [
+  "▶ DECRYPTING_PAYLOAD // AES-256-GCM ...",
+  "▶ VERIFYING_SIGNATURE // RSA-4096 ...",
+  "▶ DECOMPRESSING_STREAM // ZSTD-L19 ...",
+  "▶ PARSING_INTELLIGENCE // NEURAL_MAP ...",
+  "▶ ASSEMBLING_OUTPUT // RENDER_READY ✓",
+];
+
 const SolutionDisplay = ({ data }: { data: string }) => {
   try {
     const parsed = JSON.parse(data);
