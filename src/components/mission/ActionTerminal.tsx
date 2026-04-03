@@ -200,15 +200,31 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
               .then(({ data, error }) => {
                 if (error) throw error;
 
-                setMissionOutput(JSON.stringify(data));
+                // Start decryption phase
                 setWorkflowActive(false);
-                addLog("DATA_LOCKED // SOLUTION_READY");
+                setIsDecrypting(true);
+                setDecryptionIndex(0);
+                addLog("DECRYPTION_SEQUENCE // INITIATED");
 
-                // 4. Persistence: Save the completed mission to DB
-                saveMission(
-                  directive,
-                  attachments.map((a) => a.url),
-                );
+                // Animate decryption lines one by one
+                let lineIdx = 0;
+                const decryptInterval = setInterval(() => {
+                  lineIdx++;
+                  setDecryptionIndex(lineIdx);
+                  if (lineIdx >= DECRYPTION_LINES.length) {
+                    clearInterval(decryptInterval);
+                    // After all lines shown, wait a beat then reveal output
+                    setTimeout(() => {
+                      setIsDecrypting(false);
+                      setMissionOutput(JSON.stringify(data));
+                      addLog("DATA_LOCKED // SOLUTION_READY");
+                      saveMission(
+                        directive,
+                        attachments.map((a) => a.url),
+                      );
+                    }, 800);
+                  }
+                }, 500);
               })
               .catch((err) => {
                 addLog(`CORE_LOGIC_FAILURE // ${err.message?.toUpperCase()}`, "error");
