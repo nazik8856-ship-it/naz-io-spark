@@ -59,6 +59,30 @@ const PROMPT_TEMPLATES = [
   },
 ];
 
+const HELP_PROMPTS = [
+  ...PROMPT_TEMPLATES,
+  {
+    label: "Content Marketing Funnel",
+    prompt: "Build a 6-month content marketing funnel that converts cold traffic into paying customers for a SaaS tool.",
+  },
+  {
+    label: "Competitor Analysis",
+    prompt: "Create a complete competitor analysis framework to enter a saturated market with a differentiated offer.",
+  },
+  {
+    label: "Revenue Model",
+    prompt: "Design a multi-stream revenue model for a digital platform, including subscription tiers, marketplace fees, and premium add-ons with projected unit economics.",
+  },
+  {
+    label: "Growth Playbook",
+    prompt: "Build a 90-day growth playbook for a pre-seed startup, covering product-market fit validation, early traction channels, and key metrics to track.",
+  },
+  {
+    label: "Pitch Deck Strategy",
+    prompt: "Create a compelling investor pitch deck strategy including narrative arc, market sizing, competitive moat, and financial projections for a Series A raise.",
+  },
+];
+
 const DECRYPTION_LINES = [
   "▶ DECRYPTING_PAYLOAD // AES-256-GCM ...",
   "▶ VERIFYING_SIGNATURE // RSA-4096 ...",
