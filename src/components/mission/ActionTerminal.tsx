@@ -59,6 +59,30 @@ const PROMPT_TEMPLATES = [
   },
 ];
 
+const HELP_PROMPTS = [
+  ...PROMPT_TEMPLATES,
+  {
+    label: "Content Marketing Funnel",
+    prompt: "Build a 6-month content marketing funnel that converts cold traffic into paying customers for a SaaS tool.",
+  },
+  {
+    label: "Competitor Analysis",
+    prompt: "Create a complete competitor analysis framework to enter a saturated market with a differentiated offer.",
+  },
+  {
+    label: "Revenue Model",
+    prompt: "Design a multi-stream revenue model for a digital platform, including subscription tiers, marketplace fees, and premium add-ons with projected unit economics.",
+  },
+  {
+    label: "Growth Playbook",
+    prompt: "Build a 90-day growth playbook for a pre-seed startup, covering product-market fit validation, early traction channels, and key metrics to track.",
+  },
+  {
+    label: "Pitch Deck Strategy",
+    prompt: "Create a compelling investor pitch deck strategy including narrative arc, market sizing, competitive moat, and financial projections for a Series A raise.",
+  },
+];
+
 const DECRYPTION_LINES = [
   "▶ DECRYPTING_PAYLOAD // AES-256-GCM ...",
   "▶ VERIFYING_SIGNATURE // RSA-4096 ...",
@@ -116,6 +140,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
   const [isSaving, setIsSaving] = useState(false);
   const [isDecrypting, setIsDecrypting] = useState(false);
   const [decryptionIndex, setDecryptionIndex] = useState(0);
+  const [showHelpPanel, setShowHelpPanel] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -268,6 +293,56 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
         multiple
       />
 
+      {/* /help PANEL */}
+      <AnimatePresence>
+        {showHelpPanel && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-50 bg-[#020617]/95 backdrop-blur-md flex flex-col items-center justify-center p-8 overflow-y-auto"
+          >
+            <div className="w-full max-w-2xl space-y-6">
+              <div className="flex items-center justify-between">
+                <h2 className="text-[10px] font-mono font-black uppercase tracking-[0.3em] text-[#00ff88]">
+                  📋 Golden Business Prompts
+                </h2>
+                <button
+                  onClick={() => setShowHelpPanel(false)}
+                  className="text-[9px] font-mono uppercase tracking-widest text-white/40 hover:text-white transition-colors"
+                >
+                  [ESC] Close
+                </button>
+              </div>
+              <div className="h-px bg-[#00ff88]/20" />
+              <div className="grid gap-3">
+                {HELP_PROMPTS.map((item, i) => (
+                  <motion.button
+                    key={item.label}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.06, duration: 0.3 }}
+                    onClick={() => {
+                      setDirective(item.prompt);
+                      setShowHelpPanel(false);
+                    }}
+                    className="w-full text-left p-4 rounded-xl border border-[#00ff88]/20 bg-[#0a0a0a] hover:border-[#00ff88]/50 hover:scale-[1.02] transition-all duration-200 group"
+                    style={{ boxShadow: "0 0 8px rgba(0, 255, 136, 0.05)" }}
+                  >
+                    <span className="text-[9px] font-mono font-black uppercase tracking-[0.2em] text-[#00ff88]/70 group-hover:text-[#00ff88]">
+                      {item.label}
+                    </span>
+                    <p className="text-[11px] text-white/50 mt-1.5 leading-relaxed group-hover:text-white/70 transition-colors">
+                      {item.prompt}
+                    </p>
+                  </motion.button>
+                ))}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* HEADER */}
       <div className="flex items-center gap-3 px-6 py-4 border-b border-white/5 bg-[#020617]/50 backdrop-blur-md shrink-0 z-10">
         <Terminal size={14} className="text-[#00A3FF]" />
@@ -367,11 +442,19 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
 
                   <textarea
                     value={directive}
-                    onChange={(e) => setDirective(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val.trim().toLowerCase() === "/help") {
+                        setShowHelpPanel(true);
+                        setDirective("");
+                        return;
+                      }
+                      setDirective(val);
+                    }}
                     placeholder={
                       activeSection === "drafts"
                         ? "CONTINUE WORKING ON DRAFT..."
-                        : "WHAT IS THE PROBLEM WE ARE SOLVING?"
+                        : 'TYPE /help FOR PROMPTS — OR DESCRIBE YOUR PROBLEM'
                     }
                     className="flex-1 rounded-2xl p-6 min-h-[140px] transition-all duration-300 outline-none font-sans text-sm text-white bg-white/[0.06] border-2 border-[#00A3FF]/40 focus:border-[#00A3FF] shadow-neon-blue-soft resize-none"
                   />
