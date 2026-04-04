@@ -93,7 +93,7 @@ const Generator = () => {
         data: { user },
       } = await supabase.auth.getUser();
 
-      const { error: insertError } = await supabase.from("missions").insert([
+      const { error: insertError } = await (supabase as any).from("missions").insert([
         {
           prompt: prompt.trim(),
           code: generatedCode,
