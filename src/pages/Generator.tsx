@@ -1,23 +1,13 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  Plus,
-  Home,
-  Clock,
-  Archive,
-  Trash2,
-  Shield,
-  ChevronRight,
-  Sparkles,
-  Zap,
-  AlertCircle,
-  Github,
-} from "lucide-react";
+import { ArrowLeft, Zap, Sparkles, ExternalLink } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
 import ModelSidebar from "@/components/ModelSidebar";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+/** Strip markdown code fences so the iframe never breaks */
 function extractHTML(raw: string): string {
   return raw
     .replace(/^```html\s*/i, "")
@@ -26,182 +16,385 @@ function extractHTML(raw: string): string {
     .trim();
 }
 
+/** Ensure the output is a full HTML document with Tailwind CDN */
 function wrapInSkeleton(html: string): string {
   const lower = html.toLowerCase();
-  if (lower.includes("<!doctype") || lower.includes("<html")) return html;
-  return `<!DOCTYPE html><html><head><script src="https://cdn.tailwindcss.com"></script><style>body { background: #0a0a0a; color: #f1f5f9; min-height: 100vh; }</style></head><body>${html}</body></html>`;
+  if (lower.includes("<!doctype") || lower.includes("<html")) {
+    if (!lower.includes("tailwindcss")) {
+      return html.replace(
+        "</head>",
+        `<script src="https://cdn.tailwindcss.com"></script>\n</head>`
+      );
+    }
+    return html;
+  }
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NazAI Preview</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>body { background: #0a0a0a; color: #f1f5f9; }</style>
+</head>
+<body>
+${html}
+</body>
+</html>`;
 }
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 const Generator = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
+
   const [prompt, setPrompt] = useState("");
-  const [activeModel, setActiveModel] = useState("google/gemini-2.0-flash-001");
-  const [loading, setLoading] = useState(false);
+  const [activeModel, setActiveModel] = useState("gemini-2.0-flash");
+  const [thinkingModel, setThinkingModel] = useState<string | null>(null);
   const [generatedCode, setGeneratedCode] = useState("");
-  const [focused, setFocused] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [creditsLeft, setCreditsLeft] = useState<number | null>(null);
+  const [modelUsed, setModelUsed] = useState<string | null>(null);
+  const [focused, setFocused] = useState(false);
 
   const handleGenerate = async () => {
     if (!prompt.trim() || loading) return;
     setLoading(true);
     setError(null);
+    setGeneratedCode("");
+    setModelUsed(null);
+    setThinkingModel(activeModel);
 
     try {
-      // We pass the prompt, model, and the repo name we saw in your screenshot
-      const { data, error: fnError } = await supabase.functions.invoke("naz-io-spark", {
-        body: {
-          prompt: prompt.trim(),
-          model_choice: activeModel,
-          repo: "nazik8856-ship-it/naz-io-spark", // From your GitHub screenshot
-        },
-      });
+      const { data, error: fnError } = await supabase.functions.invoke(
+        "naz-io-spark",
+        {
+          body: {
+            prompt: prompt.trim(),
+            model_choice: activeModel,
+          },
+        }
+      );
 
       if (fnError) throw new Error(fnError.message);
+      if (!data) throw new Error("No response from Neural Router.");
 
-      const clean = extractHTML(data.content ?? "");
+      const rawHTML: string = data.content ?? data.html_code ?? "";
+      if (!rawHTML) throw new Error("Neural Router returned empty content.");
+
+      const clean = extractHTML(rawHTML);
       const full = wrapInSkeleton(clean);
-      setGeneratedCode(full);
 
-      // Auto-open in new tab for full-screen preview
+      setGeneratedCode(full);
+      setModelUsed(data.model_used ?? activeModel);
+      if (data.credits_remaining !== undefined) {
+        setCreditsLeft(data.credits_remaining);
+      }
+
+      // Open in new tab
       const blob = new Blob([full], { type: "text/html" });
-      const url = URL.createObjectURL(blob);
-      window.open(url, "_blank");
-    } catch (err: any) {
-      console.error("Generation Error:", err);
-      setError(err.message || "An unexpected error occurred during decryption.");
+      window.open(URL.createObjectURL(blob), "_blank");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
       setLoading(false);
+      setThinkingModel(null);
     }
   };
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-[#020617] text-slate-200 font-sans">
-      {/* ── LEFT NAV (OS SIDEBAR) ── */}
-      <aside className="w-64 flex-shrink-0 border-r border-white/5 flex flex-col bg-[#020617] z-20">
-        <div className="p-6 flex items-center gap-3">
-          <div className="w-8 h-8 bg-blue-600/20 rounded flex items-center justify-center border border-blue-500/30">
-            <Shield className="w-4 h-4 text-blue-400" />
-          </div>
-          <span className="font-bold tracking-tighter text-sm italic">NAZAI // OS</span>
-        </div>
+    <div
+      className="flex h-screen overflow-hidden"
+      style={{ background: "#020617", fontFamily: "system-ui, sans-serif" }}
+    >
+      {/* ── Ambient Grid ── */}
+      <div
+        className="pointer-events-none fixed inset-0 z-0"
+        style={{
+          backgroundImage: `
+            linear-gradient(rgba(0,163,255,0.015) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(0,163,255,0.015) 1px, transparent 1px)
+          `,
+          backgroundSize: "64px 64px",
+        }}
+      />
 
-        <nav className="flex-1 px-3 space-y-1">
-          <button
-            onClick={() => navigate("/")}
-            className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg bg-blue-600/10 text-blue-400 border border-blue-500/10 text-sm font-medium"
-          >
-            <Home className="w-4 h-4" /> Home
-          </button>
-          <button className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg hover:bg-white/5 text-slate-400 transition-colors text-sm">
-            <Clock className="w-4 h-4" /> Recents
-          </button>
-          <button className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg hover:bg-white/5 text-slate-400 transition-colors text-sm">
-            <Archive className="w-4 h-4" /> Archives
-          </button>
-          <button className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg hover:bg-white/5 text-slate-400 transition-colors text-sm">
-            <Trash2 className="w-4 h-4" /> Trash
-          </button>
-        </nav>
-
-        <div className="p-6 border-t border-white/5">
-          <div className="text-[10px] text-slate-500 uppercase tracking-[0.2em] mb-4 font-bold">Connected Repo</div>
-          <div className="text-xs text-slate-300 flex items-center gap-2 group cursor-pointer">
-            <Github className="w-3 h-3 text-slate-500" />
-            <span className="truncate group-hover:text-blue-400 transition-colors font-mono">naz-io-spark</span>
-          </div>
-        </div>
-      </aside>
-
-      {/* ── MODEL SIDEBAR ── */}
-      <div className="w-72 flex-shrink-0 border-r border-white/5 bg-[#010411]">
-        <ModelSidebar activeModel={activeModel} onModelChange={setActiveModel} />
+      {/* ── Model Sidebar ── */}
+      <div className="relative z-10 flex-shrink-0 h-full">
+        <ModelSidebar
+          activeModel={activeModel}
+          onModelChange={setActiveModel}
+          thinkingModel={thinkingModel}
+        />
       </div>
 
-      {/* ── MAIN TERMINAL AREA ── */}
-      <main className="flex-1 flex flex-col min-w-0 bg-[#020617] relative">
-        <header className="h-14 flex items-center justify-between px-8 border-b border-white/5 bg-[#020617]/80 backdrop-blur-xl z-10">
-          <div className="flex items-center gap-2 text-[10px] text-blue-400 font-mono tracking-widest">
-            <ChevronRight className="w-3 h-3" />
-            <span className="text-white/20">NAZAI://</span> HOME
-          </div>
+      {/* ── Main Panel ── */}
+      <div className="relative z-10 flex flex-col flex-1 min-w-0 overflow-hidden">
+        {/* Header */}
+        <header
+          className="flex items-center justify-between px-6 py-4 flex-shrink-0"
+          style={{
+            background: "rgba(2,6,23,0.8)",
+            backdropFilter: "blur(16px)",
+            borderBottom: "1px solid rgba(0,163,255,0.08)",
+          }}
+        >
+          <button
+            onClick={() => navigate("/")}
+            className="flex items-center gap-2 text-sm transition-colors"
+            style={{ color: "rgba(255,255,255,0.4)" }}
+            onMouseEnter={(e) =>
+              (e.currentTarget.style.color = "#00A3FF")
+            }
+            onMouseLeave={(e) =>
+              (e.currentTarget.style.color = "rgba(255,255,255,0.4)")
+            }
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back
+          </button>
+
           <div className="flex items-center gap-2">
-            <Sparkles className="w-3 h-3 text-purple-500" />
-            <span className="text-[10px] font-black tracking-[0.3em] text-white uppercase">NazAI // V2.0</span>
+            <Sparkles className="w-4 h-4" style={{ color: "#00A3FF" }} />
+            <span
+              className="text-base font-bold tracking-tight"
+              style={{
+                background: "linear-gradient(90deg, #00A3FF, #a855f7)",
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+              }}
+            >
+              NazAI Command Center
+            </span>
+          </div>
+
+          <div className="flex items-center gap-3">
+            {creditsLeft !== null && (
+              <span
+                className="text-xs px-2 py-1 rounded-md"
+                style={{
+                  background: "rgba(0,163,255,0.08)",
+                  color: "#00A3FF",
+                  border: "1px solid rgba(0,163,255,0.2)",
+                }}
+              >
+                {creditsLeft} credits
+              </span>
+            )}
+            {modelUsed && (
+              <span
+                className="text-xs px-2 py-1 rounded-md"
+                style={{
+                  background: "rgba(168,85,247,0.08)",
+                  color: "#a855f7",
+                  border: "1px solid rgba(168,85,247,0.2)",
+                }}
+              >
+                {modelUsed.split("/").pop()}
+              </span>
+            )}
           </div>
         </header>
 
-        {/* TERMINAL CONTENT */}
-        <div className="flex-1 overflow-y-auto p-12 font-mono scrollbar-hide">
-          <div className="max-w-4xl mx-auto space-y-4">
-            <div className="flex items-center gap-3 text-green-500/80 text-xs">
-              <ChevronRight className="w-3 h-3" />
-              <span>NODE_INIT // PARALLEL_EXECUTION_START</span>
-            </div>
-            <div className="flex items-center gap-3 text-blue-400/80 text-xs">
-              <ChevronRight className="w-3 h-3" />
-              <span>DECRYPTION_SEQUENCE // INITIATED</span>
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto px-6 py-6 space-y-5">
+          {/* Prompt area */}
+          <div className="space-y-2">
+            <label
+              className="text-xs uppercase tracking-widest font-medium"
+              style={{ color: "rgba(0,163,255,0.6)" }}
+            >
+              Mission Brief
+            </label>
+
+            <div
+              className="rounded-xl p-px transition-all duration-300"
+              style={{
+                background: focused
+                  ? "linear-gradient(135deg, #00A3FF, #a855f7)"
+                  : "rgba(255,255,255,0.06)",
+              }}
+            >
+              <textarea
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                onFocus={() => setFocused(true)}
+                onBlur={() => setFocused(false)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey))
+                    handleGenerate();
+                }}
+                placeholder="Describe the website or app you want to build..."
+                rows={4}
+                className="w-full rounded-xl px-5 py-4 text-sm resize-none outline-none"
+                style={{
+                  background: "#0a0f1e",
+                  color: "#e2e8f0",
+                  caretColor: "#00A3FF",
+                }}
+              />
             </div>
 
-            {error && (
-              <div className="mt-4 p-4 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center gap-3 text-red-400 text-xs">
-                <AlertCircle className="w-4 h-4" />
-                <span>CRITICAL ERROR: {error}</span>
-              </div>
+            <div className="flex items-center justify-between">
+              <p
+                className="text-xs"
+                style={{ color: "rgba(255,255,255,0.2)" }}
+              >
+                Cmd/Ctrl + Enter to generate · Active model:{" "}
+                <span style={{ color: "#00A3FF" }}>{activeModel}</span>
+              </p>
+            </div>
+          </div>
+
+          {/* Generate button */}
+          <button
+            onClick={handleGenerate}
+            disabled={loading || !prompt.trim()}
+            className="w-full flex items-center justify-center gap-3 py-4 rounded-xl font-bold text-sm uppercase tracking-widest transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
+            style={{
+              background: loading
+                ? "rgba(0,163,255,0.08)"
+                : "linear-gradient(135deg, #00A3FF 0%, #a855f7 100%)",
+              color: loading ? "#00A3FF" : "#020617",
+              border: loading ? "1px solid rgba(0,163,255,0.3)" : "none",
+              boxShadow: loading
+                ? "none"
+                : "0 0 32px rgba(0,163,255,0.2)",
+            }}
+          >
+            {loading ? (
+              <>
+                <span
+                  className="w-4 h-4 rounded-full border-2 border-t-transparent animate-spin"
+                  style={{
+                    borderColor: "#00A3FF",
+                    borderTopColor: "transparent",
+                  }}
+                />
+                Glitching...
+              </>
+            ) : (
+              <>
+                <Zap className="w-4 h-4" />
+                Execute Mission
+              </>
             )}
+          </button>
 
-            {generatedCode && (
-              <div className="mt-8 rounded-xl border border-white/10 overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-500">
-                <div className="bg-white/5 px-4 py-2 border-b border-white/10 flex items-center justify-between">
-                  <span className="text-[10px] uppercase tracking-widest text-slate-500">Live Preview</span>
+          {/* Error */}
+          {error && (
+            <div
+              className="rounded-xl px-5 py-4 text-sm"
+              style={{
+                background: "rgba(239,68,68,0.06)",
+                border: "1px solid rgba(239,68,68,0.25)",
+                color: "#f87171",
+              }}
+            >
+              {error}
+            </div>
+          )}
+
+          {/* Browser Chrome Preview */}
+          {generatedCode && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <p
+                  className="text-xs uppercase tracking-widest font-medium"
+                  style={{ color: "rgba(0,163,255,0.6)" }}
+                >
+                  Live Preview
+                </p>
+                <button
+                  onClick={() => {
+                    const blob = new Blob([generatedCode], {
+                      type: "text/html",
+                    });
+                    window.open(URL.createObjectURL(blob), "_blank");
+                  }}
+                  className="flex items-center gap-1 text-xs transition-colors"
+                  style={{ color: "rgba(255,255,255,0.3)" }}
+                  onMouseEnter={(e) =>
+                    (e.currentTarget.style.color = "#00A3FF")
+                  }
+                  onMouseLeave={(e) =>
+                    (e.currentTarget.style.color = "rgba(255,255,255,0.3)")
+                  }
+                >
+                  <ExternalLink className="w-3 h-3" />
+                  Open in new tab
+                </button>
+              </div>
+
+              <div
+                className="rounded-xl overflow-hidden"
+                style={{ border: "1px solid rgba(0,163,255,0.1)" }}
+              >
+                {/* Browser chrome bar */}
+                <div
+                  className="flex items-center gap-2 px-4 py-2.5"
+                  style={{
+                    background: "#080d1a",
+                    borderBottom: "1px solid rgba(255,255,255,0.04)",
+                  }}
+                >
                   <div className="flex gap-1.5">
-                    <div className="w-2 h-2 rounded-full bg-red-500/20" />
-                    <div className="w-2 h-2 rounded-full bg-yellow-500/20" />
-                    <div className="w-2 h-2 rounded-full bg-green-500/20" />
+                    <div
+                      className="w-2.5 h-2.5 rounded-full"
+                      style={{ background: "rgba(239,68,68,0.6)" }}
+                    />
+                    <div
+                      className="w-2.5 h-2.5 rounded-full"
+                      style={{ background: "rgba(234,179,8,0.6)" }}
+                    />
+                    <div
+                      className="w-2.5 h-2.5 rounded-full"
+                      style={{ background: "rgba(34,197,94,0.6)" }}
+                    />
+                  </div>
+                  <div
+                    className="ml-3 flex-1 rounded px-3 py-1 text-[11px]"
+                    style={{
+                      background: "rgba(255,255,255,0.04)",
+                      color: "rgba(255,255,255,0.2)",
+                    }}
+                  >
+                    nazai://preview · {activeModel}
                   </div>
                 </div>
-                <iframe srcDoc={generatedCode} className="w-full h-[500px] bg-white" title="preview" />
+                <iframe
+                  srcDoc={generatedCode}
+                  className="w-full"
+                  style={{ height: "520px", background: "#fff" }}
+                  sandbox="allow-scripts allow-same-origin"
+                  title="Generated Website Preview"
+                />
               </div>
-            )}
-          </div>
-        </div>
+            </div>
+          )}
 
-        {/* COMMAND INPUT */}
-        <div className="p-8 bg-gradient-to-t from-[#020617] via-[#020617] to-transparent">
-          <div
-            className={`max-w-4xl mx-auto rounded-2xl border transition-all duration-500 flex items-center px-4 py-1 ${
-              focused
-                ? "border-blue-500/40 bg-blue-500/5 shadow-[0_0_50px_rgba(0,163,255,0.05)]"
-                : "border-white/10 bg-white/[0.02]"
-            }`}
-          >
-            <button className="p-2 text-slate-600 hover:text-blue-400 transition-colors">
-              <Plus className="w-5 h-5" />
-            </button>
-            <input
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              onFocus={() => setFocused(true)}
-              onBlur={() => setFocused(false)}
-              onKeyDown={(e) => e.key === "Enter" && handleGenerate()}
-              placeholder="Awaiting directive..."
-              className="flex-1 bg-transparent border-none outline-none py-4 px-4 text-sm text-slate-200 placeholder:text-slate-700 font-mono"
-            />
-            {loading ? (
-              <div className="w-5 h-5 border-2 border-blue-500/20 border-t-blue-500 animate-spin rounded-full mr-2" />
-            ) : (
-              <button
-                onClick={handleGenerate}
-                className="p-2 text-blue-500 hover:scale-110 active:scale-95 transition-all"
+          {/* Empty state */}
+          {!generatedCode && !loading && (
+            <div
+              className="flex flex-col items-center justify-center py-24 rounded-xl"
+              style={{ border: "1px dashed rgba(0,163,255,0.08)" }}
+            >
+              <Sparkles
+                className="w-10 h-10 mb-4"
+                style={{ color: "rgba(0,163,255,0.2)" }}
+              />
+              <p
+                className="text-sm font-medium"
+                style={{ color: "rgba(255,255,255,0.15)" }}
               >
-                <Zap className="w-5 h-5 fill-current" />
-              </button>
-            )}
-          </div>
-          <p className="text-center text-[9px] text-slate-700 mt-4 tracking-[0.2em] uppercase">
-            Powered by OpenRouter // Encrypted via Supabase
-          </p>
+                Select a model and enter a mission brief
+              </p>
+            </div>
+          )}
         </div>
-      </main>
+      </div>
     </div>
   );
 };
