@@ -16,32 +16,15 @@ interface TerminalLine {
   time: string;
 }
 
-interface ActionTerminalProps {
-  activeSection?: string;
-  initialDirective?: string;
-}
-
 const SYSTEM_PREFIX = "SYS_MSG >> ";
 const BOOT_DELAY = 60;
 
-const normalizeSection = (section?: string): Mission["status"] => {
-  switch (section) {
-    case "home":
-    case "recent":
-    case "archived":
-    case "trash":
-      return section;
-    default:
-      return "home";
-  }
-};
-
-const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home", initialDirective = "" }) => {
+const ActionTerminal = () => {
   // --- STATE ---
-  const [input, setInput] = useState(initialDirective);
+  const [input, setInput] = useState("");
   const [isBooted, setIsBooted] = useState(false);
   const [history, setHistory] = useState<TerminalLine[]>([]);
-  const [activeTab, setActiveTab] = useState<Mission["status"]>(normalizeSection(activeSection));
+  const [activeTab, setActiveTab] = useState<"home" | "recent" | "archived" | "trash">("home");
   const [missions, setMissions] = useState<Mission[]>(() => {
     const saved = localStorage.getItem("nazai_v3_data");
     return saved
@@ -96,14 +79,6 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home",
   }, [missions]);
 
   useEffect(() => {
-    setActiveTab(normalizeSection(activeSection));
-  }, [activeSection]);
-
-  useEffect(() => {
-    setInput(initialDirective);
-  }, [initialDirective]);
-
-  useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
@@ -124,7 +99,10 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home",
     const cleanInput = rawInput.trim();
     if (!cleanInput) return;
 
-    setHistory((prev) => [...prev, { text: `> ${cleanInput}`, type: "user", time: new Date().toLocaleTimeString() }]);
+    setHistory((prev) => [
+      ...prev,
+      { text: `> ${cleanInput}`, type: "user", time: new Date().toLocaleTimeString([], { hour12: false }) },
+    ]);
 
     const [cmd, ...args] = cleanInput.toLowerCase().split(" ");
     const target = args.join(" ").toUpperCase();
@@ -155,7 +133,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home",
 
   return (
     <div className="flex h-screen bg-[#020606] text-[#00ff80] font-mono selection:bg-[#00ff80] selection:text-black overflow-hidden relative">
-      {/* THE SINGLE UNIFIED SIDEBAR (REPLACES BOTH OLD ONES) */}
+      {/* UNIFIED SIDEBAR */}
       <aside className="w-72 bg-[#050808] border-r border-[#00ff80]/10 flex flex-col z-50">
         {/* TOP BRANDING */}
         <div className="p-6 border-b border-[#00ff80]/10 flex items-center gap-3">
@@ -163,7 +141,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home",
             <Cpu size={20} />
           </div>
           <div>
-            <h2 className="text-sm font-black tracking-widest text-white uppercase leading-none">Workspace</h2>
+            <h2 className="text-sm font-black tracking-widest text-white uppercase leading-none">NazAI://OS</h2>
             <p className="text-[9px] opacity-40 uppercase tracking-[2px] mt-1">Direct Node Access</p>
           </div>
         </div>
@@ -224,7 +202,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home",
           </section>
         </div>
 
-        {/* BOTTOM USER PROFILE & SECURE NODE BAR */}
+        {/* BOTTOM USER PROFILE */}
         <div className="flex flex-col">
           <div className="p-4 bg-black/40 border-t border-[#00ff80]/10 flex items-center gap-3">
             <div className="w-8 h-8 rounded bg-[#00ff80]/10 flex items-center justify-center border border-[#00ff80]/20 text-[#00ff80]">
@@ -240,7 +218,6 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home",
             <Settings size={14} className="opacity-20 hover:opacity-100 cursor-pointer transition-opacity" />
           </div>
 
-          {/* SECURE NODE (SYNCHRONIZED COLOR) */}
           <div className="p-4 bg-[#050808] border-t border-[#00ff80]/5 text-center">
             <div className="flex items-center justify-center gap-2">
               <Shield size={10} className="text-[#00ff80] opacity-30" />
@@ -258,7 +235,13 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home",
             <StatusMetric icon={<Cpu />} label="CPU" value="12.4%" />
             <StatusMetric icon={<Lock />} label="SEC" value="AES-256" />
           </div>
-          <Activity size={14} className="text-[#00ff80] animate-pulse opacity-50" />
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-[#00ff80]" />
+              <span className="text-[10px] font-bold tracking-widest opacity-80">LIVE_CONNECTION</span>
+            </div>
+            <Activity size={14} className="text-[#00ff80] animate-pulse opacity-50" />
+          </div>
         </header>
 
         {/* TERMINAL CONTENT */}
