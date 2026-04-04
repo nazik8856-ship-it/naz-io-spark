@@ -69,6 +69,7 @@ const Generator = () => {
       const full = wrapInSkeleton(clean);
       setGeneratedCode(full);
 
+      // Open in new tab automatically
       const blob = new Blob([full], { type: "text/html" });
       const url = URL.createObjectURL(blob);
       window.open(url, "_blank");
@@ -122,7 +123,7 @@ const Generator = () => {
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-[#020617] text-slate-200 font-sans">
-      {/* Sidebar 1: OS Navigation */}
+      {/* ── SIDEBAR 1: OS NAV ── */}
       <aside className="w-56 flex-shrink-0 border-r border-white/5 flex flex-col bg-[#020617] z-30">
         <div className="p-6 flex items-center gap-3">
           <div className="w-8 h-8 bg-blue-600/20 rounded flex items-center justify-center border border-blue-500/30">
@@ -161,46 +162,20 @@ const Generator = () => {
         </div>
       </aside>
 
-      {/* Sidebar 2: Model selection */}
+      {/* ── SIDEBAR 2: MODELS ── */}
       <div className="w-64 flex-shrink-0 border-r border-white/5 bg-[#010411] z-20">
         <ModelSidebar activeModel={activeModel} onModelChange={setActiveModel} />
       </div>
 
-      {/* Main Workspace */}
+      {/* ── MAIN WORKSPACE ── */}
       <main className="flex-1 flex flex-col min-w-0 bg-[#020617] relative">
+        {/* Header Section */}
         <header className="h-16 flex-shrink-0 flex items-center justify-between px-8 border-b border-white/5 bg-[#020617]/95 backdrop-blur-xl z-40">
           <div className="flex items-center gap-6">
             <div className="flex items-center gap-2 text-[10px] text-blue-400 font-mono tracking-widest uppercase">
               <ChevronRight className="w-3 h-3" />
               <span className="text-white/20">NazAI://</span> Mission_Control
             </div>
-
-            {/* FORCE VISIBLE SAVE BUTTON */}
-            <button
-              onClick={handleSaveMission}
-              disabled={saving || saveSuccess || !generatedCode}
-              className={`flex items-center gap-2 px-4 py-1.5 rounded-md border text-[10px] font-mono tracking-widest uppercase transition-all duration-500 ${
-                !generatedCode
-                  ? "opacity-30 grayscale cursor-not-allowed border-white/10 text-slate-500"
-                  : saveSuccess
-                    ? "border-green-500/40 bg-green-500/10 text-green-400"
-                    : "border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:border-emerald-400 hover:bg-emerald-500/20 shadow-[0_0_20px_rgba(16,185,129,0.1)]"
-              }`}
-            >
-              {saveSuccess ? (
-                <>
-                  <CheckCircle2 className="w-3.5 h-3.5" /> <span>Mission Archived</span>
-                </>
-              ) : saving ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> <span>Archiving...</span>
-                </>
-              ) : (
-                <>
-                  <DatabaseZap className="w-3.5 h-3.5" /> <span>Save_Mission</span>
-                </>
-              )}
-            </button>
           </div>
 
           <div className="flex items-center gap-2">
@@ -209,6 +184,7 @@ const Generator = () => {
           </div>
         </header>
 
+        {/* Content Area */}
         <div className="flex-1 overflow-y-auto p-8 font-mono scrollbar-hide">
           <div className="max-w-4xl mx-auto space-y-6">
             <div className="flex items-center gap-3 text-green-500/80 text-[10px]">
@@ -249,24 +225,37 @@ const Generator = () => {
                     >
                       <Download className="w-3.5 h-3.5" /> Download
                     </button>
-                    <button
-                      onClick={handleSaveMission}
-                      disabled={saving || saveSuccess}
-                      className={`flex items-center gap-2 px-5 py-2.5 rounded-lg border text-xs font-mono tracking-widest uppercase transition-all duration-300 ${
-                        saveSuccess
-                          ? "border-green-500/40 bg-green-500/10 text-green-400"
-                          : "border-emerald-500/40 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
-                      }`}
-                    >
-                      {saveSuccess ? <CheckCircle2 className="w-4 h-4" /> : <DatabaseZap className="w-4 h-4" />}
-                      {saveSuccess ? "Mission Archived" : "Save to DB"}
-                    </button>
                   </div>
                 </div>
               </div>
             )}
           </div>
         </div>
+
+        {/* ── THE GOD-MODE FLOATING SAVE BUTTON ── */}
+        {/* This stays fixed to the viewport, impossible to hide by sidebars */}
+        {generatedCode && (
+          <button
+            onClick={handleSaveMission}
+            disabled={saving || saveSuccess}
+            className={`fixed bottom-32 right-12 z-[100] flex items-center gap-3 px-6 py-3.5 rounded-full border-2 shadow-[0_0_30px_rgba(0,0,0,0.5)] transition-all active:scale-95 duration-500 ${
+              saveSuccess
+                ? "border-green-500 bg-green-500/20 text-green-400 shadow-[0_0_20px_rgba(34,197,94,0.3)]"
+                : "border-emerald-500/50 bg-emerald-600 text-white hover:bg-emerald-500 hover:border-emerald-400 hover:shadow-[0_0_25px_rgba(16,185,129,0.4)]"
+            }`}
+          >
+            {saving ? (
+              <Loader2 className="animate-spin w-5 h-5" />
+            ) : saveSuccess ? (
+              <CheckCircle2 className="w-5 h-5" />
+            ) : (
+              <DatabaseZap className="w-5 h-5 animate-pulse text-emerald-200" />
+            )}
+            <span className="font-bold uppercase tracking-[0.2em] text-[11px]">
+              {saveSuccess ? "Mission Archived" : saving ? "Archiving..." : "Archive to Database"}
+            </span>
+          </button>
+        )}
 
         {/* Input Dock */}
         <div className="p-8 bg-gradient-to-t from-[#020617] via-[#020617] to-transparent z-40">
