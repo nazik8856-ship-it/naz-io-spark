@@ -17,19 +17,26 @@ interface TerminalLine {
 }
 
 interface ActionTerminalProps {
-  activeSection?: "home" | "recent" | "archived" | "trash";
+  activeSection?: string;
   initialDirective?: string;
 }
 
 const SYSTEM_PREFIX = "SYS_MSG >> ";
 const BOOT_DELAY = 60;
 
+const normalizeSection = (section?: string): Mission["status"] => {
+  if (section === "recent") return "recent";
+  if (section === "archived") return "archived";
+  if (section === "trash") return "trash";
+  return "home";
+};
+
 const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home", initialDirective = "" }) => {
   // --- STATE ---
   const [input, setInput] = useState(initialDirective);
   const [isBooted, setIsBooted] = useState(false);
   const [history, setHistory] = useState<TerminalLine[]>([]);
-  const [activeTab, setActiveTab] = useState<"home" | "recent" | "archived" | "trash">(activeSection);
+  const [activeTab, setActiveTab] = useState<Mission["status"]>(normalizeSection(activeSection));
   const [missions, setMissions] = useState<Mission[]>(() => {
     const saved = localStorage.getItem("nazai_v3_data");
     return saved
@@ -90,7 +97,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home",
   }, [history]);
 
   useEffect(() => {
-    setActiveTab(activeSection);
+    setActiveTab(normalizeSection(activeSection));
   }, [activeSection]);
 
   useEffect(() => {
