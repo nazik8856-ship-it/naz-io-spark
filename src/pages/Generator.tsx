@@ -69,7 +69,6 @@ const Generator = () => {
       const full = wrapInSkeleton(clean);
       setGeneratedCode(full);
 
-      // Open preview in new tab
       const blob = new Blob([full], { type: "text/html" });
       const url = URL.createObjectURL(blob);
       window.open(url, "_blank");
@@ -81,7 +80,6 @@ const Generator = () => {
     }
   };
 
-  // ── Save Mission handler ──
   const handleSaveMission = async () => {
     if (!generatedCode || saving) return;
     setSaving(true);
@@ -92,7 +90,6 @@ const Generator = () => {
         data: { user },
       } = await supabase.auth.getUser();
 
-      // Casting to 'any' is required if your local DB types aren't synced
       const { error: insertError } = await (supabase as any).from("missions").insert([
         {
           prompt: prompt.trim(),
@@ -127,7 +124,7 @@ const Generator = () => {
     <div className="flex h-screen w-full overflow-hidden bg-[#020617] text-slate-200 font-sans">
       <aside className="w-64 flex-shrink-0 border-r border-white/5 flex flex-col bg-[#020617] z-20">
         <div className="p-6 flex items-center gap-3">
-          <div className="w-8 h-8 bg-blue-600/20 rounded flex items-center justify-center border border-blue-500/30 shadow-[0_0_15px_rgba(37,99,235,0.2)]">
+          <div className="w-8 h-8 bg-blue-600/20 rounded flex items-center justify-center border border-blue-500/30">
             <Shield className="w-4 h-4 text-blue-400" />
           </div>
           <span className="font-bold tracking-tighter text-sm italic uppercase">NazAI // OS</span>
@@ -168,38 +165,39 @@ const Generator = () => {
       </div>
 
       <main className="flex-1 flex flex-col min-w-0 bg-[#020617] relative">
-        <header className="h-14 flex items-center justify-between px-8 border-b border-white/5 bg-[#020617]/80 backdrop-blur-xl z-10">
+        <header className="h-14 flex items-center justify-between px-8 border-b border-white/5 bg-[#020617]/80 backdrop-blur-xl z-20">
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2 text-[10px] text-blue-400 font-mono tracking-widest uppercase">
               <ChevronRight className="w-3 h-3" />
               <span className="text-white/20">NazAI://</span> Mission_Control
             </div>
 
-            {generatedCode && (
-              <button
-                onClick={handleSaveMission}
-                disabled={saving || saveSuccess}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-md border text-[10px] font-mono tracking-widest uppercase transition-all duration-300 ${
-                  saveSuccess
+            {/* BUTTON IS NOW ALWAYS RENDERED */}
+            <button
+              onClick={handleSaveMission}
+              disabled={saving || saveSuccess || !generatedCode}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-md border text-[10px] font-mono tracking-widest uppercase transition-all duration-300 ${
+                !generatedCode
+                  ? "opacity-20 cursor-not-allowed border-white/10"
+                  : saveSuccess
                     ? "border-green-500/40 bg-green-500/10 text-green-400"
                     : "border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:border-emerald-400 hover:bg-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.1)]"
-                }`}
-              >
-                {saveSuccess ? (
-                  <>
-                    <CheckCircle2 className="w-3 h-3" /> <span>Mission Archived</span>
-                  </>
-                ) : saving ? (
-                  <>
-                    <Loader2 className="w-3 h-3 animate-spin" /> <span>Archiving...</span>
-                  </>
-                ) : (
-                  <>
-                    <DatabaseZap className="w-3 h-3" /> <span>Save_Mission</span>
-                  </>
-                )}
-              </button>
-            )}
+              }`}
+            >
+              {saveSuccess ? (
+                <>
+                  <CheckCircle2 className="w-3 h-3" /> <span>Mission Archived</span>
+                </>
+              ) : saving ? (
+                <>
+                  <Loader2 className="w-3 h-3 animate-spin" /> <span>Archiving...</span>
+                </>
+              ) : (
+                <>
+                  <DatabaseZap className="w-3 h-3" /> <span>Save_Mission</span>
+                </>
+              )}
+            </button>
           </div>
           <div className="flex items-center gap-2">
             <Sparkles className="w-3 h-3 text-purple-500" />
