@@ -16,15 +16,32 @@ interface TerminalLine {
   time: string;
 }
 
+interface ActionTerminalProps {
+  activeSection?: string;
+  initialDirective?: string;
+}
+
 const SYSTEM_PREFIX = "SYS_MSG >> ";
 const BOOT_DELAY = 60;
 
-const ActionTerminal = () => {
+const normalizeSection = (section?: string): Mission["status"] => {
+  switch (section) {
+    case "home":
+    case "recent":
+    case "archived":
+    case "trash":
+      return section;
+    default:
+      return "home";
+  }
+};
+
+const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home", initialDirective = "" }) => {
   // --- STATE ---
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(initialDirective);
   const [isBooted, setIsBooted] = useState(false);
   const [history, setHistory] = useState<TerminalLine[]>([]);
-  const [activeTab, setActiveTab] = useState<"home" | "recent" | "archived" | "trash">("home");
+  const [activeTab, setActiveTab] = useState<Mission["status"]>(() => normalizeSection(activeSection));
   const [missions, setMissions] = useState<Mission[]>(() => {
     const saved = localStorage.getItem("nazai_v3_data");
     return saved
@@ -73,6 +90,14 @@ const ActionTerminal = () => {
 
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    setActiveTab(normalizeSection(activeSection));
+  }, [activeSection]);
+
+  useEffect(() => {
+    setInput(initialDirective);
+  }, [initialDirective]);
 
   useEffect(() => {
     localStorage.setItem("nazai_v3_data", JSON.stringify(missions));
