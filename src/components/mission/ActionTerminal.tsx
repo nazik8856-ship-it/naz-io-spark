@@ -16,32 +16,15 @@ interface TerminalLine {
   time: string;
 }
 
-interface ActionTerminalProps {
-  activeSection?: string;
-  initialDirective?: string;
-}
-
 const SYSTEM_PREFIX = "SYS_MSG >> ";
 const BOOT_DELAY = 60;
 
-const normalizeSection = (section?: string): Mission["status"] => {
-  switch (section) {
-    case "recent":
-    case "archived":
-    case "trash":
-    case "home":
-      return section;
-    default:
-      return "home";
-  }
-};
-
-const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home", initialDirective = "" }) => {
+const ActionTerminal = () => {
   // --- STATE ---
-  const [input, setInput] = useState(initialDirective);
+  const [input, setInput] = useState("");
   const [isBooted, setIsBooted] = useState(false);
   const [history, setHistory] = useState<TerminalLine[]>([]);
-  const [activeTab, setActiveTab] = useState<Mission["status"]>(normalizeSection(activeSection));
+  const [activeTab, setActiveTab] = useState<"home" | "recent" | "archived" | "trash">("home");
   const [missions, setMissions] = useState<Mission[]>(() => {
     const saved = localStorage.getItem("nazai_v3_data");
     return saved
@@ -67,7 +50,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home",
 
   // --- BOOT SEQUENCE ---
   useEffect(() => {
-    const bootLines: string[] = [
+    const bootLines = [
       "AUTHENTICATING_USER... [OK]",
       "LOADING_NAZAI_CORE_V3.0...",
       "ESTABLISHING_ENCRYPTED_TUNNEL... [OK]",
@@ -94,14 +77,6 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home",
   useEffect(() => {
     localStorage.setItem("nazai_v3_data", JSON.stringify(missions));
   }, [missions]);
-
-  useEffect(() => {
-    setActiveTab(normalizeSection(activeSection));
-  }, [activeSection]);
-
-  useEffect(() => {
-    setInput(initialDirective);
-  }, [initialDirective]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -138,7 +113,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home",
         break;
       case "/save":
         const newM: Mission = {
-          id: Math.random().toString(36).substr(2, 4).toUpperCase(),
+          id: Math.random().toString(36).substring(2, 6).toUpperCase(),
           name: target || "NEW_TASK",
           status: "recent",
           timestamp: new Date().toISOString().split("T")[0],
@@ -158,9 +133,8 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home",
 
   return (
     <div className="flex h-screen bg-[#020606] text-[#00ff80] font-mono selection:bg-[#00ff80] selection:text-black overflow-hidden relative">
-      {/* UNIFIED SIDEBAR */}
+      {/* INTEGRATED SIDEBAR */}
       <aside className="w-72 bg-[#050808] border-r border-[#00ff80]/10 flex flex-col z-50">
-        {/* TOP BRANDING */}
         <div className="p-6 border-b border-[#00ff80]/10 flex items-center gap-3">
           <div className="p-2 bg-[#00ff80]/10 rounded border border-[#00ff80]/20 text-[#00ff80]">
             <Cpu size={20} />
@@ -171,9 +145,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home",
           </div>
         </div>
 
-        {/* SCROLLABLE NAV CONTENT */}
         <div className="flex-1 overflow-y-auto py-6 px-4 space-y-8">
-          {/* NAVIGATION */}
           <section>
             <h3 className="text-[10px] opacity-20 font-bold uppercase tracking-[4px] mb-4 px-2">Navigation</h3>
             <nav className="space-y-1">
@@ -208,7 +180,6 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home",
             </nav>
           </section>
 
-          {/* SYSTEM ASSETS */}
           <section>
             <h3 className="text-[10px] opacity-20 font-bold uppercase tracking-[4px] mb-4 px-2">Live Assets</h3>
             <div className="space-y-4 px-2">
@@ -227,7 +198,6 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home",
           </section>
         </div>
 
-        {/* BOTTOM USER PROFILE */}
         <div className="flex flex-col">
           <div className="p-4 bg-black/40 border-t border-[#00ff80]/10 flex items-center gap-3">
             <div className="w-8 h-8 rounded bg-[#00ff80]/10 flex items-center justify-center border border-[#00ff80]/20 text-[#00ff80]">
@@ -269,7 +239,6 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home",
           </div>
         </header>
 
-        {/* TERMINAL CONTENT */}
         <div ref={scrollRef} className="flex-1 p-10 overflow-y-auto space-y-4 font-mono scrollbar-hide">
           <div className="flex items-center gap-2 text-blue-400 mb-6 uppercase text-xs tracking-widest">
             <ChevronRight size={14} />
@@ -306,7 +275,6 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home",
           )}
         </div>
 
-        {/* INPUT BOX */}
         <div className="p-8 bg-gradient-to-t from-black to-transparent">
           <div className="max-w-4xl mx-auto flex items-center gap-4 px-6 py-4 bg-[#00ff80]/5 rounded-xl border border-[#00ff80]/10 shadow-[0_0_30px_rgba(0,255,128,0.03)]">
             <ChevronRight className="text-[#00ff80]" size={20} />
@@ -321,7 +289,6 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home",
           </div>
         </div>
 
-        {/* CRT SCANLINE OVERLAY */}
         <div className="absolute inset-0 pointer-events-none z-50 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.05)_50%),linear-gradient(90deg,rgba(255,0,0,0.01),rgba(0,255,0,0.01),rgba(0,0,255,0.01))] bg-[length:100%_3px,3px_100%] opacity-20" />
       </main>
     </div>
