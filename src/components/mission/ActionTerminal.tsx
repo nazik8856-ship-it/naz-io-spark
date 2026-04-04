@@ -16,38 +16,17 @@ interface TerminalLine {
   time: string;
 }
 
-interface ActionTerminalProps {
-  activeSection?: string;
-  initialDirective?: string;
-}
-
 const SYSTEM_PREFIX = "SYS_MSG >> ";
 const BOOT_DELAY = 60;
-const DEFAULT_SECTION: Mission["status"] = "home";
 
-const normalizeSection = (section?: string): Mission["status"] => {
-  switch (section) {
-    case "home":
-    case "recent":
-    case "archived":
-    case "trash":
-      return section;
-    default:
-      return DEFAULT_SECTION;
-  }
-};
-
-const ActionTerminal: React.FC<ActionTerminalProps> = ({
-  activeSection = DEFAULT_SECTION,
-  initialDirective = "",
-}) => {
-  const [input, setInput] = useState(initialDirective);
+const ActionTerminal = () => {
+  const [input, setInput] = useState("");
   const [isBooted, setIsBooted] = useState(false);
   const [history, setHistory] = useState<TerminalLine[]>([]);
-  const [activeTab, setActiveTab] = useState<Mission["status"]>(normalizeSection(activeSection));
+  const [activeTab, setActiveTab] = useState<"home" | "recent" | "archived" | "trash">("home");
 
-  // Data persistence for NazAI
   const [missions, setMissions] = useState<Mission[]>(() => {
+    if (typeof window === "undefined") return [];
     const saved = localStorage.getItem("nazai_v3_data");
     return saved
       ? JSON.parse(saved)
@@ -97,14 +76,6 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({
   }, [isBooted]);
 
   useEffect(() => {
-    setActiveTab(normalizeSection(activeSection));
-  }, [activeSection]);
-
-  useEffect(() => {
-    setInput(initialDirective);
-  }, [initialDirective]);
-
-  useEffect(() => {
     localStorage.setItem("nazai_v3_data", JSON.stringify(missions));
   }, [missions]);
 
@@ -125,8 +96,9 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({
     ]);
   };
 
-  const processCommand = (rawInput: string) => {
-    const cleanInput = rawInput.trim();
+  const processCommand = (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanInput = input.trim();
     if (!cleanInput) return;
 
     setHistory((prev) => [
@@ -166,8 +138,8 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 flex bg-[#020606] text-[#00ff80] font-mono selection:bg-[#00ff80] selection:text-black overflow-hidden">
-      {/* SINGLE UNIFIED SIDEBAR */}
+    <div className="fixed inset-0 flex bg-[#020606] text-[#00ff80] font-mono overflow-hidden">
+      {/* SIDEBAR */}
       <aside className="w-72 bg-[#050808] border-r border-[#00ff80]/10 flex flex-col z-50">
         <div className="p-6 border-b border-[#00ff80]/10 flex items-center gap-3">
           <div className="p-2 bg-[#00ff80]/10 rounded border border-[#00ff80]/20 text-[#00ff80]">
@@ -179,7 +151,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto py-6 px-4 space-y-8">
+        <div className="flex-1 overflow-y-auto py-6 px-4 space-y-8 custom-scrollbar">
           <section>
             <h3 className="text-[10px] opacity-20 font-bold uppercase tracking-[4px] mb-4 px-2">Navigation</h3>
             <nav className="space-y-1">
@@ -245,10 +217,6 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({
           </div>
           <Settings size={14} className="opacity-20 hover:opacity-100 cursor-pointer transition-opacity" />
         </div>
-
-        <div className="p-3 bg-[#050808] border-t border-[#00ff80]/5 text-center">
-          <p className="text-[8px] opacity-30 font-bold uppercase tracking-[3px]">Secure_Node // Synchronized</p>
-        </div>
       </aside>
 
       {/* MAIN VIEWPORT */}
@@ -268,7 +236,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({
           </div>
         </header>
 
-        <div ref={scrollRef} className="flex-1 p-10 overflow-y-auto space-y-4 font-mono scrollbar-hide">
+        <div ref={scrollRef} className="flex-1 p-10 overflow-y-auto space-y-4 custom-scrollbar">
           <div className="flex items-center gap-2 text-blue-400 mb-6 uppercase text-xs tracking-widest">
             <ChevronRight size={14} />
             <span>
@@ -280,14 +248,22 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({
             history.map((line, i) => (
               <div
                 key={i}
-                className={`text-sm flex gap-4 ${line.type === "error" ? "text-red-500" : line.type === "success" ? "text-[#00ff80]" : ""}`}
+                className={`text-sm flex gap-4 ${
+                  line.type === "error"
+                    ? "text-red-500"
+                    : line.type === "success"
+                      ? "text-[#00ff80]"
+                      : line.type === "warning"
+                        ? "text-yellow-500"
+                        : ""
+                }`}
               >
                 <span className="opacity-20 text-[10px] min-w-[70px]">[{line.time}]</span>
                 <span className="flex-1 break-all leading-relaxed">{line.text}</span>
               </div>
             ))
           ) : (
-            <div className="space-y-4 animate-in fade-in duration-500">
+            <div className="space-y-4 transition-opacity duration-500">
               {missions
                 .filter((m) => m.status === activeTab)
                 .map((m) => (
@@ -308,7 +284,10 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({
         </div>
 
         <div className="p-8 bg-gradient-to-t from-black to-transparent">
-          <div className="max-w-4xl mx-auto flex items-center gap-4 px-6 py-4 bg-[#00ff80]/5 rounded-xl border border-[#00ff80]/10 shadow-[0_0_30px_rgba(0,255,128,0.03)]">
+          <form
+            onSubmit={processCommand}
+            className="max-w-4xl mx-auto flex items-center gap-4 px-6 py-4 bg-[#00ff80]/5 rounded-xl border border-[#00ff80]/10"
+          >
             <ChevronRight className="text-[#00ff80]" size={20} />
             <input
               autoFocus
@@ -316,24 +295,41 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({
               placeholder="Awaiting directive..."
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && processCommand(input)}
             />
-          </div>
+          </form>
         </div>
 
-        <div className="absolute inset-0 pointer-events-none z-50 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.05)_50%),linear-gradient(90deg,rgba(255,0,0,0.01),rgba(0,255,0,0.01),rgba(0,0,255,0.01))] bg-[length:100%_3px,3px_100%] opacity-10" />
+        {/* Scanline Effect - Simplified for Lovable */}
+        <div className="absolute inset-0 pointer-events-none z-50 opacity-[0.03] overflow-hidden">
+          <div className="w-full h-full bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[length:100%_2px,3px_100%]" />
+        </div>
       </main>
+
+      <style>{`
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0, 255, 128, 0.1); border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(0, 255, 128, 0.3); }
+      `}</style>
     </div>
   );
 };
 
 // --- SUB-COMPONENTS ---
-const SidebarItem = ({ icon, label, active, count, onClick }: any) => (
+interface SidebarItemProps {
+  icon: React.ReactNode;
+  label: string;
+  active: boolean;
+  count: number;
+  onClick: () => void;
+}
+
+const SidebarItem = ({ icon, label, active, count, onClick }: SidebarItemProps) => (
   <div
     onClick={onClick}
     className={`flex items-center justify-between p-3 rounded-lg cursor-pointer transition-all ${
       active
-        ? "bg-[#00ff80]/10 text-white border border-[#00ff80]/20 shadow-[0_0_15px_rgba(0,255,128,0.05)]"
+        ? "bg-[#00ff80]/10 text-white border border-[#00ff80]/20"
         : "text-gray-500 hover:bg-white/5 hover:text-white"
     }`}
   >
@@ -345,10 +341,10 @@ const SidebarItem = ({ icon, label, active, count, onClick }: any) => (
   </div>
 );
 
-const StatusMetric = ({ icon, label, value }: any) => (
+const StatusMetric = ({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) => (
   <div className="flex items-center gap-2 group cursor-default">
     <div className="text-[#00ff80] opacity-40 group-hover:opacity-100 transition-opacity">
-      {React.cloneElement(icon as React.ReactElement, { size: 14 })}
+      {React.isValidElement(icon) ? React.cloneElement(icon as React.ReactElement, { size: 14 } as any) : icon}
     </div>
     <div>
       <p className="text-[7px] opacity-30 font-black tracking-tighter leading-none uppercase">{label}</p>
