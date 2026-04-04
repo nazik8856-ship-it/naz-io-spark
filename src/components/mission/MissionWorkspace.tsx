@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Menu } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -9,18 +9,16 @@ interface MissionWorkspaceProps {
   open: boolean;
   onClose: () => void;
   initialSector?: string;
+  initialDirective?: string;
 }
 
-const MissionWorkspace: React.FC<MissionWorkspaceProps> = ({ open, onClose, initialSector = "home" }) => {
+const MissionWorkspace: React.FC<MissionWorkspaceProps> = ({ open, onClose, initialSector = "home", initialDirective = "" }) => {
   const [activeSection, setActiveSection] = useState(initialSector);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const isMobile = useIsMobile();
 
   useEffect(() => {
-    if (open) {
-      setActiveSection(initialSector);
-      setSidebarOpen(false);
-    }
+    if (open) setActiveSection(initialSector);
   }, [initialSector, open]);
 
   if (!open) return null;
@@ -32,25 +30,19 @@ const MissionWorkspace: React.FC<MissionWorkspaceProps> = ({ open, onClose, init
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 z-[100] flex font-mono"
+        className="fixed inset-0 z-[100] flex"
+        style={{ background: "#020617", fontFamily: "'Inter', sans-serif" }}
       >
-        {/* Backdrop */}
-        <div className="absolute inset-0 bg-black/95" />
-
-        {/* Content layer */}
         <div className="relative z-10 flex w-full h-full">
-          {/* MOBILE: slide-out drawer sidebar */}
           {isMobile ? (
             <>
-              {/* Mobile toggle */}
               <button
                 onClick={() => setSidebarOpen(true)}
-                className="fixed top-3 left-3 z-[120] w-10 h-10 flex items-center justify-center border border-[#00A3FF]/40 bg-black shadow-[0_0_10px_rgba(0,163,255,0.2)]"
+                className="fixed top-4 left-4 z-[120] w-10 h-10 flex items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] backdrop-blur-2xl"
               >
-                <Menu size={18} className="text-[#00A3FF]" />
+                <Menu size={18} className="text-white/50" />
               </button>
 
-              {/* Drawer overlay */}
               <AnimatePresence>
                 {sidebarOpen && (
                   <>
@@ -58,15 +50,16 @@ const MissionWorkspace: React.FC<MissionWorkspaceProps> = ({ open, onClose, init
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       exit={{ opacity: 0 }}
-                      className="fixed inset-0 z-[110] bg-black/70"
+                      className="fixed inset-0 z-[110] bg-black/60 backdrop-blur-sm"
                       onClick={() => setSidebarOpen(false)}
                     />
                     <motion.div
                       initial={{ x: "-100%" }}
                       animate={{ x: 0 }}
                       exit={{ x: "-100%" }}
-                      transition={{ type: "spring", damping: 30, stiffness: 300 }}
-                      className="fixed left-0 top-0 bottom-0 z-[115] w-56"
+                      transition={{ type: "spring", damping: 25, stiffness: 200 }}
+                      className="fixed left-0 top-0 bottom-0 z-[115] w-64 border-r border-white/5"
+                      style={{ background: "#020617" }}
                     >
                       <MissionSidebar
                         activeSection={activeSection}
@@ -81,35 +74,27 @@ const MissionWorkspace: React.FC<MissionWorkspaceProps> = ({ open, onClose, init
                 )}
               </AnimatePresence>
 
-              {/* Mobile terminal (full width) */}
-              <div className="flex-1 pt-14">
-                <ActionTerminal activeSection={activeSection} />
+              <div className="flex-1 pt-16">
+                <ActionTerminal activeSection={activeSection} initialDirective={initialDirective} />
               </div>
             </>
           ) : (
             <>
-              {/* DESKTOP: fixed slim sidebar */}
               <motion.div
-                initial={{ x: -200 }}
-                animate={{ x: 0 }}
-                transition={{ type: "spring", damping: 25, stiffness: 250 }}
-                className="w-56 shrink-0 h-full"
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                className="w-60 shrink-0 h-full border-r border-white/5"
               >
-                <MissionSidebar
-                  activeSection={activeSection}
-                  onSectionChange={setActiveSection}
-                  onClose={onClose}
-                />
+                <MissionSidebar activeSection={activeSection} onSectionChange={setActiveSection} onClose={onClose} />
               </motion.div>
 
-              {/* DESKTOP: action terminal */}
               <motion.div
-                initial={{ opacity: 0, x: 40 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.15, duration: 0.5 }}
-                className="flex-1 h-full"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.1 }}
+                className="flex-1 h-full overflow-hidden"
               >
-                <ActionTerminal activeSection={activeSection} />
+                <ActionTerminal activeSection={activeSection} initialDirective={initialDirective} />
               </motion.div>
             </>
           )}

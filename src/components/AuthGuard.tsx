@@ -1,33 +1,26 @@
 import { useEffect, useState } from "react";
 import { useNavigate, Outlet } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
+
+const AuthSkeleton = () => (
+  <div className="min-h-screen flex items-center justify-center" style={{ background: "#020617" }}>
+    <div className="flex flex-col items-center gap-4">
+      <div className="w-10 h-10 border-2 border-[#00A3FF]/30 border-t-[#00A3FF] rounded-full animate-spin" />
+      <p className="text-sm text-white/30 font-medium">Verifying session…</p>
+    </div>
+  </div>
+);
 
 export const AuthGuard = () => {
-  const [loading, setLoading] = useState(true);
-  const [session, setSession] = useState<any>(null);
+  const { user, loading } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setLoading(false);
-      if (!session) navigate("/login");
-    });
+    if (!loading && !user) {
+      navigate("/signup", { replace: true });
+    }
+  }, [loading, user, navigate]);
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      setLoading(false);
-      if (!session) navigate("/login");
-    });
-
-    return () => subscription.unsubscribe();
-  }, [navigate]);
-
-  if (loading) {
-    return <div className="flex h-screen items-center justify-center">Restoring your session…</div>;
-  }
-
-  return session ? <Outlet /> : null;
+  if (loading) return <AuthSkeleton />;
+  return user ? <Outlet /> : null;
 };
