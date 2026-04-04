@@ -21,10 +21,7 @@ function wrapInSkeleton(html: string): string {
   const lower = html.toLowerCase();
   if (lower.includes("<!doctype") || lower.includes("<html")) {
     if (!lower.includes("tailwindcss")) {
-      return html.replace(
-        "</head>",
-        `<script src="https://cdn.tailwindcss.com"></script>\n</head>`
-      );
+      return html.replace("</head>", `<script src="https://cdn.tailwindcss.com"></script>\n</head>`);
     }
     return html;
   }
@@ -34,8 +31,10 @@ function wrapInSkeleton(html: string): string {
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>NazAI Preview</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <style>body { background: #0a0a0a; color: #f1f5f9; }</style>
+  <script src="[https://cdn.tailwindcss.com](https://cdn.tailwindcss.com)"></script>
+  <style>
+    body { background: #0a0a0a; color: #f1f5f9; margin: 0; padding: 0; overflow-x: hidden; }
+  </style>
 </head>
 <body>
 ${html}
@@ -50,7 +49,7 @@ const Generator = () => {
   const { user } = useAuth();
 
   const [prompt, setPrompt] = useState("");
-  const [activeModel, setActiveModel] = useState("gemini-2.0-flash");
+  const [activeModel, setActiveModel] = useState("google/gemini-2.0-flash-001"); // Updated to OpenRouter format
   const [thinkingModel, setThinkingModel] = useState<string | null>(null);
   const [generatedCode, setGeneratedCode] = useState("");
   const [loading, setLoading] = useState(false);
@@ -68,15 +67,12 @@ const Generator = () => {
     setThinkingModel(activeModel);
 
     try {
-      const { data, error: fnError } = await supabase.functions.invoke(
-        "naz-io-spark",
-        {
-          body: {
-            prompt: prompt.trim(),
-            model_choice: activeModel,
-          },
-        }
-      );
+      const { data, error: fnError } = await supabase.functions.invoke("naz-io-spark", {
+        body: {
+          prompt: prompt.trim(),
+          model_choice: activeModel,
+        },
+      });
 
       if (fnError) throw new Error(fnError.message);
       if (!data) throw new Error("No response from Neural Router.");
@@ -93,9 +89,10 @@ const Generator = () => {
         setCreditsLeft(data.credits_remaining);
       }
 
-      // Open in new tab
+      // Open in new tab automatically
       const blob = new Blob([full], { type: "text/html" });
-      window.open(URL.createObjectURL(blob), "_blank");
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
@@ -106,7 +103,7 @@ const Generator = () => {
 
   return (
     <div
-      className="flex h-screen overflow-hidden"
+      className="flex h-screen w-full overflow-hidden"
       style={{ background: "#020617", fontFamily: "system-ui, sans-serif" }}
     >
       {/* ── Ambient Grid ── */}
@@ -121,17 +118,13 @@ const Generator = () => {
         }}
       />
 
-      {/* ── Model Sidebar ── */}
-      <div className="relative z-10 flex-shrink-0 h-full">
-        <ModelSidebar
-          activeModel={activeModel}
-          onModelChange={setActiveModel}
-          thinkingModel={thinkingModel}
-        />
-      </div>
+      {/* ── Model Sidebar (Force Width + High Z-Index) ── */}
+      <aside className="relative z-50 flex-shrink-0 h-full border-r border-white/5" style={{ minWidth: "260px" }}>
+        <ModelSidebar activeModel={activeModel} onModelChange={setActiveModel} thinkingModel={thinkingModel} />
+      </aside>
 
       {/* ── Main Panel ── */}
-      <div className="relative z-10 flex flex-col flex-1 min-w-0 overflow-hidden">
+      <main className="relative z-10 flex flex-col flex-1 min-w-0 overflow-hidden bg-transparent">
         {/* Header */}
         <header
           className="flex items-center justify-between px-6 py-4 flex-shrink-0"
@@ -143,55 +136,34 @@ const Generator = () => {
         >
           <button
             onClick={() => navigate("/")}
-            className="flex items-center gap-2 text-sm transition-colors"
-            style={{ color: "rgba(255,255,255,0.4)" }}
-            onMouseEnter={(e) =>
-              (e.currentTarget.style.color = "#00A3FF")
-            }
-            onMouseLeave={(e) =>
-              (e.currentTarget.style.color = "rgba(255,255,255,0.4)")
-            }
+            className="flex items-center gap-2 text-sm text-white/40 hover:text-[#00A3FF] transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
-            Back
+            Exit Command Center
           </button>
 
           <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4" style={{ color: "#00A3FF" }} />
+            <Sparkles className="w-4 h-4 text-[#00A3FF]" />
             <span
-              className="text-base font-bold tracking-tight"
+              className="text-base font-black tracking-tighter uppercase"
               style={{
                 background: "linear-gradient(90deg, #00A3FF, #a855f7)",
                 WebkitBackgroundClip: "text",
                 WebkitTextFillColor: "transparent",
               }}
             >
-              NazAI Command Center
+              NazAI // V2.0
             </span>
           </div>
 
           <div className="flex items-center gap-3">
             {creditsLeft !== null && (
-              <span
-                className="text-xs px-2 py-1 rounded-md"
-                style={{
-                  background: "rgba(0,163,255,0.08)",
-                  color: "#00A3FF",
-                  border: "1px solid rgba(0,163,255,0.2)",
-                }}
-              >
-                {creditsLeft} credits
+              <span className="text-[10px] uppercase tracking-widest px-2 py-1 rounded bg-[#00A3FF]/10 text-[#00A3FF] border border-[#00A3FF]/20">
+                {creditsLeft.toFixed(2)} CREDITS
               </span>
             )}
             {modelUsed && (
-              <span
-                className="text-xs px-2 py-1 rounded-md"
-                style={{
-                  background: "rgba(168,85,247,0.08)",
-                  color: "#a855f7",
-                  border: "1px solid rgba(168,85,247,0.2)",
-                }}
-              >
+              <span className="text-[10px] uppercase tracking-widest px-2 py-1 rounded bg-[#a855f7]/10 text-[#a855f7] border border-[#a855f7]/20">
                 {modelUsed.split("/").pop()}
               </span>
             )}
@@ -199,202 +171,110 @@ const Generator = () => {
         </header>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto px-6 py-6 space-y-5">
-          {/* Prompt area */}
-          <div className="space-y-2">
-            <label
-              className="text-xs uppercase tracking-widest font-medium"
-              style={{ color: "rgba(0,163,255,0.6)" }}
-            >
-              Mission Brief
-            </label>
-
-            <div
-              className="rounded-xl p-px transition-all duration-300"
-              style={{
-                background: focused
-                  ? "linear-gradient(135deg, #00A3FF, #a855f7)"
-                  : "rgba(255,255,255,0.06)",
-              }}
-            >
-              <textarea
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                onFocus={() => setFocused(true)}
-                onBlur={() => setFocused(false)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey))
-                    handleGenerate();
-                }}
-                placeholder="Describe the website or app you want to build..."
-                rows={4}
-                className="w-full rounded-xl px-5 py-4 text-sm resize-none outline-none"
-                style={{
-                  background: "#0a0f1e",
-                  color: "#e2e8f0",
-                  caretColor: "#00A3FF",
-                }}
-              />
-            </div>
-
-            <div className="flex items-center justify-between">
-              <p
-                className="text-xs"
-                style={{ color: "rgba(255,255,255,0.2)" }}
-              >
-                Cmd/Ctrl + Enter to generate · Active model:{" "}
-                <span style={{ color: "#00A3FF" }}>{activeModel}</span>
-              </p>
-            </div>
-          </div>
-
-          {/* Generate button */}
-          <button
-            onClick={handleGenerate}
-            disabled={loading || !prompt.trim()}
-            className="w-full flex items-center justify-center gap-3 py-4 rounded-xl font-bold text-sm uppercase tracking-widest transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
-            style={{
-              background: loading
-                ? "rgba(0,163,255,0.08)"
-                : "linear-gradient(135deg, #00A3FF 0%, #a855f7 100%)",
-              color: loading ? "#00A3FF" : "#020617",
-              border: loading ? "1px solid rgba(0,163,255,0.3)" : "none",
-              boxShadow: loading
-                ? "none"
-                : "0 0 32px rgba(0,163,255,0.2)",
-            }}
-          >
-            {loading ? (
-              <>
-                <span
-                  className="w-4 h-4 rounded-full border-2 border-t-transparent animate-spin"
-                  style={{
-                    borderColor: "#00A3FF",
-                    borderTopColor: "transparent",
-                  }}
-                />
-                Glitching...
-              </>
-            ) : (
-              <>
-                <Zap className="w-4 h-4" />
-                Execute Mission
-              </>
-            )}
-          </button>
-
-          {/* Error */}
-          {error && (
-            <div
-              className="rounded-xl px-5 py-4 text-sm"
-              style={{
-                background: "rgba(239,68,68,0.06)",
-                border: "1px solid rgba(239,68,68,0.25)",
-                color: "#f87171",
-              }}
-            >
-              {error}
-            </div>
-          )}
-
-          {/* Browser Chrome Preview */}
-          {generatedCode && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <p
-                  className="text-xs uppercase tracking-widest font-medium"
-                  style={{ color: "rgba(0,163,255,0.6)" }}
-                >
-                  Live Preview
-                </p>
-                <button
-                  onClick={() => {
-                    const blob = new Blob([generatedCode], {
-                      type: "text/html",
-                    });
-                    window.open(URL.createObjectURL(blob), "_blank");
-                  }}
-                  className="flex items-center gap-1 text-xs transition-colors"
-                  style={{ color: "rgba(255,255,255,0.3)" }}
-                  onMouseEnter={(e) =>
-                    (e.currentTarget.style.color = "#00A3FF")
-                  }
-                  onMouseLeave={(e) =>
-                    (e.currentTarget.style.color = "rgba(255,255,255,0.3)")
-                  }
-                >
-                  <ExternalLink className="w-3 h-3" />
-                  Open in new tab
-                </button>
-              </div>
+        <div className="flex-1 overflow-y-auto px-8 py-8 space-y-6">
+          <div className="max-w-4xl mx-auto space-y-6">
+            {/* Prompt area */}
+            <div className="space-y-3">
+              <label className="text-[10px] uppercase tracking-[0.2em] font-bold text-[#00A3FF]/60">
+                Mission Directive
+              </label>
 
               <div
-                className="rounded-xl overflow-hidden"
-                style={{ border: "1px solid rgba(0,163,255,0.1)" }}
+                className={`rounded-xl p-px transition-all duration-500 ${
+                  focused ? "shadow-[0_0_40px_rgba(0,163,255,0.1)]" : ""
+                }`}
+                style={{
+                  background: focused ? "linear-gradient(135deg, #00A3FF, #a855f7)" : "rgba(255,255,255,0.06)",
+                }}
               >
-                {/* Browser chrome bar */}
-                <div
-                  className="flex items-center gap-2 px-4 py-2.5"
-                  style={{
-                    background: "#080d1a",
-                    borderBottom: "1px solid rgba(255,255,255,0.04)",
+                <textarea
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  onFocus={() => setFocused(true)}
+                  onBlur={() => setFocused(false)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleGenerate();
                   }}
-                >
-                  <div className="flex gap-1.5">
-                    <div
-                      className="w-2.5 h-2.5 rounded-full"
-                      style={{ background: "rgba(239,68,68,0.6)" }}
-                    />
-                    <div
-                      className="w-2.5 h-2.5 rounded-full"
-                      style={{ background: "rgba(234,179,8,0.6)" }}
-                    />
-                    <div
-                      className="w-2.5 h-2.5 rounded-full"
-                      style={{ background: "rgba(34,197,94,0.6)" }}
-                    />
-                  </div>
-                  <div
-                    className="ml-3 flex-1 rounded px-3 py-1 text-[11px]"
-                    style={{
-                      background: "rgba(255,255,255,0.04)",
-                      color: "rgba(255,255,255,0.2)",
-                    }}
-                  >
-                    nazai://preview · {activeModel}
-                  </div>
-                </div>
-                <iframe
-                  srcDoc={generatedCode}
-                  className="w-full"
-                  style={{ height: "520px", background: "#fff" }}
-                  sandbox="allow-scripts allow-same-origin"
-                  title="Generated Website Preview"
+                  placeholder="Describe the neural interface, landing page, or SaaS component..."
+                  className="w-full rounded-xl px-6 py-5 text-sm bg-[#0a0f1e] text-slate-200 outline-none min-h-[160px] resize-none border-none"
                 />
               </div>
             </div>
-          )}
 
-          {/* Empty state */}
-          {!generatedCode && !loading && (
-            <div
-              className="flex flex-col items-center justify-center py-24 rounded-xl"
-              style={{ border: "1px dashed rgba(0,163,255,0.08)" }}
+            {/* Execute button */}
+            <button
+              onClick={handleGenerate}
+              disabled={loading || !prompt.trim()}
+              className="group relative w-full overflow-hidden rounded-xl py-4 transition-all active:scale-[0.98] disabled:opacity-30 disabled:grayscale"
             >
-              <Sparkles
-                className="w-10 h-10 mb-4"
-                style={{ color: "rgba(0,163,255,0.2)" }}
+              <div
+                className="absolute inset-0 transition-opacity group-hover:opacity-90"
+                style={{ background: "linear-gradient(90deg, #00A3FF, #a855f7)" }}
               />
-              <p
-                className="text-sm font-medium"
-                style={{ color: "rgba(255,255,255,0.15)" }}
-              >
-                Select a model and enter a mission brief
-              </p>
-            </div>
-          )}
+              <div className="relative flex items-center justify-center gap-3 font-bold text-xs uppercase tracking-[0.3em] text-[#020617]">
+                {loading ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-[#020617]/30 border-t-[#020617] animate-spin rounded-full" />
+                    Neural Routing...
+                  </>
+                ) : (
+                  <>
+                    <Zap className="w-4 h-4 fill-current" />
+                    Initialize Generation
+                  </>
+                )}
+              </div>
+            </button>
+
+            {error && (
+              <div className="rounded-xl px-5 py-4 text-xs font-mono bg-red-500/5 border border-red-500/20 text-red-400">
+                [SYSTEM_ERROR]: {error}
+              </div>
+            )}
+
+            {/* Preview Section */}
+            {generatedCode && (
+              <div className="pt-8 animate-in fade-in slide-in-from-bottom-4 duration-1000">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-[10px] uppercase tracking-[0.2em] font-bold text-[#a855f7]">
+                    Deployment Preview
+                  </h3>
+                  <button
+                    onClick={() => {
+                      const blob = new Blob([generatedCode], { type: "text/html" });
+                      window.open(URL.createObjectURL(blob), "_blank");
+                    }}
+                    className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-white/30 hover:text-[#00A3FF] transition-colors"
+                  >
+                    <ExternalLink className="w-3 h-3" />
+                    Full Screen
+                  </button>
+                </div>
+
+                <div className="rounded-2xl overflow-hidden border border-white/5 shadow-2xl">
+                  {/* Browser Mockup */}
+                  <div className="flex items-center gap-2 px-4 py-3 bg-[#080d1a] border-b border-white/5">
+                    <div className="flex gap-1.5">
+                      <div className="w-2.5 h-2.5 rounded-full bg-red-500/40" />
+                      <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/40" />
+                      <div className="w-2.5 h-2.5 rounded-full bg-green-500/40" />
+                    </div>
+                    <div className="ml-4 flex-1 bg-white/5 rounded px-3 py-1 text-[9px] text-white/20 font-mono truncate">
+                      nazai://render-cache/{activeModel.split("/").pop()}
+                    </div>
+                  </div>
+                  <iframe
+                    srcDoc={generatedCode}
+                    className="w-full h-[600px] bg-white"
+                    sandbox="allow-scripts allow-same-origin"
+                    title="NazAI Result"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      </main>
     </div>
   );
 };
