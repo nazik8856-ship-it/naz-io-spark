@@ -14,36 +14,6 @@ export type Database = {
   }
   public: {
     Tables: {
-      missions: {
-        Row: {
-          attachment_urls: string[] | null
-          created_at: string
-          directive: string
-          id: string
-          status: string
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          attachment_urls?: string[] | null
-          created_at?: string
-          directive: string
-          id?: string
-          status?: string
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          attachment_urls?: string[] | null
-          created_at?: string
-          directive?: string
-          id?: string
-          status?: string
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
       profiles: {
         Row: {
           created_at: string

@@ -1,380 +1,224 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
-import { ChevronRight, Home, Clock, Archive, Trash2, Zap, Cpu, Settings, Shield, Activity, Lock } from "lucide-react";
-
-// --- TYPES ---
-interface Mission {
-  id: string;
-  name: string;
-  status: "home" | "recent" | "archived" | "trash";
-  timestamp: string;
-  priority: "low" | "med" | "high" | "critical";
-}
-
-interface TerminalLine {
-  text: string;
-  type: "system" | "user" | "error" | "success" | "warning";
-  time: string;
-}
+import React, { useState, useEffect, useRef } from "react";
+import { Terminal, ChevronRight, Zap, Cpu, Settings, Rocket } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 
 interface ActionTerminalProps {
-  activeSection?: string;
-  initialDirective?: string;
+  activeSection: string;
 }
 
-const SYSTEM_PREFIX = "SYS_MSG >> ";
-const BOOT_DELAY = 60;
-
-const normalizeSection = (section?: string): Mission["status"] => {
-  switch (section) {
-    case "recent":
-    case "archived":
-    case "trash":
-      return section;
-    default:
-      return "home";
-  }
+const SECTION_LABELS: Record<string, string> = {
+  home: "Home",
+  recents: "Recents",
+  archives: "Archives",
+  trash: "Trash",
 };
 
-const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home", initialDirective = "" }) => {
-  const [input, setInput] = useState(initialDirective);
-  const [isBooted, setIsBooted] = useState(false);
-  const [history, setHistory] = useState<TerminalLine[]>([]);
-  const [activeTab, setActiveTab] = useState<Mission["status"]>(normalizeSection(activeSection));
+const WORKFLOW_STEPS = [
+  { label: "INPUT_SENSOR", icon: Zap },
+  { label: "LOGIC_GATE", icon: Cpu },
+  { label: "AUTO_ENGINE", icon: Settings },
+  { label: "EXECUTION", icon: Rocket },
+];
 
-  const [missions, setMissions] = useState<Mission[]>(() => {
-    if (typeof window === "undefined") return [];
-    const saved = localStorage.getItem("nazai_v3_data");
-    return saved
-      ? JSON.parse(saved)
-      : [
-          { id: "SYS-1", name: "GLOBAL_DEPLOY_v1.9", status: "archived", timestamp: "2026-03-28", priority: "high" },
-          { id: "SYS-2", name: "SECURITY_AUDIT_Q1", status: "archived", timestamp: "2026-03-15", priority: "critical" },
-          { id: "SYS-3", name: "INFRA_MIGRATION", status: "archived", timestamp: "2026-03-01", priority: "med" },
-        ];
-  });
+const SECTION_CONTENT: Record<string, string[]> = {
+  recents: [
+    "[LOG] Recent mission activity:",
+    "",
+    "  [01] DEPLOY_LANDING_v2  — 2m ago  — SUCCESS",
+    "  [02] SCAN_ANOMALY_#447  — 14m ago — RESOLVED",
+    "  [03] PATCH_AUTH_MODULE   — 1h ago  — SUCCESS",
+    "  [04] REBUILD_CACHE       — 3h ago  — SUCCESS",
+    "",
+    "[SYS] 4 operations in the last 24h.",
+  ],
+  archives: [
+    "[ARCHIVE] Stored mission records:",
+    "",
+    "  2026-03-28  GLOBAL_DEPLOY_v1.9   COMPLETE",
+    "  2026-03-15  SECURITY_AUDIT_Q1    PASSED",
+    "  2026-03-01  INFRA_MIGRATION      COMPLETE",
+    "",
+    "[SYS] 3 archived records found.",
+  ],
+  trash: [
+    "[TRASH] Pending permanent deletion:",
+    "",
+    "  — draft_campaign_old    (7d remaining)",
+    "  — test_endpoint_v0      (3d remaining)",
+    "",
+    "[WARN] Items auto-purge after 30 days.",
+  ],
+};
 
+const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection }) => {
+  const [lines, setLines] = useState<string[]>([]);
+  const [directive, setDirective] = useState("");
+  const [workflowActive, setWorkflowActive] = useState(false);
+  const [workflowStep, setWorkflowStep] = useState(-1);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const counts = useMemo(
-    () => ({
-      home: missions.filter((m) => m.status === "home").length,
-      recent: missions.filter((m) => m.status === "recent").length,
-      archived: missions.filter((m) => m.status === "archived").length,
-      trash: missions.filter((m) => m.status === "trash").length,
-    }),
-    [missions],
-  );
-
+  // Non-home sections: typed log lines
   useEffect(() => {
-    if (!isBooted) {
-      const bootLines = [
-        "AUTHENTICATING_USER... [OK]",
-        "LOADING_NAZAI_CORE_V3.0...",
-        "ESTABLISHING_ENCRYPTED_TUNNEL... [OK]",
-        "SYNCING_LOCAL_DATABASE...",
-        "SCANNING_INTEGRITY... 100%",
-        "-----------------------------------------",
-        "WELCOME BACK, OPERATOR. SYSTEM IS LIVE.",
-      ];
-
-      let currentLine = 0;
-      const interval = setInterval(() => {
-        if (currentLine < bootLines.length) {
-          addSystemLine(bootLines[currentLine], "system");
-          currentLine++;
-        } else {
-          setIsBooted(true);
-          clearInterval(interval);
-        }
-      }, BOOT_DELAY);
-      return () => clearInterval(interval);
-    }
-  }, [isBooted]);
-
-  useEffect(() => {
-    localStorage.setItem("nazai_v3_data", JSON.stringify(missions));
-  }, [missions]);
-
-  useEffect(() => {
-    setActiveTab(normalizeSection(activeSection));
+    if (activeSection === "home") return;
+    setLines([]);
+    const content = SECTION_CONTENT[activeSection] || [];
+    content.forEach((line, i) => {
+      setTimeout(() => {
+        setLines((prev) => [...prev, line]);
+      }, i * 80);
+    });
   }, [activeSection]);
-
-  useEffect(() => {
-    setInput(initialDirective);
-  }, [initialDirective]);
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [history]);
+  }, [lines]);
 
-  const addSystemLine = (text: string, type: TerminalLine["type"] = "system") => {
-    setHistory((prev) => [
-      ...prev,
-      {
-        text: type === "system" ? `${SYSTEM_PREFIX}${text}` : text,
-        type,
-        time: new Date().toLocaleTimeString([], { hour12: false }),
-      },
-    ]);
-  };
-
-  const processCommand = (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanInput = input.trim();
-    if (!cleanInput) return;
+    if (!directive.trim()) return;
+    setWorkflowActive(true);
+    setWorkflowStep(0);
 
-    setHistory((prev) => [
-      ...prev,
-      {
-        text: `> ${cleanInput}`,
-        type: "user",
-        time: new Date().toLocaleTimeString([], { hour12: false }),
-      },
-    ]);
-
-    const [cmd, ...args] = cleanInput.toLowerCase().split(" ");
-    const target = args.join(" ").toUpperCase();
-
-    switch (cmd) {
-      case "/help":
-        addSystemLine("DIRECTIVES: /save [NAME], /archive [ID/NAME], /trash [ID/NAME], /clear", "warning");
-        break;
-      case "/save":
-        const newM: Mission = {
-          id: Math.random().toString(36).substring(2, 6).toUpperCase(),
-          name: target || "NEW_TASK",
-          status: "recent",
-          timestamp: new Date().toISOString().split("T")[0],
-          priority: "med",
-        };
-        setMissions((prev) => [newM, ...prev]);
-        addSystemLine(`MISSION [${newM.id}] REGISTERED.`, "success");
-        break;
-      case "/clear":
-        setHistory([]);
-        break;
-      default:
-        addSystemLine(`COMMAND "${cmd}" NOT RECOGNIZED.`, "error");
-    }
-    setInput("");
+    WORKFLOW_STEPS.forEach((_, i) => {
+      setTimeout(() => {
+        setWorkflowStep(i);
+        if (i === WORKFLOW_STEPS.length - 1) {
+          setTimeout(() => {
+            setWorkflowActive(false);
+            setWorkflowStep(-1);
+            setDirective("");
+          }, 1200);
+        }
+      }, (i + 1) * 900);
+    });
   };
+
+  const sectionLabel = SECTION_LABELS[activeSection] || "Home";
 
   return (
-    <div className="fixed inset-0 flex bg-[#020606] text-[#00ff80] font-mono overflow-hidden">
-      {/* SIDEBAR */}
-      <aside className="w-72 bg-[#050808] border-r border-[#00ff80]/10 flex flex-col z-50">
-        <div className="p-6 border-b border-[#00ff80]/10 flex items-center gap-3">
-          <div className="p-2 bg-[#00ff80]/10 rounded border border-[#00ff80]/20 text-[#00ff80]">
-            <Cpu size={20} />
-          </div>
-          <div>
-            <h2 className="text-sm font-black tracking-widest text-white uppercase leading-none">NazAI://OS</h2>
-            <p className="text-[9px] opacity-40 uppercase tracking-[2px] mt-1">Direct Node Access</p>
+    <div className="flex-1 flex flex-col bg-black h-full">
+      {/* Dynamic header */}
+      <div className="flex items-center gap-3 px-5 py-3 border-b border-[#00A3FF]/20 bg-black shrink-0">
+        <Terminal size={14} className="text-[#00A3FF]" />
+        <span className="text-[11px] font-mono text-white/70">
+          Welcome to the <span className="text-[#00A3FF] font-black">{sectionLabel}</span> section.
+        </span>
+        <div className="ml-auto flex items-center gap-1.5">
+          <div className="w-2 h-2 bg-[#39FF14] shadow-[0_0_4px_#39FF14]" />
+          <div className="w-2 h-2 bg-[#00A3FF] shadow-[0_0_4px_#00A3FF]" />
+          <div className="w-2 h-2 bg-[#FF0055] shadow-[0_0_4px_#FF0055]" />
+        </div>
+      </div>
+
+      {activeSection === "home" ? (
+        /* ── HOME: Orchestration Hub ── */
+        <div className="flex-1 flex flex-col items-center justify-center p-6 gap-8">
+          {/* Centered directive input */}
+          <form onSubmit={handleSubmit} className="w-full max-w-2xl flex flex-col gap-4">
+            <textarea
+              value={directive}
+              onChange={(e) => setDirective(e.target.value)}
+              placeholder="ENTER_MISSION_DIRECTIVE...."
+              disabled={workflowActive}
+              rows={5}
+              className="w-full bg-black border border-[#39FF14]/50 shadow-[0_0_15px_rgba(57,255,20,0.15),inset_0_0_15px_rgba(57,255,20,0.05)] text-white font-mono text-sm p-4 placeholder:text-white/20 outline-none resize-none focus:border-[#39FF14] focus:shadow-[0_0_25px_rgba(57,255,20,0.25),inset_0_0_20px_rgba(57,255,20,0.08)] transition-all disabled:opacity-50"
+            />
+            <button
+              type="submit"
+              disabled={workflowActive || !directive.trim()}
+              className="self-end px-6 py-2 border border-[#39FF14]/50 bg-[#39FF14]/10 text-[#39FF14] text-[10px] font-black uppercase tracking-[0.3em] hover:bg-[#39FF14]/20 hover:shadow-[0_0_15px_rgba(57,255,20,0.2)] transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              EXECUTE
+            </button>
+          </form>
+
+          {/* Workflow Animator */}
+          <div className="w-full max-w-2xl">
+            <div className="flex items-center justify-between gap-0">
+              {WORKFLOW_STEPS.map((step, i) => {
+                const isActive = workflowActive && workflowStep >= i;
+                const isCurrent = workflowActive && workflowStep === i;
+                const Icon = step.icon;
+
+                return (
+                  <React.Fragment key={step.label}>
+                    <motion.div
+                      className={`flex flex-col items-center gap-2 px-3 py-3 border transition-all ${
+                        isActive
+                          ? "border-[#39FF14]/60 bg-[#39FF14]/10 shadow-[0_0_12px_rgba(57,255,20,0.2)]"
+                          : "border-white/10 bg-white/[0.02]"
+                      }`}
+                      animate={isCurrent ? { scale: [1, 1.05, 1] } : {}}
+                      transition={{ repeat: Infinity, duration: 0.8 }}
+                    >
+                      <Icon
+                        size={16}
+                        className={isActive ? "text-[#39FF14]" : "text-white/20"}
+                      />
+                      <span
+                        className={`text-[7px] font-black uppercase tracking-[0.2em] ${
+                          isActive ? "text-[#39FF14]" : "text-white/20"
+                        }`}
+                      >
+                        {step.label}
+                      </span>
+                    </motion.div>
+                    {i < WORKFLOW_STEPS.length - 1 && (
+                      <div
+                        className={`flex-1 h-px mx-1 transition-all duration-500 ${
+                          workflowActive && workflowStep > i
+                            ? "bg-[#39FF14] shadow-[0_0_6px_#39FF14]"
+                            : "bg-white/10"
+                        }`}
+                      />
+                    )}
+                  </React.Fragment>
+                );
+              })}
+            </div>
           </div>
         </div>
-
-        <div className="flex-1 overflow-y-auto py-6 px-4 space-y-8 custom-scrollbar">
-          <section>
-            <h3 className="text-[10px] opacity-20 font-bold uppercase tracking-[4px] mb-4 px-2">Navigation</h3>
-            <nav className="space-y-1">
-              <SidebarItem
-                icon={<Home size={18} />}
-                label="Home"
-                active={activeTab === "home"}
-                count={counts.home}
-                onClick={() => setActiveTab("home")}
-              />
-              <SidebarItem
-                icon={<Clock size={18} />}
-                label="Recents"
-                active={activeTab === "recent"}
-                count={counts.recent}
-                onClick={() => setActiveTab("recent")}
-              />
-              <SidebarItem
-                icon={<Archive size={18} />}
-                label="Archives"
-                active={activeTab === "archived"}
-                count={counts.archived}
-                onClick={() => setActiveTab("archived")}
-              />
-              <SidebarItem
-                icon={<Trash2 size={18} />}
-                label="Trash"
-                active={activeTab === "trash"}
-                count={counts.trash}
-                onClick={() => setActiveTab("trash")}
-              />
-            </nav>
-          </section>
-
-          <section>
-            <h3 className="text-[10px] opacity-20 font-bold uppercase tracking-[4px] mb-4 px-2">Live Assets</h3>
-            <div className="space-y-4 px-2">
-              {missions.slice(0, 3).map((m) => (
-                <div key={m.id} className="group">
-                  <div className="flex justify-between text-[10px] font-bold mb-1 uppercase tracking-tighter opacity-40 group-hover:opacity-100 transition-opacity">
-                    <span>{m.name}</span>
-                    <span className="text-[#00ff80]/40">[{m.id}]</span>
-                  </div>
-                  <div className="w-full h-[1px] bg-white/5 rounded-full overflow-hidden">
-                    <div className="h-full bg-[#00ff80]/30 w-full group-hover:bg-[#00ff80] transition-all duration-500" />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        </div>
-
-        <div className="p-4 bg-black/40 border-t border-[#00ff80]/10 flex items-center gap-3">
-          <div className="w-8 h-8 rounded bg-[#00ff80]/10 flex items-center justify-center border border-[#00ff80]/20 text-[#00ff80]">
-            <Shield size={14} />
-          </div>
-          <div className="flex-1 overflow-hidden">
-            <p className="text-[11px] font-bold text-white uppercase tracking-tighter truncate">Operator_Naz</p>
-            <div className="flex items-center gap-1.5">
-              <div className="w-1.5 h-1.5 rounded-full bg-[#00ff80] animate-pulse" />
-              <p className="text-[9px] text-blue-400 uppercase font-bold">Admin_Access</p>
-            </div>
-          </div>
-          <Settings size={14} className="opacity-20 hover:opacity-100 cursor-pointer transition-opacity" />
-        </div>
-      </aside>
-
-      {/* MAIN VIEWPORT */}
-      <main className="flex-1 flex flex-col bg-black relative">
-        <header className="h-14 border-b border-[#00ff80]/10 flex items-center justify-between px-8 bg-black/40 backdrop-blur-md">
-          <div className="flex gap-8">
-            <StatusMetric icon={<Zap />} label="POWER" value="98%" />
-            <StatusMetric icon={<Cpu />} label="CPU" value="12.4%" />
-            <StatusMetric icon={<Lock />} label="SEC" value="AES-256" />
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-[#00ff80]" />
-              <span className="text-[10px] font-bold tracking-widest opacity-80">LIVE_CONNECTION</span>
-            </div>
-            <Activity size={14} className="text-[#00ff80] animate-pulse opacity-50" />
-          </div>
-        </header>
-
-        <div ref={scrollRef} className="flex-1 p-10 overflow-y-auto space-y-4 custom-scrollbar">
-          <div className="flex items-center gap-2 text-blue-400 mb-6 uppercase text-xs tracking-widest">
-            <ChevronRight size={14} />
-            <span>
-              Directory: <span className="text-white">root/{activeTab}</span>
-            </span>
-          </div>
-
-          {activeTab === "home" ? (
-            history.map((line, i) => (
+      ) : (
+        /* ── OTHER SECTIONS: Log terminal ── */
+        <>
+          <div ref={scrollRef} className="flex-1 overflow-y-auto p-5 space-y-1 font-mono">
+            {lines.map((line, i) => (
               <div
                 key={i}
-                className={`text-sm flex gap-4 ${
-                  line.type === "error"
-                    ? "text-red-500"
-                    : line.type === "success"
-                      ? "text-[#00ff80]"
-                      : line.type === "warning"
-                        ? "text-yellow-500"
-                        : ""
+                className={`text-[11px] leading-relaxed ${
+                  line.startsWith("[WARN]")
+                    ? "text-[#FF0055]"
+                    : line.startsWith("[SYS]") || line.startsWith("[LOG]") || line.startsWith("[ARCHIVE]") || line.startsWith("[TRASH]") || line.startsWith("[TIP]")
+                    ? "text-[#00A3FF]"
+                    : line.startsWith(">")
+                    ? "text-[#39FF14]"
+                    : "text-white/60"
                 }`}
               >
-                <span className="opacity-20 text-[10px] min-w-[70px]">[{line.time}]</span>
-                <span className="flex-1 break-all leading-relaxed">{line.text}</span>
+                {line || "\u00A0"}
               </div>
-            ))
-          ) : (
-            <div className="space-y-4 transition-opacity duration-500">
-              {missions
-                .filter((m) => m.status === activeTab)
-                .map((m) => (
-                  <div
-                    key={m.id}
-                    className="flex gap-8 text-sm opacity-60 group hover:opacity-100 border-b border-white/5 pb-2 transition-all cursor-default"
-                  >
-                    <span className="text-blue-500 w-28 shrink-0 font-bold">{m.timestamp}</span>
-                    <span className="flex-1 font-bold text-white uppercase tracking-wider">{m.name}</span>
-                    <span className="opacity-30 uppercase text-[10px]">ID: {m.id}</span>
-                  </div>
-                ))}
-              {missions.filter((m) => m.status === activeTab).length === 0 && (
-                <div className="text-[10px] opacity-20 uppercase">No records found in this sector.</div>
-              )}
-            </div>
-          )}
-        </div>
+            ))}
+          </div>
 
-        <div className="p-8 bg-gradient-to-t from-black to-transparent">
           <form
-            onSubmit={processCommand}
-            className="max-w-4xl mx-auto flex items-center gap-4 px-6 py-4 bg-[#00ff80]/5 rounded-xl border border-[#00ff80]/10"
+            onSubmit={(e) => {
+              e.preventDefault();
+            }}
+            className="shrink-0 flex items-center gap-2 px-5 py-3 border-t border-[#00A3FF]/20 bg-black"
           >
-            <ChevronRight className="text-[#00ff80]" size={20} />
+            <ChevronRight size={12} className="text-[#39FF14] shrink-0" />
             <input
-              autoFocus
-              className="flex-1 bg-transparent border-none outline-none text-[#00ff80] placeholder:text-[#00ff80]/10 font-mono tracking-wider"
-              placeholder="Awaiting directive..."
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
+              type="text"
+              placeholder="ENTER_COMMAND..."
+              className="flex-1 bg-transparent text-[11px] text-white font-mono placeholder:text-white/20 outline-none caret-[#39FF14]"
             />
           </form>
-        </div>
-
-        {/* Scanline Effect - Simplified for Lovable */}
-        <div className="absolute inset-0 pointer-events-none z-50 opacity-[0.03] overflow-hidden">
-          <div className="w-full h-full bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[length:100%_2px,3px_100%]" />
-        </div>
-      </main>
-
-      <style>{`
-        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0, 255, 128, 0.1); border-radius: 10px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(0, 255, 128, 0.3); }
-      `}</style>
+        </>
+      )}
     </div>
   );
 };
-
-// --- SUB-COMPONENTS ---
-interface SidebarItemProps {
-  icon: React.ReactNode;
-  label: string;
-  active: boolean;
-  count: number;
-  onClick: () => void;
-}
-
-const SidebarItem = ({ icon, label, active, count, onClick }: SidebarItemProps) => (
-  <div
-    onClick={onClick}
-    className={`flex items-center justify-between p-3 rounded-lg cursor-pointer transition-all ${
-      active
-        ? "bg-[#00ff80]/10 text-white border border-[#00ff80]/20"
-        : "text-gray-500 hover:bg-white/5 hover:text-white"
-    }`}
-  >
-    <div className="flex items-center gap-3">
-      <span className={active ? "text-[#00ff80]" : ""}>{icon}</span>
-      <span className="text-[11px] font-black uppercase tracking-widest">{label}</span>
-    </div>
-    <span className="text-[10px] font-mono opacity-40">[{String(count).padStart(2, "0")}]</span>
-  </div>
-);
-
-const StatusMetric = ({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) => (
-  <div className="flex items-center gap-2 group cursor-default">
-    <div className="text-[#00ff80] opacity-40 group-hover:opacity-100 transition-opacity">
-      {React.isValidElement(icon) ? React.cloneElement(icon as React.ReactElement, { size: 14 } as any) : icon}
-    </div>
-    <div>
-      <p className="text-[7px] opacity-30 font-black tracking-tighter leading-none uppercase">{label}</p>
-      <p className="text-[10px] font-bold tracking-widest">{value}</p>
-    </div>
-  </div>
-);
 
 export default ActionTerminal;

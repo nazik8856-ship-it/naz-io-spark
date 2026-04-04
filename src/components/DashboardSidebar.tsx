@@ -1,17 +1,4 @@
-import {
-  Clock,
-  FolderOpen,
-  Trash2,
-  PlusCircle,
-  Pencil,
-  Eye,
-  Share2,
-  Download,
-  Globe,
-  Lightbulb,
-  Coins,
-  FileEdit, // Added for Drafts
-} from "lucide-react";
+import { Clock, FolderOpen, Trash2, PlusCircle, Pencil, Eye, Share2, Download, Globe, Lightbulb, Coins } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
 
@@ -28,10 +15,8 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 
-// Updated navItems to include Drafts
 const navItems = [
   { title: "Create", url: "/dashboard/create", icon: PlusCircle },
-  { title: "Drafts", url: "/dashboard/drafts", icon: FileEdit }, // Added Drafts section
   { title: "Recently", url: "/dashboard", icon: Clock },
   { title: "All Projects", url: "/dashboard/projects", icon: FolderOpen },
   { title: "Trash", url: "/dashboard/trash", icon: Trash2 },
@@ -46,13 +31,12 @@ interface DashboardSidebarProps {
   onRefillClick?: () => void;
 }
 
-const contextSections: Record<
-  DashboardContext,
-  { label: string; items: { title: string; icon: React.ElementType; action: string }[] }
-> = {
+const contextSections: Record<DashboardContext, { label: string; items: { title: string; icon: React.ElementType; action: string }[] }> = {
   prompt: {
     label: "Getting Started",
-    items: [{ title: "Idea Helper", icon: Lightbulb, action: "idea-helper" }],
+    items: [
+      { title: "Idea Helper", icon: Lightbulb, action: "idea-helper" },
+    ],
   },
   preview: {
     label: "Quick Actions",
@@ -94,7 +78,11 @@ export function DashboardSidebar({ context = "browse", onAction, credits, onRefi
             <SidebarMenu>
               {navItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild isActive={isActive(item.url)} tooltip={item.title}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={isActive(item.url)}
+                    tooltip={item.title}
+                  >
                     <NavLink
                       to={item.url}
                       end
