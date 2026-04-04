@@ -1,13 +1,23 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Zap, Sparkles, ExternalLink } from "lucide-react";
+import {
+  Plus,
+  Home,
+  Clock,
+  Archive,
+  Trash2,
+  Shield,
+  ChevronRight,
+  Sparkles,
+  Zap,
+  AlertCircle,
+  Github,
+} from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/hooks/useAuth";
 import ModelSidebar from "@/components/ModelSidebar";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Strip markdown code fences so the iframe never breaks */
 function extractHTML(raw: string): string {
   return raw
     .replace(/^```html\s*/i, "")
@@ -16,263 +26,180 @@ function extractHTML(raw: string): string {
     .trim();
 }
 
-/** Ensure the output is a full HTML document with Tailwind CDN */
 function wrapInSkeleton(html: string): string {
   const lower = html.toLowerCase();
-  if (lower.includes("<!doctype") || lower.includes("<html")) {
-    if (!lower.includes("tailwindcss")) {
-      return html.replace("</head>", `<script src="https://cdn.tailwindcss.com"></script>\n</head>`);
-    }
-    return html;
-  }
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>NazAI Preview</title>
-  <script src="[https://cdn.tailwindcss.com](https://cdn.tailwindcss.com)"></script>
-  <style>
-    body { background: #0a0a0a; color: #f1f5f9; margin: 0; padding: 0; overflow-x: hidden; }
-  </style>
-</head>
-<body>
-${html}
-</body>
-</html>`;
+  if (lower.includes("<!doctype") || lower.includes("<html")) return html;
+  return `<!DOCTYPE html><html><head><script src="https://cdn.tailwindcss.com"></script><style>body { background: #0a0a0a; color: #f1f5f9; min-height: 100vh; }</style></head><body>${html}</body></html>`;
 }
-
-// ─── Component ────────────────────────────────────────────────────────────────
 
 const Generator = () => {
   const navigate = useNavigate();
-  const { user } = useAuth();
-
   const [prompt, setPrompt] = useState("");
-  const [activeModel, setActiveModel] = useState("google/gemini-2.0-flash-001"); // Updated to OpenRouter format
-  const [thinkingModel, setThinkingModel] = useState<string | null>(null);
-  const [generatedCode, setGeneratedCode] = useState("");
+  const [activeModel, setActiveModel] = useState("google/gemini-2.0-flash-001");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [creditsLeft, setCreditsLeft] = useState<number | null>(null);
-  const [modelUsed, setModelUsed] = useState<string | null>(null);
+  const [generatedCode, setGeneratedCode] = useState("");
   const [focused, setFocused] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleGenerate = async () => {
     if (!prompt.trim() || loading) return;
     setLoading(true);
     setError(null);
-    setGeneratedCode("");
-    setModelUsed(null);
-    setThinkingModel(activeModel);
 
     try {
+      // We pass the prompt, model, and the repo name we saw in your screenshot
       const { data, error: fnError } = await supabase.functions.invoke("naz-io-spark", {
         body: {
           prompt: prompt.trim(),
           model_choice: activeModel,
+          repo: "nazik8856-ship-it/naz-io-spark", // From your GitHub screenshot
         },
       });
 
       if (fnError) throw new Error(fnError.message);
-      if (!data) throw new Error("No response from Neural Router.");
 
-      const rawHTML: string = data.content ?? data.html_code ?? "";
-      if (!rawHTML) throw new Error("Neural Router returned empty content.");
-
-      const clean = extractHTML(rawHTML);
+      const clean = extractHTML(data.content ?? "");
       const full = wrapInSkeleton(clean);
-
       setGeneratedCode(full);
-      setModelUsed(data.model_used ?? activeModel);
-      if (data.credits_remaining !== undefined) {
-        setCreditsLeft(data.credits_remaining);
-      }
 
-      // Open in new tab automatically
+      // Auto-open in new tab for full-screen preview
       const blob = new Blob([full], { type: "text/html" });
       const url = URL.createObjectURL(blob);
       window.open(url, "_blank");
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Something went wrong.");
+    } catch (err: any) {
+      console.error("Generation Error:", err);
+      setError(err.message || "An unexpected error occurred during decryption.");
     } finally {
       setLoading(false);
-      setThinkingModel(null);
     }
   };
 
   return (
-    <div
-      className="flex h-screen w-full overflow-hidden"
-      style={{ background: "#020617", fontFamily: "system-ui, sans-serif" }}
-    >
-      {/* ── Ambient Grid ── */}
-      <div
-        className="pointer-events-none fixed inset-0 z-0"
-        style={{
-          backgroundImage: `
-            linear-gradient(rgba(0,163,255,0.015) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(0,163,255,0.015) 1px, transparent 1px)
-          `,
-          backgroundSize: "64px 64px",
-        }}
-      />
+    <div className="flex h-screen w-full overflow-hidden bg-[#020617] text-slate-200 font-sans">
+      {/* ── LEFT NAV (OS SIDEBAR) ── */}
+      <aside className="w-64 flex-shrink-0 border-r border-white/5 flex flex-col bg-[#020617] z-20">
+        <div className="p-6 flex items-center gap-3">
+          <div className="w-8 h-8 bg-blue-600/20 rounded flex items-center justify-center border border-blue-500/30">
+            <Shield className="w-4 h-4 text-blue-400" />
+          </div>
+          <span className="font-bold tracking-tighter text-sm italic">NAZAI // OS</span>
+        </div>
 
-      {/* ── Model Sidebar (Force Width + High Z-Index) ── */}
-      <aside className="relative z-50 flex-shrink-0 h-full border-r border-white/5" style={{ minWidth: "260px" }}>
-        <ModelSidebar activeModel={activeModel} onModelChange={setActiveModel} thinkingModel={thinkingModel} />
-      </aside>
-
-      {/* ── Main Panel ── */}
-      <main className="relative z-10 flex flex-col flex-1 min-w-0 overflow-hidden bg-transparent">
-        {/* Header */}
-        <header
-          className="flex items-center justify-between px-6 py-4 flex-shrink-0"
-          style={{
-            background: "rgba(2,6,23,0.8)",
-            backdropFilter: "blur(16px)",
-            borderBottom: "1px solid rgba(0,163,255,0.08)",
-          }}
-        >
+        <nav className="flex-1 px-3 space-y-1">
           <button
             onClick={() => navigate("/")}
-            className="flex items-center gap-2 text-sm text-white/40 hover:text-[#00A3FF] transition-colors"
+            className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg bg-blue-600/10 text-blue-400 border border-blue-500/10 text-sm font-medium"
           >
-            <ArrowLeft className="w-4 h-4" />
-            Exit Command Center
+            <Home className="w-4 h-4" /> Home
           </button>
+          <button className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg hover:bg-white/5 text-slate-400 transition-colors text-sm">
+            <Clock className="w-4 h-4" /> Recents
+          </button>
+          <button className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg hover:bg-white/5 text-slate-400 transition-colors text-sm">
+            <Archive className="w-4 h-4" /> Archives
+          </button>
+          <button className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg hover:bg-white/5 text-slate-400 transition-colors text-sm">
+            <Trash2 className="w-4 h-4" /> Trash
+          </button>
+        </nav>
 
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-[#00A3FF]" />
-            <span
-              className="text-base font-black tracking-tighter uppercase"
-              style={{
-                background: "linear-gradient(90deg, #00A3FF, #a855f7)",
-                WebkitBackgroundClip: "text",
-                WebkitTextFillColor: "transparent",
-              }}
-            >
-              NazAI // V2.0
-            </span>
+        <div className="p-6 border-t border-white/5">
+          <div className="text-[10px] text-slate-500 uppercase tracking-[0.2em] mb-4 font-bold">Connected Repo</div>
+          <div className="text-xs text-slate-300 flex items-center gap-2 group cursor-pointer">
+            <Github className="w-3 h-3 text-slate-500" />
+            <span className="truncate group-hover:text-blue-400 transition-colors font-mono">naz-io-spark</span>
           </div>
+        </div>
+      </aside>
 
-          <div className="flex items-center gap-3">
-            {creditsLeft !== null && (
-              <span className="text-[10px] uppercase tracking-widest px-2 py-1 rounded bg-[#00A3FF]/10 text-[#00A3FF] border border-[#00A3FF]/20">
-                {creditsLeft.toFixed(2)} CREDITS
-              </span>
-            )}
-            {modelUsed && (
-              <span className="text-[10px] uppercase tracking-widest px-2 py-1 rounded bg-[#a855f7]/10 text-[#a855f7] border border-[#a855f7]/20">
-                {modelUsed.split("/").pop()}
-              </span>
-            )}
+      {/* ── MODEL SIDEBAR ── */}
+      <div className="w-72 flex-shrink-0 border-r border-white/5 bg-[#010411]">
+        <ModelSidebar activeModel={activeModel} onModelChange={setActiveModel} />
+      </div>
+
+      {/* ── MAIN TERMINAL AREA ── */}
+      <main className="flex-1 flex flex-col min-w-0 bg-[#020617] relative">
+        <header className="h-14 flex items-center justify-between px-8 border-b border-white/5 bg-[#020617]/80 backdrop-blur-xl z-10">
+          <div className="flex items-center gap-2 text-[10px] text-blue-400 font-mono tracking-widest">
+            <ChevronRight className="w-3 h-3" />
+            <span className="text-white/20">NAZAI://</span> HOME
+          </div>
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-3 h-3 text-purple-500" />
+            <span className="text-[10px] font-black tracking-[0.3em] text-white uppercase">NazAI // V2.0</span>
           </div>
         </header>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto px-8 py-8 space-y-6">
-          <div className="max-w-4xl mx-auto space-y-6">
-            {/* Prompt area */}
-            <div className="space-y-3">
-              <label className="text-[10px] uppercase tracking-[0.2em] font-bold text-[#00A3FF]/60">
-                Mission Directive
-              </label>
-
-              <div
-                className={`rounded-xl p-px transition-all duration-500 ${
-                  focused ? "shadow-[0_0_40px_rgba(0,163,255,0.1)]" : ""
-                }`}
-                style={{
-                  background: focused ? "linear-gradient(135deg, #00A3FF, #a855f7)" : "rgba(255,255,255,0.06)",
-                }}
-              >
-                <textarea
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  onFocus={() => setFocused(true)}
-                  onBlur={() => setFocused(false)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleGenerate();
-                  }}
-                  placeholder="Describe the neural interface, landing page, or SaaS component..."
-                  className="w-full rounded-xl px-6 py-5 text-sm bg-[#0a0f1e] text-slate-200 outline-none min-h-[160px] resize-none border-none"
-                />
-              </div>
+        {/* TERMINAL CONTENT */}
+        <div className="flex-1 overflow-y-auto p-12 font-mono scrollbar-hide">
+          <div className="max-w-4xl mx-auto space-y-4">
+            <div className="flex items-center gap-3 text-green-500/80 text-xs">
+              <ChevronRight className="w-3 h-3" />
+              <span>NODE_INIT // PARALLEL_EXECUTION_START</span>
+            </div>
+            <div className="flex items-center gap-3 text-blue-400/80 text-xs">
+              <ChevronRight className="w-3 h-3" />
+              <span>DECRYPTION_SEQUENCE // INITIATED</span>
             </div>
 
-            {/* Execute button */}
-            <button
-              onClick={handleGenerate}
-              disabled={loading || !prompt.trim()}
-              className="group relative w-full overflow-hidden rounded-xl py-4 transition-all active:scale-[0.98] disabled:opacity-30 disabled:grayscale"
-            >
-              <div
-                className="absolute inset-0 transition-opacity group-hover:opacity-90"
-                style={{ background: "linear-gradient(90deg, #00A3FF, #a855f7)" }}
-              />
-              <div className="relative flex items-center justify-center gap-3 font-bold text-xs uppercase tracking-[0.3em] text-[#020617]">
-                {loading ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-[#020617]/30 border-t-[#020617] animate-spin rounded-full" />
-                    Neural Routing...
-                  </>
-                ) : (
-                  <>
-                    <Zap className="w-4 h-4 fill-current" />
-                    Initialize Generation
-                  </>
-                )}
-              </div>
-            </button>
-
             {error && (
-              <div className="rounded-xl px-5 py-4 text-xs font-mono bg-red-500/5 border border-red-500/20 text-red-400">
-                [SYSTEM_ERROR]: {error}
+              <div className="mt-4 p-4 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center gap-3 text-red-400 text-xs">
+                <AlertCircle className="w-4 h-4" />
+                <span>CRITICAL ERROR: {error}</span>
               </div>
             )}
 
-            {/* Preview Section */}
             {generatedCode && (
-              <div className="pt-8 animate-in fade-in slide-in-from-bottom-4 duration-1000">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-[10px] uppercase tracking-[0.2em] font-bold text-[#a855f7]">
-                    Deployment Preview
-                  </h3>
-                  <button
-                    onClick={() => {
-                      const blob = new Blob([generatedCode], { type: "text/html" });
-                      window.open(URL.createObjectURL(blob), "_blank");
-                    }}
-                    className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-white/30 hover:text-[#00A3FF] transition-colors"
-                  >
-                    <ExternalLink className="w-3 h-3" />
-                    Full Screen
-                  </button>
-                </div>
-
-                <div className="rounded-2xl overflow-hidden border border-white/5 shadow-2xl">
-                  {/* Browser Mockup */}
-                  <div className="flex items-center gap-2 px-4 py-3 bg-[#080d1a] border-b border-white/5">
-                    <div className="flex gap-1.5">
-                      <div className="w-2.5 h-2.5 rounded-full bg-red-500/40" />
-                      <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/40" />
-                      <div className="w-2.5 h-2.5 rounded-full bg-green-500/40" />
-                    </div>
-                    <div className="ml-4 flex-1 bg-white/5 rounded px-3 py-1 text-[9px] text-white/20 font-mono truncate">
-                      nazai://render-cache/{activeModel.split("/").pop()}
-                    </div>
+              <div className="mt-8 rounded-xl border border-white/10 overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-500">
+                <div className="bg-white/5 px-4 py-2 border-b border-white/10 flex items-center justify-between">
+                  <span className="text-[10px] uppercase tracking-widest text-slate-500">Live Preview</span>
+                  <div className="flex gap-1.5">
+                    <div className="w-2 h-2 rounded-full bg-red-500/20" />
+                    <div className="w-2 h-2 rounded-full bg-yellow-500/20" />
+                    <div className="w-2 h-2 rounded-full bg-green-500/20" />
                   </div>
-                  <iframe
-                    srcDoc={generatedCode}
-                    className="w-full h-[600px] bg-white"
-                    sandbox="allow-scripts allow-same-origin"
-                    title="NazAI Result"
-                  />
                 </div>
+                <iframe srcDoc={generatedCode} className="w-full h-[500px] bg-white" title="preview" />
               </div>
             )}
           </div>
+        </div>
+
+        {/* COMMAND INPUT */}
+        <div className="p-8 bg-gradient-to-t from-[#020617] via-[#020617] to-transparent">
+          <div
+            className={`max-w-4xl mx-auto rounded-2xl border transition-all duration-500 flex items-center px-4 py-1 ${
+              focused
+                ? "border-blue-500/40 bg-blue-500/5 shadow-[0_0_50px_rgba(0,163,255,0.05)]"
+                : "border-white/10 bg-white/[0.02]"
+            }`}
+          >
+            <button className="p-2 text-slate-600 hover:text-blue-400 transition-colors">
+              <Plus className="w-5 h-5" />
+            </button>
+            <input
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
+              onKeyDown={(e) => e.key === "Enter" && handleGenerate()}
+              placeholder="Awaiting directive..."
+              className="flex-1 bg-transparent border-none outline-none py-4 px-4 text-sm text-slate-200 placeholder:text-slate-700 font-mono"
+            />
+            {loading ? (
+              <div className="w-5 h-5 border-2 border-blue-500/20 border-t-blue-500 animate-spin rounded-full mr-2" />
+            ) : (
+              <button
+                onClick={handleGenerate}
+                className="p-2 text-blue-500 hover:scale-110 active:scale-95 transition-all"
+              >
+                <Zap className="w-5 h-5 fill-current" />
+              </button>
+            )}
+          </div>
+          <p className="text-center text-[9px] text-slate-700 mt-4 tracking-[0.2em] uppercase">
+            Powered by OpenRouter // Encrypted via Supabase
+          </p>
         </div>
       </main>
     </div>
