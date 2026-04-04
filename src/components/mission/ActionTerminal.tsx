@@ -16,32 +16,15 @@ interface TerminalLine {
   time: string;
 }
 
-interface ActionTerminalProps {
-  activeSection?: string;
-  initialDirective?: string;
-}
-
 const SYSTEM_PREFIX = "SYS_MSG >> ";
 const BOOT_DELAY = 60;
 
-const normalizeSection = (section?: string): Mission["status"] => {
-  switch (section) {
-    case "home":
-    case "recent":
-    case "archived":
-    case "trash":
-      return section;
-    default:
-      return "home";
-  }
-};
-
-const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home", initialDirective = "" }) => {
+const ActionTerminal = () => {
   // --- STATE ---
-  const [input, setInput] = useState(initialDirective);
+  const [input, setInput] = useState("");
   const [isBooted, setIsBooted] = useState(false);
   const [history, setHistory] = useState<TerminalLine[]>([]);
-  const [activeTab, setActiveTab] = useState<Mission["status"]>(() => normalizeSection(activeSection));
+  const [activeTab, setActiveTab] = useState<"home" | "recent" | "archived" | "trash">("home");
   const [missions, setMissions] = useState<Mission[]>(() => {
     const saved = localStorage.getItem("nazai_v3_data");
     return saved
@@ -90,14 +73,6 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home",
 
     return () => clearInterval(interval);
   }, []);
-
-  useEffect(() => {
-    setActiveTab(normalizeSection(activeSection));
-  }, [activeSection]);
-
-  useEffect(() => {
-    setInput(initialDirective);
-  }, [initialDirective]);
 
   useEffect(() => {
     localStorage.setItem("nazai_v3_data", JSON.stringify(missions));
@@ -170,6 +145,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home",
 
         {/* SCROLLABLE NAV CONTENT */}
         <div className="flex-1 overflow-y-auto py-6 px-4 space-y-8">
+          {/* NAVIGATION */}
           <section>
             <h3 className="text-[10px] opacity-20 font-bold uppercase tracking-[4px] mb-4 px-2">Navigation</h3>
             <nav className="space-y-1">
@@ -204,6 +180,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home",
             </nav>
           </section>
 
+          {/* SYSTEM ASSETS */}
           <section>
             <h3 className="text-[10px] opacity-20 font-bold uppercase tracking-[4px] mb-4 px-2">Live Assets</h3>
             <div className="space-y-4 px-2">
