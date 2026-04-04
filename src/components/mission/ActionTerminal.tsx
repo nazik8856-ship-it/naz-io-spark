@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { ChevronRight, Home, Clock, Archive, Trash2, Zap, Cpu, Settings, Shield, Activity, Lock } from "lucide-react";
 
-// --- TYPES & INTERFACES ---
+// --- TYPES ---
 interface Mission {
   id: string;
   name: string;
@@ -16,32 +16,16 @@ interface TerminalLine {
   time: string;
 }
 
-interface ActionTerminalProps {
-  activeSection?: string;
-  initialDirective?: string;
-}
-
 const SYSTEM_PREFIX = "SYS_MSG >> ";
 const BOOT_DELAY = 60;
 
-const normalizeSection = (section?: string): Mission["status"] => {
-  switch (section) {
-    case "recent":
-    case "archived":
-    case "trash":
-    case "home":
-      return section;
-    default:
-      return "home";
-  }
-};
-
-const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home", initialDirective = "" }) => {
-  // --- STATE ---
-  const [input, setInput] = useState(initialDirective);
+const ActionTerminal = () => {
+  const [input, setInput] = useState("");
   const [isBooted, setIsBooted] = useState(false);
   const [history, setHistory] = useState<TerminalLine[]>([]);
-  const [activeTab, setActiveTab] = useState<Mission["status"]>(normalizeSection(activeSection));
+  const [activeTab, setActiveTab] = useState<"home" | "recent" | "archived" | "trash">("home");
+
+  // Data persistence for NazAI
   const [missions, setMissions] = useState<Mission[]>(() => {
     const saved = localStorage.getItem("nazai_v3_data");
     return saved
@@ -65,31 +49,31 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home",
     [missions],
   );
 
-  // --- BOOT SEQUENCE ---
   useEffect(() => {
-    const bootLines = [
-      "AUTHENTICATING_USER... [OK]",
-      "LOADING_NAZAI_CORE_V3.0...",
-      "ESTABLISHING_ENCRYPTED_TUNNEL... [OK]",
-      "SYNCING_LOCAL_DATABASE...",
-      "SCANNING_INTEGRITY... 100%",
-      "-----------------------------------------",
-      "WELCOME BACK, OPERATOR. SYSTEM IS LIVE.",
-    ];
+    if (!isBooted) {
+      const bootLines = [
+        "AUTHENTICATING_USER... [OK]",
+        "LOADING_NAZAI_CORE_V3.0...",
+        "ESTABLISHING_ENCRYPTED_TUNNEL... [OK]",
+        "SYNCING_LOCAL_DATABASE...",
+        "SCANNING_INTEGRITY... 100%",
+        "-----------------------------------------",
+        "WELCOME BACK, OPERATOR. SYSTEM IS LIVE.",
+      ];
 
-    let currentLine = 0;
-    const interval = setInterval(() => {
-      if (currentLine < bootLines.length) {
-        addSystemLine(bootLines[currentLine], "system");
-        currentLine++;
-      } else {
-        setIsBooted(true);
-        clearInterval(interval);
-      }
-    }, BOOT_DELAY);
-
-    return () => clearInterval(interval);
-  }, []);
+      let currentLine = 0;
+      const interval = setInterval(() => {
+        if (currentLine < bootLines.length) {
+          addSystemLine(bootLines[currentLine], "system");
+          currentLine++;
+        } else {
+          setIsBooted(true);
+          clearInterval(interval);
+        }
+      }, BOOT_DELAY);
+      return () => clearInterval(interval);
+    }
+  }, [isBooted]);
 
   useEffect(() => {
     localStorage.setItem("nazai_v3_data", JSON.stringify(missions));
@@ -100,14 +84,6 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home",
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [history]);
-
-  useEffect(() => {
-    setActiveTab(normalizeSection(activeSection));
-  }, [activeSection]);
-
-  useEffect(() => {
-    setInput(initialDirective);
-  }, [initialDirective]);
 
   const addSystemLine = (text: string, type: TerminalLine["type"] = "system") => {
     setHistory((prev) => [
@@ -126,7 +102,11 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home",
 
     setHistory((prev) => [
       ...prev,
-      { text: `> ${cleanInput}`, type: "user", time: new Date().toLocaleTimeString([], { hour12: false }) },
+      {
+        text: `> ${cleanInput}`,
+        type: "user",
+        time: new Date().toLocaleTimeString([], { hour12: false }),
+      },
     ]);
 
     const [cmd, ...args] = cleanInput.toLowerCase().split(" ");
@@ -157,8 +137,8 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home",
   };
 
   return (
-    <div className="flex h-screen bg-[#020606] text-[#00ff80] font-mono selection:bg-[#00ff80] selection:text-black overflow-hidden relative">
-      {/* INTEGRATED SIDEBAR */}
+    <div className="fixed inset-0 flex bg-[#020606] text-[#00ff80] font-mono selection:bg-[#00ff80] selection:text-black overflow-hidden">
+      {/* SINGLE UNIFIED SIDEBAR */}
       <aside className="w-72 bg-[#050808] border-r border-[#00ff80]/10 flex flex-col z-50">
         <div className="p-6 border-b border-[#00ff80]/10 flex items-center gap-3">
           <div className="p-2 bg-[#00ff80]/10 rounded border border-[#00ff80]/20 text-[#00ff80]">
@@ -209,7 +189,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home",
             <h3 className="text-[10px] opacity-20 font-bold uppercase tracking-[4px] mb-4 px-2">Live Assets</h3>
             <div className="space-y-4 px-2">
               {missions.slice(0, 3).map((m) => (
-                <div key={m.id} className="group cursor-default">
+                <div key={m.id} className="group">
                   <div className="flex justify-between text-[10px] font-bold mb-1 uppercase tracking-tighter opacity-40 group-hover:opacity-100 transition-opacity">
                     <span>{m.name}</span>
                     <span className="text-[#00ff80]/40">[{m.id}]</span>
@@ -223,27 +203,22 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home",
           </section>
         </div>
 
-        <div className="flex flex-col">
-          <div className="p-4 bg-black/40 border-t border-[#00ff80]/10 flex items-center gap-3">
-            <div className="w-8 h-8 rounded bg-[#00ff80]/10 flex items-center justify-center border border-[#00ff80]/20 text-[#00ff80]">
-              <Shield size={14} />
-            </div>
-            <div className="flex-1 overflow-hidden">
-              <p className="text-[11px] font-bold text-white uppercase tracking-tighter truncate">Operator_Naz</p>
-              <div className="flex items-center gap-1.5">
-                <div className="w-1.5 h-1.5 rounded-full bg-[#00ff80] animate-pulse" />
-                <p className="text-[9px] text-blue-400 uppercase font-bold">Admin_Access</p>
-              </div>
-            </div>
-            <Settings size={14} className="opacity-20 hover:opacity-100 cursor-pointer transition-opacity" />
+        <div className="p-4 bg-black/40 border-t border-[#00ff80]/10 flex items-center gap-3">
+          <div className="w-8 h-8 rounded bg-[#00ff80]/10 flex items-center justify-center border border-[#00ff80]/20 text-[#00ff80]">
+            <Shield size={14} />
           </div>
+          <div className="flex-1 overflow-hidden">
+            <p className="text-[11px] font-bold text-white uppercase tracking-tighter truncate">Operator_Naz</p>
+            <div className="flex items-center gap-1.5">
+              <div className="w-1.5 h-1.5 rounded-full bg-[#00ff80] animate-pulse" />
+              <p className="text-[9px] text-blue-400 uppercase font-bold">Admin_Access</p>
+            </div>
+          </div>
+          <Settings size={14} className="opacity-20 hover:opacity-100 cursor-pointer transition-opacity" />
+        </div>
 
-          <div className="p-4 bg-[#050808] border-t border-[#00ff80]/5 text-center">
-            <div className="flex items-center justify-center gap-2">
-              <Shield size={10} className="text-[#00ff80] opacity-30" />
-              <p className="text-[9px] opacity-30 font-bold uppercase tracking-[4px]">Secure_Node // Synchronized</p>
-            </div>
-          </div>
+        <div className="p-3 bg-[#050808] border-t border-[#00ff80]/5 text-center">
+          <p className="text-[8px] opacity-30 font-bold uppercase tracking-[3px]">Secure_Node // Synchronized</p>
         </div>
       </aside>
 
@@ -296,6 +271,9 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home",
                     <span className="opacity-30 uppercase text-[10px]">ID: {m.id}</span>
                   </div>
                 ))}
+              {missions.filter((m) => m.status === activeTab).length === 0 && (
+                <div className="text-[10px] opacity-20 uppercase">No records found in this sector.</div>
+              )}
             </div>
           )}
         </div>
@@ -314,13 +292,13 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home",
           </div>
         </div>
 
-        <div className="absolute inset-0 pointer-events-none z-50 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.05)_50%),linear-gradient(90deg,rgba(255,0,0,0.01),rgba(0,255,0,0.01),rgba(0,0,255,0.01))] bg-[length:100%_3px,3px_100%] opacity-20" />
+        <div className="absolute inset-0 pointer-events-none z-50 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.05)_50%),linear-gradient(90deg,rgba(255,0,0,0.01),rgba(0,255,0,0.01),rgba(0,0,255,0.01))] bg-[length:100%_3px,3px_100%] opacity-10" />
       </main>
     </div>
   );
 };
 
-// --- HELPERS ---
+// --- SUB-COMPONENTS ---
 const SidebarItem = ({ icon, label, active, count, onClick }: any) => (
   <div
     onClick={onClick}
