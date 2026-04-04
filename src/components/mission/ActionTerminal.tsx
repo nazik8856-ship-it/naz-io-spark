@@ -39,7 +39,12 @@ interface TerminalLine {
 const SYSTEM_PREFIX = "SYS_MSG >> ";
 const BOOT_DELAY = 80;
 
-const ActionTerminal = () => {
+interface ActionTerminalProps {
+  activeSection?: string;
+  initialDirective?: string;
+}
+
+const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialDirective }) => {
   // --- STATE ---
   const [input, setInput] = useState("");
   const [isBooted, setIsBooted] = useState(false);
