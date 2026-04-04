@@ -12,6 +12,9 @@ import {
   Zap,
   AlertCircle,
   Github,
+  DatabaseZap,
+  CheckCircle2,
+  Loader2,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import ModelSidebar from "@/components/ModelSidebar";
@@ -41,10 +44,15 @@ const Generator = () => {
   const [focused, setFocused] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // ── Save Mission state ────────────────────────────────────────────────
+  const [saving, setSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+
   const handleGenerate = async () => {
     if (!prompt.trim() || loading) return;
     setLoading(true);
     setError(null);
+    setSaveSuccess(false);
 
     try {
       // We pass the prompt, model, and the repo name we saw in your screenshot
@@ -71,6 +79,38 @@ const Generator = () => {
       setError(err.message || "An unexpected error occurred during decryption.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  // ── Save Mission handler ────────────────────────────────────────────────
+  const handleSaveMission = async () => {
+    if (!generatedCode || saving) return;
+    setSaving(true);
+    setSaveSuccess(false);
+
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      const { error: insertError } = await supabase.from("missions").insert([
+        {
+          prompt: prompt.trim(),
+          code: generatedCode,
+          model_name: activeModel,
+          user_id: user?.id ?? null,
+        },
+      ]);
+
+      if (insertError) throw new Error(insertError.message);
+
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
+    } catch (err: any) {
+      console.error("Save Mission Error:", err);
+      setError(err.message || "ARCHIVE_FAILED: Could not write to database.");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -120,9 +160,45 @@ const Generator = () => {
       {/* ── MAIN TERMINAL AREA ── */}
       <main className="flex-1 flex flex-col min-w-0 bg-[#020617] relative">
         <header className="h-14 flex items-center justify-between px-8 border-b border-white/5 bg-[#020617]/80 backdrop-blur-xl z-10">
-          <div className="flex items-center gap-2 text-[10px] text-blue-400 font-mono tracking-widest">
-            <ChevronRight className="w-3 h-3" />
-            <span className="text-white/20">NAZAI://</span> HOME
+          {/* LEFT: Breadcrumb + SAVE_MISSION button */}
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 text-[10px] text-blue-400 font-mono tracking-widest">
+              <ChevronRight className="w-3 h-3" />
+              <span className="text-white/20">NAZAI://</span> MISSION_CONTROL
+            </div>
+
+            {generatedCode && (
+              <button
+                onClick={handleSaveMission}
+                disabled={saving || saveSuccess}
+                className={
+                  `flex items-center gap-1.5 px-3 py-1 rounded-md border text-[10px] font-mono tracking-widest uppercase transition-all duration-300 ` +
+                  (saveSuccess
+                    ? "border-green-500/40 bg-green-500/10 text-green-400"
+                    : saving
+                      ? "border-white/10 bg-white/5 text-slate-500 cursor-not-allowed"
+                      : "border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:border-emerald-400/60 hover:bg-emerald-500/20 hover:shadow-[0_0_20px_rgba(16,185,129,0.15)]")
+                }
+              >
+                {saveSuccess ? (
+                  <>
+                    <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse inline-block" />
+                    <CheckCircle2 className="w-3 h-3" />
+                    <span>Mission Archived</span>
+                  </>
+                ) : saving ? (
+                  <>
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    <span>Archiving...</span>
+                  </>
+                ) : (
+                  <>
+                    <DatabaseZap className="w-3 h-3" />
+                    <span>SAVE_MISSION</span>
+                  </>
+                )}
+              </button>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <Sparkles className="w-3 h-3 text-purple-500" />
@@ -160,6 +236,44 @@ const Generator = () => {
                   </div>
                 </div>
                 <iframe srcDoc={generatedCode} className="w-full h-[500px] bg-white" title="preview" />
+
+                {/* ── ARCHIVE TO DATABASE button (primary CTA under iframe) ── */}
+                <div className="bg-[#010d1f] border-t border-white/5 px-6 py-4 flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-2 text-[10px] font-mono text-slate-500">
+                    <ChevronRight className="w-3 h-3 text-emerald-600" />
+                    <span>OUTPUT_READY // MISSION_CAN_BE_ARCHIVED</span>
+                  </div>
+                  <button
+                    onClick={handleSaveMission}
+                    disabled={saving || saveSuccess}
+                    className={
+                      "flex items-center gap-2 px-5 py-2.5 rounded-lg border text-xs font-mono tracking-widest uppercase transition-all duration-300 " +
+                      (saveSuccess
+                        ? "border-green-500/40 bg-green-500/10 text-green-400 shadow-[0_0_30px_rgba(16,185,129,0.15)]"
+                        : saving
+                          ? "border-white/10 bg-white/5 text-slate-500 cursor-not-allowed"
+                          : "border-emerald-500/40 bg-emerald-500/5 text-emerald-400 hover:border-emerald-400/70 hover:bg-emerald-500/15 hover:shadow-[0_0_40px_rgba(16,185,129,0.2)] active:scale-95")
+                    }
+                  >
+                    {saveSuccess ? (
+                      <>
+                        <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse inline-block" />
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>Mission Archived</span>
+                      </>
+                    ) : saving ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Archiving to Database...</span>
+                      </>
+                    ) : (
+                      <>
+                        <DatabaseZap className="w-4 h-4" />
+                        <span>Archive to Database</span>
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             )}
           </div>
