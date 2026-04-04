@@ -1,194 +1,206 @@
-import React, { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { 
-  Zap, Loader2, Play, Code, 
-  Layout, Rocket, Sparkles, RefreshCcw,
-  ArrowLeft, Terminal, Share2, Download
+import {
+  Plus,
+  Home,
+  Clock,
+  Archive,
+  Trash2,
+  Shield,
+  ChevronRight,
+  Sparkles,
+  Zap,
+  AlertCircle,
+  Github,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
+import ModelSidebar from "@/components/ModelSidebar";
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function extractHTML(raw: string): string {
+  return raw
+    .replace(/^```html\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/```\s*$/i, "")
+    .trim();
+}
+
+function wrapInSkeleton(html: string): string {
+  const lower = html.toLowerCase();
+  if (lower.includes("<!doctype") || lower.includes("<html")) return html;
+  return `<!DOCTYPE html><html><head><script src="https://cdn.tailwindcss.com"></script><style>body { background: #0a0a0a; color: #f1f5f9; min-height: 100vh; }</style></head><body>${html}</body></html>`;
+}
 
 const Generator = () => {
   const navigate = useNavigate();
-  const [idea, setIdea] = useState("");
+  const [prompt, setPrompt] = useState("");
+  const [activeModel, setActiveModel] = useState("google/gemini-2.0-flash-001");
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'preview' | 'code'>('preview');
+  const [generatedCode, setGeneratedCode] = useState("");
+  const [focused, setFocused] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleGenerate = async () => {
-    if (!idea.trim()) return;
+    if (!prompt.trim() || loading) return;
     setLoading(true);
+    setError(null);
+
     try {
-      const { data, error } = await supabase.functions.invoke('swift-service', {
-        body: { businessIdea: idea.trim() },
+      // We pass the prompt, model, and the repo name we saw in your screenshot
+      const { data, error: fnError } = await supabase.functions.invoke("naz-io-spark", {
+        body: {
+          prompt: prompt.trim(),
+          model_choice: activeModel,
+          repo: "nazik8856-ship-it/naz-io-spark", // From your GitHub screenshot
+        },
       });
-      if (error) throw error;
-      setResult(data);
-    } catch (err) {
-      console.error("Neural Link Error:", err);
+
+      if (fnError) throw new Error(fnError.message);
+
+      const clean = extractHTML(data.content ?? "");
+      const full = wrapInSkeleton(clean);
+      setGeneratedCode(full);
+
+      // Auto-open in new tab for full-screen preview
+      const blob = new Blob([full], { type: "text/html" });
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+    } catch (err: any) {
+      console.error("Generation Error:", err);
+      setError(err.message || "An unexpected error occurred during decryption.");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-background text-foreground selection:bg-accent/30 font-sans overflow-x-hidden">
-      <div className="fixed inset-0 z-0 opacity-[0.03] pointer-events-none" 
-           style={{ backgroundImage: 'linear-gradient(hsl(var(--accent)) 1px, transparent 1px), linear-gradient(90deg, hsl(var(--accent)) 1px, transparent 1px)', backgroundSize: '48px 48px' }} />
-
-      <main className="relative z-10 max-w-7xl mx-auto p-6 space-y-8">
-        <header className="flex justify-between items-center py-4 border-b border-border">
-          <div className="flex items-center gap-4 cursor-pointer" onClick={() => navigate("/")}>
-            <div className="w-12 h-12 rounded-[14px] bg-background flex items-center justify-center border border-border shadow-[0_0_20px_rgba(0,163,255,0.2)]">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="drop-shadow-[0_0_8px_rgba(0,163,255,0.8)]">
-                <path d="M7 19V5L17 19V5" stroke="#00A3FF" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </div>
-            <div className="flex flex-col">
-              <h1 className="text-2xl font-black tracking-tighter uppercase italic leading-none">
-                Naz<span className="text-primary">AI</span>
-              </h1>
-              <span className="text-[8px] font-mono text-muted-foreground uppercase tracking-[0.3em] mt-1">
-                Neural Interface v3.0
-              </span>
-            </div>
+    <div className="flex h-screen w-full overflow-hidden bg-[#020617] text-slate-200 font-sans">
+      {/* ── LEFT NAV (OS SIDEBAR) ── */}
+      <aside className="w-64 flex-shrink-0 border-r border-white/5 flex flex-col bg-[#020617] z-20">
+        <div className="p-6 flex items-center gap-3">
+          <div className="w-8 h-8 bg-blue-600/20 rounded flex items-center justify-center border border-blue-500/30">
+            <Shield className="w-4 h-4 text-blue-400" />
           </div>
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" className="text-muted-foreground hover:text-foreground group">
-              <RefreshCcw size={16} className="group-hover:rotate-180 transition-transform duration-500" />
-            </Button>
-            <Button onClick={() => navigate("/")} variant="outline" className="border-border text-[10px] font-black uppercase tracking-widest px-4 h-8 rounded-lg">
-              <ArrowLeft size={12} className="mr-2" /> Exit
-            </Button>
+          <span className="font-bold tracking-tighter text-sm italic">NAZAI // OS</span>
+        </div>
+
+        <nav className="flex-1 px-3 space-y-1">
+          <button
+            onClick={() => navigate("/")}
+            className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg bg-blue-600/10 text-blue-400 border border-blue-500/10 text-sm font-medium"
+          >
+            <Home className="w-4 h-4" /> Home
+          </button>
+          <button className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg hover:bg-white/5 text-slate-400 transition-colors text-sm">
+            <Clock className="w-4 h-4" /> Recents
+          </button>
+          <button className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg hover:bg-white/5 text-slate-400 transition-colors text-sm">
+            <Archive className="w-4 h-4" /> Archives
+          </button>
+          <button className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg hover:bg-white/5 text-slate-400 transition-colors text-sm">
+            <Trash2 className="w-4 h-4" /> Trash
+          </button>
+        </nav>
+
+        <div className="p-6 border-t border-white/5">
+          <div className="text-[10px] text-slate-500 uppercase tracking-[0.2em] mb-4 font-bold">Connected Repo</div>
+          <div className="text-xs text-slate-300 flex items-center gap-2 group cursor-pointer">
+            <Github className="w-3 h-3 text-slate-500" />
+            <span className="truncate group-hover:text-blue-400 transition-colors font-mono">naz-io-spark</span>
+          </div>
+        </div>
+      </aside>
+
+      {/* ── MODEL SIDEBAR ── */}
+      <div className="w-72 flex-shrink-0 border-r border-white/5 bg-[#010411]">
+        <ModelSidebar activeModel={activeModel} onModelChange={setActiveModel} />
+      </div>
+
+      {/* ── MAIN TERMINAL AREA ── */}
+      <main className="flex-1 flex flex-col min-w-0 bg-[#020617] relative">
+        <header className="h-14 flex items-center justify-between px-8 border-b border-white/5 bg-[#020617]/80 backdrop-blur-xl z-10">
+          <div className="flex items-center gap-2 text-[10px] text-blue-400 font-mono tracking-widest">
+            <ChevronRight className="w-3 h-3" />
+            <span className="text-white/20">NAZAI://</span> HOME
+          </div>
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-3 h-3 text-purple-500" />
+            <span className="text-[10px] font-black tracking-[0.3em] text-white uppercase">NazAI // V2.0</span>
           </div>
         </header>
 
-        <section className="space-y-4">
-          <div className="laser-border">
-            <div className="laser-content p-1">
-              <div className="flex flex-col md:flex-row gap-4 bg-[#050505] p-4 rounded-xl">
-                <div className="flex-1 flex gap-4">
-                  <div className="mt-4 text-primary/50"><Terminal size={20} /></div>
-                  <textarea
-                    value={idea}
-                    onChange={(e) => setIdea(e.target.value)}
-                    placeholder="Describe your vision..."
-                    className="flex-1 bg-transparent border-none text-foreground p-4 text-lg font-mono focus:ring-0 placeholder:text-muted-foreground/30 resize-none"
-                    rows={3}
-                  />
-                </div>
-                <div className="flex flex-col justify-end">
-                  <Button 
-                    onClick={handleGenerate}
-                    disabled={loading || !idea}
-                    className="h-full px-10 bg-primary text-primary-foreground hover:bg-primary/90 font-black rounded-xl transition-all active:scale-95 disabled:opacity-20 group"
-                  >
-                    {loading ? (
-                      <Loader2 className="animate-spin" />
-                    ) : (
-                      <>
-                        <Play fill="currentColor" size={18} className="mr-2 group-hover:scale-125 transition-transform" /> 
-                        IGNITE
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </div>
+        {/* TERMINAL CONTENT */}
+        <div className="flex-1 overflow-y-auto p-12 font-mono scrollbar-hide">
+          <div className="max-w-4xl mx-auto space-y-4">
+            <div className="flex items-center gap-3 text-green-500/80 text-xs">
+              <ChevronRight className="w-3 h-3" />
+              <span>NODE_INIT // PARALLEL_EXECUTION_START</span>
             </div>
-          </div>
-        </section>
+            <div className="flex items-center gap-3 text-blue-400/80 text-xs">
+              <ChevronRight className="w-3 h-3" />
+              <span>DECRYPTION_SEQUENCE // INITIATED</span>
+            </div>
 
-        {result && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 animate-fade-in">
-            <aside className="lg:col-span-4 space-y-6">
-              <div className="glass p-8 rounded-[32px]">
-                <div className="flex items-center gap-2 text-primary mb-6">
-                  <Sparkles size={18} />
-                  <h3 className="font-black uppercase tracking-widest text-xs italic">Brand Identity</h3>
-                </div>
-                <div className="space-y-6">
-                  <div>
-                    <p className="text-[9px] text-muted-foreground uppercase font-black tracking-widest mb-1">Generated Name</p>
-                    <p className="text-3xl font-black tracking-tighter italic">{result.brand?.name}</p>
-                  </div>
-                  <div>
-                    <p className="text-[9px] text-muted-foreground uppercase font-black tracking-widest mb-2">Visual Logic</p>
-                    <p className="text-xs text-muted-foreground font-medium leading-relaxed italic border-l-2 border-primary/30 pl-4">
-                      {result.brand?.logoPrompt}
-                    </p>
+            {error && (
+              <div className="mt-4 p-4 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center gap-3 text-red-400 text-xs">
+                <AlertCircle className="w-4 h-4" />
+                <span>CRITICAL ERROR: {error}</span>
+              </div>
+            )}
+
+            {generatedCode && (
+              <div className="mt-8 rounded-xl border border-white/10 overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-500">
+                <div className="bg-white/5 px-4 py-2 border-b border-white/10 flex items-center justify-between">
+                  <span className="text-[10px] uppercase tracking-widest text-slate-500">Live Preview</span>
+                  <div className="flex gap-1.5">
+                    <div className="w-2 h-2 rounded-full bg-red-500/20" />
+                    <div className="w-2 h-2 rounded-full bg-yellow-500/20" />
+                    <div className="w-2 h-2 rounded-full bg-green-500/20" />
                   </div>
                 </div>
+                <iframe srcDoc={generatedCode} className="w-full h-[500px] bg-white" title="preview" />
               </div>
-
-              <div className="glass p-8 rounded-[32px]">
-                <div className="flex items-center gap-2 text-accent mb-6">
-                  <Rocket size={18} />
-                  <h3 className="font-black uppercase tracking-widest text-xs italic">Growth Hooks</h3>
-                </div>
-                <ul className="space-y-4">
-                  {result.strategy?.hooks?.map((hook: string, i: number) => (
-                    <li key={i} className="text-[11px] text-muted-foreground font-bold uppercase tracking-tight flex gap-3 items-start">
-                      <span className="text-accent font-mono mt-0.5">0{i+1}</span>
-                      {hook}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              <Button className="w-full h-12 rounded-xl bg-secondary border border-border text-[10px] font-black uppercase tracking-widest hover:bg-secondary/80">
-                <Share2 size={14} className="mr-2" /> Share Project
-              </Button>
-            </aside>
-
-            <div className="lg:col-span-8 space-y-4">
-              <div className="flex justify-between items-center px-2">
-                <div className="flex gap-4">
-                  {['preview', 'code'].map((tab) => (
-                    <button 
-                      key={tab}
-                      onClick={() => setActiveTab(tab as any)} 
-                      className={`text-[10px] font-black uppercase tracking-[0.2em] transition-all pb-2 border-b-2 ${activeTab === tab ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground'}`}
-                    >
-                      {tab}
-                    </button>
-                  ))}
-                </div>
-                <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground">
-                  <Download size={14} />
-                </Button>
-              </div>
-
-              <div className="laser-border h-[650px]">
-                <div className="laser-content">
-                  {activeTab === 'preview' ? (
-                    <div className="w-full h-full bg-white rounded-xl overflow-hidden relative group">
-                      <div className="absolute top-4 right-4 px-3 py-1 bg-black/80 backdrop-blur-md rounded-full border border-border text-[8px] font-black uppercase tracking-widest text-primary z-10 opacity-0 group-hover:opacity-100 transition-opacity">
-                        Live Environment
-                      </div>
-                      <iframe
-                        title="NazAI Live Preview"
-                        srcDoc={result.website?.html}
-                        className="w-full h-full border-none shadow-2xl"
-                      />
-                    </div>
-                  ) : (
-                    <div className="w-full h-full bg-[#050505] rounded-xl overflow-hidden">
-                      <div className="flex items-center gap-2 px-4 py-2 border-b border-border bg-card">
-                        <div className="w-2 h-2 rounded-full bg-red-500/50" />
-                        <div className="w-2 h-2 rounded-full bg-yellow-500/50" />
-                        <div className="w-2 h-2 rounded-full bg-green-500/50" />
-                        <span className="text-[9px] font-mono text-muted-foreground ml-4">index.html — Generated by NazAI</span>
-                      </div>
-                      <pre className="p-8 text-xs font-mono text-primary/80 overflow-auto h-[calc(650px-40px)]">
-                        <code>{result.website?.html}</code>
-                      </pre>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
+            )}
           </div>
-        )}
+        </div>
+
+        {/* COMMAND INPUT */}
+        <div className="p-8 bg-gradient-to-t from-[#020617] via-[#020617] to-transparent">
+          <div
+            className={`max-w-4xl mx-auto rounded-2xl border transition-all duration-500 flex items-center px-4 py-1 ${
+              focused
+                ? "border-blue-500/40 bg-blue-500/5 shadow-[0_0_50px_rgba(0,163,255,0.05)]"
+                : "border-white/10 bg-white/[0.02]"
+            }`}
+          >
+            <button className="p-2 text-slate-600 hover:text-blue-400 transition-colors">
+              <Plus className="w-5 h-5" />
+            </button>
+            <input
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
+              onKeyDown={(e) => e.key === "Enter" && handleGenerate()}
+              placeholder="Awaiting directive..."
+              className="flex-1 bg-transparent border-none outline-none py-4 px-4 text-sm text-slate-200 placeholder:text-slate-700 font-mono"
+            />
+            {loading ? (
+              <div className="w-5 h-5 border-2 border-blue-500/20 border-t-blue-500 animate-spin rounded-full mr-2" />
+            ) : (
+              <button
+                onClick={handleGenerate}
+                className="p-2 text-blue-500 hover:scale-110 active:scale-95 transition-all"
+              >
+                <Zap className="w-5 h-5 fill-current" />
+              </button>
+            )}
+          </div>
+          <p className="text-center text-[9px] text-slate-700 mt-4 tracking-[0.2em] uppercase">
+            Powered by OpenRouter // Encrypted via Supabase
+          </p>
+        </div>
       </main>
     </div>
   );
