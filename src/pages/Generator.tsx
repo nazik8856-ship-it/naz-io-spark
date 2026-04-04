@@ -1,11 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Plus,
   Home,
   Clock,
   Archive,
-  Trash2,
   Shield,
   ChevronRight,
   Sparkles,
@@ -33,7 +32,7 @@ function extractHTML(raw: string): string {
 function wrapInSkeleton(html: string): string {
   const lower = html.toLowerCase();
   if (lower.includes("<!doctype") || lower.includes("<html")) return html;
-  return `<!DOCTYPE html><html><head><script src="https://cdn.tailwindcss.com"></script><style>body { background: #0a0a0a; color: #f1f5f9; min-height: 100vh; }</style></head><body>${html}</body></html>`;
+  return `<!DOCTYPE html><html><head><script src="https://cdn.tailwindcss.com"></script><style>body { background: #0a0a0a; color: #f1f5f9; min-height: 100vh; font-family: sans-serif; }</style></head><body>${html}</body></html>`;
 }
 
 const Generator = () => {
@@ -70,7 +69,7 @@ const Generator = () => {
       const full = wrapInSkeleton(clean);
       setGeneratedCode(full);
 
-      // Auto-open in new tab
+      // Open preview in new tab
       const blob = new Blob([full], { type: "text/html" });
       const url = URL.createObjectURL(blob);
       window.open(url, "_blank");
@@ -86,15 +85,15 @@ const Generator = () => {
   const handleSaveMission = async () => {
     if (!generatedCode || saving) return;
     setSaving(true);
-    setSaveSuccess(false);
+    setError(null);
 
     try {
-      // Get the current user for user_id association
       const {
         data: { user },
       } = await supabase.auth.getUser();
 
-      const { error: insertError } = await supabase.from("missions").insert([
+      // Casting to 'any' is required if your local DB types aren't synced
+      const { error: insertError } = await (supabase as any).from("missions").insert([
         {
           prompt: prompt.trim(),
           code: generatedCode,
@@ -103,19 +102,18 @@ const Generator = () => {
         },
       ]);
 
-      if (insertError) throw new Error(insertError.message);
+      if (insertError) throw insertError;
 
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err: any) {
       console.error("Save Mission Error:", err);
-      setError(err.message || "ARCHIVE_FAILED: Could not write to database.");
+      setError(err.message || "ARCHIVE_FAILED: Database rejected the entry.");
     } finally {
       setSaving(false);
     }
   };
 
-  // ── Download Handler ──
   const handleDownload = () => {
     const blob = new Blob([generatedCode], { type: "text/html" });
     const url = URL.createObjectURL(blob);
@@ -129,7 +127,7 @@ const Generator = () => {
     <div className="flex h-screen w-full overflow-hidden bg-[#020617] text-slate-200 font-sans">
       <aside className="w-64 flex-shrink-0 border-r border-white/5 flex flex-col bg-[#020617] z-20">
         <div className="p-6 flex items-center gap-3">
-          <div className="w-8 h-8 bg-blue-600/20 rounded flex items-center justify-center border border-blue-500/30">
+          <div className="w-8 h-8 bg-blue-600/20 rounded flex items-center justify-center border border-blue-500/30 shadow-[0_0_15px_rgba(37,99,235,0.2)]">
             <Shield className="w-4 h-4 text-blue-400" />
           </div>
           <span className="font-bold tracking-tighter text-sm italic uppercase">NazAI // OS</span>
@@ -142,10 +140,16 @@ const Generator = () => {
           >
             <Home className="w-4 h-4" /> Home
           </button>
-          <button className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg hover:bg-white/5 text-slate-400 transition-colors text-sm">
+          <button
+            onClick={() => navigate("/recents")}
+            className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg hover:bg-white/5 text-slate-400 transition-colors text-sm"
+          >
             <Clock className="w-4 h-4" /> Recents
           </button>
-          <button className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg hover:bg-white/5 text-slate-400 transition-colors text-sm">
+          <button
+            onClick={() => navigate("/archives")}
+            className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg hover:bg-white/5 text-slate-400 transition-colors text-sm"
+          >
             <Archive className="w-4 h-4" /> Archives
           </button>
         </nav>
@@ -154,7 +158,7 @@ const Generator = () => {
           <div className="text-[10px] text-slate-500 uppercase tracking-[0.2em] mb-4 font-bold">Connected Repo</div>
           <div className="text-xs text-slate-300 flex items-center gap-2 group cursor-pointer font-mono">
             <Github className="w-3 h-3 text-slate-500" />
-            <span className="truncate group-hover:text-blue-400 transition-colors">naz-io-spark</span>
+            <span className="truncate group-hover:text-blue-400 transition-colors">nazik8856-ship-it</span>
           </div>
         </div>
       </aside>
@@ -222,9 +226,9 @@ const Generator = () => {
                 <div className="bg-white/5 px-4 py-2 border-b border-white/10 flex items-center justify-between">
                   <span className="text-[10px] uppercase tracking-widest text-slate-500">Live Preview</span>
                   <div className="flex gap-1.5">
-                    <div className="w-2 h-2 rounded-full bg-red-500/20" />
-                    <div className="w-2 h-2 rounded-full bg-yellow-500/20" />
-                    <div className="w-2 h-2 rounded-full bg-green-500/20" />
+                    <div className="w-2 h-2 rounded-full bg-red-500/40" />
+                    <div className="w-2 h-2 rounded-full bg-yellow-500/40" />
+                    <div className="w-2 h-2 rounded-full bg-green-500/40" />
                   </div>
                 </div>
                 <iframe srcDoc={generatedCode} className="w-full h-[500px] bg-white" title="preview" />
