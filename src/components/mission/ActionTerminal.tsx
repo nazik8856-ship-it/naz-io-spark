@@ -16,32 +16,15 @@ interface TerminalLine {
   time: string;
 }
 
-interface ActionTerminalProps {
-  activeSection?: string;
-  initialDirective?: string;
-}
-
 const SYSTEM_PREFIX = "SYS_MSG >> ";
 const BOOT_DELAY = 60;
 
-const normalizeSection = (section?: string): Mission["status"] => {
-  switch (section) {
-    case "home":
-    case "recent":
-    case "archived":
-    case "trash":
-      return section;
-    default:
-      return "home";
-  }
-};
-
-const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home", initialDirective = "" }) => {
+const ActionTerminal = () => {
   // --- STATE ---
-  const [input, setInput] = useState(initialDirective);
+  const [input, setInput] = useState("");
   const [isBooted, setIsBooted] = useState(false);
   const [history, setHistory] = useState<TerminalLine[]>([]);
-  const [activeTab, setActiveTab] = useState<Mission["status"]>(normalizeSection(activeSection));
+  const [activeTab, setActiveTab] = useState<"home" | "recent" | "archived" | "trash">("home");
   const [missions, setMissions] = useState<Mission[]>(() => {
     const saved = localStorage.getItem("nazai_v3_data");
     return saved
@@ -96,14 +79,6 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home",
   }, [missions]);
 
   useEffect(() => {
-    setActiveTab(normalizeSection(activeSection));
-  }, [activeSection]);
-
-  useEffect(() => {
-    setInput(initialDirective);
-  }, [initialDirective]);
-
-  useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
@@ -155,9 +130,9 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home",
 
   return (
     <div className="flex h-screen bg-[#020606] text-[#00ff80] font-mono selection:bg-[#00ff80] selection:text-black overflow-hidden relative">
-      {/* THE SINGLE UNIFIED SIDEBAR */}
+      {/* THE SINGLE UNIFIED SIDEBAR (REPLACES BOTH OLD ONES) */}
       <aside className="w-72 bg-[#050808] border-r border-[#00ff80]/10 flex flex-col z-50">
-        {/* TOP BRANDING - UPDATED TO WORKSPACE */}
+        {/* TOP BRANDING */}
         <div className="p-6 border-b border-[#00ff80]/10 flex items-center gap-3">
           <div className="p-2 bg-[#00ff80]/10 rounded border border-[#00ff80]/20 text-[#00ff80]">
             <Cpu size={20} />
@@ -170,7 +145,6 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home",
 
         {/* SCROLLABLE NAV CONTENT */}
         <div className="flex-1 overflow-y-auto py-6 px-4 space-y-8">
-          {/* NAVIGATION */}
           <section>
             <h3 className="text-[10px] opacity-20 font-bold uppercase tracking-[4px] mb-4 px-2">Navigation</h3>
             <nav className="space-y-1">
@@ -205,7 +179,6 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home",
             </nav>
           </section>
 
-          {/* SYSTEM ASSETS */}
           <section>
             <h3 className="text-[10px] opacity-20 font-bold uppercase tracking-[4px] mb-4 px-2">Live Assets</h3>
             <div className="space-y-4 px-2">
@@ -224,7 +197,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home",
           </section>
         </div>
 
-        {/* BOTTOM USER PROFILE & SECURE NODE */}
+        {/* BOTTOM USER PROFILE & SECURE NODE BAR */}
         <div className="flex flex-col">
           <div className="p-4 bg-black/40 border-t border-[#00ff80]/10 flex items-center gap-3">
             <div className="w-8 h-8 rounded bg-[#00ff80]/10 flex items-center justify-center border border-[#00ff80]/20 text-[#00ff80]">
@@ -240,9 +213,12 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home",
             <Settings size={14} className="opacity-20 hover:opacity-100 cursor-pointer transition-opacity" />
           </div>
 
-          {/* SECURE NODE BAR */}
+          {/* SECURE NODE (SYNCHRONIZED COLOR) */}
           <div className="p-4 bg-[#050808] border-t border-[#00ff80]/5 text-center">
-            <p className="text-[9px] opacity-30 font-bold uppercase tracking-[4px]">Secure_Node // Synchronized</p>
+            <div className="flex items-center justify-center gap-2">
+              <Shield size={10} className="text-[#00ff80] opacity-30" />
+              <p className="text-[9px] opacity-30 font-bold uppercase tracking-[4px]">Secure_Node // Synchronized</p>
+            </div>
           </div>
         </div>
       </aside>
@@ -310,6 +286,7 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection = "home",
           </div>
         </div>
 
+        {/* CRT SCANLINE OVERLAY */}
         <div className="absolute inset-0 pointer-events-none z-50 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.05)_50%),linear-gradient(90deg,rgba(255,0,0,0.01),rgba(0,255,0,0.01),rgba(0,0,255,0.01))] bg-[length:100%_3px,3px_100%] opacity-20" />
       </main>
     </div>
