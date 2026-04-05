@@ -35,7 +35,7 @@ function wrapInSkeleton(html: string): string {
   return `<!DOCTYPE html><html><head><script src="https://cdn.tailwindcss.com"></script><style>body { background: #0a0a0a; color: #f1f5f9; min-height: 100vh; font-family: sans-serif; }</style></head><body>${html}</body></html>`;
 }
 
-const Generator = () => {
+const GeneratorV2 = () => {
   const navigate = useNavigate();
   const [prompt, setPrompt] = useState("");
   const [activeModel, setActiveModel] = useState("google/gemini-2.0-flash-001");
@@ -310,4 +310,4 @@ const Generator = () => {
   );
 };
 
-export default Generator;
+export default GeneratorV2;
