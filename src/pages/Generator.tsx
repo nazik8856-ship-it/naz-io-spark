@@ -72,7 +72,6 @@ const GeneratorV2 = () => {
         const clean = extractHTML(content);
         setGeneratedCode(wrapInSkeleton(clean));
       } else {
-        // Handle text-only strategic responses
         setGeneratedCode(""); 
       }
       
@@ -138,44 +137,45 @@ const GeneratorV2 = () => {
         </header>
 
         <div className="flex-1 overflow-y-auto p-8 font-mono relative scrollbar-hide">
-          <div className="max-w-4xl mx-auto">
+          <div className="max-w-4xl mx-auto pb-32">
             {hasResult && !loading && (
               <div className="animate-in fade-in slide-in-from-bottom-4 duration-700">
                 
-                {/* ── SAVE BUTTON: FIXED TO THE TOP-RIGHT OF CONTENT ── */}
-                <div className="flex justify-end mb-4">
+                {/* ── EMERGENCY SAVE BUTTON: FORCED VISIBILITY ── */}
+                <div className="flex justify-end mb-6 sticky top-0 z-[100] pt-2">
                    <button 
                     onClick={handleSaveMission}
                     disabled={saveState === "saving" || saveState === "success"}
-                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl border-2 border-emerald-500 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-xs font-bold uppercase tracking-widest shadow-[0_0_30px_rgba(16,185,129,0.3)] transition-all active:scale-95 z-50"
+                    className="flex items-center gap-3 px-6 py-3 rounded-xl border-2 border-emerald-500 bg-[#061a11] hover:bg-[#0c3221] text-emerald-400 text-xs font-black uppercase tracking-[0.2em] shadow-[0_0_40px_rgba(16,185,129,0.4)] transition-all active:scale-95 ring-4 ring-black/50"
                   >
                     {saveState === "saving" ? <Loader2 className="animate-spin w-4 h-4" /> :
                      saveState === "success" ? <CheckCircle2 className="w-4 h-4" /> :
                      <DatabaseZap className="w-4 h-4" />}
-                    {saveState === "saving" ? "Archiving..." : saveState === "success" ? "Mission Saved" : "Save to Database"}
+                    <span>{saveState === "saving" ? "SYNCING..." : saveState === "success" ? "MISSION ARCHIVED" : "SAVE TO DATABASE"}</span>
                   </button>
                 </div>
 
-                <div className="rounded-2xl border border-white/10 overflow-hidden bg-black/40 shadow-2xl backdrop-blur-sm">
-                  <div className="bg-white/5 px-6 py-3 border-b border-white/10 flex items-center justify-between">
+                <div className="rounded-2xl border border-white/10 overflow-hidden bg-black/60 shadow-2xl backdrop-blur-md">
+                  <div className="bg-white/5 px-6 py-4 border-b border-white/10 flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                      <span className="text-[10px] uppercase tracking-[0.2em] text-slate-500 font-bold">Mission Directive Result</span>
+                      <span className="text-[10px] uppercase tracking-[0.3em] text-slate-400 font-black">Mission Directive Result</span>
                     </div>
                   </div>
                   
                   {generatedCode ? (
-                    <iframe srcDoc={generatedCode} className="w-full h-[600px] bg-white" title="preview" />
+                    <iframe srcDoc={generatedCode} className="w-full h-[650px] bg-white" title="preview" />
                   ) : (
                     <div className="p-10 text-slate-300">
                       <div className="flex items-center gap-2 mb-6">
                         <Sparkles className="w-4 h-4 text-emerald-400" />
                         <span className="text-xs text-emerald-400 uppercase tracking-widest font-bold">Analysis Complete</span>
                       </div>
-                      <h2 className="text-2xl font-bold mb-4 text-white">{prompt}</h2>
-                      <div className="p-6 bg-white/[0.03] border border-white/5 rounded-xl leading-relaxed text-slate-400">
-                        Mission directive parameters successfully computed. Review the analysis above. 
-                        Click <span className="text-emerald-400 font-bold">Save Mission</span> to archive this logic to your database.
+                      <h2 className="text-2xl font-bold mb-4 text-white uppercase tracking-tighter">{prompt}</h2>
+                      <div className="p-8 bg-white/[0.03] border border-white/5 rounded-2xl leading-relaxed text-slate-400 font-sans">
+                        Mission directive parameters successfully computed. The logic has been injected into the control stream.
+                        <br /><br />
+                        <span className="text-emerald-500 font-bold underline">ATTENTION:</span> Use the floating button above to commit this analysis to the permanent archive.
                       </div>
                     </div>
                   )}
@@ -193,14 +193,14 @@ const GeneratorV2 = () => {
             {loading && (
               <div className="h-[500px] flex flex-col items-center justify-center">
                 <Loader2 className="w-10 h-10 text-blue-500 animate-spin mb-4" />
-                <p className="text-[10px] uppercase tracking-[0.4em] text-blue-400 animate-pulse">Decrypting Mission Data...</p>
+                <p className="text-[10px] uppercase tracking-[0.4em] text-blue-400 animate-pulse">Computing Mission Vectors...</p>
               </div>
             )}
           </div>
         </div>
 
         <div className="p-8 bg-gradient-to-t from-[#020617] via-[#020617] to-transparent z-40">
-          <div className={`max-w-4xl mx-auto rounded-2xl border transition-all duration-300 flex items-center px-4 py-1 ${focused ? "border-blue-500/40 bg-blue-500/5 shadow-[0_0_40px_rgba(59,130,246,0.05)]" : "border-white/10 bg-white/[0.02]"}`}>
+          <div className={`max-w-4xl mx-auto rounded-2xl border transition-all duration-300 flex items-center px-4 py-1 ${focused ? "border-blue-500/40 bg-blue-500/5 shadow-[0_0_40px_rgba(59,130,246,0.1)]" : "border-white/10 bg-white/[0.02]"}`}>
             <Plus className="w-5 h-5 text-slate-700 ml-2" />
             <input
               value={prompt}
