@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import {
   Plus, 
   Home,
@@ -40,27 +40,20 @@ type SaveState = "idle" | "saving" | "success" | "error";
 
 const GeneratorV2 = () => {
   const navigate = useNavigate();
-  const location = useLocation();
   const [prompt, setPrompt] = useState<string>("");
   const [activeModel, setActiveModel] = useState<string>("gemini-2.0-flash");
   const [loading, setLoading] = useState<boolean>(false);
   const [generatedCode, setGeneratedCode] = useState<string>("");
   const [focused, setFocused] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [dbOnline, setDbOnline] = useState<boolean>(false);
   const [saveState, setSaveState] = useState<SaveState>("idle");
 
-  // ── Perspective Fix: Clear generated code if we aren't in a workspace context ──
+  // Verify Database Connection on Mount
   useEffect(() => {
-    if (location.pathname === "/") {
-      setGeneratedCode("");
-    }
-  }, [location.pathname]);
-
-  useEffect(() => {
-    supabase.from("profiles").select("id").limit(1)
-      .then(({ error }) => setDbOnline(!error))
-      .catch(() => setDbOnline(false));
+    supabase.from("projects").select("id").limit(1)
+      .then(({ error }) => {
+        if (error) console.warn("Database handshake failed:", error.message);
+      });
   }, []);
 
   const handleGenerate = async () => {
@@ -84,12 +77,13 @@ const GeneratorV2 = () => {
       const full = wrapInSkeleton(clean);
       setGeneratedCode(full);
 
+      // Auto-open preview in new tab
       const blob = new Blob([full], { type: "text/html" });
       const url = URL.createObjectURL(blob);
       window.open(url, "_blank");
     } catch (err: any) {
       console.error("Generation Error:", err);
-      setError(err.message || "An unexpected error occurred during decryption.");
+      setError(err.message || "An unexpected error occurred during generation.");
     } finally {
       setLoading(false);
     }
@@ -115,7 +109,6 @@ const GeneratorV2 = () => {
       if (insertError) throw new Error(insertError.message);
 
       setSaveState("success");
-      setDbOnline(true);
       setTimeout(() => setSaveState("idle"), 3000);
     } catch (err: any) {
       setSaveState("error");
@@ -135,6 +128,7 @@ const GeneratorV2 = () => {
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-[#020617] text-slate-200 font-sans">
+      {/* Sidebar Navigation */}
       <aside className="w-56 flex-shrink-0 border-r border-white/5 flex flex-col bg-[#020617] z-30">
         <div className="p-6 flex items-center gap-3">
           <div className="w-8 h-8 bg-blue-600/20 rounded flex items-center justify-center border border-blue-500/30">
@@ -147,8 +141,8 @@ const GeneratorV2 = () => {
           <button onClick={() => navigate("/")} className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg hover:bg-white/5 text-slate-400 transition-colors text-sm">
             <Home className="w-4 h-4" /> Home
           </button>
-          <button onClick={() => navigate("/recents")} className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg hover:bg-white/5 text-slate-400 transition-colors text-sm">
-            <Clock className="w-4 h-4" /> Recents
+          <button onClick={() => navigate("/dashboard")} className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg hover:bg-white/5 text-slate-400 transition-colors text-sm">
+            <Clock className="w-4 h-4" /> Dashboard
           </button>
           <button onClick={() => navigate("/archives")} className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg hover:bg-white/5 text-slate-400 transition-colors text-sm">
             <Archive className="w-4 h-4" /> Archives
@@ -164,10 +158,12 @@ const GeneratorV2 = () => {
         </div>
       </aside>
 
+      {/* Model Selection Sidebar */}
       <div className="w-64 flex-shrink-0 border-r border-white/5 bg-[#010411] z-20">
         <ModelSidebar activeModel={activeModel} onModelChange={setActiveModel} />
       </div>
 
+      {/* Main Workspace */}
       <main className="flex-1 flex flex-col min-w-0 bg-[#020617] relative">
         <header className="h-16 flex-shrink-0 flex items-center justify-between px-8 border-b border-white/5 bg-[#020617]/95 backdrop-blur-xl z-40">
           <div className="flex items-center gap-6">
@@ -177,11 +173,12 @@ const GeneratorV2 = () => {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <util.Sparkles className="w-3 h-3 text-purple-500" />
+            <Sparkles className="w-3 h-3 text-purple-500" />
             <span className="text-[10px] font-black tracking-[0.3em] text-white uppercase">NazAI // V2.0</span>
           </div>
         </header>
 
+        {/* Generated Content Area */}
         <div className="flex-1 overflow-y-auto p-8 font-mono scrollbar-hide">
           <div className="max-w-4xl mx-auto space-y-6">
             {error && (
@@ -208,7 +205,7 @@ const GeneratorV2 = () => {
                     <span>DATA_STREAM_STABLE</span>
                   </div>
                   <button onClick={handleDownload} className="flex items-center gap-2 px-4 py-2 rounded-lg border border-white/10 bg-white/5 text-slate-300 text-[10px] font-mono uppercase hover:bg-white/10 transition-all">
-                    <Download className="w-3.5 h-3.5" /> Download
+                    <Download className="w-3.5 h-3.5" /> Download HTML
                   </button>
                 </div>
               </div>
@@ -216,9 +213,9 @@ const GeneratorV2 = () => {
           </div>
         </div>
 
-        {/* ── PERSPECTIVE BUTTON LOGIC: Strict generatedCode check ── */}
+        {/* Floating Save Button - Localized to Generator */}
         {generatedCode && (
-          <div className="fixed bottom-32 right-12 z-[100] group">
+          <div className="fixed bottom-32 right-12 z-[100]">
             <button
               onClick={handleSaveMission}
               disabled={saveState === "saving" || saveState === "success"}
@@ -234,12 +231,13 @@ const GeneratorV2 = () => {
                saveState === "error" ? <XCircle className="w-5 h-5" /> :
                <DatabaseZap className="w-5 h-5" />}
               <span className="font-bold uppercase tracking-[0.2em] text-[11px]">
-                {saveState === "saving" ? "Syncing..." : saveState === "success" ? "Saved ✓" : saveState === "error" ? "Error" : "Save to Database"}
+                {saveState === "saving" ? "Syncing..." : saveState === "success" ? "Saved ✓" : saveState === "error" ? "Retry Save" : "Save to Database"}
               </span>
             </button>
           </div>
         )}
 
+        {/* Input Bar */}
         <div className="p-8 bg-gradient-to-t from-[#020617] via-[#020617] to-transparent z-40">
           <div className={`max-w-4xl mx-auto rounded-2xl border transition-all duration-500 flex items-center px-4 py-1 ${focused ? "border-blue-500/40 bg-blue-500/5 shadow-[0_0_50px_rgba(0,163,255,0.05)]" : "border-white/10 bg-white/[0.02]"}`}>
             <button className="p-2 text-slate-600 hover:text-blue-400 transition-colors"><Plus className="w-5 h-5" /></button>
