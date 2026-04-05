@@ -13,10 +13,12 @@ const Generator = () => {
   const [saveState, setSaveState] = useState("idle");
   const [hasResult, setHasResult] = useState(false);
 
-  // Debugging log to see if the state is actually triggering
+  // Monitor the content to force the button to show
   useEffect(() => {
-    if (hasResult) console.log("STATE CHANGE: hasResult is now TRUE. Button should be visible.");
-  }, [hasResult]);
+    if (generatedCode.length > 5) {
+      setHasResult(true);
+    }
+  }, [generatedCode]);
 
   const handleGenerate = async () => {
     if (!prompt.trim() || loading) return;
@@ -30,11 +32,9 @@ const Generator = () => {
       });
 
       if (error) throw error;
-
-      setGeneratedCode(data.content || "Analysis complete.");
-      setHasResult(true); // This triggers the button
+      setGeneratedCode(data.content || "Mission Data Decrypted.");
     } catch (err) { 
-      console.error("Generation Error:", err); 
+      console.error("Critical Error:", err); 
     } finally { 
       setLoading(false); 
     }
@@ -46,7 +46,6 @@ const Generator = () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
-        alert("Please log in to save missions.");
         setSaveState("idle");
         return;
       }
@@ -60,11 +59,10 @@ const Generator = () => {
       });
 
       if (error) throw error;
-      
       setSaveState("success");
       setTimeout(() => setSaveState("idle"), 2000);
     } catch (e) { 
-      console.error("Save error:", e);
+      console.error("Database Error:", e);
       setSaveState("idle"); 
     }
   };
@@ -72,16 +70,16 @@ const Generator = () => {
   return (
     <div className="flex h-screen w-full bg-[#020617] text-slate-200 font-sans overflow-hidden">
       
-      {/* ── BUTTON OVERLAY ── */}
-      {hasResult && (
-        <div className="fixed top-8 right-8 z-[100] animate-in fade-in zoom-in duration-500">
+      {/* ── PERSISTENT ACTION BUTTON ── */}
+      {hasResult && !loading && (
+        <div className="fixed top-6 right-6 z-[9999] animate-in fade-in zoom-in duration-300">
           <button 
             onClick={handleSaveMission}
             disabled={saveState !== "idle"}
-            className="flex items-center gap-3 px-8 py-4 rounded-2xl border-4 border-emerald-500 bg-[#061a11] text-emerald-400 text-sm font-black uppercase tracking-widest shadow-[0_0_40px_rgba(16,185,129,0.4)] transition-all hover:scale-105 active:scale-95"
+            className="flex items-center gap-3 px-8 py-4 rounded-2xl border-4 border-emerald-500 bg-[#061a11] text-emerald-400 text-sm font-black uppercase tracking-widest shadow-[0_0_50px_rgba(16,185,129,0.5)] hover:scale-105 active:scale-95"
           >
             {saveState === "saving" ? <Loader2 className="animate-spin w-5 h-5" /> : <DatabaseZap className="w-5 h-5" />}
-            {saveState === "success" ? "ARCHIVED" : "SAVE TO DATABASE"}
+            {saveState === "success" ? "STORED" : "ARCHIVE MISSION"}
           </button>
         </div>
       )}
@@ -117,7 +115,7 @@ const Generator = () => {
                   <Loader2 className="animate-spin w-12 h-12 text-blue-500 mb-6" />
                   <p className="text-[10px] uppercase tracking-[0.5em] text-blue-400">Syncing Intelligence...</p>
                 </div>
-              ) : hasResult ? (
+              ) : generatedCode ? (
                 <div className="animate-in fade-in slide-in-from-bottom-8 duration-700">
                   <div className="flex items-center gap-2 mb-8 border-b border-white/5 pb-4">
                     <Sparkles className="w-5 h-5 text-emerald-400" />
