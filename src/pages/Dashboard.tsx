@@ -345,6 +345,7 @@ const Dashboard = () => {
                       loading={projectsLoading}
                       onRestore={restoreProject}
                       onDelete={deleteProject}
+                      onSaveToAll={restoreProject}
                       onOpenProject={handleOpenProject}
                     />
                   ) : (
@@ -428,6 +429,20 @@ const Dashboard = () => {
                               onEdit={() => setShowEditChat(true)}
                               onPublish={handlePublish}
                               onShare={handleShare}
+                              onDownload={() => {
+                                const blob = new Blob([generatedHTML], { type: "text/html" });
+                                const url = URL.createObjectURL(blob);
+                                const a = document.createElement("a");
+                                a.href = url;
+                                a.download = "website.html";
+                                a.click();
+                                URL.revokeObjectURL(url);
+                              }}
+                              onNewWebsite={() => {
+                                setGeneratedHTML("");
+                                setPrompt("");
+                                setShowEditChat(false);
+                              }}
                               isPublished={!!publishedUrl}
                             />
                           )}
