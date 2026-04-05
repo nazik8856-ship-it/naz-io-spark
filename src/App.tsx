@@ -43,9 +43,6 @@ const App = () => (
             {/* Mission Generator & Dashboard */}
             <Route path="/generate" element={<Generator />} />
 
-            {/* Explicit Archive Route to resolve "Invisible" missions */}
-            <Route path="/archives" element={<Archives />} />
-
             {/* Nested Dashboard Routes */}
             <Route path="/dashboard/*" element={<Dashboard />} />
 
