@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { Plus, Home, Clock, Archive, Shield, ChevronRight, Zap, DatabaseZap, Loader2, Sparkles } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import ModelSidebar from "@/components/ModelSidebar";
-import { toast } from "sonner"; // Assuming you have sonner for feedback
+import { toast } from "sonner";
 
 const Generator = () => {
   const navigate = useNavigate();
@@ -42,7 +42,6 @@ const Generator = () => {
 
       if (error) throw error;
       
-      // Extraction Logic
       const content = data?.content || (typeof data === 'string' ? data : JSON.stringify(data));
       setGeneratedCode(content);
       toast.success("UPLINK_STABLE: Data Received");
@@ -54,31 +53,38 @@ const Generator = () => {
     }
   };
 
+  // ── THE IMPROVED MISSION HANDLER ──
   const handleSaveMission = async () => {
     if (saveState === "saving" || !generatedCode) return;
     setSaveState("saving");
+    
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        toast.error("AUTH_REQUIRED");
+      // 1. Get current session to bypass stale auth states
+      const { data: { session }, error: authError } = await supabase.auth.getSession();
+      
+      if (authError || !session) {
+        console.error("AUTH_FAIL:", authError);
+        toast.error("SESSION_EXPIRED: Please log in again.");
         setSaveState("idle");
         return;
       }
 
-      const { error } = await supabase.from("projects").insert({
-        user_id: user.id,
-        title: prompt.slice(0, 50),
-        html: generatedCode,
-        prompt: prompt,
+      // 2. Insert into 'missions' table as per Supabase Dashboard
+      const { error } = await supabase.from("missions").insert({
+        user_id: session.user.id,
+        title: prompt.slice(0, 50) || "New Mission",
+        content: generatedCode, // Ensure column name 'content' exists in 'missions'
         status: "active"
       });
 
       if (error) throw error;
+      
       setSaveState("success");
-      toast.success("MISSION_ARCHIVED_SUCCESSFULLY");
+      toast.success("MISSION_ARCHIVED");
       setTimeout(() => setSaveState("idle"), 2000);
     } catch (e) { 
-      console.error("SYNC_FAILURE:", e);
+      console.error("SYNC_CRASH:", e);
+      toast.error("SYNC_CRASH: Check Console");
       setSaveState("idle"); 
     }
   };
@@ -86,7 +92,6 @@ const Generator = () => {
   return (
     <div className="flex h-screen w-full bg-[#020617] text-slate-200 font-sans overflow-hidden relative">
       
-      {/* ── STATUS OVERLAY ── */}
       <div className="fixed top-0 left-0 bg-blue-600 text-white z-[50] p-2 text-[9px] font-black uppercase tracking-[0.3em]">
         NAZ_OS // ENGINE_ACTIVE
       </div>
@@ -168,7 +173,7 @@ const Generator = () => {
         </div>
       </main>
 
-      {/* ── THE PORTAL (RE-ENGINEERED) ── */}
+      {/* ── THE PORTAL ── */}
       {mounted && (generatedCode.length > 0 || loading) && createPortal(
         <div className="fixed top-6 right-6 z-[9999] animate-in fade-in slide-in-from-right-4 duration-500">
           <button 
