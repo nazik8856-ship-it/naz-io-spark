@@ -69,7 +69,6 @@ const Generator = () => {
       const full = wrapInSkeleton(clean);
       setGeneratedCode(full);
 
-      // Open in new tab automatically
       const blob = new Blob([full], { type: "text/html" });
       const url = URL.createObjectURL(blob);
       window.open(url, "_blank");
@@ -169,7 +168,6 @@ const Generator = () => {
 
       {/* ── MAIN WORKSPACE ── */}
       <main className="flex-1 flex flex-col min-w-0 bg-[#020617] relative">
-        {/* Header Section */}
         <header className="h-16 flex-shrink-0 flex items-center justify-between px-8 border-b border-white/5 bg-[#020617]/95 backdrop-blur-xl z-40">
           <div className="flex items-center gap-6">
             <div className="flex items-center gap-2 text-[10px] text-blue-400 font-mono tracking-widest uppercase">
@@ -177,19 +175,24 @@ const Generator = () => {
               <span className="text-white/20">NazAI://</span> Mission_Control
             </div>
           </div>
-
           <div className="flex items-center gap-2">
             <Sparkles className="w-3 h-3 text-purple-500" />
             <span className="text-[10px] font-black tracking-[0.3em] text-white uppercase">NazAI // V2.0</span>
           </div>
         </header>
 
-        {/* Content Area */}
         <div className="flex-1 overflow-y-auto p-8 font-mono scrollbar-hide">
           <div className="max-w-4xl mx-auto space-y-6">
-            <div className="flex items-center gap-3 text-green-500/80 text-[10px]">
-              <ChevronRight className="w-3 h-3" />
-              <span>NODE_INIT // PARALLEL_EXECUTION_START // READY_FOR_DIRECTIVE</span>
+            {/* TERMINAL BOOT SEQUENCE */}
+            <div className="space-y-1 mb-6 animate-in fade-in duration-1000">
+              <div className="text-[9px] text-blue-500/50 flex gap-2">
+                <span className="opacity-50">[SYSTEM]</span>
+                <span>ENCRYPTED_SESSION_ESTABLISHED // NODE_ID: {Math.random().toString(16).slice(2, 8)}</span>
+              </div>
+              <div className="text-[9px] text-emerald-500/50 flex gap-2">
+                <span className="opacity-50">[KERNEL]</span>
+                <span>NAZ_OS_CORE_V2.0_LOADED... STATUS: NOMINAL</span>
+              </div>
             </div>
 
             {error && (
@@ -233,7 +236,6 @@ const Generator = () => {
         </div>
 
         {/* ── THE GOD-MODE FLOATING SAVE BUTTON ── */}
-        {/* This stays fixed to the viewport, impossible to hide by sidebars */}
         {generatedCode && (
           <button
             onClick={handleSaveMission}
@@ -285,9 +287,23 @@ const Generator = () => {
               </button>
             )}
           </div>
-          <p className="text-center text-[9px] text-slate-700 mt-4 tracking-[0.2em] uppercase font-mono">
-            Core: NazAI Engine // Vercel Edge Runtime
-          </p>
+
+          {/* SYSTEM STATUS FOOTER */}
+          <div className="max-w-4xl mx-auto flex items-center justify-between mt-4 px-2">
+            <p className="text-[9px] text-slate-700 tracking-[0.2em] uppercase font-mono">
+              Core: NazAI Engine // Vercel Edge Runtime
+            </p>
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-1.5">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+                <span className="text-[8px] text-slate-500 uppercase">System: Nominal</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+                <span className="text-[8px] text-slate-500 uppercase">Memory: Optimized</span>
+              </div>
+            </div>
+          </div>
         </div>
       </main>
     </div>
