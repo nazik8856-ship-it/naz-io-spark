@@ -9,13 +9,9 @@ import {
   ChevronRight,
   Sparkles,
   Zap,
-  AlertCircle,
-  Github,
   DatabaseZap,
   CheckCircle2,
   Loader2,
-  Download,
-  XCircle,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import ModelSidebar from "@/components/ModelSidebar";
@@ -45,14 +41,12 @@ const GeneratorV2 = () => {
   const [loading, setLoading] = useState<boolean>(false);
   const [generatedCode, setGeneratedCode] = useState<string>("");
   const [focused, setFocused] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [hasResult, setHasResult] = useState<boolean>(false);
 
   const handleGenerate = async () => {
     if (!prompt.trim() || loading) return;
     setLoading(true);
-    setError(null);
     setGeneratedCode("");
     setHasResult(false);
 
@@ -72,19 +66,19 @@ const GeneratorV2 = () => {
         const clean = extractHTML(content);
         setGeneratedCode(wrapInSkeleton(clean));
       } else {
-        setGeneratedCode(""); 
+        setGeneratedCode(content); // Store plain text if no HTML
       }
       
       setHasResult(true);
     } catch (err: any) {
-      setError(err.message || "An unexpected error occurred.");
+      console.error("Generation error:", err);
     } finally {
       setLoading(false);
     }
   };
 
   const handleSaveMission = async () => {
-    if ((!generatedCode && !hasResult) || saveState === "saving") return;
+    if (saveState === "saving") return;
     setSaveState("saving");
 
     try {
@@ -94,7 +88,7 @@ const GeneratorV2 = () => {
       const { error: insertError } = await supabase.from("projects").insert({
         user_id: user.id,
         title: prompt.trim().slice(0, 50) || "New Mission",
-        html: generatedCode || "Strategic Analysis Data",
+        html: generatedCode.includes("<html") ? generatedCode : `<div>${generatedCode}</div>`,
         prompt: prompt.trim(),
         status: "active",
       });
@@ -103,6 +97,7 @@ const GeneratorV2 = () => {
       setSaveState("success");
       setTimeout(() => setSaveState("idle"), 2000);
     } catch (err: any) {
+      console.error("Save error:", err);
       setSaveState("error");
       setTimeout(() => setSaveState("idle"), 2000);
     }
@@ -110,6 +105,7 @@ const GeneratorV2 = () => {
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-[#020617] text-slate-200 font-sans">
+      {/* Sidebar */}
       <aside className="w-56 flex-shrink-0 border-r border-white/5 flex flex-col bg-[#020617] z-30">
         <div className="p-6 flex items-center gap-3">
            <Shield className="w-5 h-5 text-blue-400" />
@@ -122,60 +118,58 @@ const GeneratorV2 = () => {
         </nav>
       </aside>
 
+      {/* Model Selector */}
       <div className="w-64 flex-shrink-0 border-r border-white/5 bg-[#010411] z-20">
         <ModelSidebar activeModel={activeModel} onModelChange={setActiveModel} />
       </div>
 
       <main className="flex-1 flex flex-col min-w-0 bg-[#020617] relative">
-        <header className="h-16 flex-shrink-0 flex items-center justify-between px-8 border-b border-white/5 z-40 bg-[#020617]/50 backdrop-blur-md">
+        <header className="h-16 flex-shrink-0 flex items-center justify-between px-8 border-b border-white/5 z-40 bg-[#020617]">
           <div className="text-[10px] text-blue-400 font-mono tracking-widest uppercase flex items-center gap-2">
             <ChevronRight className="w-3 h-3" /> Mission_Control
           </div>
-          <div className="flex items-center gap-2 text-[10px] text-slate-500 font-mono">
-            STATUS: <span className={loading ? "text-yellow-500" : "text-emerald-500"}>{loading ? "PROCESSING" : "READY"}</span>
+          <div className="flex items-center gap-2 text-[10px] text-slate-500 font-mono font-bold">
+            SYSTEM_STATUS: <span className={loading ? "text-yellow-500" : "text-emerald-500"}>{loading ? "BUSY" : "ONLINE"}</span>
           </div>
         </header>
 
         <div className="flex-1 overflow-y-auto p-8 font-mono relative scrollbar-hide">
           <div className="max-w-4xl mx-auto pb-32">
+            
             {hasResult && !loading && (
-              <div className="animate-in fade-in slide-in-from-bottom-4 duration-700">
+              <div className="relative animate-in fade-in slide-in-from-bottom-6 duration-700">
                 
-                {/* ── EMERGENCY SAVE BUTTON: FORCED VISIBILITY ── */}
-                <div className="flex justify-end mb-6 sticky top-0 z-[100] pt-2">
+                {/* ── MANDATORY SAVE BUTTON: FORCED STACKING ── */}
+                <div className="flex justify-end mb-4 sticky top-0 z-[999] pt-2">
                    <button 
                     onClick={handleSaveMission}
                     disabled={saveState === "saving" || saveState === "success"}
-                    className="flex items-center gap-3 px-6 py-3 rounded-xl border-2 border-emerald-500 bg-[#061a11] hover:bg-[#0c3221] text-emerald-400 text-xs font-black uppercase tracking-[0.2em] shadow-[0_0_40px_rgba(16,185,129,0.4)] transition-all active:scale-95 ring-4 ring-black/50"
+                    className="flex items-center gap-3 px-6 py-3 rounded-xl border-2 border-emerald-500 bg-[#020617] hover:bg-emerald-500/10 text-emerald-400 text-xs font-black uppercase tracking-[0.2em] shadow-[0_0_50px_rgba(16,185,129,0.3)] transition-all active:scale-95"
                   >
                     {saveState === "saving" ? <Loader2 className="animate-spin w-4 h-4" /> :
                      saveState === "success" ? <CheckCircle2 className="w-4 h-4" /> :
                      <DatabaseZap className="w-4 h-4" />}
-                    <span>{saveState === "saving" ? "SYNCING..." : saveState === "success" ? "MISSION ARCHIVED" : "SAVE TO DATABASE"}</span>
+                    <span>{saveState === "saving" ? "ARCHIVING..." : saveState === "success" ? "MISSION SAVED" : "COMMIT TO DATABASE"}</span>
                   </button>
                 </div>
 
-                <div className="rounded-2xl border border-white/10 overflow-hidden bg-black/60 shadow-2xl backdrop-blur-md">
-                  <div className="bg-white/5 px-6 py-4 border-b border-white/10 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                      <span className="text-[10px] uppercase tracking-[0.3em] text-slate-400 font-black">Mission Directive Result</span>
-                    </div>
+                <div className="rounded-2xl border border-white/10 overflow-hidden bg-black/60 shadow-2xl">
+                  <div className="bg-white/5 px-6 py-4 border-b border-white/10 flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    <span className="text-[10px] uppercase tracking-[0.3em] text-slate-500 font-bold">Output Stream</span>
                   </div>
                   
-                  {generatedCode ? (
-                    <iframe srcDoc={generatedCode} className="w-full h-[650px] bg-white" title="preview" />
+                  {generatedCode.includes("<html") ? (
+                    <iframe srcDoc={generatedCode} className="w-full h-[600px] bg-white" title="preview" />
                   ) : (
-                    <div className="p-10 text-slate-300">
-                      <div className="flex items-center gap-2 mb-6">
-                        <Sparkles className="w-4 h-4 text-emerald-400" />
-                        <span className="text-xs text-emerald-400 uppercase tracking-widest font-bold">Analysis Complete</span>
+                    <div className="p-8 text-slate-300 bg-[#010411]">
+                      <div className="flex items-center gap-2 mb-4 text-emerald-400">
+                        <Sparkles className="w-4 h-4" />
+                        <span className="text-[10px] uppercase font-black">Data Decrypted</span>
                       </div>
-                      <h2 className="text-2xl font-bold mb-4 text-white uppercase tracking-tighter">{prompt}</h2>
-                      <div className="p-8 bg-white/[0.03] border border-white/5 rounded-2xl leading-relaxed text-slate-400 font-sans">
-                        Mission directive parameters successfully computed. The logic has been injected into the control stream.
-                        <br /><br />
-                        <span className="text-emerald-500 font-bold underline">ATTENTION:</span> Use the floating button above to commit this analysis to the permanent archive.
+                      <h2 className="text-xl font-bold mb-4 text-white border-b border-white/5 pb-4">{prompt}</h2>
+                      <div className="text-sm leading-relaxed whitespace-pre-wrap font-sans text-slate-400">
+                        {generatedCode || "No data returned from mission control."}
                       </div>
                     </div>
                   )}
@@ -184,24 +178,25 @@ const GeneratorV2 = () => {
             )}
 
             {!hasResult && !loading && (
-              <div className="h-[500px] flex flex-col items-center justify-center border border-dashed border-white/5 rounded-3xl opacity-20">
-                <Zap className="w-12 h-12 mb-4" />
-                <p className="text-xs uppercase tracking-[0.5em]">Awaiting Instruction</p>
+              <div className="h-[400px] flex flex-col items-center justify-center border border-dashed border-white/5 rounded-3xl opacity-20">
+                <Zap className="w-12 h-12 mb-4 text-blue-500" />
+                <p className="text-xs uppercase tracking-[0.5em]">Command Input Required</p>
               </div>
             )}
             
             {loading && (
-              <div className="h-[500px] flex flex-col items-center justify-center">
-                <Loader2 className="w-10 h-10 text-blue-500 animate-spin mb-4" />
-                <p className="text-[10px] uppercase tracking-[0.4em] text-blue-400 animate-pulse">Computing Mission Vectors...</p>
+              <div className="h-[400px] flex flex-col items-center justify-center">
+                <Loader2 className="w-12 h-12 text-blue-500 animate-spin mb-6" />
+                <p className="text-[10px] uppercase tracking-[0.5em] text-blue-400 animate-pulse">Running Mission Algorithms...</p>
               </div>
             )}
           </div>
         </div>
 
+        {/* Input Bar */}
         <div className="p-8 bg-gradient-to-t from-[#020617] via-[#020617] to-transparent z-40">
-          <div className={`max-w-4xl mx-auto rounded-2xl border transition-all duration-300 flex items-center px-4 py-1 ${focused ? "border-blue-500/40 bg-blue-500/5 shadow-[0_0_40px_rgba(59,130,246,0.1)]" : "border-white/10 bg-white/[0.02]"}`}>
-            <Plus className="w-5 h-5 text-slate-700 ml-2" />
+          <div className={`max-w-4xl mx-auto rounded-2xl border transition-all duration-300 flex items-center px-4 py-1 ${focused ? "border-blue-500/50 bg-blue-500/5 shadow-[0_0_40px_rgba(59,130,246,0.15)]" : "border-white/10 bg-white/[0.02]"}`}>
+            <Plus className="w-5 h-5 text-slate-800 ml-2" />
             <input
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
