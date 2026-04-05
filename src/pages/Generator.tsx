@@ -36,8 +36,13 @@ const Generator = () => {
     setGeneratedCode(""); 
     
     try {
-      const { data, error } = await supabase.functions.invoke("naz-io-spark", {
-        body: { prompt: prompt.trim(), model_choice: activeModel },
+      // ── UPDATED FUNCTION INVOCATION ──
+      // Pointing to the new mission processing function observed in dashboard
+      const { data, error } = await supabase.functions.invoke("supabase-functions-new-process-mission", {
+        body: { 
+          prompt: prompt.trim(), 
+          model_choice: activeModel 
+        },
       });
 
       if (error) throw error;
@@ -53,13 +58,12 @@ const Generator = () => {
     }
   };
 
-  // ── THE IMPROVED MISSION HANDLER ──
   const handleSaveMission = async () => {
     if (saveState === "saving" || !generatedCode) return;
     setSaveState("saving");
     
     try {
-      // 1. Get current session to bypass stale auth states
+      // 1. Fresh session check to resolve 401 Unauthorized errors
       const { data: { session }, error: authError } = await supabase.auth.getSession();
       
       if (authError || !session) {
@@ -69,11 +73,11 @@ const Generator = () => {
         return;
       }
 
-      // 2. Insert into 'missions' table as per Supabase Dashboard
+      // 2. Insert into the 'missions' table verified in dashboard
       const { error } = await supabase.from("missions").insert({
-        user_id: session.user.id,
+        user_id: session.user.id, // Verified policy: (auth.uid() = user_id)
         title: prompt.slice(0, 50) || "New Mission",
-        content: generatedCode, // Ensure column name 'content' exists in 'missions'
+        content: generatedCode, 
         status: "active"
       });
 
@@ -92,6 +96,7 @@ const Generator = () => {
   return (
     <div className="flex h-screen w-full bg-[#020617] text-slate-200 font-sans overflow-hidden relative">
       
+      {/* ── STATUS OVERLAY ── */}
       <div className="fixed top-0 left-0 bg-blue-600 text-white z-[50] p-2 text-[9px] font-black uppercase tracking-[0.3em]">
         NAZ_OS // ENGINE_ACTIVE
       </div>
