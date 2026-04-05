@@ -11,6 +11,8 @@ const Signup = lazy(() => import("./pages/Signup"));
 const AuthCallback = lazy(() => import("./pages/AuthCallback"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Generator = lazy(() => import("./pages/Generator"));
+// Adding an explicit lazy import for Archives to help you locate the file later
+const Archives = lazy(() => import("./pages/Archives"));
 
 const queryClient = new QueryClient();
 
@@ -34,26 +36,25 @@ const App = () => (
             <Route path="/" element={<Workflower />} />
             <Route path="/workflower" element={<Workflower />} />
             <Route path="/workspace" element={<Workspace />} />
-            
+
             {/* Auth Routes */}
             <Route path="/signup" element={<Signup />} />
             <Route path="/login" element={<Signup />} />
             <Route path="/auth/callback" element={<AuthCallback />} />
-            
+
             {/* Mission Generator & Dashboard */}
             <Route path="/generate" element={<Generator />} />
+
+            {/* Explicit Archive Route to resolve "Invisible" missions */}
+            <Route path="/archives" element={<Archives />} />
+
+            {/* Nested Dashboard Routes */}
             <Route path="/dashboard/*" element={<Dashboard />} />
-            
+
             {/* Catch-all Redirect */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>
-
-        {/* ACCURACY CHECK: 
-          The GlobalSaveButton was removed from here. 
-          The button is now handled locally within Generator.tsx 
-          so it only appears when actual code is generated.
-        */}
 
         <Toaster />
       </BrowserRouter>
