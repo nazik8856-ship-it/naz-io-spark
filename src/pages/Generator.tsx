@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { createPortal } from "react-dom"; // CRITICAL IMPORT
 import { useNavigate } from "react-router-dom";
 import { Plus, Home, Clock, Archive, Shield, ChevronRight, Zap, DatabaseZap, Loader2, Sparkles } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -12,28 +13,25 @@ const Generator = () => {
   const [generatedCode, setGeneratedCode] = useState("");
   const [saveState, setSaveState] = useState("idle");
 
-  // CRITICAL: Diagnostic Log for State & Button Visibility
+  // Diagnostic Log
   useEffect(() => {
     console.log("--- SYSTEM_DIAGNOSTIC ---");
     console.log("Code Length:", generatedCode.length);
     console.log("Loading State:", loading);
-    console.log("Button Render Threshold:", (generatedCode.length > 0 || loading));
   }, [generatedCode, loading]);
 
   const handleGenerate = async () => {
     if (!prompt.trim() || loading) return;
     setLoading(true);
     setGeneratedCode(""); 
-    
     try {
       const { data, error } = await supabase.functions.invoke("naz-io-spark", {
         body: { prompt: prompt.trim(), model_choice: activeModel },
       });
-
       if (error) throw error;
       setGeneratedCode(data?.content || "MISSION_DATA_RECOVERED");
     } catch (err) { 
-      console.error("Critical Generation Failure:", err); 
+      console.error("Generation Failure:", err); 
     } finally { 
       setLoading(false); 
     }
@@ -41,12 +39,14 @@ const Generator = () => {
 
   const handleSaveMission = async () => {
     if (saveState === "saving" || !generatedCode) return;
-    console.log("NUCLEAR_CLICK: Attempting save...");
     setSaveState("saving");
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Auth Required");
-      
+      if (!user) {
+        alert("AUTH_REQUIRED: Please sign in.");
+        setSaveState("idle");
+        return;
+      }
       const { error } = await supabase.from("projects").insert({
         user_id: user.id,
         title: prompt.slice(0, 50),
@@ -54,7 +54,6 @@ const Generator = () => {
         prompt: prompt,
         status: "active"
       });
-
       if (error) throw error;
       setSaveState("success");
       setTimeout(() => setSaveState("idle"), 2000);
@@ -72,20 +71,18 @@ const Generator = () => {
         SYSTEM_V2_ACTIVE
       </div>
 
-      {/* Navigation Sidebar */}
       <aside className="w-56 border-r border-white/5 flex flex-col p-6 bg-[#020617] z-30">
         <div className="flex items-center gap-3 mb-8">
           <Shield className="w-5 h-5 text-blue-400" />
           <span className="font-bold text-sm uppercase tracking-tighter italic">NazAI // OS</span>
         </div>
         <nav className="space-y-2">
-          <button onClick={() => navigate("/")} className="w-full flex items-center gap-3 px-4 py-2 rounded-lg hover:bg-white/5 text-sm text-slate-400 transition-colors"><Home className="w-4 h-4" /> Home</button>
-          <button onClick={() => navigate("/dashboard")} className="w-full flex items-center gap-3 px-4 py-2 rounded-lg hover:bg-white/5 text-sm text-slate-400 transition-colors"><Clock className="w-4 h-4" /> Recents</button>
-          <button onClick={() => navigate("/archives")} className="w-full flex items-center gap-3 px-4 py-2 rounded-lg hover:bg-white/5 text-sm text-slate-400 transition-colors"><Archive className="w-4 h-4" /> Archives</button>
+          <button onClick={() => navigate("/")} className="w-full flex items-center gap-3 px-4 py-2 rounded-lg hover:bg-white/5 text-sm text-slate-400"><Home className="w-4 h-4" /> Home</button>
+          <button onClick={() => navigate("/dashboard")} className="w-full flex items-center gap-3 px-4 py-2 rounded-lg hover:bg-white/5 text-sm text-slate-400"><Clock className="w-4 h-4" /> Recents</button>
+          <button onClick={() => navigate("/archives")} className="w-full flex items-center gap-3 px-4 py-2 rounded-lg hover:bg-white/5 text-sm text-slate-400"><Archive className="w-4 h-4" /> Archives</button>
         </nav>
       </aside>
 
-      {/* Model Selection Sidebar */}
       <div className="w-64 border-r border-white/5 bg-[#010411] z-20">
         <ModelSidebar activeModel={activeModel} onModelChange={setActiveModel} />
       </div>
@@ -97,7 +94,6 @@ const Generator = () => {
           </div>
         </header>
 
-        {/* Dynamic Display Area */}
         <div className="flex-1 overflow-y-auto p-8 relative scrollbar-hide">
           <div className="max-w-4xl mx-auto pb-64">
             <div className="rounded-3xl border border-white/10 bg-black/40 p-12 min-h-[600px] shadow-2xl backdrop-blur-xl relative overflow-hidden">
@@ -125,7 +121,6 @@ const Generator = () => {
           </div>
         </div>
 
-        {/* Command Input Bar */}
         <div className="absolute bottom-0 left-0 right-0 p-8 bg-gradient-to-t from-[#020617] via-[#020617] to-transparent z-40 pointer-events-none">
           <div className="max-w-4xl mx-auto rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-md flex items-center px-6 py-2 shadow-2xl pointer-events-auto">
             <Plus className="w-5 h-5 text-slate-700 mr-2" />
@@ -136,50 +131,24 @@ const Generator = () => {
               placeholder="Inject mission directive..."
               className="flex-1 bg-transparent border-none outline-none py-6 text-base text-slate-100 font-mono placeholder:text-slate-700"
             />
-            <button 
-              onClick={handleGenerate} 
-              disabled={loading}
-              className="text-blue-500 hover:scale-110 active:scale-95 transition-all disabled:opacity-30"
-            >
+            <button onClick={handleGenerate} disabled={loading} className="text-blue-500 hover:scale-110 active:scale-95 transition-all">
               <Zap className="w-8 h-8 fill-current" />
             </button>
           </div>
         </div>
       </main>
 
-      {/* ── THE NUCLEAR BUTTON ── */}
-      {/* Placed at root level with fixed positioning and extreme z-index */}
-      {(generatedCode.length > 0 || loading) && (
+      {/* ── THE PORTAL BUTTON ── */}
+      {(generatedCode.length > 0 || loading) && createPortal(
         <button 
           onClick={handleSaveMission}
           disabled={saveState !== "idle"}
-          style={{
-            position: 'fixed',
-            top: '40px',
-            right: '40px',
-            zIndex: 100000,
-            background: '#10b981',
-            color: 'white',
-            padding: '24px 32px',
-            borderRadius: '16px',
-            fontWeight: '900',
-            fontSize: '14px',
-            letterSpacing: '0.1em',
-            boxShadow: '0 0 50px rgba(16, 185, 129, 0.6)',
-            border: '4px solid white',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px'
-          }}
+          className="fixed top-10 right-10 z-[999999] flex items-center gap-3 px-8 py-5 bg-[#10b981] text-white rounded-2xl font-black uppercase tracking-widest shadow-[0_0_50px_rgba(16,185,129,0.6)] border-4 border-white hover:scale-105 active:scale-95 transition-all cursor-pointer"
         >
-          {saveState === "saving" ? (
-            <Loader2 className="animate-spin w-5 h-5" />
-          ) : (
-            <DatabaseZap className="w-5 h-5" />
-          )}
-          {saveState === "success" ? "MISSION_ARCHIVED" : "FORCE_SAVE_MISSION"}
-        </button>
+          {saveState === "saving" ? <Loader2 className="animate-spin w-5 h-5" /> : <DatabaseZap className="w-5 h-5" />}
+          {saveState === "success" ? "ARCHIVED" : "FORCE_SAVE"}
+        </button>,
+        document.body
       )}
 
     </div>
