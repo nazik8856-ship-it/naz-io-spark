@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, Home, Clock, Archive, Shield, ChevronRight, Zap, DatabaseZap, Loader2, Sparkles } from "lucide-react";
+import { Plus, Home, Clock, Archive, Shield, ChevronRight, Zap, DatabaseZap, Loader2, Sparkles, CheckCircle2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import ModelSidebar from "@/components/ModelSidebar";
 
@@ -11,33 +11,17 @@ const Generator = () => {
   const [loading, setLoading] = useState(false);
   const [generatedCode, setGeneratedCode] = useState("");
   const [saveState, setSaveState] = useState("idle");
-  const [hasResult, setHasResult] = useState(false);
-
-  // Monitor the content to force the button to show
-  useEffect(() => {
-    if (generatedCode.length > 5) {
-      setHasResult(true);
-    }
-  }, [generatedCode]);
 
   const handleGenerate = async () => {
     if (!prompt.trim() || loading) return;
     setLoading(true);
     setGeneratedCode("");
-    setHasResult(false);
-    
     try {
-      const { data, error } = await supabase.functions.invoke("naz-io-spark", {
+      const { data } = await supabase.functions.invoke("naz-io-spark", {
         body: { prompt: prompt.trim(), model_choice: activeModel },
       });
-
-      if (error) throw error;
-      setGeneratedCode(data.content || "Mission Data Decrypted.");
-    } catch (err) { 
-      console.error("Critical Error:", err); 
-    } finally { 
-      setLoading(false); 
-    }
+      setGeneratedCode(data.content || "Mission Decrypted.");
+    } catch (err) { console.error(err); } finally { setLoading(false); }
   };
 
   const handleSaveMission = async () => {
@@ -45,41 +29,35 @@ const Generator = () => {
     setSaveState("saving");
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        setSaveState("idle");
-        return;
-      }
-      
-      const { error } = await supabase.from("projects").insert({
+      if (!user) throw new Error("No User Found");
+      await supabase.from("projects").insert({
         user_id: user.id,
         title: prompt.slice(0, 50),
         html: generatedCode,
         prompt: prompt,
         status: "active"
       });
-
-      if (error) throw error;
       setSaveState("success");
       setTimeout(() => setSaveState("idle"), 2000);
     } catch (e) { 
-      console.error("Database Error:", e);
+      console.error(e);
       setSaveState("idle"); 
     }
   };
 
   return (
-    <div className="flex h-screen w-full bg-[#020617] text-slate-200 font-sans overflow-hidden">
+    <div className="flex h-screen w-full bg-[#020617] text-slate-200 font-sans overflow-hidden relative">
       
-      {/* ── PERSISTENT ACTION BUTTON ── */}
-      {hasResult && !loading && (
-        <div className="fixed top-6 right-6 z-[9999] animate-in fade-in zoom-in duration-300">
+      {/* ── FORCE-VISIBLE OVERLAY (Bottom Right) ── */}
+      {generatedCode && !loading && (
+        <div style={{ position: 'fixed', bottom: '100px', right: '40px', zIndex: 2147483647 }}>
           <button 
             onClick={handleSaveMission}
             disabled={saveState !== "idle"}
-            className="flex items-center gap-3 px-8 py-4 rounded-2xl border-4 border-emerald-500 bg-[#061a11] text-emerald-400 text-sm font-black uppercase tracking-widest shadow-[0_0_50px_rgba(16,185,129,0.5)] hover:scale-105 active:scale-95"
+            className="flex items-center gap-4 px-10 py-5 rounded-2xl border-[6px] border-emerald-500 bg-[#061a11] text-emerald-400 text-base font-black uppercase tracking-[0.2em] shadow-[0_0_80px_rgba(16,185,129,0.8)] hover:scale-110 active:scale-95 transition-all"
           >
-            {saveState === "saving" ? <Loader2 className="animate-spin w-5 h-5" /> : <DatabaseZap className="w-5 h-5" />}
-            {saveState === "success" ? "STORED" : "ARCHIVE MISSION"}
+            {saveState === "saving" ? <Loader2 className="animate-spin w-6 h-6" /> : <DatabaseZap className="w-6 h-6" />}
+            {saveState === "success" ? "✓ MISSION SECURED" : "ARCHIVE DATA"}
           </button>
         </div>
       )}
@@ -100,15 +78,13 @@ const Generator = () => {
         <ModelSidebar activeModel={activeModel} onModelChange={setActiveModel} />
       </div>
 
-      <main className="flex-1 flex flex-col relative overflow-hidden">
+      <main className="flex-1 flex flex-col relative overflow-hidden bg-[#020617]">
         <header className="h-16 border-b border-white/5 flex items-center px-8 z-40 bg-[#020617]">
-          <div className="text-[10px] text-blue-400 font-mono tracking-widest uppercase flex items-center gap-2">
-            <ChevronRight className="w-3 h-3" /> Mission_Control
-          </div>
+          <div className="text-[10px] text-blue-400 font-mono tracking-widest uppercase flex items-center gap-2"><ChevronRight className="w-3 h-3" /> Mission_Control</div>
         </header>
 
         <div className="flex-1 overflow-y-auto p-8 relative scrollbar-hide">
-          <div className="max-w-4xl mx-auto pb-40">
+          <div className="max-w-4xl mx-auto pb-60">
             <div className="rounded-3xl border border-white/10 bg-black/60 p-12 min-h-[600px] shadow-2xl backdrop-blur-xl">
               {loading ? (
                 <div className="flex flex-col items-center justify-center h-[500px]">
@@ -121,7 +97,7 @@ const Generator = () => {
                     <Sparkles className="w-5 h-5 text-emerald-400" />
                     <span className="text-xs text-emerald-400 uppercase font-black tracking-widest">Decryption Successful</span>
                   </div>
-                  <h1 className="text-4xl font-black mb-8 text-white uppercase tracking-tight leading-none">{prompt}</h1>
+                  <h1 className="text-4xl font-black mb-8 text-white uppercase tracking-tight">{prompt}</h1>
                   <div className="text-slate-300 leading-relaxed font-sans text-xl whitespace-pre-wrap">{generatedCode}</div>
                 </div>
               ) : (
@@ -144,9 +120,7 @@ const Generator = () => {
               placeholder="Inject mission directive..."
               className="flex-1 bg-transparent border-none outline-none py-6 text-base text-slate-100 font-mono"
             />
-            <button onClick={handleGenerate} className="text-blue-500 hover:scale-110 active:scale-95 transition-all">
-              <Zap className="w-8 h-8 fill-current" />
-            </button>
+            <button onClick={handleGenerate} className="text-blue-500 hover:scale-110 transition-all"><Zap className="w-8 h-8 fill-current" /></button>
           </div>
         </div>
       </main>
