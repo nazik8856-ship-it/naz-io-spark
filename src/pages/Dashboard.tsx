@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
   LogOut,
@@ -11,7 +11,6 @@ import {
   RefreshCw,
   Share2,
   Check,
-  Copy,
   Globe,
   ExternalLink,
   Pencil,
@@ -66,12 +65,9 @@ async function invokeSwiftService(body: Record<string, unknown>) {
     cache: "no-store",
   });
 
-  console.log("Response Status Code:", res.status);
-  console.log("API Key Prefix Used:", SUPABASE_ANON_KEY?.substring(0, 5));
-
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err?.error || `Function failed with status ${res.status}`);
+    throw new Error(err?.error || `Service error: ${res.status}`);
   }
   return res.json();
 }
@@ -91,7 +87,6 @@ const Dashboard = () => {
     trashProject,
     restoreProject,
     deleteProject,
-    fetchProjects,
   } = useProjects(user?.id);
 
   const [prompt, setPrompt] = useState("");
@@ -100,7 +95,6 @@ const Dashboard = () => {
   const [generatedHTML, setGeneratedHTML] = useState("");
   const [streamingHTML, setStreamingHTML] = useState("");
   const [isSharing, setIsSharing] = useState(false);
-  const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
@@ -116,7 +110,6 @@ const Dashboard = () => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const { toast } = useToast();
 
-  // Which sub-view to show
   const currentPath = location.pathname;
   const isCreateRoute = currentPath === "/dashboard/create";
   const showGenerator = generatedHTML || streamingHTML || isGenerating || isCreateRoute;
@@ -128,9 +121,8 @@ const Dashboard = () => {
 
   const handleOpenProject = useCallback((project: Project) => {
     setGeneratedHTML(project.html);
-    setPrompt(""); // Don't restore old prompt — just show preview
+    setPrompt("");
     setCurrentProjectId(project.id);
-    setShareUrl(null);
     setPublishedUrl(null);
     setShowEditChat(false);
     setShowDecisionFork(false);
@@ -139,10 +131,8 @@ const Dashboard = () => {
 
   const handleEditPromptFromCard = useCallback((project: Project) => {
     setPrompt(project.prompt || "");
-    setGeneratedHTML(""); // Stay on prompt view, don't open preview
+    setGeneratedHTML("");
     setCurrentProjectId(project.id);
-    setShareUrl(null);
-    setPublishedUrl(null);
     setShowEditChat(false);
   }, []);
 
@@ -150,15 +140,16 @@ const Dashboard = () => {
     setGeneratedHTML("");
     setStreamingHTML("");
     setPrompt("");
-    setShareUrl(null);
     setCopied(false);
     setPublishedUrl(null);
     setShowEditChat(false);
     setCurrentProjectId(null);
     setDesignChoice(null);
+    setBusinessType(null);
     setShowDecisionFork(false);
     setShowWorkflowPreview(false);
-  }, []);
+    if (isCreateRoute) navigate("/dashboard");
+  }, [isCreateRoute, navigate]);
 
   const handleShare = useCallback(async () => {
     if (!generatedHTML || isSharing) return;
@@ -171,11 +162,10 @@ const Dashboard = () => {
         .single();
       if (error) throw error;
       const url = `${window.location.origin}/share/${data.id}`;
-      setShareUrl(url);
       await navigator.clipboard.writeText(url);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-      toast({ title: "Link copied!", description: "Shareable link copied to clipboard" });
+      toast({ title: "Link copied!", description: "Anyone with this link can view your site." });
     } catch (e: any) {
       toast({ title: "Share failed", description: e.message, variant: "destructive" });
     } finally {
@@ -195,7 +185,7 @@ const Dashboard = () => {
       if (error) throw error;
       const url = `${window.location.origin}/share/${data.id}`;
       setPublishedUrl(url);
-      toast({ title: "Website published!", description: "Your website is now live." });
+      toast({ title: "Site is Live!", description: "Your project has been published successfully." });
     } catch (e: any) {
       toast({ title: "Publish failed", description: e.message, variant: "destructive" });
     } finally {
@@ -204,126 +194,91 @@ const Dashboard = () => {
   }, [generatedHTML, isPublishing, toast]);
 
   const cleanHTML = (raw: string): string => {
-    let cleaned = raw;
-    if (cleaned.startsWith("```html")) cleaned = cleaned.slice(7);
-    else if (cleaned.startsWith("```")) cleaned = cleaned.slice(3);
-    if (cleaned.endsWith("```")) cleaned = cleaned.slice(0, -3);
-    return cleaned.trim();
+    return raw.replace(/```html|```/g, "").trim();
   };
 
   const handleGenerate = useCallback(async () => {
     if (!prompt.trim() || isGenerating) return;
-
     if (credits !== null && credits <= 0) {
       setShowCreditModal(true);
       return;
     }
 
-    // Open the new tab IMMEDIATELY (synchronous, user-initiated) to avoid popup blocker
     const newTab = window.open("about:blank", "_blank");
     if (newTab) {
       newTab.document.write(`
-        <html>
-          <head><title>NazAI – Building...</title></head>
-          <body style="margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#0a0a0a;color:#fff;font-family:system-ui,sans-serif;">
-            <div style="text-align:center">
-              <h1 style="font-size:2rem;margin-bottom:0.5rem;">NazAI is building...</h1>
-              <p style="opacity:0.6">This usually takes 30-40 seconds</p>
-            </div>
-          </body>
-        </html>
+        <body style="margin:0;display:flex;align-items:center;justify-content:center;background:#0a0a0a;color:#fff;font-family:sans-serif;">
+          <div style="text-align:center">
+            <h2 style="color:#00f2ff">NazAI is architecting your site...</h2>
+            <p style="opacity:0.7">Applying ${designChoice || "modern"} styles</p>
+          </div>
+        </body>
       `);
     }
 
     setIsGenerating(true);
     setGeneratedHTML("");
-    setStreamingHTML("");
     setGenerationError(null);
 
     try {
-      const fullPrompt = `${prompt.trim()}${designChoice ? `. Use a ${designChoice === "minimal" ? "minimal, clean, whitespace-driven" : "bold, dynamic, vivid"} design style.` : ""}`;
-
-      const data = await invokeSwiftService({ prompt: fullPrompt, userId: "00000000-0000-0000-0000-000000000000" });
-      if (data?.error) throw new Error(data.error);
+      const fullPrompt = `${prompt.trim()}. Style: ${designChoice === "minimal" ? "minimalist, clean" : "bold, vibrant"}.`;
+      const data = await invokeSwiftService({ prompt: fullPrompt, userId: user?.id });
 
       const cleaned = cleanHTML(data.content || "");
-
       setGeneratedHTML(cleaned);
 
-      // Write the generated HTML into the already-open tab
       if (newTab && !newTab.closed) {
         newTab.document.open();
         newTab.document.write(cleaned);
         newTab.document.close();
-        newTab.focus();
       }
-
-      setStreamingHTML("");
 
       await deductCredit();
+      await refetchCredits();
 
-      // Save to websites table
-      const title = prompt.trim().slice(0, 60) || "Untitled";
-      await supabase.from("websites" as any).insert({
-        title,
-        html: cleaned,
-        prompt: prompt.trim(),
-        user_id: "00000000-0000-0000-0000-000000000000",
-      });
+      const title = prompt.trim().slice(0, 50) || "Untitled Project";
+      const { data: projData } = await supabase
+        .from("websites")
+        .insert({
+          title,
+          html: cleaned,
+          prompt: prompt.trim(),
+          user_id: user?.id,
+        })
+        .select()
+        .single();
+
+      if (projData) setCurrentProjectId(projData.id);
     } catch (e: any) {
-      // Close the loading tab on error
-      if (newTab && !newTab.closed) {
-        newTab.document.open();
-        newTab.document.write(`
-          <html>
-            <body style="margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#0a0a0a;color:#ff6b6b;font-family:system-ui,sans-serif;">
-              <div style="text-align:center">
-                <h1>Generation Failed</h1>
-                <p>${e.message || "Something went wrong"}</p>
-              </div>
-            </body>
-          </html>
-        `);
-        newTab.document.close();
-      }
-      setGenerationError(e.message || "Something went wrong");
-      toast({ title: "Generation failed", description: e.message || "Something went wrong", variant: "destructive" });
+      if (newTab) newTab.close();
+      setGenerationError(e.message);
+      toast({ title: "Generation error", description: e.message, variant: "destructive" });
     } finally {
       setIsGenerating(false);
     }
-  }, [prompt, isGenerating, credits, designChoice, deductCredit, toast]);
+  }, [prompt, isGenerating, credits, designChoice, user, deductCredit, refetchCredits, toast]);
 
   const handleEdit = useCallback(
-    async (message: string, chatHistory: Array<{ role: string; content: string }>) => {
+    async (message: string, chatHistory: any[]) => {
       if (isEditing) return;
-
       setIsEditing(true);
-      setStreamingHTML("");
-
       try {
         const data = await invokeSwiftService({
           prompt: message,
           currentHTML: generatedHTML,
           chatHistory,
-          userId: "00000000-0000-0000-0000-000000000000",
+          userId: user?.id,
         });
-        if (data?.error) throw new Error(data.error);
-
         const cleaned = cleanHTML(data.content || "");
         setGeneratedHTML(cleaned);
-        setStreamingHTML("");
-
-        if (currentProjectId) {
-          await updateProjectHTML(currentProjectId, cleaned);
-        }
+        if (currentProjectId) await updateProjectHTML(currentProjectId, cleaned);
       } catch (e: any) {
-        toast({ title: "Edit failed", description: e.message || "Something went wrong", variant: "destructive" });
-        throw e;
+        toast({ title: "Edit failed", description: e.message, variant: "destructive" });
       } finally {
         setIsEditing(false);
       }
     },
-    [generatedHTML, isEditing, toast, currentProjectId, updateProjectHTML],
+    [generatedHTML, isEditing, user, currentProjectId, updateProjectHTML, toast],
   );
 
   const handleDownload = () => {
@@ -331,347 +286,185 @@ const Dashboard = () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "website.html";
+    a.download = `nazai-project-${Date.now()}.html`;
     a.click();
-    URL.revokeObjectURL(url);
   };
 
-  const displayHTML = generatedHTML || streamingHTML;
-
-  // Determine sidebar context
-  const sidebarContext: DashboardContext = (() => {
-    if (showEditChat && generatedHTML) return "edit";
-    if (generatedHTML && !isGenerating) return "preview";
-    if (isCreateRoute || prompt) return "prompt";
-    return "browse";
-  })();
-
-  const handleSidebarAction = (action: string) => {
-    switch (action) {
-      case "idea-helper":
-        setShowIdeaHelper(true);
-        break;
-      case "edit":
-        setShowEditChat(true);
-        break;
-      case "preview":
-        setShowEditChat(false);
-        break;
-      case "publish":
-        handlePublish();
-        break;
-      case "share":
-        handleShare();
-        break;
-      case "download":
-        handleDownload();
-        break;
-    }
-  };
-
-  // Determine which sub-view to render
-  const renderSubView = () => {
-    if (showGenerator) return null; // Generator view takes over
-
-    if (currentPath === "/dashboard/projects") {
-      return (
-        <DashboardAllProjects
-          projects={activeProjects}
-          loading={projectsLoading}
-          onTrash={trashProject}
-          onOpenProject={handleOpenProject}
-        />
-      );
-    }
-    if (currentPath === "/dashboard/trash") {
-      return (
-        <DashboardTrash
-          projects={trashedProjects}
-          loading={projectsLoading}
-          onRestore={restoreProject}
-          onDelete={deleteProject}
-          onSaveToAll={restoreProject}
-          onOpenProject={handleOpenProject}
-        />
-      );
-    }
-
-    // Default: Recently
-    return <DashboardRecently onOpenProject={handleOpenProject} onEditPrompt={handleEditPromptFromCard} />;
-  };
+  const sidebarContext: DashboardContext =
+    showEditChat && generatedHTML ? "edit" : generatedHTML ? "preview" : "browse";
 
   return (
     <>
       <SidebarProvider>
-        <div className="min-h-screen flex w-full bg-background animate-dashboard-enter">
+        <div className="min-h-screen flex w-full bg-background animate-in fade-in duration-500">
           <DashboardSidebar
             context={sidebarContext}
-            onAction={handleSidebarAction}
+            onAction={(action) => {
+              if (action === "edit") setShowEditChat(true);
+              if (action === "preview") setShowEditChat(false);
+              if (action === "publish") handlePublish();
+              if (action === "share") handleShare();
+              if (action === "download") handleDownload();
+            }}
             credits={credits}
             onRefillClick={() => setShowCreditModal(true)}
           />
 
           <div className="flex-1 flex flex-col">
-            <header className="fixed top-0 left-0 right-0 z-50 glass">
-              <div className="container mx-auto px-6 py-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <SidebarTrigger className="text-muted-foreground hover:text-foreground" />
-                    <Logo size="md" linkTo="/" />
+            <header className="fixed top-0 left-0 right-0 z-50 glass border-b border-white/5">
+              <div className="container mx-auto px-6 py-4 flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <SidebarTrigger className="hover:bg-white/10" />
+                  <Logo size="md" />
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-primary/10 border border-primary/20">
+                    <Coins className="w-4 h-4 text-primary" />
+                    <span className="text-sm font-bold">{credits ?? "..."}</span>
                   </div>
-                  <div className="flex items-center gap-4">
-                    {credits !== null && (
-                      <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full glass border border-border">
-                        <Coins className="w-4 h-4 text-primary" />
-                        <span className="text-sm font-semibold">{credits}</span>
-                        <span className="text-xs text-muted-foreground">credits</span>
-                      </div>
-                    )}
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button variant="ghost" size="sm">
-                          <LogOut className="w-4 h-4" />
-                          Log out
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent className="glass border-glow">
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                          <AlertDialogDescription>You'll be signed out of NazAI.</AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>No, stay</AlertDialogCancel>
-                          <AlertDialogAction onClick={handleLogout}>Yes, log out</AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  </div>
+                  <Button variant="ghost" size="sm" onClick={handleLogout} className="text-muted-foreground">
+                    <LogOut className="w-4 h-4 mr-2" /> Exit
+                  </Button>
                 </div>
               </div>
             </header>
 
-            <main className="pt-24 pb-6 flex-1 flex flex-col">
-              <div className="container mx-auto px-6 flex-1 flex flex-col">
-                {!showGenerator || (isCreateRoute && !generatedHTML && !streamingHTML && !isGenerating) ? (
-                  <div className="flex-1 flex flex-col">
-                    {/* Business type selector for create route (shown before prompt) */}
-                    {isCreateRoute && !businessType && (
-                      <div className="flex-1 flex items-center justify-center py-12">
-                        <BusinessTypeSelector onSelect={(type) => setBusinessType(type)} />
+            <main className="pt-24 pb-12 flex-1 flex flex-col container mx-auto px-6">
+              {!showGenerator ? (
+                <div className="flex-1">
+                  {currentPath === "/dashboard/projects" ? (
+                    <DashboardAllProjects
+                      projects={activeProjects}
+                      loading={projectsLoading}
+                      onTrash={trashProject}
+                      onOpenProject={handleOpenProject}
+                    />
+                  ) : currentPath === "/dashboard/trash" ? (
+                    <DashboardTrash
+                      projects={trashedProjects}
+                      loading={projectsLoading}
+                      onRestore={restoreProject}
+                      onDelete={deleteProject}
+                      onOpenProject={handleOpenProject}
+                    />
+                  ) : (
+                    <DashboardRecently onOpenProject={handleOpenProject} onEditPrompt={handleEditPromptFromCard} />
+                  )}
+                </div>
+              ) : (
+                <div className="flex-1 flex flex-col gap-6">
+                  {isCreateRoute && !businessType && !generatedHTML ? (
+                    <BusinessTypeSelector onSelect={setBusinessType} />
+                  ) : !generatedHTML && !isGenerating ? (
+                    <div className="max-w-3xl mx-auto w-full space-y-6">
+                      <div className="space-y-2">
+                        <h2 className="text-2xl font-bold tracking-tight">Create something incredible</h2>
+                        <p className="text-muted-foreground">Describe your vision, and NazAI will handle the code.</p>
                       </div>
-                    )}
-
-                    {/* Prompt bar visible after business type is chosen or on non-create routes */}
-                    {(!isCreateRoute || businessType) && (
-                      <>
-                        <div className="max-w-2xl mx-auto w-full mb-8">
-                          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass border-glow mb-4">
-                            <Sparkles className="w-4 h-4 text-primary" />
-                            <span className="text-sm text-muted-foreground">
-                              {businessType ? `Building a ${businessType} website` : "AI Website Generator"}
-                            </span>
-                          </div>
-                          <div className="flex gap-2">
-                            <Textarea
-                              placeholder={
-                                businessType
-                                  ? `Describe your ${businessType} website...`
-                                  : "Describe the website you want to generate..."
-                              }
-                              value={prompt}
-                              onChange={(e) => setPrompt(e.target.value)}
-                              className="min-h-[60px] bg-secondary/50 border-border resize-none text-sm"
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) setShowDecisionFork(true);
-                              }}
-                            />
-                            <Button
-                              variant="hero"
-                              size="lg"
-                              onClick={() => setShowDecisionFork(true)}
-                              disabled={!prompt.trim() || (credits !== null && credits <= 0)}
-                              className="shrink-0"
-                            >
-                              <Send className="w-4 h-4" />
-                            </Button>
-                          </div>
-                          <IdeaHelper
-                            onSelectIdea={(idea) => {
-                              setPrompt(idea);
-                              setShowIdeaHelper(false);
-                            }}
-                          />
-                        </div>
-
-                        {/* Decision Fork: style choice */}
-                        {showDecisionFork && !showWorkflowPreview && prompt.trim() && (
-                          <div className="mb-8">
-                            <DecisionFork
-                              question="What design direction fits your vision?"
-                              options={[
-                                {
-                                  label: "Minimal & Clean",
-                                  description: "Whitespace-driven, elegant typography, subtle accents",
-                                  icon: <Palette className="w-5 h-5" />,
-                                },
-                                {
-                                  label: "Bold & Dynamic",
-                                  description: "Vivid colors, strong gradients, eye-catching animations",
-                                  icon: <Zap className="w-5 h-5" />,
-                                },
-                              ]}
-                              onSelect={(i) => {
-                                setDesignChoice(i === 0 ? "minimal" : "bold");
-                                setShowDecisionFork(false);
-                                setShowWorkflowPreview(true);
-                              }}
-                            />
-                          </div>
-                        )}
-
-                        {/* Workflow preview card (Plan → Act → Reflect) */}
-                        {showWorkflowPreview && prompt.trim() && (
-                          <div className="mb-8">
-                            <WorkflowPreview
-                              prompt={`${prompt.trim()}${designChoice ? ` [Style: ${designChoice}]` : ""}`}
-                              onApprove={() => {
-                                setShowWorkflowPreview(false);
-                                setShowDecisionFork(false);
-                                handleGenerate();
-                              }}
-                              onCancel={() => {
-                                setShowWorkflowPreview(false);
-                                setShowDecisionFork(true);
-                              }}
-                              isGenerating={isGenerating}
-                            />
-                          </div>
-                        )}
-                      </>
-                    )}
-
-                    {/* Sub-view content */}
-                    {!isCreateRoute && renderSubView()}
-                  </div>
-                ) : (
-                  <div className="flex-1 flex flex-col gap-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        {(isGenerating || isEditing) && (
-                          <div className="flex items-center gap-2 text-primary">
-                            <span className="text-sm font-bold uppercase tracking-wider">Building...</span>
-                          </div>
-                        )}
-                        {generatedHTML && !isGenerating && !isEditing && (
-                          <span className="text-sm text-muted-foreground">✓ Website generated</span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {generatedHTML && (
-                          <>
-                            {!publishedUrl ? (
-                              <Button variant="hero" size="sm" onClick={handlePublish} disabled={isPublishing}>
-                                {isPublishing ? (
-                                  <Loader2 className="w-4 h-4 animate-spin" />
-                                ) : (
-                                  <Globe className="w-4 h-4" />
-                                )}
-                                {isPublishing ? "Publishing..." : "Publish"}
-                              </Button>
-                            ) : (
-                              <a href={publishedUrl} target="_blank" rel="noopener noreferrer">
-                                <Button variant="hero" size="sm" type="button">
-                                  <Globe className="w-4 h-4" />
-                                  View Live
-                                  <ExternalLink className="w-3 h-3" />
-                                </Button>
-                              </a>
-                            )}
-                            <Button variant="outline" size="sm" onClick={handleShare} disabled={isSharing}>
-                              {copied ? <Check className="w-4 h-4" /> : <Share2 className="w-4 h-4" />}
-                              {copied ? "Copied!" : "Share"}
-                            </Button>
-                            <Button variant="outline" size="sm" onClick={handleDownload}>
-                              <Download className="w-4 h-4" />
-                              Download
-                            </Button>
-                            <Button
-                              variant={showEditChat ? "default" : "outline"}
-                              size="sm"
-                              onClick={() => setShowEditChat((v) => !v)}
-                            >
-                              <Pencil className="w-4 h-4" />
-                              Edit
-                            </Button>
-                          </>
-                        )}
-                        <Button variant="heroOutline" size="sm" onClick={handleNewWebsite}>
-                          <RefreshCw className="w-4 h-4" />
-                          New Website
+                      <div className="flex gap-3 p-2 rounded-2xl bg-secondary/30 border border-white/5 shadow-2xl">
+                        <Textarea
+                          placeholder={
+                            businessType
+                              ? `Building your ${businessType} site...`
+                              : "e.g. A dark portfolio for a designer..."
+                          }
+                          value={prompt}
+                          onChange={(e) => setPrompt(e.target.value)}
+                          className="min-h-[80px] bg-transparent border-none focus-visible:ring-0 resize-none text-lg"
+                        />
+                        <Button
+                          variant="hero"
+                          size="lg"
+                          className="h-auto px-6"
+                          disabled={!prompt.trim()}
+                          onClick={() => setShowDecisionFork(true)}
+                        >
+                          <Send className="w-5 h-5" />
                         </Button>
                       </div>
+                      <IdeaHelper onSelectIdea={setPrompt} />
                     </div>
-
-                    <div className="flex-1 rounded-2xl overflow-hidden border-4 border-foreground bg-white min-h-[500px] relative">
-                      {(isGenerating || isEditing) && !displayHTML && !generationError && (
-                        <NeoSkeleton variant="preview" />
-                      )}
-                      {generationError && !isGenerating && !displayHTML && (
-                        <div className="flex flex-col items-center justify-center h-full min-h-[300px] gap-4">
-                          <p className="text-destructive font-medium text-center max-w-md">{generationError}</p>
-                          <Button
-                            variant="outline"
-                            onClick={() => {
-                              setGenerationError(null);
-                              handleGenerate();
-                            }}
-                          >
-                            <RefreshCw className="w-4 h-4 mr-2" />
-                            Retry
+                  ) : (
+                    <div className="flex-1 flex flex-col gap-4">
+                      <div className="flex items-center justify-between glass p-3 rounded-xl border border-white/5">
+                        <div className="flex items-center gap-3">
+                          {isGenerating ? (
+                            <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                          ) : (
+                            <Check className="w-4 h-4 text-green-500" />
+                          )}
+                          <span className="text-sm font-medium">
+                            {isGenerating ? "Processing AI logic..." : "Draft Complete"}
+                          </span>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button variant="outline" size="sm" onClick={handleDownload} disabled={!generatedHTML}>
+                            <Download className="w-4 h-4 mr-2" /> Export
+                          </Button>
+                          <Button variant="hero" size="sm" onClick={handleNewWebsite}>
+                            <RefreshCw className="w-4 h-4 mr-2" /> Reset
                           </Button>
                         </div>
-                      )}
-                      {displayHTML && (
-                        <iframe
-                          ref={iframeRef}
-                          srcDoc={displayHTML}
-                          className="w-full h-full min-h-[500px]"
-                          sandbox="allow-scripts"
-                          title="Generated Website Preview"
-                        />
+                      </div>
+                      <div className="flex-1 rounded-2xl border-4 border-black bg-white shadow-2xl overflow-hidden relative min-h-[60vh]">
+                        {isGenerating && !generatedHTML ? (
+                          <NeoSkeleton variant="preview" />
+                        ) : (
+                          <iframe
+                            ref={iframeRef}
+                            srcDoc={generatedHTML}
+                            className="w-full h-full"
+                            sandbox="allow-scripts allow-same-origin allow-forms"
+                            title="Preview"
+                          />
+                        )}
+                      </div>
+                      {generatedHTML && !isGenerating && (
+                        <div className="animate-in slide-in-from-bottom-4 duration-500">
+                          {showEditChat ? (
+                            <EditChat onSendEdit={handleEdit} isGenerating={isEditing} />
+                          ) : (
+                            <NextStepSuggestions
+                              onEdit={() => setShowEditChat(true)}
+                              onPublish={handlePublish}
+                              onShare={handleShare}
+                              isPublished={!!publishedUrl}
+                            />
+                          )}
+                        </div>
                       )}
                     </div>
-
-                    {/* Next-step suggestions after generation */}
-                    {generatedHTML && !isGenerating && !isEditing && !showEditChat && (
-                      <NextStepSuggestions
-                        onEdit={() => setShowEditChat(true)}
-                        onPublish={handlePublish}
-                        onShare={handleShare}
-                        onDownload={handleDownload}
-                        onNewWebsite={handleNewWebsite}
-                        isPublished={!!publishedUrl}
-                        onStrategyQuestion={(q) => {
-                          setShowEditChat(true);
-                          // Send strategy question through edit chat
-                          setTimeout(() => {
-                            const event = new CustomEvent("strategy-question", { detail: q });
-                            window.dispatchEvent(event);
-                          }, 100);
-                        }}
-                      />
-                    )}
-
-                    {generatedHTML && !isGenerating && showEditChat && (
-                      <EditChat onSendEdit={handleEdit} isGenerating={isEditing} />
-                    )}
-                  </div>
-                )}
-              </div>
+                  )}
+                </div>
+              )}
             </main>
           </div>
         </div>
       </SidebarProvider>
+
+      {showDecisionFork && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background/80 backdrop-blur-sm p-6">
+          <div className="max-w-2xl w-full">
+            <DecisionFork
+              question="Choose a design aesthetic"
+              options={[
+                {
+                  label: "Minimalist",
+                  description: "Clean, fast, and professional.",
+                  icon: <Palette className="w-5 h-5" />,
+                },
+                { label: "Futuristic", description: "Bold, neon, and high-energy.", icon: <Zap className="w-5 h-5" /> },
+              ]}
+              onSelect={(i) => {
+                setDesignChoice(i === 0 ? "minimal" : "bold");
+                setShowDecisionFork(false);
+                handleGenerate();
+              }}
+            />
+          </div>
+        </div>
+      )}
+
       <CreditRefillModal open={showCreditModal} onOpenChange={setShowCreditModal} userId={user?.id} />
     </>
   );
