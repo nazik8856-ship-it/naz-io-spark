@@ -58,6 +58,7 @@ const Generator = () => {
     }
   };
 
+  // ── THE FULLY ALIGNED MISSION HANDLER ──
   const handleSaveMission = async () => {
     if (saveState === "saving" || !generatedCode) return;
     setSaveState("saving");
@@ -73,12 +74,11 @@ const Generator = () => {
         return;
       }
 
-      // 2. Insert into the 'missions' table verified in dashboard
+      // 2. Insert using verified column 'directive' and status 'completed'
       const { error } = await supabase.from("missions").insert({
         user_id: session.user.id, // Verified policy: (auth.uid() = user_id)
-        title: prompt.slice(0, 50) || "New Mission",
-        content: generatedCode, 
-        status: "active"
+        directive: generatedCode, // Aligned with database schema
+        status: "completed"       // Aligned with existing records
       });
 
       if (error) throw error;
