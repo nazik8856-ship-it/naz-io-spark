@@ -79,7 +79,6 @@ const GeneratorV2 = () => {
       const full = wrapInSkeleton(clean);
       setGeneratedCode(full);
 
-      // We still open in blank, but now the Save button will appear in the UI
       const blob = new Blob([full], { type: "text/html" });
       const url = URL.createObjectURL(blob);
       window.open(url, "_blank");
@@ -143,7 +142,7 @@ const GeneratorV2 = () => {
         <nav className="flex-1 px-3 space-y-1">
           <button
             onClick={() => navigate("/")}
-            className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg bg-blue-600/10 text-blue-400 border border-blue-500/10 text-sm font-medium"
+            className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg hover:bg-white/5 text-slate-400 transition-colors text-sm"
           >
             <Home className="w-4 h-4" /> Home
           </button>
@@ -235,8 +234,8 @@ const GeneratorV2 = () => {
           </div>
         </div>
 
-        {/* ── FLOATING SAVE BUTTON (Conditional on generatedCode) ── */}
-        {generatedCode && (
+        {/* ── FLOATING SAVE BUTTON (Conditional on generatedCode AND workspace path) ── */}
+        {generatedCode && window.location.pathname.includes('workspace') && (
           <div className="fixed bottom-32 right-12 z-[100] group">
             <div className="absolute bottom-full right-0 mb-2 px-3 py-1.5 rounded-lg text-xs font-mono whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-200 bg-[#020617]/95 border border-blue-500/20 text-white/70">
               Archive to NazAI Database
