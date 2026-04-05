@@ -17,7 +17,7 @@ const Generator = () => {
     console.log("--- SYSTEM_DIAGNOSTIC ---");
     console.log("Code Length:", generatedCode.length);
     console.log("Loading State:", loading);
-    console.log("Button Should Render:", (generatedCode.length > 0 || loading));
+    console.log("Button Render Threshold:", (generatedCode.length > 0 || loading));
   }, [generatedCode, loading]);
 
   const handleGenerate = async () => {
@@ -71,27 +71,6 @@ const Generator = () => {
         SYSTEM_V2_ACTIVE
       </div>
 
-      {/* ── FORCE-VISIBLE ARCHIVE BUTTON ── 
-          MOVED HIGHER (bottom-48) TO CLEAR THE INPUT BAR GRADIENT */}
-      {(generatedCode.length > 0 || loading) && (
-        <div className="fixed bottom-48 right-12 z-[9999] animate-in fade-in zoom-in duration-500">
-          <button 
-            onClick={handleSaveMission}
-            disabled={saveState !== "idle"}
-            className="flex items-center gap-4 px-10 py-5 rounded-2xl border-2 border-emerald-500 bg-[#061a11] text-emerald-400 shadow-[0_0_60px_rgba(16,185,129,0.5)] hover:scale-105 active:scale-95 transition-all"
-          >
-            {saveState === "saving" ? (
-              <Loader2 className="animate-spin w-6 h-6" />
-            ) : (
-              <DatabaseZap className="w-6 h-6 fill-emerald-500/20" />
-            )}
-            <span className="font-black uppercase tracking-widest text-sm">
-              {saveState === "success" ? "MISSION_ARCHIVED" : "SAVE_TO_DATABASE"}
-            </span>
-          </button>
-        </div>
-      )}
-
       {/* Navigation Sidebar */}
       <aside className="w-56 border-r border-white/5 flex flex-col p-6 bg-[#020617] z-30">
         <div className="flex items-center gap-3 mb-8">
@@ -116,6 +95,26 @@ const Generator = () => {
             <ChevronRight className="w-3 h-3" /> SECURE_NODE // SYNCHRONIZED
           </div>
         </header>
+
+        {/* ── INTERNAL FLOATING ARCHIVE BUTTON ── */}
+        {(generatedCode.length > 0 || loading) && (
+          <div className="absolute top-24 right-12 z-[100] animate-in fade-in slide-in-from-right-8 duration-500">
+            <button 
+              onClick={handleSaveMission}
+              disabled={saveState !== "idle"}
+              className="flex items-center gap-4 px-8 py-4 rounded-xl border-2 border-emerald-500 bg-[#061a11] text-emerald-400 shadow-[0_0_40px_rgba(16,185,129,0.3)] hover:scale-105 active:scale-95 transition-all"
+            >
+              {saveState === "saving" ? (
+                <Loader2 className="animate-spin w-5 h-5" />
+              ) : (
+                <DatabaseZap className="w-5 h-5" />
+              )}
+              <span className="font-black uppercase tracking-widest text-xs">
+                {saveState === "success" ? "ARCHIVE_SYNCED" : "ARCHIVE_DATA"}
+              </span>
+            </button>
+          </div>
+        )}
 
         {/* Dynamic Display Area */}
         <div className="flex-1 overflow-y-auto p-8 relative scrollbar-hide">
