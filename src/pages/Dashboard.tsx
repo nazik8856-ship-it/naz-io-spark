@@ -1,48 +1,21 @@
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import {
-  LogOut,
-  Sparkles,
-  Send,
-  Loader2,
-  Download,
-  RefreshCw,
-  Share2,
-  Check,
-  Globe,
-  ExternalLink,
-  Pencil,
-  Coins,
-  Palette,
-  Zap,
-} from "lucide-react";
-import NextStepSuggestions from "@/components/NextStepSuggestions";
-import DecisionFork from "@/components/DecisionFork";
-import WorkflowPreview from "@/components/WorkflowPreview";
-import BusinessTypeSelector from "@/components/BusinessTypeSelector";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
+import { LogOut, Send, Loader2, Download, RefreshCw, Check, Palette, Zap, Coins } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import EditChat from "@/components/EditChat";
-import NeoSkeleton from "@/components/NeoSkeleton";
-import Logo from "@/components/Logo";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useCredits } from "@/hooks/useCredits";
 import { useProjects, type Project } from "@/hooks/useProjects";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { DashboardSidebar, type DashboardContext } from "@/components/DashboardSidebar";
+import Logo from "@/components/Logo";
+import EditChat from "@/components/EditChat";
+import NeoSkeleton from "@/components/NeoSkeleton";
+import NextStepSuggestions from "@/components/NextStepSuggestions";
+import DecisionFork from "@/components/DecisionFork";
+import BusinessTypeSelector from "@/components/BusinessTypeSelector";
 import IdeaHelper from "@/components/IdeaHelper";
 import CreditRefillModal from "@/components/CreditRefillModal";
 import DashboardRecently from "@/pages/DashboardRecently";
@@ -62,9 +35,7 @@ async function invokeSwiftService(body: Record<string, unknown>) {
       Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
     },
     body: JSON.stringify(body),
-    cache: "no-store",
   });
-
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err?.error || `Service error: ${res.status}`);
@@ -78,7 +49,6 @@ const Dashboard = () => {
   const { user, signOut } = useAuth();
   const { credits, deductCredit, refetchCredits } = useCredits(user?.id);
   const {
-    recentProjects,
     activeProjects,
     trashedProjects,
     loading: projectsLoading,
@@ -93,26 +63,18 @@ const Dashboard = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [generatedHTML, setGeneratedHTML] = useState("");
-  const [streamingHTML, setStreamingHTML] = useState("");
-  const [isSharing, setIsSharing] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [isPublishing, setIsPublishing] = useState(false);
-  const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
-  const [showEditChat, setShowEditChat] = useState(false);
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
-  const [showWorkflowPreview, setShowWorkflowPreview] = useState(false);
-  const [generationError, setGenerationError] = useState<string | null>(null);
+  const [showEditChat, setShowEditChat] = useState(false);
   const [businessType, setBusinessType] = useState<string | null>(null);
   const [designChoice, setDesignChoice] = useState<string | null>(null);
   const [showDecisionFork, setShowDecisionFork] = useState(false);
-  const [showIdeaHelper, setShowIdeaHelper] = useState(false);
   const [showCreditModal, setShowCreditModal] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const { toast } = useToast();
 
   const currentPath = location.pathname;
   const isCreateRoute = currentPath === "/dashboard/create";
-  const showGenerator = generatedHTML || streamingHTML || isGenerating || isCreateRoute;
+  const showGenerator = generatedHTML || isGenerating || isCreateRoute;
 
   const handleLogout = async () => {
     await signOut();
@@ -121,81 +83,26 @@ const Dashboard = () => {
 
   const handleOpenProject = useCallback((project: Project) => {
     setGeneratedHTML(project.html);
-    setPrompt("");
     setCurrentProjectId(project.id);
-    setPublishedUrl(null);
     setShowEditChat(false);
-    setShowDecisionFork(false);
-    setShowWorkflowPreview(false);
   }, []);
 
   const handleEditPromptFromCard = useCallback((project: Project) => {
     setPrompt(project.prompt || "");
     setGeneratedHTML("");
     setCurrentProjectId(project.id);
-    setShowEditChat(false);
   }, []);
 
   const handleNewWebsite = useCallback(() => {
     setGeneratedHTML("");
-    setStreamingHTML("");
     setPrompt("");
-    setCopied(false);
-    setPublishedUrl(null);
-    setShowEditChat(false);
     setCurrentProjectId(null);
-    setDesignChoice(null);
     setBusinessType(null);
     setShowDecisionFork(false);
-    setShowWorkflowPreview(false);
     if (isCreateRoute) navigate("/dashboard");
   }, [isCreateRoute, navigate]);
 
-  const handleShare = useCallback(async () => {
-    if (!generatedHTML || isSharing) return;
-    setIsSharing(true);
-    try {
-      const { data, error } = await supabase
-        .from("shared_websites")
-        .insert({ html: generatedHTML })
-        .select("id")
-        .single();
-      if (error) throw error;
-      const url = `${window.location.origin}/share/${data.id}`;
-      await navigator.clipboard.writeText(url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-      toast({ title: "Link copied!", description: "Anyone with this link can view your site." });
-    } catch (e: any) {
-      toast({ title: "Share failed", description: e.message, variant: "destructive" });
-    } finally {
-      setIsSharing(false);
-    }
-  }, [generatedHTML, isSharing, toast]);
-
-  const handlePublish = useCallback(async () => {
-    if (!generatedHTML || isPublishing) return;
-    setIsPublishing(true);
-    try {
-      const { data, error } = await supabase
-        .from("shared_websites")
-        .insert({ html: generatedHTML })
-        .select("id")
-        .single();
-      if (error) throw error;
-      const url = `${window.location.origin}/share/${data.id}`;
-      setPublishedUrl(url);
-      toast({ title: "Site is Live!", description: "Your project has been published successfully." });
-    } catch (e: any) {
-      toast({ title: "Publish failed", description: e.message, variant: "destructive" });
-    } finally {
-      setIsPublishing(false);
-    }
-  }, [generatedHTML, isPublishing, toast]);
-
-  const cleanHTML = (raw: string): string => {
-    return raw.replace(/```html|```/g, "").trim();
-  };
+  const cleanHTML = (raw: string): string => raw.replace(/```html|```/g, "").trim();
 
   const handleGenerate = useCallback(async () => {
     if (!prompt.trim() || isGenerating) return;
@@ -204,59 +111,28 @@ const Dashboard = () => {
       return;
     }
 
-    const newTab = window.open("about:blank", "_blank");
-    if (newTab) {
-      newTab.document.write(`
-        <body style="margin:0;display:flex;align-items:center;justify-content:center;background:#0a0a0a;color:#fff;font-family:sans-serif;">
-          <div style="text-align:center">
-            <h2 style="color:#00f2ff">NazAI is architecting your site...</h2>
-            <p style="opacity:0.7">Applying ${designChoice || "modern"} styles</p>
-          </div>
-        </body>
-      `);
-    }
-
     setIsGenerating(true);
     setGeneratedHTML("");
-    setGenerationError(null);
 
     try {
       const fullPrompt = `${prompt.trim()}. Style: ${designChoice === "minimal" ? "minimalist, clean" : "bold, vibrant"}.`;
       const data = await invokeSwiftService({ prompt: fullPrompt, userId: user?.id });
-
       const cleaned = cleanHTML(data.content || "");
       setGeneratedHTML(cleaned);
 
-      if (newTab && !newTab.closed) {
-        newTab.document.open();
-        newTab.document.write(cleaned);
-        newTab.document.close();
-      }
+      // Auto-save generation
+      const title = prompt.trim().slice(0, 50) || "Untitled Project";
+      const newProj = await saveProject(title, cleaned, prompt.trim());
+      if (newProj) setCurrentProjectId(newProj.id);
 
       await deductCredit();
       await refetchCredits();
-
-      const title = prompt.trim().slice(0, 50) || "Untitled Project";
-      const { data: projData } = await supabase
-        .from("websites")
-        .insert({
-          title,
-          html: cleaned,
-          prompt: prompt.trim(),
-          user_id: user?.id,
-        })
-        .select()
-        .single();
-
-      if (projData) setCurrentProjectId(projData.id);
     } catch (e: any) {
-      if (newTab) newTab.close();
-      setGenerationError(e.message);
       toast({ title: "Generation error", description: e.message, variant: "destructive" });
     } finally {
       setIsGenerating(false);
     }
-  }, [prompt, isGenerating, credits, designChoice, user, deductCredit, refetchCredits, toast]);
+  }, [prompt, isGenerating, credits, designChoice, user, deductCredit, refetchCredits, saveProject, toast]);
 
   const handleEdit = useCallback(
     async (message: string, chatHistory: any[]) => {
@@ -286,7 +162,7 @@ const Dashboard = () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `nazai-project-${Date.now()}.html`;
+    a.download = `nazai-${Date.now()}.html`;
     a.click();
   };
 
@@ -296,14 +172,12 @@ const Dashboard = () => {
   return (
     <>
       <SidebarProvider>
-        <div className="min-h-screen flex w-full bg-background animate-in fade-in duration-500">
+        <div className="min-h-screen flex w-full bg-background">
           <DashboardSidebar
             context={sidebarContext}
             onAction={(action) => {
               if (action === "edit") setShowEditChat(true);
               if (action === "preview") setShowEditChat(false);
-              if (action === "publish") handlePublish();
-              if (action === "share") handleShare();
               if (action === "download") handleDownload();
             }}
             credits={credits}
@@ -322,7 +196,7 @@ const Dashboard = () => {
                     <Coins className="w-4 h-4 text-primary" />
                     <span className="text-sm font-bold">{credits ?? "..."}</span>
                   </div>
-                  <Button variant="ghost" size="sm" onClick={handleLogout} className="text-muted-foreground">
+                  <Button variant="ghost" size="sm" onClick={handleLogout}>
                     <LogOut className="w-4 h-4 mr-2" /> Exit
                   </Button>
                 </div>
@@ -345,7 +219,6 @@ const Dashboard = () => {
                       loading={projectsLoading}
                       onRestore={restoreProject}
                       onDelete={deleteProject}
-                      onSaveToAll={restoreProject}
                       onOpenProject={handleOpenProject}
                     />
                   ) : (
@@ -358,17 +231,12 @@ const Dashboard = () => {
                     <BusinessTypeSelector onSelect={setBusinessType} />
                   ) : !generatedHTML && !isGenerating ? (
                     <div className="max-w-3xl mx-auto w-full space-y-6">
-                      <div className="space-y-2">
-                        <h2 className="text-2xl font-bold tracking-tight">Create something incredible</h2>
-                        <p className="text-muted-foreground">Describe your vision, and NazAI will handle the code.</p>
+                      <div className="space-y-2 text-center">
+                        <h2 className="text-3xl font-bold">What are we building today?</h2>
                       </div>
-                      <div className="flex gap-3 p-2 rounded-2xl bg-secondary/30 border border-white/5 shadow-2xl">
+                      <div className="flex gap-3 p-2 rounded-2xl bg-secondary/30 border border-white/5">
                         <Textarea
-                          placeholder={
-                            businessType
-                              ? `Building your ${businessType} site...`
-                              : "e.g. A dark portfolio for a designer..."
-                          }
+                          placeholder="Describe your site..."
                           value={prompt}
                           onChange={(e) => setPrompt(e.target.value)}
                           className="min-h-[80px] bg-transparent border-none focus-visible:ring-0 resize-none text-lg"
@@ -376,7 +244,6 @@ const Dashboard = () => {
                         <Button
                           variant="hero"
                           size="lg"
-                          className="h-auto px-6"
                           disabled={!prompt.trim()}
                           onClick={() => setShowDecisionFork(true)}
                         >
@@ -395,10 +262,21 @@ const Dashboard = () => {
                             <Check className="w-4 h-4 text-green-500" />
                           )}
                           <span className="text-sm font-medium">
-                            {isGenerating ? "Processing AI logic..." : "Draft Complete"}
+                            {isGenerating ? "Architecting..." : "Draft Ready"}
                           </span>
                         </div>
                         <div className="flex gap-2">
+                          {/* SAVE BUTTON */}
+                          {generatedHTML && currentProjectId && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="border-green-500/50 text-green-500 hover:bg-green-500/10"
+                              onClick={() => updateProjectHTML(currentProjectId, generatedHTML)}
+                            >
+                              <Check className="w-4 h-4 mr-2" /> Save Changes
+                            </Button>
+                          )}
                           <Button variant="outline" size="sm" onClick={handleDownload} disabled={!generatedHTML}>
                             <Download className="w-4 h-4 mr-2" /> Export
                           </Button>
@@ -411,13 +289,7 @@ const Dashboard = () => {
                         {isGenerating && !generatedHTML ? (
                           <NeoSkeleton variant="preview" />
                         ) : (
-                          <iframe
-                            ref={iframeRef}
-                            srcDoc={generatedHTML}
-                            className="w-full h-full"
-                            sandbox="allow-scripts allow-same-origin allow-forms"
-                            title="Preview"
-                          />
+                          <iframe srcDoc={generatedHTML} className="w-full h-full" title="Preview" />
                         )}
                       </div>
                       {generatedHTML && !isGenerating && (
@@ -427,23 +299,9 @@ const Dashboard = () => {
                           ) : (
                             <NextStepSuggestions
                               onEdit={() => setShowEditChat(true)}
-                              onPublish={handlePublish}
-                              onShare={handleShare}
-                              onDownload={() => {
-                                const blob = new Blob([generatedHTML], { type: "text/html" });
-                                const url = URL.createObjectURL(blob);
-                                const a = document.createElement("a");
-                                a.href = url;
-                                a.download = "website.html";
-                                a.click();
-                                URL.revokeObjectURL(url);
-                              }}
-                              onNewWebsite={() => {
-                                setGeneratedHTML("");
-                                setPrompt("");
-                                setShowEditChat(false);
-                              }}
-                              isPublished={!!publishedUrl}
+                              onPublish={() => {}}
+                              onShare={() => {}}
+                              isPublished={false}
                             />
                           )}
                         </div>
@@ -463,12 +321,8 @@ const Dashboard = () => {
             <DecisionFork
               question="Choose a design aesthetic"
               options={[
-                {
-                  label: "Minimalist",
-                  description: "Clean, fast, and professional.",
-                  icon: <Palette className="w-5 h-5" />,
-                },
-                { label: "Futuristic", description: "Bold, neon, and high-energy.", icon: <Zap className="w-5 h-5" /> },
+                { label: "Minimalist", description: "Clean and professional.", icon: <Palette className="w-5 h-5" /> },
+                { label: "Futuristic", description: "Bold and high-energy.", icon: <Zap className="w-5 h-5" /> },
               ]}
               onSelect={(i) => {
                 setDesignChoice(i === 0 ? "minimal" : "bold");
@@ -479,7 +333,6 @@ const Dashboard = () => {
           </div>
         </div>
       )}
-
       <CreditRefillModal open={showCreditModal} onOpenChange={setShowCreditModal} userId={user?.id} />
     </>
   );
