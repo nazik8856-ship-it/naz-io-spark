@@ -12,12 +12,13 @@ const Generator = () => {
   const [generatedCode, setGeneratedCode] = useState("");
   const [saveState, setSaveState] = useState("idle");
 
-  // CRITICAL: Diagnostic Log
+  // CRITICAL: Diagnostic Log for State & Button Visibility
   useEffect(() => {
-    if (generatedCode) {
-      console.log("OS_LOG: Data Received. Length:", generatedCode.length);
-    }
-  }, [generatedCode]);
+    console.log("--- SYSTEM_DIAGNOSTIC ---");
+    console.log("Code Length:", generatedCode.length);
+    console.log("Loading State:", loading);
+    console.log("Button Should Render:", (generatedCode.length > 0 || loading));
+  }, [generatedCode, loading]);
 
   const handleGenerate = async () => {
     if (!prompt.trim() || loading) return;
@@ -30,7 +31,6 @@ const Generator = () => {
       });
 
       if (error) throw error;
-      // Ensure we have a string even if content is missing
       setGeneratedCode(data?.content || "MISSION_DATA_RECOVERED");
     } catch (err) { 
       console.error("Critical Generation Failure:", err); 
@@ -66,23 +66,32 @@ const Generator = () => {
   return (
     <div className="flex h-screen w-full bg-[#020617] text-slate-200 font-sans overflow-hidden relative">
       
-      {/* ── DEBUG BANNER (FORCE SYNC CHECK) ── */}
+      {/* ── DEBUG BANNER ── */}
       <div className="fixed top-0 left-0 bg-red-600 text-white z-[9999] p-2 text-[10px] font-black uppercase tracking-widest">
         SYSTEM_V2_ACTIVE
       </div>
 
-     {/* ── FORCE-VISIBLE ARCHIVE ── */}
-{ (generatedCode || loading) && (
-  <div className="fixed bottom-36 right-12 z-[9999] pointer-events-auto">
-    <button 
-      onClick={handleSaveMission}
-      className="flex items-center gap-3 px-10 py-5 rounded-2xl border-2 border-emerald-500 bg-[#061a11] text-emerald-400 shadow-[0_0_50px_rgba(16,185,129,0.4)] hover:scale-105 active:scale-95 transition-all"
-    >
-      <DatabaseZap className="w-6 h-6" />
-      <span className="font-black uppercase tracking-tighter">Archive_Mission</span>
-    </button>
-  </div> 
-)}
+      {/* ── FORCE-VISIBLE ARCHIVE BUTTON ── 
+          MOVED HIGHER (bottom-48) TO CLEAR THE INPUT BAR GRADIENT */}
+      {(generatedCode.length > 0 || loading) && (
+        <div className="fixed bottom-48 right-12 z-[9999] animate-in fade-in zoom-in duration-500">
+          <button 
+            onClick={handleSaveMission}
+            disabled={saveState !== "idle"}
+            className="flex items-center gap-4 px-10 py-5 rounded-2xl border-2 border-emerald-500 bg-[#061a11] text-emerald-400 shadow-[0_0_60px_rgba(16,185,129,0.5)] hover:scale-105 active:scale-95 transition-all"
+          >
+            {saveState === "saving" ? (
+              <Loader2 className="animate-spin w-6 h-6" />
+            ) : (
+              <DatabaseZap className="w-6 h-6 fill-emerald-500/20" />
+            )}
+            <span className="font-black uppercase tracking-widest text-sm">
+              {saveState === "success" ? "MISSION_ARCHIVED" : "SAVE_TO_DATABASE"}
+            </span>
+          </button>
+        </div>
+      )}
+
       {/* Navigation Sidebar */}
       <aside className="w-56 border-r border-white/5 flex flex-col p-6 bg-[#020617] z-30">
         <div className="flex items-center gap-3 mb-8">
@@ -110,18 +119,18 @@ const Generator = () => {
 
         {/* Dynamic Display Area */}
         <div className="flex-1 overflow-y-auto p-8 relative scrollbar-hide">
-          <div className="max-w-4xl mx-auto pb-48">
+          <div className="max-w-4xl mx-auto pb-64">
             <div className="rounded-3xl border border-white/10 bg-black/40 p-12 min-h-[600px] shadow-2xl backdrop-blur-xl relative overflow-hidden">
               {loading ? (
                 <div className="flex flex-col items-center justify-center h-[500px]">
                   <Loader2 className="animate-spin w-12 h-12 text-blue-500 mb-6" />
-                  <p className="text-[10px] uppercase tracking-[0.5em] text-blue-400">Processing Neural Link...</p>
+                  <p className="text-[10px] uppercase tracking-[0.5em] text-blue-400">Syncing Neural Network...</p>
                 </div>
               ) : generatedCode ? (
                 <div className="animate-in fade-in slide-in-from-bottom-12 duration-700">
                   <div className="flex items-center gap-2 mb-8 border-b border-white/5 pb-4">
                     <Sparkles className="w-5 h-5 text-emerald-400" />
-                    <span className="text-xs text-emerald-400 uppercase font-black tracking-widest">Operation_Complete</span>
+                    <span className="text-xs text-emerald-400 uppercase font-black tracking-widest">Uplink_Established</span>
                   </div>
                   <h1 className="text-5xl font-black mb-8 text-white uppercase tracking-tighter leading-none">{prompt}</h1>
                   <div className="text-slate-300 leading-relaxed font-sans text-xl whitespace-pre-wrap">{generatedCode}</div>
@@ -129,16 +138,16 @@ const Generator = () => {
               ) : (
                 <div className="flex flex-col items-center justify-center h-[500px] opacity-10">
                   <Zap className="w-16 h-16 mb-6" />
-                  <p className="text-xs uppercase tracking-[1em]">System Idle</p>
+                  <p className="text-xs uppercase tracking-[1em]">Standby</p>
                 </div>
               )}
             </div>
           </div>
         </div>
 
-        {/* Command Input */}
-        <div className="absolute bottom-0 left-0 right-0 p-8 bg-gradient-to-t from-[#020617] via-[#020617] to-transparent z-40">
-          <div className="max-w-4xl mx-auto rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-md flex items-center px-6 py-2 shadow-2xl">
+        {/* Command Input Bar */}
+        <div className="absolute bottom-0 left-0 right-0 p-8 bg-gradient-to-t from-[#020617] via-[#020617] to-transparent z-40 pointer-events-none">
+          <div className="max-w-4xl mx-auto rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-md flex items-center px-6 py-2 shadow-2xl pointer-events-auto">
             <Plus className="w-5 h-5 text-slate-700 mr-2" />
             <input
               value={prompt}
