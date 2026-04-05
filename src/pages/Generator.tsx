@@ -21,21 +21,29 @@ const Generator = () => {
   }, [generatedCode, loading]);
 
   const handleGenerate = async () => {
-    if (!prompt.trim() || loading) return;
-    setLoading(true);
-    setGeneratedCode(""); 
-    try {
-      const { data, error } = await supabase.functions.invoke("naz-io-spark", {
-        body: { prompt: prompt.trim(), model_choice: activeModel },
-      });
-      if (error) throw error;
-      setGeneratedCode(data?.content || "MISSION_DATA_RECOVERED");
-    } catch (err) { 
-      console.error("Generation Failure:", err); 
-    } finally { 
-      setLoading(false); 
+  // ... previous code
+  try {
+    const { data, error } = await supabase.functions.invoke("naz-io-spark", {
+      body: { prompt: prompt.trim(), model_choice: activeModel },
+    });
+
+    console.log("RAW_UPLINK_DATA:", data); // ADD THIS LOG
+
+    if (error) throw error;
+    
+    // If 'content' is missing because the AI returned a raw string, the button stays hidden
+    const content = data?.content || (typeof data === 'string' ? data : null);
+    
+    if (!content) {
+      console.error("DATA_MALFORMED: No content found in response.");
+      return;
     }
-  };
+
+    setGeneratedCode(content);
+  } catch (err) {
+    // ...
+  }
+};
 
   const handleSaveMission = async () => {
     if (saveState === "saving" || !generatedCode) return;
