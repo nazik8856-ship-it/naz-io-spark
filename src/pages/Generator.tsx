@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Plus,
@@ -15,6 +15,7 @@ import {
   CheckCircle2,
   Loader2,
   Download,
+  XCircle,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import ModelSidebar from "@/components/ModelSidebar";
@@ -35,24 +36,33 @@ function wrapInSkeleton(html: string): string {
   return `<!DOCTYPE html><html><head><script src="https://cdn.tailwindcss.com"></script><style>body { background: #0a0a0a; color: #f1f5f9; min-height: 100vh; font-family: sans-serif; }</style></head><body>${html}</body></html>`;
 }
 
+type SaveState = "idle" | "saving" | "success" | "error";
+
 const GeneratorV2 = () => {
   const navigate = useNavigate();
-  const [prompt, setPrompt] = useState("");
-  const [activeModel, setActiveModel] = useState("google/gemini-2.0-flash-001");
-  const [loading, setLoading] = useState(false);
-  const [generatedCode, setGeneratedCode] = useState("");
-  const [focused, setFocused] = useState(false);
+  const [prompt, setPrompt] = useState<string>("");
+  const [activeModel, setActiveModel] = useState<string>("gemini-2.0-flash");
+  const [loading, setLoading] = useState<boolean>(false);
+  const [generatedCode, setGeneratedCode] = useState<string>("");
+  const [focused, setFocused] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [dbOnline, setDbOnline] = useState<boolean>(false);
 
-  // ── Save Mission state ──
-  const [saving, setSaving] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false);
+  // ── Save state machine ──
+  const [saveState, setSaveState] = useState<SaveState>("idle");
+
+  // ── Check DB on mount ──
+  useEffect(() => {
+    supabase.from("profiles").select("id").limit(1)
+      .then(({ error }) => setDbOnline(!error))
+      .catch(() => setDbOnline(false));
+  }, []);
 
   const handleGenerate = async () => {
     if (!prompt.trim() || loading) return;
     setLoading(true);
     setError(null);
-    setSaveSuccess(false);
+    setSaveState("idle");
 
     try {
       const { data, error: fnError } = await supabase.functions.invoke("naz-io-spark", {
@@ -81,33 +91,31 @@ const GeneratorV2 = () => {
   };
 
   const handleSaveMission = async () => {
-    if (!generatedCode || saving) return;
-    setSaving(true);
+    if (!generatedCode || saveState === "saving") return;
+    setSaveState("saving");
     setError(null);
 
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated. Please log in.");
 
-      const { error: insertError } = await (supabase as any).from("missions").insert([
-        {
-          prompt: prompt.trim(),
-          code: generatedCode,
-          model_name: activeModel,
-          user_id: user?.id ?? null,
-        },
-      ]);
+      const { error: insertError } = await supabase.from("projects").insert({
+        user_id: user.id,
+        title: prompt.trim().slice(0, 80) || "Untitled Mission",
+        html: generatedCode,
+        prompt: prompt.trim(),
+        status: "active",
+      });
 
-      if (insertError) throw insertError;
+      if (insertError) throw new Error(insertError.message);
 
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 3000);
-    } catch (err: any) {
-      console.error("Save Mission Error:", err);
-      setError(err.message || "ARCHIVE_FAILED: Database rejected the entry.");
-    } finally {
-      setSaving(false);
+      setSaveState("success");
+      setDbOnline(true);
+      setTimeout(() => setSaveState("idle"), 3000);
+    } catch (err: unknown) {
+      setSaveState("error");
+      setError(err instanceof Error ? err.message : "ARCHIVE_FAILED: Database rejected the entry.");
+      setTimeout(() => setSaveState("idle"), 3000);
     }
   };
 
@@ -235,28 +243,40 @@ const GeneratorV2 = () => {
           </div>
         </div>
 
-        {/* ── THE GOD-MODE FLOATING SAVE BUTTON ── */}
+        {/* ── FLOATING SAVE BUTTON ── */}
         {generatedCode && (
-          <button
-            onClick={handleSaveMission}
-            disabled={saving || saveSuccess}
-            className={`fixed bottom-32 right-12 z-[100] flex items-center gap-3 px-6 py-3.5 rounded-full border-2 shadow-[0_0_30px_rgba(0,0,0,0.5)] transition-all active:scale-95 duration-500 ${
-              saveSuccess
-                ? "border-green-500 bg-green-500/20 text-green-400 shadow-[0_0_20px_rgba(34,197,94,0.3)]"
-                : "border-emerald-500/50 bg-emerald-600 text-white hover:bg-emerald-500 hover:border-emerald-400 hover:shadow-[0_0_25px_rgba(16,185,129,0.4)]"
-            }`}
-          >
-            {saving ? (
-              <Loader2 className="animate-spin w-5 h-5" />
-            ) : saveSuccess ? (
-              <CheckCircle2 className="w-5 h-5" />
-            ) : (
-              <DatabaseZap className="w-5 h-5 animate-pulse text-emerald-200" />
-            )}
-            <span className="font-bold uppercase tracking-[0.2em] text-[11px]">
-              {saveSuccess ? "Mission Archived" : saving ? "Archiving..." : "Archive to Database"}
-            </span>
-          </button>
+          <div className="fixed bottom-32 right-12 z-[100] group">
+            {/* Tooltip */}
+            <div
+              className="absolute bottom-full right-0 mb-2 px-3 py-1.5 rounded-lg text-xs font-mono whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+              style={{
+                background: "rgba(2,6,23,0.95)",
+                border: "1px solid rgba(0,163,255,0.2)",
+                color: "rgba(255,255,255,0.7)",
+              }}
+            >
+              Archive to NazAI Database
+            </div>
+            <button
+              onClick={handleSaveMission}
+              disabled={saveState === "saving" || saveState === "success"}
+              className="flex items-center gap-3 px-6 py-3.5 rounded-full border-2 shadow-[0_0_30px_rgba(0,0,0,0.5)] transition-all active:scale-95 duration-300 disabled:cursor-not-allowed"
+              style={{
+                borderColor: saveState === "success" ? "#22c55e" : saveState === "error" ? "#ef4444" : saveState === "saving" ? "#eab308" : "rgba(16,185,129,0.5)",
+                background: saveState === "success" ? "rgba(34,197,94,0.15)" : saveState === "error" ? "rgba(239,68,68,0.15)" : saveState === "saving" ? "rgba(234,179,8,0.1)" : "rgba(16,185,129,0.12)",
+                color: saveState === "success" ? "#22c55e" : saveState === "error" ? "#ef4444" : saveState === "saving" ? "#eab308" : "#10b981",
+                boxShadow: saveState === "success" ? "0 0 20px rgba(34,197,94,0.25)" : saveState === "error" ? "0 0 20px rgba(239,68,68,0.25)" : "0 0 30px rgba(0,0,0,0.5)",
+              }}
+            >
+              {saveState === "saving" ? <Loader2 className="animate-spin w-5 h-5" /> :
+               saveState === "success" ? <CheckCircle2 className="w-5 h-5" /> :
+               saveState === "error" ? <XCircle className="w-5 h-5" /> :
+               <DatabaseZap className="w-5 h-5" />}
+              <span className="font-bold uppercase tracking-[0.2em] text-[11px]">
+                {saveState === "saving" ? "Syncing..." : saveState === "success" ? "Saved ✓" : saveState === "error" ? "Error — Retry" : "Save to Database"}
+              </span>
+            </button>
+          </div>
         )}
 
         {/* Input Dock */}
@@ -291,12 +311,19 @@ const GeneratorV2 = () => {
           {/* SYSTEM STATUS FOOTER */}
           <div className="max-w-4xl mx-auto flex items-center justify-between mt-4 px-2">
             <p className="text-[9px] text-slate-700 tracking-[0.2em] uppercase font-mono">
-              Core: NazAI Engine // Vercel Edge Runtime
+              Core: NazAI Neural Router // OpenRouter
             </p>
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-1.5">
-                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
-                <span className="text-[8px] text-slate-500 uppercase">System: Nominal</span>
+                <div
+                  className="w-1.5 h-1.5 rounded-full"
+                  style={{
+                    background: dbOnline ? "#22c55e" : "rgba(255,255,255,0.2)",
+                    boxShadow: dbOnline ? "0 0 8px rgba(34,197,94,0.5)" : "none",
+                    animation: dbOnline ? "pulse 2s infinite" : "none",
+                  }}
+                />
+                <span className="text-[8px] text-slate-500 uppercase">{dbOnline ? "System: Nominal" : "DB: Offline"}</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
