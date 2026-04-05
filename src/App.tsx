@@ -11,8 +11,6 @@ const Signup = lazy(() => import("./pages/Signup"));
 const AuthCallback = lazy(() => import("./pages/AuthCallback"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Generator = lazy(() => import("./pages/Generator"));
-// Adding an explicit lazy import for Archives to help you locate the file later
-const Archives = lazy(() => import("./pages/Archives"));
 
 const queryClient = new QueryClient();
 
