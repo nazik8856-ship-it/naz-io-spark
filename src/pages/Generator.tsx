@@ -71,20 +71,18 @@ const Generator = () => {
         SYSTEM_V2_ACTIVE
       </div>
 
-      {/* ── ARCHIVE BUTTON: PLACED IN FIXED OVERLAY TO PREVENT CLIPPING ── */}
-      {generatedCode.length > 0 && !loading && (
-        <div className="fixed bottom-32 right-10 z-[9999] animate-in fade-in zoom-in duration-500">
-          <button 
-            onClick={handleSaveMission}
-            disabled={saveState !== "idle"}
-            className="flex items-center gap-3 px-8 py-4 rounded-xl border-2 border-emerald-500 bg-[#061a11] text-emerald-400 text-sm font-black uppercase tracking-widest shadow-[0_0_50px_rgba(16,185,129,0.4)] hover:scale-105 active:scale-95 transition-all"
-          >
-            {saveState === "saving" ? <Loader2 className="animate-spin w-5 h-5" /> : <DatabaseZap className="w-5 h-5" />}
-            {saveState === "success" ? "ARCHIVE_COMPLETE" : "SAVE_TO_NAZAI_DATABASE"}
-          </button>
-        </div>
-      )}
-
+     {/* ── FORCE-VISIBLE ARCHIVE ── */}
+{ (generatedCode || loading) && (
+  <div className="fixed bottom-36 right-12 z-[9999] pointer-events-auto">
+    <button 
+      onClick={handleSaveMission}
+      className="flex items-center gap-3 px-10 py-5 rounded-2xl border-2 border-emerald-500 bg-[#061a11] text-emerald-400 shadow-[0_0_50px_rgba(16,185,129,0.4)] hover:scale-105 active:scale-95 transition-all"
+    >
+      <DatabaseZap className="w-6 h-6" />
+      <span className="font-black uppercase tracking-tighter">Archive_Mission</span>
+    </button>
+  </div> 
+)}
       {/* Navigation Sidebar */}
       <aside className="w-56 border-r border-white/5 flex flex-col p-6 bg-[#020617] z-30">
         <div className="flex items-center gap-3 mb-8">
