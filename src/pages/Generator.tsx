@@ -41,6 +41,7 @@ const Generator = () => {
 
   const handleSaveMission = async () => {
     if (saveState === "saving" || !generatedCode) return;
+    console.log("NUCLEAR_CLICK: Attempting save...");
     setSaveState("saving");
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -96,26 +97,6 @@ const Generator = () => {
           </div>
         </header>
 
-        {/* ── INTERNAL FLOATING ARCHIVE BUTTON ── */}
-        {(generatedCode.length > 0 || loading) && (
-          <div className="absolute top-24 right-12 z-[100] animate-in fade-in slide-in-from-right-8 duration-500">
-            <button 
-              onClick={handleSaveMission}
-              disabled={saveState !== "idle"}
-              className="flex items-center gap-4 px-8 py-4 rounded-xl border-2 border-emerald-500 bg-[#061a11] text-emerald-400 shadow-[0_0_40px_rgba(16,185,129,0.3)] hover:scale-105 active:scale-95 transition-all"
-            >
-              {saveState === "saving" ? (
-                <Loader2 className="animate-spin w-5 h-5" />
-              ) : (
-                <DatabaseZap className="w-5 h-5" />
-              )}
-              <span className="font-black uppercase tracking-widest text-xs">
-                {saveState === "success" ? "ARCHIVE_SYNCED" : "ARCHIVE_DATA"}
-              </span>
-            </button>
-          </div>
-        )}
-
         {/* Dynamic Display Area */}
         <div className="flex-1 overflow-y-auto p-8 relative scrollbar-hide">
           <div className="max-w-4xl mx-auto pb-64">
@@ -165,6 +146,42 @@ const Generator = () => {
           </div>
         </div>
       </main>
+
+      {/* ── THE NUCLEAR BUTTON ── */}
+      {/* Placed at root level with fixed positioning and extreme z-index */}
+      {(generatedCode.length > 0 || loading) && (
+        <button 
+          onClick={handleSaveMission}
+          disabled={saveState !== "idle"}
+          style={{
+            position: 'fixed',
+            top: '40px',
+            right: '40px',
+            zIndex: 100000,
+            background: '#10b981',
+            color: 'white',
+            padding: '24px 32px',
+            borderRadius: '16px',
+            fontWeight: '900',
+            fontSize: '14px',
+            letterSpacing: '0.1em',
+            boxShadow: '0 0 50px rgba(16, 185, 129, 0.6)',
+            border: '4px solid white',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px'
+          }}
+        >
+          {saveState === "saving" ? (
+            <Loader2 className="animate-spin w-5 h-5" />
+          ) : (
+            <DatabaseZap className="w-5 h-5" />
+          )}
+          {saveState === "success" ? "MISSION_ARCHIVED" : "FORCE_SAVE_MISSION"}
+        </button>
+      )}
+
     </div>
   );
 };
