@@ -39,73 +39,80 @@ export function useProjects(userId: string | undefined) {
     fetchProjects();
   }, [fetchProjects]);
 
-  const saveProject = useCallback(async (title: string, html: string, prompt: string) => {
-    if (!userId) return null;
-    const { data, error } = await supabase
-      .from("projects")
-      .insert({ user_id: userId, title, html, prompt, status: "active" })
-      .select()
-      .single();
-    if (error) {
-      toast({ title: "Failed to save project", description: error.message, variant: "destructive" });
-      return null;
-    }
-    await fetchProjects();
-    return data as Project;
-  }, [userId, toast, fetchProjects]);
+  const saveProject = useCallback(
+    async (title: string, html: string, prompt: string) => {
+      if (!userId) return null;
+      const { data, error } = await supabase
+        .from("projects")
+        .insert({ user_id: userId, title, html, prompt, status: "active" })
+        .select()
+        .single();
 
-  const updateProjectHTML = useCallback(async (projectId: string, html: string) => {
-    const { error } = await supabase
-      .from("projects")
-      .update({ html, last_opened_at: new Date().toISOString() })
-      .eq("id", projectId);
-    if (error) {
-      toast({ title: "Failed to update project", description: error.message, variant: "destructive" });
-    }
-    await fetchProjects();
-  }, [toast, fetchProjects]);
+      if (error) {
+        toast({ title: "Failed to save project", description: error.message, variant: "destructive" });
+        return null;
+      }
+      await fetchProjects();
+      return data as Project;
+    },
+    [userId, toast, fetchProjects],
+  );
 
-  const trashProject = useCallback(async (projectId: string) => {
-    const { error } = await supabase
-      .from("projects")
-      .update({ status: "trashed" })
-      .eq("id", projectId);
-    if (error) {
-      toast({ title: "Failed to trash project", description: error.message, variant: "destructive" });
-    } else {
-      toast({ title: "Project moved to trash" });
-    }
-    await fetchProjects();
-  }, [toast, fetchProjects]);
+  const updateProjectHTML = useCallback(
+    async (projectId: string, html: string) => {
+      const { error } = await supabase
+        .from("projects")
+        .update({ html, last_opened_at: new Date().toISOString() })
+        .eq("id", projectId);
 
-  const restoreProject = useCallback(async (projectId: string) => {
-    const { error } = await supabase
-      .from("projects")
-      .update({ status: "active", last_opened_at: new Date().toISOString() })
-      .eq("id", projectId);
-    if (error) {
-      toast({ title: "Failed to restore project", description: error.message, variant: "destructive" });
-    } else {
-      toast({ title: "Project restored" });
-    }
-    await fetchProjects();
-  }, [toast, fetchProjects]);
+      if (error) {
+        toast({ title: "Failed to update project", description: error.message, variant: "destructive" });
+      } else {
+        toast({ title: "Project updated", description: "Your changes are saved." });
+      }
+      await fetchProjects();
+    },
+    [toast, fetchProjects],
+  );
 
-  const deleteProject = useCallback(async (projectId: string) => {
-    const { error } = await supabase
-      .from("projects")
-      .delete()
-      .eq("id", projectId);
-    if (error) {
-      toast({ title: "Failed to delete project", description: error.message, variant: "destructive" });
-    } else {
-      toast({ title: "Project permanently deleted" });
-    }
-    await fetchProjects();
-  }, [toast, fetchProjects]);
+  const trashProject = useCallback(
+    async (projectId: string) => {
+      const { error } = await supabase.from("projects").update({ status: "trashed" }).eq("id", projectId);
+      if (!error) {
+        toast({ title: "Project moved to trash" });
+        await fetchProjects();
+      }
+    },
+    [toast, fetchProjects],
+  );
 
-  const activeProjects = projects.filter(p => p.status === "active");
-  const trashedProjects = projects.filter(p => p.status === "trashed");
+  const restoreProject = useCallback(
+    async (projectId: string) => {
+      const { error } = await supabase
+        .from("projects")
+        .update({ status: "active", last_opened_at: new Date().toISOString() })
+        .eq("id", projectId);
+      if (!error) {
+        toast({ title: "Project restored" });
+        await fetchProjects();
+      }
+    },
+    [toast, fetchProjects],
+  );
+
+  const deleteProject = useCallback(
+    async (projectId: string) => {
+      const { error } = await supabase.from("projects").delete().eq("id", projectId);
+      if (!error) {
+        toast({ title: "Project permanently deleted" });
+        await fetchProjects();
+      }
+    },
+    [toast, fetchProjects],
+  );
+
+  const activeProjects = projects.filter((p) => p.status === "active");
+  const trashedProjects = projects.filter((p) => p.status === "trashed");
   const recentProjects = activeProjects.slice(0, 10);
 
   return {
