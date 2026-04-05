@@ -137,4 +137,15 @@
     opacity: 1;
     transform: translateY(0);
   }
+} 
+/* ── THE NAZ-OS GLOBAL OVERRIDE ── */
+.force-layer-save {
+  position: fixed !important;
+  top: 40px !important;
+  right: 40px !important;
+  z-index: 999999 !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  display: flex !important;
 }
