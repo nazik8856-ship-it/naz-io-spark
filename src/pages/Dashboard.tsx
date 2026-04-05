@@ -219,6 +219,7 @@ const Dashboard = () => {
                       loading={projectsLoading}
                       onRestore={restoreProject}
                       onDelete={deleteProject}
+                      onSaveToAll={restoreProject}
                       onOpenProject={handleOpenProject}
                     />
                   ) : (
@@ -301,6 +302,8 @@ const Dashboard = () => {
                               onEdit={() => setShowEditChat(true)}
                               onPublish={() => {}}
                               onShare={() => {}}
+                              onDownload={handleDownload}
+                              onNewWebsite={handleNewWebsite}
                               isPublished={false}
                             />
                           )}
