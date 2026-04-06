@@ -1,8 +1,8 @@
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { LogOut, Send, Loader2, Download, RefreshCw, Check, Palette, Zap, Coins, Archive } from "lucide-react";
+import { LogOut, Send, Loader2, Download, RefreshCw, Check, Palette, Zap, Coins, Archive, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -22,11 +22,17 @@ import DashboardRecently from "@/pages/DashboardRecently";
 import DashboardAllProjects from "@/pages/DashboardAllProjects";
 import DashboardTrash from "@/pages/DashboardTrash";
 
+// --- CONFIGURATION ---
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const SWIFT_SERVICE_URL = `${SUPABASE_URL}/functions/v1/swift-service`;
 
+// --- HELPER: API INVOKER ---
 async function invokeSwiftService(body: Record<string, unknown>) {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    throw new Error("Missing Supabase Configuration. Check Vercel Env Variables.");
+  }
+
   const res = await fetch(SWIFT_SERVICE_URL, {
     method: "POST",
     headers: {
@@ -70,8 +76,19 @@ const Dashboard = () => {
   const [showDecisionFork, setShowDecisionFork] = useState(false);
   const [showCreditModal, setShowCreditModal] = useState(false);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "success">("idle");
-  const iframeRef = useRef<HTMLIFrameElement>(null);
   const { toast } = useToast();
+
+  // --- CONFIG VALIDATION ---
+  useEffect(() => {
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      console.error("CRITICAL: Supabase keys are missing! Check Vercel settings.");
+      toast({
+        title: "Configuration Missing",
+        description: "VITE_SUPABASE_URL or KEY is not set.",
+        variant: "destructive",
+      });
+    }
+  }, [toast]);
 
   const currentPath = location.pathname;
   const isCreateRoute = currentPath === "/dashboard/create";
@@ -100,34 +117,28 @@ const Dashboard = () => {
   const cleanHTML = (raw: string): string => raw.replace(/```html|```/g, "").trim();
 
   const handleArchiveMission = async () => {
-    if (saveState === "saving") return;
+    if (saveState === "saving" || !user) return;
+    
     if (!generatedHTML) {
-        toast({ title: "Nothing to save", description: "Generate a website first!", variant: "destructive" });
-        return;
+      toast({ title: "Nothing to save", description: "Generate a website first!", variant: "destructive" });
+      return;
     }
+
     setSaveState("saving");
-    if (generatedHTML) {
-      sessionStorage.setItem("nazai_last_html", generatedHTML);
-      sessionStorage.setItem("nazai_last_prompt", prompt);
-    }
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session) throw new Error("No active session");
-      const htmlToSave = generatedHTML || sessionStorage.getItem("nazai_last_html") || "";
       const { error } = await supabase.from("missions").insert({
-        user_id: session.user.id,
-        directive: htmlToSave,
+        user_id: user.id,
+        directive: generatedHTML,
         status: "completed",
       });
+
       if (error) throw error;
+      
       setSaveState("success");
       toast({ title: "MISSION_ARCHIVED", description: "Successfully saved to the cloud." });
       setTimeout(() => setSaveState("idle"), 3000);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Unknown error";
-      toast({ title: "Archive failed", description: msg, variant: "destructive" });
+    } catch (e: any) {
+      toast({ title: "Archive failed", description: e.message, variant: "destructive" });
       setSaveState("idle");
     }
   };
@@ -161,38 +172,6 @@ const Dashboard = () => {
     }
   }, [prompt, isGenerating, credits, designChoice, user, deductCredit, refetchCredits, saveProject, toast]);
 
-  const handleEdit = useCallback(
-    async (message: string, chatHistory: any[]) => {
-      if (isEditing) return;
-      setIsEditing(true);
-      try {
-        const data = await invokeSwiftService({
-          prompt: message,
-          currentHTML: generatedHTML,
-          chatHistory,
-          userId: user?.id,
-        });
-        const cleaned = cleanHTML(data.content || "");
-        setGeneratedHTML(cleaned);
-        if (currentProjectId) await updateProjectHTML(currentProjectId, cleaned);
-      } catch (e: any) {
-        toast({ title: "Edit failed", description: e.message, variant: "destructive" });
-      } finally {
-        setIsEditing(false);
-      }
-    },
-    [generatedHTML, isEditing, user, currentProjectId, updateProjectHTML, toast],
-  );
-
-  const handleDownload = () => {
-    const blob = new Blob([generatedHTML], { type: "text/html" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `nazai-${Date.now()}.html`;
-    a.click();
-  };
-
   const sidebarContext: DashboardContext =
     showEditChat && generatedHTML ? "edit" : generatedHTML ? "preview" : "browse";
 
@@ -205,7 +184,14 @@ const Dashboard = () => {
             onAction={(action) => {
               if (action === "edit") setShowEditChat(true);
               if (action === "preview") setShowEditChat(false);
-              if (action === "download") handleDownload();
+              if (action === "download") {
+                const blob = new Blob([generatedHTML], { type: "text/html" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `nazai-${Date.now()}.html`;
+                a.click();
+              }
             }}
             credits={credits}
             onRefillClick={() => setShowCreditModal(true)}
@@ -219,22 +205,27 @@ const Dashboard = () => {
                   <Logo size="md" />
                 </div>
                 <div className="flex items-center gap-4">
+                  {!SUPABASE_URL && (
+                    <div className="flex items-center gap-1 text-red-500 animate-pulse mr-4">
+                      <AlertTriangle className="w-4 h-4" />
+                      <span className="text-xs font-bold">KEY ERROR</span>
+                    </div>
+                  )}
                   <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-primary/10 border border-primary/20">
                     <Coins className="w-4 h-4 text-primary" />
                     <span className="text-sm font-bold">{credits ?? "..."}</span>
                   </div>
                   
-                  {/* BRUTE FORCE SAVE BUTTON */}
+                  {/* IMPROVED SAVE BUTTON */}
                   <Button
                     size="sm"
-                    style={{ position: 'relative', zIndex: 9999, opacity: 1 }}
                     className={`font-bold border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all ${
                       saveState === "success"
                         ? "bg-green-500 hover:bg-green-600 text-white"
                         : "bg-emerald-500 hover:bg-emerald-600 text-white"
                     }`}
                     onClick={handleArchiveMission}
-                    disabled={saveState === "saving"}
+                    disabled={saveState === "saving" || !generatedHTML}
                   >
                     {saveState === "saving" ? (
                       <Loader2 className="w-4 h-4 animate-spin mr-2" />
@@ -283,8 +274,8 @@ const Dashboard = () => {
                   ) : !generatedHTML && !isGenerating ? (
                     <div className="max-w-3xl mx-auto w-full space-y-6">
                       <div className="space-y-2 text-center">
-                        <h2 className="text-3xl font-extrabold text-red-500 uppercase tracking-widest bg-yellow-400 p-2 border-4 border-black rotate-1">
-                          IF YOU SEE THIS, IT WORKED
+                        <h2 className="text-3xl font-extrabold text-white uppercase tracking-widest bg-black p-4 border-4 border-emerald-500">
+                          READY TO LAUNCH
                         </h2>
                       </div>
                       <div className="flex gap-3 p-2 rounded-2xl bg-secondary/30 border border-white/5 shadow-2xl">
@@ -319,14 +310,6 @@ const Dashboard = () => {
                           </span>
                         </div>
                         <div className="flex flex-wrap gap-3 items-center">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={handleDownload}
-                            disabled={!generatedHTML}
-                          >
-                            <Download className="w-4 h-4 mr-2" /> Export
-                          </Button>
                           <Button variant="hero" size="sm" onClick={handleNewWebsite}>
                             <RefreshCw className="w-4 h-4 mr-2" /> Reset
                           </Button>
@@ -344,13 +327,13 @@ const Dashboard = () => {
                       {generatedHTML && !isGenerating && (
                         <div className="animate-in slide-in-from-bottom-4 duration-500 relative z-20">
                           {showEditChat ? (
-                            <EditChat onSendEdit={handleEdit} isGenerating={isEditing} />
+                            <EditChat onSendEdit={() => {}} isGenerating={false} />
                           ) : (
                             <NextStepSuggestions
                               onEdit={() => setShowEditChat(true)}
                               onPublish={() => {}}
                               onShare={() => {}}
-                              onDownload={handleDownload}
+                              onDownload={() => {}}
                               onNewWebsite={handleNewWebsite}
                               isPublished={false}
                             />
