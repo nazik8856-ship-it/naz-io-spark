@@ -217,6 +217,28 @@ const Dashboard = () => {
                     <Coins className="w-4 h-4 text-primary" />
                     <span className="text-sm font-bold">{credits ?? "..."}</span>
                   </div>
+                  {generatedHTML && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className={`font-bold transition-all ${
+                        saveState === "success"
+                          ? "bg-green-600 text-white border-green-700 hover:bg-green-700"
+                          : "bg-emerald-600 text-white border-emerald-700 hover:bg-emerald-700"
+                      }`}
+                      onClick={handleArchiveMission}
+                      disabled={saveState === "saving"}
+                    >
+                      {saveState === "saving" ? (
+                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                      ) : saveState === "success" ? (
+                        <Check className="w-4 h-4 mr-2" />
+                      ) : (
+                        <Archive className="w-4 h-4 mr-2" />
+                      )}
+                      {saveState === "saving" ? "Saving..." : saveState === "success" ? "Saved!" : "Save to Cloud"}
+                    </Button>
+                  )}
                   <Button variant="ghost" size="sm" onClick={handleLogout}>
                     <LogOut className="w-4 h-4 mr-2" /> Exit
                   </Button>
