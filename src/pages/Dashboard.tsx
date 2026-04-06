@@ -2,12 +2,12 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useState, useRef, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { LogOut, Send, Loader2, Download, RefreshCw, Check, Palette, Zap, Coins } from "lucide-react";
+import { LogOut, Send, Loader2, Download, RefreshCw, Check, Palette, Zap, Coins, Archive } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useCredits } from "@/hooks/useCredits";
-import { useProjects, type Project } from "@/hooks/useProjects";
+import { useProjects, type Project } from "@/hooks/useProjects"; // Ensure useProjects is updated to fetch from 'missions'
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { DashboardSidebar, type DashboardContext } from "@/components/DashboardSidebar";
 import Logo from "@/components/Logo";
@@ -69,6 +69,7 @@ const Dashboard = () => {
   const [designChoice, setDesignChoice] = useState<string | null>(null);
   const [showDecisionFork, setShowDecisionFork] = useState(false);
   const [showCreditModal, setShowCreditModal] = useState(false);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "success">("idle");
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const { toast } = useToast();
 
@@ -82,15 +83,10 @@ const Dashboard = () => {
   };
 
   const handleOpenProject = useCallback((project: Project) => {
-    setGeneratedHTML(project.html);
+    // Aligned with 'directive' column from your DB screenshot
+    setGeneratedHTML(project.directive || project.html || "");
     setCurrentProjectId(project.id);
     setShowEditChat(false);
-  }, []);
-
-  const handleEditPromptFromCard = useCallback((project: Project) => {
-    setPrompt(project.prompt || "");
-    setGeneratedHTML("");
-    setCurrentProjectId(project.id);
   }, []);
 
   const handleNewWebsite = useCallback(() => {
@@ -103,6 +99,34 @@ const Dashboard = () => {
   }, [isCreateRoute, navigate]);
 
   const cleanHTML = (raw: string): string => raw.replace(/```html|```/g, "").trim();
+
+  // FIX: Archiving logic that actually works with your verified 'missions' table
+  const handleArchiveMission = async () => {
+    if (!generatedHTML || saveState === "saving") return;
+    setSaveState("saving");
+
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session) throw new Error("No active session");
+
+      const { error } = await supabase.from("missions").insert({
+        user_id: session.user.id,
+        directive: generatedHTML, // Aligned with image_72d166.png
+        status: "completed",
+      });
+
+      if (error) throw error;
+
+      setSaveState("success");
+      toast({ title: "MISSION_ARCHIVED", description: "Saved to missions table." });
+      setTimeout(() => setSaveState("idle"), 2000);
+    } catch (e: any) {
+      toast({ title: "Archive failed", description: e.message, variant: "destructive" });
+      setSaveState("idle");
+    }
+  };
 
   const handleGenerate = useCallback(async () => {
     if (!prompt.trim() || isGenerating) return;
@@ -120,7 +144,7 @@ const Dashboard = () => {
       const cleaned = cleanHTML(data.content || "");
       setGeneratedHTML(cleaned);
 
-      // Auto-save generation
+      // We still use saveProject for the local UI list, but handleArchiveMission for the cloud
       const title = prompt.trim().slice(0, 50) || "Untitled Project";
       const newProj = await saveProject(title, cleaned, prompt.trim());
       if (newProj) setCurrentProjectId(newProj.id);
@@ -223,7 +247,7 @@ const Dashboard = () => {
                       onOpenProject={handleOpenProject}
                     />
                   ) : (
-                    <DashboardRecently onOpenProject={handleOpenProject} onEditPrompt={handleEditPromptFromCard} />
+                    <DashboardRecently onOpenProject={handleOpenProject} />
                   )}
                 </div>
               ) : (
@@ -267,15 +291,25 @@ const Dashboard = () => {
                           </span>
                         </div>
                         <div className="flex gap-2">
-                          {/* SAVE BUTTON */}
-                          {generatedHTML && currentProjectId && (
+                          {/* NEW ARCHIVE BUTTON */}
+                          {generatedHTML && (
                             <Button
                               variant="outline"
                               size="sm"
-                              className="border-green-500/50 text-green-500 hover:bg-green-500/10"
-                              onClick={() => updateProjectHTML(currentProjectId, generatedHTML)}
+                              className={
+                                saveState === "success" ? "border-green-500 text-green-500" : "border-primary/50"
+                              }
+                              onClick={handleArchiveMission}
+                              disabled={saveState === "saving"}
                             >
-                              <Check className="w-4 h-4 mr-2" /> Save Changes
+                              {saveState === "saving" ? (
+                                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                              ) : saveState === "success" ? (
+                                <Check className="w-4 h-4 mr-2" />
+                              ) : (
+                                <Archive className="w-4 h-4 mr-2" />
+                              )}
+                              {saveState === "success" ? "Archived" : "Archive to Cloud"}
                             </Button>
                           )}
                           <Button variant="outline" size="sm" onClick={handleDownload} disabled={!generatedHTML}>
