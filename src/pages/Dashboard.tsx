@@ -193,7 +193,7 @@ const Dashboard = () => {
   return (
     <>
       <SidebarProvider>
-        <div className="min-h-screen flex w-full bg-background text-foreground">
+        <div className="min-h-screen flex w-full bg-background text-foreground font-sans">
           <DashboardSidebar
             context={sidebarContext}
             onAction={(action) => {
@@ -254,9 +254,12 @@ const Dashboard = () => {
                   ) : !generatedHTML && !isGenerating ? (
                     <div className="max-w-3xl mx-auto w-full space-y-6">
                       <div className="space-y-2 text-center">
-                        <h2 className="text-3xl font-bold text-red-500">IS THIS WORKING??</h2>
+                        {/* THE TEST LINE IS HERE */}
+                        <h2 className="text-3xl font-extrabold text-red-500 uppercase tracking-widest bg-yellow-400 p-2 border-4 border-black rotate-1">
+                          IF YOU SEE THIS, IT WORKED
+                        </h2>
                       </div>
-                      <div className="flex gap-3 p-2 rounded-2xl bg-secondary/30 border border-white/5">
+                      <div className="flex gap-3 p-2 rounded-2xl bg-secondary/30 border border-white/5 shadow-2xl">
                         <Textarea
                           placeholder="Describe your site..."
                           value={prompt}
@@ -276,27 +279,26 @@ const Dashboard = () => {
                     </div>
                   ) : (
                     <div className="flex-1 flex flex-col gap-4">
-                      <div className="flex items-center justify-between glass p-3 rounded-xl border border-white/10 shadow-lg">
+                      <div className="flex items-center justify-between glass p-4 rounded-xl border border-primary/30 shadow-[0_0_20px_rgba(var(--primary),0.1)]">
                         <div className="flex items-center gap-3">
                           {isGenerating ? (
-                            <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                            <Loader2 className="w-5 h-5 animate-spin text-primary" />
                           ) : (
-                            <Check className="w-4 h-4 text-green-500" />
+                            <Check className="w-5 h-5 text-green-500" />
                           )}
-                          <span className="text-sm font-bold tracking-tight">
+                          <span className="text-sm font-black tracking-tighter uppercase">
                             {isGenerating ? "ARCHITECTING..." : "DRAFT READY"}
                           </span>
                         </div>
-                        <div className="flex flex-wrap gap-2 items-center">
-                          {/* UPDATED ARCHIVE BUTTON WITH FORCED VISIBILITY */}
+                        <div className="flex flex-wrap gap-3 items-center">
                           {generatedHTML && (
                             <Button
                               variant="outline"
-                              size="sm"
+                              size="default"
                               className={
                                 saveState === "success"
-                                  ? "bg-green-500/20 border-green-500 text-green-500"
-                                  : "bg-primary/10 border-primary text-primary hover:bg-primary hover:text-black font-bold shadow-[0_0_15px_rgba(var(--primary),0.2)]"
+                                  ? "bg-green-500 text-white border-green-600 hover:bg-green-600"
+                                  : "bg-primary text-black border-none font-black hover:scale-105 transition-transform shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
                               }
                               onClick={handleArchiveMission}
                               disabled={saveState === "saving"}
@@ -308,16 +310,10 @@ const Dashboard = () => {
                               ) : (
                                 <Archive className="w-4 h-4 mr-2" />
                               )}
-                              {saveState === "success" ? "ARCHIVED" : "ARCHIVE TO CLOUD"}
+                              {saveState === "success" ? "MISSION SAVED" : "SAVE TO CLOUD"}
                             </Button>
                           )}
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={handleDownload}
-                            disabled={!generatedHTML}
-                            className="border-white/10"
-                          >
+                          <Button variant="ghost" size="sm" onClick={handleDownload} disabled={!generatedHTML}>
                             <Download className="w-4 h-4 mr-2" /> Export
                           </Button>
                           <Button variant="hero" size="sm" onClick={handleNewWebsite}>
