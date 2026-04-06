@@ -14,20 +14,20 @@ import Logo from "@/components/Logo";
 import EditChat from "@/components/EditChat";
 import NeoSkeleton from "@/components/NeoSkeleton";
 import NextStepSuggestions from "@/components/NextStepSuggestions";
-import DecisionFork from "@/components/DecisionFork";
 import BusinessTypeSelector from "@/components/BusinessTypeSelector";
 import IdeaHelper from "@/components/IdeaHelper";
+import DecisionFork from "@/components/DecisionFork";
 import CreditRefillModal from "@/components/CreditRefillModal";
 import DashboardRecently from "@/pages/DashboardRecently";
 import DashboardAllProjects from "@/pages/DashboardAllProjects";
 import DashboardTrash from "@/pages/DashboardTrash";
 
 // --- CONFIGURATION ---
+// FIX: Use VITE_SUPABASE_ANON_KEY to match standard Supabase/Vite patterns
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const SWIFT_SERVICE_URL = `${SUPABASE_URL}/functions/v1/swift-service`;
 
-// --- HELPER: API INVOKER ---
 async function invokeSwiftService(body: Record<string, unknown>) {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
     throw new Error("Missing Supabase Configuration. Check Vercel Env Variables.");
@@ -59,7 +59,6 @@ const Dashboard = () => {
     trashedProjects,
     loading: projectsLoading,
     saveProject,
-    updateProjectHTML,
     trashProject,
     restoreProject,
     deleteProject,
@@ -67,7 +66,6 @@ const Dashboard = () => {
 
   const [prompt, setPrompt] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
   const [generatedHTML, setGeneratedHTML] = useState("");
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const [showEditChat, setShowEditChat] = useState(false);
@@ -78,15 +76,10 @@ const Dashboard = () => {
   const [saveState, setSaveState] = useState<"idle" | "saving" | "success">("idle");
   const { toast } = useToast();
 
-  // --- CONFIG VALIDATION ---
   useEffect(() => {
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-      console.error("CRITICAL: Supabase keys are missing! Check Vercel settings.");
-      toast({
-        title: "Configuration Missing",
-        description: "VITE_SUPABASE_URL or KEY is not set.",
-        variant: "destructive",
-      });
+      console.error("CRITICAL: Supabase keys are missing!");
+      toast({ title: "Config Error", description: "Keys missing.", variant: "destructive" });
     }
   }, [toast]);
 
@@ -114,18 +107,17 @@ const Dashboard = () => {
     if (isCreateRoute) navigate("/dashboard");
   }, [isCreateRoute, navigate]);
 
-  const cleanHTML = (raw: string): string => raw.replace(/```html|```/g, "").trim();
-
   const handleArchiveMission = async () => {
     if (saveState === "saving" || !user) return;
     
     if (!generatedHTML) {
-      toast({ title: "Nothing to save", description: "Generate a website first!", variant: "destructive" });
+      toast({ title: "Nothing to save", description: "Generate something first!", variant: "destructive" });
       return;
     }
 
     setSaveState("saving");
     try {
+      // Inserting into the 'missions' table
       const { error } = await supabase.from("missions").insert({
         user_id: user.id,
         directive: generatedHTML,
@@ -135,7 +127,7 @@ const Dashboard = () => {
       if (error) throw error;
       
       setSaveState("success");
-      toast({ title: "MISSION_ARCHIVED", description: "Successfully saved to the cloud." });
+      toast({ title: "MISSION_ARCHIVED", description: "Saved to cloud." });
       setTimeout(() => setSaveState("idle"), 3000);
     } catch (e: any) {
       toast({ title: "Archive failed", description: e.message, variant: "destructive" });
@@ -154,9 +146,9 @@ const Dashboard = () => {
     setGeneratedHTML("");
 
     try {
-      const fullPrompt = `${prompt.trim()}. Style: ${designChoice === "minimal" ? "minimalist, clean" : "bold, vibrant"}.`;
+      const fullPrompt = `${prompt.trim()}. Style: ${designChoice === "minimal" ? "minimalist" : "bold"}.`;
       const data = await invokeSwiftService({ prompt: fullPrompt, userId: user?.id });
-      const cleaned = cleanHTML(data.content || "");
+      const cleaned = (data.content || "").replace(/```html|```/g, "").trim();
       setGeneratedHTML(cleaned);
 
       const title = prompt.trim().slice(0, 50) || "Untitled Project";
@@ -176,199 +168,148 @@ const Dashboard = () => {
     showEditChat && generatedHTML ? "edit" : generatedHTML ? "preview" : "browse";
 
   return (
-    <>
-      <SidebarProvider>
-        <div className="min-h-screen flex w-full bg-background text-foreground font-sans relative overflow-x-hidden">
-          <DashboardSidebar
-            context={sidebarContext}
-            onAction={(action) => {
-              if (action === "edit") setShowEditChat(true);
-              if (action === "preview") setShowEditChat(false);
-              if (action === "download") {
-                const blob = new Blob([generatedHTML], { type: "text/html" });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = `nazai-${Date.now()}.html`;
-                a.click();
-              }
-            }}
-            credits={credits}
-            onRefillClick={() => setShowCreditModal(true)}
-          />
+    <SidebarProvider>
+      <div className="min-h-screen flex w-full bg-background text-foreground font-sans relative overflow-x-hidden">
+        <DashboardSidebar
+          context={sidebarContext}
+          onAction={(action) => {
+            if (action === "edit") setShowEditChat(true);
+            if (action === "preview") setShowEditChat(false);
+            if (action === "download" && generatedHTML) {
+              const blob = new Blob([generatedHTML], { type: "text/html" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `nazai-${Date.now()}.html`;
+              a.click();
+            }
+          }}
+          credits={credits}
+          onRefillClick={() => setShowCreditModal(true)}
+        />
 
-          <div className="flex-1 flex flex-col min-w-0">
-            <header className="fixed top-0 left-0 right-0 z-[100] glass border-b border-white/5">
-              <div className="container mx-auto px-6 py-4 flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <SidebarTrigger className="hover:bg-white/10" />
-                  <Logo size="md" />
-                </div>
-                <div className="flex items-center gap-4">
-                  {!SUPABASE_URL && (
-                    <div className="flex items-center gap-1 text-red-500 animate-pulse mr-4">
-                      <AlertTriangle className="w-4 h-4" />
-                      <span className="text-xs font-bold">KEY ERROR</span>
-                    </div>
-                  )}
-                  <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-primary/10 border border-primary/20">
-                    <Coins className="w-4 h-4 text-primary" />
-                    <span className="text-sm font-bold">{credits ?? "..."}</span>
-                  </div>
-                  
-                  {/* IMPROVED SAVE BUTTON */}
-                  <Button
-                    size="sm"
-                    className={`font-bold border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all ${
-                      saveState === "success"
-                        ? "bg-green-500 hover:bg-green-600 text-white"
-                        : "bg-emerald-500 hover:bg-emerald-600 text-white"
-                    }`}
-                    onClick={handleArchiveMission}
-                    disabled={saveState === "saving" || !generatedHTML}
-                  >
-                    {saveState === "saving" ? (
-                      <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                    ) : saveState === "success" ? (
-                      <Check className="w-4 h-4 mr-2" />
-                    ) : (
-                      <Archive className="w-4 h-4 mr-2" />
-                    )}
-                    {saveState === "saving" ? "SYNCING..." : saveState === "success" ? "DONE!" : "SAVE TO CLOUD"}
-                  </Button>
-
-                  <Button variant="ghost" size="sm" onClick={handleLogout}>
-                    <LogOut className="w-4 h-4 mr-2" /> Exit
-                  </Button>
-                </div>
+        <div className="flex-1 flex flex-col min-w-0">
+          <header className="fixed top-0 left-0 right-0 z-[100] glass border-b border-white/5">
+            <div className="container mx-auto px-6 py-4 flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <SidebarTrigger className="hover:bg-white/10" />
+                <Logo size="md" />
               </div>
-            </header>
-
-            <main className="pt-24 pb-12 flex-1 flex flex-col container mx-auto px-6 relative z-10">
-              {!showGenerator ? (
-                <div className="flex-1">
-                  {currentPath === "/dashboard/projects" ? (
-                    <DashboardAllProjects
-                      projects={activeProjects}
-                      loading={projectsLoading}
-                      onTrash={trashProject}
-                      onOpenProject={handleOpenProject}
-                    />
-                  ) : currentPath === "/dashboard/trash" ? (
-                    <DashboardTrash
-                      projects={trashedProjects}
-                      loading={projectsLoading}
-                      onRestore={restoreProject}
-                      onDelete={deleteProject}
-                      onSaveToAll={restoreProject}
-                      onOpenProject={handleOpenProject}
-                    />
-                  ) : (
-                    <DashboardRecently onOpenProject={handleOpenProject} />
-                  )}
+              
+              <div className="flex items-center gap-4">
+                {!SUPABASE_URL && (
+                  <div className="flex items-center gap-1 text-red-500 animate-pulse mr-4">
+                    <AlertTriangle className="w-4 h-4" />
+                    <span className="text-xs font-bold">KEY ERROR</span>
+                  </div>
+                )}
+                
+                <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-primary/10 border border-primary/20">
+                  <Coins className="w-4 h-4 text-primary" />
+                  <span className="text-sm font-bold">{credits ?? "..."}</span>
                 </div>
-              ) : (
-                <div className="flex-1 flex flex-col gap-6 overflow-visible">
-                  {isCreateRoute && !businessType && !generatedHTML ? (
-                    <BusinessTypeSelector onSelect={setBusinessType} />
-                  ) : !generatedHTML && !isGenerating ? (
-                    <div className="max-w-3xl mx-auto w-full space-y-6">
-                      <div className="space-y-2 text-center">
-                        <h2 className="text-3xl font-extrabold text-white uppercase tracking-widest bg-black p-4 border-4 border-emerald-500">
-                          READY TO LAUNCH
-                        </h2>
-                      </div>
-                      <div className="flex gap-3 p-2 rounded-2xl bg-secondary/30 border border-white/5 shadow-2xl">
-                        <Textarea
-                          placeholder="Describe your site..."
-                          value={prompt}
-                          onChange={(e) => setPrompt(e.target.value)}
-                          className="min-h-[80px] bg-transparent border-none focus-visible:ring-0 resize-none text-lg"
-                        />
-                        <Button
-                          variant="hero"
-                          size="lg"
-                          disabled={!prompt.trim()}
-                          onClick={() => setShowDecisionFork(true)}
-                        >
-                          <Send className="w-5 h-5" />
-                        </Button>
-                      </div>
-                      <IdeaHelper onSelectIdea={setPrompt} />
-                    </div>
+                
+                {/* 🚀 THE FIXED BUTTON */}
+                <Button
+                  size="sm"
+                  className={`font-bold border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all ${
+                    saveState === "success" ? "bg-green-500 text-white" : "bg-emerald-500 text-white"
+                  }`}
+                  onClick={handleArchiveMission}
+                  disabled={saveState === "saving" || !generatedHTML} 
+                >
+                  {saveState === "saving" ? (
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                  ) : saveState === "success" ? (
+                    <Check className="w-4 h-4 mr-2" />
                   ) : (
-                    <div className="flex-1 flex flex-col gap-4 overflow-visible">
-                      <div className="flex items-center justify-between glass p-4 rounded-xl border border-primary/30 shadow-[0_10px_30px_rgba(0,0,0,0.5)] relative z-[50]">
-                        <div className="flex items-center gap-3">
-                          {isGenerating ? (
-                            <Loader2 className="w-5 h-5 animate-spin text-primary" />
-                          ) : (
-                            <Check className="w-5 h-5 text-green-500" />
-                          )}
-                          <span className="text-sm font-black tracking-tighter uppercase">
-                            {isGenerating ? "ARCHITECTING..." : "DRAFT READY"}
-                          </span>
-                        </div>
-                        <div className="flex flex-wrap gap-3 items-center">
-                          <Button variant="hero" size="sm" onClick={handleNewWebsite}>
-                            <RefreshCw className="w-4 h-4 mr-2" /> Reset
-                          </Button>
-                        </div>
-                      </div>
-
-                      <div className="flex-1 rounded-2xl border-4 border-black bg-white shadow-2xl overflow-hidden relative min-h-[60vh] z-10">
-                        {isGenerating && !generatedHTML ? (
-                          <NeoSkeleton variant="preview" />
-                        ) : (
-                          <iframe srcDoc={generatedHTML} className="w-full h-full" title="Preview" />
-                        )}
-                      </div>
-
-                      {generatedHTML && !isGenerating && (
-                        <div className="animate-in slide-in-from-bottom-4 duration-500 relative z-20">
-                          {showEditChat ? (
-                            <EditChat onSendEdit={() => {}} isGenerating={false} />
-                          ) : (
-                            <NextStepSuggestions
-                              onEdit={() => setShowEditChat(true)}
-                              onPublish={() => {}}
-                              onShare={() => {}}
-                              onDownload={() => {}}
-                              onNewWebsite={handleNewWebsite}
-                              isPublished={false}
-                            />
-                          )}
-                        </div>
-                      )}
-                    </div>
+                    <Archive className="w-4 h-4 mr-2" />
                   )}
-                </div>
-              )}
-            </main>
-          </div>
+                  {saveState === "saving" ? "SYNCING..." : saveState === "success" ? "DONE!" : "SAVE TO CLOUD"}
+                </Button>
+
+                <Button variant="ghost" size="sm" onClick={handleLogout}>
+                  <LogOut className="w-4 h-4 mr-2" /> Exit
+                </Button>
+              </div>
+            </div>
+          </header>
+
+          <main className="pt-24 pb-12 flex-1 flex flex-col container mx-auto px-6 relative z-10">
+            {!showGenerator ? (
+              <div className="flex-1">
+                {currentPath === "/dashboard/projects" ? (
+                  <DashboardAllProjects projects={activeProjects} loading={projectsLoading} onTrash={trashProject} onOpenProject={handleOpenProject} />
+                ) : currentPath === "/dashboard/trash" ? (
+                  <DashboardTrash projects={trashedProjects} loading={projectsLoading} onRestore={restoreProject} onDelete={deleteProject} onSaveToAll={restoreProject} onOpenProject={handleOpenProject} />
+                ) : (
+                  <DashboardRecently onOpenProject={handleOpenProject} />
+                )}
+              </div>
+            ) : (
+              <div className="flex-1 flex flex-col gap-6">
+                {isCreateRoute && !businessType && !generatedHTML ? (
+                  <BusinessTypeSelector onSelect={setBusinessType} />
+                ) : !generatedHTML && !isGenerating ? (
+                  <div className="max-w-3xl mx-auto w-full space-y-6">
+                    <h2 className="text-3xl font-extrabold text-white text-center bg-black p-4 border-4 border-emerald-500">READY TO LAUNCH</h2>
+                    <div className="flex gap-3 p-2 rounded-2xl bg-secondary/30 border border-white/5 shadow-2xl">
+                      <Textarea placeholder="Describe your site..." value={prompt} onChange={(e) => setPrompt(e.target.value)} className="min-h-[80px] bg-transparent border-none resize-none text-lg" />
+                      <Button variant="hero" size="lg" disabled={!prompt.trim()} onClick={() => setShowDecisionFork(true)}>
+                        <Send className="w-5 h-5" />
+                      </Button>
+                    </div>
+                    <IdeaHelper onSelectIdea={setPrompt} />
+                  </div>
+                ) : (
+                  <div className="flex-1 flex flex-col gap-4">
+                    <div className="flex items-center justify-between glass p-4 rounded-xl border border-primary/30 shadow-2xl relative z-50">
+                      <div className="flex items-center gap-3">
+                        {isGenerating ? <Loader2 className="w-5 h-5 animate-spin text-primary" /> : <Check className="w-5 h-5 text-green-500" />}
+                        <span className="text-sm font-black uppercase">{isGenerating ? "ARCHITECTING..." : "DRAFT READY"}</span>
+                      </div>
+                      <Button variant="hero" size="sm" onClick={handleNewWebsite}>
+                        <RefreshCw className="w-4 h-4 mr-2" /> Reset
+                      </Button>
+                    </div>
+
+                    <div className="flex-1 rounded-2xl border-4 border-black bg-white shadow-2xl overflow-hidden relative min-h-[60vh] z-10">
+                      {isGenerating && !generatedHTML ? <NeoSkeleton variant="preview" /> : <iframe srcDoc={generatedHTML} className="w-full h-full" />}
+                    </div>
+
+                    {generatedHTML && !isGenerating && (
+                      <div className="relative z-20">
+                        {showEditChat ? <EditChat onSendEdit={() => {}} isGenerating={false} /> : <NextStepSuggestions onEdit={() => setShowEditChat(true)} onNewWebsite={handleNewWebsite} />}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </main>
         </div>
-      </SidebarProvider>
+      </div>
 
       {showDecisionFork && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center bg-background/80 backdrop-blur-sm p-6">
           <div className="max-w-2xl w-full">
-            <DecisionFork
-              question="Choose a design aesthetic"
+            <DecisionFork 
+              question="Choose a design aesthetic" 
               options={[
-                { label: "Minimalist", description: "Clean and professional.", icon: <Palette className="w-5 h-5" /> },
-                { label: "Futuristic", description: "Bold and high-energy.", icon: <Zap className="w-5 h-5" /> },
-              ]}
+                { label: "Minimalist", description: "Clean.", icon: <Palette className="w-5 h-5" /> },
+                { label: "Futuristic", description: "Bold.", icon: <Zap className="w-5 h-5" /> }
+              ]} 
               onSelect={(i) => {
                 setDesignChoice(i === 0 ? "minimal" : "bold");
                 setShowDecisionFork(false);
                 handleGenerate();
-              }}
+              }} 
             />
           </div>
         </div>
       )}
       <CreditRefillModal open={showCreditModal} onOpenChange={setShowCreditModal} userId={user?.id} />
-    </>
+    </SidebarProvider>
   );
 };
 
