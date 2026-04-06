@@ -101,6 +101,8 @@ const Generator = () => {
     }
   };
       
+  return (
+    <div className="flex h-screen bg-[#020617] text-white overflow-hidden">
       {/* ── STATUS OVERLAY ── */}
       <div className="fixed top-0 left-0 bg-blue-600 text-white z-[50] p-2 text-[9px] font-black uppercase tracking-[0.3em]">
         NAZ_OS // ENGINE_ACTIVE
