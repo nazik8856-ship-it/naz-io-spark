@@ -7,7 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useCredits } from "@/hooks/useCredits";
-import { useProjects, type Project } from "@/hooks/useProjects"; // Ensure useProjects is updated to fetch from 'missions'
+import { useProjects, type Project } from "@/hooks/useProjects";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { DashboardSidebar, type DashboardContext } from "@/components/DashboardSidebar";
 import Logo from "@/components/Logo";
@@ -99,7 +99,6 @@ const Dashboard = () => {
 
   const cleanHTML = (raw: string): string => raw.replace(/```html|```/g, "").trim();
 
-  // FIX: Archiving logic that actually works with your verified 'missions' table
   const handleArchiveMission = async () => {
     if (!generatedHTML || saveState === "saving") return;
     setSaveState("saving");
@@ -112,15 +111,15 @@ const Dashboard = () => {
 
       const { error } = await supabase.from("missions").insert({
         user_id: session.user.id,
-        directive: generatedHTML, // Aligned with image_72d166.png
+        directive: generatedHTML,
         status: "completed",
       });
 
       if (error) throw error;
 
       setSaveState("success");
-      toast({ title: "MISSION_ARCHIVED", description: "Saved to missions table." });
-      setTimeout(() => setSaveState("idle"), 2000);
+      toast({ title: "MISSION_ARCHIVED", description: "Successfully saved to the cloud." });
+      setTimeout(() => setSaveState("idle"), 3000);
     } catch (e: any) {
       toast({ title: "Archive failed", description: e.message, variant: "destructive" });
       setSaveState("idle");
@@ -143,7 +142,6 @@ const Dashboard = () => {
       const cleaned = cleanHTML(data.content || "");
       setGeneratedHTML(cleaned);
 
-      // We still use saveProject for the local UI list, but handleArchiveMission for the cloud
       const title = prompt.trim().slice(0, 50) || "Untitled Project";
       const newProj = await saveProject(title, cleaned, prompt.trim());
       if (newProj) setCurrentProjectId(newProj.id);
@@ -195,7 +193,7 @@ const Dashboard = () => {
   return (
     <>
       <SidebarProvider>
-        <div className="min-h-screen flex w-full bg-background">
+        <div className="min-h-screen flex w-full bg-background text-foreground">
           <DashboardSidebar
             context={sidebarContext}
             onAction={(action) => {
@@ -278,25 +276,27 @@ const Dashboard = () => {
                     </div>
                   ) : (
                     <div className="flex-1 flex flex-col gap-4">
-                      <div className="flex items-center justify-between glass p-3 rounded-xl border border-white/5">
+                      <div className="flex items-center justify-between glass p-3 rounded-xl border border-white/10 shadow-lg">
                         <div className="flex items-center gap-3">
                           {isGenerating ? (
                             <Loader2 className="w-4 h-4 animate-spin text-primary" />
                           ) : (
                             <Check className="w-4 h-4 text-green-500" />
                           )}
-                          <span className="text-sm font-medium">
-                            {isGenerating ? "Architecting..." : "Draft Ready"}
+                          <span className="text-sm font-bold tracking-tight">
+                            {isGenerating ? "ARCHITECTING..." : "DRAFT READY"}
                           </span>
                         </div>
-                        <div className="flex gap-2">
-                          {/* NEW ARCHIVE BUTTON */}
+                        <div className="flex flex-wrap gap-2 items-center">
+                          {/* UPDATED ARCHIVE BUTTON WITH FORCED VISIBILITY */}
                           {generatedHTML && (
                             <Button
                               variant="outline"
                               size="sm"
                               className={
-                                saveState === "success" ? "border-green-500 text-green-500" : "border-primary/50"
+                                saveState === "success"
+                                  ? "bg-green-500/20 border-green-500 text-green-500"
+                                  : "bg-primary/10 border-primary text-primary hover:bg-primary hover:text-black font-bold shadow-[0_0_15px_rgba(var(--primary),0.2)]"
                               }
                               onClick={handleArchiveMission}
                               disabled={saveState === "saving"}
@@ -308,10 +308,16 @@ const Dashboard = () => {
                               ) : (
                                 <Archive className="w-4 h-4 mr-2" />
                               )}
-                              {saveState === "success" ? "Archived" : "Archive to Cloud"}
+                              {saveState === "success" ? "ARCHIVED" : "ARCHIVE TO CLOUD"}
                             </Button>
                           )}
-                          <Button variant="outline" size="sm" onClick={handleDownload} disabled={!generatedHTML}>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleDownload}
+                            disabled={!generatedHTML}
+                            className="border-white/10"
+                          >
                             <Download className="w-4 h-4 mr-2" /> Export
                           </Button>
                           <Button variant="hero" size="sm" onClick={handleNewWebsite}>
