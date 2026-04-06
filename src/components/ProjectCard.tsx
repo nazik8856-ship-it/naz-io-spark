@@ -28,7 +28,7 @@ export function ProjectCard({ project, mode, onOpen, onTrash, onRestore, onDelet
             srcDoc={project.directive}
             className="w-full h-full pointer-events-none scale-[0.25] origin-top-left"
             style={{ width: "400%", height: "400%" }}
-            title={project.title}
+            title={project.directive?.slice(0, 50) || "Untitled"}
             sandbox=""
           />
         </div>
