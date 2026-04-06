@@ -254,7 +254,7 @@ const Dashboard = () => {
                   ) : !generatedHTML && !isGenerating ? (
                     <div className="max-w-3xl mx-auto w-full space-y-6">
                       <div className="space-y-2 text-center">
-                        <h2 className="text-3xl font-bold">What are we building today?</h2>
+                        <h2 className="text-3xl font-bold text-red-500">IS THIS WORKING??</h2>
                       </div>
                       <div className="flex gap-3 p-2 rounded-2xl bg-secondary/30 border border-white/5">
                         <Textarea
