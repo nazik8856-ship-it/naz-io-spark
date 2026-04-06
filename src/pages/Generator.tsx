@@ -74,11 +74,19 @@ const Generator = () => {
         return;
       }
 
-      // 2. Insert using verified column 'directive' and status 'completed'
+      // Diagnostic: See what we are sending before we hit the wall
+      console.table({
+        table: "missions",
+        user: session.user.id,
+        directive_length: generatedCode.length,
+        status: "completed"
+      });
+
+      // 2. Insert using verified column 'directive'
       const { error } = await supabase.from("missions").insert({
         user_id: session.user.id, // Verified policy: (auth.uid() = user_id)
-        directive: generatedCode, // Aligned with database schema
-        status: "completed"       // Aligned with existing records
+        directive: generatedCode, // ALIGNED: Ensure this column exists in DB
+        status: "completed"       
       });
 
       if (error) throw error;
@@ -88,13 +96,10 @@ const Generator = () => {
       setTimeout(() => setSaveState("idle"), 2000);
     } catch (e) { 
       console.error("SYNC_CRASH:", e);
-      toast.error("SYNC_CRASH: Check Console");
+      toast.error("SYNC_CRASH: Check Console for Schema Mismatch");
       setSaveState("idle"); 
     }
   };
-
-  return (
-    <div className="flex h-screen w-full bg-[#020617] text-slate-200 font-sans overflow-hidden relative">
       
       {/* ── STATUS OVERLAY ── */}
       <div className="fixed top-0 left-0 bg-blue-600 text-white z-[50] p-2 text-[9px] font-black uppercase tracking-[0.3em]">
