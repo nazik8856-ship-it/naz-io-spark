@@ -6,11 +6,11 @@ import { useToast } from "@/hooks/use-toast";
 export interface Project {
   id: string;
   user_id: string;
-  title: string;
-  directive: string; // Changed from 'html' to match your DB column
-  prompt: string | null;
+  directive: string;
   status: string;
   created_at: string;
+  updated_at: string;
+  attachment_urls: string[] | null;
 }
 
 export function useProjects(userId: string | undefined) {
