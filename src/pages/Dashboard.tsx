@@ -206,7 +206,7 @@ const Dashboard = () => {
           />
 
           <div className="flex-1 flex flex-col">
-            <header className="fixed top-0 left-0 right-0 z-50 glass border-b border-white/5">
+            <header className="fixed top-0 left-0 right-0 z-[100] glass border-b border-white/5">
               <div className="container mx-auto px-6 py-4 flex items-center justify-between">
                 <div className="flex items-center gap-4">
                   <SidebarTrigger className="hover:bg-white/10" />
@@ -254,7 +254,6 @@ const Dashboard = () => {
                   ) : !generatedHTML && !isGenerating ? (
                     <div className="max-w-3xl mx-auto w-full space-y-6">
                       <div className="space-y-2 text-center">
-                        {/* THE TEST LINE IS HERE */}
                         <h2 className="text-3xl font-extrabold text-red-500 uppercase tracking-widest bg-yellow-400 p-2 border-4 border-black rotate-1">
                           IF YOU SEE THIS, IT WORKED
                         </h2>
@@ -279,7 +278,7 @@ const Dashboard = () => {
                     </div>
                   ) : (
                     <div className="flex-1 flex flex-col gap-4">
-                      <div className="flex items-center justify-between glass p-4 rounded-xl border border-primary/30 shadow-[0_0_20px_rgba(var(--primary),0.1)]">
+                      <div className="flex items-center justify-between glass p-4 rounded-xl border border-primary/30 shadow-[0_0_20px_rgba(var(--primary),0.1)] relative z-[40]">
                         <div className="flex items-center gap-3">
                           {isGenerating ? (
                             <Loader2 className="w-5 h-5 animate-spin text-primary" />
@@ -295,11 +294,11 @@ const Dashboard = () => {
                             <Button
                               variant="outline"
                               size="default"
-                              className={
+                              className={`relative z-[50] font-black transition-all shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none ${
                                 saveState === "success"
-                                  ? "bg-green-500 text-white border-green-600 hover:bg-green-600"
-                                  : "bg-primary text-black border-none font-black hover:scale-105 transition-transform shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
-                              }
+                                  ? "bg-green-500 text-white border-green-600"
+                                  : "bg-[#00FF41] text-black border-2 border-black hover:bg-[#00e63a]"
+                              }`}
                               onClick={handleArchiveMission}
                               disabled={saveState === "saving"}
                             >
@@ -310,7 +309,7 @@ const Dashboard = () => {
                               ) : (
                                 <Archive className="w-4 h-4 mr-2" />
                               )}
-                              {saveState === "success" ? "MISSION SAVED" : "SAVE TO CLOUD"}
+                              {saveState === "success" ? "MISSION_SAVED" : "SAVE TO CLOUD"}
                             </Button>
                           )}
                           <Button variant="ghost" size="sm" onClick={handleDownload} disabled={!generatedHTML}>
@@ -321,7 +320,7 @@ const Dashboard = () => {
                           </Button>
                         </div>
                       </div>
-                      <div className="flex-1 rounded-2xl border-4 border-black bg-white shadow-2xl overflow-hidden relative min-h-[60vh]">
+                      <div className="flex-1 rounded-2xl border-4 border-black bg-white shadow-2xl overflow-hidden relative min-h-[60vh] z-10">
                         {isGenerating && !generatedHTML ? (
                           <NeoSkeleton variant="preview" />
                         ) : (
