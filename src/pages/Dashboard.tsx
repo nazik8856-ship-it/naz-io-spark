@@ -312,29 +312,6 @@ const Dashboard = () => {
                             {isGenerating ? "ARCHITECTING..." : "DRAFT READY"}
                           </span>
                         </div>
-                        <div className="flex flex-wrap gap-3 items-center pointer-events-auto">
-                          {(generatedHTML || !isGenerating) && (
-                            <Button
-                              variant="outline"
-                              size="default"
-                              className={`relative z-[60] font-black transition-all shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none pointer-events-auto ${
-                                saveState === "success"
-                                  ? "bg-green-500 text-white border-green-600"
-                                  : "bg-[#00FF41] text-black border-2 border-black hover:bg-[#00e63a]"
-                              }`}
-                              onClick={handleArchiveMission}
-                              disabled={saveState === "saving"}
-                            >
-                              {saveState === "saving" ? (
-                                <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                              ) : saveState === "success" ? (
-                                <Check className="w-4 h-4 mr-2" />
-                              ) : (
-                                <Archive className="w-4 h-4 mr-2" />
-                              )}
-                              {saveState === "success" ? "MISSION_SAVED" : "SAVE TO CLOUD"}
-                            </Button>
-                          )}
                           <Button
                             variant="ghost"
                             size="sm"
