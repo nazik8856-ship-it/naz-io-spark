@@ -2,14 +2,14 @@ import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
+// Updated Interface to match image_72d166.png
 export interface Project {
   id: string;
   user_id: string;
   title: string;
-  html: string;
+  directive: string; // Changed from 'html' to match your DB column
   prompt: string | null;
   status: string;
-  last_opened_at: string;
   created_at: string;
 }
 
@@ -21,14 +21,17 @@ export function useProjects(userId: string | undefined) {
   const fetchProjects = useCallback(async () => {
     if (!userId) return;
     setLoading(true);
+
+    // FETCHING FROM MISSIONS TABLE
     const { data, error } = await supabase
-      .from("projects")
+      .from("missions")
       .select("*")
       .eq("user_id", userId)
-      .order("last_opened_at", { ascending: false });
+      .order("created_at", { ascending: false });
 
     if (error) {
-      toast({ title: "Failed to load projects", description: error.message, variant: "destructive" });
+      console.error("FETCH_ERROR:", error);
+      toast({ title: "Failed to load missions", description: error.message, variant: "destructive" });
     } else {
       setProjects((data as Project[]) || []);
     }
@@ -42,14 +45,20 @@ export function useProjects(userId: string | undefined) {
   const saveProject = useCallback(
     async (title: string, html: string, prompt: string) => {
       if (!userId) return null;
+
+      // INSERTING INTO MISSIONS TABLE
       const { data, error } = await supabase
-        .from("projects")
-        .insert({ user_id: userId, title, html, prompt, status: "active" })
+        .from("missions")
+        .insert({
+          user_id: userId,
+          directive: html, // Mapping HTML content to directive column
+          status: "active",
+        })
         .select()
         .single();
 
       if (error) {
-        toast({ title: "Failed to save project", description: error.message, variant: "destructive" });
+        toast({ title: "Failed to save mission", description: error.message, variant: "destructive" });
         return null;
       }
       await fetchProjects();
@@ -61,14 +70,14 @@ export function useProjects(userId: string | undefined) {
   const updateProjectHTML = useCallback(
     async (projectId: string, html: string) => {
       const { error } = await supabase
-        .from("projects")
-        .update({ html, last_opened_at: new Date().toISOString() })
+        .from("missions")
+        .update({ directive: html }) // Updated column name
         .eq("id", projectId);
 
       if (error) {
-        toast({ title: "Failed to update project", description: error.message, variant: "destructive" });
+        toast({ title: "Failed to update mission", description: error.message, variant: "destructive" });
       } else {
-        toast({ title: "Project updated", description: "Your changes are saved." });
+        toast({ title: "Mission updated", description: "Cloud sync complete." });
       }
       await fetchProjects();
     },
@@ -77,9 +86,9 @@ export function useProjects(userId: string | undefined) {
 
   const trashProject = useCallback(
     async (projectId: string) => {
-      const { error } = await supabase.from("projects").update({ status: "trashed" }).eq("id", projectId);
+      const { error } = await supabase.from("missions").update({ status: "trashed" }).eq("id", projectId);
       if (!error) {
-        toast({ title: "Project moved to trash" });
+        toast({ title: "Mission moved to trash" });
         await fetchProjects();
       }
     },
@@ -88,12 +97,9 @@ export function useProjects(userId: string | undefined) {
 
   const restoreProject = useCallback(
     async (projectId: string) => {
-      const { error } = await supabase
-        .from("projects")
-        .update({ status: "active", last_opened_at: new Date().toISOString() })
-        .eq("id", projectId);
+      const { error } = await supabase.from("missions").update({ status: "active" }).eq("id", projectId);
       if (!error) {
-        toast({ title: "Project restored" });
+        toast({ title: "Mission restored" });
         await fetchProjects();
       }
     },
@@ -102,9 +108,9 @@ export function useProjects(userId: string | undefined) {
 
   const deleteProject = useCallback(
     async (projectId: string) => {
-      const { error } = await supabase.from("projects").delete().eq("id", projectId);
+      const { error } = await supabase.from("missions").delete().eq("id", projectId);
       if (!error) {
-        toast({ title: "Project permanently deleted" });
+        toast({ title: "Mission permanently deleted" });
         await fetchProjects();
       }
     },
