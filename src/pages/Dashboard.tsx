@@ -101,8 +101,11 @@ const Dashboard = () => {
 
   const handleArchiveMission = async () => {
     if (saveState === "saving") return;
+    if (!generatedHTML) {
+        toast({ title: "Nothing to save", description: "Generate a website first!", variant: "destructive" });
+        return;
+    }
     setSaveState("saving");
-    // Bridge: keep sessionStorage in sync for GlobalSaveButton
     if (generatedHTML) {
       sessionStorage.setItem("nazai_last_html", generatedHTML);
       sessionStorage.setItem("nazai_last_prompt", prompt);
@@ -113,7 +116,6 @@ const Dashboard = () => {
       } = await supabase.auth.getSession();
       if (!session) throw new Error("No active session");
       const htmlToSave = generatedHTML || sessionStorage.getItem("nazai_last_html") || "";
-      if (!htmlToSave) throw new Error("No generated content to save.");
       const { error } = await supabase.from("missions").insert({
         user_id: session.user.id,
         directive: htmlToSave,
@@ -221,19 +223,18 @@ const Dashboard = () => {
                     <Coins className="w-4 h-4 text-primary" />
                     <span className="text-sm font-bold">{credits ?? "..."}</span>
                   </div>
-                  {/* Save to Cloud — anchored in fixed header, always in DOM */}
+                  
+                  {/* BRUTE FORCE SAVE BUTTON */}
                   <Button
                     size="sm"
-                    className={`font-bold transition-all ${
+                    style={{ position: 'relative', zIndex: 9999, opacity: 1 }}
+                    className={`font-bold border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all ${
                       saveState === "success"
-                        ? "bg-green-600 hover:bg-green-700 text-white"
-                        : saveState === "saving"
-                        ? "bg-yellow-500 hover:bg-yellow-600 text-black"
-                        : "bg-emerald-600 hover:bg-emerald-700 text-white"
+                        ? "bg-green-500 hover:bg-green-600 text-white"
+                        : "bg-emerald-500 hover:bg-emerald-600 text-white"
                     }`}
                     onClick={handleArchiveMission}
-                    disabled={saveState === "saving" || !generatedHTML}
-                    title={generatedHTML ? "Archive to NazAI Database" : "Generate a site first"}
+                    disabled={saveState === "saving"}
                   >
                     {saveState === "saving" ? (
                       <Loader2 className="w-4 h-4 animate-spin mr-2" />
@@ -242,8 +243,9 @@ const Dashboard = () => {
                     ) : (
                       <Archive className="w-4 h-4 mr-2" />
                     )}
-                    {saveState === "saving" ? "Syncing..." : saveState === "success" ? "Saved!" : "Save to Cloud"}
+                    {saveState === "saving" ? "SYNCING..." : saveState === "success" ? "DONE!" : "SAVE TO CLOUD"}
                   </Button>
+
                   <Button variant="ghost" size="sm" onClick={handleLogout}>
                     <LogOut className="w-4 h-4 mr-2" /> Exit
                   </Button>
@@ -305,8 +307,7 @@ const Dashboard = () => {
                     </div>
                   ) : (
                     <div className="flex-1 flex flex-col gap-4 overflow-visible">
-                      {/* --- THE CONTROL BAR (Z-50) --- */}
-                      <div className="flex items-center justify-between glass p-4 rounded-xl border border-primary/30 shadow-[0_10px_30px_rgba(0,0,0,0.5)] relative z-[50] pointer-events-auto">
+                      <div className="flex items-center justify-between glass p-4 rounded-xl border border-primary/30 shadow-[0_10px_30px_rgba(0,0,0,0.5)] relative z-[50]">
                         <div className="flex items-center gap-3">
                           {isGenerating ? (
                             <Loader2 className="w-5 h-5 animate-spin text-primary" />
@@ -317,45 +318,21 @@ const Dashboard = () => {
                             {isGenerating ? "ARCHITECTING..." : "DRAFT READY"}
                           </span>
                         </div>
-                        <div className="flex flex-wrap gap-3 items-center pointer-events-auto">
-                          {generatedHTML && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className={`font-bold transition-all pointer-events-auto ${
-                                saveState === "success"
-                                  ? "bg-green-600 text-white border-green-700 hover:bg-green-700"
-                                  : "bg-emerald-600 text-white border-emerald-700 hover:bg-emerald-700"
-                              }`}
-                              onClick={handleArchiveMission}
-                              disabled={saveState === "saving"}
-                            >
-                              {saveState === "saving" ? (
-                                <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                              ) : saveState === "success" ? (
-                                <Check className="w-4 h-4 mr-2" />
-                              ) : (
-                                <Archive className="w-4 h-4 mr-2" />
-                              )}
-                              {saveState === "saving" ? "Saving..." : saveState === "success" ? "Saved!" : "Save to Cloud"}
-                            </Button>
-                          )}
+                        <div className="flex flex-wrap gap-3 items-center">
                           <Button
                             variant="ghost"
                             size="sm"
                             onClick={handleDownload}
                             disabled={!generatedHTML}
-                            className="pointer-events-auto"
                           >
                             <Download className="w-4 h-4 mr-2" /> Export
                           </Button>
-                          <Button variant="hero" size="sm" onClick={handleNewWebsite} className="pointer-events-auto">
+                          <Button variant="hero" size="sm" onClick={handleNewWebsite}>
                             <RefreshCw className="w-4 h-4 mr-2" /> Reset
                           </Button>
                         </div>
                       </div>
 
-                      {/* --- THE IFRAME PREVIEW (Z-10) --- */}
                       <div className="flex-1 rounded-2xl border-4 border-black bg-white shadow-2xl overflow-hidden relative min-h-[60vh] z-10">
                         {isGenerating && !generatedHTML ? (
                           <NeoSkeleton variant="preview" />
@@ -413,4 +390,3 @@ const Dashboard = () => {
 };
 
 export default Dashboard;
-// fix
