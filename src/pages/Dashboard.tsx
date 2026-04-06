@@ -83,8 +83,7 @@ const Dashboard = () => {
   };
 
   const handleOpenProject = useCallback((project: Project) => {
-    // Aligned with 'directive' column from your DB screenshot
-    setGeneratedHTML(project.directive || project.html || "");
+    setGeneratedHTML(project.html || "");
     setCurrentProjectId(project.id);
     setShowEditChat(false);
   }, []);
