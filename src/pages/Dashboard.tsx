@@ -193,7 +193,7 @@ const Dashboard = () => {
   return (
     <>
       <SidebarProvider>
-        <div className="min-h-screen flex w-full bg-background text-foreground font-sans">
+        <div className="min-h-screen flex w-full bg-background text-foreground font-sans relative overflow-x-hidden">
           <DashboardSidebar
             context={sidebarContext}
             onAction={(action) => {
@@ -205,7 +205,7 @@ const Dashboard = () => {
             onRefillClick={() => setShowCreditModal(true)}
           />
 
-          <div className="flex-1 flex flex-col">
+          <div className="flex-1 flex flex-col min-w-0">
             <header className="fixed top-0 left-0 right-0 z-[100] glass border-b border-white/5">
               <div className="container mx-auto px-6 py-4 flex items-center justify-between">
                 <div className="flex items-center gap-4">
@@ -224,7 +224,7 @@ const Dashboard = () => {
               </div>
             </header>
 
-            <main className="pt-24 pb-12 flex-1 flex flex-col container mx-auto px-6">
+            <main className="pt-24 pb-12 flex-1 flex flex-col container mx-auto px-6 relative z-10">
               {!showGenerator ? (
                 <div className="flex-1">
                   {currentPath === "/dashboard/projects" ? (
@@ -248,7 +248,7 @@ const Dashboard = () => {
                   )}
                 </div>
               ) : (
-                <div className="flex-1 flex flex-col gap-6">
+                <div className="flex-1 flex flex-col gap-6 overflow-visible">
                   {isCreateRoute && !businessType && !generatedHTML ? (
                     <BusinessTypeSelector onSelect={setBusinessType} />
                   ) : !generatedHTML && !isGenerating ? (
@@ -277,8 +277,9 @@ const Dashboard = () => {
                       <IdeaHelper onSelectIdea={setPrompt} />
                     </div>
                   ) : (
-                    <div className="flex-1 flex flex-col gap-4">
-                      <div className="flex items-center justify-between glass p-4 rounded-xl border border-primary/30 shadow-[0_0_20px_rgba(var(--primary),0.1)] relative z-[40]">
+                    <div className="flex-1 flex flex-col gap-4 overflow-visible">
+                      {/* --- THE CONTROL BAR (Z-50) --- */}
+                      <div className="flex items-center justify-between glass p-4 rounded-xl border border-primary/30 shadow-[0_10px_30px_rgba(0,0,0,0.5)] relative z-[50] pointer-events-auto">
                         <div className="flex items-center gap-3">
                           {isGenerating ? (
                             <Loader2 className="w-5 h-5 animate-spin text-primary" />
@@ -289,12 +290,12 @@ const Dashboard = () => {
                             {isGenerating ? "ARCHITECTING..." : "DRAFT READY"}
                           </span>
                         </div>
-                        <div className="flex flex-wrap gap-3 items-center">
-                          {generatedHTML && (
+                        <div className="flex flex-wrap gap-3 items-center pointer-events-auto">
+                          {(generatedHTML || !isGenerating) && (
                             <Button
                               variant="outline"
                               size="default"
-                              className={`relative z-[50] font-black transition-all shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none ${
+                              className={`relative z-[60] font-black transition-all shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none pointer-events-auto ${
                                 saveState === "success"
                                   ? "bg-green-500 text-white border-green-600"
                                   : "bg-[#00FF41] text-black border-2 border-black hover:bg-[#00e63a]"
@@ -312,14 +313,22 @@ const Dashboard = () => {
                               {saveState === "success" ? "MISSION_SAVED" : "SAVE TO CLOUD"}
                             </Button>
                           )}
-                          <Button variant="ghost" size="sm" onClick={handleDownload} disabled={!generatedHTML}>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={handleDownload}
+                            disabled={!generatedHTML}
+                            className="pointer-events-auto"
+                          >
                             <Download className="w-4 h-4 mr-2" /> Export
                           </Button>
-                          <Button variant="hero" size="sm" onClick={handleNewWebsite}>
+                          <Button variant="hero" size="sm" onClick={handleNewWebsite} className="pointer-events-auto">
                             <RefreshCw className="w-4 h-4 mr-2" /> Reset
                           </Button>
                         </div>
                       </div>
+
+                      {/* --- THE IFRAME PREVIEW (Z-10) --- */}
                       <div className="flex-1 rounded-2xl border-4 border-black bg-white shadow-2xl overflow-hidden relative min-h-[60vh] z-10">
                         {isGenerating && !generatedHTML ? (
                           <NeoSkeleton variant="preview" />
@@ -327,8 +336,9 @@ const Dashboard = () => {
                           <iframe srcDoc={generatedHTML} className="w-full h-full" title="Preview" />
                         )}
                       </div>
+
                       {generatedHTML && !isGenerating && (
-                        <div className="animate-in slide-in-from-bottom-4 duration-500">
+                        <div className="animate-in slide-in-from-bottom-4 duration-500 relative z-20">
                           {showEditChat ? (
                             <EditChat onSendEdit={handleEdit} isGenerating={isEditing} />
                           ) : (
@@ -353,7 +363,7 @@ const Dashboard = () => {
       </SidebarProvider>
 
       {showDecisionFork && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background/80 backdrop-blur-sm p-6">
+        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-background/80 backdrop-blur-sm p-6">
           <div className="max-w-2xl w-full">
             <DecisionFork
               question="Choose a design aesthetic"
