@@ -100,28 +100,32 @@ const Dashboard = () => {
   const cleanHTML = (raw: string): string => raw.replace(/```html|```/g, "").trim();
 
   const handleArchiveMission = async () => {
-    if (!generatedHTML || saveState === "saving") return;
+    if (saveState === "saving") return;
     setSaveState("saving");
-
+    // Bridge: keep sessionStorage in sync for GlobalSaveButton
+    if (generatedHTML) {
+      sessionStorage.setItem("nazai_last_html", generatedHTML);
+      sessionStorage.setItem("nazai_last_prompt", prompt);
+    }
     try {
       const {
         data: { session },
       } = await supabase.auth.getSession();
       if (!session) throw new Error("No active session");
-
+      const htmlToSave = generatedHTML || sessionStorage.getItem("nazai_last_html") || "";
+      if (!htmlToSave) throw new Error("No generated content to save.");
       const { error } = await supabase.from("missions").insert({
         user_id: session.user.id,
-        directive: generatedHTML,
+        directive: htmlToSave,
         status: "completed",
       });
-
       if (error) throw error;
-
       setSaveState("success");
       toast({ title: "MISSION_ARCHIVED", description: "Successfully saved to the cloud." });
       setTimeout(() => setSaveState("idle"), 3000);
-    } catch (e: any) {
-      toast({ title: "Archive failed", description: e.message, variant: "destructive" });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      toast({ title: "Archive failed", description: msg, variant: "destructive" });
       setSaveState("idle");
     }
   };
@@ -217,6 +221,29 @@ const Dashboard = () => {
                     <Coins className="w-4 h-4 text-primary" />
                     <span className="text-sm font-bold">{credits ?? "..."}</span>
                   </div>
+                  {/* Save to Cloud — anchored in fixed header, always in DOM */}
+                  <Button
+                    size="sm"
+                    className={`font-bold transition-all ${
+                      saveState === "success"
+                        ? "bg-green-600 hover:bg-green-700 text-white"
+                        : saveState === "saving"
+                        ? "bg-yellow-500 hover:bg-yellow-600 text-black"
+                        : "bg-emerald-600 hover:bg-emerald-700 text-white"
+                    }`}
+                    onClick={handleArchiveMission}
+                    disabled={saveState === "saving" || !generatedHTML}
+                    title={generatedHTML ? "Archive to NazAI Database" : "Generate a site first"}
+                  >
+                    {saveState === "saving" ? (
+                      <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                    ) : saveState === "success" ? (
+                      <Check className="w-4 h-4 mr-2" />
+                    ) : (
+                      <Archive className="w-4 h-4 mr-2" />
+                    )}
+                    {saveState === "saving" ? "Syncing..." : saveState === "success" ? "Saved!" : "Save to Cloud"}
+                  </Button>
                   <Button variant="ghost" size="sm" onClick={handleLogout}>
                     <LogOut className="w-4 h-4 mr-2" /> Exit
                   </Button>
