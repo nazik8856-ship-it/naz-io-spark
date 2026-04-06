@@ -83,7 +83,7 @@ const Dashboard = () => {
   };
 
   const handleOpenProject = useCallback((project: Project) => {
-    setGeneratedHTML(project.html || "");
+    setGeneratedHTML(project.directive || "");
     setCurrentProjectId(project.id);
     setShowEditChat(false);
   }, []);

@@ -15,17 +15,17 @@ interface ProjectCardProps {
 }
 
 export function ProjectCard({ project, mode, onOpen, onTrash, onRestore, onDelete, onSaveToAll }: ProjectCardProps) {
-  const timeAgo = formatDistanceToNow(new Date(project.last_opened_at), { addSuffix: true });
+  const timeAgo = formatDistanceToNow(new Date(project.updated_at || project.created_at), { addSuffix: true });
 
   return (
     <Card className="group border-border bg-card/60 backdrop-blur-sm hover:border-primary/30 transition-all">
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium truncate">{project.title}</CardTitle>
+        <CardTitle className="text-sm font-medium truncate">{project.directive?.slice(0, 50) || "Untitled"}</CardTitle>
       </CardHeader>
       <CardContent className="pb-2">
         <div className="h-32 rounded-md overflow-hidden border border-border bg-white">
           <iframe
-            srcDoc={project.html}
+            srcDoc={project.directive}
             className="w-full h-full pointer-events-none scale-[0.25] origin-top-left"
             style={{ width: "400%", height: "400%" }}
             title={project.title}
