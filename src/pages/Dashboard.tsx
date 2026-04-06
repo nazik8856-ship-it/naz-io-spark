@@ -312,6 +312,7 @@ const Dashboard = () => {
                             {isGenerating ? "ARCHITECTING..." : "DRAFT READY"}
                           </span>
                         </div>
+                        <div className="flex flex-wrap gap-3 items-center pointer-events-auto">
                           <Button
                             variant="ghost"
                             size="sm"
