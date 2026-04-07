@@ -20,7 +20,7 @@ import DecisionFork from "@/components/DecisionFork";
 import CreditRefillModal from "@/components/CreditRefillModal";
 import DashboardRecently from "@/pages/DashboardRecently";
 import DashboardAllProjects from "@/pages/DashboardAllProjects";
-import DashboardTrash from "@/pages/DashboardTrash";
+import DashboardTrash from "@/pages/DashboardTrash"; 
 
 // --- CONFIGURATION ---
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -420,4 +420,4 @@ const Dashboard = () => {
   );
 };
 
-export default Dashboard;
+export default Dashboard; 
