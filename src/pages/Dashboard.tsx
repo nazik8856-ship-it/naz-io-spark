@@ -27,7 +27,7 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const SWIFT_SERVICE_URL = `${SUPABASE_URL}/functions/v1/swift-service`;
 
-// --- NEW AI MODELS DEFINITION ---
+// --- AI MODELS DEFINITION ---
 type AIModel = {
   id: string;
   name: string;
@@ -90,7 +90,7 @@ const Dashboard = () => {
   const [showCreditModal, setShowCreditModal] = useState(false);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "success">("idle");
   
-  // NEW: AI Model Selection State
+  // AI Model Selection State
   const [selectedModel, setSelectedModel] = useState<AIModel>(AVAILABLE_MODELS[0]);
   const [isModelListOpen, setIsModelListOpen] = useState(false);
 
@@ -100,7 +100,7 @@ const Dashboard = () => {
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
       console.error("CRITICAL: Supabase keys are missing!");
     }
-  }, [toast]);
+  }, []);
 
   const currentPath = location.pathname;
   const isCreateRoute = currentPath === "/dashboard/create";
@@ -162,8 +162,8 @@ const Dashboard = () => {
     setGeneratedHTML("");
 
     try {
-      const fullPrompt = `${prompt.trim()}. Style: ${designChoice === "minimal" ? "minimalist" : "bold"}. Engine: ${selectedModel.id}`;
-      // Updated to send selected model to service
+      const fullPrompt = `${prompt.trim()}. Style: ${designChoice === "minimal" ? "minimalist" : "bold"}.`;
+      
       const data = await invokeSwiftService({ 
         prompt: fullPrompt, 
         userId: user?.id,
@@ -220,9 +220,9 @@ const Dashboard = () => {
               
               <div className="flex items-center gap-4">
                 {(!SUPABASE_URL || !SUPABASE_ANON_KEY) && (
-                  <div className="flex items-center gap-1 text-red-500 animate-pulse mr-2">
+                  <div className="flex items-center gap-1 text-red-500 animate-pulse mr-2 bg-red-500/10 p-2 rounded border border-red-500/20">
                     <AlertTriangle className="w-4 h-4" />
-                    <span className="text-xs font-bold uppercase">Auth Link Failed</span>
+                    <span className="text-[10px] font-black uppercase">Auth Link Failed</span>
                   </div>
                 )}
                 
@@ -277,15 +277,15 @@ const Dashboard = () => {
                       Execute New Mission
                     </h2>
                     
-                    <div className="flex gap-3 p-3 rounded-2xl bg-secondary/30 border border-white/5 shadow-2xl relative">
+                    <div className="flex gap-3 p-3 rounded-2xl bg-secondary/30 border border-white/5 shadow-2xl relative z-[60]">
                       
-                      {/* 🚀 NEW AI MODEL SELECTOR */}
+                      {/* AI MODEL SELECTOR */}
                       <div className="relative flex items-center">
                         <Button 
                           variant="outline" 
                           size="sm" 
                           onClick={() => setIsModelListOpen(!isModelListOpen)}
-                          className="h-full border-2 border-primary/20 bg-black/40 hover:bg-black/60 flex flex-col items-center justify-center gap-1 min-w-[60px]"
+                          className={`h-full border-2 bg-black/40 hover:bg-black/60 flex flex-col items-center justify-center gap-1 min-w-[70px] ${isModelListOpen ? 'border-emerald-500' : 'border-primary/20'}`}
                         >
                           <div className="p-1 bg-primary/20 rounded-lg">
                             {selectedModel.icon}
@@ -293,7 +293,6 @@ const Dashboard = () => {
                           <span className="text-[10px] font-black uppercase opacity-60">AI</span>
                         </Button>
 
-                        {/* Dropdown Menu */}
                         {isModelListOpen && (
                           <div className="absolute bottom-full left-0 mb-4 w-64 bg-black border-2 border-emerald-500 shadow-[8px_8px_0px_0px_rgba(16,185,129,0.3)] rounded-xl overflow-hidden z-[200] animate-in fade-in slide-in-from-bottom-2">
                             <div className="p-3 bg-emerald-500/10 border-b border-emerald-500/20">
