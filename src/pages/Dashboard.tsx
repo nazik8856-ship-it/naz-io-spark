@@ -23,7 +23,7 @@ import DashboardAllProjects from "@/pages/DashboardAllProjects";
 import DashboardTrash from "@/pages/DashboardTrash";
 
 // --- CONFIGURATION ---
-// FIX: Use VITE_SUPABASE_ANON_KEY to match standard Supabase/Vite patterns
+// FIX: Fallback to PUBLISHABLE_KEY to match your Vercel Environment Variables
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const SWIFT_SERVICE_URL = `${SUPABASE_URL}/functions/v1/swift-service`;
@@ -79,7 +79,7 @@ const Dashboard = () => {
   useEffect(() => {
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
       console.error("CRITICAL: Supabase keys are missing!");
-      toast({ title: "Config Error", description: "Keys missing.", variant: "destructive" });
+      toast({ title: "Config Error", description: "Keys missing in Vercel.", variant: "destructive" });
     }
   }, [toast]);
 
@@ -111,13 +111,12 @@ const Dashboard = () => {
     if (saveState === "saving" || !user) return;
     
     if (!generatedHTML) {
-      toast({ title: "Nothing to save", description: "Generate something first!", variant: "destructive" });
+      toast({ title: "Nothing to save", description: "Generate a design first!", variant: "destructive" });
       return;
     }
 
     setSaveState("saving");
     try {
-      // Inserting into the 'missions' table
       const { error } = await supabase.from("missions").insert({
         user_id: user.id,
         directive: generatedHTML,
@@ -127,7 +126,7 @@ const Dashboard = () => {
       if (error) throw error;
       
       setSaveState("success");
-      toast({ title: "MISSION_ARCHIVED", description: "Saved to cloud." });
+      toast({ title: "MISSION_ARCHIVED", description: "Saved to cloud successfully." });
       setTimeout(() => setSaveState("idle"), 3000);
     } catch (e: any) {
       toast({ title: "Archive failed", description: e.message, variant: "destructive" });
@@ -189,7 +188,7 @@ const Dashboard = () => {
         />
 
         <div className="flex-1 flex flex-col min-w-0">
-          <header className="fixed top-0 left-0 right-0 z-[100] glass border-b border-white/5">
+          <header className="fixed top-0 left-0 right-0 z-[100] glass border-b border-white/5 bg-background/80 backdrop-blur-md">
             <div className="container mx-auto px-6 py-4 flex items-center justify-between">
               <div className="flex items-center gap-4">
                 <SidebarTrigger className="hover:bg-white/10" />
@@ -197,10 +196,10 @@ const Dashboard = () => {
               </div>
               
               <div className="flex items-center gap-4">
-                {!SUPABASE_URL && (
-                  <div className="flex items-center gap-1 text-red-500 animate-pulse mr-4">
+                {(!SUPABASE_URL || !SUPABASE_ANON_KEY) && (
+                  <div className="flex items-center gap-1 text-red-500 animate-pulse mr-2">
                     <AlertTriangle className="w-4 h-4" />
-                    <span className="text-xs font-bold">KEY ERROR</span>
+                    <span className="text-xs font-bold">AUTH_KEY_MISSING</span>
                   </div>
                 )}
                 
@@ -209,12 +208,12 @@ const Dashboard = () => {
                   <span className="text-sm font-bold">{credits ?? "..."}</span>
                 </div>
                 
-                {/* 🚀 THE FIXED BUTTON */}
+                {/* 🚀 THE FIXED BUTTON: Visible even if no HTML, but disabled */}
                 <Button
                   size="sm"
                   className={`font-bold border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all ${
                     saveState === "success" ? "bg-green-500 text-white" : "bg-emerald-500 text-white"
-                  }`}
+                  } active:shadow-none active:translate-x-1 active:translate-y-1`}
                   onClick={handleArchiveMission}
                   disabled={saveState === "saving" || !generatedHTML} 
                 >
@@ -228,7 +227,7 @@ const Dashboard = () => {
                   {saveState === "saving" ? "SYNCING..." : saveState === "success" ? "DONE!" : "SAVE TO CLOUD"}
                 </Button>
 
-                <Button variant="ghost" size="sm" onClick={handleLogout}>
+                <Button variant="ghost" size="sm" onClick={handleLogout} className="text-white/60 hover:text-white">
                   <LogOut className="w-4 h-4 mr-2" /> Exit
                 </Button>
               </div>
@@ -254,7 +253,12 @@ const Dashboard = () => {
                   <div className="max-w-3xl mx-auto w-full space-y-6">
                     <h2 className="text-3xl font-extrabold text-white text-center bg-black p-4 border-4 border-emerald-500">READY TO LAUNCH</h2>
                     <div className="flex gap-3 p-2 rounded-2xl bg-secondary/30 border border-white/5 shadow-2xl">
-                      <Textarea placeholder="Describe your site..." value={prompt} onChange={(e) => setPrompt(e.target.value)} className="min-h-[80px] bg-transparent border-none resize-none text-lg" />
+                      <Textarea 
+                        placeholder="Describe your site mission..." 
+                        value={prompt} 
+                        onChange={(e) => setPrompt(e.target.value)} 
+                        className="min-h-[80px] bg-transparent border-none resize-none text-lg focus-visible:ring-0" 
+                      />
                       <Button variant="hero" size="lg" disabled={!prompt.trim()} onClick={() => setShowDecisionFork(true)}>
                         <Send className="w-5 h-5" />
                       </Button>
@@ -266,7 +270,7 @@ const Dashboard = () => {
                     <div className="flex items-center justify-between glass p-4 rounded-xl border border-primary/30 shadow-2xl relative z-50">
                       <div className="flex items-center gap-3">
                         {isGenerating ? <Loader2 className="w-5 h-5 animate-spin text-primary" /> : <Check className="w-5 h-5 text-green-500" />}
-                        <span className="text-sm font-black uppercase">{isGenerating ? "ARCHITECTING..." : "DRAFT READY"}</span>
+                        <span className="text-sm font-black uppercase tracking-widest">{isGenerating ? "ARCHITECTING..." : "DRAFT READY"}</span>
                       </div>
                       <Button variant="hero" size="sm" onClick={handleNewWebsite}>
                         <RefreshCw className="w-4 h-4 mr-2" /> Reset
@@ -274,12 +278,27 @@ const Dashboard = () => {
                     </div>
 
                     <div className="flex-1 rounded-2xl border-4 border-black bg-white shadow-2xl overflow-hidden relative min-h-[60vh] z-10">
-                      {isGenerating && !generatedHTML ? <NeoSkeleton variant="preview" /> : <iframe srcDoc={generatedHTML} className="w-full h-full" />}
+                      {isGenerating && !generatedHTML ? (
+                        <NeoSkeleton variant="preview" /> 
+                      ) : (
+                        <iframe 
+                          srcDoc={generatedHTML} 
+                          className="w-full h-full" 
+                          title="Preview"
+                        />
+                      )}
                     </div>
 
                     {generatedHTML && !isGenerating && (
                       <div className="relative z-20">
-                        {showEditChat ? <EditChat onSendEdit={() => {}} isGenerating={false} /> : <NextStepSuggestions onEdit={() => setShowEditChat(true)} onNewWebsite={handleNewWebsite} />}
+                        {showEditChat ? (
+                          <EditChat onSendEdit={() => {}} isGenerating={false} /> 
+                        ) : (
+                          <NextStepSuggestions 
+                            onEdit={() => setShowEditChat(true)} 
+                            onNewWebsite={handleNewWebsite} 
+                          />
+                        )}
                       </div>
                     )}
                   </div>
@@ -296,8 +315,8 @@ const Dashboard = () => {
             <DecisionFork 
               question="Choose a design aesthetic" 
               options={[
-                { label: "Minimalist", description: "Clean.", icon: <Palette className="w-5 h-5" /> },
-                { label: "Futuristic", description: "Bold.", icon: <Zap className="w-5 h-5" /> }
+                { label: "Minimalist", description: "Clean & Modern.", icon: <Palette className="w-5 h-5" /> },
+                { label: "Futuristic", description: "Bold & High-Contrast.", icon: <Zap className="w-5 h-5" /> }
               ]} 
               onSelect={(i) => {
                 setDesignChoice(i === 0 ? "minimal" : "bold");
