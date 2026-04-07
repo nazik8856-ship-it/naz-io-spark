@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { LogOut, Send, Loader2, Download, RefreshCw, Check, Palette, Zap, Coins, Archive, AlertTriangle } from "lucide-react";
+import { LogOut, Send, Loader2, Download, RefreshCw, Check, Palette, Zap, Coins, Archive, AlertTriangle, ChevronDown, Sparkles, Brain, Cpu, ZapOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -23,10 +23,25 @@ import DashboardAllProjects from "@/pages/DashboardAllProjects";
 import DashboardTrash from "@/pages/DashboardTrash";
 
 // --- CONFIGURATION ---
-// FIX: Fallback to PUBLISHABLE_KEY to match your Vercel Environment Variables
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const SWIFT_SERVICE_URL = `${SUPABASE_URL}/functions/v1/swift-service`;
+
+// --- NEW AI MODELS DEFINITION ---
+type AIModel = {
+  id: string;
+  name: string;
+  icon: React.ReactNode;
+  description: string;
+  tier: "Standard" | "Pro" | "Experimental";
+};
+
+const AVAILABLE_MODELS: AIModel[] = [
+  { id: "gpt-4o", name: "GPT-4o", icon: <Sparkles className="w-4 h-4 text-emerald-400" />, description: "Best for complex UI/UX and logic.", tier: "Pro" },
+  { id: "claude-3-opus", name: "Claude 3 Opus", icon: <Brain className="w-4 h-4 text-purple-400" />, description: "Top-tier creative writing & design.", tier: "Pro" },
+  { id: "llama-3-70b", name: "Llama 3", icon: <Cpu className="w-4 h-4 text-blue-400" />, description: "Fast, open-source performance.", tier: "Standard" },
+  { id: "gemini-1.5-pro", name: "Gemini Pro", icon: <Zap className="w-4 h-4 text-amber-400" />, description: "Excellent for long mission context.", tier: "Pro" },
+];
 
 async function invokeSwiftService(body: Record<string, unknown>) {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
@@ -74,12 +89,16 @@ const Dashboard = () => {
   const [showDecisionFork, setShowDecisionFork] = useState(false);
   const [showCreditModal, setShowCreditModal] = useState(false);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "success">("idle");
+  
+  // NEW: AI Model Selection State
+  const [selectedModel, setSelectedModel] = useState<AIModel>(AVAILABLE_MODELS[0]);
+  const [isModelListOpen, setIsModelListOpen] = useState(false);
+
   const { toast } = useToast();
 
   useEffect(() => {
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
       console.error("CRITICAL: Supabase keys are missing!");
-      toast({ title: "Config Error", description: "Keys missing in Vercel.", variant: "destructive" });
     }
   }, [toast]);
 
@@ -109,7 +128,6 @@ const Dashboard = () => {
 
   const handleArchiveMission = async () => {
     if (saveState === "saving" || !user) return;
-    
     if (!generatedHTML) {
       toast({ title: "Nothing to save", description: "Generate a design first!", variant: "destructive" });
       return;
@@ -124,7 +142,6 @@ const Dashboard = () => {
       });
 
       if (error) throw error;
-      
       setSaveState("success");
       toast({ title: "MISSION_ARCHIVED", description: "Saved to cloud successfully." });
       setTimeout(() => setSaveState("idle"), 3000);
@@ -145,8 +162,14 @@ const Dashboard = () => {
     setGeneratedHTML("");
 
     try {
-      const fullPrompt = `${prompt.trim()}. Style: ${designChoice === "minimal" ? "minimalist" : "bold"}.`;
-      const data = await invokeSwiftService({ prompt: fullPrompt, userId: user?.id });
+      const fullPrompt = `${prompt.trim()}. Style: ${designChoice === "minimal" ? "minimalist" : "bold"}. Engine: ${selectedModel.id}`;
+      // Updated to send selected model to service
+      const data = await invokeSwiftService({ 
+        prompt: fullPrompt, 
+        userId: user?.id,
+        model: selectedModel.id 
+      });
+      
       const cleaned = (data.content || "").replace(/```html|```/g, "").trim();
       setGeneratedHTML(cleaned);
 
@@ -161,7 +184,7 @@ const Dashboard = () => {
     } finally {
       setIsGenerating(false);
     }
-  }, [prompt, isGenerating, credits, designChoice, user, deductCredit, refetchCredits, saveProject, toast]);
+  }, [prompt, isGenerating, credits, designChoice, user, selectedModel, deductCredit, refetchCredits, saveProject, toast]);
 
   const sidebarContext: DashboardContext =
     showEditChat && generatedHTML ? "edit" : generatedHTML ? "preview" : "browse";
@@ -199,7 +222,7 @@ const Dashboard = () => {
                 {(!SUPABASE_URL || !SUPABASE_ANON_KEY) && (
                   <div className="flex items-center gap-1 text-red-500 animate-pulse mr-2">
                     <AlertTriangle className="w-4 h-4" />
-                    <span className="text-xs font-bold">AUTH_KEY_MISSING</span>
+                    <span className="text-xs font-bold uppercase">Auth Link Failed</span>
                   </div>
                 )}
                 
@@ -208,7 +231,6 @@ const Dashboard = () => {
                   <span className="text-sm font-bold">{credits ?? "..."}</span>
                 </div>
                 
-                {/* 🚀 THE FIXED BUTTON: Visible even if no HTML, but disabled */}
                 <Button
                   size="sm"
                   className={`font-bold border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all ${
@@ -251,15 +273,77 @@ const Dashboard = () => {
                   <BusinessTypeSelector onSelect={setBusinessType} />
                 ) : !generatedHTML && !isGenerating ? (
                   <div className="max-w-3xl mx-auto w-full space-y-6">
-                    <h2 className="text-3xl font-extrabold text-white text-center bg-black p-4 border-4 border-emerald-500">READY TO LAUNCH</h2>
-                    <div className="flex gap-3 p-2 rounded-2xl bg-secondary/30 border border-white/5 shadow-2xl">
+                    <h2 className="text-3xl font-extrabold text-white text-center bg-black p-4 border-4 border-emerald-500 tracking-tighter uppercase">
+                      Execute New Mission
+                    </h2>
+                    
+                    <div className="flex gap-3 p-3 rounded-2xl bg-secondary/30 border border-white/5 shadow-2xl relative">
+                      
+                      {/* 🚀 NEW AI MODEL SELECTOR */}
+                      <div className="relative flex items-center">
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          onClick={() => setIsModelListOpen(!isModelListOpen)}
+                          className="h-full border-2 border-primary/20 bg-black/40 hover:bg-black/60 flex flex-col items-center justify-center gap-1 min-w-[60px]"
+                        >
+                          <div className="p-1 bg-primary/20 rounded-lg">
+                            {selectedModel.icon}
+                          </div>
+                          <span className="text-[10px] font-black uppercase opacity-60">AI</span>
+                        </Button>
+
+                        {/* Dropdown Menu */}
+                        {isModelListOpen && (
+                          <div className="absolute bottom-full left-0 mb-4 w-64 bg-black border-2 border-emerald-500 shadow-[8px_8px_0px_0px_rgba(16,185,129,0.3)] rounded-xl overflow-hidden z-[200] animate-in fade-in slide-in-from-bottom-2">
+                            <div className="p-3 bg-emerald-500/10 border-b border-emerald-500/20">
+                              <h3 className="text-xs font-black text-emerald-400 uppercase tracking-widest">Select Core Engine</h3>
+                            </div>
+                            <div className="p-1">
+                              {AVAILABLE_MODELS.map((model) => (
+                                <button
+                                  key={model.id}
+                                  onClick={() => {
+                                    setSelectedModel(model);
+                                    setIsModelListOpen(false);
+                                  }}
+                                  className={`w-full flex items-start gap-3 p-3 text-left hover:bg-emerald-500/10 rounded-lg transition-colors ${
+                                    selectedModel.id === model.id ? 'bg-emerald-500/20' : ''
+                                  }`}
+                                >
+                                  <div className="mt-1">{model.icon}</div>
+                                  <div>
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-bold text-sm text-white">{model.name}</span>
+                                      <span className={`text-[8px] px-1 py-0.5 rounded border ${
+                                        model.tier === 'Pro' ? 'border-emerald-500/50 text-emerald-400' : 'border-white/20 text-white/40'
+                                      }`}>
+                                        {model.tier}
+                                      </span>
+                                    </div>
+                                    <p className="text-[10px] text-white/50 leading-tight mt-0.5">{model.description}</p>
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
                       <Textarea 
                         placeholder="Describe your site mission..." 
                         value={prompt} 
                         onChange={(e) => setPrompt(e.target.value)} 
-                        className="min-h-[80px] bg-transparent border-none resize-none text-lg focus-visible:ring-0" 
+                        className="min-h-[80px] bg-transparent border-none resize-none text-lg focus-visible:ring-0 flex-1 pt-4" 
                       />
-                      <Button variant="hero" size="lg" disabled={!prompt.trim()} onClick={() => setShowDecisionFork(true)}>
+                      
+                      <Button 
+                        variant="hero" 
+                        size="lg" 
+                        disabled={!prompt.trim() || isGenerating} 
+                        onClick={() => setShowDecisionFork(true)}
+                        className="self-center"
+                      >
                         <Send className="w-5 h-5" />
                       </Button>
                     </div>
@@ -270,7 +354,12 @@ const Dashboard = () => {
                     <div className="flex items-center justify-between glass p-4 rounded-xl border border-primary/30 shadow-2xl relative z-50">
                       <div className="flex items-center gap-3">
                         {isGenerating ? <Loader2 className="w-5 h-5 animate-spin text-primary" /> : <Check className="w-5 h-5 text-green-500" />}
-                        <span className="text-sm font-black uppercase tracking-widest">{isGenerating ? "ARCHITECTING..." : "DRAFT READY"}</span>
+                        <div className="flex flex-col">
+                          <span className="text-sm font-black uppercase tracking-widest leading-none">
+                            {isGenerating ? "ARCHITECTING..." : "DRAFT READY"}
+                          </span>
+                          <span className="text-[10px] opacity-60 font-mono mt-1">ENGINE: {selectedModel.name.toUpperCase()}</span>
+                        </div>
                       </div>
                       <Button variant="hero" size="sm" onClick={handleNewWebsite}>
                         <RefreshCw className="w-4 h-4 mr-2" /> Reset
