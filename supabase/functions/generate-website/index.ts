@@ -3,11 +3,10 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
 }
 
 serve(async (req) => {
-  // 1. Handle Preflight for CORS
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders })
 
   try {
@@ -16,28 +15,34 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     )
 
-    // 2. Identify the User
-    const authHeader = req.headers.get('Authorization')!
+    // Authenticate user
+    const authHeader = req.headers.get('Authorization')
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: 'Missing Authorization header' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
     const token = authHeader.replace('Bearer ', '')
     const { data: { user } } = await supabaseClient.auth.getUser(token)
 
-    if (!user) throw new Error('Not authenticated')
+    if (!user) {
+      return new Response(JSON.stringify({ error: 'Not authenticated' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
 
-    // 3. Check Trial Credits
-    const { data: profile } = await supabaseClient
-      .from('profiles')
-      .select('credits')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile || profile.credits <= 0) {
+    // Deduct credit atomically using the RPC (checks balance + deducts in one step)
+    const { data: credited, error: creditError } = await supabaseClient.rpc('deduct_credit', { user_id: user.id })
+    if (creditError || !credited) {
       return new Response(JSON.stringify({ error: "No free trials left! Invite a friend to get more." }), {
         status: 403,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
 
-    // 4. Call Google Gemini (The Free Engine)
+    // Call Google Gemini
     const { prompt } = await req.json()
     const apiKey = Deno.env.get('GEMINI_API_KEY')
     
@@ -51,12 +56,6 @@ serve(async (req) => {
 
     const data = await response.json()
     const aiText = data.candidates[0].content.parts[0].text
-
-    // 5. Subtract 1 Credit from their account
-    await supabaseClient
-      .from('profiles')
-      .update({ credits: profile.credits - 1 })
-      .eq('id', user.id)
 
     return new Response(JSON.stringify({ content: aiText }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
