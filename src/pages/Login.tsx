@@ -8,11 +8,6 @@ const Login = () => {
     navigate("/signup", { replace: true });
   }, [navigate]);
 
-
-  options: {
-  redirectTo: `${window.location.origin}/generating`,
-}
-  
   return null;
 };
 
