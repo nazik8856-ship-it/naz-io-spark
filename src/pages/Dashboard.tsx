@@ -487,11 +487,15 @@ const Dashboard = () => {
                     {generatedHTML && !isGenerating && (
                       <div className="relative z-20">
                         {showEditChat ? (
-                          <EditChat onSendEdit={() => {}} isGenerating={false} /> 
+                          <EditChat onSendEdit={async () => {}} isGenerating={false} /> 
                         ) : (
                           <NextStepSuggestions 
                             onEdit={() => setShowEditChat(true)} 
-                            onNewWebsite={handleNewWebsite} 
+                            onPublish={() => {}}
+                            onShare={() => {}}
+                            onDownload={() => {}}
+                            onNewWebsite={handleNewWebsite}
+                            isPublished={false}
                           />
                         )}
                       </div>
