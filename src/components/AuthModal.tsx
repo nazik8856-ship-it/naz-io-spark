@@ -96,7 +96,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
       } else {
         const { error } = await supabase.auth.signInWithOAuth({
           provider,
-          options: { redirectTo: window.location.origin + "/auth/callback" },
+          options: { redirectTo: `${window.location.origin}/generating` },
         });
         if (error) {
           toast({ title: "Sign in failed", description: error.message, variant: "destructive" });
