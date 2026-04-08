@@ -11,6 +11,7 @@ const Signup = lazy(() => import("./pages/Signup"));
 const AuthCallback = lazy(() => import("./pages/AuthCallback"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Generator = lazy(() => import("./pages/Generator"));
+const Generating = lazy(() => import("./pages/Generating"));
 
 const queryClient = new QueryClient();
 
@@ -34,7 +35,7 @@ const App = () => (
             <Route path="/" element={<Workflower />} />
             <Route path="/workflower" element={<Workflower />} />
             <Route path="/workspace" element={<Workspace />} />
-
+            <Route path="/generating" element={<Generating />} />
             {/* Auth Routes */}
             <Route path="/signup" element={<Signup />} />
             <Route path="/login" element={<Signup />} />
