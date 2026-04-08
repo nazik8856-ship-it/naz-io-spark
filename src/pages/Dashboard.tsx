@@ -28,20 +28,113 @@ const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.
 const SWIFT_SERVICE_URL = `${SUPABASE_URL}/functions/v1/swift-service`;
 
 // --- AI MODELS DEFINITION ---
+type AIModelCategory = "Logic" | "Creation" | "Research";
 type AIModel = {
   id: string;
   name: string;
+  openRouterId: string;
   icon: React.ReactNode;
   description: string;
+  role: string;
   tier: "Standard" | "Pro" | "Experimental";
+  category: AIModelCategory;
+  isMediaMode?: boolean;
+};
+
+const CATEGORY_COLORS: Record<AIModelCategory, { neon: string; border: string; bg: string; text: string }> = {
+  Logic:    { neon: "#00f0ff", border: "rgba(0,240,255,0.3)",   bg: "rgba(0,240,255,0.06)",   text: "text-cyan-400" },
+  Creation: { neon: "#c084fc", border: "rgba(192,132,252,0.3)", bg: "rgba(192,132,252,0.06)", text: "text-purple-400" },
+  Research: { neon: "#4ade80", border: "rgba(74,222,128,0.3)",  bg: "rgba(74,222,128,0.06)",  text: "text-green-400" },
 };
 
 const AVAILABLE_MODELS: AIModel[] = [
-  { id: "gpt-4o", name: "GPT-4o", icon: <Sparkles className="w-4 h-4 text-emerald-400" />, description: "Best for complex UI/UX and logic.", tier: "Pro" },
-  { id: "claude-3-opus", name: "Claude 3 Opus", icon: <Brain className="w-4 h-4 text-purple-400" />, description: "Top-tier creative writing & design.", tier: "Pro" },
-  { id: "llama-3-70b", name: "Llama 3", icon: <Cpu className="w-4 h-4 text-blue-400" />, description: "Fast, open-source performance.", tier: "Standard" },
-  { id: "gemini-1.5-pro", name: "Gemini Pro", icon: <Zap className="w-4 h-4 text-amber-400" />, description: "Excellent for long mission context.", tier: "Pro" },
-];
+  // ── LOGIC (Cyan) ──────────────────────────────────────────────────────────
+  {
+    id: "google/gemini-3.1-pro",
+    name: "Gemini 3.1 Pro",
+    openRouterId: "google/gemini-3.1-pro",
+    icon: <Zap className="w-4 h-4 text-cyan-400" />,
+    description: "Best for complex business logic & 1M+ context.",
+    role: "The Brain",
+    tier: "Pro",
+    category: "Logic",
+  },
+  {
+    id: "anthropic/claude-4.6-sonnet",
+    name: "Claude 4.6 Sonnet",
+    openRouterId: "anthropic/claude-4.6-sonnet",
+    icon: <Brain className="w-4 h-4 text-cyan-300" />,
+    description: "Best for writing the actual code for the user's site.",
+    role: "The Architect",
+    tier: "Pro",
+    category: "Logic",
+  },
+  {
+    id: "openai/gpt-5.4",
+    name: "GPT-5.4",
+    openRouterId: "openai/gpt-5.4",
+    icon: <Sparkles className="w-4 h-4 text-cyan-200" />,
+    description: "Best all-rounder for marketing and research.",
+    role: "The Manager",
+    tier: "Pro",
+    category: "Logic",
+  },
+  // ── CREATION (Purple) ─────────────────────────────────────────────────────
+  {
+    id: "google/gemini-3-flash-image",
+    name: "Nano Banana 2.0",
+    openRouterId: "google/gemini-3-flash-image",
+    icon: <Palette className="w-4 h-4 text-purple-400" />,
+    description: "Best for instant high-fidelity image/UI generation.",
+    role: "The Designer",
+    tier: "Experimental",
+    category: "Creation",
+    isMediaMode: true,
+  },
+  {
+    id: "google/veo-3",
+    name: "Google Veo 3",
+    openRouterId: "google/veo-3",
+    icon: <Zap className="w-4 h-4 text-purple-300" />,
+    description: "State-of-the-art video generation model.",
+    role: "The Filmmaker",
+    tier: "Experimental",
+    category: "Creation",
+    isMediaMode: true,
+  },
+  {
+    id: "elevenlabs/tts",
+    name: "ElevenLabs Voice",
+    openRouterId: "elevenlabs/tts",
+    icon: <Cpu className="w-4 h-4 text-purple-200" />,
+    description: "Ultra-realistic AI voice & audio generation.",
+    role: "The Voice",
+    tier: "Experimental",
+    category: "Creation",
+    isMediaMode: true,
+  },
+  // ── RESEARCH (Green) ──────────────────────────────────────────────────────
+  {
+    id: "x-ai/grok-4.20",
+    name: "Grok 4.20",
+    openRouterId: "x-ai/grok-4.20",
+    icon: <Zap className="w-4 h-4 text-green-400" />,
+    description: "Best for real-time news and viral content.",
+    role: "The Trendsetter",
+    tier: "Pro",
+    category: "Research",
+  },
+  {
+    id: "google/notebooklm",
+    name: "NotebookLM",
+    openRouterId: "google/notebooklm",
+    icon: <Brain className="w-4 h-4 text-green-300" />,
+    description: "Deep research synthesis from your documents.",
+    role: "The Analyst",
+    tier: "Standard",
+    category: "Research",
+  },
+];;
 
 async function invokeSwiftService(body: Record<string, unknown>) {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
@@ -294,36 +387,50 @@ const Dashboard = () => {
                         </Button>
 
                         {isModelListOpen && (
-                          <div className="absolute bottom-full left-0 mb-4 w-64 bg-black border-2 border-emerald-500 shadow-[8px_8px_0px_0px_rgba(16,185,129,0.3)] rounded-xl overflow-hidden z-[200] animate-in fade-in slide-in-from-bottom-2">
-                            <div className="p-3 bg-emerald-500/10 border-b border-emerald-500/20">
-                              <h3 className="text-xs font-black text-emerald-400 uppercase tracking-widest">Select Core Engine</h3>
+                          <div className="absolute bottom-full left-0 mb-4 w-72 bg-[#050a14] border border-white/10 shadow-[0_0_40px_rgba(0,0,0,0.8)] rounded-2xl overflow-hidden z-[200] animate-in fade-in slide-in-from-bottom-2">
+                            <div className="p-3 border-b border-white/5">
+                              <h3 className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em]">Select Core Engine</h3>
                             </div>
-                            <div className="p-1">
-                              {AVAILABLE_MODELS.map((model) => (
-                                <button
-                                  key={model.id}
-                                  onClick={() => {
-                                    setSelectedModel(model);
-                                    setIsModelListOpen(false);
-                                  }}
-                                  className={`w-full flex items-start gap-3 p-3 text-left hover:bg-emerald-500/10 rounded-lg transition-colors ${
-                                    selectedModel.id === model.id ? 'bg-emerald-500/20' : ''
-                                  }`}
-                                >
-                                  <div className="mt-1">{model.icon}</div>
-                                  <div>
-                                    <div className="flex items-center gap-2">
-                                      <span className="font-bold text-sm text-white">{model.name}</span>
-                                      <span className={`text-[8px] px-1 py-0.5 rounded border ${
-                                        model.tier === 'Pro' ? 'border-emerald-500/50 text-emerald-400' : 'border-white/20 text-white/40'
-                                      }`}>
-                                        {model.tier}
-                                      </span>
+                            <div className="p-2 space-y-3 max-h-[420px] overflow-y-auto">
+                              {(["Logic", "Creation", "Research"] as AIModelCategory[]).map((cat) => {
+                                const cc = CATEGORY_COLORS[cat];
+                                const catModels = AVAILABLE_MODELS.filter((m) => m.category === cat);
+                                return (
+                                  <div key={cat}>
+                                    <div className="flex items-center gap-2 px-2 py-1 mb-1">
+                                      <div className="w-1.5 h-1.5 rounded-full" style={{ background: cc.neon, boxShadow: `0 0 6px ${cc.neon}` }} />
+                                      <span className="text-[9px] font-black uppercase tracking-[0.2em]" style={{ color: cc.neon }}>{cat}</span>
                                     </div>
-                                    <p className="text-[10px] text-white/50 leading-tight mt-0.5">{model.description}</p>
+                                    {catModels.map((model) => (
+                                      <button
+                                        key={model.id}
+                                        onClick={() => { setSelectedModel(model); setIsModelListOpen(false); }}
+                                        className="w-full flex items-start gap-3 p-2.5 text-left rounded-xl transition-all mb-0.5"
+                                        style={{
+                                          background: selectedModel.id === model.id ? cc.bg : "transparent",
+                                          border: `1px solid ${selectedModel.id === model.id ? cc.border : "transparent"}`,
+                                        }}
+                                      >
+                                        <div className="mt-0.5 flex-shrink-0">{model.icon}</div>
+                                        <div className="flex-1 min-w-0">
+                                          <div className="flex items-center gap-2 flex-wrap">
+                                            <span className="font-bold text-xs text-white">{model.name}</span>
+                                            <span className="text-[8px] px-1.5 py-0.5 rounded-full font-bold" style={{ background: cc.bg, color: cc.neon, border: `1px solid ${cc.border}` }}>
+                                              {model.role}
+                                            </span>
+                                            {model.isMediaMode && (
+                                              <span className="text-[8px] px-1.5 py-0.5 rounded-full font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                                                Media Generation Mode
+                                              </span>
+                                            )}
+                                          </div>
+                                          <p className="text-[10px] text-white/40 leading-tight mt-0.5 truncate">{model.description}</p>
+                                        </div>
+                                      </button>
+                                    ))}
                                   </div>
-                                </button>
-                              ))}
+                                );
+                              })}
                             </div>
                           </div>
                         )}
