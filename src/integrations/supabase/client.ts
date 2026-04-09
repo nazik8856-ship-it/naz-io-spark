@@ -2,14 +2,26 @@
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "./types";
 
-// ─── Guard: fail fast with a clear message if env vars are missing ────────────
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+// ─── Resolve env vars ─────────────────────────────────────────────────────────
+// Supports both VITE_SUPABASE_ANON_KEY (new) and VITE_SUPABASE_PUBLISHABLE_KEY
+// (legacy Lovable name) so the app never hard-crashes due to a name mismatch.
+const SUPABASE_URL =
+  import.meta.env.VITE_SUPABASE_URL ||
+  "https://placeholder.supabase.co"; // safe fallback — prevents createClient throw
 
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-  throw new Error(
-    "[NazAI] Missing Supabase env vars. " +
-      "Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your .env and in Vercel.",
+const SUPABASE_ANON_KEY =
+  import.meta.env.VITE_SUPABASE_ANON_KEY ||
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+  "placeholder-anon-key"; // safe fallback — prevents createClient throw
+
+if (
+  !import.meta.env.VITE_SUPABASE_URL ||
+  (!import.meta.env.VITE_SUPABASE_ANON_KEY && !import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY)
+) {
+  console.warn(
+    "[NazAI] Supabase env vars not detected. " +
+      "Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Vercel → Settings → Environment Variables. " +
+      "The UI will still render but database calls will fail until this is fixed.",
   );
 }
 
