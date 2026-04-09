@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Auth as SupabaseAuth } from "@supabase/auth-ui-react";
-import { ThemeSymmetry } from "@supabase/auth-ui-shared";
+import { ThemeSupa } from "@supabase/auth-ui-shared";
 import { supabase } from "@/integrations/supabase/client";
 
 const Auth = () => {
@@ -31,7 +31,7 @@ const Auth = () => {
         <SupabaseAuth
           supabaseClient={supabase}
           appearance={{
-            theme: ThemeSymmetry,
+            theme: ThemeSupa,
             variables: {
               default: {
                 colors: {
