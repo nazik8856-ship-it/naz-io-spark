@@ -31,7 +31,7 @@ const Auth = () => {
         <SupabaseAuth
           supabaseClient={supabase}
           appearance={{
-            theme: ThemeSymmetry,
+            theme: ThemeSupa,
             variables: {
               default: {
                 colors: {
