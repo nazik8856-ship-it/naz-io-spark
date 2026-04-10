@@ -6,209 +6,307 @@
 @tailwind utilities;
 
 @layer base {
-  :root {
-    /* Deep Space Palette */
-    --background: 240 10% 2%;
-    --foreground: 210 20% 98%;
-    --card: 220 18% 3%;
-    --card-foreground: 210 20% 98%;
-    --popover: 220 18% 8%;
-    --popover-foreground: 210 20% 98%;
-
-    /* NazAI Signature: Emerald to Cyan */
-    --primary: 142 100% 50%;
-    --primary-foreground: 220 20% 4%;
-    --secondary: 220 15% 15%;
-    --secondary-foreground: 210 20% 98%;
-    --muted: 240 5% 10%;
-    --muted-foreground: 215 15% 55%;
-    --accent: 175 80% 50%;
-    --accent-foreground: 220 20% 4%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 210 20% 98%;
-    --border: 0 0% 15%;
-    --input: 220 15% 18%;
-    --ring: 175 80% 50%;
-    --radius: 0.75rem;
-
-    /* NazAI Signature Accents */
-    --nazai-gold: #d4af37;
-    --nazai-cyan-glow: #00f2ff;
-    --nazai-glass: rgba(11, 31, 58, 0.45);
-
-    /* Tech Stack Fonts */
-    --font-display: "Space Grotesk", sans-serif;
-    --font-mono: "JetBrains Mono", monospace;
-  }
+    :root {
+          --background:          240 10%  2%;
+          --foreground:          210 20% 98%;
+          --card:                220 18%  3%;
+          --card-foreground:     210 20% 98%;
+          --popover:             220 18%  8%;
+          --popover-foreground:  210 20% 98%;
+          --primary:             142 100% 50%;
+          --primary-foreground:  220  20%  4%;
+          --secondary:           220  15% 15%;
+          --secondary-foreground:210  20% 98%;
+          --muted:               240   5% 10%;
+          --muted-foreground:    215  15% 55%;
+          --accent:              175  80% 50%;
+          --accent-foreground:   220  20%  4%;
+          --destructive:           0  84% 60%;
+          --destructive-foreground:210 20% 98%;
+          --border:                0   0% 15%;
+          --input:               220  15% 18%;
+          --ring:                175  80% 50%;
+          --radius:              0.75rem;
+          --nazai-gold:          #D4AF37;
+          --nazai-cyan-glow:     #00F2FF;
+          --nazai-glass:         rgba(11, 31, 58, 0.45);
+          --nazai-beat:          4s;
+          --nazai-half-beat:     calc(var(--nazai-beat) / 2);
+          --nazai-double-beat:   calc(var(--nazai-beat) * 2);
+          --font-display: "Space Grotesk", sans-serif;
+          --font-mono:    "JetBrains Mono", monospace;
+    }
 
   * {
-    @apply border-border;
+        @apply border-border;
   }
 
   body {
-    margin: 0;
-    /* THE THERMAL GRADIENT */
-    background: linear-gradient(180deg, #0a192f 0%, #1a0b0b 100%);
-    color: white;
-    min-height: 100vh;
-    background-attachment: fixed;
-    background-image:
-      linear-gradient(180deg, #0a192f 0%, #1a0b0b 100%),
-      url("https://www.transparenttextures.com/patterns/carbon-fibre.png");
-    position: relative;
-    overflow-x: hidden;
+        margin: 0;
+        color: white;
+        min-height: 100vh;
+        overflow-x: hidden;
+        position: relative;
+        background-color: #0a192f;
+        background-image:
+                linear-gradient(180deg, #0a192f 0%, #1a0b0b 100%),
+                url("https://www.transparenttextures.com/patterns/carbon-fibre.png");
+        background-attachment: fixed, scroll;
+        background-blend-mode: normal, overlay;
   }
 
-  /* ── THE NAZ-OS SCANLINE OVERLAY ── */
   body::before {
-    content: " ";
-    display: block;
-    position: fixed;
-    top: 0;
-    left: 0;
-    bottom: 0;
-    right: 0;
-    background:
-      linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.1) 50%),
-      linear-gradient(90deg, rgba(212, 175, 55, 0.02), rgba(0, 242, 255, 0.01), rgba(212, 175, 55, 0.02));
-    z-index: 9999; /* Top Layer */
-    background-size:
-      100% 3px,
-      3px 100%;
-    pointer-events: none; /* Allows clicks to pass through */
-    opacity: 0.65;
+        content: "";
+        display: block;
+        position: fixed;
+        inset: 0;
+        background:
+                linear-gradient(
+                          rgba(18, 16, 16, 0) 50%,
+                          rgba(0, 0, 0, 0.08) 50%
+                        ),
+                linear-gradient(
+                          90deg,
+                          rgba(212, 175, 55, 0.018),
+                          rgba(0, 242, 255, 0.009),
+                          rgba(212, 175, 55, 0.018)
+                        );
+        background-size: 100% 3px, 3px 100%;
+        z-index: 10000;
+        pointer-events: none;
+        opacity: 0.6;
+        will-change: transform;
+  }
+
+  @media (max-width: 768px) {
+        body::before {
+                opacity: 0.35;
+                background-size: 100% 4px, 4px 100%;
+        }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+        body::before {
+                display: none;
+        }
   }
 
   html {
-    scroll-behavior: smooth;
+        scroll-behavior: smooth;
   }
 }
 
 @layer utilities {
-  /* --- INNOVATIVE LASER SYSTEM --- */
+
   @keyframes laser-rotate {
-    from {
-      transform: rotate(0deg);
-    }
-    to {
-      transform: rotate(360deg);
-    }
+        from { transform: rotate(0deg); }
+        to   { transform: rotate(360deg); }
   }
 
   .laser-border {
-    position: relative;
-    overflow: hidden;
-    background: #050505;
-    border-radius: 16px;
-    padding: 1.5px;
+        position: relative;
+        overflow: hidden;
+        background: #050505;
+        border-radius: 16px;
+        padding: 1.5px;
+        box-shadow:
+                0   0  60px -10px rgba(212, 175, 55,  0.20),
+                0   0  25px  -4px rgba(0,   242, 255, 0.18),
+                0   0   8px   0px rgba(0,   242, 255, 0.30);
+        transition: box-shadow 0.3s ease;
+  }
+
+  .laser-border:hover {
+        box-shadow:
+                0   0  80px -10px rgba(212, 175, 55,  0.35),
+                0   0  35px  -4px rgba(0,   242, 255, 0.30),
+                0   0  12px   0px rgba(0,   242, 255, 0.50);
   }
 
   .laser-border::before {
-    content: "";
-    position: absolute;
-    width: 250%;
-    height: 250%;
-    background: conic-gradient(from 0deg, transparent 60%, #10b981 80%, #0ff 90%, transparent 100%);
-    animation: laser-rotate 4s linear infinite;
-    top: -75%;
-    left: -75%;
-    z-index: 0;
+        content: "";
+          position: absolute;
+        width: 250%;
+        height: 250%;
+        top: -75%;
+        left: -75%;
+        z-index: 0;
+        background: conic-gradient(
+                from 0deg,
+                transparent          60%,
+                var(--nazai-gold)    75%,
+                var(--nazai-cyan-glow) 88%,
+                transparent         100%
+              );
+        animation: laser-rotate var(--nazai-beat) linear infinite;
   }
 
   .laser-content {
-    position: relative;
-    z-index: 1;
-    background: #050505;
-    border-radius: 15px;
-    height: 100%;
-    width: 100%;
+        position: relative;
+        z-index: 1;
+        background: #050505;
+        border-radius: 15px;
+        height: 100%;
+        width: 100%;
   }
 
-  /* --- MODERN UI & HUD UTILITIES --- */
   .text-gradient {
-    @apply bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-cyan-400;
+        @apply bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-cyan-400;
   }
 
   .hud-glass {
-    background: var(--nazai-glass) !important;
-    backdrop-filter: blur(16px) saturate(180%) !important;
-    border: 1px solid rgba(212, 175, 55, 0.25) !important;
-    box-shadow: 0 0 30px rgba(0, 242, 255, 0.05);
+        background: var(--nazai-glass) !important;
+        backdrop-filter: blur(16px) saturate(180%) !important;
+        -webkit-backdrop-filter: blur(16px) saturate(180%) !important;
+        border: 1px solid rgba(212, 175, 55, 0.28) !important;
+        box-shadow:
+                0    8px  48px -8px  rgba(212, 175, 55,  0.15),
+                0    0   30px -4px  rgba(0,   242, 255, 0.12),
+                0    0    8px  0px  rgba(0,   242, 255, 0.22),
+                inset 0  1px  0px  rgba(255, 255, 255, 0.06) !important;
+        transition: box-shadow 0.3s ease, border-color 0.3s ease;
   }
 
-  /* Breathing Status for 'SYNCHRONIZED' */
+  .hud-glass:hover {
+        border-color: rgba(212, 175, 55, 0.50) !important;
+        box-shadow:
+                0    8px  64px -8px  rgba(212, 175, 55,  0.25),
+                0    0   40px -4px  rgba(0,   242, 255, 0.20),
+                0    0   12px  0px  rgba(0,   242, 255, 0.35),
+                inset 0  1px  0px  rgba(255, 255, 255, 0.10) !important;
+  }
+
   @keyframes nazai-breathe {
-    0% {
-      opacity: 0.6;
-      filter: drop-shadow(0 0 2px var(--nazai-cyan-glow));
-    }
-    50% {
-      opacity: 1;
-      filter: drop-shadow(0 0 12px var(--nazai-cyan-glow));
-    }
-    100% {
-      opacity: 0.6;
-      filter: drop-shadow(0 0 2px var(--nazai-cyan-glow));
-    }
+        0%, 100% {
+                opacity: 0.6;
+                box-shadow: 0 0 4px rgba(0, 242, 255, 0.3);
+        }
+        50% {
+                opacity: 1;
+                box-shadow:
+                          0 0 16px rgba(0, 242, 255, 0.75),
+                          0 0 32px rgba(0, 242, 255, 0.25);
+        }
+  }
+
+  @keyframes nazai-breathe-icon {
+        0%, 100% {
+                opacity: 0.6;
+                filter: drop-shadow(0 0 2px rgba(0, 242, 255, 0.4));
+        }
+        50% {
+                opacity: 1;
+                filter: drop-shadow(0 0 10px rgba(0, 242, 255, 0.9));
+        }
+  }
+
+  @keyframes nazai-breathe-gold {
+        0%, 100% {
+                opacity: 0.55;
+                box-shadow: 0 0 4px rgba(212, 175, 55, 0.25);
+        }
+        50% {
+                opacity: 1;
+                box-shadow:
+                          0 0 16px rgba(212, 175, 55, 0.6),
+                          0 0 32px rgba(212, 175, 55, 0.2);
+        }
   }
 
   .status-pulse {
-    animation: nazai-breathe 4s ease-in-out infinite;
-    color: var(--nazai-cyan-glow) !important;
-    font-family: var(--font-mono);
-    letter-spacing: 0.05em;
+        animation: nazai-breathe var(--nazai-beat) ease-in-out infinite;
+        color: var(--nazai-cyan-glow) !important;
+        font-family: var(--font-mono);
+        letter-spacing: 0.05em;
+  }
+
+  .status-pulse-gold {
+        animation: nazai-breathe-gold var(--nazai-beat) ease-in-out infinite;
+        color: var(--nazai-gold) !important;
+        font-family: var(--font-mono);
+        letter-spacing: 0.05em;
+  }
+
+  .status-pulse-icon {
+        animation: nazai-breathe-icon var(--nazai-beat) ease-in-out infinite;
+        color: var(--nazai-cyan-glow) !important;
+  }
+
+  .status-pulse-offset {
+        animation: nazai-breathe var(--nazai-beat) ease-in-out infinite;
+        animation-delay: calc(var(--nazai-beat) / -2);
+        color: var(--nazai-cyan-glow) !important;
+        font-family: var(--font-mono);
+  }
+
+  .btn-glitch {
+        transition: box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+                          transform   0.2s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   .btn-glitch:hover {
-    box-shadow:
-      0 0 20px rgba(212, 175, 55, 0.4),
-      -3px 0px 0px var(--nazai-cyan-glow);
-    transform: translateY(-1px);
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        box-shadow:
+                0 0 20px rgba(212, 175, 55, 0.4),
+                -3px 0px 0px var(--nazai-cyan-glow);
+        transform: translateY(-1px);
   }
 
   .glass {
-    @apply bg-card/40 backdrop-blur-xl border border-white/5;
+        @apply bg-card/40 backdrop-blur-xl border border-white/5;
   }
 
   .glow-primary {
-    box-shadow: 0 0 60px -15px rgba(16, 185, 129, 0.4);
+        box-shadow: 0 0 60px -15px rgba(16, 185, 129, 0.4);
+  }
+
+  @keyframes section-rise {
+        from {
+                opacity: 0;
+                transform: translateY(30px);
+        }
+        to {
+                opacity: 1;
+                transform: translateY(0);
+        }
   }
 
   .animate-section-enter {
-    opacity: 0;
-    transform: translateY(30px);
-    animation: section-rise 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        opacity: 0;
+        transform: translateY(30px);
+        animation: section-rise 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+        .animate-section-enter {
+                animation: none;
+                opacity: 1;
+                transform: none;
+        }
+        .status-pulse,
+        .status-pulse-gold,
+        .status-pulse-icon,
+        .status-pulse-offset,
+        .laser-border::before {
+                animation: none;
+        }
   }
 }
 
-/* ── SCROLLBAR ── */
-::-webkit-scrollbar {
-  width: 4px;
+::-webkit-scrollbar         { width: 4px; }
+::-webkit-scrollbar-track   { background: transparent; }
+::-webkit-scrollbar-thumb   {
+    background: rgba(212, 175, 55, 0.3);
+    border-radius: 10px;
 }
-::-webkit-scrollbar-thumb {
-  background: #111;
-  border-radius: 10px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: #10b981;
-}
+::-webkit-scrollbar-thumb:hover { background: var(--nazai-cyan-glow); }
 
-@keyframes section-rise {
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* ── THE NAZ-OS GLOBAL OVERRIDE ── */
 .force-layer-save {
-  position: fixed !important;
-  top: 40px !important;
-  right: 40px !important;
-  z-index: 999999 !important;
-  visibility: visible !important;
-  opacity: 1 !important;
-  pointer-events: auto !important;
-  display: flex !important;
+    position:      fixed      !important;
+    top:           40px       !important;
+    right:         40px       !important;
+    z-index:       999999     !important;
+    visibility:    visible    !important;
+    opacity:       1          !important;
+    pointer-events:auto       !important;
+    display:       flex       !important;
 }
