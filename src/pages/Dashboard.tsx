@@ -153,7 +153,10 @@ export default function Dashboard() {
     setMessages((prev) => [
       ...prev,
       { role: "user", text: trimmed },
-      { role: "ai", text: `[${activeTool?.tool.name ?? "NazAI"} // ${selectedModel ?? "default"}] — Processing...` },
+      {
+        role: "ai",
+        text: `[${activeTool?.tool.name ?? "NazAI"} // ${selectedModel ?? "default"}] — Node processing signal recognized. Executing workflow...`,
+      },
     ]);
     setInput("");
   }
@@ -183,12 +186,10 @@ export default function Dashboard() {
         style={{ borderRight: `1px solid rgba(${glowRgba},0.12)`, background: "#020617" }}
       >
         <div className="flex flex-col items-center w-16 py-6 h-full">
-          {/* Logo */}
           <div className="mb-8">
             <Zap size={20} style={{ color: borderColor, filter: `drop-shadow(0 0 6px rgba(${glowRgba},0.6))` }} />
           </div>
 
-          {/* Nav */}
           <nav className="flex flex-col gap-1 flex-1">
             {NAV_ITEMS.map(({ icon: Icon, label }) => (
               <button
@@ -206,7 +207,6 @@ export default function Dashboard() {
             ))}
           </nav>
 
-          {/* User */}
           <div className="flex flex-col items-center gap-2 mt-auto">
             {userEmail && (
               <div
@@ -235,7 +235,6 @@ export default function Dashboard() {
 
       {/* ═══════════════════════ MAIN ═══════════════════════ */}
       <main className="flex flex-col flex-1 min-w-0 relative">
-        {/* ── HEADER ──────────────────────────────────────────── */}
         <header
           className="flex items-center justify-between px-5 py-3 shrink-0 backdrop-blur-md"
           style={{ borderBottom: `1px solid rgba(${glowRgba},0.1)`, background: "rgba(2,6,23,0.92)" }}
@@ -256,9 +255,14 @@ export default function Dashboard() {
             </span>
             <ChevronRight size={10} style={{ color: `rgba(${glowRgba},0.25)` }} />
             {activeTool && activeNav === "Home" && (
-              <span className="text-[11px] tracking-[0.1em]" style={{ color: activeTool.category.color }}>
+              <motion.span
+                initial={{ opacity: 0, x: -4 }}
+                animate={{ opacity: 1, x: 0 }}
+                className="text-[11px] tracking-[0.1em]"
+                style={{ color: activeTool.category.color }}
+              >
                 {activeTool.tool.name}
-              </span>
+              </motion.span>
             )}
           </div>
           <div className="flex items-center gap-3">
@@ -279,11 +283,9 @@ export default function Dashboard() {
           </div>
         </header>
 
-        {/* ── WORKSPACE (CONDITIONAL RENDERING ADDED HERE) ────────── */}
         <div className="flex-1 flex flex-col items-center overflow-hidden relative px-4">
           {activeNav === "Home" ? (
             <>
-              {/* Message Feed */}
               <div className="flex-1 w-full max-w-2xl overflow-y-auto py-8 space-y-4 scrollbar-thin">
                 {messages.length === 0 && (
                   <div className="flex flex-col items-center justify-center h-full gap-6 text-center select-none">
@@ -301,7 +303,7 @@ export default function Dashboard() {
                         WORKFLOW ANIMATOR READY
                       </p>
                       <p className="text-[11px] mt-2" style={{ color: "rgba(255,255,255,0.2)" }}>
-                        Select an AI engine below, then describe your workflow.
+                        Select an AI engine below, then describe your mission.
                       </p>
                     </div>
                   </div>
@@ -332,7 +334,6 @@ export default function Dashboard() {
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* ── ACTIVE TOOL CHIP + MEDIA BADGE ──────────────── */}
               <AnimatePresence>
                 {activeTool && (
                   <motion.div
@@ -354,14 +355,14 @@ export default function Dashboard() {
                       </span>
                     )}
                     <span
-                      className="text-[10px] tracking-[0.1em] px-2.5 py-1 rounded flex items-center gap-1.5 cursor-pointer ml-auto"
+                      className="text-[10px] tracking-[0.1em] px-2.5 py-1 rounded flex items-center gap-1.5 cursor-pointer ml-auto hover:brightness-125 transition-all"
                       style={{
                         background: `rgba(${activeTool.category.glowRgba},0.1)`,
                         border: `1px solid rgba(${activeTool.category.glowRgba},0.35)`,
                         color: activeTool.category.color,
                       }}
                       onClick={() => setSelectedModel(null)}
-                      title="Click to deselect"
+                      title="Deselect Engine"
                     >
                       {activeTool.tool.name}
                       <X size={10} />
@@ -370,7 +371,6 @@ export default function Dashboard() {
                 )}
               </AnimatePresence>
 
-              {/* ── INPUT AREA ──────────────────────────────────── */}
               <div className="w-full max-w-2xl mb-6 relative">
                 <div
                   className="relative rounded-xl transition-all duration-300"
@@ -384,7 +384,6 @@ export default function Dashboard() {
                     ["--glow-color" as string]: `rgba(${glowRgba},0.4)`,
                   }}
                 >
-                  {/* + Tool Button */}
                   <button
                     onClick={() => setDrawerOpen((v) => !v)}
                     className="absolute left-3 bottom-3.5 w-7 h-7 rounded-full flex items-center justify-center z-10 transition-all duration-200"
@@ -407,7 +406,7 @@ export default function Dashboard() {
                     onKeyDown={handleKeyDown}
                     placeholder={
                       activeTool
-                        ? `Ask ${activeTool.tool.name} anything... (↵ to send)`
+                        ? `Mission for ${activeTool.tool.name}... (↵ to send)`
                         : "Describe your system mission... (↵ to send)"
                     }
                     rows={1}
@@ -415,7 +414,6 @@ export default function Dashboard() {
                     style={{ padding: "14px 48px 14px 52px", color: "#e2e8f0", caretColor: borderColor }}
                   />
 
-                  {/* Send */}
                   <button
                     onClick={handleSend}
                     disabled={!input.trim()}
@@ -430,28 +428,30 @@ export default function Dashboard() {
                   </button>
                 </div>
 
-                {/* Hint */}
                 <p
                   className="text-center text-[10px] mt-2 tracking-[0.08em]"
                   style={{ color: "rgba(255,255,255,0.15)" }}
                 >
-                  {selectedModel ? `ENGINE // ${selectedModel}` : "NO ENGINE SELECTED — CLICK + TO CHOOSE"}
+                  {selectedModel ? `SYSTEM_NODE // ${selectedModel}` : "NO ENGINE SELECTED — CLICK + TO CHOOSE"}
                 </p>
               </div>
             </>
           ) : (
-            <div className="flex flex-col items-center justify-center h-full text-center">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="flex flex-col items-center justify-center h-full text-center"
+            >
               <p className="text-[13px] tracking-[0.2em] mb-2" style={{ color: borderColor }}>
                 {activeNav.toUpperCase()}_SECTION
               </p>
               <p className="text-[11px]" style={{ color: "rgba(255,255,255,0.2)" }}>
                 System node currently under construction.
               </p>
-            </div>
+            </motion.div>
           )}
         </div>
 
-        {/* ── FOOTER ─────────────────────────────────────────── */}
         <footer
           className="flex items-center justify-between px-6 py-2 shrink-0"
           style={{ borderTop: `1px solid rgba(${glowRgba},0.1)`, background: "rgba(2,6,23,0.92)" }}
@@ -478,7 +478,6 @@ export default function Dashboard() {
       <AnimatePresence>
         {drawerOpen && (
           <>
-            {/* Backdrop */}
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -488,7 +487,6 @@ export default function Dashboard() {
               style={{ background: "rgba(0,0,0,0.4)" }}
             />
 
-            {/* Panel */}
             <motion.div
               initial={{ opacity: 0, y: 20, scale: 0.97 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -507,7 +505,6 @@ export default function Dashboard() {
                 boxShadow: `0 0 60px rgba(0,0,0,0.7), 0 0 40px rgba(${glowRgba},0.06)`,
               }}
             >
-              {/* Header */}
               <div
                 className="flex items-center justify-between px-4 py-3"
                 style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}
@@ -520,7 +517,6 @@ export default function Dashboard() {
                 </button>
               </div>
 
-              {/* Categories */}
               <div className="p-4 flex flex-col gap-5">
                 {Object.entries(AI_CATEGORIES).map(([catKey, cat], catIdx) => (
                   <motion.div
@@ -529,7 +525,6 @@ export default function Dashboard() {
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: catIdx * 0.06, duration: 0.25 }}
                   >
-                    {/* Category label */}
                     <div className="flex items-center gap-2 mb-2">
                       <div className="w-4 h-px opacity-50" style={{ background: cat.color }} />
                       <span className="text-[9px] tracking-[0.2em]" style={{ color: cat.color }}>
@@ -541,7 +536,6 @@ export default function Dashboard() {
                       />
                     </div>
 
-                    {/* Tool Grid */}
                     <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${cat.tools.length}, 1fr)` }}>
                       {cat.tools.map((tool, toolIdx) => {
                         const Icon = tool.icon;
@@ -596,12 +590,16 @@ export default function Dashboard() {
         )}
       </AnimatePresence>
 
-      {/* ═══════════════════════ GLOBAL KEYFRAMES ═══════════════════════ */}
       <style>{`
         @keyframes border-pulse {
           0%, 100% { box-shadow: 0 0 0 1px var(--glow-color), 0 0 16px var(--glow-color); }
           50%       { box-shadow: 0 0 0 1px var(--glow-color), 0 0 30px var(--glow-color); }
         }
+        @keyframes status-pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.4; }
+        }
+        .animate-status-pulse { animation: status-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
         textarea::placeholder { color: rgba(255,255,255,0.18) !important; }
         textarea { scrollbar-width: none; }
         textarea::-webkit-scrollbar { display: none; }
