@@ -15,7 +15,7 @@
     --popover: 220 18% 8%;
     --popover-foreground: 210 20% 98%;
 
-    /* NazAI Signature: Emerald (142) to Cyan (175) */
+    /* NazAI Signature: Emerald to Cyan */
     --primary: 142 100% 50%;
     --primary-foreground: 220 20% 4%;
     --secondary: 220 15% 15%;
@@ -31,7 +31,7 @@
     --ring: 175 80% 50%;
     --radius: 0.75rem;
 
-    /* NazAI Advanced Accents */
+    /* NazAI Signature Accents */
     --nazai-gold: #d4af37;
     --nazai-cyan-glow: #00f2ff;
     --nazai-glass: rgba(11, 31, 58, 0.45);
@@ -47,19 +47,19 @@
 
   body {
     margin: 0;
-    /* THE THERMAL GRADIENT: Professional Blue to Industrial Red */
+    /* THE THERMAL GRADIENT */
     background: linear-gradient(180deg, #0a192f 0%, #1a0b0b 100%);
     color: white;
     min-height: 100vh;
     background-attachment: fixed;
-    /* Add a subtle "Noise" texture and Naz-OS Overlay */
     background-image:
       linear-gradient(180deg, #0a192f 0%, #1a0b0b 100%),
       url("https://www.transparenttextures.com/patterns/carbon-fibre.png");
     position: relative;
+    overflow-x: hidden;
   }
 
-  /* --- NAZ-OS SCANLINE OVERLAY --- */
+  /* ── THE NAZ-OS SCANLINE OVERLAY ── */
   body::before {
     content: " ";
     display: block;
@@ -71,11 +71,11 @@
     background:
       linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.1) 50%),
       linear-gradient(90deg, rgba(212, 175, 55, 0.02), rgba(0, 242, 255, 0.01), rgba(212, 175, 55, 0.02));
-    z-index: 9999;
+    z-index: 9999; /* Top Layer */
     background-size:
       100% 3px,
       3px 100%;
-    pointer-events: none;
+    pointer-events: none; /* Allows clicks to pass through */
     opacity: 0.65;
   }
 
@@ -129,10 +129,9 @@
     @apply bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-cyan-400;
   }
 
-  /* Enhanced HUD Glass Container */
   .hud-glass {
     background: var(--nazai-glass) !important;
-    backdrop-filter: blur(16px) saturate(180%);
+    backdrop-filter: blur(16px) saturate(180%) !important;
     border: 1px solid rgba(212, 175, 55, 0.25) !important;
     box-shadow: 0 0 30px rgba(0, 242, 255, 0.05);
   }
@@ -160,7 +159,6 @@
     letter-spacing: 0.05em;
   }
 
-  /* Hover Glitch for Industrial Buttons */
   .btn-glitch:hover {
     box-shadow:
       0 0 20px rgba(212, 175, 55, 0.4),
@@ -177,7 +175,6 @@
     box-shadow: 0 0 60px -15px rgba(16, 185, 129, 0.4);
   }
 
-  /* Entrance Animations */
   .animate-section-enter {
     opacity: 0;
     transform: translateY(30px);
@@ -185,7 +182,7 @@
   }
 }
 
-/* Scrollbar Customization */
+/* ── SCROLLBAR ── */
 ::-webkit-scrollbar {
   width: 4px;
 }
