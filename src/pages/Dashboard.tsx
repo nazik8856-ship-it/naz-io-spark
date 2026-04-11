@@ -2,29 +2,13 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Plus,
-  X,
-  Send,
-  Brain,
-  Building2,
-  Briefcase,
-  Image,
-  Video,
-  Mic,
-  BookOpen,
-  TrendingUp,
-  Home,
-  MessageSquare,
-  Settings,
-  LogOut,
-  History,
-  Zap,
-  Shield,
-  ChevronRight,
-  Layers,
-  PanelLeftClose,
-  PanelLeft,
+  Plus, X, Send, Brain, Building2, Briefcase, Image, Video, Mic,
+  BookOpen, TrendingUp, Home, MessageSquare, Settings, LogOut,
+  History, Zap, Shield, ChevronRight, Layers, PanelLeftClose, PanelLeft,
+  Paperclip, Lightbulb, Bug, HeartPulse, Database, Globe, Github,
+  Search, CheckCircle2, Feather, ChevronDown,
 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 
 // ─── Tool Registry ──────────────────────────────────────────────────────────────
 
@@ -59,13 +43,7 @@ const AI_CATEGORIES: Record<string, Category> = {
     glowRgba: "168,85,247",
     label: "CREATION",
     tools: [
-      {
-        id: "google/gemini-3-flash-image",
-        name: "Nano Banana 2.0",
-        subtitle: "The Designer",
-        icon: Image,
-        isMedia: true,
-      },
+      { id: "google/gemini-3-flash-image", name: "Nano Banana 2.0", subtitle: "The Designer", icon: Image, isMedia: true },
       { id: "google/veo-3", name: "Google Veo 3", subtitle: "The Cinematographer", icon: Video, isMedia: true },
       { id: "elevenlabs/lyria", name: "ElevenLabs Lyria", subtitle: "The Voice", icon: Mic, isMedia: true },
     ],
@@ -100,18 +78,37 @@ const NAV_ITEMS = [
   { icon: Settings, label: "Settings" },
 ];
 
+const STYLES = ["Technical", "Creative", "Fast"] as const;
+
+const SKILLS = [
+  { icon: Lightbulb, label: "Explain Concept" },
+  { icon: Bug, label: "Debug Build" },
+  { icon: HeartPulse, label: "Project Health" },
+];
+
 // ─── Component ──────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [plusMenuOpen, setPlusMenuOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [input, setInput] = useState("");
-  const [messages, setMessages] = useState<{ role: "user" | "ai"; text: string }[]>([]);
+  const [isTyping, setIsTyping] = useState(false);
+  const [messages, setMessages] = useState<{ role: "user" | "ai"; text: string; isSimulation?: boolean }[]>([]);
   const [activeNav, setActiveNav] = useState("Home");
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [webSearchActive, setWebSearchActive] = useState(false);
+  const [activeStyle, setActiveStyle] = useState<typeof STYLES[number]>("Technical");
+  const [styleDropdownOpen, setStyleDropdownOpen] = useState(false);
+  const [connectorStatus, setConnectorStatus] = useState({ supabase: true, vercel: false, github: false });
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [isLinked] = useState(true); // dummy — clears "Auth Link Failed"
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const simulationRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Session ─────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -131,7 +128,7 @@ export default function Dashboard() {
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 180)}px`;
+      textareaRef.current.style.height = `${Math.max(textareaRef.current.scrollHeight, 140)}px`;
     }
   }, [input]);
 
@@ -140,6 +137,39 @@ export default function Dashboard() {
   const isMediaMode = activeTool?.category.label === "CREATION";
   const glowRgba = activeTool?.category.glowRgba ?? "34,197,94";
   const borderColor = activeTool?.category.color ?? "#22c55e";
+
+  // ── Typing detection ───────────────────────────────────────────────────────
+  function handleInputChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    setInput(e.target.value);
+    setIsTyping(true);
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(() => setIsTyping(false), 800);
+  }
+
+  // ── Simulation mode ────────────────────────────────────────────────────────
+  function streamSimulation(msgIndex: number) {
+    const mockResponse = "[SIMULATION_MODE] // OFFLINE_DRAFT — Neural pathway rerouted through local inference cache. Executing fallback heuristic analysis on provided directive. Output confidence: 87.3%. Recommended action: retry with primary engine when connectivity is restored.";
+    const words = mockResponse.split(" ");
+    let wordIdx = 0;
+
+    function appendWord() {
+      if (wordIdx >= words.length) return;
+      setMessages((prev) => {
+        const updated = [...prev];
+        if (updated[msgIndex]) {
+          updated[msgIndex] = {
+            ...updated[msgIndex],
+            text: words.slice(0, wordIdx + 1).join(" "),
+            isSimulation: true,
+          };
+        }
+        return updated;
+      });
+      wordIdx++;
+      simulationRef.current = setTimeout(appendWord, 60);
+    }
+    appendWord();
+  }
 
   // ── Handlers ────────────────────────────────────────────────────────────────
   const handleSelectTool = useCallback((id: string) => {
@@ -150,15 +180,37 @@ export default function Dashboard() {
   function handleSend() {
     const trimmed = input.trim();
     if (!trimmed) return;
+
+    const aiMsgIndex = messages.length + 1;
     setMessages((prev) => [
       ...prev,
       { role: "user", text: trimmed },
-      {
-        role: "ai",
-        text: `[${activeTool?.tool.name ?? "NazAI"} // ${selectedModel ?? "default"}] — Node processing signal recognized. Executing workflow...`,
-      },
+      { role: "ai", text: "Processing..." },
     ]);
     setInput("");
+    setIsProcessing(true);
+
+    // 10s timeout → simulation mode
+    const timeout = setTimeout(() => {
+      setIsProcessing(false);
+      streamSimulation(aiMsgIndex);
+    }, 10000);
+
+    // Simulate instant response for now (clears the timeout)
+    setTimeout(() => {
+      clearTimeout(timeout);
+      setIsProcessing(false);
+      setMessages((prev) => {
+        const updated = [...prev];
+        if (updated[aiMsgIndex]) {
+          updated[aiMsgIndex] = {
+            ...updated[aiMsgIndex],
+            text: `[${activeTool?.tool.name ?? "NazAI"} // ${selectedModel ?? "default"}] — Node processing signal recognized. Executing workflow on directive: "${trimmed.slice(0, 60)}..."`,
+          };
+        }
+        return updated;
+      });
+    }, 1500);
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -178,6 +230,9 @@ export default function Dashboard() {
       className="flex h-screen w-screen overflow-hidden font-mono"
       style={{ background: "#020617", color: "#e2e8f0" }}
     >
+      {/* Hidden file input */}
+      <input ref={fileInputRef} type="file" multiple accept="image/*,video/*,.pdf,.doc,.docx" className="hidden" />
+
       {/* ═══════════════════════ SIDEBAR ═══════════════════════ */}
       <motion.aside
         animate={{ width: sidebarCollapsed ? 0 : 64 }}
@@ -189,7 +244,6 @@ export default function Dashboard() {
           <div className="mb-8">
             <Zap size={20} style={{ color: borderColor, filter: `drop-shadow(0 0 6px rgba(${glowRgba},0.6))` }} />
           </div>
-
           <nav className="flex flex-col gap-1 flex-1">
             {NAV_ITEMS.map(({ icon: Icon, label }) => (
               <button
@@ -206,7 +260,6 @@ export default function Dashboard() {
               </button>
             ))}
           </nav>
-
           <div className="flex flex-col items-center gap-2 mt-auto">
             {userEmail && (
               <div
@@ -240,45 +293,28 @@ export default function Dashboard() {
           style={{ borderBottom: `1px solid rgba(${glowRgba},0.1)`, background: "rgba(2,6,23,0.92)" }}
         >
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => setSidebarCollapsed((v) => !v)}
-              className="mr-2 transition-colors"
-              style={{ color: `rgba(${glowRgba},0.5)` }}
-            >
+            <button onClick={() => setSidebarCollapsed((v) => !v)} className="mr-2 transition-colors" style={{ color: `rgba(${glowRgba},0.5)` }}>
               {sidebarCollapsed ? <PanelLeft size={16} /> : <PanelLeftClose size={16} />}
             </button>
-            <span className="text-[11px] tracking-[0.15em]" style={{ color: borderColor }}>
-              NAZAI://
-            </span>
-            <span className="text-[11px]" style={{ color: `rgba(${glowRgba},0.45)` }}>
-              {activeNav.toUpperCase()}
-            </span>
+            <span className="text-[11px] tracking-[0.15em]" style={{ color: borderColor }}>NAZAI://</span>
+            <span className="text-[11px]" style={{ color: `rgba(${glowRgba},0.45)` }}>{activeNav.toUpperCase()}</span>
             <ChevronRight size={10} style={{ color: `rgba(${glowRgba},0.25)` }} />
             {activeTool && activeNav === "Home" && (
-              <motion.span
-                initial={{ opacity: 0, x: -4 }}
-                animate={{ opacity: 1, x: 0 }}
-                className="text-[11px] tracking-[0.1em]"
-                style={{ color: activeTool.category.color }}
-              >
+              <motion.span initial={{ opacity: 0, x: -4 }} animate={{ opacity: 1, x: 0 }} className="text-[11px] tracking-[0.1em]" style={{ color: activeTool.category.color }}>
                 {activeTool.tool.name}
               </motion.span>
             )}
           </div>
           <div className="flex items-center gap-3">
+            {isLinked && (
+              <span className="text-[9px] tracking-[0.12em]" style={{ color: `rgba(${glowRgba},0.3)` }}>LINKED</span>
+            )}
             <span className="text-[10px] tracking-[0.12em] font-mono" style={{ color: `rgba(${glowRgba},0.4)` }}>
-              {new Date()
-                .toLocaleDateString("en-US", { weekday: "short", year: "numeric", month: "short", day: "numeric" })
-                .toUpperCase()}
+              {new Date().toLocaleDateString("en-US", { weekday: "short", year: "numeric", month: "short", day: "numeric" }).toUpperCase()}
             </span>
             <div className="flex items-center gap-2">
-              <div
-                className="w-[6px] h-[6px] rounded-full animate-status-pulse"
-                style={{ background: borderColor, boxShadow: `0 0 6px ${borderColor}` }}
-              />
-              <span className="text-[9px] tracking-[0.15em]" style={{ color: `rgba(${glowRgba},0.4)` }}>
-                SYNCHRONIZED
-              </span>
+              <div className="w-[6px] h-[6px] rounded-full animate-status-pulse" style={{ background: borderColor, boxShadow: `0 0 6px ${borderColor}` }} />
+              <span className="text-[9px] tracking-[0.15em]" style={{ color: `rgba(${glowRgba},0.4)` }}>SYNCHRONIZED</span>
             </div>
           </div>
         </header>
@@ -286,45 +322,28 @@ export default function Dashboard() {
         <div className="flex-1 flex flex-col items-center overflow-hidden relative px-4">
           {activeNav === "Home" ? (
             <>
+              {/* ── Messages ── */}
               <div className="flex-1 w-full max-w-2xl overflow-y-auto py-8 space-y-4 scrollbar-thin">
                 {messages.length === 0 && (
                   <div className="flex flex-col items-center justify-center h-full gap-6 text-center select-none">
-                    <div
-                      className="w-14 h-14 rounded-full flex items-center justify-center"
-                      style={{ border: `1px solid rgba(${glowRgba},0.25)`, background: `rgba(${glowRgba},0.05)` }}
-                    >
-                      <Zap
-                        size={22}
-                        style={{ color: borderColor, filter: `drop-shadow(0 0 8px rgba(${glowRgba},0.5))` }}
-                      />
+                    <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ border: `1px solid rgba(${glowRgba},0.25)`, background: `rgba(${glowRgba},0.05)` }}>
+                      <Zap size={22} style={{ color: borderColor, filter: `drop-shadow(0 0 8px rgba(${glowRgba},0.5))` }} />
                     </div>
                     <div>
-                      <p className="text-[13px] tracking-[0.12em]" style={{ color: `rgba(${glowRgba},0.6)` }}>
-                        WORKFLOW ANIMATOR READY
-                      </p>
-                      <p className="text-[11px] mt-2" style={{ color: "rgba(255,255,255,0.2)" }}>
-                        Select an AI engine below, then describe your mission.
-                      </p>
+                      <p className="text-[13px] tracking-[0.12em]" style={{ color: `rgba(${glowRgba},0.6)` }}>WORKFLOW ANIMATOR READY</p>
+                      <p className="text-[11px] mt-2" style={{ color: "rgba(255,255,255,0.2)" }}>Select an AI engine below, then describe your mission.</p>
                     </div>
                   </div>
                 )}
-
                 {messages.map((msg, i) => (
-                  <motion.div
-                    key={i}
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.25 }}
-                    className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-                  >
+                  <motion.div key={i} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                     <div
                       className="max-w-[78%] px-3.5 py-2.5 text-[13px] leading-relaxed font-mono"
                       style={{
                         borderRadius: msg.role === "user" ? "12px 12px 2px 12px" : "12px 12px 12px 2px",
-                        background: msg.role === "user" ? `rgba(${glowRgba},0.08)` : "rgba(255,255,255,0.03)",
-                        border:
-                          msg.role === "user" ? `1px solid rgba(${glowRgba},0.2)` : "1px solid rgba(255,255,255,0.06)",
-                        color: msg.role === "user" ? "#e2e8f0" : "rgba(255,255,255,0.7)",
+                        background: msg.isSimulation ? "rgba(255,165,0,0.06)" : msg.role === "user" ? `rgba(${glowRgba},0.08)` : "rgba(255,255,255,0.03)",
+                        border: msg.isSimulation ? "1px solid rgba(255,165,0,0.25)" : msg.role === "user" ? `1px solid rgba(${glowRgba},0.2)` : "1px solid rgba(255,255,255,0.06)",
+                        color: msg.isSimulation ? "#fbbf24" : msg.role === "user" ? "#e2e8f0" : "rgba(255,255,255,0.7)",
                       }}
                     >
                       {msg.text}
@@ -334,159 +353,283 @@ export default function Dashboard() {
                 <div ref={messagesEndRef} />
               </div>
 
+              {/* ── Media mode + Engine tag bar ── */}
               <AnimatePresence>
                 {activeTool && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 6 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: 6 }}
-                    className="w-full max-w-2xl mb-2 flex items-center gap-2"
-                  >
+                  <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 6 }} className="w-full max-w-2xl mb-2 flex items-center gap-2 flex-wrap">
                     {isMediaMode && (
-                      <span
-                        className="text-[9px] tracking-[0.15em] px-2.5 py-1 rounded animate-media-glow"
-                        style={{
-                          background: "rgba(168,85,247,0.12)",
-                          border: "1px solid rgba(168,85,247,0.45)",
-                          color: "#a855f7",
-                        }}
-                      >
+                      <span className="text-[9px] tracking-[0.15em] px-2.5 py-1 rounded animate-media-glow" style={{ background: "rgba(168,85,247,0.12)", border: "1px solid rgba(168,85,247,0.45)", color: "#a855f7" }}>
                         ▶ MEDIA_GENERATION_MODE_ACTIVE
                       </span>
                     )}
                     <span
                       className="text-[10px] tracking-[0.1em] px-2.5 py-1 rounded flex items-center gap-1.5 cursor-pointer ml-auto hover:brightness-125 transition-all"
-                      style={{
-                        background: `rgba(${activeTool.category.glowRgba},0.1)`,
-                        border: `1px solid rgba(${activeTool.category.glowRgba},0.35)`,
-                        color: activeTool.category.color,
-                      }}
+                      style={{ background: `rgba(${activeTool.category.glowRgba},0.1)`, border: `1px solid rgba(${activeTool.category.glowRgba},0.35)`, color: activeTool.category.color }}
                       onClick={() => setSelectedModel(null)}
                       title="Deselect Engine"
                     >
-                      {activeTool.tool.name}
-                      <X size={10} />
+                      {activeTool.tool.name} <X size={10} />
                     </span>
                   </motion.div>
                 )}
               </AnimatePresence>
 
+              {/* ═══════════════════════ GLASSMORPHIC INPUT CONTAINER ═══════════════════════ */}
               <div className="w-full max-w-2xl mb-6 relative">
                 <div
-                  className="relative rounded-xl transition-all duration-300"
+                  className="relative rounded-xl transition-all duration-300 flex flex-col"
                   style={{
-                    border: `1px solid rgba(${glowRgba},${activeTool ? "0.5" : "0.2"})`,
+                    border: `2px solid rgba(${glowRgba},${isTyping ? "0.7" : activeTool ? "0.4" : "0.15"})`,
                     background: "rgba(255,255,255,0.025)",
-                    boxShadow: activeTool
-                      ? `0 0 0 1px rgba(${glowRgba},0.15), 0 0 24px rgba(${glowRgba},0.15)`
-                      : "none",
-                    animation: activeTool ? "border-pulse 2s ease-in-out infinite" : "none",
+                    backdropFilter: "blur(16px)",
+                    boxShadow: isTyping
+                      ? `0 0 0 1px rgba(${glowRgba},0.2), 0 0 35px rgba(${glowRgba},0.25)`
+                      : activeTool
+                        ? `0 0 0 1px rgba(${glowRgba},0.1), 0 0 20px rgba(${glowRgba},0.12)`
+                        : "none",
+                    animation: isTyping ? "border-pulse 1.5s ease-in-out infinite" : activeTool ? "border-pulse 3s ease-in-out infinite" : "none",
                     ["--glow-color" as string]: `rgba(${glowRgba},0.4)`,
                   }}
                 >
-                  <button
-                    onClick={() => setDrawerOpen((v) => !v)}
-                    className="absolute left-3 bottom-3.5 w-7 h-7 rounded-full flex items-center justify-center z-10 transition-all duration-200"
-                    style={{
-                      background: drawerOpen ? `rgba(${glowRgba},0.18)` : `rgba(${glowRgba},0.06)`,
-                      border: `1px solid ${drawerOpen ? borderColor : `rgba(${glowRgba},0.25)`}`,
-                      color: borderColor,
-                    }}
-                    title="Select AI Engine"
-                  >
-                    <motion.div animate={{ rotate: drawerOpen ? 45 : 0 }} transition={{ duration: 0.15 }}>
-                      <Plus size={14} />
-                    </motion.div>
-                  </button>
-
+                  {/* Textarea */}
                   <textarea
                     ref={textareaRef}
                     value={input}
-                    onChange={(e) => setInput(e.target.value)}
+                    onChange={handleInputChange}
                     onKeyDown={handleKeyDown}
-                    placeholder={
-                      activeTool
-                        ? `Mission for ${activeTool.tool.name}... (↵ to send)`
-                        : "Describe your system mission... (↵ to send)"
-                    }
+                    placeholder={activeTool ? `Mission for ${activeTool.tool.name}... (↵ to send)` : "Describe your system mission... (↵ to send)"}
                     rows={1}
-                    className="w-full bg-transparent border-none outline-none resize-none font-mono text-[13px] leading-relaxed placeholder:text-white/20"
-                    style={{ padding: "14px 48px 14px 52px", color: "#e2e8f0", caretColor: borderColor }}
+                    className="w-full bg-transparent border-none outline-none resize-none font-mono text-[13px] leading-relaxed placeholder:text-white/18"
+                    style={{ padding: "16px 16px 8px 16px", minHeight: "140px", color: "#e2e8f0", caretColor: borderColor }}
                   />
 
-                  <button
-                    onClick={handleSend}
-                    disabled={!input.trim()}
-                    className="absolute right-3 bottom-3.5 w-7 h-7 rounded-full flex items-center justify-center transition-all duration-200"
-                    style={{
-                      background: input.trim() ? borderColor : "rgba(255,255,255,0.04)",
-                      color: input.trim() ? "#020617" : "rgba(255,255,255,0.15)",
-                      cursor: input.trim() ? "pointer" : "default",
-                    }}
-                  >
-                    <Send size={13} />
-                  </button>
+                  {/* ── Footer inside input ── */}
+                  <div className="flex items-center justify-between px-3 py-2.5" style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}>
+                    {/* Left: + button & engine tags */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button
+                        onClick={() => { setPlusMenuOpen((v) => !v); setDrawerOpen(false); }}
+                        className="w-7 h-7 rounded-full flex items-center justify-center transition-all duration-200 shrink-0"
+                        style={{
+                          background: plusMenuOpen ? `rgba(${glowRgba},0.18)` : `rgba(${glowRgba},0.06)`,
+                          border: `1px solid ${plusMenuOpen ? borderColor : `rgba(${glowRgba},0.25)`}`,
+                          color: borderColor,
+                        }}
+                        title="Tools & Options"
+                      >
+                        <motion.div animate={{ rotate: plusMenuOpen ? 45 : 0 }} transition={{ duration: 0.15 }}>
+                          <Plus size={14} />
+                        </motion.div>
+                      </button>
+
+                      {/* Engine selector trigger */}
+                      <button
+                        onClick={() => { setDrawerOpen((v) => !v); setPlusMenuOpen(false); }}
+                        className="text-[10px] tracking-[0.08em] px-2 py-1 rounded transition-all"
+                        style={{
+                          background: `rgba(${glowRgba},0.06)`,
+                          border: `1px solid rgba(${glowRgba},0.2)`,
+                          color: `rgba(${glowRgba},0.6)`,
+                        }}
+                      >
+                        {activeTool ? activeTool.tool.name : "Select Engine"}
+                      </button>
+                    </div>
+
+                    {/* Right: Web search, Style, Send */}
+                    <div className="flex items-center gap-2">
+                      {/* Web Search toggle */}
+                      <button
+                        onClick={() => setWebSearchActive((v) => !v)}
+                        className="flex items-center gap-1 px-2 py-1 rounded text-[10px] tracking-[0.08em] transition-all"
+                        style={{
+                          background: webSearchActive ? "rgba(59,130,246,0.12)" : "rgba(255,255,255,0.03)",
+                          border: webSearchActive ? "1px solid rgba(59,130,246,0.4)" : "1px solid rgba(255,255,255,0.06)",
+                          color: webSearchActive ? "#3b82f6" : "rgba(255,255,255,0.3)",
+                        }}
+                        title="Toggle Web Search"
+                      >
+                        {webSearchActive ? <CheckCircle2 size={11} /> : <Search size={11} />}
+                        <span className="hidden sm:inline">Web</span>
+                      </button>
+
+                      {/* Style selector */}
+                      <div className="relative">
+                        <button
+                          onClick={() => setStyleDropdownOpen((v) => !v)}
+                          className="flex items-center gap-1 px-2 py-1 rounded text-[10px] tracking-[0.08em] transition-all"
+                          style={{
+                            background: "rgba(255,255,255,0.03)",
+                            border: "1px solid rgba(255,255,255,0.08)",
+                            color: "rgba(255,255,255,0.4)",
+                          }}
+                          title="Output Style"
+                        >
+                          <Feather size={11} />
+                          <span className="hidden sm:inline">{activeStyle}</span>
+                          <ChevronDown size={9} />
+                        </button>
+                        <AnimatePresence>
+                          {styleDropdownOpen && (
+                            <motion.div
+                              initial={{ opacity: 0, y: 4 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, y: 4 }}
+                              className="absolute bottom-full right-0 mb-1 rounded-lg overflow-hidden z-50"
+                              style={{ background: "rgba(2,6,23,0.97)", border: "1px solid rgba(255,255,255,0.1)", backdropFilter: "blur(16px)" }}
+                            >
+                              {STYLES.map((s) => (
+                                <button
+                                  key={s}
+                                  onClick={() => { setActiveStyle(s); setStyleDropdownOpen(false); }}
+                                  className="block w-full text-left px-4 py-2 text-[11px] tracking-[0.08em] transition-colors"
+                                  style={{
+                                    color: activeStyle === s ? borderColor : "rgba(255,255,255,0.4)",
+                                    background: activeStyle === s ? `rgba(${glowRgba},0.08)` : "transparent",
+                                  }}
+                                >
+                                  {s}
+                                </button>
+                              ))}
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+
+                      {/* Send button */}
+                      <button
+                        onClick={handleSend}
+                        disabled={!input.trim() || isProcessing}
+                        className="w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200"
+                        style={{
+                          background: input.trim() ? borderColor : "rgba(255,255,255,0.04)",
+                          color: input.trim() ? "#020617" : "rgba(255,255,255,0.15)",
+                          boxShadow: input.trim() ? `0 0 14px rgba(${glowRgba},0.5)` : "none",
+                          cursor: input.trim() ? "pointer" : "default",
+                        }}
+                      >
+                        <Send size={13} />
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
-                <p
-                  className="text-center text-[10px] mt-2 tracking-[0.08em]"
-                  style={{ color: "rgba(255,255,255,0.15)" }}
-                >
+                <p className="text-center text-[10px] mt-2 tracking-[0.08em]" style={{ color: "rgba(255,255,255,0.15)" }}>
                   {selectedModel ? `SYSTEM_NODE // ${selectedModel}` : "NO ENGINE SELECTED — CLICK + TO CHOOSE"}
                 </p>
               </div>
             </>
           ) : (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="flex flex-col items-center justify-center h-full text-center"
-            >
-              <p className="text-[13px] tracking-[0.2em] mb-2" style={{ color: borderColor }}>
-                {activeNav.toUpperCase()}_SECTION
-              </p>
-              <p className="text-[11px]" style={{ color: "rgba(255,255,255,0.2)" }}>
-                System node currently under construction.
-              </p>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center justify-center h-full text-center">
+              <p className="text-[13px] tracking-[0.2em] mb-2" style={{ color: borderColor }}>{activeNav.toUpperCase()}_SECTION</p>
+              <p className="text-[11px]" style={{ color: "rgba(255,255,255,0.2)" }}>System node currently under construction.</p>
             </motion.div>
           )}
         </div>
 
-        <footer
-          className="flex items-center justify-between px-6 py-2 shrink-0"
-          style={{ borderTop: `1px solid rgba(${glowRgba},0.1)`, background: "rgba(2,6,23,0.92)" }}
-        >
+        <footer className="flex items-center justify-between px-6 py-2 shrink-0" style={{ borderTop: `1px solid rgba(${glowRgba},0.1)`, background: "rgba(2,6,23,0.92)" }}>
           <div className="flex items-center gap-2">
             <Shield size={10} style={{ color: `rgba(${glowRgba},0.45)` }} />
-            <span className="text-[10px] tracking-[0.15em]" style={{ color: `rgba(${glowRgba},0.45)` }}>
-              SECURE_NODE
-            </span>
+            <span className="text-[10px] tracking-[0.15em]" style={{ color: `rgba(${glowRgba},0.45)` }}>SECURE_NODE</span>
           </div>
-          <div className="flex items-center gap-2">
-            <div
-              className="w-[5px] h-[5px] rounded-full animate-status-pulse"
-              style={{ background: borderColor, boxShadow: `0 0 5px ${borderColor}` }}
-            />
-            <span className="text-[10px] tracking-[0.15em]" style={{ color: `rgba(${glowRgba},0.45)` }}>
-              SYNCHRONIZED
-            </span>
+          <div className="flex items-center gap-4">
+            {connectorStatus.supabase && <span className="text-[9px] tracking-[0.1em]" style={{ color: "rgba(34,197,94,0.4)" }}>DB:ON</span>}
+            {connectorStatus.vercel && <span className="text-[9px] tracking-[0.1em]" style={{ color: "rgba(255,255,255,0.3)" }}>VERCEL:ON</span>}
+            {connectorStatus.github && <span className="text-[9px] tracking-[0.1em]" style={{ color: "rgba(255,255,255,0.3)" }}>GH:ON</span>}
+            <div className="flex items-center gap-2">
+              <div className="w-[5px] h-[5px] rounded-full animate-status-pulse" style={{ background: borderColor, boxShadow: `0 0 5px ${borderColor}` }} />
+              <span className="text-[10px] tracking-[0.15em]" style={{ color: `rgba(${glowRgba},0.45)` }}>SYNCHRONIZED</span>
+            </div>
           </div>
         </footer>
       </main>
 
-      {/* ═══════════════════════ AI TOOL DRAWER ═══════════════════════ */}
+      {/* ═══════════════════════ PLUS MENU ═══════════════════════ */}
+      <AnimatePresence>
+        {plusMenuOpen && (
+          <>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setPlusMenuOpen(false)} className="fixed inset-0 z-30" />
+            <motion.div
+              initial={{ opacity: 0, y: 12, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 12, scale: 0.97 }}
+              transition={{ type: "spring", damping: 28, stiffness: 350 }}
+              className="fixed z-40 overflow-hidden"
+              style={{
+                bottom: "calc(60px + 70px)",
+                left: "50%",
+                transform: "translateX(-50%)",
+                width: "min(380px, calc(100vw - 64px))",
+                background: "rgba(2,6,23,0.97)",
+                border: `1px solid rgba(${glowRgba},0.15)`,
+                borderRadius: 14,
+                backdropFilter: "blur(24px)",
+                boxShadow: `0 0 60px rgba(0,0,0,0.7)`,
+              }}
+            >
+              <div className="px-4 py-3" style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                <span className="text-[11px] tracking-[0.15em]" style={{ color: "rgba(255,255,255,0.35)" }}>TOOLS</span>
+              </div>
+
+              <div className="p-3 flex flex-col gap-1">
+                {/* Add Files */}
+                <button
+                  onClick={() => { fileInputRef.current?.click(); setPlusMenuOpen(false); }}
+                  className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-left transition-colors hover:bg-white/[0.04]"
+                >
+                  <Paperclip size={15} style={{ color: `rgba(${glowRgba},0.5)` }} />
+                  <div>
+                    <div className="text-[12px]" style={{ color: "#e2e8f0" }}>Add Files / Photos</div>
+                    <div className="text-[10px]" style={{ color: "rgba(255,255,255,0.25)" }}>Upload from your device</div>
+                  </div>
+                </button>
+
+                {/* Skills */}
+                <div className="mt-2 mb-1 px-3">
+                  <span className="text-[9px] tracking-[0.15em]" style={{ color: `rgba(${glowRgba},0.4)` }}>SKILLS</span>
+                </div>
+                {SKILLS.map(({ icon: Icon, label }) => (
+                  <button
+                    key={label}
+                    onClick={() => { setInput((v) => (v ? v + "\n" : "") + `/${label.toLowerCase().replace(/\s/g, "-")}`); setPlusMenuOpen(false); textareaRef.current?.focus(); }}
+                    className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-left transition-colors hover:bg-white/[0.04]"
+                  >
+                    <Icon size={14} style={{ color: `rgba(${glowRgba},0.45)` }} />
+                    <span className="text-[12px]" style={{ color: "#e2e8f0" }}>{label}</span>
+                  </button>
+                ))}
+
+                {/* Connectors */}
+                <div className="mt-3 mb-1 px-3">
+                  <span className="text-[9px] tracking-[0.15em]" style={{ color: `rgba(${glowRgba},0.4)` }}>CONNECTORS</span>
+                </div>
+                {([
+                  { key: "supabase" as const, label: "Supabase", icon: Database, color: "#22c55e" },
+                  { key: "vercel" as const, label: "Vercel", icon: Globe, color: "#ffffff" },
+                  { key: "github" as const, label: "GitHub", icon: Github, color: "#ffffff" },
+                ]).map(({ key, label, icon: Icon, color }) => (
+                  <div key={key} className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-white/[0.04] transition-colors">
+                    <div className="flex items-center gap-3">
+                      <Icon size={14} style={{ color: `${color}60` }} />
+                      <span className="text-[12px]" style={{ color: "#e2e8f0" }}>{label}</span>
+                    </div>
+                    <Switch
+                      checked={connectorStatus[key]}
+                      onCheckedChange={(checked) => setConnectorStatus((prev) => ({ ...prev, [key]: checked }))}
+                    />
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* ═══════════════════════ AI ENGINE DRAWER ═══════════════════════ */}
       <AnimatePresence>
         {drawerOpen && (
           <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setDrawerOpen(false)}
-              className="fixed inset-0 z-30"
-              style={{ background: "rgba(0,0,0,0.4)" }}
-            />
-
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setDrawerOpen(false)} className="fixed inset-0 z-30" style={{ background: "rgba(0,0,0,0.4)" }} />
             <motion.div
               initial={{ opacity: 0, y: 20, scale: 0.97 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -494,10 +637,10 @@ export default function Dashboard() {
               transition={{ type: "spring", damping: 28, stiffness: 350 }}
               className="fixed z-40 overflow-hidden"
               style={{
-                bottom: "calc(60px + 56px)",
+                bottom: "calc(60px + 70px)",
                 left: "50%",
                 transform: "translateX(-50%)",
-                width: "min(640px, calc(100vw - 128px))",
+                width: "min(640px, calc(100vw - 96px))",
                 background: "rgba(2,6,23,0.97)",
                 border: `1px solid rgba(${glowRgba},0.18)`,
                 borderRadius: 14,
@@ -505,37 +648,18 @@ export default function Dashboard() {
                 boxShadow: `0 0 60px rgba(0,0,0,0.7), 0 0 40px rgba(${glowRgba},0.06)`,
               }}
             >
-              <div
-                className="flex items-center justify-between px-4 py-3"
-                style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}
-              >
-                <span className="text-[11px] tracking-[0.15em]" style={{ color: "rgba(255,255,255,0.35)" }}>
-                  SELECT AI ENGINE
-                </span>
-                <button onClick={() => setDrawerOpen(false)} style={{ color: "rgba(255,255,255,0.25)" }}>
-                  <X size={14} />
-                </button>
+              <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                <span className="text-[11px] tracking-[0.15em]" style={{ color: "rgba(255,255,255,0.35)" }}>SELECT AI ENGINE</span>
+                <button onClick={() => setDrawerOpen(false)} style={{ color: "rgba(255,255,255,0.25)" }}><X size={14} /></button>
               </div>
-
               <div className="p-4 flex flex-col gap-5">
                 {Object.entries(AI_CATEGORIES).map(([catKey, cat], catIdx) => (
-                  <motion.div
-                    key={catKey}
-                    initial={{ opacity: 0, x: -16 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: catIdx * 0.06, duration: 0.25 }}
-                  >
+                  <motion.div key={catKey} initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: catIdx * 0.06, duration: 0.25 }}>
                     <div className="flex items-center gap-2 mb-2">
                       <div className="w-4 h-px opacity-50" style={{ background: cat.color }} />
-                      <span className="text-[9px] tracking-[0.2em]" style={{ color: cat.color }}>
-                        {cat.label}
-                      </span>
-                      <div
-                        className="flex-1 h-px"
-                        style={{ background: `linear-gradient(90deg, ${cat.color}40, transparent)` }}
-                      />
+                      <span className="text-[9px] tracking-[0.2em]" style={{ color: cat.color }}>{cat.label}</span>
+                      <div className="flex-1 h-px" style={{ background: `linear-gradient(90deg, ${cat.color}40, transparent)` }} />
                     </div>
-
                     <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${cat.tools.length}, 1fr)` }}>
                       {cat.tools.map((tool, toolIdx) => {
                         const Icon = tool.icon;
@@ -557,27 +681,11 @@ export default function Dashboard() {
                             <div className="flex items-center gap-1.5 mb-1">
                               <Icon size={13} style={{ color: isActive ? cat.color : "rgba(255,255,255,0.35)" }} />
                               {tool.isMedia && (
-                                <span
-                                  className="text-[8px] tracking-[0.1em] px-1.5 py-px rounded"
-                                  style={{
-                                    background: "rgba(168,85,247,0.12)",
-                                    border: "1px solid rgba(168,85,247,0.25)",
-                                    color: "#a855f7",
-                                  }}
-                                >
-                                  MEDIA
-                                </span>
+                                <span className="text-[8px] tracking-[0.1em] px-1.5 py-px rounded" style={{ background: "rgba(168,85,247,0.12)", border: "1px solid rgba(168,85,247,0.25)", color: "#a855f7" }}>MEDIA</span>
                               )}
                             </div>
-                            <div
-                              className="text-[11px] font-semibold tracking-[0.03em] mb-0.5"
-                              style={{ color: isActive ? cat.color : "#e2e8f0" }}
-                            >
-                              {tool.name}
-                            </div>
-                            <div className="text-[10px]" style={{ color: "rgba(255,255,255,0.25)" }}>
-                              {tool.subtitle}
-                            </div>
+                            <div className="text-[11px] font-semibold tracking-[0.03em] mb-0.5" style={{ color: isActive ? cat.color : "#e2e8f0" }}>{tool.name}</div>
+                            <div className="text-[10px]" style={{ color: "rgba(255,255,255,0.25)" }}>{tool.subtitle}</div>
                           </motion.button>
                         );
                       })}
@@ -593,13 +701,18 @@ export default function Dashboard() {
       <style>{`
         @keyframes border-pulse {
           0%, 100% { box-shadow: 0 0 0 1px var(--glow-color), 0 0 16px var(--glow-color); }
-          50%       { box-shadow: 0 0 0 1px var(--glow-color), 0 0 30px var(--glow-color); }
+          50%       { box-shadow: 0 0 0 1px var(--glow-color), 0 0 35px var(--glow-color); }
         }
         @keyframes status-pulse {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.4; }
         }
         .animate-status-pulse { animation: status-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+        .animate-media-glow { animation: media-glow 2s ease-in-out infinite; }
+        @keyframes media-glow {
+          0%, 100% { box-shadow: 0 0 8px rgba(168,85,247,0.3); }
+          50% { box-shadow: 0 0 18px rgba(168,85,247,0.5); }
+        }
         textarea::placeholder { color: rgba(255,255,255,0.18) !important; }
         textarea { scrollbar-width: none; }
         textarea::-webkit-scrollbar { display: none; }
