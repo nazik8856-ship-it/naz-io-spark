@@ -227,7 +227,7 @@ export default function Dashboard() {
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <div
-      className="flex h-screen w-screen overflow-hidden font-mono"
+      className="flex h-screen w-screen overflow-hidden font-sans"
       style={{ background: "#020617", color: "#e2e8f0" }}
     >
       {/* Hidden file input */}
@@ -289,15 +289,15 @@ export default function Dashboard() {
       {/* ═══════════════════════ MAIN ═══════════════════════ */}
       <main className="flex flex-col flex-1 min-w-0 relative">
         <header
-          className="flex items-center justify-between px-5 py-3 shrink-0 backdrop-blur-md"
+          className="flex items-center justify-between px-5 py-3 shrink-0 backdrop-blur-md glass-edge"
           style={{ borderBottom: `1px solid rgba(${glowRgba},0.1)`, background: "rgba(2,6,23,0.92)" }}
         >
           <div className="flex items-center gap-3">
             <button onClick={() => setSidebarCollapsed((v) => !v)} className="mr-2 transition-colors" style={{ color: `rgba(${glowRgba},0.5)` }}>
               {sidebarCollapsed ? <PanelLeft size={16} /> : <PanelLeftClose size={16} />}
             </button>
-            <span className="text-[11px] tracking-[0.15em]" style={{ color: borderColor }}>NAZAI://</span>
-            <span className="text-[11px]" style={{ color: `rgba(${glowRgba},0.45)` }}>{activeNav.toUpperCase()}</span>
+            <span className="text-[11px] tracking-[0.15em] font-mono" style={{ color: borderColor }}>NAZAI://</span>
+            <span className="text-[11px] font-mono" style={{ color: `rgba(${glowRgba},0.45)` }}>{activeNav.toUpperCase()}</span>
             <ChevronRight size={10} style={{ color: `rgba(${glowRgba},0.25)` }} />
             {activeTool && activeNav === "Home" && (
               <motion.span initial={{ opacity: 0, x: -4 }} animate={{ opacity: 1, x: 0 }} className="text-[11px] tracking-[0.1em]" style={{ color: activeTool.category.color }}>
@@ -309,12 +309,12 @@ export default function Dashboard() {
             {isLinked && (
               <span className="text-[9px] tracking-[0.12em]" style={{ color: `rgba(${glowRgba},0.3)` }}>LINKED</span>
             )}
-            <span className="text-[10px] tracking-[0.12em] font-mono" style={{ color: `rgba(${glowRgba},0.4)` }}>
+            <span className="text-[10px] tracking-[0.12em] font-mono select-none" style={{ color: `rgba(${glowRgba},0.4)` }}>
               {new Date().toLocaleDateString("en-US", { weekday: "short", year: "numeric", month: "short", day: "numeric" }).toUpperCase()}
             </span>
             <div className="flex items-center gap-2">
-              <div className="w-[6px] h-[6px] rounded-full animate-status-pulse" style={{ background: borderColor, boxShadow: `0 0 6px ${borderColor}` }} />
-              <span className="text-[9px] tracking-[0.15em]" style={{ color: `rgba(${glowRgba},0.4)` }}>SYNCHRONIZED</span>
+              <div className="w-[6px] h-[6px] rounded-full animate-pulse-glow" style={{ background: borderColor }} />
+              <span className="text-[9px] tracking-[0.15em] font-mono" style={{ color: `rgba(${glowRgba},0.4)` }}>SYNCHRONIZED</span>
             </div>
           </div>
         </header>
@@ -338,7 +338,7 @@ export default function Dashboard() {
                 {messages.map((msg, i) => (
                   <motion.div key={i} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                     <div
-                      className="max-w-[78%] px-3.5 py-2.5 text-[13px] leading-relaxed font-mono"
+                      className="max-w-[78%] px-3.5 py-2.5 text-[13px] leading-relaxed glass-edge"
                       style={{
                         borderRadius: msg.role === "user" ? "12px 12px 2px 12px" : "12px 12px 12px 2px",
                         background: msg.isSimulation ? "rgba(255,165,0,0.06)" : msg.role === "user" ? `rgba(${glowRgba},0.08)` : "rgba(255,255,255,0.03)",
@@ -404,7 +404,7 @@ export default function Dashboard() {
                   />
 
                   {/* ── Footer inside input ── */}
-                  <div className="flex items-center justify-between px-3 py-2.5" style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}>
+                  <div className="flex items-center justify-between px-3 py-2.5 glass-edge" style={{ borderTop: "1px solid rgba(255,255,255,0.1)" }}>
                     {/* Left: + button & engine tags */}
                     <div className="flex items-center gap-2 flex-wrap">
                       <button
@@ -514,7 +514,7 @@ export default function Dashboard() {
                   </div>
                 </div>
 
-                <p className="text-center text-[10px] mt-2 tracking-[0.08em]" style={{ color: "rgba(255,255,255,0.15)" }}>
+                <p className="text-center text-[10px] mt-2 tracking-[0.08em] font-mono" style={{ color: "rgba(255,255,255,0.15)" }}>
                   {selectedModel ? `SYSTEM_NODE // ${selectedModel}` : "NO ENGINE SELECTED — CLICK + TO CHOOSE"}
                 </p>
               </div>
@@ -527,7 +527,7 @@ export default function Dashboard() {
           )}
         </div>
 
-        <footer className="flex items-center justify-between px-6 py-2 shrink-0" style={{ borderTop: `1px solid rgba(${glowRgba},0.1)`, background: "rgba(2,6,23,0.92)" }}>
+        <footer className="flex items-center justify-between px-6 py-2 shrink-0 glass-edge" style={{ borderTop: `1px solid rgba(${glowRgba},0.1)`, background: "rgba(2,6,23,0.92)" }}>
           <div className="flex items-center gap-2">
             <Shield size={10} style={{ color: `rgba(${glowRgba},0.45)` }} />
             <span className="text-[10px] tracking-[0.15em]" style={{ color: `rgba(${glowRgba},0.45)` }}>SECURE_NODE</span>
@@ -537,8 +537,8 @@ export default function Dashboard() {
             {connectorStatus.vercel && <span className="text-[9px] tracking-[0.1em]" style={{ color: "rgba(255,255,255,0.3)" }}>VERCEL:ON</span>}
             {connectorStatus.github && <span className="text-[9px] tracking-[0.1em]" style={{ color: "rgba(255,255,255,0.3)" }}>GH:ON</span>}
             <div className="flex items-center gap-2">
-              <div className="w-[5px] h-[5px] rounded-full animate-status-pulse" style={{ background: borderColor, boxShadow: `0 0 5px ${borderColor}` }} />
-              <span className="text-[10px] tracking-[0.15em]" style={{ color: `rgba(${glowRgba},0.45)` }}>SYNCHRONIZED</span>
+              <div className="w-[5px] h-[5px] rounded-full animate-pulse-glow" style={{ background: borderColor }} />
+              <span className="text-[10px] tracking-[0.15em] font-mono" style={{ color: `rgba(${glowRgba},0.45)` }}>SYNCHRONIZED</span>
             </div>
           </div>
         </footer>
@@ -671,11 +671,11 @@ export default function Dashboard() {
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ delay: catIdx * 0.06 + toolIdx * 0.04, duration: 0.2 }}
                             onClick={() => handleSelectTool(tool.id)}
-                            className="text-left rounded-[10px] p-2.5 transition-all duration-200 group"
+                            className="text-left rounded-[10px] p-2.5 transition-all duration-200 group interactive-border"
                             style={{
                               background: isActive ? `rgba(${cat.glowRgba},0.1)` : "rgba(255,255,255,0.02)",
-                              border: `1px solid ${isActive ? cat.color : "rgba(255,255,255,0.06)"}`,
-                              boxShadow: isActive ? `0 0 14px rgba(${cat.glowRgba},0.3)` : "none",
+                              border: `1px solid ${isActive ? cat.color : "rgba(255,255,255,0.1)"}`,
+                              boxShadow: isActive ? `0 0 14px rgba(${cat.glowRgba},0.3)` : "inset 0 1px 1px 0 rgba(255,255,255,0.05)",
                             }}
                           >
                             <div className="flex items-center gap-1.5 mb-1">
@@ -703,15 +703,26 @@ export default function Dashboard() {
           0%, 100% { box-shadow: 0 0 0 1px var(--glow-color), 0 0 16px var(--glow-color); }
           50%       { box-shadow: 0 0 0 1px var(--glow-color), 0 0 35px var(--glow-color); }
         }
-        @keyframes status-pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.4; }
+        @keyframes pulse-glow {
+          0%, 100% { transform: scale(1); box-shadow: 0 0 4px currentColor; opacity: 1; }
+          50% { transform: scale(1.2); box-shadow: 0 0 12px currentColor, 0 0 20px currentColor; opacity: 0.7; }
         }
-        .animate-status-pulse { animation: status-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+        .animate-pulse-glow { animation: pulse-glow 3s ease-in-out infinite; }
         .animate-media-glow { animation: media-glow 2s ease-in-out infinite; }
         @keyframes media-glow {
           0%, 100% { box-shadow: 0 0 8px rgba(168,85,247,0.3); }
           50% { box-shadow: 0 0 18px rgba(168,85,247,0.5); }
+        }
+        .glass-edge {
+          border: 1px solid rgba(255,255,255,0.1);
+          box-shadow: inset 0 1px 1px 0 rgba(255,255,255,0.05);
+        }
+        .interactive-border {
+          transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+        .interactive-border:hover {
+          border-color: rgba(255,255,255,0.3) !important;
+          box-shadow: 0 0 15px rgba(255,255,255,0.03), inset 0 1px 1px 0 rgba(255,255,255,0.05) !important;
         }
         textarea::placeholder { color: rgba(255,255,255,0.18) !important; }
         textarea { scrollbar-width: none; }
