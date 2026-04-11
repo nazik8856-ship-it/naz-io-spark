@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/supabase/client"; 
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Plus, X, Send, Brain, Building2, Briefcase, Image, Video, Mic,
