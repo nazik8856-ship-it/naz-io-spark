@@ -330,22 +330,23 @@ export default function Dashboard() {
         </motion.div>
 
         {/* 2. Enhanced Typography */}
-        <div className="mb-10">
-          <motion.h2
-            initial={{ letterSpacing: "0.1em", opacity: 0 }}
-            animate={{ letterSpacing: "0.25em", opacity: 1 }}
-            className="text-3xl font-black mb-3 select-none"
-            style={{
-              background: theme.gradient,
-              backgroundClip: "text",
-              WebkitBackgroundClip: "text",
-              WebkitTextFillColor: "transparent",
-              color: "transparent", // Fallback for some engines
-              display: "inline-block", // Ensures the background only covers the text area
-            }}
-          >
-            {activeNav.toUpperCase()}
-          </motion.h2>
+      <div className="flex justify-center w-full"> 
+  <motion.h2
+    initial={{ letterSpacing: "0.1em", opacity: 0 }}
+    animate={{ letterSpacing: "0.25em", opacity: 1 }}
+    className="text-3xl font-black mb-3 select-none mx-auto"
+    style={{
+      background: theme.gradient,
+      display: "table",                // CRITICAL: Forces background to hug the text
+      WebkitBackgroundClip: "text",    // MUST be first
+      backgroundClip: "text",
+      WebkitTextFillColor: "transparent",
+      color: "transparent",            // Final fallback
+    }}
+  >
+    {activeNav.toUpperCase()}
+  </motion.h2>
+</div> 
           <p className="text-[10px] font-mono tracking-[0.3em] text-white/30 uppercase mb-2">{details.subtitle}</p>
           <div className="h-[1px] w-12 bg-white/10 mx-auto mb-4" />
           <p className="text-[13px] text-white/50 max-w-[280px] mx-auto leading-relaxed italic">"{details.hint}"</p>
