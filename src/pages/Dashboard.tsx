@@ -332,13 +332,16 @@ export default function Dashboard() {
         {/* 2. Enhanced Typography */}
         <div className="mb-10">
           <motion.h2
-            initial={{ letterSpacing: "0.1em" }}
-            animate={{ letterSpacing: "0.25em" }}
-            className="text-3xl font-black mb-3"
+            initial={{ letterSpacing: "0.1em", opacity: 0 }}
+            animate={{ letterSpacing: "0.25em", opacity: 1 }}
+            className="text-3xl font-black mb-3 select-none"
             style={{
               background: theme.gradient,
+              backgroundClip: "text",
               WebkitBackgroundClip: "text",
               WebkitTextFillColor: "transparent",
+              color: "transparent", // Fallback for some engines
+              display: "inline-block", // Ensures the background only covers the text area
             }}
           >
             {activeNav.toUpperCase()}
