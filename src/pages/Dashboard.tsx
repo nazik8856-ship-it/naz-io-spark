@@ -279,7 +279,7 @@ export default function Dashboard() {
   }
 
   // ── Styled section pages ───────────────────────────────────────────────────
-  const STYLED_SECTIONS = ["Recently", "Archives", "Trash"];
+  const STYLED_SECTIONS = ["Recently", "Archives", "Trash", "History", "Integrations", "Settings"];
   const isStyledSection = STYLED_SECTIONS.includes(activeNav);
 
   function renderStyledSection() {
