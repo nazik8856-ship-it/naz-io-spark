@@ -284,7 +284,10 @@ export default function Dashboard() {
 
   function renderStyledSection() {
     const navItem = NAV_ITEMS.find((n) => n.label === activeNav)!;
+    // LOOKUP: Get the style data from our theme registry
+    const theme = SECTION_THEMES[activeNav] || SECTION_THEMES["Home"];
     const Icon = navItem.icon;
+
     return (
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -295,19 +298,20 @@ export default function Dashboard() {
         <motion.div
           className="w-20 h-20 rounded-2xl flex items-center justify-center"
           style={{
-            background: navItem.gradient,
-            boxShadow: `0 0 40px rgba(${navItem.glowRgba},0.3), 0 0 80px rgba(${navItem.glowRgba},0.15)`,
+            background: theme.gradient, // Use theme
+            boxShadow: `0 0 40px rgba(${theme.glowRgba},0.3), 0 0 80px rgba(${theme.glowRgba},0.15)`,
           }}
           animate={{ scale: [1, 1.05, 1] }}
           transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
         >
           <Icon size={32} className="text-white drop-shadow-lg" />
         </motion.div>
+
         <div>
           <h2
             className="text-2xl font-bold tracking-[0.1em] mb-2"
             style={{
-              background: navItem.gradient,
+              background: theme.gradient, // Use theme
               WebkitBackgroundClip: "text",
               WebkitTextFillColor: "transparent",
               backgroundClip: "text",
@@ -319,16 +323,19 @@ export default function Dashboard() {
             {activeNav === "Trash" && "PERMANENTLY_DELETED ITEMS RESIDE HERE"}
             {activeNav === "Archives" && "ARCHIVED_MISSIONS // COLD_STORAGE"}
             {activeNav === "Recently" && "RECENT_ACTIVITY // TIMELINE_FEED"}
+            {activeNav === "History" && "HISTORICAL_RECORDS // LOGS"}
+            {activeNav === "Integrations" && "EXTERNAL_API_NODES // ACTIVE"}
           </p>
         </div>
+
         <div className="flex gap-3 mt-2">
           {[1, 2, 3].map((i) => (
             <motion.div
               key={i}
-              className="w-48 h-24 rounded-xl"
+              className="w-48 h-24 rounded-xl glass-edge"
               style={{
                 background: "rgba(255,255,255,0.02)",
-                border: `1px solid rgba(${navItem.glowRgba},0.15)`,
+                border: `1px solid rgba(${theme.glowRgba},0.15)`, // Use theme
                 boxShadow: `inset 0 1px 1px rgba(255,255,255,0.05)`,
               }}
               initial={{ opacity: 0, y: 12 }}
@@ -336,8 +343,8 @@ export default function Dashboard() {
               transition={{ ...springTransition, delay: i * 0.08 }}
             >
               <div className="p-3">
-                <div className="w-24 h-2 rounded mb-2" style={{ background: `rgba(${navItem.glowRgba},0.15)` }} />
-                <div className="w-16 h-2 rounded" style={{ background: `rgba(${navItem.glowRgba},0.08)` }} />
+                <div className="w-24 h-2 rounded mb-2" style={{ background: `rgba(${theme.glowRgba},0.15)` }} />
+                <div className="w-16 h-2 rounded" style={{ background: `rgba(${theme.glowRgba},0.08)` }} />
               </div>
             </motion.div>
           ))}
