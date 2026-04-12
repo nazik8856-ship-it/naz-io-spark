@@ -29,30 +29,39 @@ const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
       <BrowserRouter>
-        <Suspense fallback={<PageSkeleton />}>
-          <Routes>
-            {/* Core Routes */}
-            <Route path="/" element={<Workflower />} />
-            <Route path="/workflower" element={<Workflower />} />
-            <Route path="/workspace" element={<Workspace />} />
-            <Route path="/generating" element={<Generating />} />
-            {/* Auth Routes */}
-            <Route path="/signup" element={<Signup />} />
-            <Route path="/login" element={<Signup />} />
-            <Route path="/auth/callback" element={<AuthCallback />} />
+        {/* Added a main wrapper to prevent layout shifts and white flashes */}
+        <main className="min-h-screen bg-[#020617] selection:bg-[#00A3FF]/30">
+          <Suspense fallback={<PageSkeleton />}>
+            <Routes>
+              {/* Core Routes */}
+              <Route path="/" element={<Workflower />} />
+              <Route path="/workflower" element={<Workflower />} />
+              <Route path="/workspace" element={<Workspace />} />
+              <Route path="/generating" element={<Generating />} />
 
-            {/* Mission Generator & Dashboard */}
-            <Route path="/generate" element={<Generator />} />
+              {/* Auth Routes */}
+              <Route path="/signup" element={<Signup />} />
+              <Route path="/login" element={<Signup />} />
+              <Route path="/auth/callback" element={<AuthCallback />} />
 
-            {/* Nested Dashboard Routes */}
-            <Route path="/dashboard/*" element={<Dashboard />} />
+              {/* Mission Generator & Dashboard */}
+              <Route path="/generate" element={<Generator />} />
 
-            {/* Catch-all Redirect */}
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </Suspense>
+              {/* Nested Dashboard Routes */}
+              {/* Keep the /* if Dashboard uses nested <Routes>, but this is often the cause of "Node not found" if Dashboard is simple */}
+              <Route path="/dashboard/*" element={<Dashboard />} />
 
-        <Toaster />
+              {/* Catch-all Redirect */}
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+
+            {/* CRITICAL FIX: Move Toaster INSIDE Suspense. 
+                This ensures the toast container is part of the same lifecycle 
+                as your lazy-loaded pages.
+            */}
+            <Toaster />
+          </Suspense>
+        </main>
       </BrowserRouter>
     </AuthProvider>
   </QueryClientProvider>
