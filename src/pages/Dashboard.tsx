@@ -1,12 +1,13 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client"; 
 import { motion, AnimatePresence } from "framer-motion";
+import { useNavigate } from "react-router-dom";
 import {
   Plus, X, Send, Brain, Building2, Briefcase, Image, Video, Mic,
   BookOpen, TrendingUp, Home, MessageSquare, Settings, LogOut,
   History, Zap, Shield, ChevronRight, Layers, PanelLeftClose, PanelLeft,
   Paperclip, Lightbulb, Bug, HeartPulse, Database, Globe, Github,
-  Search, CheckCircle2, Feather, ChevronDown,
+  Search, CheckCircle2, Feather, ChevronDown, Archive, Trash2, Clock,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 
@@ -68,14 +69,17 @@ function findToolById(id: string | null): { tool: ToolEntry; category: Category 
   return null;
 }
 
-// ─── Sidebar Nav Items ──────────────────────────────────────────────────────────
+// ─── Nav Items with Unique Gradients ────────────────────────────────────────────
 
 const NAV_ITEMS = [
-  { icon: Home, label: "Home" },
-  { icon: MessageSquare, label: "Workflows" },
-  { icon: History, label: "History" },
-  { icon: Layers, label: "Integrations" },
-  { icon: Settings, label: "Settings" },
+  { icon: Home, label: "Home", gradient: "linear-gradient(135deg, #22c55e, #06b6d4)", color: "#22c55e", glowRgba: "34,197,94" },
+  { icon: MessageSquare, label: "Workflows", gradient: "linear-gradient(135deg, #3b82f6, #8b5cf6)", color: "#3b82f6", glowRgba: "59,130,246" },
+  { icon: History, label: "History", gradient: "linear-gradient(135deg, #f59e0b, #ef4444)", color: "#f59e0b", glowRgba: "245,158,11" },
+  { icon: Layers, label: "Integrations", gradient: "linear-gradient(135deg, #06b6d4, #14b8a6)", color: "#06b6d4", glowRgba: "6,182,212" },
+  { icon: Clock, label: "Recently", gradient: "linear-gradient(135deg, #ec4899, #f43f5e)", color: "#ec4899", glowRgba: "236,72,153" },
+  { icon: Archive, label: "Archives", gradient: "linear-gradient(135deg, #8b5cf6, #6366f1)", color: "#8b5cf6", glowRgba: "139,92,246" },
+  { icon: Trash2, label: "Trash", gradient: "linear-gradient(135deg, #ef4444, #dc2626)", color: "#ef4444", glowRgba: "239,68,68" },
+  { icon: Settings, label: "Settings", gradient: "linear-gradient(135deg, #64748b, #94a3b8)", color: "#94a3b8", glowRgba: "148,163,184" },
 ];
 
 const STYLES = ["Technical", "Creative", "Fast"] as const;
@@ -86,9 +90,12 @@ const SKILLS = [
   { icon: HeartPulse, label: "Project Health" },
 ];
 
+const springTransition = { type: "spring" as const, damping: 25, stiffness: 400 };
+
 // ─── Component ──────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [plusMenuOpen, setPlusMenuOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
@@ -103,7 +110,8 @@ export default function Dashboard() {
   const [styleDropdownOpen, setStyleDropdownOpen] = useState(false);
   const [connectorStatus, setConnectorStatus] = useState({ supabase: true, vercel: false, github: false });
   const [isProcessing, setIsProcessing] = useState(false);
-  const [isLinked] = useState(true); // dummy — clears "Auth Link Failed"
+  const [isLinked] = useState(true);
+  const [logoutModalOpen, setLogoutModalOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -137,6 +145,8 @@ export default function Dashboard() {
   const isMediaMode = activeTool?.category.label === "CREATION";
   const glowRgba = activeTool?.category.glowRgba ?? "34,197,94";
   const borderColor = activeTool?.category.color ?? "#22c55e";
+
+  const activeNavItem = NAV_ITEMS.find((n) => n.label === activeNav) ?? NAV_ITEMS[0];
 
   // ── Typing detection ───────────────────────────────────────────────────────
   function handleInputChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
@@ -190,13 +200,11 @@ export default function Dashboard() {
     setInput("");
     setIsProcessing(true);
 
-    // 10s timeout → simulation mode
     const timeout = setTimeout(() => {
       setIsProcessing(false);
       streamSimulation(aiMsgIndex);
     }, 10000);
 
-    // Simulate instant response for now (clears the timeout)
     setTimeout(() => {
       clearTimeout(timeout);
       setIsProcessing(false);
@@ -221,7 +229,97 @@ export default function Dashboard() {
   }
 
   async function handleSignOut() {
+    setLogoutModalOpen(false);
     await supabase.auth.signOut();
+    navigate("/");
+  }
+
+  // ── Styled section pages ───────────────────────────────────────────────────
+  const STYLED_SECTIONS = ["Recently", "Archives", "Trash"];
+  const isStyledSection = STYLED_SECTIONS.includes(activeNav);
+
+  function renderStyledSection() {
+    const navItem = NAV_ITEMS.find((n) => n.label === activeNav)!;
+    const Icon = navItem.icon;
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={springTransition}
+        className="flex flex-col items-center justify-center h-full text-center gap-6"
+      >
+        <motion.div
+          className="w-20 h-20 rounded-2xl flex items-center justify-center"
+          style={{
+            background: navItem.gradient,
+            boxShadow: `0 0 40px rgba(${navItem.glowRgba},0.3), 0 0 80px rgba(${navItem.glowRgba},0.15)`,
+          }}
+          animate={{ scale: [1, 1.05, 1] }}
+          transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+        >
+          <Icon size={32} className="text-white drop-shadow-lg" />
+        </motion.div>
+        <div>
+          <h2
+            className="text-2xl font-bold tracking-[0.1em] mb-2"
+            style={{
+              background: navItem.gradient,
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+              backgroundClip: "text",
+            }}
+          >
+            {activeNav.toUpperCase()}
+          </h2>
+          <p className="text-[12px] tracking-[0.15em]" style={{ color: "rgba(255,255,255,0.25)" }}>
+            {activeNav === "Trash" && "PERMANENTLY_DELETED ITEMS RESIDE HERE"}
+            {activeNav === "Archives" && "ARCHIVED_MISSIONS // COLD_STORAGE"}
+            {activeNav === "Recently" && "RECENT_ACTIVITY // TIMELINE_FEED"}
+          </p>
+        </div>
+        <div className="flex gap-3 mt-2">
+          {[1, 2, 3].map((i) => (
+            <motion.div
+              key={i}
+              className="w-48 h-24 rounded-xl"
+              style={{
+                background: "rgba(255,255,255,0.02)",
+                border: `1px solid rgba(${navItem.glowRgba},0.15)`,
+                boxShadow: `inset 0 1px 1px rgba(255,255,255,0.05)`,
+              }}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ ...springTransition, delay: i * 0.08 }}
+            >
+              <div className="p-3">
+                <div className="w-24 h-2 rounded mb-2" style={{ background: `rgba(${navItem.glowRgba},0.15)` }} />
+                <div className="w-16 h-2 rounded" style={{ background: `rgba(${navItem.glowRgba},0.08)` }} />
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      </motion.div>
+    );
+  }
+
+  function renderGenericSection() {
+    const navItem = NAV_ITEMS.find((n) => n.label === activeNav)!;
+    return (
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center justify-center h-full text-center">
+        <p
+          className="text-[13px] tracking-[0.2em] mb-2 font-bold"
+          style={{
+            background: navItem.gradient,
+            WebkitBackgroundClip: "text",
+            WebkitTextFillColor: "transparent",
+            backgroundClip: "text",
+          }}
+        >
+          {activeNav.toUpperCase()}_SECTION
+        </p>
+        <p className="text-[11px]" style={{ color: "rgba(255,255,255,0.2)" }}>System node currently under construction.</p>
+      </motion.div>
+    );
   }
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -230,7 +328,6 @@ export default function Dashboard() {
       className="flex h-screen w-screen overflow-hidden font-sans"
       style={{ background: "#020617", color: "#e2e8f0" }}
     >
-      {/* Hidden file input */}
       <input ref={fileInputRef} type="file" multiple accept="image/*,video/*,.pdf,.doc,.docx" className="hidden" />
 
       {/* ═══════════════════════ SIDEBAR ═══════════════════════ */}
@@ -245,20 +342,42 @@ export default function Dashboard() {
             <Zap size={20} style={{ color: borderColor, filter: `drop-shadow(0 0 6px rgba(${glowRgba},0.6))` }} />
           </div>
           <nav className="flex flex-col gap-1 flex-1">
-            {NAV_ITEMS.map(({ icon: Icon, label }) => (
-              <button
-                key={label}
-                onClick={() => setActiveNav(label)}
-                title={label}
-                className="w-10 h-10 flex items-center justify-center rounded-lg transition-all duration-200"
-                style={{
-                  color: activeNav === label ? borderColor : `rgba(${glowRgba},0.35)`,
-                  background: activeNav === label ? `rgba(${glowRgba},0.08)` : "transparent",
-                }}
-              >
-                <Icon size={18} />
-              </button>
-            ))}
+            {NAV_ITEMS.map((item) => {
+              const Icon = item.icon;
+              const isActive = activeNav === item.label;
+              return (
+                <button
+                  key={item.label}
+                  onClick={() => setActiveNav(item.label)}
+                  title={item.label}
+                  className="w-10 h-10 flex items-center justify-center rounded-lg transition-all duration-200 relative group"
+                  style={{
+                    background: isActive ? undefined : "transparent",
+                  }}
+                >
+                  {isActive && (
+                    <motion.div
+                      layoutId="nav-active-bg"
+                      className="absolute inset-0 rounded-lg"
+                      style={{
+                        background: item.gradient,
+                        opacity: 0.15,
+                        boxShadow: `0 0 20px rgba(${item.glowRgba},0.3)`,
+                      }}
+                      transition={springTransition}
+                    />
+                  )}
+                  <Icon
+                    size={18}
+                    className="relative z-10"
+                    style={{
+                      color: isActive ? item.color : "rgba(255,255,255,0.25)",
+                      filter: isActive ? `drop-shadow(0 0 6px rgba(${item.glowRgba},0.6))` : "none",
+                    }}
+                  />
+                </button>
+              );
+            })}
           </nav>
           <div className="flex flex-col items-center gap-2 mt-auto">
             {userEmail && (
@@ -275,12 +394,11 @@ export default function Dashboard() {
               </div>
             )}
             <button
-              onClick={handleSignOut}
+              onClick={() => setLogoutModalOpen(true)}
               title="Sign out"
-              className="w-10 h-10 flex items-center justify-center rounded-lg transition-colors"
-              style={{ color: `rgba(${glowRgba},0.35)` }}
+              className="w-10 h-10 flex items-center justify-center rounded-lg transition-all duration-200 hover:bg-red-500/10 group"
             >
-              <LogOut size={16} />
+              <LogOut size={16} className="text-white/25 group-hover:text-red-400 transition-colors" />
             </button>
           </div>
         </div>
@@ -297,7 +415,17 @@ export default function Dashboard() {
               {sidebarCollapsed ? <PanelLeft size={16} /> : <PanelLeftClose size={16} />}
             </button>
             <span className="text-[11px] tracking-[0.15em] font-mono" style={{ color: borderColor }}>NAZAI://</span>
-            <span className="text-[11px] font-mono" style={{ color: `rgba(${glowRgba},0.45)` }}>{activeNav.toUpperCase()}</span>
+            <span
+              className="text-[11px] font-mono font-bold tracking-[0.1em]"
+              style={{
+                background: activeNavItem.gradient,
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+                backgroundClip: "text",
+              }}
+            >
+              {activeNav.toUpperCase()}
+            </span>
             <ChevronRight size={10} style={{ color: `rgba(${glowRgba},0.25)` }} />
             {activeTool && activeNav === "Home" && (
               <motion.span initial={{ opacity: 0, x: -4 }} animate={{ opacity: 1, x: 0 }} className="text-[11px] tracking-[0.1em]" style={{ color: activeTool.category.color }}>
@@ -391,7 +519,6 @@ export default function Dashboard() {
                     ["--glow-color" as string]: `rgba(${glowRgba},0.4)`,
                   }}
                 >
-                  {/* Textarea */}
                   <textarea
                     ref={textareaRef}
                     value={input}
@@ -405,7 +532,6 @@ export default function Dashboard() {
 
                   {/* ── Footer inside input ── */}
                   <div className="flex items-center justify-between px-3 py-2.5 glass-edge" style={{ borderTop: "1px solid rgba(255,255,255,0.1)" }}>
-                    {/* Left: + button & engine tags */}
                     <div className="flex items-center gap-2 flex-wrap">
                       <button
                         onClick={() => { setPlusMenuOpen((v) => !v); setDrawerOpen(false); }}
@@ -417,12 +543,11 @@ export default function Dashboard() {
                         }}
                         title="Tools & Options"
                       >
-                        <motion.div animate={{ rotate: plusMenuOpen ? 45 : 0 }} transition={{ duration: 0.15 }}>
+                        <motion.div animate={{ rotate: plusMenuOpen ? 45 : 0 }} transition={springTransition}>
                           <Plus size={14} />
                         </motion.div>
                       </button>
 
-                      {/* Engine selector trigger */}
                       <button
                         onClick={() => { setDrawerOpen((v) => !v); setPlusMenuOpen(false); }}
                         className="text-[10px] tracking-[0.08em] px-2 py-1 rounded transition-all"
@@ -436,9 +561,7 @@ export default function Dashboard() {
                       </button>
                     </div>
 
-                    {/* Right: Web search, Style, Send */}
                     <div className="flex items-center gap-2">
-                      {/* Web Search toggle */}
                       <button
                         onClick={() => setWebSearchActive((v) => !v)}
                         className="flex items-center gap-1 px-2 py-1 rounded text-[10px] tracking-[0.08em] transition-all"
@@ -453,7 +576,6 @@ export default function Dashboard() {
                         <span className="hidden sm:inline">Web</span>
                       </button>
 
-                      {/* Style selector */}
                       <div className="relative">
                         <button
                           onClick={() => setStyleDropdownOpen((v) => !v)}
@@ -472,9 +594,10 @@ export default function Dashboard() {
                         <AnimatePresence>
                           {styleDropdownOpen && (
                             <motion.div
-                              initial={{ opacity: 0, y: 4 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              exit={{ opacity: 0, y: 4 }}
+                              initial={{ opacity: 0, y: 4, scale: 0.96 }}
+                              animate={{ opacity: 1, y: 0, scale: 1 }}
+                              exit={{ opacity: 0, y: 4, scale: 0.96 }}
+                              transition={springTransition}
                               className="absolute bottom-full right-0 mb-1 rounded-lg overflow-hidden z-50"
                               style={{ background: "rgba(2,6,23,0.97)", border: "1px solid rgba(255,255,255,0.1)", backdropFilter: "blur(16px)" }}
                             >
@@ -496,7 +619,6 @@ export default function Dashboard() {
                         </AnimatePresence>
                       </div>
 
-                      {/* Send button */}
                       <button
                         onClick={handleSend}
                         disabled={!input.trim() || isProcessing}
@@ -519,11 +641,10 @@ export default function Dashboard() {
                 </p>
               </div>
             </>
+          ) : isStyledSection ? (
+            renderStyledSection()
           ) : (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center justify-center h-full text-center">
-              <p className="text-[13px] tracking-[0.2em] mb-2" style={{ color: borderColor }}>{activeNav.toUpperCase()}_SECTION</p>
-              <p className="text-[11px]" style={{ color: "rgba(255,255,255,0.2)" }}>System node currently under construction.</p>
-            </motion.div>
+            renderGenericSection()
           )}
         </div>
 
@@ -544,16 +665,16 @@ export default function Dashboard() {
         </footer>
       </main>
 
-      {/* ═══════════════════════ PLUS MENU ═══════════════════════ */}
+      {/* ═══════════════════════ PLUS MENU (Spring) ═══════════════════════ */}
       <AnimatePresence>
         {plusMenuOpen && (
           <>
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setPlusMenuOpen(false)} className="fixed inset-0 z-30" />
             <motion.div
-              initial={{ opacity: 0, y: 12, scale: 0.97 }}
+              initial={{ opacity: 0, y: 20, scale: 0.92 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 12, scale: 0.97 }}
-              transition={{ type: "spring", damping: 28, stiffness: 350 }}
+              exit={{ opacity: 0, y: 20, scale: 0.92 }}
+              transition={springTransition}
               className="fixed z-40 overflow-hidden"
               style={{
                 bottom: "calc(60px + 70px)",
@@ -570,9 +691,7 @@ export default function Dashboard() {
               <div className="px-4 py-3" style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
                 <span className="text-[11px] tracking-[0.15em]" style={{ color: "rgba(255,255,255,0.35)" }}>TOOLS</span>
               </div>
-
               <div className="p-3 flex flex-col gap-1">
-                {/* Add Files */}
                 <button
                   onClick={() => { fileInputRef.current?.click(); setPlusMenuOpen(false); }}
                   className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-left transition-colors hover:bg-white/[0.04]"
@@ -584,7 +703,6 @@ export default function Dashboard() {
                   </div>
                 </button>
 
-                {/* Skills */}
                 <div className="mt-2 mb-1 px-3">
                   <span className="text-[9px] tracking-[0.15em]" style={{ color: `rgba(${glowRgba},0.4)` }}>SKILLS</span>
                 </div>
@@ -599,7 +717,6 @@ export default function Dashboard() {
                   </button>
                 ))}
 
-                {/* Connectors */}
                 <div className="mt-3 mb-1 px-3">
                   <span className="text-[9px] tracking-[0.15em]" style={{ color: `rgba(${glowRgba},0.4)` }}>CONNECTORS</span>
                 </div>
@@ -625,16 +742,16 @@ export default function Dashboard() {
         )}
       </AnimatePresence>
 
-      {/* ═══════════════════════ AI ENGINE DRAWER ═══════════════════════ */}
+      {/* ═══════════════════════ AI ENGINE DRAWER (Spring) ═══════════════════════ */}
       <AnimatePresence>
         {drawerOpen && (
           <>
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setDrawerOpen(false)} className="fixed inset-0 z-30" style={{ background: "rgba(0,0,0,0.4)" }} />
             <motion.div
-              initial={{ opacity: 0, y: 20, scale: 0.97 }}
+              initial={{ opacity: 0, y: 30, scale: 0.92 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 20, scale: 0.97 }}
-              transition={{ type: "spring", damping: 28, stiffness: 350 }}
+              exit={{ opacity: 0, y: 30, scale: 0.92 }}
+              transition={springTransition}
               className="fixed z-40 overflow-hidden"
               style={{
                 bottom: "calc(60px + 70px)",
@@ -692,6 +809,102 @@ export default function Dashboard() {
                     </div>
                   </motion.div>
                 ))}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* ═══════════════════════ LOGOUT MODAL (Spring) ═══════════════════════ */}
+      <AnimatePresence>
+        {logoutModalOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              onClick={() => setLogoutModalOpen(false)}
+              className="fixed inset-0 z-50"
+              style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(12px)" }}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.88, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.88, y: 20 }}
+              transition={springTransition}
+              className="fixed z-50 flex flex-col items-center"
+              style={{
+                top: "50%",
+                left: "50%",
+                transform: "translate(-50%, -50%)",
+                width: "min(420px, calc(100vw - 48px))",
+                background: "rgba(2,6,23,0.95)",
+                border: "1px solid rgba(239,68,68,0.2)",
+                borderRadius: 16,
+                backdropFilter: "blur(32px)",
+                boxShadow: "0 0 80px rgba(0,0,0,0.8), 0 0 40px rgba(239,68,68,0.08)",
+                padding: "32px 28px 24px",
+              }}
+            >
+              <motion.div
+                className="w-14 h-14 rounded-full flex items-center justify-center mb-5"
+                style={{
+                  background: "rgba(239,68,68,0.1)",
+                  border: "1px solid rgba(239,68,68,0.3)",
+                }}
+                animate={{ scale: [1, 1.06, 1] }}
+                transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+              >
+                <LogOut size={22} className="text-red-400" />
+              </motion.div>
+              <h3 className="text-[14px] font-semibold tracking-[0.08em] text-white mb-2">
+                SESSION_TERMINATION
+              </h3>
+              <p className="text-[12px] text-center leading-relaxed mb-6" style={{ color: "rgba(255,255,255,0.4)" }}>
+                Are you sure you want to terminate the session?<br />
+                <span className="font-mono text-[10px]" style={{ color: "rgba(239,68,68,0.5)" }}>All unsaved state will be purged.</span>
+              </p>
+              <div className="flex gap-3 w-full">
+                <button
+                  onClick={() => setLogoutModalOpen(false)}
+                  className="flex-1 py-2.5 rounded-lg text-[12px] tracking-[0.08em] font-medium transition-all duration-200"
+                  style={{
+                    background: "rgba(255,255,255,0.04)",
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    color: "rgba(255,255,255,0.5)",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "rgba(255,255,255,0.08)";
+                    e.currentTarget.style.borderColor = "rgba(255,255,255,0.2)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "rgba(255,255,255,0.04)";
+                    e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)";
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSignOut}
+                  className="flex-1 py-2.5 rounded-lg text-[12px] tracking-[0.08em] font-bold transition-all duration-200"
+                  style={{
+                    background: "rgba(239,68,68,0.15)",
+                    border: "1px solid rgba(239,68,68,0.4)",
+                    color: "#ef4444",
+                    boxShadow: "0 0 20px rgba(239,68,68,0.1)",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "rgba(239,68,68,0.25)";
+                    e.currentTarget.style.boxShadow = "0 0 30px rgba(239,68,68,0.2)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "rgba(239,68,68,0.15)";
+                    e.currentTarget.style.boxShadow = "0 0 20px rgba(239,68,68,0.1)";
+                  }}
+                >
+                  Log Out
+                </button>
               </div>
             </motion.div>
           </>
