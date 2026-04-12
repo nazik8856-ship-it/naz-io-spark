@@ -39,6 +39,9 @@ import {
   Archive,
   Trash2,
   Clock,
+  RotateCcw,
+  Loader2,
+  AlertTriangle,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 
@@ -108,24 +111,24 @@ function findToolById(id: string | null): { tool: ToolEntry; category: Category 
 
 // ─── Nav Items with Unique Gradients ────────────────────────────────────────────
 
-const NAV_ITEMS = [
-  { icon: Home, label: "Home" },
-  { icon: MessageSquare, label: "Workflows" },
-  { icon: History, label: "History" },
-  { icon: Layers, label: "Integrations" },
-  { icon: Clock, label: "Recently" },
-  { icon: Archive, label: "Archives" },
-  { icon: Trash2, label: "Trash" },
-  { icon: Settings, label: "Settings" },
-];
-
-const SECTION_THEMES: Record<string, { gradient: string; glow: string }> = {
-  Home: { gradient: "linear-gradient(135deg, #22c55e, #10b981)", glow: "34,197,94" },
-  Workflows: { gradient: "linear-gradient(135deg, #a855f7, #ec4899)", glow: "168,85,247" },
-  Recently: { gradient: "linear-gradient(135deg, #06b6d4, #3b82f6)", glow: "6,182,212" },
-  Archives: { gradient: "linear-gradient(135deg, #818cf8, #c084fc)", glow: "129,140,248" },
-  Trash: { gradient: "linear-gradient(135deg, #ef4444, #f97316)", glow: "239,68,68" },
+type NavItem = {
+  icon: React.ElementType;
+  label: string;
+  gradient: string;
+  glowRgba: string;
+  color: string;
 };
+
+const NAV_ITEMS: NavItem[] = [
+  { icon: Home, label: "Home", gradient: "linear-gradient(135deg, #22c55e, #10b981)", glowRgba: "34,197,94", color: "#22c55e" },
+  { icon: MessageSquare, label: "Workflows", gradient: "linear-gradient(135deg, #a855f7, #ec4899)", glowRgba: "168,85,247", color: "#a855f7" },
+  { icon: History, label: "History", gradient: "linear-gradient(135deg, #f59e0b, #eab308)", glowRgba: "245,158,11", color: "#f59e0b" },
+  { icon: Layers, label: "Integrations", gradient: "linear-gradient(135deg, #14b8a6, #06b6d4)", glowRgba: "20,184,166", color: "#14b8a6" },
+  { icon: Clock, label: "Recently", gradient: "linear-gradient(135deg, #06b6d4, #3b82f6)", glowRgba: "6,182,212", color: "#06b6d4" },
+  { icon: Archive, label: "Archives", gradient: "linear-gradient(135deg, #818cf8, #c084fc)", glowRgba: "129,140,248", color: "#818cf8" },
+  { icon: Trash2, label: "Trash", gradient: "linear-gradient(135deg, #ef4444, #f97316)", glowRgba: "239,68,68", color: "#ef4444" },
+  { icon: Settings, label: "Settings", gradient: "linear-gradient(135deg, #94a3b8, #64748b)", glowRgba: "148,163,184", color: "#94a3b8" },
+];
 const STYLES = ["Technical", "Creative", "Fast"] as const;
 
 const SKILLS = [
@@ -134,7 +137,20 @@ const SKILLS = [
   { icon: HeartPulse, label: "Project Health" },
 ];
 
-const springTransition = { type: "spring" as const, damping: 25, stiffness: 400 };
+const springTransition = { type: "spring" as const, damping: 28, stiffness: 350, mass: 0.8 };
+const snappySpring = { type: "spring" as const, damping: 30, stiffness: 500, mass: 0.6 };
+
+// ─── Mission type for workspace persistence ─────────────────────────────────────
+
+interface WorkspaceMission {
+  id: string;
+  directive: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  user_id: string;
+  attachment_urls: string[] | null;
+}
 
 // ─── Component ──────────────────────────────────────────────────────────────────
 
@@ -156,6 +172,9 @@ export default function Dashboard() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isLinked] = useState(true);
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [workspaceMissions, setWorkspaceMissions] = useState<WorkspaceMission[]>([]);
+  const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -166,12 +185,60 @@ export default function Dashboard() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUserEmail(session?.user?.email ?? null);
+      setUserId(session?.user?.id ?? null);
     });
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       setUserEmail(session?.user?.email ?? null);
+      setUserId(session?.user?.id ?? null);
     });
     return () => listener.subscription.unsubscribe();
   }, []);
+
+  // ── Workspace Persistence: Fetch missions from Supabase ────────────────────
+  const fetchWorkspaceMissions = useCallback(async () => {
+    if (!userId) return;
+    setWorkspaceLoading(true);
+    const { data, error } = await supabase
+      .from("missions")
+      .select("*")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false });
+    if (!error && data) {
+      setWorkspaceMissions(data as WorkspaceMission[]);
+    }
+    setWorkspaceLoading(false);
+  }, [userId]);
+
+  useEffect(() => {
+    fetchWorkspaceMissions();
+  }, [fetchWorkspaceMissions]);
+
+  // ── Workspace actions: archive, trash, restore, permanent delete ───────────
+  const archiveMission = useCallback(async (missionId: string) => {
+    const { error } = await supabase.from("missions").update({ status: "archived" }).eq("id", missionId);
+    if (!error) await fetchWorkspaceMissions();
+  }, [fetchWorkspaceMissions]);
+
+  const trashMission = useCallback(async (missionId: string) => {
+    const { error } = await supabase.from("missions").update({ status: "trashed" }).eq("id", missionId);
+    if (!error) await fetchWorkspaceMissions();
+  }, [fetchWorkspaceMissions]);
+
+  const restoreMission = useCallback(async (missionId: string) => {
+    const { error } = await supabase.from("missions").update({ status: "active" }).eq("id", missionId);
+    if (!error) await fetchWorkspaceMissions();
+  }, [fetchWorkspaceMissions]);
+
+  const permanentDeleteMission = useCallback(async (missionId: string) => {
+    const { error } = await supabase.from("missions").delete().eq("id", missionId);
+    if (!error) await fetchWorkspaceMissions();
+  }, [fetchWorkspaceMissions]);
+
+  // ── Derived workspace data ─────────────────────────────────────────────────
+  const activeMissions = workspaceMissions.filter((m) => m.status === "active" || m.status === "completed");
+  const archivedMissions = workspaceMissions.filter((m) => m.status === "archived");
+  const trashedMissions = workspaceMissions.filter((m) => m.status === "trashed");
+  const recentMissions = activeMissions.slice(0, 10);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -187,10 +254,14 @@ export default function Dashboard() {
   // ── Derived state ───────────────────────────────────────────────────────────
   const activeTool = findToolById(selectedModel);
   const isMediaMode = activeTool?.category.label === "CREATION";
-  const glowRgba = activeTool?.category.glowRgba ?? "34,197,94";
-  const borderColor = activeTool?.category.color ?? "#22c55e";
 
   const activeNavItem = NAV_ITEMS.find((n) => n.label === activeNav) ?? NAV_ITEMS[0];
+
+  // Section-aware accent: on Home, use selected engine color; otherwise, use the nav item's theme
+  const sectionGlow = activeNavItem.glowRgba;
+  const sectionColor = activeNavItem.color;
+  const glowRgba = activeNav === "Home" ? (activeTool?.category.glowRgba ?? sectionGlow) : sectionGlow;
+  const borderColor = activeNav === "Home" ? (activeTool?.category.color ?? sectionColor) : sectionColor;
 
   // ── Typing detection ───────────────────────────────────────────────────────
   function handleInputChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
@@ -279,76 +350,204 @@ export default function Dashboard() {
   const STYLED_SECTIONS = ["Recently", "Archives", "Trash"];
   const isStyledSection = STYLED_SECTIONS.includes(activeNav);
 
-  function renderStyledSection() {
-    const navItem = NAV_ITEMS.find((n) => n.label === activeNav)!;
-    const Icon = navItem.icon;
+  // Determine which missions to show for each section
+  function getMissionsForSection(): WorkspaceMission[] {
+    switch (activeNav) {
+      case "Recently":
+        return recentMissions;
+      case "Archives":
+        return archivedMissions;
+      case "Trash":
+        return trashedMissions;
+      default:
+        return [];
+    }
+  }
+
+  function renderMissionCard(mission: WorkspaceMission, index: number) {
+    const navItem = activeNavItem;
+    const isTrash = activeNav === "Trash";
+    const isArchive = activeNav === "Archives";
     return (
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
+        key={mission.id}
+        className="rounded-xl cursor-default group relative"
+        style={{
+          background: "rgba(255,255,255,0.02)",
+          border: `1px solid rgba(${navItem.glowRgba},0.15)`,
+          boxShadow: "inset 0 1px 1px rgba(255,255,255,0.05)",
+        }}
+        initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={springTransition}
-        className="flex flex-col items-center justify-center h-full text-center gap-6"
+        transition={{ ...snappySpring, delay: index * 0.05 }}
+        whileHover={{ y: -2, boxShadow: `0 4px 20px rgba(${navItem.glowRgba},0.12)` }}
       >
-        <motion.div
-          className="w-20 h-20 rounded-2xl flex items-center justify-center"
-          style={{
-            background: navItem.gradient,
-            boxShadow: `0 0 40px rgba(${navItem.glowRgba},0.3), 0 0 80px rgba(${navItem.glowRgba},0.15)`,
-          }}
-          animate={{ scale: [1, 1.05, 1] }}
-          transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-        >
-          <Icon size={32} className="text-white drop-shadow-lg" />
-        </motion.div>
-        <div>
-          <h2
-            className="text-2xl font-bold tracking-[0.1em] mb-2"
-            style={{
-              background: navItem.gradient,
-              WebkitBackgroundClip: "text",
-              WebkitTextFillColor: "transparent",
-              backgroundClip: "text",
-            }}
-          >
-            {activeNav.toUpperCase()}
-          </h2>
-          <p className="text-[12px] tracking-[0.15em]" style={{ color: "rgba(255,255,255,0.25)" }}>
-            {activeNav === "Trash" && "PERMANENTLY_DELETED ITEMS RESIDE HERE"}
-            {activeNav === "Archives" && "ARCHIVED_MISSIONS // COLD_STORAGE"}
-            {activeNav === "Recently" && "RECENT_ACTIVITY // TIMELINE_FEED"}
-          </p>
-        </div>
-        <div className="flex gap-3 mt-2">
-          {[1, 2, 3].map((i) => (
-            <motion.div
-              key={i}
-              className="w-48 h-24 rounded-xl"
-              style={{
-                background: "rgba(255,255,255,0.02)",
-                border: `1px solid rgba(${navItem.glowRgba},0.15)`,
-                boxShadow: `inset 0 1px 1px rgba(255,255,255,0.05)`,
-              }}
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ ...springTransition, delay: i * 0.08 }}
+        <div className="p-4">
+          <div className="flex items-center justify-between mb-2">
+            <span
+              className="text-[10px] tracking-[0.12em] font-mono font-bold"
+              style={{ color: navItem.color }}
             >
-              <div className="p-3">
-                <div className="w-24 h-2 rounded mb-2" style={{ background: `rgba(${navItem.glowRgba},0.15)` }} />
-                <div className="w-16 h-2 rounded" style={{ background: `rgba(${navItem.glowRgba},0.08)` }} />
-              </div>
-            </motion.div>
-          ))}
+              MISSION_{mission.id.slice(0, 6).toUpperCase()}
+            </span>
+            <span
+              className="text-[9px] tracking-[0.1em] px-2 py-0.5 rounded"
+              style={{
+                background: `rgba(${navItem.glowRgba},0.1)`,
+                border: `1px solid rgba(${navItem.glowRgba},0.25)`,
+                color: navItem.color,
+              }}
+            >
+              {mission.status.toUpperCase()}
+            </span>
+          </div>
+          <p
+            className="text-[12px] leading-relaxed mb-3 line-clamp-2"
+            style={{ color: "rgba(255,255,255,0.5)" }}
+          >
+            {mission.directive.substring(0, 100)}{mission.directive.length > 100 ? "..." : ""}
+          </p>
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-mono" style={{ color: "rgba(255,255,255,0.2)" }}>
+              {new Date(mission.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+            </span>
+            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              {isTrash ? (
+                <>
+                  <button
+                    onClick={() => restoreMission(mission.id)}
+                    className="p-1.5 rounded-md transition-colors hover:bg-white/5"
+                    title="Restore mission"
+                  >
+                    <RotateCcw size={12} style={{ color: "rgba(34,197,94,0.7)" }} />
+                  </button>
+                  <button
+                    onClick={() => permanentDeleteMission(mission.id)}
+                    className="p-1.5 rounded-md transition-colors hover:bg-red-500/10"
+                    title="Delete permanently"
+                  >
+                    <AlertTriangle size={12} style={{ color: "rgba(239,68,68,0.7)" }} />
+                  </button>
+                </>
+              ) : isArchive ? (
+                <button
+                  onClick={() => restoreMission(mission.id)}
+                  className="p-1.5 rounded-md transition-colors hover:bg-white/5"
+                  title="Unarchive mission"
+                >
+                  <RotateCcw size={12} style={{ color: `rgba(${navItem.glowRgba},0.7)` }} />
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={() => archiveMission(mission.id)}
+                    className="p-1.5 rounded-md transition-colors hover:bg-white/5"
+                    title="Archive mission"
+                  >
+                    <Archive size={12} style={{ color: "rgba(129,140,248,0.7)" }} />
+                  </button>
+                  <button
+                    onClick={() => trashMission(mission.id)}
+                    className="p-1.5 rounded-md transition-colors hover:bg-red-500/10"
+                    title="Move to trash"
+                  >
+                    <Trash2 size={12} style={{ color: "rgba(239,68,68,0.7)" }} />
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
         </div>
       </motion.div>
     );
   }
 
-  function renderGenericSection() {
-    const navItem = NAV_ITEMS.find((n) => n.label === activeNav)!;
+  function renderStyledSection() {
+    const navItem = activeNavItem;
+    const Icon = navItem.icon;
+    const missions = getMissionsForSection();
+
     return (
       <motion.div
+        key={activeNav}
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={springTransition}
+        className="flex flex-col items-center h-full w-full max-w-4xl mx-auto pt-8 overflow-y-auto scrollbar-thin"
+      >
+        {/* Section header */}
+        <motion.div
+          className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4"
+          style={{
+            background: navItem.gradient,
+            boxShadow: `0 0 40px rgba(${navItem.glowRgba},0.3), 0 0 80px rgba(${navItem.glowRgba},0.15)`,
+            willChange: "transform",
+          }}
+          animate={{ scale: [1, 1.04, 1] }}
+          transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+        >
+          <Icon size={26} className="text-white drop-shadow-lg" />
+        </motion.div>
+        <h2
+          className="text-xl font-bold tracking-[0.1em] mb-1"
+          style={{
+            background: navItem.gradient,
+            WebkitBackgroundClip: "text",
+            WebkitTextFillColor: "transparent",
+            backgroundClip: "text",
+          }}
+        >
+          {activeNav.toUpperCase()}
+        </h2>
+        <p className="text-[11px] tracking-[0.15em] mb-6" style={{ color: "rgba(255,255,255,0.25)" }}>
+          {activeNav === "Trash" && "PERMANENTLY_DELETED ITEMS RESIDE HERE"}
+          {activeNav === "Archives" && "ARCHIVED_MISSIONS // COLD_STORAGE"}
+          {activeNav === "Recently" && "RECENT_ACTIVITY // TIMELINE_FEED"}
+        </p>
+
+        {/* Content: real data from Supabase */}
+        {workspaceLoading ? (
+          <div className="flex items-center gap-3 mt-8">
+            <Loader2 size={18} className="animate-spin" style={{ color: navItem.color }} />
+            <span className="text-[11px] tracking-[0.12em]" style={{ color: `rgba(${navItem.glowRgba},0.5)` }}>
+              LOADING_DATA...
+            </span>
+          </div>
+        ) : missions.length === 0 ? (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="flex flex-col items-center gap-3 mt-8"
+          >
+            <Icon size={32} style={{ color: `rgba(${navItem.glowRgba},0.2)` }} />
+            <p className="text-[12px] tracking-[0.12em]" style={{ color: "rgba(255,255,255,0.25)" }}>
+              {activeNav === "Trash" && "No trashed missions"}
+              {activeNav === "Archives" && "No archived missions"}
+              {activeNav === "Recently" && "No recent activity"}
+            </p>
+            <p className="text-[10px]" style={{ color: "rgba(255,255,255,0.15)" }}>
+              {activeNav === "Trash" && "Deleted items will appear here"}
+              {activeNav === "Archives" && "Archive missions from Home to store them here"}
+              {activeNav === "Recently" && "Start a mission to see activity"}
+            </p>
+          </motion.div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 w-full pb-8">
+            {missions.map((m, i) => renderMissionCard(m, i))}
+          </div>
+        )}
+      </motion.div>
+    );
+  }
+
+  function renderGenericSection() {
+    const navItem = activeNavItem;
+    return (
+      <motion.div
+        key={activeNav}
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
+        transition={snappySpring}
         className="flex flex-col items-center justify-center h-full text-center"
       >
         <p
@@ -380,7 +579,7 @@ export default function Dashboard() {
       {/* ═══════════════════════ SIDEBAR ═══════════════════════ */}
       <motion.aside
         animate={{ width: sidebarCollapsed ? 0 : 64 }}
-        transition={{ duration: 0.2, ease: "easeInOut" }}
+        transition={{ duration: 0.18, ease: [0.25, 0.1, 0.25, 1] }}
         className="flex flex-col items-center shrink-0 overflow-hidden z-20"
         style={{ borderRight: `1px solid rgba(${glowRgba},0.12)`, background: "#020617" }}
       >
@@ -826,7 +1025,7 @@ export default function Dashboard() {
       </main>
 
       {/* ═══════════════════════ PLUS MENU (Spring) ═══════════════════════ */}
-      <AnimatePresence>
+      <AnimatePresence mode="wait">
         {plusMenuOpen && (
           <>
             <motion.div
@@ -840,12 +1039,13 @@ export default function Dashboard() {
               initial={{ opacity: 0, y: 20, scale: 0.92 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 20, scale: 0.92 }}
-              transition={springTransition}
+              transition={snappySpring}
               className="fixed z-40 overflow-hidden"
               style={{
                 bottom: "calc(60px + 70px)",
                 left: "50%",
                 transform: "translateX(-50%)",
+                willChange: "transform, opacity",
                 width: "min(380px, calc(100vw - 64px))",
                 background: "rgba(2,6,23,0.97)",
                 border: `1px solid rgba(${glowRgba},0.15)`,
@@ -933,7 +1133,7 @@ export default function Dashboard() {
       </AnimatePresence>
 
       {/* ═══════════════════════ AI ENGINE DRAWER (Spring) ═══════════════════════ */}
-      <AnimatePresence>
+      <AnimatePresence mode="wait">
         {drawerOpen && (
           <>
             <motion.div
@@ -948,12 +1148,13 @@ export default function Dashboard() {
               initial={{ opacity: 0, y: 30, scale: 0.92 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 30, scale: 0.92 }}
-              transition={springTransition}
+              transition={snappySpring}
               className="fixed z-40 overflow-hidden"
               style={{
                 bottom: "calc(60px + 70px)",
                 left: "50%",
                 transform: "translateX(-50%)",
+                willChange: "transform, opacity",
                 width: "min(640px, calc(100vw - 96px))",
                 background: "rgba(2,6,23,0.97)",
                 border: `1px solid rgba(${glowRgba},0.18)`,
@@ -1047,8 +1248,8 @@ export default function Dashboard() {
         )}
       </AnimatePresence>
 
-      {/* ═══════════════════════ LOGOUT MODAL (Spring) ═══════════════════════ */}
-      <AnimatePresence>
+      {/* ═══════════════════════ LOGOUT MODAL (Glass-morphic, Centered, Supabase Auth) ═══════════════════════ */}
+      <AnimatePresence mode="wait">
         {logoutModalOpen && (
           <>
             <motion.div
@@ -1058,24 +1259,25 @@ export default function Dashboard() {
               transition={{ duration: 0.2 }}
               onClick={() => setLogoutModalOpen(false)}
               className="fixed inset-0 z-50"
-              style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(12px)" }}
+              style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)" }}
             />
             <motion.div
               initial={{ opacity: 0, scale: 0.88, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.88, y: 20 }}
-              transition={springTransition}
+              transition={snappySpring}
               className="fixed z-50 flex flex-col items-center"
               style={{
                 top: "50%",
                 left: "50%",
                 transform: "translate(-50%, -50%)",
                 width: "min(420px, calc(100vw - 48px))",
-                background: "rgba(2,6,23,0.95)",
+                background: "rgba(2,6,23,0.85)",
                 border: "1px solid rgba(239,68,68,0.2)",
                 borderRadius: 16,
-                backdropFilter: "blur(32px)",
-                boxShadow: "0 0 80px rgba(0,0,0,0.8), 0 0 40px rgba(239,68,68,0.08)",
+                backdropFilter: "blur(40px)",
+                WebkitBackdropFilter: "blur(40px)",
+                boxShadow: "0 0 80px rgba(0,0,0,0.8), 0 0 40px rgba(239,68,68,0.08), inset 0 1px 1px rgba(255,255,255,0.05)",
                 padding: "32px 28px 24px",
               }}
             >
@@ -1084,6 +1286,7 @@ export default function Dashboard() {
                 style={{
                   background: "rgba(239,68,68,0.1)",
                   border: "1px solid rgba(239,68,68,0.3)",
+                  boxShadow: "0 0 30px rgba(239,68,68,0.1)",
                 }}
                 animate={{ scale: [1, 1.06, 1] }}
                 transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
@@ -1091,12 +1294,16 @@ export default function Dashboard() {
                 <LogOut size={22} className="text-red-400" />
               </motion.div>
               <h3 className="text-[14px] font-semibold tracking-[0.08em] text-white mb-2">SESSION_TERMINATION</h3>
-              <p className="text-[12px] text-center leading-relaxed mb-6" style={{ color: "rgba(255,255,255,0.4)" }}>
+              <p className="text-[12px] text-center leading-relaxed mb-1" style={{ color: "rgba(255,255,255,0.4)" }}>
                 Are you sure you want to terminate the session?
-                <br />
-                <span className="font-mono text-[10px]" style={{ color: "rgba(239,68,68,0.5)" }}>
-                  All unsaved state will be purged.
-                </span>
+              </p>
+              {userEmail && (
+                <p className="text-[10px] font-mono mb-4" style={{ color: `rgba(${sectionGlow},0.4)` }}>
+                  {userEmail}
+                </p>
+              )}
+              <p className="text-[10px] font-mono mb-6 text-center" style={{ color: "rgba(239,68,68,0.45)" }}>
+                All unsaved state will be purged from the workspace.
               </p>
               <div className="flex gap-3 w-full">
                 <button
