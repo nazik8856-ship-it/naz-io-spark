@@ -1053,97 +1053,77 @@ export default function Dashboard() {
       {/* ═══════════════════════ LOGOUT MODAL (Spring) ═══════════════════════ */}
       <AnimatePresence>
         {logoutModalOpen && (
-          <>
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 overflow-hidden">
+            {/* 1. Backdrop - Using flex-centering instead of absolute translate */}
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
               onClick={() => setLogoutModalOpen(false)}
-              className="fixed inset-0 z-50"
-              style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(12px)" }}
+              className="absolute inset-0 bg-black/60 backdrop-blur-md"
             />
+
+            {/* 2. Modal Content */}
             <motion.div
-              initial={{ opacity: 0, scale: 0.88, y: 20 }}
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.88, y: 20 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
               transition={springTransition}
-              className="fixed z-50 flex flex-col items-center"
+              className="relative z-[101] w-full max-w-[400px] rounded-2xl p-8 text-center glass-edge overflow-hidden"
               style={{
-                top: "50%",
-                left: "50%",
-                transform: "translate(-50%, -50%)",
-                width: "min(420px, calc(100vw - 48px))",
-                background: "rgba(2,6,23,0.95)",
-                border: "1px solid rgba(239,68,68,0.2)",
-                borderRadius: 16,
-                backdropFilter: "blur(32px)",
-                boxShadow: "0 0 80px rgba(0,0,0,0.8), 0 0 40px rgba(239,68,68,0.08)",
-                padding: "32px 28px 24px",
+                background: "rgba(2, 6, 23, 0.95)",
+                border: "1px solid rgba(239, 68, 68, 0.15)",
+                boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 40px rgba(239, 68, 68, 0.05)",
               }}
             >
+              {/* Animated Icon Container */}
               <motion.div
-                className="w-14 h-14 rounded-full flex items-center justify-center mb-5"
+                className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6"
                 style={{
-                  background: "rgba(239,68,68,0.1)",
-                  border: "1px solid rgba(239,68,68,0.3)",
+                  background: "rgba(239, 68, 68, 0.08)",
+                  border: "1px solid rgba(239, 68, 68, 0.2)",
                 }}
-                animate={{ scale: [1, 1.06, 1] }}
-                transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                animate={{
+                  boxShadow: ["0 0 0px rgba(239,68,68,0)", "0 0 20px rgba(239,68,68,0.2)", "0 0 0px rgba(239,68,68,0)"],
+                }}
+                transition={{ duration: 2, repeat: Infinity }}
               >
-                <LogOut size={22} className="text-red-400" />
+                <LogOut size={24} className="text-red-500" />
               </motion.div>
-              <h3 className="text-[14px] font-semibold tracking-[0.08em] text-white mb-2">SESSION_TERMINATION</h3>
-              <p className="text-[12px] text-center leading-relaxed mb-6" style={{ color: "rgba(255,255,255,0.4)" }}>
-                Are you sure you want to terminate the session?
-                <br />
-                <span className="font-mono text-[10px]" style={{ color: "rgba(239,68,68,0.5)" }}>
-                  All unsaved state will be purged.
-                </span>
+
+              <h3 className="text-[11px] font-mono tracking-[0.3em] text-red-500/80 mb-2 uppercase">
+                System_Termination
+              </h3>
+
+              <h2 className="text-xl font-bold text-white mb-3">Ready to log out?</h2>
+
+              <p className="text-[13px] leading-relaxed mb-8 text-white/40 px-4">
+                All active neural session state will be{" "}
+                <span className="text-red-400/80 font-medium italic">purged from local cache.</span>
               </p>
-              <div className="flex gap-3 w-full">
-                <button
+
+              <div className="flex gap-3">
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
                   onClick={() => setLogoutModalOpen(false)}
-                  className="flex-1 py-2.5 rounded-lg text-[12px] tracking-[0.08em] font-medium transition-all duration-200"
-                  style={{
-                    background: "rgba(255,255,255,0.04)",
-                    border: "1px solid rgba(255,255,255,0.1)",
-                    color: "rgba(255,255,255,0.5)",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = "rgba(255,255,255,0.08)";
-                    e.currentTarget.style.borderColor = "rgba(255,255,255,0.2)";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "rgba(255,255,255,0.04)";
-                    e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)";
-                  }}
+                  className="flex-1 py-3 rounded-xl bg-white/5 border border-white/10 text-white/60 text-[13px] font-medium hover:bg-white/10 transition-colors"
                 >
-                  Cancel
-                </button>
-                <button
+                  Stay
+                </motion.button>
+
+                <motion.button
+                  whileHover={{ scale: 1.02, backgroundColor: "rgba(239, 68, 68, 0.8)" }}
+                  whileTap={{ scale: 0.98 }}
                   onClick={handleSignOut}
-                  className="flex-1 py-2.5 rounded-lg text-[12px] tracking-[0.08em] font-bold transition-all duration-200"
-                  style={{
-                    background: "rgba(239,68,68,0.15)",
-                    border: "1px solid rgba(239,68,68,0.4)",
-                    color: "#ef4444",
-                    boxShadow: "0 0 20px rgba(239,68,68,0.1)",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = "rgba(239,68,68,0.25)";
-                    e.currentTarget.style.boxShadow = "0 0 30px rgba(239,68,68,0.2)";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "rgba(239,68,68,0.15)";
-                    e.currentTarget.style.boxShadow = "0 0 20px rgba(239,68,68,0.1)";
-                  }}
+                  className="flex-1 py-3 rounded-xl bg-red-500/20 border border-red-500/40 text-red-400 text-[13px] font-bold hover:text-white transition-all shadow-lg shadow-red-500/5"
                 >
-                  Log Out
-                </button>
+                  Terminate
+                </motion.button>
               </div>
             </motion.div>
-          </>
+          </div>
         )}
       </AnimatePresence>
 
