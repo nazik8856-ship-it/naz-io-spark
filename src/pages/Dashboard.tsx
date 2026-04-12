@@ -1,13 +1,44 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { supabase } from "@/integrations/supabase/client"; 
+import { supabase } from "@/integrations/supabase/client";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import {
-  Plus, X, Send, Brain, Building2, Briefcase, Image, Video, Mic,
-  BookOpen, TrendingUp, Home, MessageSquare, Settings, LogOut,
-  History, Zap, Shield, ChevronRight, Layers, PanelLeftClose, PanelLeft,
-  Paperclip, Lightbulb, Bug, HeartPulse, Database, Globe, Github,
-  Search, CheckCircle2, Feather, ChevronDown, Archive, Trash2, Clock,
+  Plus,
+  X,
+  Send,
+  Brain,
+  Building2,
+  Briefcase,
+  Image,
+  Video,
+  Mic,
+  BookOpen,
+  TrendingUp,
+  Home,
+  MessageSquare,
+  Settings,
+  LogOut,
+  History,
+  Zap,
+  Shield,
+  ChevronRight,
+  Layers,
+  PanelLeftClose,
+  PanelLeft,
+  Paperclip,
+  Lightbulb,
+  Bug,
+  HeartPulse,
+  Database,
+  Globe,
+  Github,
+  Search,
+  CheckCircle2,
+  Feather,
+  ChevronDown,
+  Archive,
+  Trash2,
+  Clock,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 
@@ -44,7 +75,13 @@ const AI_CATEGORIES: Record<string, Category> = {
     glowRgba: "168,85,247",
     label: "CREATION",
     tools: [
-      { id: "google/gemini-3-flash-image", name: "Nano Banana 2.0", subtitle: "The Designer", icon: Image, isMedia: true },
+      {
+        id: "google/gemini-3-flash-image",
+        name: "Nano Banana 2.0",
+        subtitle: "The Designer",
+        icon: Image,
+        isMedia: true,
+      },
       { id: "google/veo-3", name: "Google Veo 3", subtitle: "The Cinematographer", icon: Video, isMedia: true },
       { id: "elevenlabs/lyria", name: "ElevenLabs Lyria", subtitle: "The Voice", icon: Mic, isMedia: true },
     ],
@@ -72,16 +109,23 @@ function findToolById(id: string | null): { tool: ToolEntry; category: Category 
 // ─── Nav Items with Unique Gradients ────────────────────────────────────────────
 
 const NAV_ITEMS = [
-  { icon: Home, label: "Home", gradient: "linear-gradient(135deg, #22c55e, #06b6d4)", color: "#22c55e", glowRgba: "34,197,94" },
-  { icon: MessageSquare, label: "Workflows", gradient: "linear-gradient(135deg, #3b82f6, #8b5cf6)", color: "#3b82f6", glowRgba: "59,130,246" },
-  { icon: History, label: "History", gradient: "linear-gradient(135deg, #f59e0b, #ef4444)", color: "#f59e0b", glowRgba: "245,158,11" },
-  { icon: Layers, label: "Integrations", gradient: "linear-gradient(135deg, #06b6d4, #14b8a6)", color: "#06b6d4", glowRgba: "6,182,212" },
-  { icon: Clock, label: "Recently", gradient: "linear-gradient(135deg, #ec4899, #f43f5e)", color: "#ec4899", glowRgba: "236,72,153" },
-  { icon: Archive, label: "Archives", gradient: "linear-gradient(135deg, #8b5cf6, #6366f1)", color: "#8b5cf6", glowRgba: "139,92,246" },
-  { icon: Trash2, label: "Trash", gradient: "linear-gradient(135deg, #ef4444, #dc2626)", color: "#ef4444", glowRgba: "239,68,68" },
-  { icon: Settings, label: "Settings", gradient: "linear-gradient(135deg, #64748b, #94a3b8)", color: "#94a3b8", glowRgba: "148,163,184" },
+  { icon: Home, label: "Home" },
+  { icon: MessageSquare, label: "Workflows" },
+  { icon: History, label: "History" },
+  { icon: Layers, label: "Integrations" },
+  { icon: Clock, label: "Recently" },
+  { icon: Archive, label: "Archives" },
+  { icon: Trash2, label: "Trash" },
+  { icon: Settings, label: "Settings" },
 ];
 
+const SECTION_THEMES: Record<string, { gradient: string; glow: string }> = {
+  Home: { gradient: "linear-gradient(135deg, #22c55e, #10b981)", glow: "34,197,94" },
+  Workflows: { gradient: "linear-gradient(135deg, #a855f7, #ec4899)", glow: "168,85,247" },
+  Recently: { gradient: "linear-gradient(135deg, #06b6d4, #3b82f6)", glow: "6,182,212" },
+  Archives: { gradient: "linear-gradient(135deg, #818cf8, #c084fc)", glow: "129,140,248" },
+  Trash: { gradient: "linear-gradient(135deg, #ef4444, #f97316)", glow: "239,68,68" },
+};
 const STYLES = ["Technical", "Creative", "Fast"] as const;
 
 const SKILLS = [
@@ -106,7 +150,7 @@ export default function Dashboard() {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [webSearchActive, setWebSearchActive] = useState(false);
-  const [activeStyle, setActiveStyle] = useState<typeof STYLES[number]>("Technical");
+  const [activeStyle, setActiveStyle] = useState<(typeof STYLES)[number]>("Technical");
   const [styleDropdownOpen, setStyleDropdownOpen] = useState(false);
   const [connectorStatus, setConnectorStatus] = useState({ supabase: true, vercel: false, github: false });
   const [isProcessing, setIsProcessing] = useState(false);
@@ -158,7 +202,8 @@ export default function Dashboard() {
 
   // ── Simulation mode ────────────────────────────────────────────────────────
   function streamSimulation(msgIndex: number) {
-    const mockResponse = "[SIMULATION_MODE] // OFFLINE_DRAFT — Neural pathway rerouted through local inference cache. Executing fallback heuristic analysis on provided directive. Output confidence: 87.3%. Recommended action: retry with primary engine when connectivity is restored.";
+    const mockResponse =
+      "[SIMULATION_MODE] // OFFLINE_DRAFT — Neural pathway rerouted through local inference cache. Executing fallback heuristic analysis on provided directive. Output confidence: 87.3%. Recommended action: retry with primary engine when connectivity is restored.";
     const words = mockResponse.split(" ");
     let wordIdx = 0;
 
@@ -192,11 +237,7 @@ export default function Dashboard() {
     if (!trimmed) return;
 
     const aiMsgIndex = messages.length + 1;
-    setMessages((prev) => [
-      ...prev,
-      { role: "user", text: trimmed },
-      { role: "ai", text: "Processing..." },
-    ]);
+    setMessages((prev) => [...prev, { role: "user", text: trimmed }, { role: "ai", text: "Processing..." }]);
     setInput("");
     setIsProcessing(true);
 
@@ -305,7 +346,11 @@ export default function Dashboard() {
   function renderGenericSection() {
     const navItem = NAV_ITEMS.find((n) => n.label === activeNav)!;
     return (
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center justify-center h-full text-center">
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className="flex flex-col items-center justify-center h-full text-center"
+      >
         <p
           className="text-[13px] tracking-[0.2em] mb-2 font-bold"
           style={{
@@ -317,7 +362,9 @@ export default function Dashboard() {
         >
           {activeNav.toUpperCase()}_SECTION
         </p>
-        <p className="text-[11px]" style={{ color: "rgba(255,255,255,0.2)" }}>System node currently under construction.</p>
+        <p className="text-[11px]" style={{ color: "rgba(255,255,255,0.2)" }}>
+          System node currently under construction.
+        </p>
       </motion.div>
     );
   }
@@ -411,10 +458,16 @@ export default function Dashboard() {
           style={{ borderBottom: `1px solid rgba(${glowRgba},0.1)`, background: "rgba(2,6,23,0.92)" }}
         >
           <div className="flex items-center gap-3">
-            <button onClick={() => setSidebarCollapsed((v) => !v)} className="mr-2 transition-colors" style={{ color: `rgba(${glowRgba},0.5)` }}>
+            <button
+              onClick={() => setSidebarCollapsed((v) => !v)}
+              className="mr-2 transition-colors"
+              style={{ color: `rgba(${glowRgba},0.5)` }}
+            >
               {sidebarCollapsed ? <PanelLeft size={16} /> : <PanelLeftClose size={16} />}
             </button>
-            <span className="text-[11px] tracking-[0.15em] font-mono" style={{ color: borderColor }}>NAZAI://</span>
+            <span className="text-[11px] tracking-[0.15em] font-mono" style={{ color: borderColor }}>
+              NAZAI://
+            </span>
             <span
               className="text-[11px] font-mono font-bold tracking-[0.1em]"
               style={{
@@ -428,21 +481,35 @@ export default function Dashboard() {
             </span>
             <ChevronRight size={10} style={{ color: `rgba(${glowRgba},0.25)` }} />
             {activeTool && activeNav === "Home" && (
-              <motion.span initial={{ opacity: 0, x: -4 }} animate={{ opacity: 1, x: 0 }} className="text-[11px] tracking-[0.1em]" style={{ color: activeTool.category.color }}>
+              <motion.span
+                initial={{ opacity: 0, x: -4 }}
+                animate={{ opacity: 1, x: 0 }}
+                className="text-[11px] tracking-[0.1em]"
+                style={{ color: activeTool.category.color }}
+              >
                 {activeTool.tool.name}
               </motion.span>
             )}
           </div>
           <div className="flex items-center gap-3">
             {isLinked && (
-              <span className="text-[9px] tracking-[0.12em]" style={{ color: `rgba(${glowRgba},0.3)` }}>LINKED</span>
+              <span className="text-[9px] tracking-[0.12em]" style={{ color: `rgba(${glowRgba},0.3)` }}>
+                LINKED
+              </span>
             )}
-            <span className="text-[10px] tracking-[0.12em] font-mono select-none" style={{ color: `rgba(${glowRgba},0.4)` }}>
-              {new Date().toLocaleDateString("en-US", { weekday: "short", year: "numeric", month: "short", day: "numeric" }).toUpperCase()}
+            <span
+              className="text-[10px] tracking-[0.12em] font-mono select-none"
+              style={{ color: `rgba(${glowRgba},0.4)` }}
+            >
+              {new Date()
+                .toLocaleDateString("en-US", { weekday: "short", year: "numeric", month: "short", day: "numeric" })
+                .toUpperCase()}
             </span>
             <div className="flex items-center gap-2">
               <div className="w-[6px] h-[6px] rounded-full animate-pulse-glow" style={{ background: borderColor }} />
-              <span className="text-[9px] tracking-[0.15em] font-mono" style={{ color: `rgba(${glowRgba},0.4)` }}>SYNCHRONIZED</span>
+              <span className="text-[9px] tracking-[0.15em] font-mono" style={{ color: `rgba(${glowRgba},0.4)` }}>
+                SYNCHRONIZED
+              </span>
             </div>
           </div>
         </header>
@@ -454,23 +521,47 @@ export default function Dashboard() {
               <div className="flex-1 w-full max-w-2xl overflow-y-auto py-8 space-y-4 scrollbar-thin">
                 {messages.length === 0 && (
                   <div className="flex flex-col items-center justify-center h-full gap-6 text-center select-none">
-                    <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ border: `1px solid rgba(${glowRgba},0.25)`, background: `rgba(${glowRgba},0.05)` }}>
-                      <Zap size={22} style={{ color: borderColor, filter: `drop-shadow(0 0 8px rgba(${glowRgba},0.5))` }} />
+                    <div
+                      className="w-14 h-14 rounded-full flex items-center justify-center"
+                      style={{ border: `1px solid rgba(${glowRgba},0.25)`, background: `rgba(${glowRgba},0.05)` }}
+                    >
+                      <Zap
+                        size={22}
+                        style={{ color: borderColor, filter: `drop-shadow(0 0 8px rgba(${glowRgba},0.5))` }}
+                      />
                     </div>
                     <div>
-                      <p className="text-[13px] tracking-[0.12em]" style={{ color: `rgba(${glowRgba},0.6)` }}>WORKFLOW ANIMATOR READY</p>
-                      <p className="text-[11px] mt-2" style={{ color: "rgba(255,255,255,0.2)" }}>Select an AI engine below, then describe your mission.</p>
+                      <p className="text-[13px] tracking-[0.12em]" style={{ color: `rgba(${glowRgba},0.6)` }}>
+                        WORKFLOW ANIMATOR READY
+                      </p>
+                      <p className="text-[11px] mt-2" style={{ color: "rgba(255,255,255,0.2)" }}>
+                        Select an AI engine below, then describe your mission.
+                      </p>
                     </div>
                   </div>
                 )}
                 {messages.map((msg, i) => (
-                  <motion.div key={i} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                  <motion.div
+                    key={i}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.25 }}
+                    className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                  >
                     <div
                       className="max-w-[78%] px-3.5 py-2.5 text-[13px] leading-relaxed glass-edge"
                       style={{
                         borderRadius: msg.role === "user" ? "12px 12px 2px 12px" : "12px 12px 12px 2px",
-                        background: msg.isSimulation ? "rgba(255,165,0,0.06)" : msg.role === "user" ? `rgba(${glowRgba},0.08)` : "rgba(255,255,255,0.03)",
-                        border: msg.isSimulation ? "1px solid rgba(255,165,0,0.25)" : msg.role === "user" ? `1px solid rgba(${glowRgba},0.2)` : "1px solid rgba(255,255,255,0.06)",
+                        background: msg.isSimulation
+                          ? "rgba(255,165,0,0.06)"
+                          : msg.role === "user"
+                            ? `rgba(${glowRgba},0.08)`
+                            : "rgba(255,255,255,0.03)",
+                        border: msg.isSimulation
+                          ? "1px solid rgba(255,165,0,0.25)"
+                          : msg.role === "user"
+                            ? `1px solid rgba(${glowRgba},0.2)`
+                            : "1px solid rgba(255,255,255,0.06)",
                         color: msg.isSimulation ? "#fbbf24" : msg.role === "user" ? "#e2e8f0" : "rgba(255,255,255,0.7)",
                       }}
                     >
@@ -484,15 +575,31 @@ export default function Dashboard() {
               {/* ── Media mode + Engine tag bar ── */}
               <AnimatePresence>
                 {activeTool && (
-                  <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 6 }} className="w-full max-w-2xl mb-2 flex items-center gap-2 flex-wrap">
+                  <motion.div
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 6 }}
+                    className="w-full max-w-2xl mb-2 flex items-center gap-2 flex-wrap"
+                  >
                     {isMediaMode && (
-                      <span className="text-[9px] tracking-[0.15em] px-2.5 py-1 rounded animate-media-glow" style={{ background: "rgba(168,85,247,0.12)", border: "1px solid rgba(168,85,247,0.45)", color: "#a855f7" }}>
+                      <span
+                        className="text-[9px] tracking-[0.15em] px-2.5 py-1 rounded animate-media-glow"
+                        style={{
+                          background: "rgba(168,85,247,0.12)",
+                          border: "1px solid rgba(168,85,247,0.45)",
+                          color: "#a855f7",
+                        }}
+                      >
                         ▶ MEDIA_GENERATION_MODE_ACTIVE
                       </span>
                     )}
                     <span
                       className="text-[10px] tracking-[0.1em] px-2.5 py-1 rounded flex items-center gap-1.5 cursor-pointer ml-auto hover:brightness-125 transition-all"
-                      style={{ background: `rgba(${activeTool.category.glowRgba},0.1)`, border: `1px solid rgba(${activeTool.category.glowRgba},0.35)`, color: activeTool.category.color }}
+                      style={{
+                        background: `rgba(${activeTool.category.glowRgba},0.1)`,
+                        border: `1px solid rgba(${activeTool.category.glowRgba},0.35)`,
+                        color: activeTool.category.color,
+                      }}
                       onClick={() => setSelectedModel(null)}
                       title="Deselect Engine"
                     >
@@ -515,7 +622,11 @@ export default function Dashboard() {
                       : activeTool
                         ? `0 0 0 1px rgba(${glowRgba},0.1), 0 0 20px rgba(${glowRgba},0.12)`
                         : "none",
-                    animation: isTyping ? "border-pulse 1.5s ease-in-out infinite" : activeTool ? "border-pulse 3s ease-in-out infinite" : "none",
+                    animation: isTyping
+                      ? "border-pulse 1.5s ease-in-out infinite"
+                      : activeTool
+                        ? "border-pulse 3s ease-in-out infinite"
+                        : "none",
                     ["--glow-color" as string]: `rgba(${glowRgba},0.4)`,
                   }}
                 >
@@ -524,17 +635,32 @@ export default function Dashboard() {
                     value={input}
                     onChange={handleInputChange}
                     onKeyDown={handleKeyDown}
-                    placeholder={activeTool ? `Mission for ${activeTool.tool.name}... (↵ to send)` : "Describe your system mission... (↵ to send)"}
+                    placeholder={
+                      activeTool
+                        ? `Mission for ${activeTool.tool.name}... (↵ to send)`
+                        : "Describe your system mission... (↵ to send)"
+                    }
                     rows={1}
                     className="w-full bg-transparent border-none outline-none resize-none font-mono text-[13px] leading-relaxed placeholder:text-white/18"
-                    style={{ padding: "16px 16px 8px 16px", minHeight: "140px", color: "#e2e8f0", caretColor: borderColor }}
+                    style={{
+                      padding: "16px 16px 8px 16px",
+                      minHeight: "140px",
+                      color: "#e2e8f0",
+                      caretColor: borderColor,
+                    }}
                   />
 
                   {/* ── Footer inside input ── */}
-                  <div className="flex items-center justify-between px-3 py-2.5 glass-edge" style={{ borderTop: "1px solid rgba(255,255,255,0.1)" }}>
+                  <div
+                    className="flex items-center justify-between px-3 py-2.5 glass-edge"
+                    style={{ borderTop: "1px solid rgba(255,255,255,0.1)" }}
+                  >
                     <div className="flex items-center gap-2 flex-wrap">
                       <button
-                        onClick={() => { setPlusMenuOpen((v) => !v); setDrawerOpen(false); }}
+                        onClick={() => {
+                          setPlusMenuOpen((v) => !v);
+                          setDrawerOpen(false);
+                        }}
                         className="w-7 h-7 rounded-full flex items-center justify-center transition-all duration-200 shrink-0"
                         style={{
                           background: plusMenuOpen ? `rgba(${glowRgba},0.18)` : `rgba(${glowRgba},0.06)`,
@@ -549,7 +675,10 @@ export default function Dashboard() {
                       </button>
 
                       <button
-                        onClick={() => { setDrawerOpen((v) => !v); setPlusMenuOpen(false); }}
+                        onClick={() => {
+                          setDrawerOpen((v) => !v);
+                          setPlusMenuOpen(false);
+                        }}
                         className="text-[10px] tracking-[0.08em] px-2 py-1 rounded transition-all"
                         style={{
                           background: `rgba(${glowRgba},0.06)`,
@@ -567,7 +696,9 @@ export default function Dashboard() {
                         className="flex items-center gap-1 px-2 py-1 rounded text-[10px] tracking-[0.08em] transition-all"
                         style={{
                           background: webSearchActive ? "rgba(59,130,246,0.12)" : "rgba(255,255,255,0.03)",
-                          border: webSearchActive ? "1px solid rgba(59,130,246,0.4)" : "1px solid rgba(255,255,255,0.06)",
+                          border: webSearchActive
+                            ? "1px solid rgba(59,130,246,0.4)"
+                            : "1px solid rgba(255,255,255,0.06)",
                           color: webSearchActive ? "#3b82f6" : "rgba(255,255,255,0.3)",
                         }}
                         title="Toggle Web Search"
@@ -599,12 +730,19 @@ export default function Dashboard() {
                               exit={{ opacity: 0, y: 4, scale: 0.96 }}
                               transition={springTransition}
                               className="absolute bottom-full right-0 mb-1 rounded-lg overflow-hidden z-50"
-                              style={{ background: "rgba(2,6,23,0.97)", border: "1px solid rgba(255,255,255,0.1)", backdropFilter: "blur(16px)" }}
+                              style={{
+                                background: "rgba(2,6,23,0.97)",
+                                border: "1px solid rgba(255,255,255,0.1)",
+                                backdropFilter: "blur(16px)",
+                              }}
                             >
                               {STYLES.map((s) => (
                                 <button
                                   key={s}
-                                  onClick={() => { setActiveStyle(s); setStyleDropdownOpen(false); }}
+                                  onClick={() => {
+                                    setActiveStyle(s);
+                                    setStyleDropdownOpen(false);
+                                  }}
                                   className="block w-full text-left px-4 py-2 text-[11px] tracking-[0.08em] transition-colors"
                                   style={{
                                     color: activeStyle === s ? borderColor : "rgba(255,255,255,0.4)",
@@ -636,7 +774,10 @@ export default function Dashboard() {
                   </div>
                 </div>
 
-                <p className="text-center text-[10px] mt-2 tracking-[0.08em] font-mono" style={{ color: "rgba(255,255,255,0.15)" }}>
+                <p
+                  className="text-center text-[10px] mt-2 tracking-[0.08em] font-mono"
+                  style={{ color: "rgba(255,255,255,0.15)" }}
+                >
                   {selectedModel ? `SYSTEM_NODE // ${selectedModel}` : "NO ENGINE SELECTED — CLICK + TO CHOOSE"}
                 </p>
               </div>
@@ -648,18 +789,37 @@ export default function Dashboard() {
           )}
         </div>
 
-        <footer className="flex items-center justify-between px-6 py-2 shrink-0 glass-edge" style={{ borderTop: `1px solid rgba(${glowRgba},0.1)`, background: "rgba(2,6,23,0.92)" }}>
+        <footer
+          className="flex items-center justify-between px-6 py-2 shrink-0 glass-edge"
+          style={{ borderTop: `1px solid rgba(${glowRgba},0.1)`, background: "rgba(2,6,23,0.92)" }}
+        >
           <div className="flex items-center gap-2">
             <Shield size={10} style={{ color: `rgba(${glowRgba},0.45)` }} />
-            <span className="text-[10px] tracking-[0.15em]" style={{ color: `rgba(${glowRgba},0.45)` }}>SECURE_NODE</span>
+            <span className="text-[10px] tracking-[0.15em]" style={{ color: `rgba(${glowRgba},0.45)` }}>
+              SECURE_NODE
+            </span>
           </div>
           <div className="flex items-center gap-4">
-            {connectorStatus.supabase && <span className="text-[9px] tracking-[0.1em]" style={{ color: "rgba(34,197,94,0.4)" }}>DB:ON</span>}
-            {connectorStatus.vercel && <span className="text-[9px] tracking-[0.1em]" style={{ color: "rgba(255,255,255,0.3)" }}>VERCEL:ON</span>}
-            {connectorStatus.github && <span className="text-[9px] tracking-[0.1em]" style={{ color: "rgba(255,255,255,0.3)" }}>GH:ON</span>}
+            {connectorStatus.supabase && (
+              <span className="text-[9px] tracking-[0.1em]" style={{ color: "rgba(34,197,94,0.4)" }}>
+                DB:ON
+              </span>
+            )}
+            {connectorStatus.vercel && (
+              <span className="text-[9px] tracking-[0.1em]" style={{ color: "rgba(255,255,255,0.3)" }}>
+                VERCEL:ON
+              </span>
+            )}
+            {connectorStatus.github && (
+              <span className="text-[9px] tracking-[0.1em]" style={{ color: "rgba(255,255,255,0.3)" }}>
+                GH:ON
+              </span>
+            )}
             <div className="flex items-center gap-2">
               <div className="w-[5px] h-[5px] rounded-full animate-pulse-glow" style={{ background: borderColor }} />
-              <span className="text-[10px] tracking-[0.15em] font-mono" style={{ color: `rgba(${glowRgba},0.45)` }}>SYNCHRONIZED</span>
+              <span className="text-[10px] tracking-[0.15em] font-mono" style={{ color: `rgba(${glowRgba},0.45)` }}>
+                SYNCHRONIZED
+              </span>
             </div>
           </div>
         </footer>
@@ -669,7 +829,13 @@ export default function Dashboard() {
       <AnimatePresence>
         {plusMenuOpen && (
           <>
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setPlusMenuOpen(false)} className="fixed inset-0 z-30" />
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setPlusMenuOpen(false)}
+              className="fixed inset-0 z-30"
+            />
             <motion.div
               initial={{ opacity: 0, y: 20, scale: 0.92 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -689,46 +855,70 @@ export default function Dashboard() {
               }}
             >
               <div className="px-4 py-3" style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
-                <span className="text-[11px] tracking-[0.15em]" style={{ color: "rgba(255,255,255,0.35)" }}>TOOLS</span>
+                <span className="text-[11px] tracking-[0.15em]" style={{ color: "rgba(255,255,255,0.35)" }}>
+                  TOOLS
+                </span>
               </div>
               <div className="p-3 flex flex-col gap-1">
                 <button
-                  onClick={() => { fileInputRef.current?.click(); setPlusMenuOpen(false); }}
+                  onClick={() => {
+                    fileInputRef.current?.click();
+                    setPlusMenuOpen(false);
+                  }}
                   className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-left transition-colors hover:bg-white/[0.04]"
                 >
                   <Paperclip size={15} style={{ color: `rgba(${glowRgba},0.5)` }} />
                   <div>
-                    <div className="text-[12px]" style={{ color: "#e2e8f0" }}>Add Files / Photos</div>
-                    <div className="text-[10px]" style={{ color: "rgba(255,255,255,0.25)" }}>Upload from your device</div>
+                    <div className="text-[12px]" style={{ color: "#e2e8f0" }}>
+                      Add Files / Photos
+                    </div>
+                    <div className="text-[10px]" style={{ color: "rgba(255,255,255,0.25)" }}>
+                      Upload from your device
+                    </div>
                   </div>
                 </button>
 
                 <div className="mt-2 mb-1 px-3">
-                  <span className="text-[9px] tracking-[0.15em]" style={{ color: `rgba(${glowRgba},0.4)` }}>SKILLS</span>
+                  <span className="text-[9px] tracking-[0.15em]" style={{ color: `rgba(${glowRgba},0.4)` }}>
+                    SKILLS
+                  </span>
                 </div>
                 {SKILLS.map(({ icon: Icon, label }) => (
                   <button
                     key={label}
-                    onClick={() => { setInput((v) => (v ? v + "\n" : "") + `/${label.toLowerCase().replace(/\s/g, "-")}`); setPlusMenuOpen(false); textareaRef.current?.focus(); }}
+                    onClick={() => {
+                      setInput((v) => (v ? v + "\n" : "") + `/${label.toLowerCase().replace(/\s/g, "-")}`);
+                      setPlusMenuOpen(false);
+                      textareaRef.current?.focus();
+                    }}
                     className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-left transition-colors hover:bg-white/[0.04]"
                   >
                     <Icon size={14} style={{ color: `rgba(${glowRgba},0.45)` }} />
-                    <span className="text-[12px]" style={{ color: "#e2e8f0" }}>{label}</span>
+                    <span className="text-[12px]" style={{ color: "#e2e8f0" }}>
+                      {label}
+                    </span>
                   </button>
                 ))}
 
                 <div className="mt-3 mb-1 px-3">
-                  <span className="text-[9px] tracking-[0.15em]" style={{ color: `rgba(${glowRgba},0.4)` }}>CONNECTORS</span>
+                  <span className="text-[9px] tracking-[0.15em]" style={{ color: `rgba(${glowRgba},0.4)` }}>
+                    CONNECTORS
+                  </span>
                 </div>
-                {([
+                {[
                   { key: "supabase" as const, label: "Supabase", icon: Database, color: "#22c55e" },
                   { key: "vercel" as const, label: "Vercel", icon: Globe, color: "#ffffff" },
                   { key: "github" as const, label: "GitHub", icon: Github, color: "#ffffff" },
-                ]).map(({ key, label, icon: Icon, color }) => (
-                  <div key={key} className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-white/[0.04] transition-colors">
+                ].map(({ key, label, icon: Icon, color }) => (
+                  <div
+                    key={key}
+                    className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-white/[0.04] transition-colors"
+                  >
                     <div className="flex items-center gap-3">
                       <Icon size={14} style={{ color: `${color}60` }} />
-                      <span className="text-[12px]" style={{ color: "#e2e8f0" }}>{label}</span>
+                      <span className="text-[12px]" style={{ color: "#e2e8f0" }}>
+                        {label}
+                      </span>
                     </div>
                     <Switch
                       checked={connectorStatus[key]}
@@ -746,7 +936,14 @@ export default function Dashboard() {
       <AnimatePresence>
         {drawerOpen && (
           <>
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setDrawerOpen(false)} className="fixed inset-0 z-30" style={{ background: "rgba(0,0,0,0.4)" }} />
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setDrawerOpen(false)}
+              className="fixed inset-0 z-30"
+              style={{ background: "rgba(0,0,0,0.4)" }}
+            />
             <motion.div
               initial={{ opacity: 0, y: 30, scale: 0.92 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -765,17 +962,34 @@ export default function Dashboard() {
                 boxShadow: `0 0 60px rgba(0,0,0,0.7), 0 0 40px rgba(${glowRgba},0.06)`,
               }}
             >
-              <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
-                <span className="text-[11px] tracking-[0.15em]" style={{ color: "rgba(255,255,255,0.35)" }}>SELECT AI ENGINE</span>
-                <button onClick={() => setDrawerOpen(false)} style={{ color: "rgba(255,255,255,0.25)" }}><X size={14} /></button>
+              <div
+                className="flex items-center justify-between px-4 py-3"
+                style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}
+              >
+                <span className="text-[11px] tracking-[0.15em]" style={{ color: "rgba(255,255,255,0.35)" }}>
+                  SELECT AI ENGINE
+                </span>
+                <button onClick={() => setDrawerOpen(false)} style={{ color: "rgba(255,255,255,0.25)" }}>
+                  <X size={14} />
+                </button>
               </div>
               <div className="p-4 flex flex-col gap-5">
                 {Object.entries(AI_CATEGORIES).map(([catKey, cat], catIdx) => (
-                  <motion.div key={catKey} initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: catIdx * 0.06, duration: 0.25 }}>
+                  <motion.div
+                    key={catKey}
+                    initial={{ opacity: 0, x: -16 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: catIdx * 0.06, duration: 0.25 }}
+                  >
                     <div className="flex items-center gap-2 mb-2">
                       <div className="w-4 h-px opacity-50" style={{ background: cat.color }} />
-                      <span className="text-[9px] tracking-[0.2em]" style={{ color: cat.color }}>{cat.label}</span>
-                      <div className="flex-1 h-px" style={{ background: `linear-gradient(90deg, ${cat.color}40, transparent)` }} />
+                      <span className="text-[9px] tracking-[0.2em]" style={{ color: cat.color }}>
+                        {cat.label}
+                      </span>
+                      <div
+                        className="flex-1 h-px"
+                        style={{ background: `linear-gradient(90deg, ${cat.color}40, transparent)` }}
+                      />
                     </div>
                     <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${cat.tools.length}, 1fr)` }}>
                       {cat.tools.map((tool, toolIdx) => {
@@ -792,17 +1006,35 @@ export default function Dashboard() {
                             style={{
                               background: isActive ? `rgba(${cat.glowRgba},0.1)` : "rgba(255,255,255,0.02)",
                               border: `1px solid ${isActive ? cat.color : "rgba(255,255,255,0.1)"}`,
-                              boxShadow: isActive ? `0 0 14px rgba(${cat.glowRgba},0.3)` : "inset 0 1px 1px 0 rgba(255,255,255,0.05)",
+                              boxShadow: isActive
+                                ? `0 0 14px rgba(${cat.glowRgba},0.3)`
+                                : "inset 0 1px 1px 0 rgba(255,255,255,0.05)",
                             }}
                           >
                             <div className="flex items-center gap-1.5 mb-1">
                               <Icon size={13} style={{ color: isActive ? cat.color : "rgba(255,255,255,0.35)" }} />
                               {tool.isMedia && (
-                                <span className="text-[8px] tracking-[0.1em] px-1.5 py-px rounded" style={{ background: "rgba(168,85,247,0.12)", border: "1px solid rgba(168,85,247,0.25)", color: "#a855f7" }}>MEDIA</span>
+                                <span
+                                  className="text-[8px] tracking-[0.1em] px-1.5 py-px rounded"
+                                  style={{
+                                    background: "rgba(168,85,247,0.12)",
+                                    border: "1px solid rgba(168,85,247,0.25)",
+                                    color: "#a855f7",
+                                  }}
+                                >
+                                  MEDIA
+                                </span>
                               )}
                             </div>
-                            <div className="text-[11px] font-semibold tracking-[0.03em] mb-0.5" style={{ color: isActive ? cat.color : "#e2e8f0" }}>{tool.name}</div>
-                            <div className="text-[10px]" style={{ color: "rgba(255,255,255,0.25)" }}>{tool.subtitle}</div>
+                            <div
+                              className="text-[11px] font-semibold tracking-[0.03em] mb-0.5"
+                              style={{ color: isActive ? cat.color : "#e2e8f0" }}
+                            >
+                              {tool.name}
+                            </div>
+                            <div className="text-[10px]" style={{ color: "rgba(255,255,255,0.25)" }}>
+                              {tool.subtitle}
+                            </div>
                           </motion.button>
                         );
                       })}
@@ -858,12 +1090,13 @@ export default function Dashboard() {
               >
                 <LogOut size={22} className="text-red-400" />
               </motion.div>
-              <h3 className="text-[14px] font-semibold tracking-[0.08em] text-white mb-2">
-                SESSION_TERMINATION
-              </h3>
+              <h3 className="text-[14px] font-semibold tracking-[0.08em] text-white mb-2">SESSION_TERMINATION</h3>
               <p className="text-[12px] text-center leading-relaxed mb-6" style={{ color: "rgba(255,255,255,0.4)" }}>
-                Are you sure you want to terminate the session?<br />
-                <span className="font-mono text-[10px]" style={{ color: "rgba(239,68,68,0.5)" }}>All unsaved state will be purged.</span>
+                Are you sure you want to terminate the session?
+                <br />
+                <span className="font-mono text-[10px]" style={{ color: "rgba(239,68,68,0.5)" }}>
+                  All unsaved state will be purged.
+                </span>
               </p>
               <div className="flex gap-3 w-full">
                 <button
