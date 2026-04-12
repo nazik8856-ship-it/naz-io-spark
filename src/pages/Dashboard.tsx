@@ -664,11 +664,11 @@ export default function Dashboard() {
             >
               {sidebarCollapsed ? <PanelLeft size={16} /> : <PanelLeftClose size={16} />}
             </button>
-            <span className="text-[11px] tracking-[0.15em] font-mono" style={{ color: borderColor }}>
+            <span className="text-[15px] tracking-[0.15em] font-mono" style={{ color: borderColor }}>
               NAZAI://
             </span>
             <span
-              className="text-[11px] font-mono font-bold tracking-[0.1em]"
+              className="text-[15px] font-mono font-bold tracking-[0.1em]"
               style={{
                 background: activeNavItem.gradient,
                 WebkitBackgroundClip: "text",
@@ -1261,16 +1261,15 @@ export default function Dashboard() {
               className="fixed inset-0 z-50"
               style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)" }}
             />
+            <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ pointerEvents: "none" }}>
             <motion.div
               initial={{ opacity: 0, scale: 0.88, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.88, y: 20 }}
               transition={snappySpring}
-              className="fixed z-50 flex flex-col items-center"
+              className="flex flex-col items-center"
               style={{
-                top: "50%",
-                left: "50%",
-                transform: "translate(-50%, -50%)",
+                pointerEvents: "auto",
                 width: "min(420px, calc(100vw - 48px))",
                 background: "rgba(2,6,23,0.85)",
                 border: "1px solid rgba(239,68,68,0.2)",
@@ -1347,6 +1346,7 @@ export default function Dashboard() {
                 </button>
               </div>
             </motion.div>
+            </div>
           </>
         )}
       </AnimatePresence>
