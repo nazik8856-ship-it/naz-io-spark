@@ -381,7 +381,9 @@ export default function Dashboard() {
               </div>
               <div className="flex justify-between items-center">
                 <div className="w-8 h-8 rounded-lg bg-white/5" />
-                <div className="text-[9px] font-mono text-white/20">#00{i}_NULL</div>
+                <div className="text-[9px] font-mono text-white/20">
+                  ID_REF_{Math.random().toString(36).substring(7).toUpperCase()}
+                </div>
               </div>
             </motion.div>
           ))}
