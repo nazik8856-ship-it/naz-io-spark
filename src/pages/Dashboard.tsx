@@ -284,67 +284,100 @@ export default function Dashboard() {
 
   function renderStyledSection() {
     const navItem = NAV_ITEMS.find((n) => n.label === activeNav)!;
-    // LOOKUP: Get the style data from our theme registry
     const theme = SECTION_THEMES[activeNav] || SECTION_THEMES["Home"];
     const Icon = navItem.icon;
 
+    // Unique descriptions for every state
+    const sectionDetails: Record<string, { subtitle: string; hint: string }> = {
+      Trash: { subtitle: "PERMANENTLY_DELETED ITEMS", hint: "Items here are purged every 30 days." },
+      Archives: { subtitle: "COLD_STORAGE // ARCHIVED", hint: "Move workflows here to keep your desk clean." },
+      Recently: { subtitle: "TIMELINE_FEED // ACTIVE", hint: "Your last 24 hours of neural activity." },
+      History: { subtitle: "HISTORICAL_RECORDS // LOGS", hint: "A full audit trail of every AI interaction." },
+      Integrations: { subtitle: "EXTERNAL_NODES // API", hint: "Connect your workflows to the outside world." },
+      Settings: { subtitle: "SYSTEM_CORE // PREFERENCES", hint: "Configure your neural interface parameters." },
+    };
+
+    const details = sectionDetails[activeNav] || {
+      subtitle: "SECTION_ID // NULL",
+      hint: "No active data found in this node.",
+    };
+
     return (
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
+        initial={{ opacity: 0, scale: 0.98 }}
+        animate={{ opacity: 1, scale: 1 }}
         transition={springTransition}
-        className="flex flex-col items-center justify-center h-full text-center gap-6"
+        className="flex flex-col items-center justify-center h-full text-center px-6"
       >
+        {/* 1. The Central Pulsing Node */}
         <motion.div
-          className="w-20 h-20 rounded-2xl flex items-center justify-center"
+          className="w-24 h-24 rounded-[2rem] flex items-center justify-center mb-8 relative"
           style={{
-            background: theme.gradient, // Use theme
-            boxShadow: `0 0 40px rgba(${theme.glowRgba},0.3), 0 0 80px rgba(${theme.glowRgba},0.15)`,
+            background: theme.gradient,
+            boxShadow: `0 0 60px rgba(${theme.glowRgba}, 0.25), inset 0 0 20px rgba(255,255,255,0.2)`,
           }}
-          animate={{ scale: [1, 1.05, 1] }}
-          transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+          animate={{
+            rotate: [0, 5, -5, 0],
+            scale: [1, 1.05, 1],
+          }}
+          transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
         >
-          <Icon size={32} className="text-white drop-shadow-lg" />
+          <div
+            className="absolute inset-0 rounded-[2rem] animate-pulse"
+            style={{ border: `2px solid rgba(${theme.glowRgba}, 0.5)` }}
+          />
+          <Icon size={40} className="text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.5)]" />
         </motion.div>
 
-        <div>
-          <h2
-            className="text-2xl font-bold tracking-[0.1em] mb-2"
+        {/* 2. Enhanced Typography */}
+        <div className="mb-10">
+          <motion.h2
+            initial={{ letterSpacing: "0.1em" }}
+            animate={{ letterSpacing: "0.25em" }}
+            className="text-3xl font-black mb-3"
             style={{
-              background: theme.gradient, // Use theme
+              background: theme.gradient,
               WebkitBackgroundClip: "text",
               WebkitTextFillColor: "transparent",
-              backgroundClip: "text",
             }}
           >
             {activeNav.toUpperCase()}
-          </h2>
-          <p className="text-[12px] tracking-[0.15em]" style={{ color: "rgba(255,255,255,0.25)" }}>
-            {activeNav === "Trash" && "PERMANENTLY_DELETED ITEMS RESIDE HERE"}
-            {activeNav === "Archives" && "ARCHIVED_MISSIONS // COLD_STORAGE"}
-            {activeNav === "Recently" && "RECENT_ACTIVITY // TIMELINE_FEED"}
-            {activeNav === "History" && "HISTORICAL_RECORDS // LOGS"}
-            {activeNav === "Integrations" && "EXTERNAL_API_NODES // ACTIVE"}
-          </p>
+          </motion.h2>
+          <p className="text-[10px] font-mono tracking-[0.3em] text-white/30 uppercase mb-2">{details.subtitle}</p>
+          <div className="h-[1px] w-12 bg-white/10 mx-auto mb-4" />
+          <p className="text-[13px] text-white/50 max-w-[280px] mx-auto leading-relaxed italic">"{details.hint}"</p>
         </div>
 
-        <div className="flex gap-3 mt-2">
+        {/* 3. Empty State Cards with Hover Effects */}
+        <div className="flex flex-wrap justify-center gap-4">
           {[1, 2, 3].map((i) => (
             <motion.div
               key={i}
-              className="w-48 h-24 rounded-xl glass-edge"
+              whileHover={{ y: -5, backgroundColor: "rgba(255,255,255,0.04)" }}
+              className="w-52 h-32 rounded-2xl glass-edge flex flex-col justify-between p-4 cursor-help"
               style={{
-                background: "rgba(255,255,255,0.02)",
-                border: `1px solid rgba(${theme.glowRgba},0.15)`, // Use theme
-                boxShadow: `inset 0 1px 1px rgba(255,255,255,0.05)`,
+                background: "rgba(255,255,255,0.01)",
+                border: `1px solid rgba(${theme.glowRgba}, 0.1)`,
               }}
-              initial={{ opacity: 0, y: 12 }}
+              initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ ...springTransition, delay: i * 0.08 }}
+              transition={{ ...springTransition, delay: i * 0.1 }}
             >
-              <div className="p-3">
-                <div className="w-24 h-2 rounded mb-2" style={{ background: `rgba(${theme.glowRgba},0.15)` }} />
-                <div className="w-16 h-2 rounded" style={{ background: `rgba(${theme.glowRgba},0.08)` }} />
+              <div className="space-y-2">
+                <div className="w-full h-1.5 rounded-full bg-white/5 overflow-hidden">
+                  <motion.div
+                    className="h-full"
+                    style={{ background: theme.gradient }}
+                    initial={{ width: 0 }}
+                    animate={{ width: `${Math.random() * 60 + 20}%` }}
+                    transition={{ duration: 1.5, delay: 0.5 }}
+                  />
+                </div>
+                <div className="w-2/3 h-1.5 rounded-full bg-white/5" />
+              </div>
+              <div className="flex justify-between items-center">
+                <div className="w-8 h-8 rounded-lg bg-white/5" />
+                <div className="text-[9px] font-mono text-white/20">#00{i}_NULL</div>
               </div>
             </motion.div>
           ))}
@@ -352,7 +385,6 @@ export default function Dashboard() {
       </motion.div>
     );
   }
-
   function renderGenericSection() {
     const navItem = NAV_ITEMS.find((n) => n.label === activeNav)!;
     return (
