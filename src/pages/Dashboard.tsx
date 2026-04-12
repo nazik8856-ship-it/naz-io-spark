@@ -395,6 +395,10 @@ export default function Dashboard() {
             {NAV_ITEMS.map((item) => {
               const Icon = item.icon;
               const isActive = activeNav === item.label;
+
+              // LOOKUP: Get the theme data based on the item label
+              const itemTheme = SECTION_THEMES[item.label] || SECTION_THEMES["Home"];
+
               return (
                 <button
                   key={item.label}
@@ -410,9 +414,9 @@ export default function Dashboard() {
                       layoutId="nav-active-bg"
                       className="absolute inset-0 rounded-lg"
                       style={{
-                        background: item.gradient,
+                        background: itemTheme.gradient, // Changed from item.gradient
                         opacity: 0.15,
-                        boxShadow: `0 0 20px rgba(${item.glowRgba},0.3)`,
+                        boxShadow: `0 0 20px rgba(${itemTheme.glowRgba}, 0.3)`, // Changed from item.glowRgba
                       }}
                       transition={springTransition}
                     />
@@ -421,8 +425,8 @@ export default function Dashboard() {
                     size={18}
                     className="relative z-10"
                     style={{
-                      color: isActive ? item.color : "rgba(255,255,255,0.25)",
-                      filter: isActive ? `drop-shadow(0 0 6px rgba(${item.glowRgba},0.6))` : "none",
+                      color: isActive ? (itemTheme as any).color || "#fff" : "rgba(255,255,255,0.25)",
+                      filter: isActive ? `drop-shadow(0 0 6px rgba(${itemTheme.glowRgba}, 0.6))` : "none",
                     }}
                   />
                 </button>
