@@ -125,6 +125,9 @@ const SECTION_THEMES: Record<string, { gradient: string; glow: string }> = {
   Recently: { gradient: "linear-gradient(135deg, #06b6d4, #3b82f6)", glow: "6,182,212" },
   Archives: { gradient: "linear-gradient(135deg, #818cf8, #c084fc)", glow: "129,140,248" },
   Trash: { gradient: "linear-gradient(135deg, #ef4444, #f97316)", glow: "239,68,68" },
+  History: { gradient: "linear-gradient(135deg, #f59e0b, #d97706)", glowRgba: "245,158,11" },
+  Integrations: { gradient: "linear-gradient(135deg, #3b82f6, #06b6d4)", glowRgba: "59,130,246" },
+  Settings: { gradient: "linear-gradient(135deg, #6366f1, #a855f7)", glowRgba: "99,102,241" },
 };
 const STYLES = ["Technical", "Creative", "Fast"] as const;
 
