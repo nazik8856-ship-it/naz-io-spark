@@ -746,28 +746,29 @@ export default function Dashboard() {
               transition={springTransition}
               className="flex flex-col w-full max-w-5xl h-full py-12 px-6 overflow-y-auto"
             >
-              {/* Gradient Header */}
-              <div className="text-center mb-16 shrink-0">
-                <motion.h1
-                  className="text-[64px] font-black uppercase tracking-tighter leading-none select-none"
+             
+             {/* Terminal Header — No Box, Pure Text Gradient */}
+              <div className="text-center mb-16 shrink-0 relative">
+                <h1
+                  className="text-[68px] font-black uppercase tracking-[-0.04em] leading-none select-none"
                   style={{
                     background: SECTION_THEMES[activeNav]?.gradient || GRADIENTS[currentGradientIdx],
                     WebkitBackgroundClip: "text",
                     WebkitTextFillColor: "transparent",
                     backgroundClip: "text",
-                    filter: `drop-shadow(0 0 35px rgba(${SECTION_THEMES[activeNav]?.glowRgba || "255,255,255"}, 0.2))`,
+                    filter: `drop-shadow(0 0 45px rgba(${SECTION_THEMES[activeNav]?.glowRgba || "255,255,255"}, 0.15))`,
                   }}
                 >
                   {activeNav}
-                </motion.h1>
-                <p
-                  className="text-[10px] tracking-[0.45em] uppercase font-mono mt-4"
-                  style={{ color: "rgba(255,255,255,0.3)" }}
-                >
-                  NEURAL_ENGINE // TERMINAL_ACTIVE_NODE
-                </p>
-              </div>
-
+                </h1>
+                <div className="flex items-center justify-center gap-4 mt-5">
+                  <div className="h-[1px] w-8 bg-white/10" />
+                  <p className="text-[9px] tracking-[0.5em] uppercase font-mono text-white/30">
+                    SYSTEM_NODE // {activeNav}_TERMINAL
+                  </p>
+                  <div className="h-[1px] w-8 bg-white/10" />
+                </div>
+              </div> 
               {/* Project Grid Logic */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-20">
                 {USER_PROJECTS.filter(project => project.folder === activeNav).length > 0 ? (
