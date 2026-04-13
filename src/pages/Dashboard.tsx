@@ -43,22 +43,8 @@ import {
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 
-// ─── Tool Registry ──────────────────────────────────────────────────────────────
-
-type ToolEntry = {
-  id: string;
-  name: string;
-  subtitle: string;
-  icon: React.ElementType;
-  isMedia?: boolean;
-};
-
-type Category = {
-  color: string;
-  glowRgba: string;
-  label: string;
-  tools: ToolEntry[];
-};
+type ToolEntry = { id: string; name: string; subtitle: string; icon: React.ElementType; isMedia?: boolean };
+type Category = { color: string; glowRgba: string; label: string; tools: ToolEntry[] };
 
 const AI_CATEGORIES: Record<string, Category> = {
   LOGIC: {
@@ -107,8 +93,6 @@ function findToolById(id: string | null): { tool: ToolEntry; category: Category 
   return null;
 }
 
-// ─── Nav Items with Unique Gradients ────────────────────────────────────────────
-
 const NAV_ITEMS = [
   { icon: Home, label: "Home" },
   { icon: MessageSquare, label: "Workflows" },
@@ -120,16 +104,19 @@ const NAV_ITEMS = [
   { icon: Settings, label: "Settings" },
 ];
 
-const SECTION_THEMES: Record<string, { gradient: string; glowRgba: string }> = {
-  Home: { gradient: "linear-gradient(135deg, #22c55e, #10b981)", glowRgba: "34,197,94" },
-  Workflows: { gradient: "linear-gradient(135deg, #a855f7, #ec4899)", glowRgba: "168,85,247" },
-  History: { gradient: "linear-gradient(135deg, #f59e0b, #d97706)", glowRgba: "245,158,11" },
-  Integrations: { gradient: "linear-gradient(135deg, #3b82f6, #06b6d4)", glowRgba: "59,130,246" },
-  Recently: { gradient: "linear-gradient(135deg, #06b6d4, #3b82f6)", glowRgba: "6,182,212" },
-  Archives: { gradient: "linear-gradient(135deg, #818cf8, #c084fc)", glowRgba: "129,140,248" },
-  Trash: { gradient: "linear-gradient(135deg, #ef4444, #f97316)", glowRgba: "239,68,68" },
-  Settings: { gradient: "linear-gradient(135deg, #6366f1, #a855f7)", glowRgba: "99,102,241" },
+const SECTION_THEMES: Record<string, { gradient: string; glowRgba: string; color: string }> = {
+  Home: { gradient: "linear-gradient(135deg, #22c55e, #10b981)", glowRgba: "34,197,94", color: "#22c55e" },
+  Workflows: { gradient: "linear-gradient(135deg, #a855f7, #ec4899)", glowRgba: "168,85,247", color: "#a855f7" },
+  History: { gradient: "linear-gradient(135deg, #f59e0b, #d97706)", glowRgba: "245,158,11", color: "#f59e0b" },
+  Integrations: { gradient: "linear-gradient(135deg, #3b82f6, #06b6d4)", glowRgba: "59,130,246", color: "#3b82f6" },
+  Recently: { gradient: "linear-gradient(135deg, #06b6d4, #3b82f6)", glowRgba: "6,182,212", color: "#06b6d4" },
+  Archives: { gradient: "linear-gradient(135deg, #818cf8, #c084fc)", glowRgba: "129,140,248", color: "#818cf8" },
+  Trash: { gradient: "linear-gradient(135deg, #ef4444, #f97316)", glowRgba: "239,68,68", color: "#ef4444" },
+  Settings: { gradient: "linear-gradient(135deg, #6366f1, #a855f7)", glowRgba: "99,102,241", color: "#6366f1" },
 };
+
+// ─── USER_PROJECTS stub — replace with real data source / API call as needed
+const USER_PROJECTS: { id: string; name: string; folder: string; date: string }[] = [];
 
 const STYLES = ["Technical", "Creative", "Fast"] as const;
 
@@ -140,7 +127,6 @@ const SKILLS = [
 ];
 
 const springTransition = { type: "spring" as const, damping: 25, stiffness: 400 };
-// ─── Component ──────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -169,7 +155,6 @@ export default function Dashboard() {
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const simulationRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ── Session ─────────────────────────────────────────────────────────────────
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUserEmail(session?.user?.email ?? null);
@@ -182,9 +167,12 @@ export default function Dashboard() {
     return () => listener.subscription.unsubscribe();
   }, []);
 
-  // Fetch missions from DB
   useEffect(() => {
-    if (!userId) { setMissions([]); setMissionsLoading(false); return; }
+    if (!userId) {
+      setMissions([]);
+      setMissionsLoading(false);
+      return;
+    }
     setMissionsLoading(true);
     supabase
       .from("missions")
@@ -208,27 +196,29 @@ export default function Dashboard() {
     }
   }, [input]);
 
-  // ── Derived state ───────────────────────────────────────────────────────────
   const activeTool = findToolById(selectedModel);
   const isMediaMode = activeTool?.category.label === "CREATION";
   const glowRgba = activeTool?.category.glowRgba ?? "34,197,94";
   const borderColor = activeTool?.category.color ?? "#22c55e";
-
   const activeNavItem = NAV_ITEMS.find((n) => n.label === activeNav) ?? NAV_ITEMS[0];
 
-  // Filter missions based on active folder
   const filteredMissions = useMemo(() => {
     switch (activeNav) {
-      case "Trash": return missions.filter((m) => m.status === "trashed");
-      case "Archives": return missions.filter((m) => m.status === "archived");
-      case "Recently": return missions.filter((m) => m.status !== "trashed").slice(0, 10);
-      case "History": return missions.filter((m) => m.status === "completed");
-      case "Workflows": return missions.filter((m) => m.status === "pending" || m.status === "active");
-      default: return missions.filter((m) => m.status !== "trashed");
+      case "Trash":
+        return missions.filter((m) => m.status === "trashed");
+      case "Archives":
+        return missions.filter((m) => m.status === "archived");
+      case "Recently":
+        return missions.filter((m) => m.status !== "trashed").slice(0, 10);
+      case "History":
+        return missions.filter((m) => m.status === "completed");
+      case "Workflows":
+        return missions.filter((m) => m.status === "pending" || m.status === "active");
+      default:
+        return missions.filter((m) => m.status !== "trashed");
     }
   }, [activeNav, missions]);
 
-  // ── Typing detection ───────────────────────────────────────────────────────
   function handleInputChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     setInput(e.target.value);
     setIsTyping(true);
@@ -236,23 +226,17 @@ export default function Dashboard() {
     typingTimeoutRef.current = setTimeout(() => setIsTyping(false), 800);
   }
 
-  // ── Simulation mode ────────────────────────────────────────────────────────
   function streamSimulation(msgIndex: number) {
     const mockResponse =
       "[SIMULATION_MODE] // OFFLINE_DRAFT — Neural pathway rerouted through local inference cache. Executing fallback heuristic analysis on provided directive. Output confidence: 87.3%. Recommended action: retry with primary engine when connectivity is restored.";
     const words = mockResponse.split(" ");
     let wordIdx = 0;
-
     function appendWord() {
       if (wordIdx >= words.length) return;
       setMessages((prev) => {
         const updated = [...prev];
         if (updated[msgIndex]) {
-          updated[msgIndex] = {
-            ...updated[msgIndex],
-            text: words.slice(0, wordIdx + 1).join(" "),
-            isSimulation: true,
-          };
+          updated[msgIndex] = { ...updated[msgIndex], text: words.slice(0, wordIdx + 1).join(" "), isSimulation: true };
         }
         return updated;
       });
@@ -262,7 +246,6 @@ export default function Dashboard() {
     appendWord();
   }
 
-  // ── Handlers ────────────────────────────────────────────────────────────────
   const handleSelectTool = useCallback((id: string) => {
     setSelectedModel(id);
     setDrawerOpen(false);
@@ -271,17 +254,14 @@ export default function Dashboard() {
   function handleSend() {
     const trimmed = input.trim();
     if (!trimmed) return;
-
     const aiMsgIndex = messages.length + 1;
     setMessages((prev) => [...prev, { role: "user", text: trimmed }, { role: "ai", text: "Processing..." }]);
     setInput("");
     setIsProcessing(true);
-
     const timeout = setTimeout(() => {
       setIsProcessing(false);
       streamSimulation(aiMsgIndex);
     }, 10000);
-
     setTimeout(() => {
       clearTimeout(timeout);
       setIsProcessing(false);
@@ -311,7 +291,6 @@ export default function Dashboard() {
     navigate("/");
   }
 
-  // ── Gradient cycling for folder pages ─────────────────────────────────────
   const GRADIENTS = [
     "linear-gradient(135deg, #22c55e, #10b981)",
     "linear-gradient(135deg, #a855f7, #ec4899)",
@@ -322,15 +301,10 @@ export default function Dashboard() {
     "linear-gradient(135deg, #6366f1, #a855f7)",
   ];
   const [currentGradientIdx, setCurrentGradientIdx] = useState(0);
-
-  // Cycle gradient every time activeNav changes (non-Home)
   useEffect(() => {
-    if (activeNav !== "Home") {
-      setCurrentGradientIdx((prev) => (prev + 1) % GRADIENTS.length);
-    }
+    if (activeNav !== "Home") setCurrentGradientIdx((prev) => (prev + 1) % GRADIENTS.length);
   }, [activeNav]);
 
-  // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <div
       className="flex h-screen w-screen overflow-hidden font-sans"
@@ -338,7 +312,7 @@ export default function Dashboard() {
     >
       <input ref={fileInputRef} type="file" multiple accept="image/*,video/*,.pdf,.doc,.docx" className="hidden" />
 
-      {/* ═══════════════════════ SIDEBAR ═══════════════════════ */}
+      {/* ═══ SIDEBAR ═══ */}
       <motion.aside
         animate={{ width: sidebarCollapsed ? 0 : 64 }}
         transition={{ duration: 0.2, ease: "easeInOut" }}
@@ -353,28 +327,23 @@ export default function Dashboard() {
             {NAV_ITEMS.map((item) => {
               const Icon = item.icon;
               const isActive = activeNav === item.label;
-
-              // LOOKUP: Get the theme data based on the item label
               const itemTheme = SECTION_THEMES[item.label] || SECTION_THEMES["Home"];
-
               return (
                 <button
                   key={item.label}
                   onClick={() => setActiveNav(item.label)}
                   title={item.label}
                   className="w-10 h-10 flex items-center justify-center rounded-lg transition-all duration-200 relative group"
-                  style={{
-                    background: isActive ? undefined : "transparent",
-                  }}
+                  style={{ background: isActive ? undefined : "transparent" }}
                 >
                   {isActive && (
                     <motion.div
                       layoutId="nav-active-bg"
                       className="absolute inset-0 rounded-lg"
                       style={{
-                        background: itemTheme.gradient, // Changed from item.gradient
+                        background: itemTheme.gradient,
                         opacity: 0.15,
-                        boxShadow: `0 0 20px rgba(${itemTheme.glowRgba}, 0.3)`, // Changed from item.glowRgba
+                        boxShadow: `0 0 20px rgba(${itemTheme.glowRgba}, 0.3)`,
                       }}
                       transition={springTransition}
                     />
@@ -383,7 +352,7 @@ export default function Dashboard() {
                     size={18}
                     className="relative z-10"
                     style={{
-                      color: isActive ? (itemTheme as any).color || "#fff" : "rgba(255,255,255,0.25)",
+                      color: isActive ? itemTheme.color : "rgba(255,255,255,0.25)",
                       filter: isActive ? `drop-shadow(0 0 6px rgba(${itemTheme.glowRgba}, 0.6))` : "none",
                     }}
                   />
@@ -416,8 +385,9 @@ export default function Dashboard() {
         </div>
       </motion.aside>
 
-      {/* ═══════════════════════ MAIN ═══════════════════════ */}
+      {/* ═══ MAIN ═══ */}
       <main className="flex flex-col flex-1 min-w-0 relative">
+        {/* ── Unified Header ── */}
         <header
           className="flex items-center justify-between px-5 py-3 shrink-0 backdrop-blur-md glass-edge"
           style={{ borderBottom: `1px solid rgba(${glowRgba},0.1)`, background: "rgba(2,6,23,0.92)" }}
@@ -479,10 +449,11 @@ export default function Dashboard() {
           </div>
         </header>
 
+        {/* ── Content area ── */}
         <div className="flex-1 flex flex-col items-center overflow-hidden relative px-4">
           {activeNav === "Home" ? (
             <>
-              {/* ── Messages ── */}
+              {/* Messages */}
               <div className="flex-1 w-full max-w-2xl overflow-y-auto py-8 space-y-4 scrollbar-thin">
                 {messages.length === 0 && (
                   <div className="flex flex-col items-center justify-center h-full gap-6 text-center select-none">
@@ -537,7 +508,7 @@ export default function Dashboard() {
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* ── Media mode + Engine tag bar ── */}
+              {/* Engine tag bar */}
               <AnimatePresence>
                 {activeTool && (
                   <motion.div
@@ -574,7 +545,7 @@ export default function Dashboard() {
                 )}
               </AnimatePresence>
 
-              {/* ═══════════════════════ GLASSMORPHIC INPUT CONTAINER ═══════════════════════ */}
+              {/* Glassmorphic Input */}
               <div className="w-full max-w-2xl mb-6 relative">
                 <div
                   className="relative rounded-xl transition-all duration-300 flex flex-col"
@@ -606,7 +577,7 @@ export default function Dashboard() {
                         : "Describe your system mission... (↵ to send)"
                     }
                     rows={1}
-                    className="w-full bg-transparent border-none outline-none resize-none font-mono text-[13px] leading-relaxed placeholder:text-white/18"
+                    className="w-full bg-transparent border-none outline-none resize-none font-mono text-[13px] leading-relaxed"
                     style={{
                       padding: "16px 16px 8px 16px",
                       minHeight: "140px",
@@ -614,193 +585,187 @@ export default function Dashboard() {
                       caretColor: borderColor,
                     }}
                   />
-
- {/* ── Footer inside input ── */}
-                <div
-                  className="flex items-center justify-between px-3 py-2.5 glass-edge"
-                  style={{ borderTop: "1px solid rgba(255,255,255,0.1)" }}
-                >
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <button
-                      onClick={() => {
-                        setPlusMenuOpen((v) => !v);
-                        setDrawerOpen(false);
-                      }}
-                      className="w-7 h-7 rounded-full flex items-center justify-center transition-all duration-200 shrink-0"
-                      style={{
-                        background: plusMenuOpen ? `rgba(${glowRgba},0.18)` : `rgba(${glowRgba},0.06)`,
-                        border: `1px solid ${plusMenuOpen ? (SECTION_THEMES[activeNav]?.color || "#22c55e") : `rgba(${glowRgba},0.25)`}`,
-                        color: SECTION_THEMES[activeNav]?.color || "#22c55e",
-                      }}
-                      title="Tools & Options"
-                    >
-                      <motion.div animate={{ rotate: plusMenuOpen ? 45 : 0 }} transition={springTransition}>
-                        <Plus size={14} />
-                      </motion.div>
-                    </button>
-
-                    <button
-                      onClick={() => {
-                        setDrawerOpen((v) => !v);
-                        setPlusMenuOpen(false);
-                      }}
-                      className="text-[10px] tracking-[0.08em] px-2 py-1 rounded transition-all"
-                      style={{
-                        background: `rgba(${glowRgba},0.06)`,
-                        border: `1px solid rgba(${glowRgba},0.2)`,
-                        color: `rgba(${glowRgba},0.6)`,
-                      }}
-                    >
-                      {activeTool ? activeTool.tool.name : "Select Engine"}
-                    </button>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setWebSearchActive((v) => !v)}
-                      className="flex items-center gap-1 px-2 py-1 rounded text-[10px] tracking-[0.08em] transition-all"
-                      style={{
-                        background: webSearchActive ? "rgba(59,130,246,0.12)" : "rgba(255,255,255,0.03)",
-                        border: webSearchActive
-                          ? "1px solid rgba(59,130,246,0.4)"
-                          : "1px solid rgba(255,255,255,0.06)",
-                        color: webSearchActive ? "#3b82f6" : "rgba(255,255,255,0.3)",
-                      }}
-                      title="Toggle Web Search"
-                    >
-                      {webSearchActive ? <CheckCircle2 size={11} /> : <Search size={11} />}
-                      <span className="hidden sm:inline">Web</span>
-                    </button>
-
-                    <div className="relative">
+                  {/* Footer inside input */}
+                  <div
+                    className="flex items-center justify-between px-3 py-2.5 glass-edge"
+                    style={{ borderTop: "1px solid rgba(255,255,255,0.1)" }}
+                  >
+                    <div className="flex items-center gap-2 flex-wrap">
                       <button
-                        onClick={() => setStyleDropdownOpen((v) => !v)}
+                        onClick={() => {
+                          setPlusMenuOpen((v) => !v);
+                          setDrawerOpen(false);
+                        }}
+                        className="w-7 h-7 rounded-full flex items-center justify-center transition-all duration-200 shrink-0"
+                        style={{
+                          background: plusMenuOpen ? `rgba(${glowRgba},0.18)` : `rgba(${glowRgba},0.06)`,
+                          border: `1px solid ${plusMenuOpen ? SECTION_THEMES[activeNav].color : `rgba(${glowRgba},0.25)`}`,
+                          color: SECTION_THEMES[activeNav].color,
+                        }}
+                        title="Tools & Options"
+                      >
+                        <motion.div animate={{ rotate: plusMenuOpen ? 45 : 0 }} transition={springTransition}>
+                          <Plus size={14} />
+                        </motion.div>
+                      </button>
+                      <button
+                        onClick={() => {
+                          setDrawerOpen((v) => !v);
+                          setPlusMenuOpen(false);
+                        }}
+                        className="text-[10px] tracking-[0.08em] px-2 py-1 rounded transition-all"
+                        style={{
+                          background: `rgba(${glowRgba},0.06)`,
+                          border: `1px solid rgba(${glowRgba},0.2)`,
+                          color: `rgba(${glowRgba},0.6)`,
+                        }}
+                      >
+                        {activeTool ? activeTool.tool.name : "Select Engine"}
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setWebSearchActive((v) => !v)}
                         className="flex items-center gap-1 px-2 py-1 rounded text-[10px] tracking-[0.08em] transition-all"
                         style={{
-                          background: "rgba(255,255,255,0.03)",
-                          border: "1px solid rgba(255,255,255,0.08)",
-                          color: "rgba(255,255,255,0.4)",
+                          background: webSearchActive ? "rgba(59,130,246,0.12)" : "rgba(255,255,255,0.03)",
+                          border: webSearchActive
+                            ? "1px solid rgba(59,130,246,0.4)"
+                            : "1px solid rgba(255,255,255,0.06)",
+                          color: webSearchActive ? "#3b82f6" : "rgba(255,255,255,0.3)",
                         }}
-                        title="Output Style"
+                        title="Toggle Web Search"
                       >
-                        <Feather size={11} />
-                        <span className="hidden sm:inline">{activeStyle}</span>
-                        <ChevronDown size={9} />
+                        {webSearchActive ? <CheckCircle2 size={11} /> : <Search size={11} />}
+                        <span className="hidden sm:inline">Web</span>
                       </button>
-                      <AnimatePresence>
-                        {styleDropdownOpen && (
-                          <motion.div
-                            initial={{ opacity: 0, y: 4, scale: 0.96 }}
-                            animate={{ opacity: 1, y: 0, scale: 1 }}
-                            exit={{ opacity: 0, y: 4, scale: 0.96 }}
-                            transition={springTransition}
-                            className="absolute bottom-full right-0 mb-1 rounded-lg overflow-hidden z-50"
-                            style={{
-                              background: "rgba(2,6,23,0.97)",
-                              border: "1px solid rgba(255,255,255,0.1)",
-                              backdropFilter: "blur(16px)",
-                            }}
-                          >
-                            {STYLES.map((s) => (
-                              <button
-                                key={s}
-                                onClick={() => {
-                                  setActiveStyle(s);
-                                  setStyleDropdownOpen(false);
-                                }}
-                                className="block w-full text-left px-4 py-2 text-[11px] tracking-[0.08em] transition-colors"
-                                style={{
-                                  color: activeStyle === s ? (SECTION_THEMES[activeNav]?.color || "#22c55e") : "rgba(255,255,255,0.4)",
-                                  background: activeStyle === s ? `rgba(${glowRgba},0.08)` : "transparent",
-                                }}
-                              >
-                                {s}
-                              </button>
-                            ))}
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
+                      <div className="relative">
+                        <button
+                          onClick={() => setStyleDropdownOpen((v) => !v)}
+                          className="flex items-center gap-1 px-2 py-1 rounded text-[10px] tracking-[0.08em] transition-all"
+                          style={{
+                            background: "rgba(255,255,255,0.03)",
+                            border: "1px solid rgba(255,255,255,0.08)",
+                            color: "rgba(255,255,255,0.4)",
+                          }}
+                          title="Output Style"
+                        >
+                          <Feather size={11} />
+                          <span className="hidden sm:inline">{activeStyle}</span>
+                          <ChevronDown size={9} />
+                        </button>
+                        <AnimatePresence>
+                          {styleDropdownOpen && (
+                            <motion.div
+                              initial={{ opacity: 0, y: 4, scale: 0.96 }}
+                              animate={{ opacity: 1, y: 0, scale: 1 }}
+                              exit={{ opacity: 0, y: 4, scale: 0.96 }}
+                              transition={springTransition}
+                              className="absolute bottom-full right-0 mb-1 rounded-lg overflow-hidden z-50"
+                              style={{
+                                background: "rgba(2,6,23,0.97)",
+                                border: "1px solid rgba(255,255,255,0.1)",
+                                backdropFilter: "blur(16px)",
+                              }}
+                            >
+                              {STYLES.map((s) => (
+                                <button
+                                  key={s}
+                                  onClick={() => {
+                                    setActiveStyle(s);
+                                    setStyleDropdownOpen(false);
+                                  }}
+                                  className="block w-full text-left px-4 py-2 text-[11px] tracking-[0.08em] transition-colors"
+                                  style={{
+                                    color:
+                                      activeStyle === s ? SECTION_THEMES[activeNav].color : "rgba(255,255,255,0.4)",
+                                    background: activeStyle === s ? `rgba(${glowRgba},0.08)` : "transparent",
+                                  }}
+                                >
+                                  {s}
+                                </button>
+                              ))}
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                      <button
+                        onClick={handleSend}
+                        disabled={!input.trim() || isProcessing}
+                        className="w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200"
+                        style={{
+                          background: input.trim() ? SECTION_THEMES[activeNav].color : "rgba(255,255,255,0.04)",
+                          color: input.trim() ? "#020617" : "rgba(255,255,255,0.15)",
+                          boxShadow: input.trim() ? `0 0 14px rgba(${glowRgba},0.5)` : "none",
+                          cursor: input.trim() ? "pointer" : "default",
+                        }}
+                      >
+                        <Send size={13} />
+                      </button>
                     </div>
-
-                    <button
-                      onClick={handleSend}
-                      disabled={!input.trim() || isProcessing}
-                      className="w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200"
-                      style={{
-                        background: input.trim() ? (SECTION_THEMES[activeNav]?.color || "#22c55e") : "rgba(255,255,255,0.04)",
-                        color: input.trim() ? "#020617" : "rgba(255,255,255,0.15)",
-                        boxShadow: input.trim() ? `0 0 14px rgba(${glowRgba},0.5)` : "none",
-                        cursor: input.trim() ? "pointer" : "default",
-                      }}
-                    >
-                      <Send size={13} />
-                    </button>
                   </div>
                 </div>
               </div>
-            </div>
+            </>
           ) : (
             <motion.div
               key={activeNav}
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={springTransition}
-              className="flex flex-col w-full max-w-5xl h-full py-12 px-6 overflow-y-auto"
+              className="flex flex-col w-full max-w-5xl flex-1 overflow-y-auto py-12 px-6"
             >
-            
-             
-         {/* Terminal Header — Obsidian Version */}
-            <div className="text-center mb-16 shrink-0 relative z-10">
-              <h1
-                className="text-[68px] font-black uppercase tracking-[-0.04em] leading-none select-none"
-                style={{
-                  // Safety logic: only access the string, never the whole object
-                  background: SECTION_THEMES[activeNav]?.gradient || "linear-gradient(135deg, #22c55e, #10b981)",
-                  WebkitBackgroundClip: "text",
-                  WebkitTextFillColor: "transparent",
-                  backgroundClip: "text",
-                  filter: `drop-shadow(0 0 45px rgba(${SECTION_THEMES[activeNav]?.glowRgba || "34,197,94"}, 0.2))`,
-                }}
-              >
-                {String(activeNav)}
-              </h1>
-              <div className="flex items-center justify-center gap-4 mt-5">
-                <div className="h-[1px] w-8 bg-white/10" />
-                <p className="text-[9px] tracking-[0.5em] uppercase font-mono text-white/30">
-                  SYSTEM_NODE // {String(activeNav).toUpperCase()}_TERMINAL
-                </p>
-                <div className="h-[1px] w-8 bg-white/10" />
+              {/* Terminal Header */}
+              <div className="text-center mb-16 shrink-0 relative z-10">
+                <h1
+                  className="text-[68px] font-black uppercase leading-none select-none"
+                  style={{
+                    letterSpacing: "-0.05em",
+                    background: SECTION_THEMES[activeNav]?.gradient || "linear-gradient(135deg, #22c55e, #10b981)",
+                    WebkitBackgroundClip: "text",
+                    WebkitTextFillColor: "transparent",
+                    backgroundClip: "text",
+                    filter: `drop-shadow(0 0 30px rgba(${SECTION_THEMES[activeNav]?.glowRgba || "34,197,94"}, 0.3))`,
+                  }}
+                >
+                  {String(activeNav)}
+                </h1>
+                <div className="flex items-center justify-center gap-4 mt-5">
+                  <div className="h-[1px] w-8 bg-white/10" />
+                  <p className="text-[9px] tracking-[0.5em] uppercase font-mono text-white/30">
+                    SYSTEM_NODE // {String(activeNav).toUpperCase()}_TERMINAL
+                  </p>
+                  <div className="h-[1px] w-8 bg-white/10" />
+                </div>
               </div>
-            </div>
-              {/* Project Grid Logic */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-20">
-                {USER_PROJECTS.filter(project => project.folder === activeNav).length > 0 ? (
-                  USER_PROJECTS.filter(project => project.folder === activeNav).map((project) => (
+
+              {/* Project Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-10">
+                {USER_PROJECTS.filter((project) => project.folder === activeNav).length > 0 ? (
+                  USER_PROJECTS.filter((project) => project.folder === activeNav).map((project) => (
                     <motion.div
                       key={project.id}
                       whileHover={{ y: -8, scale: 1.02 }}
                       className="p-6 rounded-2xl glass-edge group cursor-pointer relative overflow-hidden"
                       style={{
-                        background: "rgba(255, 255, 255, 0.02)",
-                        border: `1px solid rgba(${SECTION_THEMES[activeNav]?.glowRgba || "255,255,255"}, 0.1)`
+                        background: "rgba(255,255,255,0.02)",
+                        border: `1px solid rgba(${SECTION_THEMES[activeNav]?.glowRgba || "255,255,255"}, 0.1)`,
+                        boxShadow: "inset 0 1px 1px 0 rgba(255,255,255,0.04)",
                       }}
                     >
                       <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                      
                       <div className="flex justify-between items-start mb-4">
                         <div className="p-2 rounded-lg bg-white/5">
                           <Zap size={18} style={{ color: SECTION_THEMES[activeNav]?.color || "#22c55e" }} />
                         </div>
                         <span className="text-[10px] font-mono text-white/20 uppercase">
-                          ID_REF_{project.id.split('_')[1]}_{Math.random().toString(36).substring(7).toUpperCase()}
+                          ID_REF_{project.id.split("_")[1]}_{Math.random().toString(36).substring(7).toUpperCase()}
                         </span>
                       </div>
-
                       <h3 className="text-lg font-bold text-white group-hover:text-emerald-400 transition-colors mb-1">
                         {project.name}
                       </h3>
                       <p className="text-xs text-white/30 font-mono italic">CREATED: {project.date}</p>
-                      
                       <div className="mt-6 flex items-center gap-2 text-[10px] font-bold tracking-widest text-white/40 group-hover:text-white transition-colors">
                         EXECUTE_SYSTEM_MISSION <ChevronRight size={12} />
                       </div>
@@ -814,9 +779,9 @@ export default function Dashboard() {
                   </div>
                 )}
               </div>
-            </motion.div> 
-              {/* Project List */}
-              <div className="flex-1 overflow-y-auto scrollbar-thin space-y-2 px-1">
+
+              {/* Mission List (DB-backed) */}
+              <div className="flex-1 overflow-y-auto scrollbar-thin space-y-2 px-1 pb-8">
                 {missionsLoading ? (
                   <div className="flex items-center justify-center py-16">
                     <div
@@ -839,7 +804,9 @@ export default function Dashboard() {
                       No projects found
                     </p>
                     <p className="text-[10px]" style={{ color: "rgba(255,255,255,0.12)" }}>
-                      {activeNav === "Trash" ? "Trashed items will appear here" : "Projects will appear here as you create them"}
+                      {activeNav === "Trash"
+                        ? "Trashed items will appear here"
+                        : "Projects will appear here as you create them"}
                     </p>
                   </div>
                 ) : (
@@ -852,10 +819,7 @@ export default function Dashboard() {
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: i * 0.03, duration: 0.2 }}
                         className="group flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer transition-all duration-200 interactive-border"
-                        style={{
-                          background: "rgba(255,255,255,0.02)",
-                          border: "1px solid rgba(255,255,255,0.06)",
-                        }}
+                        style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}
                         onMouseEnter={(e) => {
                           e.currentTarget.style.background = `rgba(${theme.glowRgba},0.06)`;
                           e.currentTarget.style.borderColor = `rgba(${theme.glowRgba},0.25)`;
@@ -869,7 +833,10 @@ export default function Dashboard() {
                       >
                         <div
                           className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
-                          style={{ background: `rgba(${theme.glowRgba},0.08)`, border: `1px solid rgba(${theme.glowRgba},0.2)` }}
+                          style={{
+                            background: `rgba(${theme.glowRgba},0.08)`,
+                            border: `1px solid rgba(${theme.glowRgba},0.2)`,
+                          }}
                         >
                           <Zap size={14} style={{ color: `rgba(${theme.glowRgba},0.6)` }} />
                         </div>
@@ -884,7 +851,11 @@ export default function Dashboard() {
                             )}
                           </p>
                         </div>
-                        <ChevronRight size={14} className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: `rgba(${theme.glowRgba},0.5)` }} />
+                        <ChevronRight
+                          size={14}
+                          className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                          style={{ color: `rgba(${theme.glowRgba},0.5)` }}
+                        />
                       </motion.div>
                     );
                   })
@@ -894,6 +865,7 @@ export default function Dashboard() {
           )}
         </div>
 
+        {/* ── Footer — pinned ── */}
         <footer
           className="flex items-center justify-between px-6 py-2 shrink-0 glass-edge"
           style={{ borderTop: `1px solid rgba(${glowRgba},0.1)`, background: "rgba(2,6,23,0.92)" }}
@@ -930,7 +902,7 @@ export default function Dashboard() {
         </footer>
       </main>
 
-      {/* ═══════════════════════ PLUS MENU (Spring) ═══════════════════════ */}
+      {/* ═══ PLUS MENU ═══ */}
       <AnimatePresence>
         {plusMenuOpen && (
           <>
@@ -982,7 +954,6 @@ export default function Dashboard() {
                     </div>
                   </div>
                 </button>
-
                 <div className="mt-2 mb-1 px-3">
                   <span className="text-[9px] tracking-[0.15em]" style={{ color: `rgba(${glowRgba},0.4)` }}>
                     SKILLS
@@ -1004,7 +975,6 @@ export default function Dashboard() {
                     </span>
                   </button>
                 ))}
-
                 <div className="mt-3 mb-1 px-3">
                   <span className="text-[9px] tracking-[0.15em]" style={{ color: `rgba(${glowRgba},0.4)` }}>
                     CONNECTORS
@@ -1037,7 +1007,7 @@ export default function Dashboard() {
         )}
       </AnimatePresence>
 
-      {/* ═══════════════════════ AI ENGINE DRAWER (Spring) ═══════════════════════ */}
+      {/* ═══ AI ENGINE DRAWER ═══ */}
       <AnimatePresence>
         {drawerOpen && (
           <>
@@ -1152,11 +1122,10 @@ export default function Dashboard() {
         )}
       </AnimatePresence>
 
-      {/* ═══════════════════════ LOGOUT MODAL (Spring) ═══════════════════════ */}
+      {/* ═══ LOGOUT MODAL ═══ */}
       <AnimatePresence>
         {logoutModalOpen && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 overflow-hidden">
-            {/* 1. Backdrop - Using flex-centering instead of absolute translate */}
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -1165,8 +1134,6 @@ export default function Dashboard() {
               onClick={() => setLogoutModalOpen(false)}
               className="absolute inset-0 bg-black/60 backdrop-blur-md"
             />
-
-            {/* 2. Modal Content */}
             <motion.div
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -1179,13 +1146,9 @@ export default function Dashboard() {
                 boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 40px rgba(239, 68, 68, 0.05)",
               }}
             >
-              {/* Animated Icon Container */}
               <motion.div
                 className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6"
-                style={{
-                  background: "rgba(239, 68, 68, 0.08)",
-                  border: "1px solid rgba(239, 68, 68, 0.2)",
-                }}
+                style={{ background: "rgba(239, 68, 68, 0.08)", border: "1px solid rgba(239, 68, 68, 0.2)" }}
                 animate={{
                   boxShadow: ["0 0 0px rgba(239,68,68,0)", "0 0 20px rgba(239,68,68,0.2)", "0 0 0px rgba(239,68,68,0)"],
                 }}
@@ -1193,18 +1156,14 @@ export default function Dashboard() {
               >
                 <LogOut size={24} className="text-red-500" />
               </motion.div>
-
               <h3 className="text-[11px] font-mono tracking-[0.3em] text-red-500/80 mb-2 uppercase">
                 System_Termination
               </h3>
-
               <h2 className="text-xl font-bold text-white mb-3">Ready to log out?</h2>
-
               <p className="text-[13px] leading-relaxed mb-8 text-white/40 px-4">
                 All active neural session state will be{" "}
                 <span className="text-red-400/80 font-medium italic">purged from local cache.</span>
               </p>
-
               <div className="flex gap-3">
                 <motion.button
                   whileHover={{ scale: 1.02 }}
@@ -1214,7 +1173,6 @@ export default function Dashboard() {
                 >
                   Stay
                 </motion.button>
-
                 <motion.button
                   whileHover={{ scale: 1.02, backgroundColor: "rgba(239, 68, 68, 0.8)" }}
                   whileTap={{ scale: 0.98 }}
@@ -1248,9 +1206,7 @@ export default function Dashboard() {
           border: 1px solid rgba(255,255,255,0.1);
           box-shadow: inset 0 1px 1px 0 rgba(255,255,255,0.05);
         }
-        .interactive-border {
-          transition: border-color 0.2s ease, box-shadow 0.2s ease;
-        }
+        .interactive-border { transition: border-color 0.2s ease, box-shadow 0.2s ease; }
         .interactive-border:hover {
           border-color: rgba(255,255,255,0.3) !important;
           box-shadow: 0 0 15px rgba(255,255,255,0.03), inset 0 1px 1px 0 rgba(255,255,255,0.05) !important;
