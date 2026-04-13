@@ -749,14 +749,14 @@ export default function Dashboard() {
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={springTransition}
-              className="flex flex-col w-full max-w-5xl flex-1 overflow-y-auto py-12 px-6"
+              className="flex flex-col w-full max-w-5xl flex-1 overflow-y-auto pt-4 pb-12 px-6"
             >
             
              
          {/* Terminal Header — Obsidian Version */}
-            <div className="text-center mb-16 shrink-0 relative z-10">
+             <div className="text-center mb-6 shrink-0 relative z-10">
               <h1
-                className="text-[68px] font-black uppercase leading-none select-none inline-block"
+                className="text-[48px] font-black uppercase leading-none select-none inline-block"
                 style={{
                   letterSpacing: "-0.05em",
                   background: SECTION_THEMES[activeNav]?.gradient || "linear-gradient(135deg, #22c55e, #10b981)",
