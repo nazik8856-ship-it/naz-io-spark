@@ -615,137 +615,160 @@ export default function Dashboard() {
                     }}
                   />
 
-                  {/* ── Footer inside input ── */}
-                  <div
-                    className="flex items-center justify-between px-3 py-2.5 glass-edge"
-                    style={{ borderTop: "1px solid rgba(255,255,255,0.1)" }}
-                  >
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <button
-                        onClick={() => {
-                          setPlusMenuOpen((v) => !v);
-                          setDrawerOpen(false);
-                        }}
-                        className="w-7 h-7 rounded-full flex items-center justify-center transition-all duration-200 shrink-0"
-                        style={{
-                          background: plusMenuOpen ? `rgba(${glowRgba},0.18)` : `rgba(${glowRgba},0.06)`,
-                          border: `1px solid ${plusMenuOpen ? borderColor : `rgba(${glowRgba},0.25)`}`,
-                          color: borderColor,
-                        }}
-                        title="Tools & Options"
-                      >
-                        <motion.div animate={{ rotate: plusMenuOpen ? 45 : 0 }} transition={springTransition}>
-                          <Plus size={14} />
-                        </motion.div>
-                      </button>
+             {/* ── Footer inside input ── */}
+                <div
+                  className="flex items-center justify-between px-3 py-2.5 glass-edge"
+                  style={{ borderTop: "1px solid rgba(255,255,255,0.1)" }}
+                >
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      onClick={() => {
+                        setPlusMenuOpen((v) => !v);
+                        setDrawerOpen(false);
+                      }}
+                      className="w-7 h-7 rounded-full flex items-center justify-center transition-all duration-200 shrink-0"
+                      style={{
+                        background: plusMenuOpen ? `rgba(${glowRgba},0.18)` : `rgba(${glowRgba},0.06)`,
+                        border: `1px solid ${plusMenuOpen ? borderColor : `rgba(${glowRgba},0.25)`}`,
+                        color: borderColor,
+                      }}
+                      title="Tools & Options"
+                    >
+                      <motion.div animate={{ rotate: plusMenuOpen ? 45 : 0 }} transition={springTransition}>
+                        <Plus size={14} />
+                      </motion.div>
+                    </button>
 
-                      <button
-                        onClick={() => {
-                          setDrawerOpen((v) => !v);
-                          setPlusMenuOpen(false);
-                        }}
-                        className="text-[10px] tracking-[0.08em] px-2 py-1 rounded transition-all"
-                        style={{
-                          background: `rgba(${glowRgba},0.06)`,
-                          border: `1px solid rgba(${glowRgba},0.2)`,
-                          color: `rgba(${glowRgba},0.6)`,
-                        }}
-                      >
-                        {activeTool ? activeTool.tool.name : "Select Engine"}
-                      </button>
-                    </div>
+                    <button
+                      onClick={() => {
+                        setDrawerOpen((v) => !v);
+                        setPlusMenuOpen(false);
+                      }}
+                      className="text-[10px] tracking-[0.08em] px-2 py-1 rounded transition-all"
+                      style={{
+                        background: `rgba(${glowRgba},0.06)`,
+                        border: `1px solid rgba(${glowRgba},0.2)`,
+                        color: `rgba(${glowRgba},0.6)`,
+                      }}
+                    >
+                      {activeTool ? activeTool.tool.name : "Select Engine"}
+                    </button>
+                  </div>
 
-                    <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setWebSearchActive((v) => !v)}
+                      className="flex items-center gap-1 px-2 py-1 rounded text-[10px] tracking-[0.08em] transition-all"
+                      style={{
+                        background: webSearchActive ? "rgba(59,130,246,0.12)" : "rgba(255,255,255,0.03)",
+                        border: webSearchActive
+                          ? "1px solid rgba(59,130,246,0.4)"
+                          : "1px solid rgba(255,255,255,0.06)",
+                        color: webSearchActive ? "#3b82f6" : "rgba(255,255,255,0.3)",
+                      }}
+                      title="Toggle Web Search"
+                    >
+                      {webSearchActive ? <CheckCircle2 size={11} /> : <Search size={11} />}
+                      <span className="hidden sm:inline">Web</span>
+                    </button>
+
+                    <div className="relative">
                       <button
-                        onClick={() => setWebSearchActive((v) => !v)}
+                        onClick={() => setStyleDropdownOpen((v) => !v)}
                         className="flex items-center gap-1 px-2 py-1 rounded text-[10px] tracking-[0.08em] transition-all"
                         style={{
-                          background: webSearchActive ? "rgba(59,130,246,0.12)" : "rgba(255,255,255,0.03)",
-                          border: webSearchActive
-                            ? "1px solid rgba(59,130,246,0.4)"
-                            : "1px solid rgba(255,255,255,0.06)",
-                          color: webSearchActive ? "#3b82f6" : "rgba(255,255,255,0.3)",
+                          background: "rgba(255,255,255,0.03)",
+                          border: "1px solid rgba(255,255,255,0.08)",
+                          color: "rgba(255,255,255,0.4)",
                         }}
-                        title="Toggle Web Search"
+                        title="Output Style"
                       >
-                        {webSearchActive ? <CheckCircle2 size={11} /> : <Search size={11} />}
-                        <span className="hidden sm:inline">Web</span>
+                        <Feather size={11} />
+                        <span className="hidden sm:inline">{activeStyle}</span>
+                        <ChevronDown size={9} />
                       </button>
-
-                      <div className="relative">
-                        <button
-                          onClick={() => setStyleDropdownOpen((v) => !v)}
-                          className="flex items-center gap-1 px-2 py-1 rounded text-[10px] tracking-[0.08em] transition-all"
-                          style={{
-                            background: "rgba(255,255,255,0.03)",
-                            border: "1px solid rgba(255,255,255,0.08)",
-                            color: "rgba(255,255,255,0.4)",
-                          }}
-                          title="Output Style"
-                        >
-                          <Feather size={11} />
-                          <span className="hidden sm:inline">{activeStyle}</span>
-                          <ChevronDown size={9} />
-                        </button>
-                        <AnimatePresence>
-                          {styleDropdownOpen && (
-                            <motion.div
-                              initial={{ opacity: 0, y: 4, scale: 0.96 }}
-                              animate={{ opacity: 1, y: 0, scale: 1 }}
-                              exit={{ opacity: 0, y: 4, scale: 0.96 }}
-                              transition={springTransition}
-                              className="absolute bottom-full right-0 mb-1 rounded-lg overflow-hidden z-50"
-                              style={{
-                                background: "rgba(2,6,23,0.97)",
-                                border: "1px solid rgba(255,255,255,0.1)",
-                                backdropFilter: "blur(16px)",
-                              }}
-                            >
-                              {STYLES.map((s) => (
-                                <button
-                                  key={s}
-                                  onClick={() => {
-                                    setActiveStyle(s);
-                                    setStyleDropdownOpen(false);
-                                  }}
-                                  className="block w-full text-left px-4 py-2 text-[11px] tracking-[0.08em] transition-colors"
-                                  style={{
-                                    color: activeStyle === s ? borderColor : "rgba(255,255,255,0.4)",
-                                    background: activeStyle === s ? `rgba(${glowRgba},0.08)` : "transparent",
-                                  }}
-                                >
-                                  {s}
-                                </button>
-                              ))}
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </div>
-
-                      <button
-                        onClick={handleSend}
-                        disabled={!input.trim() || isProcessing}
-                        className="w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200"
-                        style={{
-                          background: input.trim() ? borderColor : "rgba(255,255,255,0.04)",
-                          color: input.trim() ? "#020617" : "rgba(255,255,255,0.15)",
-                          boxShadow: input.trim() ? `0 0 14px rgba(${glowRgba},0.5)` : "none",
-                          cursor: input.trim() ? "pointer" : "default",
-                        }}
-                      >
-                        <Send size={13} />
-                      </button>
+                      <AnimatePresence>
+                        {styleDropdownOpen && (
+                          <motion.div
+                            initial={{ opacity: 0, y: 4, scale: 0.96 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: 4, scale: 0.96 }}
+                            transition={springTransition}
+                            className="absolute bottom-full right-0 mb-1 rounded-lg overflow-hidden z-50"
+                            style={{
+                              background: "rgba(2,6,23,0.97)",
+                              border: "1px solid rgba(255,255,255,0.1)",
+                              backdropFilter: "blur(16px)",
+                            }}
+                          >
+                            {STYLES.map((s) => (
+                              <button
+                                key={s}
+                                onClick={() => {
+                                  setActiveStyle(s);
+                                  setStyleDropdownOpen(false);
+                                }}
+                                className="block w-full text-left px-4 py-2 text-[11px] tracking-[0.08em] transition-colors"
+                                style={{
+                                  color: activeStyle === s ? borderColor : "rgba(255,255,255,0.4)",
+                                  background: activeStyle === s ? `rgba(${glowRgba},0.08)` : "transparent",
+                                }}
+                              >
+                                {s}
+                              </button>
+                            ))}
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
                     </div>
+
+                    <button
+                      onClick={handleSend}
+                      disabled={!input.trim() || isProcessing}
+                      className="w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200"
+                      style={{
+                        background: input.trim() ? borderColor : "rgba(255,255,255,0.04)",
+                        color: input.trim() ? "#020617" : "rgba(255,255,255,0.15)",
+                        boxShadow: input.trim() ? `0 0 14px rgba(${glowRgba},0.5)` : "none",
+                        cursor: input.trim() ? "pointer" : "default",
+                      }}
+                    >
+                      <Send size={13} />
+                    </button>
                   </div>
                 </div>
-
-               <motion.div
+              </div>
+            </div>
+          ) : (
+            <motion.div
               key={activeNav}
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={springTransition}
               className="flex flex-col w-full max-w-5xl h-full py-12 px-6 overflow-y-auto"
             >
+              {/* Terminal Header — Obsidian Version */}
+              <div className="text-center mb-16 shrink-0 relative z-10">
+                <h1
+                  className="text-[68px] font-black uppercase tracking-[-0.04em] leading-none select-none"
+                  style={{
+                    background: String(SECTION_THEMES[activeNav]?.gradient || "linear-gradient(135deg, #22c55e, #10b981)"),
+                    WebkitBackgroundClip: "text",
+                    WebkitTextFillColor: "transparent",
+                    backgroundClip: "text",
+                    filter: `drop-shadow(0 0 45px rgba(${SECTION_THEMES[activeNav]?.glowRgba || "34,197,94"}, 0.2))`,
+                  }}
+                >
+                  {String(activeNav)}
+                </h1>
+                <div className="flex items-center justify-center gap-4 mt-5">
+                  <div className="h-[1px] w-8 bg-white/10" />
+                  <p className="text-[9px] tracking-[0.5em] uppercase font-mono text-white/30">
+                    SYSTEM_NODE // {String(activeNav).toUpperCase()}_TERMINAL
+                  </p>
+                  <div className="h-[1px] w-8 bg-white/10" />
+                </div>
+              </div> 
              
          {/* Terminal Header — Obsidian Version */}
             <div className="text-center mb-16 shrink-0 relative z-10">
