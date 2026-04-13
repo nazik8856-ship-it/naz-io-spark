@@ -895,17 +895,16 @@ export default function Dashboard() {
                     );
                   })
                 )}
-          {/* This closes your Mission List map/container */}
+          
               </div>
             </motion.div>
           )} 
-        </div> {/* This closes the scrollable main content area */}
+        </div> 
 
-        {/* FOOTER: Now outside the conditional logic */}
-        <footer
+       <footer
           className="flex items-center justify-between px-6 py-2 shrink-0 glass-edge"
           style={{ borderTop: `1px solid rgba(${glowRgba},0.1)`, background: "rgba(2,6,23,0.92)" }}
-        > 
+        >  
           <div className="flex items-center gap-2">
             <Shield size={10} style={{ color: `rgba(${glowRgba},0.45)` }} />
             <span className="text-[10px] tracking-[0.15em]" style={{ color: `rgba(${glowRgba},0.45)` }}>
