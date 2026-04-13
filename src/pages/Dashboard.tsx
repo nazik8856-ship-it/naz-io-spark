@@ -216,6 +216,18 @@ export default function Dashboard() {
 
   const activeNavItem = NAV_ITEMS.find((n) => n.label === activeNav) ?? NAV_ITEMS[0];
 
+  // Filter missions based on active folder
+  const filteredMissions = useMemo(() => {
+    switch (activeNav) {
+      case "Trash": return missions.filter((m) => m.status === "trashed");
+      case "Archives": return missions.filter((m) => m.status === "archived");
+      case "Recently": return missions.filter((m) => m.status !== "trashed").slice(0, 10);
+      case "History": return missions.filter((m) => m.status === "completed");
+      case "Workflows": return missions.filter((m) => m.status === "pending" || m.status === "active");
+      default: return missions.filter((m) => m.status !== "trashed");
+    }
+  }, [activeNav, missions]);
+
   // ── Typing detection ───────────────────────────────────────────────────────
   function handleInputChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     setInput(e.target.value);
