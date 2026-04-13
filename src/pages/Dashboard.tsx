@@ -753,26 +753,105 @@ export default function Dashboard() {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={springTransition}
-              className="flex flex-col items-center justify-center h-full text-center gap-5"
+              className="flex flex-col w-full max-w-2xl h-full py-8 overflow-hidden"
             >
-              <h1
-                className="text-[48px] font-bold uppercase tracking-[0.05em] leading-none select-none"
-                style={{
-                  background: GRADIENTS[currentGradientIdx],
-                  WebkitBackgroundClip: "text",
-                  WebkitTextFillColor: "transparent",
-                  backgroundClip: "text",
-                  filter: "drop-shadow(0 0 30px rgba(255,255,255,0.08))",
-                }}
-              >
-                {activeNav.toUpperCase()}
-              </h1>
-              <p
-                className="text-[11px] tracking-[0.35em] uppercase font-mono"
-                style={{ color: "rgba(255,255,255,0.25)" }}
-              >
-                Launch your business within minutes
-              </p>
+              {/* Gradient Header */}
+              <div className="text-center mb-8 shrink-0">
+                <h1
+                  className="text-[48px] font-bold uppercase tracking-[0.05em] leading-none select-none"
+                  style={{
+                    background: GRADIENTS[currentGradientIdx],
+                    WebkitBackgroundClip: "text",
+                    WebkitTextFillColor: "transparent",
+                    backgroundClip: "text",
+                    filter: "drop-shadow(0 0 30px rgba(255,255,255,0.08))",
+                  }}
+                >
+                  {activeNav.toUpperCase()}
+                </h1>
+                <p
+                  className="text-[11px] tracking-[0.35em] uppercase font-mono mt-3"
+                  style={{ color: "rgba(255,255,255,0.25)" }}
+                >
+                  Launch your business within minutes
+                </p>
+              </div>
+
+              {/* Project List */}
+              <div className="flex-1 overflow-y-auto scrollbar-thin space-y-2 px-1">
+                {missionsLoading ? (
+                  <div className="flex items-center justify-center py-16">
+                    <div
+                      className="w-5 h-5 rounded-full border-2 border-t-transparent animate-spin"
+                      style={{ borderColor: `rgba(${glowRgba},0.4)`, borderTopColor: "transparent" }}
+                    />
+                  </div>
+                ) : filteredMissions.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 gap-3">
+                    <div
+                      className="w-12 h-12 rounded-full flex items-center justify-center"
+                      style={{ border: `1px solid rgba(${glowRgba},0.15)`, background: `rgba(${glowRgba},0.04)` }}
+                    >
+                      {(() => {
+                        const Icon = activeNavItem.icon;
+                        return <Icon size={20} style={{ color: `rgba(${glowRgba},0.3)` }} />;
+                      })()}
+                    </div>
+                    <p className="text-[12px] tracking-[0.1em] font-mono" style={{ color: "rgba(255,255,255,0.2)" }}>
+                      No projects found
+                    </p>
+                    <p className="text-[10px]" style={{ color: "rgba(255,255,255,0.12)" }}>
+                      {activeNav === "Trash" ? "Trashed items will appear here" : "Projects will appear here as you create them"}
+                    </p>
+                  </div>
+                ) : (
+                  filteredMissions.map((mission, i) => {
+                    const theme = SECTION_THEMES[activeNav] || SECTION_THEMES["Home"];
+                    return (
+                      <motion.div
+                        key={mission.id}
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: i * 0.03, duration: 0.2 }}
+                        className="group flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer transition-all duration-200 interactive-border"
+                        style={{
+                          background: "rgba(255,255,255,0.02)",
+                          border: "1px solid rgba(255,255,255,0.06)",
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = `rgba(${theme.glowRgba},0.06)`;
+                          e.currentTarget.style.borderColor = `rgba(${theme.glowRgba},0.25)`;
+                          e.currentTarget.style.boxShadow = `0 0 20px rgba(${theme.glowRgba},0.08)`;
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = "rgba(255,255,255,0.02)";
+                          e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)";
+                          e.currentTarget.style.boxShadow = "none";
+                        }}
+                      >
+                        <div
+                          className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+                          style={{ background: `rgba(${theme.glowRgba},0.08)`, border: `1px solid rgba(${theme.glowRgba},0.2)` }}
+                        >
+                          <Zap size={14} style={{ color: `rgba(${theme.glowRgba},0.6)` }} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[13px] font-medium truncate" style={{ color: "#e2e8f0" }}>
+                            {mission.directive?.slice(0, 80) || "Untitled Mission"}
+                          </p>
+                          <p className="text-[10px] font-mono mt-0.5" style={{ color: "rgba(255,255,255,0.2)" }}>
+                            {formatDistanceToNow(new Date(mission.created_at), { addSuffix: true })}
+                            {mission.status !== "completed" && mission.status !== "active" && (
+                              <span className="ml-2 uppercase tracking-wider">{mission.status}</span>
+                            )}
+                          </p>
+                        </div>
+                        <ChevronRight size={14} className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: `rgba(${theme.glowRgba},0.5)` }} />
+                      </motion.div>
+                    );
+                  })
+                )}
+              </div>
             </motion.div>
           )}
         </div>
