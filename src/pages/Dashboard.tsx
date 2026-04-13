@@ -747,40 +747,29 @@ export default function Dashboard() {
               className="flex flex-col w-full max-w-5xl h-full py-12 px-6 overflow-y-auto"
             >
              
-          {/* Terminal Header — Surgical Version */}
-              {(() => {
-                // This logic ensures we never pass an object to the renderer
-                const themeData = SECTION_THEMES[activeNav] || {
-                  gradient: "linear-gradient(135deg, #22c55e, #10b981)",
-                  glowRgba: "34,197,94"
-                };
-                
-                const titleText = String(activeNav || "UNDEFINED_NODE");
-
-                return (
-                  <div className="text-center mb-16 shrink-0 relative">
-                    <h1
-                      className="text-[68px] font-black uppercase tracking-[-0.04em] leading-none select-none"
-                      style={{
-                        background: themeData.gradient,
-                        WebkitBackgroundClip: "text",
-                        WebkitTextFillColor: "transparent",
-                        backgroundClip: "text",
-                        filter: `drop-shadow(0 0 45px rgba(${themeData.glowRgba}, 0.2))`,
-                      }}
-                    >
-                      {titleText}
-                    </h1>
-                    <div className="flex items-center justify-center gap-4 mt-5">
-                      <div className="h-[1px] w-8 bg-white/10" />
-                      <p className="text-[9px] tracking-[0.5em] uppercase font-mono text-white/30">
-                        SYSTEM_NODE // {titleText.toUpperCase()}_TERMINAL
-                      </p>
-                      <div className="h-[1px] w-8 bg-white/10" />
-                    </div>
-                  </div>
-                );
-              })()}
+         {/* Terminal Header — FIXED: No more Object Errors */}
+              <div className="text-center mb-16 shrink-0 relative">
+                <h1
+                  className="text-[68px] font-black uppercase tracking-[-0.04em] leading-none select-none"
+                  style={{
+                    // FIX: Direct string access with a safe fallback to prevent the 'Object' crash
+                    background: (SECTION_THEMES[activeNav]?.gradient) || "linear-gradient(135deg, #22c55e, #10b981)",
+                    WebkitBackgroundClip: "text",
+                    WebkitTextFillColor: "transparent",
+                    backgroundClip: "text",
+                    filter: `drop-shadow(0 0 45px rgba(${SECTION_THEMES[activeNav]?.glowRgba || "34,197,94"}, 0.2))`,
+                  }}
+                >
+                  {String(activeNav)}
+                </h1>
+                <div className="flex items-center justify-center gap-4 mt-5">
+                  <div className="h-[1px] w-8 bg-white/10" />
+                  <p className="text-[9px] tracking-[0.5em] uppercase font-mono text-white/30">
+                    SYSTEM_NODE // {String(activeNav).toUpperCase()}_TERMINAL
+                  </p>
+                  <div className="h-[1px] w-8 bg-white/10" />
+                </div>
+              </div> 
               {/* Project Grid Logic */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-20">
                 {USER_PROJECTS.filter(project => project.folder === activeNav).length > 0 ? (
