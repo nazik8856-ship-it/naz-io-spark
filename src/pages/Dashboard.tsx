@@ -43,7 +43,7 @@ import {
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 
-// ─── Tool Registry ──────────────────────────────────────────────────────────────
+// ─── Type Definitions ──────────────────────────────────────────────────────────────
 
 type ToolEntry = {
   id: string;
@@ -59,6 +59,31 @@ type Category = {
   label: string;
   tools: ToolEntry[];
 };
+
+type Mission = {
+  id: string;
+  user_id: string;
+  directive: string;
+  status: "pending" | "active" | "completed" | "archived" | "trashed";
+  created_at: string;
+  updated_at: string;
+};
+
+type Theme = {
+  gradient: string;
+  glowRgba: string;
+  color: string;
+};
+
+type ConnectorStatus = {
+  supabase: boolean;
+  vercel: boolean;
+  github: boolean;
+};
+
+type Style = "Technical" | "Creative" | "Fast";
+
+// ─── Constants ─────────────────────────────────────────────────────────────────────
 
 const AI_CATEGORIES: Record<string, Category> = {
   LOGIC: {
@@ -98,17 +123,6 @@ const AI_CATEGORIES: Record<string, Category> = {
   },
 };
 
-function findToolById(id: string | null): { tool: ToolEntry; category: Category } | null {
-  if (!id) return null;
-  for (const cat of Object.values(AI_CATEGORIES)) {
-    const found = cat.tools.find((t) => t.id === id);
-    if (found) return { tool: found, category: cat };
-  }
-  return null;
-}
-
-// ─── Nav Items with Unique Gradients ────────────────────────────────────────────
-
 const NAV_ITEMS = [
   { icon: Home, label: "Home" },
   { icon: MessageSquare, label: "Workflows" },
@@ -118,24 +132,20 @@ const NAV_ITEMS = [
   { icon: Archive, label: "Archives" },
   { icon: Trash2, label: "Trash" },
   { icon: Settings, label: "Settings" },
-];
+] as const;
 
-const SECTION_THEMES: Record<string, { gradient: string; glowRgba: string; color: string }> = {
-  Home:         { gradient: "linear-gradient(135deg, #22c55e, #10b981)", glowRgba: "34,197,94",   color: "#22c55e" },
-  Workflows:    { gradient: "linear-gradient(135deg, #a855f7, #ec4899)", glowRgba: "168,85,247",  color: "#a855f7" },
-  History:      { gradient: "linear-gradient(135deg, #f59e0b, #d97706)", glowRgba: "245,158,11",  color: "#f59e0b" },
-  Integrations: { gradient: "linear-gradient(135deg, #3b82f6, #06b6d4)", glowRgba: "59,130,246",  color: "#3b82f6" },
-  Recently:     { gradient: "linear-gradient(135deg, #06b6d4, #3b82f6)", glowRgba: "6,182,212",   color: "#06b6d4" },
-  Archives:     { gradient: "linear-gradient(135deg, #818cf8, #c084fc)", glowRgba: "129,140,248", color: "#818cf8" },
-  Trash:        { gradient: "linear-gradient(135deg, #ef4444, #f97316)", glowRgba: "239,68,68",   color: "#ef4444" },
-  Settings:     { gradient: "linear-gradient(135deg, #6366f1, #a855f7)", glowRgba: "99,102,241",  color: "#6366f1" },
+const SECTION_THEMES: Record<string, Theme> = {
+  Home: { gradient: "linear-gradient(135deg, #22c55e, #10b981)", glowRgba: "34,197,94", color: "#22c55e" },
+  Workflows: { gradient: "linear-gradient(135deg, #a855f7, #ec4899)", glowRgba: "168,85,247", color: "#a855f7" },
+  History: { gradient: "linear-gradient(135deg, #f59e0b, #d97706)", glowRgba: "245,158,11", color: "#f59e0b" },
+  Integrations: { gradient: "linear-gradient(135deg, #3b82f6, #06b6d4)", glowRgba: "59,130,246", color: "#3b82f6" },
+  Recently: { gradient: "linear-gradient(135deg, #06b6d4, #3b82f6)", glowRgba: "6,182,212", color: "#06b6d4" },
+  Archives: { gradient: "linear-gradient(135deg, #818cf8, #c084fc)", glowRgba: "129,140,248", color: "#818cf8" },
+  Trash: { gradient: "linear-gradient(135deg, #ef4444, #f97316)", glowRgba: "239,68,68", color: "#ef4444" },
+  Settings: { gradient: "linear-gradient(135deg, #6366f1, #a855f7)", glowRgba: "99,102,241", color: "#6366f1" },
 };
 
-// ─── USER_PROJECTS stub ─────────────────────────────────────────────────────
-// Replace with real data source / API call as needed
-const USER_PROJECTS: { id: string; name: string; folder: string; date: string }[] = [];
-
-const STYLES = ["Technical", "Creative", "Fast"] as const;
+const STYLES: readonly Style[] = ["Technical", "Creative", "Fast"] as const;
 
 const SKILLS = [
   { icon: Lightbulb, label: "Explain Concept" },
@@ -143,68 +153,172 @@ const SKILLS = [
   { icon: HeartPulse, label: "Project Health" },
 ];
 
+const GRADIENTS = [
+  "linear-gradient(135deg, #22c55e, #10b981)",
+  "linear-gradient(135deg, #a855f7, #ec4899)",
+  "linear-gradient(135deg, #06b6d4, #3b82f6)",
+  "linear-gradient(135deg, #f59e0b, #d97706)",
+  "linear-gradient(135deg, #818cf8, #c084fc)",
+  "linear-gradient(135deg, #ef4444, #f97316)",
+  "linear-gradient(135deg, #6366f1, #a855f7)",
+] as const;
+
 const springTransition = { type: "spring" as const, damping: 25, stiffness: 400 };
-// ─── Component ──────────────────────────────────────────────────────────────────
+
+// ─── Helper Functions ──────────────────────────────────────────────────────────────
+
+const findToolById = (id: string | null): { tool: ToolEntry; category: Category } | null => {
+  if (!id) return null;
+  for (const cat of Object.values(AI_CATEGORIES)) {
+    const found = cat.tools.find((t) => t.id === id);
+    if (found) return { tool: found, category: cat };
+  }
+  return null;
+};
+
+const getDefaultTheme = (): Theme => SECTION_THEMES["Home"];
+
+// ─── Component ────────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
   const navigate = useNavigate();
+
+  // ── State ───────────────────────────────────────────────────────────────────────
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [plusMenuOpen, setPlusMenuOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [messages, setMessages] = useState<{ role: "user" | "ai"; text: string; isSimulation?: boolean }[]>([]);
-  const [activeNav, setActiveNav] = useState("Recently");
+  const [activeNav, setActiveNav] = useState<string>("Recently");
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [webSearchActive, setWebSearchActive] = useState(false);
-  const [activeStyle, setActiveStyle] = useState<(typeof STYLES)[number]>("Technical");
+  const [activeStyle, setActiveStyle] = useState<Style>("Technical");
   const [styleDropdownOpen, setStyleDropdownOpen] = useState(false);
-  const [connectorStatus, setConnectorStatus] = useState({ supabase: true, vercel: false, github: false });
+  const [connectorStatus, setConnectorStatus] = useState<ConnectorStatus>({
+    supabase: true,
+    vercel: false,
+    github: false,
+  });
   const [isProcessing, setIsProcessing] = useState(false);
-  const [isLinked] = useState(true);
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
-  const [missions, setMissions] = useState<any[]>([]);
+  const [missions, setMissions] = useState<Mission[]>([]);
   const [missionsLoading, setMissionsLoading] = useState(true);
+  const [currentGradientIdx, setCurrentGradientIdx] = useState(0);
+
+  // ── Refs ────────────────────────────────────────────────────────────────────────
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const simulationRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
-  // ── Session ─────────────────────────────────────────────────────────────────
+  // ── Derived State (Memoized) ────────────────────────────────────────────────────
+  const activeTool = useMemo(() => findToolById(selectedModel), [selectedModel]);
+  const isMediaMode = activeTool?.category.label === "CREATION";
+  const glowRgba = activeTool?.category.glowRgba ?? "34,197,94";
+  const borderColor = activeTool?.category.color ?? "#22c55e";
+  const activeNavItem = NAV_ITEMS.find((n) => n.label === activeNav) ?? NAV_ITEMS[0];
+  const currentTheme = SECTION_THEMES[activeNav] ?? getDefaultTheme();
+
+  const filteredMissions = useMemo(() => {
+    switch (activeNav) {
+      case "Trash":
+        return missions.filter((m) => m.status === "trashed");
+      case "Archives":
+        return missions.filter((m) => m.status === "archived");
+      case "Recently":
+        return missions.filter((m) => m.status !== "trashed").slice(0, 10);
+      case "History":
+        return missions.filter((m) => m.status === "completed");
+      case "Workflows":
+        return missions.filter((m) => m.status === "pending" || m.status === "active");
+      default:
+        return missions.filter((m) => m.status !== "trashed");
+    }
+  }, [activeNav, missions]);
+
+  // ── Effects ──────────────────────────────────────────────────────────────────────
+
+  // Session Management
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUserEmail(session?.user?.email ?? null);
-      setUserId(session?.user?.id ?? null);
-    });
+    let isMounted = true;
+
+    const getSession = async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (isMounted) {
+        setUserEmail(session?.user?.email ?? null);
+        setUserId(session?.user?.id ?? null);
+      }
+    };
+
+    getSession();
+
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUserEmail(session?.user?.email ?? null);
-      setUserId(session?.user?.id ?? null);
+      if (isMounted) {
+        setUserEmail(session?.user?.email ?? null);
+        setUserId(session?.user?.id ?? null);
+      }
     });
-    return () => listener.subscription.unsubscribe();
+
+    return () => {
+      isMounted = false;
+      listener.subscription.unsubscribe();
+    };
   }, []);
 
-  // Fetch missions from DB
+  // Fetch Missions with Error Handling
   useEffect(() => {
-    if (!userId) { setMissions([]); setMissionsLoading(false); return; }
-    setMissionsLoading(true);
-    supabase
-      .from("missions")
-      .select("*")
-      .eq("user_id", userId)
-      .order("created_at", { ascending: false })
-      .then(({ data, error }) => {
-        if (!error && data) setMissions(data);
-        setMissionsLoading(false);
-      });
+    if (!userId) {
+      setMissions([]);
+      setMissionsLoading(false);
+      return;
+    }
+
+    let isMounted = true;
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
+    const fetchMissions = async () => {
+      setMissionsLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from("missions")
+          .select("*")
+          .eq("user_id", userId)
+          .order("created_at", { ascending: false });
+
+        if (abortController.signal.aborted) return;
+
+        if (error) throw error;
+        if (isMounted && data) setMissions(data as Mission[]);
+      } catch (error) {
+        console.error("Failed to fetch missions:", error);
+        if (isMounted) setMissions([]);
+      } finally {
+        if (isMounted) setMissionsLoading(false);
+      }
+    };
+
+    fetchMissions();
+
+    return () => {
+      isMounted = false;
+      abortController.abort();
+    };
   }, [userId]);
 
+  // Auto-scroll Messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // Auto-resize Textarea
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
@@ -212,42 +326,43 @@ export default function Dashboard() {
     }
   }, [input]);
 
-  // ── Derived state ───────────────────────────────────────────────────────────
-  const activeTool = findToolById(selectedModel);
-  const isMediaMode = activeTool?.category.label === "CREATION";
-  const glowRgba = activeTool?.category.glowRgba ?? "34,197,94";
-  const borderColor = activeTool?.category.color ?? "#22c55e";
-
-  const activeNavItem = NAV_ITEMS.find((n) => n.label === activeNav) ?? NAV_ITEMS[0];
-
-  // Filter missions based on active folder
-  const filteredMissions = useMemo(() => {
-    switch (activeNav) {
-      case "Trash": return missions.filter((m) => m.status === "trashed");
-      case "Archives": return missions.filter((m) => m.status === "archived");
-      case "Recently": return missions.filter((m) => m.status !== "trashed").slice(0, 10);
-      case "History": return missions.filter((m) => m.status === "completed");
-      case "Workflows": return missions.filter((m) => m.status === "pending" || m.status === "active");
-      default: return missions.filter((m) => m.status !== "trashed");
+  // Cycle Gradient for Non-Home Pages
+  useEffect(() => {
+    if (activeNav !== "Home") {
+      setCurrentGradientIdx((prev) => (prev + 1) % GRADIENTS.length);
     }
-  }, [activeNav, missions]);
+  }, [activeNav]);
 
-  // ── Typing detection ───────────────────────────────────────────────────────
-  function handleInputChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+  // Cleanup Timeouts
+  useEffect(() => {
+    return () => {
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      if (simulationRef.current) clearTimeout(simulationRef.current);
+      if (abortControllerRef.current) abortControllerRef.current.abort();
+    };
+  }, []);
+
+  // ── Handlers ────────────────────────────────────────────────────────────────────
+
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInput(e.target.value);
     setIsTyping(true);
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     typingTimeoutRef.current = setTimeout(() => setIsTyping(false), 800);
-  }
+  }, []);
 
-  // ── Simulation mode ────────────────────────────────────────────────────────
-  function streamSimulation(msgIndex: number) {
+  const handleSelectTool = useCallback((id: string) => {
+    setSelectedModel(id);
+    setDrawerOpen(false);
+  }, []);
+
+  const streamSimulation = useCallback((msgIndex: number) => {
     const mockResponse =
       "[SIMULATION_MODE] // OFFLINE_DRAFT — Neural pathway rerouted through local inference cache. Executing fallback heuristic analysis on provided directive. Output confidence: 87.3%. Recommended action: retry with primary engine when connectivity is restored.";
     const words = mockResponse.split(" ");
     let wordIdx = 0;
 
-    function appendWord() {
+    const appendWord = () => {
       if (wordIdx >= words.length) return;
       setMessages((prev) => {
         const updated = [...prev];
@@ -262,17 +377,11 @@ export default function Dashboard() {
       });
       wordIdx++;
       simulationRef.current = setTimeout(appendWord, 60);
-    }
+    };
     appendWord();
-  }
-
-  // ── Handlers ────────────────────────────────────────────────────────────────
-  const handleSelectTool = useCallback((id: string) => {
-    setSelectedModel(id);
-    setDrawerOpen(false);
   }, []);
 
-  function handleSend() {
+  const handleSend = useCallback(() => {
     const trimmed = input.trim();
     if (!trimmed) return;
 
@@ -300,41 +409,137 @@ export default function Dashboard() {
         return updated;
       });
     }, 1500);
-  }
+  }, [input, messages.length, streamSimulation, activeTool, selectedModel]);
 
-  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  }
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        handleSend();
+      }
+    },
+    [handleSend],
+  );
 
-  async function handleSignOut() {
+  const handleSignOut = useCallback(async () => {
     setLogoutModalOpen(false);
     await supabase.auth.signOut();
     navigate("/");
-  }
+  }, [navigate]);
 
-  // ── Gradient cycling for folder pages ─────────────────────────────────────
-  const GRADIENTS = [
-    "linear-gradient(135deg, #22c55e, #10b981)",
-    "linear-gradient(135deg, #a855f7, #ec4899)",
-    "linear-gradient(135deg, #06b6d4, #3b82f6)",
-    "linear-gradient(135deg, #f59e0b, #d97706)",
-    "linear-gradient(135deg, #818cf8, #c084fc)",
-    "linear-gradient(135deg, #ef4444, #f97316)",
-    "linear-gradient(135deg, #6366f1, #a855f7)",
-  ];
-  const [currentGradientIdx, setCurrentGradientIdx] = useState(0);
+  const handleFileUpload = useCallback(() => {
+    fileInputRef.current?.click();
+    setPlusMenuOpen(false);
+  }, []);
 
-  // Cycle gradient every time activeNav changes (non-Home)
-  useEffect(() => {
-    if (activeNav !== "Home") {
-      setCurrentGradientIdx((prev) => (prev + 1) % GRADIENTS.length);
-    }
-  }, [activeNav]);
+  const handleSkillClick = useCallback((label: string) => {
+    const command = `/${label.toLowerCase().replace(/\s/g, "-")}`;
+    setInput((v) => (v ? `${v}\n${command}` : command));
+    setPlusMenuOpen(false);
+    setTimeout(() => textareaRef.current?.focus(), 0);
+  }, []);
 
-  // ── Render ──────────────────────────────────────────────────────────────────
+  const handleConnectorToggle = useCallback((key: keyof ConnectorStatus, checked: boolean) => {
+    setConnectorStatus((prev) => ({ ...prev, [key]: checked }));
+  }, []);
+
+  // ─── Render Helpers ─────────────────────────────────────────────────────────────
+
+  const renderMissionItem = useCallback(
+    (mission: Mission, index: number) => {
+      const theme = SECTION_THEMES[activeNav] || SECTION_THEMES["Home"];
+
+      return (
+        <motion.div
+          key={mission.id}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: index * 0.03, duration: 0.2 }}
+          whileHover={{
+            backgroundColor: `rgba(${theme.glowRgba},0.06)`,
+            borderColor: `rgba(${theme.glowRgba},0.25)`,
+            boxShadow: `0 0 20px rgba(${theme.glowRgba},0.08)`,
+          }}
+          className="group flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer transition-all duration-200"
+          style={{
+            background: "rgba(255,255,255,0.02)",
+            border: "1px solid rgba(255,255,255,0.06)",
+          }}
+        >
+          <div
+            className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+            style={{ background: `rgba(${theme.glowRgba},0.08)`, border: `1px solid rgba(${theme.glowRgba},0.2)` }}
+          >
+            <Zap size={14} style={{ color: `rgba(${theme.glowRgba},0.6)` }} />
+          </div>
+
+          <div className="flex-1 min-w-0">
+            <p className="text-[13px] font-medium truncate" style={{ color: "#e2e8f0" }}>
+              {mission.directive?.slice(0, 80) || "Untitled Mission"}
+            </p>
+            <p className="text-[10px] font-mono mt-0.5" style={{ color: "rgba(255,255,255,0.2)" }}>
+              {formatDistanceToNow(new Date(mission.created_at), { addSuffix: true })}
+              {mission.status !== "completed" && mission.status !== "active" && (
+                <span className="ml-2 uppercase tracking-wider">{mission.status}</span>
+              )}
+            </p>
+          </div>
+
+          <ChevronRight
+            size={14}
+            className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+            style={{ color: `rgba(${theme.glowRgba},0.5)` }}
+          />
+        </motion.div>
+      );
+    },
+    [activeNav],
+  );
+
+  const renderNavItem = useCallback(
+    (item: (typeof NAV_ITEMS)[number]) => {
+      const Icon = item.icon;
+      const isActive = activeNav === item.label;
+      const itemTheme = SECTION_THEMES[item.label] || SECTION_THEMES["Home"];
+
+      return (
+        <motion.button
+          key={item.label}
+          onClick={() => setActiveNav(item.label)}
+          title={item.label}
+          className="w-10 h-10 flex items-center justify-center rounded-lg transition-all duration-200 relative group"
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          style={{ background: isActive ? undefined : "transparent" }}
+        >
+          {isActive && (
+            <motion.div
+              layoutId="nav-active-bg"
+              className="absolute inset-0 rounded-lg"
+              style={{
+                background: itemTheme.gradient,
+                opacity: 0.15,
+                boxShadow: `0 0 20px rgba(${itemTheme.glowRgba}, 0.3)`,
+              }}
+              transition={springTransition}
+            />
+          )}
+          <Icon
+            size={18}
+            className="relative z-10"
+            style={{
+              color: isActive ? itemTheme.color : "rgba(255,255,255,0.25)",
+              filter: isActive ? `drop-shadow(0 0 6px rgba(${itemTheme.glowRgba}, 0.6))` : "none",
+            }}
+          />
+        </motion.button>
+      );
+    },
+    [activeNav],
+  );
+
+  // ─── Main Render ────────────────────────────────────────────────────────────────
+
   return (
     <div
       className="flex h-screen w-screen overflow-hidden font-sans"
@@ -353,48 +558,7 @@ export default function Dashboard() {
           <div className="mb-8">
             <Zap size={20} style={{ color: borderColor, filter: `drop-shadow(0 0 6px rgba(${glowRgba},0.6))` }} />
           </div>
-          <nav className="flex flex-col gap-1 flex-1">
-            {NAV_ITEMS.map((item) => {
-              const Icon = item.icon;
-              const isActive = activeNav === item.label;
-
-              // LOOKUP: Get the theme data based on the item label
-              const itemTheme = SECTION_THEMES[item.label] || SECTION_THEMES["Home"];
-
-              return (
-                <button
-                  key={item.label}
-                  onClick={() => setActiveNav(item.label)}
-                  title={item.label}
-                  className="w-10 h-10 flex items-center justify-center rounded-lg transition-all duration-200 relative group"
-                  style={{
-                    background: isActive ? undefined : "transparent",
-                  }}
-                >
-                  {isActive && (
-                    <motion.div
-                      layoutId="nav-active-bg"
-                      className="absolute inset-0 rounded-lg"
-                      style={{
-                        background: itemTheme.gradient, // Changed from item.gradient
-                        opacity: 0.15,
-                        boxShadow: `0 0 20px rgba(${itemTheme.glowRgba}, 0.3)`, // Changed from item.glowRgba
-                      }}
-                      transition={springTransition}
-                    />
-                  )}
-                  <Icon
-                    size={18}
-                    className="relative z-10"
-                    style={{
-                      color: isActive ? itemTheme.color : "rgba(255,255,255,0.25)",
-                      filter: isActive ? `drop-shadow(0 0 6px rgba(${itemTheme.glowRgba}, 0.6))` : "none",
-                    }}
-                  />
-                </button>
-              );
-            })}
-          </nav>
+          <nav className="flex flex-col gap-1 flex-1">{NAV_ITEMS.map(renderNavItem)}</nav>
           <div className="flex flex-col items-center gap-2 mt-auto">
             {userEmail && (
               <div
@@ -409,13 +573,15 @@ export default function Dashboard() {
                 {userEmail[0].toUpperCase()}
               </div>
             )}
-            <button
+            <motion.button
               onClick={() => setLogoutModalOpen(true)}
               title="Sign out"
-              className="w-10 h-10 flex items-center justify-center rounded-lg transition-all duration-200 hover:bg-red-500/10 group"
+              className="w-10 h-10 flex items-center justify-center rounded-lg transition-all duration-200 group"
+              whileHover={{ scale: 1.05, backgroundColor: "rgba(239,68,68,0.1)" }}
+              whileTap={{ scale: 0.95 }}
             >
               <LogOut size={16} className="text-white/25 group-hover:text-red-400 transition-colors" />
-            </button>
+            </motion.button>
           </div>
         </div>
       </motion.aside>
@@ -423,24 +589,26 @@ export default function Dashboard() {
       {/* ═══════════════════════ MAIN ═══════════════════════ */}
       <main className="flex flex-col flex-1 min-w-0 relative">
         <header
-          className="flex items-center justify-between px-5 py-3 shrink-0 backdrop-blur-md glass-edge"
+          className="flex items-center justify-between px-5 py-3 shrink-0 backdrop-blur-md"
           style={{ borderBottom: `1px solid rgba(${glowRgba},0.1)`, background: "rgba(2,6,23,0.92)" }}
         >
           <div className="flex items-center gap-3">
-            <button
+            <motion.button
               onClick={() => setSidebarCollapsed((v) => !v)}
               className="mr-2 transition-colors"
               style={{ color: `rgba(${glowRgba},0.5)` }}
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
             >
               {sidebarCollapsed ? <PanelLeft size={16} /> : <PanelLeftClose size={16} />}
-            </button>
+            </motion.button>
             <span className="text-[11px] tracking-[0.15em] font-mono" style={{ color: borderColor }}>
               NAZAI://
             </span>
             <span
               className="text-[11px] font-mono font-bold tracking-[0.1em]"
               style={{
-                background: (SECTION_THEMES[activeNav] || SECTION_THEMES["Home"]).gradient,
+                background: currentTheme.gradient,
                 WebkitBackgroundClip: "text",
                 WebkitTextFillColor: "transparent",
                 backgroundClip: "text",
@@ -461,11 +629,9 @@ export default function Dashboard() {
             )}
           </div>
           <div className="flex items-center gap-3">
-            {isLinked && (
-              <span className="text-[9px] tracking-[0.12em]" style={{ color: `rgba(${glowRgba},0.3)` }}>
-                LINKED
-              </span>
-            )}
+            <span className="text-[9px] tracking-[0.12em]" style={{ color: `rgba(${glowRgba},0.3)` }}>
+              LINKED
+            </span>
             <span
               className="text-[10px] tracking-[0.12em] font-mono select-none"
               style={{ color: `rgba(${glowRgba},0.4)` }}
@@ -518,7 +684,7 @@ export default function Dashboard() {
                     className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
                   >
                     <div
-                      className="max-w-[78%] px-3.5 py-2.5 text-[13px] leading-relaxed glass-edge"
+                      className="max-w-[78%] px-3.5 py-2.5 text-[13px] leading-relaxed"
                       style={{
                         borderRadius: msg.role === "user" ? "12px 12px 2px 12px" : "12px 12px 12px 2px",
                         background: msg.isSimulation
@@ -562,18 +728,20 @@ export default function Dashboard() {
                         ▶ MEDIA_GENERATION_MODE_ACTIVE
                       </span>
                     )}
-                    <span
-                      className="text-[10px] tracking-[0.1em] px-2.5 py-1 rounded flex items-center gap-1.5 cursor-pointer ml-auto hover:brightness-125 transition-all"
+                    <motion.span
+                      className="text-[10px] tracking-[0.1em] px-2.5 py-1 rounded flex items-center gap-1.5 ml-auto transition-all"
                       style={{
                         background: `rgba(${activeTool.category.glowRgba},0.1)`,
                         border: `1px solid rgba(${activeTool.category.glowRgba},0.35)`,
                         color: activeTool.category.color,
                       }}
+                      whileHover={{ scale: 1.05, filter: "brightness(1.25)" }}
+                      whileTap={{ scale: 0.95 }}
                       onClick={() => setSelectedModel(null)}
                       title="Deselect Engine"
                     >
                       {activeTool.tool.name} <X size={10} />
-                    </span>
+                    </motion.span>
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -619,126 +787,138 @@ export default function Dashboard() {
                     }}
                   />
 
- {/* ── Footer inside input ── */}
-                <div
-                  className="flex items-center justify-between px-3 py-2.5 glass-edge"
-                  style={{ borderTop: "1px solid rgba(255,255,255,0.1)" }}
-                >
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <button
-                      onClick={() => {
-                        setPlusMenuOpen((v) => !v);
-                        setDrawerOpen(false);
-                      }}
-                      className="w-7 h-7 rounded-full flex items-center justify-center transition-all duration-200 shrink-0"
-                      style={{
-                        background: plusMenuOpen ? `rgba(${glowRgba},0.18)` : `rgba(${glowRgba},0.06)`,
-                        border: `1px solid ${plusMenuOpen ? (SECTION_THEMES[activeNav]?.color || "#22c55e") : `rgba(${glowRgba},0.25)`}`,
-                        color: SECTION_THEMES[activeNav]?.color || "#22c55e",
-                      }}
-                      title="Tools & Options"
-                    >
-                      <motion.div animate={{ rotate: plusMenuOpen ? 45 : 0 }} transition={springTransition}>
-                        <Plus size={14} />
-                      </motion.div>
-                    </button>
-
-                    <button
-                      onClick={() => {
-                        setDrawerOpen((v) => !v);
-                        setPlusMenuOpen(false);
-                      }}
-                      className="text-[10px] tracking-[0.08em] px-2 py-1 rounded transition-all"
-                      style={{
-                        background: `rgba(${glowRgba},0.06)`,
-                        border: `1px solid rgba(${glowRgba},0.2)`,
-                        color: `rgba(${glowRgba},0.6)`,
-                      }}
-                    >
-                      {activeTool ? activeTool.tool.name : "Select Engine"}
-                    </button>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setWebSearchActive((v) => !v)}
-                      className="flex items-center gap-1 px-2 py-1 rounded text-[10px] tracking-[0.08em] transition-all"
-                      style={{
-                        background: webSearchActive ? "rgba(59,130,246,0.12)" : "rgba(255,255,255,0.03)",
-                        border: webSearchActive
-                          ? "1px solid rgba(59,130,246,0.4)"
-                          : "1px solid rgba(255,255,255,0.06)",
-                        color: webSearchActive ? "#3b82f6" : "rgba(255,255,255,0.3)",
-                      }}
-                      title="Toggle Web Search"
-                    >
-                      {webSearchActive ? <CheckCircle2 size={11} /> : <Search size={11} />}
-                      <span className="hidden sm:inline">Web</span>
-                    </button>
-
-                    <div className="relative">
-                      <button
-                        onClick={() => setStyleDropdownOpen((v) => !v)}
-                        className="flex items-center gap-1 px-2 py-1 rounded text-[10px] tracking-[0.08em] transition-all"
-                        style={{
-                          background: "rgba(255,255,255,0.03)",
-                          border: "1px solid rgba(255,255,255,0.08)",
-                          color: "rgba(255,255,255,0.4)",
+                  {/* ── Footer inside input ── */}
+                  <div
+                    className="flex items-center justify-between px-3 py-2.5"
+                    style={{ borderTop: "1px solid rgba(255,255,255,0.1)" }}
+                  >
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <motion.button
+                        onClick={() => {
+                          setPlusMenuOpen((v) => !v);
+                          setDrawerOpen(false);
                         }}
-                        title="Output Style"
+                        className="w-7 h-7 rounded-full flex items-center justify-center transition-all duration-200 shrink-0"
+                        style={{
+                          background: plusMenuOpen ? `rgba(${glowRgba},0.18)` : `rgba(${glowRgba},0.06)`,
+                          border: `1px solid ${plusMenuOpen ? currentTheme.color : `rgba(${glowRgba},0.25)`}`,
+                          color: currentTheme.color,
+                        }}
+                        title="Tools & Options"
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.9 }}
                       >
-                        <Feather size={11} />
-                        <span className="hidden sm:inline">{activeStyle}</span>
-                        <ChevronDown size={9} />
-                      </button>
-                      <AnimatePresence>
-                        {styleDropdownOpen && (
-                          <motion.div
-                            initial={{ opacity: 0, y: 4, scale: 0.96 }}
-                            animate={{ opacity: 1, y: 0, scale: 1 }}
-                            exit={{ opacity: 0, y: 4, scale: 0.96 }}
-                            transition={springTransition}
-                            className="absolute bottom-full right-0 mb-1 rounded-lg overflow-hidden z-50"
-                            style={{
-                              background: "rgba(2,6,23,0.97)",
-                              border: "1px solid rgba(255,255,255,0.1)",
-                              backdropFilter: "blur(16px)",
-                            }}
-                          >
-                            {STYLES.map((s) => (
-                              <button
-                                key={s}
-                                onClick={() => {
-                                  setActiveStyle(s);
-                                  setStyleDropdownOpen(false);
-                                }}
-                                className="block w-full text-left px-4 py-2 text-[11px] tracking-[0.08em] transition-colors"
-                                style={{
-                                  color: activeStyle === s ? (SECTION_THEMES[activeNav]?.color || "#22c55e") : "rgba(255,255,255,0.4)",
-                                  background: activeStyle === s ? `rgba(${glowRgba},0.08)` : "transparent",
-                                }}
-                              >
-                                {s}
-                              </button>
-                            ))}
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
+                        <motion.div animate={{ rotate: plusMenuOpen ? 45 : 0 }} transition={springTransition}>
+                          <Plus size={14} />
+                        </motion.div>
+                      </motion.button>
+
+                      <motion.button
+                        onClick={() => {
+                          setDrawerOpen((v) => !v);
+                          setPlusMenuOpen(false);
+                        }}
+                        className="text-[10px] tracking-[0.08em] px-2 py-1 rounded transition-all"
+                        style={{
+                          background: `rgba(${glowRgba},0.06)`,
+                          border: `1px solid rgba(${glowRgba},0.2)`,
+                          color: `rgba(${glowRgba},0.6)`,
+                        }}
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                      >
+                        {activeTool ? activeTool.tool.name : "Select Engine"}
+                      </motion.button>
                     </div>
 
-                    <button
-                      onClick={handleSend}
-                      disabled={!input.trim() || isProcessing}
-                      className="w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200"
-                      style={{
-                        background: input.trim() ? (SECTION_THEMES[activeNav]?.color || "#22c55e") : "rgba(255,255,255,0.04)",
-                        color: input.trim() ? "#020617" : "rgba(255,255,255,0.15)",
-                        boxShadow: input.trim() ? `0 0 14px rgba(${glowRgba},0.5)` : "none",
-                        cursor: input.trim() ? "pointer" : "default",
-                      }}
-                    >
-                      <Send size={13} />
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <motion.button
+                        onClick={() => setWebSearchActive((v) => !v)}
+                        className="flex items-center gap-1 px-2 py-1 rounded text-[10px] tracking-[0.08em] transition-all"
+                        style={{
+                          background: webSearchActive ? "rgba(59,130,246,0.12)" : "rgba(255,255,255,0.03)",
+                          border: webSearchActive
+                            ? "1px solid rgba(59,130,246,0.4)"
+                            : "1px solid rgba(255,255,255,0.06)",
+                          color: webSearchActive ? "#3b82f6" : "rgba(255,255,255,0.3)",
+                        }}
+                        title="Toggle Web Search"
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                      >
+                        {webSearchActive ? <CheckCircle2 size={11} /> : <Search size={11} />}
+                        <span className="hidden sm:inline">Web</span>
+                      </motion.button>
+
+                      <div className="relative">
+                        <motion.button
+                          onClick={() => setStyleDropdownOpen((v) => !v)}
+                          className="flex items-center gap-1 px-2 py-1 rounded text-[10px] tracking-[0.08em] transition-all"
+                          style={{
+                            background: "rgba(255,255,255,0.03)",
+                            border: "1px solid rgba(255,255,255,0.08)",
+                            color: "rgba(255,255,255,0.4)",
+                          }}
+                          title="Output Style"
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                        >
+                          <Feather size={11} />
+                          <span className="hidden sm:inline">{activeStyle}</span>
+                          <ChevronDown size={9} />
+                        </motion.button>
+                        <AnimatePresence>
+                          {styleDropdownOpen && (
+                            <motion.div
+                              initial={{ opacity: 0, y: 4, scale: 0.96 }}
+                              animate={{ opacity: 1, y: 0, scale: 1 }}
+                              exit={{ opacity: 0, y: 4, scale: 0.96 }}
+                              transition={springTransition}
+                              className="absolute bottom-full right-0 mb-1 rounded-lg overflow-hidden z-50"
+                              style={{
+                                background: "rgba(2,6,23,0.97)",
+                                border: "1px solid rgba(255,255,255,0.1)",
+                                backdropFilter: "blur(16px)",
+                              }}
+                            >
+                              {STYLES.map((s) => (
+                                <motion.button
+                                  key={s}
+                                  onClick={() => {
+                                    setActiveStyle(s);
+                                    setStyleDropdownOpen(false);
+                                  }}
+                                  className="block w-full text-left px-4 py-2 text-[11px] tracking-[0.08em] transition-colors"
+                                  style={{
+                                    color: activeStyle === s ? currentTheme.color : "rgba(255,255,255,0.4)",
+                                    background: activeStyle === s ? `rgba(${glowRgba},0.08)` : "transparent",
+                                  }}
+                                  whileHover={{ backgroundColor: `rgba(${glowRgba},0.12)`, x: 4 }}
+                                >
+                                  {s}
+                                </motion.button>
+                              ))}
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+
+                      <motion.button
+                        onClick={handleSend}
+                        disabled={!input.trim() || isProcessing}
+                        className="w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200"
+                        style={{
+                          background: input.trim() ? currentTheme.color : "rgba(255,255,255,0.04)",
+                          color: input.trim() ? "#020617" : "rgba(255,255,255,0.15)",
+                          boxShadow: input.trim() ? `0 0 14px rgba(${glowRgba},0.5)` : "none",
+                          cursor: input.trim() ? "pointer" : "default",
+                        }}
+                        whileHover={input.trim() ? { scale: 1.1 } : {}}
+                        whileTap={input.trim() ? { scale: 0.9 } : {}}
+                      >
+                        <Send size={13} />
+                      </motion.button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -751,77 +931,32 @@ export default function Dashboard() {
               transition={springTransition}
               className="flex flex-col w-full max-w-5xl flex-1 overflow-y-auto pt-4 pb-12 px-6"
             >
-            
-             
-         {/* Terminal Header — Obsidian Version */}
-             <div className="text-center mb-6 shrink-0 relative z-10">
-              <h1
-                className="text-[48px] font-black uppercase leading-none select-none inline-block"
-                style={{
-                  letterSpacing: "-0.05em",
-                  background: SECTION_THEMES[activeNav]?.gradient || "linear-gradient(135deg, #22c55e, #10b981)",
-                  WebkitBackgroundClip: "text",
-                  WebkitTextFillColor: "transparent",
-                  backgroundClip: "text",
-                  color: "transparent",
-                  filter: `drop-shadow(0 0 30px rgba(${SECTION_THEMES[activeNav]?.glowRgba || "34,197,94"}, 0.3))`,
-                }}
-              >
-                {String(activeNav)}
-              </h1>
-              <div className="flex items-center justify-center gap-4 mt-5">
-                <div className="h-[1px] w-8 bg-white/10" />
-                <p className="text-[9px] tracking-[0.5em] uppercase font-mono text-white/30">
-                  SYSTEM_NODE // {String(activeNav).toUpperCase()}_TERMINAL
-                </p>
-                <div className="h-[1px] w-8 bg-white/10" />
-              </div>
-            </div>
-              {/* Project Grid Logic */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-10">
-                {USER_PROJECTS.filter(project => project.folder === activeNav).length > 0 ? (
-                  USER_PROJECTS.filter(project => project.folder === activeNav).map((project) => (
-                    <motion.div
-                      key={project.id}
-                      whileHover={{ y: -8, scale: 1.02 }}
-                      className="p-6 rounded-2xl glass-edge group cursor-pointer relative overflow-hidden"
-                      style={{
-                        background: "rgba(255, 255, 255, 0.02)",
-                        border: `1px solid rgba(${SECTION_THEMES[activeNav]?.glowRgba || "255,255,255"}, 0.1)`,
-                        boxShadow: "inset 0 1px 1px 0 rgba(255,255,255,0.04)",
-                      }}
-                    >
-                      <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                      
-                      <div className="flex justify-between items-start mb-4">
-                        <div className="p-2 rounded-lg bg-white/5">
-                          <Zap size={18} style={{ color: SECTION_THEMES[activeNav]?.color || "#22c55e" }} />
-                        </div>
-                        <span className="text-[10px] font-mono text-white/20 uppercase">
-                          ID_REF_{project.id.split('_')[1]}_{Math.random().toString(36).substring(7).toUpperCase()}
-                        </span>
-                      </div>
-
-                      <h3 className="text-lg font-bold text-white group-hover:text-emerald-400 transition-colors mb-1">
-                        {project.name}
-                      </h3>
-                      <p className="text-xs text-white/30 font-mono italic">CREATED: {project.date}</p>
-                      
-                      <div className="mt-6 flex items-center gap-2 text-[10px] font-bold tracking-widest text-white/40 group-hover:text-white transition-colors">
-                        EXECUTE_SYSTEM_MISSION <ChevronRight size={12} />
-                      </div>
-                    </motion.div>
-                  ))
-                ) : (
-                  <div className="col-span-full py-20 text-center border border-dashed border-white/5 rounded-3xl">
-                    <p className="text-white/10 font-mono text-xs tracking-[0.3em] uppercase">
-                      NO_DATA_FOUND_IN_{activeNav}_NODE
-                    </p>
-                  </div>
-                )}
+              {/* Terminal Header — Obsidian Version */}
+              <div className="text-center mb-6 shrink-0 relative z-10">
+                <h1
+                  className="text-[48px] font-black uppercase leading-none select-none inline-block"
+                  style={{
+                    letterSpacing: "-0.05em",
+                    background: currentTheme.gradient,
+                    WebkitBackgroundClip: "text",
+                    WebkitTextFillColor: "transparent",
+                    backgroundClip: "text",
+                    color: "transparent",
+                    filter: `drop-shadow(0 0 30px rgba(${currentTheme.glowRgba}, 0.3))`,
+                  }}
+                >
+                  {String(activeNav)}
+                </h1>
+                <div className="flex items-center justify-center gap-4 mt-5">
+                  <div className="h-[1px] w-8 bg-white/10" />
+                  <p className="text-[9px] tracking-[0.5em] uppercase font-mono text-white/30">
+                    SYSTEM_NODE // {String(activeNav).toUpperCase()}_TERMINAL
+                  </p>
+                  <div className="h-[1px] w-8 bg-white/10" />
+                </div>
               </div>
 
-              {/* ── Mission List (DB-backed) ── */}
+              {/* Mission List (DB-backed) */}
               <div className="flex-1 overflow-y-auto scrollbar-thin space-y-2 px-1 pb-8">
                 {missionsLoading ? (
                   <div className="flex items-center justify-center py-16">
@@ -845,65 +980,21 @@ export default function Dashboard() {
                       No projects found
                     </p>
                     <p className="text-[10px]" style={{ color: "rgba(255,255,255,0.12)" }}>
-                      {activeNav === "Trash" ? "Trashed items will appear here" : "Projects will appear here as you create them"}
+                      {activeNav === "Trash"
+                        ? "Trashed items will appear here"
+                        : "Projects will appear here as you create them"}
                     </p>
                   </div>
                 ) : (
-                  filteredMissions.map((mission, i) => {
-                    const theme = SECTION_THEMES[activeNav] || SECTION_THEMES["Home"];
-                    return (
-                 {/* ... inside the missions list map ... */}
-<motion.div
-  key={mission.id}
-  initial={{ opacity: 0, y: 8 }}
-  animate={{ opacity: 1, y: 0 }}
-  transition={{ delay: i * 0.03, duration: 0.2 }}
-  // Replaced manual style manipulation with whileHover
-  whileHover={{ 
-    backgroundColor: `rgba(${theme.glowRgba},0.06)`,
-    borderColor: `rgba(${theme.glowRgba},0.25)`,
-    boxShadow: `0 0 20px rgba(${theme.glowRgba},0.08)`
-  }}
-  className="group flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer transition-all duration-200 interactive-border"
-  style={{
-    background: "rgba(255,255,255,0.02)",
-    border: "1px solid rgba(255,255,255,0.06)",
-  }}
->
-  <div
-    className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
-    style={{ background: `rgba(${theme.glowRgba},0.08)`, border: `1px solid rgba(${theme.glowRgba},0.2)` }}
-  >
-    <Zap size={14} style={{ color: `rgba(${theme.glowRgba},0.6)` }} />
-  </div>
-  
-  <div className="flex-1 min-w-0">
-    <p className="text-[13px] font-medium truncate" style={{ color: "#e2e8f0" }}>
-      {mission.directive?.slice(0, 80) || "Untitled Mission"}
-    </p>
-    <p className="text-[10px] font-mono mt-0.5" style={{ color: "rgba(255,255,255,0.2)" }}>
-      {formatDistanceToNow(new Date(mission.created_at), { addSuffix: true })}
-      {mission.status !== "completed" && mission.status !== "active" && (
-        <span className="ml-2 uppercase tracking-wider">{mission.status}</span>
-      )}
-    </p>
-  </div>
-  
-  <ChevronRight 
-    size={14} 
-    className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" 
-    style={{ color: `rgba(${theme.glowRgba},0.5)` }} 
-  />
-</motion.div>
-     );
- )}
+                  filteredMissions.map(renderMissionItem)
+                )}
               </div>
             </motion.div>
           )}
         </div>
 
         <footer
-          className="flex items-center justify-between px-6 py-2 shrink-0 glass-edge"
+          className="flex items-center justify-between px-6 py-2 shrink-0"
           style={{ borderTop: `1px solid rgba(${glowRgba},0.1)`, background: "rgba(2,6,23,0.92)" }}
         >
           <div className="flex items-center gap-2">
@@ -973,12 +1064,11 @@ export default function Dashboard() {
                 </span>
               </div>
               <div className="p-3 flex flex-col gap-1">
-                <button
-                  onClick={() => {
-                    fileInputRef.current?.click();
-                    setPlusMenuOpen(false);
-                  }}
-                  className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-left transition-colors hover:bg-white/[0.04]"
+                <motion.button
+                  onClick={handleFileUpload}
+                  className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-left transition-colors"
+                  whileHover={{ backgroundColor: "rgba(255,255,255,0.04)", x: 4 }}
+                  whileTap={{ scale: 0.98 }}
                 >
                   <Paperclip size={15} style={{ color: `rgba(${glowRgba},0.5)` }} />
                   <div>
@@ -989,7 +1079,7 @@ export default function Dashboard() {
                       Upload from your device
                     </div>
                   </div>
-                </button>
+                </motion.button>
 
                 <div className="mt-2 mb-1 px-3">
                   <span className="text-[9px] tracking-[0.15em]" style={{ color: `rgba(${glowRgba},0.4)` }}>
@@ -997,20 +1087,18 @@ export default function Dashboard() {
                   </span>
                 </div>
                 {SKILLS.map(({ icon: Icon, label }) => (
-                  <button
+                  <motion.button
                     key={label}
-                    onClick={() => {
-                      setInput((v) => (v ? v + "\n" : "") + `/${label.toLowerCase().replace(/\s/g, "-")}`);
-                      setPlusMenuOpen(false);
-                      textareaRef.current?.focus();
-                    }}
-                    className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-left transition-colors hover:bg-white/[0.04]"
+                    onClick={() => handleSkillClick(label)}
+                    className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-left transition-colors"
+                    whileHover={{ backgroundColor: "rgba(255,255,255,0.04)", x: 4 }}
+                    whileTap={{ scale: 0.98 }}
                   >
                     <Icon size={14} style={{ color: `rgba(${glowRgba},0.45)` }} />
                     <span className="text-[12px]" style={{ color: "#e2e8f0" }}>
                       {label}
                     </span>
-                  </button>
+                  </motion.button>
                 ))}
 
                 <div className="mt-3 mb-1 px-3">
@@ -1023,10 +1111,7 @@ export default function Dashboard() {
                   { key: "vercel" as const, label: "Vercel", icon: Globe, color: "#ffffff" },
                   { key: "github" as const, label: "GitHub", icon: Github, color: "#ffffff" },
                 ].map(({ key, label, icon: Icon, color }) => (
-                  <div
-                    key={key}
-                    className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-white/[0.04] transition-colors"
-                  >
+                  <div key={key} className="flex items-center justify-between px-3 py-2 rounded-lg transition-colors">
                     <div className="flex items-center gap-3">
                       <Icon size={14} style={{ color: `${color}60` }} />
                       <span className="text-[12px]" style={{ color: "#e2e8f0" }}>
@@ -1035,7 +1120,7 @@ export default function Dashboard() {
                     </div>
                     <Switch
                       checked={connectorStatus[key]}
-                      onCheckedChange={(checked) => setConnectorStatus((prev) => ({ ...prev, [key]: checked }))}
+                      onCheckedChange={(checked) => handleConnectorToggle(key, checked)}
                     />
                   </div>
                 ))}
@@ -1082,9 +1167,13 @@ export default function Dashboard() {
                 <span className="text-[11px] tracking-[0.15em]" style={{ color: "rgba(255,255,255,0.35)" }}>
                   SELECT AI ENGINE
                 </span>
-                <button onClick={() => setDrawerOpen(false)} style={{ color: "rgba(255,255,255,0.25)" }}>
-                  <X size={14} />
-                </button>
+                <motion.button
+                  onClick={() => setDrawerOpen(false)}
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
+                >
+                  <X size={14} style={{ color: "rgba(255,255,255,0.25)" }} />
+                </motion.button>
               </div>
               <div className="p-4 flex flex-col gap-5">
                 {Object.entries(AI_CATEGORIES).map(([catKey, cat], catIdx) => (
@@ -1115,7 +1204,7 @@ export default function Dashboard() {
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ delay: catIdx * 0.06 + toolIdx * 0.04, duration: 0.2 }}
                             onClick={() => handleSelectTool(tool.id)}
-                            className="text-left rounded-[10px] p-2.5 transition-all duration-200 group interactive-border"
+                            className="text-left rounded-[10px] p-2.5 transition-all duration-200 group"
                             style={{
                               background: isActive ? `rgba(${cat.glowRgba},0.1)` : "rgba(255,255,255,0.02)",
                               border: `1px solid ${isActive ? cat.color : "rgba(255,255,255,0.1)"}`,
@@ -1123,6 +1212,8 @@ export default function Dashboard() {
                                 ? `0 0 14px rgba(${cat.glowRgba},0.3)`
                                 : "inset 0 1px 1px 0 rgba(255,255,255,0.05)",
                             }}
+                            whileHover={{ scale: 1.02, borderColor: isActive ? cat.color : "rgba(255,255,255,0.2)" }}
+                            whileTap={{ scale: 0.98 }}
                           >
                             <div className="flex items-center gap-1.5 mb-1">
                               <Icon size={13} style={{ color: isActive ? cat.color : "rgba(255,255,255,0.35)" }} />
@@ -1164,7 +1255,6 @@ export default function Dashboard() {
       <AnimatePresence>
         {logoutModalOpen && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 overflow-hidden">
-            {/* 1. Backdrop - Using flex-centering instead of absolute translate */}
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -1174,20 +1264,18 @@ export default function Dashboard() {
               className="absolute inset-0 bg-black/60 backdrop-blur-md"
             />
 
-            {/* 2. Modal Content */}
             <motion.div
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
               transition={springTransition}
-              className="relative z-[101] w-full max-w-[400px] rounded-2xl p-8 text-center glass-edge overflow-hidden"
+              className="relative z-[101] w-full max-w-[400px] rounded-2xl p-8 text-center overflow-hidden"
               style={{
                 background: "rgba(2, 6, 23, 0.95)",
                 border: "1px solid rgba(239, 68, 68, 0.15)",
                 boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 40px rgba(239, 68, 68, 0.05)",
               }}
             >
-              {/* Animated Icon Container */}
               <motion.div
                 className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6"
                 style={{
@@ -1251,17 +1339,6 @@ export default function Dashboard() {
         @keyframes media-glow {
           0%, 100% { box-shadow: 0 0 8px rgba(168,85,247,0.3); }
           50% { box-shadow: 0 0 18px rgba(168,85,247,0.5); }
-        }
-        .glass-edge {
-          border: 1px solid rgba(255,255,255,0.1);
-          box-shadow: inset 0 1px 1px 0 rgba(255,255,255,0.05);
-        }
-        .interactive-border {
-          transition: border-color 0.2s ease, box-shadow 0.2s ease;
-        }
-        .interactive-border:hover {
-          border-color: rgba(255,255,255,0.3) !important;
-          box-shadow: 0 0 15px rgba(255,255,255,0.03), inset 0 1px 1px 0 rgba(255,255,255,0.05) !important;
         }
         textarea::placeholder { color: rgba(255,255,255,0.18) !important; }
         textarea { scrollbar-width: none; }
