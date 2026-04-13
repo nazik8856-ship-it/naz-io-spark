@@ -852,46 +852,49 @@ export default function Dashboard() {
                   filteredMissions.map((mission, i) => {
                     const theme = SECTION_THEMES[activeNav] || SECTION_THEMES["Home"];
                     return (
-                      <motion.div
-                        key={mission.id}
-                        initial={{ opacity: 0, y: 8 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: i * 0.03, duration: 0.2 }}
-                        className="group flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer transition-all duration-200 interactive-border"
-                        style={{
-                          background: "rgba(255,255,255,0.02)",
-                          border: "1px solid rgba(255,255,255,0.06)",
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.background = `rgba(${theme.glowRgba},0.06)`;
-                          e.currentTarget.style.borderColor = `rgba(${theme.glowRgba},0.25)`;
-                          e.currentTarget.style.boxShadow = `0 0 20px rgba(${theme.glowRgba},0.08)`;
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.background = "rgba(255,255,255,0.02)";
-                          e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)";
-                          e.currentTarget.style.boxShadow = "none";
-                        }}
-                      >
-                        <div
-                          className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
-                          style={{ background: `rgba(${theme.glowRgba},0.08)`, border: `1px solid rgba(${theme.glowRgba},0.2)` }}
-                        >
-                          <Zap size={14} style={{ color: `rgba(${theme.glowRgba},0.6)` }} />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[13px] font-medium truncate" style={{ color: "#e2e8f0" }}>
-                            {mission.directive?.slice(0, 80) || "Untitled Mission"}
-                          </p>
-                          <p className="text-[10px] font-mono mt-0.5" style={{ color: "rgba(255,255,255,0.2)" }}>
-                            {formatDistanceToNow(new Date(mission.created_at), { addSuffix: true })}
-                            {mission.status !== "completed" && mission.status !== "active" && (
-                              <span className="ml-2 uppercase tracking-wider">{mission.status}</span>
-                            )}
-                          </p>
-                        </div>
-                        <ChevronRight size={14} className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: `rgba(${theme.glowRgba},0.5)` }} />
-                      </motion.div>
+                 {/* ... inside the missions list map ... */}
+<motion.div
+  key={mission.id}
+  initial={{ opacity: 0, y: 8 }}
+  animate={{ opacity: 1, y: 0 }}
+  transition={{ delay: i * 0.03, duration: 0.2 }}
+  // Replaced manual style manipulation with whileHover
+  whileHover={{ 
+    backgroundColor: `rgba(${theme.glowRgba},0.06)`,
+    borderColor: `rgba(${theme.glowRgba},0.25)`,
+    boxShadow: `0 0 20px rgba(${theme.glowRgba},0.08)`
+  }}
+  className="group flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer transition-all duration-200 interactive-border"
+  style={{
+    background: "rgba(255,255,255,0.02)",
+    border: "1px solid rgba(255,255,255,0.06)",
+  }}
+>
+  <div
+    className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+    style={{ background: `rgba(${theme.glowRgba},0.08)`, border: `1px solid rgba(${theme.glowRgba},0.2)` }}
+  >
+    <Zap size={14} style={{ color: `rgba(${theme.glowRgba},0.6)` }} />
+  </div>
+  
+  <div className="flex-1 min-w-0">
+    <p className="text-[13px] font-medium truncate" style={{ color: "#e2e8f0" }}>
+      {mission.directive?.slice(0, 80) || "Untitled Mission"}
+    </p>
+    <p className="text-[10px] font-mono mt-0.5" style={{ color: "rgba(255,255,255,0.2)" }}>
+      {formatDistanceToNow(new Date(mission.created_at), { addSuffix: true })}
+      {mission.status !== "completed" && mission.status !== "active" && (
+        <span className="ml-2 uppercase tracking-wider">{mission.status}</span>
+      )}
+    </p>
+  </div>
+  
+  <ChevronRight 
+    size={14} 
+    className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" 
+    style={{ color: `rgba(${theme.glowRgba},0.5)` }} 
+  />
+</motion.div>
      );
  )}
               </div>
