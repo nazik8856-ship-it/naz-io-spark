@@ -747,38 +747,40 @@ export default function Dashboard() {
               className="flex flex-col w-full max-w-5xl h-full py-12 px-6 overflow-y-auto"
             >
              
-           {/* Terminal Header — Bulletproof Logic */}
+          {/* Terminal Header — Surgical Version */}
               {(() => {
-                // Pre-check the theme to prevent "Object Error"
-                const currentTheme = SECTION_THEMES[activeNav] || {
+                // This logic ensures we never pass an object to the renderer
+                const themeData = SECTION_THEMES[activeNav] || {
                   gradient: "linear-gradient(135deg, #22c55e, #10b981)",
                   glowRgba: "34,197,94"
                 };
+                
+                const titleText = String(activeNav || "UNDEFINED_NODE");
 
                 return (
                   <div className="text-center mb-16 shrink-0 relative">
                     <h1
                       className="text-[68px] font-black uppercase tracking-[-0.04em] leading-none select-none"
                       style={{
-                        background: currentTheme.gradient,
+                        background: themeData.gradient,
                         WebkitBackgroundClip: "text",
                         WebkitTextFillColor: "transparent",
                         backgroundClip: "text",
-                        filter: `drop-shadow(0 0 45px rgba(${currentTheme.glowRgba}, 0.2))`,
+                        filter: `drop-shadow(0 0 45px rgba(${themeData.glowRgba}, 0.2))`,
                       }}
                     >
-                      {String(activeNav)}
+                      {titleText}
                     </h1>
                     <div className="flex items-center justify-center gap-4 mt-5">
                       <div className="h-[1px] w-8 bg-white/10" />
                       <p className="text-[9px] tracking-[0.5em] uppercase font-mono text-white/30">
-                        SYSTEM_NODE // {String(activeNav).toUpperCase()}_TERMINAL
+                        SYSTEM_NODE // {titleText.toUpperCase()}_TERMINAL
                       </p>
                       <div className="h-[1px] w-8 bg-white/10" />
                     </div>
                   </div>
                 );
-              })()}  
+              })()}
               {/* Project Grid Logic */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-20">
                 {USER_PROJECTS.filter(project => project.folder === activeNav).length > 0 ? (
