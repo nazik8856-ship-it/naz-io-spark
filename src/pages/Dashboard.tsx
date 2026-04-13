@@ -173,12 +173,29 @@ export default function Dashboard() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUserEmail(session?.user?.email ?? null);
+      setUserId(session?.user?.id ?? null);
     });
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       setUserEmail(session?.user?.email ?? null);
+      setUserId(session?.user?.id ?? null);
     });
     return () => listener.subscription.unsubscribe();
   }, []);
+
+  // Fetch missions from DB
+  useEffect(() => {
+    if (!userId) { setMissions([]); setMissionsLoading(false); return; }
+    setMissionsLoading(true);
+    supabase
+      .from("missions")
+      .select("*")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .then(({ data, error }) => {
+        if (!error && data) setMissions(data);
+        setMissionsLoading(false);
+      });
+  }, [userId]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
