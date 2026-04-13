@@ -120,16 +120,20 @@ const NAV_ITEMS = [
   { icon: Settings, label: "Settings" },
 ];
 
-const SECTION_THEMES: Record<string, { gradient: string; glowRgba: string }> = {
-  Home: { gradient: "linear-gradient(135deg, #22c55e, #10b981)", glowRgba: "34,197,94" },
-  Workflows: { gradient: "linear-gradient(135deg, #a855f7, #ec4899)", glowRgba: "168,85,247" },
-  History: { gradient: "linear-gradient(135deg, #f59e0b, #d97706)", glowRgba: "245,158,11" },
-  Integrations: { gradient: "linear-gradient(135deg, #3b82f6, #06b6d4)", glowRgba: "59,130,246" },
-  Recently: { gradient: "linear-gradient(135deg, #06b6d4, #3b82f6)", glowRgba: "6,182,212" },
-  Archives: { gradient: "linear-gradient(135deg, #818cf8, #c084fc)", glowRgba: "129,140,248" },
-  Trash: { gradient: "linear-gradient(135deg, #ef4444, #f97316)", glowRgba: "239,68,68" },
-  Settings: { gradient: "linear-gradient(135deg, #6366f1, #a855f7)", glowRgba: "99,102,241" },
+const SECTION_THEMES: Record<string, { gradient: string; glowRgba: string; color: string }> = {
+  Home:         { gradient: "linear-gradient(135deg, #22c55e, #10b981)", glowRgba: "34,197,94",   color: "#22c55e" },
+  Workflows:    { gradient: "linear-gradient(135deg, #a855f7, #ec4899)", glowRgba: "168,85,247",  color: "#a855f7" },
+  History:      { gradient: "linear-gradient(135deg, #f59e0b, #d97706)", glowRgba: "245,158,11",  color: "#f59e0b" },
+  Integrations: { gradient: "linear-gradient(135deg, #3b82f6, #06b6d4)", glowRgba: "59,130,246",  color: "#3b82f6" },
+  Recently:     { gradient: "linear-gradient(135deg, #06b6d4, #3b82f6)", glowRgba: "6,182,212",   color: "#06b6d4" },
+  Archives:     { gradient: "linear-gradient(135deg, #818cf8, #c084fc)", glowRgba: "129,140,248", color: "#818cf8" },
+  Trash:        { gradient: "linear-gradient(135deg, #ef4444, #f97316)", glowRgba: "239,68,68",   color: "#ef4444" },
+  Settings:     { gradient: "linear-gradient(135deg, #6366f1, #a855f7)", glowRgba: "99,102,241",  color: "#6366f1" },
 };
+
+// ─── USER_PROJECTS stub ─────────────────────────────────────────────────────
+// Replace with real data source / API call as needed
+const USER_PROJECTS: { id: string; name: string; folder: string; date: string }[] = [];
 
 const STYLES = ["Technical", "Creative", "Fast"] as const;
 
@@ -383,7 +387,7 @@ export default function Dashboard() {
                     size={18}
                     className="relative z-10"
                     style={{
-                      color: isActive ? (itemTheme as any).color || "#fff" : "rgba(255,255,255,0.25)",
+                      color: isActive ? itemTheme.color : "rgba(255,255,255,0.25)",
                       filter: isActive ? `drop-shadow(0 0 6px rgba(${itemTheme.glowRgba}, 0.6))` : "none",
                     }}
                   />
@@ -738,28 +742,29 @@ export default function Dashboard() {
                   </div>
                 </div>
               </div>
-            </div>
+            </>
           ) : (
             <motion.div
               key={activeNav}
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={springTransition}
-              className="flex flex-col w-full max-w-5xl h-full py-12 px-6 overflow-y-auto"
+              className="flex flex-col w-full max-w-5xl flex-1 overflow-y-auto py-12 px-6"
             >
             
              
          {/* Terminal Header — Obsidian Version */}
             <div className="text-center mb-16 shrink-0 relative z-10">
               <h1
-                className="text-[68px] font-black uppercase tracking-[-0.04em] leading-none select-none"
+                className="text-[68px] font-black uppercase leading-none select-none inline-block"
                 style={{
-                  // Safety logic: only access the string, never the whole object
+                  letterSpacing: "-0.05em",
                   background: SECTION_THEMES[activeNav]?.gradient || "linear-gradient(135deg, #22c55e, #10b981)",
                   WebkitBackgroundClip: "text",
                   WebkitTextFillColor: "transparent",
                   backgroundClip: "text",
-                  filter: `drop-shadow(0 0 45px rgba(${SECTION_THEMES[activeNav]?.glowRgba || "34,197,94"}, 0.2))`,
+                  color: "transparent",
+                  filter: `drop-shadow(0 0 30px rgba(${SECTION_THEMES[activeNav]?.glowRgba || "34,197,94"}, 0.3))`,
                 }}
               >
                 {String(activeNav)}
@@ -773,7 +778,7 @@ export default function Dashboard() {
               </div>
             </div>
               {/* Project Grid Logic */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-20">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-10">
                 {USER_PROJECTS.filter(project => project.folder === activeNav).length > 0 ? (
                   USER_PROJECTS.filter(project => project.folder === activeNav).map((project) => (
                     <motion.div
@@ -782,7 +787,8 @@ export default function Dashboard() {
                       className="p-6 rounded-2xl glass-edge group cursor-pointer relative overflow-hidden"
                       style={{
                         background: "rgba(255, 255, 255, 0.02)",
-                        border: `1px solid rgba(${SECTION_THEMES[activeNav]?.glowRgba || "255,255,255"}, 0.1)`
+                        border: `1px solid rgba(${SECTION_THEMES[activeNav]?.glowRgba || "255,255,255"}, 0.1)`,
+                        boxShadow: "inset 0 1px 1px 0 rgba(255,255,255,0.04)",
                       }}
                     >
                       <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -814,9 +820,9 @@ export default function Dashboard() {
                   </div>
                 )}
               </div>
-            </motion.div> 
-              {/* Project List */}
-              <div className="flex-1 overflow-y-auto scrollbar-thin space-y-2 px-1">
+
+              {/* ── Mission List (DB-backed) ── */}
+              <div className="flex-1 overflow-y-auto scrollbar-thin space-y-2 px-1 pb-8">
                 {missionsLoading ? (
                   <div className="flex items-center justify-center py-16">
                     <div
