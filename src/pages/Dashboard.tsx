@@ -747,28 +747,7 @@ export default function Dashboard() {
               transition={springTransition}
               className="flex flex-col w-full max-w-5xl h-full py-12 px-6 overflow-y-auto"
             >
-              {/* Terminal Header — Obsidian Version */}
-              <div className="text-center mb-16 shrink-0 relative z-10">
-                <h1
-                  className="text-[68px] font-black uppercase tracking-[-0.04em] leading-none select-none"
-                  style={{
-                    background: String(SECTION_THEMES[activeNav]?.gradient || "linear-gradient(135deg, #22c55e, #10b981)"),
-                    WebkitBackgroundClip: "text",
-                    WebkitTextFillColor: "transparent",
-                    backgroundClip: "text",
-                    filter: `drop-shadow(0 0 45px rgba(${SECTION_THEMES[activeNav]?.glowRgba || "34,197,94"}, 0.2))`,
-                  }}
-                >
-                  {String(activeNav)}
-                </h1>
-                <div className="flex items-center justify-center gap-4 mt-5">
-                  <div className="h-[1px] w-8 bg-white/10" />
-                  <p className="text-[9px] tracking-[0.5em] uppercase font-mono text-white/30">
-                    SYSTEM_NODE // {String(activeNav).toUpperCase()}_TERMINAL
-                  </p>
-                  <div className="h-[1px] w-8 bg-white/10" />
-                </div>
-              </div>
+            
              
          {/* Terminal Header — Obsidian Version */}
             <div className="text-center mb-16 shrink-0 relative z-10">
