@@ -894,14 +894,13 @@ export default function Dashboard() {
                       </motion.div>
                     );
                   })
-                )}
-          
+       )}
               </div>
             </motion.div>
-          )} 
-        </div> 
+          )}
+        </div>
 
-       <footer
+        <footer
           className="flex items-center justify-between px-6 py-2 shrink-0 glass-edge"
           style={{ borderTop: `1px solid rgba(${glowRgba},0.1)`, background: "rgba(2,6,23,0.92)" }}
         >  
