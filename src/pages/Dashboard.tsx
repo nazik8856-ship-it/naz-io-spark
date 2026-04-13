@@ -392,26 +392,32 @@ export default function Dashboard() {
     );
   }
   function renderGenericSection() {
-    const navItem = NAV_ITEMS.find((n) => n.label === activeNav)!;
+    const theme = SECTION_THEMES[activeNav] || SECTION_THEMES["Home"];
     return (
       <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        className="flex flex-col items-center justify-center h-full text-center"
+        key={activeNav}
+        initial={{ opacity: 0, scale: 0.96 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={springTransition}
+        className="flex flex-col items-center justify-center h-full text-center gap-4"
       >
-        <p
-          className="text-[13px] tracking-[0.2em] mb-2 font-bold"
+        <h1
+          className="text-[48px] font-bold uppercase tracking-[0.05em] leading-none select-none"
           style={{
-            background: navItem.gradient,
+            background: theme.gradient,
             WebkitBackgroundClip: "text",
             WebkitTextFillColor: "transparent",
             backgroundClip: "text",
+            filter: `drop-shadow(0 0 30px rgba(${theme.glowRgba},0.3))`,
           }}
         >
-          {activeNav.toUpperCase()}_SECTION
-        </p>
-        <p className="text-[11px]" style={{ color: "rgba(255,255,255,0.2)" }}>
-          System node currently under construction.
+          {activeNav.toUpperCase()}
+        </h1>
+        <p
+          className="text-[11px] tracking-[0.35em] uppercase font-mono"
+          style={{ color: "rgba(255,255,255,0.25)" }}
+        >
+          Launch your business within minutes
         </p>
       </motion.div>
     );
@@ -523,7 +529,7 @@ export default function Dashboard() {
             <span
               className="text-[11px] font-mono font-bold tracking-[0.1em]"
               style={{
-                background: activeNavItem.gradient,
+                background: (SECTION_THEMES[activeNav] || SECTION_THEMES["Home"]).gradient,
                 WebkitBackgroundClip: "text",
                 WebkitTextFillColor: "transparent",
                 backgroundClip: "text",
