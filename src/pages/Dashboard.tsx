@@ -739,44 +739,78 @@ export default function Dashboard() {
                   </div>
                 </div>
 
-                <p
-                  className="text-center text-[10px] mt-2 tracking-[0.08em] font-mono"
-                  style={{ color: "rgba(255,255,255,0.15)" }}
-                >
-                  {selectedModel ? `SYSTEM_NODE // ${selectedModel}` : "NO ENGINE SELECTED — CLICK + TO CHOOSE"}
-                </p>
-              </div>
-            </>
-          ) : (
-            <motion.div
+               <motion.div
               key={activeNav}
-              initial={{ opacity: 0, scale: 0.95 }}
+              initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={springTransition}
-              className="flex flex-col w-full max-w-2xl h-full py-8 overflow-hidden"
+              className="flex flex-col w-full max-w-5xl h-full py-12 px-6 overflow-y-auto"
             >
               {/* Gradient Header */}
-              <div className="text-center mb-8 shrink-0">
-                <h1
-                  className="text-[48px] font-bold uppercase tracking-[0.05em] leading-none select-none"
+              <div className="text-center mb-16 shrink-0">
+                <motion.h1
+                  className="text-[64px] font-black uppercase tracking-tighter leading-none select-none"
                   style={{
-                    background: GRADIENTS[currentGradientIdx],
+                    background: SECTION_THEMES[activeNav]?.gradient || GRADIENTS[currentGradientIdx],
                     WebkitBackgroundClip: "text",
                     WebkitTextFillColor: "transparent",
                     backgroundClip: "text",
-                    filter: "drop-shadow(0 0 30px rgba(255,255,255,0.08))",
+                    filter: `drop-shadow(0 0 35px rgba(${SECTION_THEMES[activeNav]?.glowRgba || "255,255,255"}, 0.2))`,
                   }}
                 >
-                  {activeNav.toUpperCase()}
-                </h1>
+                  {activeNav}
+                </motion.h1>
                 <p
-                  className="text-[11px] tracking-[0.35em] uppercase font-mono mt-3"
-                  style={{ color: "rgba(255,255,255,0.25)" }}
+                  className="text-[10px] tracking-[0.45em] uppercase font-mono mt-4"
+                  style={{ color: "rgba(255,255,255,0.3)" }}
                 >
-                  Launch your business within minutes
+                  NEURAL_ENGINE // TERMINAL_ACTIVE_NODE
                 </p>
               </div>
 
+              {/* Project Grid Logic */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-20">
+                {USER_PROJECTS.filter(project => project.folder === activeNav).length > 0 ? (
+                  USER_PROJECTS.filter(project => project.folder === activeNav).map((project) => (
+                    <motion.div
+                      key={project.id}
+                      whileHover={{ y: -8, scale: 1.02 }}
+                      className="p-6 rounded-2xl glass-edge group cursor-pointer relative overflow-hidden"
+                      style={{
+                        background: "rgba(255, 255, 255, 0.02)",
+                        border: `1px solid rgba(${SECTION_THEMES[activeNav]?.glowRgba || "255,255,255"}, 0.1)`
+                      }}
+                    >
+                      <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                      
+                      <div className="flex justify-between items-start mb-4">
+                        <div className="p-2 rounded-lg bg-white/5">
+                          <Zap size={18} style={{ color: SECTION_THEMES[activeNav]?.color || "#22c55e" }} />
+                        </div>
+                        <span className="text-[10px] font-mono text-white/20 uppercase">
+                          ID_REF_{project.id.split('_')[1]}_{Math.random().toString(36).substring(7).toUpperCase()}
+                        </span>
+                      </div>
+
+                      <h3 className="text-lg font-bold text-white group-hover:text-emerald-400 transition-colors mb-1">
+                        {project.name}
+                      </h3>
+                      <p className="text-xs text-white/30 font-mono italic">CREATED: {project.date}</p>
+                      
+                      <div className="mt-6 flex items-center gap-2 text-[10px] font-bold tracking-widest text-white/40 group-hover:text-white transition-colors">
+                        EXECUTE_SYSTEM_MISSION <ChevronRight size={12} />
+                      </div>
+                    </motion.div>
+                  ))
+                ) : (
+                  <div className="col-span-full py-20 text-center border border-dashed border-white/5 rounded-3xl">
+                    <p className="text-white/10 font-mono text-xs tracking-[0.3em] uppercase">
+                      NO_DATA_FOUND_IN_{activeNav}_NODE
+                    </p>
+                  </div>
+                )}
+              </div>
+            </motion.div> 
               {/* Project List */}
               <div className="flex-1 overflow-y-auto scrollbar-thin space-y-2 px-1">
                 {missionsLoading ? (
