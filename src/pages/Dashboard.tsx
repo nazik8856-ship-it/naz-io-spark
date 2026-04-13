@@ -152,6 +152,7 @@ export default function Dashboard() {
   const [messages, setMessages] = useState<{ role: "user" | "ai"; text: string; isSimulation?: boolean }[]>([]);
   const [activeNav, setActiveNav] = useState("Recently");
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [webSearchActive, setWebSearchActive] = useState(false);
   const [activeStyle, setActiveStyle] = useState<(typeof STYLES)[number]>("Technical");
@@ -160,6 +161,8 @@ export default function Dashboard() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isLinked] = useState(true);
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
+  const [missions, setMissions] = useState<any[]>([]);
+  const [missionsLoading, setMissionsLoading] = useState(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
