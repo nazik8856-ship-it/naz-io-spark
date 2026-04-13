@@ -278,150 +278,24 @@ export default function Dashboard() {
     navigate("/");
   }
 
-  // ── Styled section pages ───────────────────────────────────────────────────
-  const STYLED_SECTIONS = ["Recently", "Archives", "Trash", "History", "Integrations", "Settings"];
-  const isStyledSection = STYLED_SECTIONS.includes(activeNav);
+  // ── Gradient cycling for folder pages ─────────────────────────────────────
+  const GRADIENTS = [
+    "linear-gradient(135deg, #22c55e, #10b981)",
+    "linear-gradient(135deg, #a855f7, #ec4899)",
+    "linear-gradient(135deg, #06b6d4, #3b82f6)",
+    "linear-gradient(135deg, #f59e0b, #d97706)",
+    "linear-gradient(135deg, #818cf8, #c084fc)",
+    "linear-gradient(135deg, #ef4444, #f97316)",
+    "linear-gradient(135deg, #6366f1, #a855f7)",
+  ];
+  const [currentGradientIdx, setCurrentGradientIdx] = useState(0);
 
-  function renderStyledSection() {
-    const navItem = NAV_ITEMS.find((n) => n.label === activeNav)!;
-    const theme = SECTION_THEMES[activeNav] || SECTION_THEMES["Home"];
-    const Icon = navItem.icon;
-
-    const sectionDetails: Record<string, { subtitle: string; hint: string }> = {
-      Trash: { subtitle: "PERMANENTLY_DELETED ITEMS", hint: "Items here are purged every 30 days." },
-      Archives: { subtitle: "COLD_STORAGE // ARCHIVED", hint: "Move workflows here to keep your desk clean." },
-      Recently: { subtitle: "TIMELINE_FEED // ACTIVE", hint: "Your last 24 hours of neural activity." },
-      History: { subtitle: "HISTORICAL_RECORDS // LOGS", hint: "A full audit trail of every AI interaction." },
-      Integrations: { subtitle: "EXTERNAL_NODES // API", hint: "Connect your workflows to the outside world." },
-      Settings: { subtitle: "SYSTEM_CORE // PREFERENCES", hint: "Configure your neural interface parameters." },
-    };
-
-    const details = sectionDetails[activeNav] || {
-      subtitle: "SECTION_ID // NULL",
-      hint: "No active data found in this node.",
-    };
-
-    return (
-      <motion.div
-        initial={{ opacity: 0, scale: 0.98 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={springTransition}
-        className="flex flex-col items-center justify-center h-full text-center px-6"
-      >
-        {/* 1. The Central Pulsing Node */}
-        <motion.div
-          className="w-24 h-24 rounded-[2rem] flex items-center justify-center mb-8 relative"
-          style={{
-            background: theme.gradient,
-            boxShadow: `0 0 60px rgba(${theme.glowRgba}, 0.25), inset 0 0 20px rgba(255,255,255,0.2)`,
-          }}
-          animate={{
-            rotate: [0, 5, -5, 0],
-            scale: [1, 1.05, 1],
-          }}
-          transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
-        >
-          <div
-            className="absolute inset-0 rounded-[2rem] animate-pulse"
-            style={{ border: `2px solid rgba(${theme.glowRgba}, 0.5)` }}
-          />
-          <Icon size={40} className="text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.5)]" />
-        </motion.div>
-
-        {/* 2. Enhanced Typography */}
-        <div className="flex justify-center w-full mb-6">
-          <div className="flex flex-col items-center">
-            <motion.h2
-              initial={{ letterSpacing: "0.1em", opacity: 0 }}
-              animate={{ letterSpacing: "0.25em", opacity: 1 }}
-              className="text-3xl font-black mb-3 select-none"
-              style={{
-                background: theme.gradient,
-                display: "table",
-                WebkitBackgroundClip: "text",
-                backgroundClip: "text",
-                WebkitTextFillColor: "transparent",
-                color: "transparent",
-              }}
-            >
-              {activeNav.toUpperCase()}
-            </motion.h2>
-            <p className="text-[10px] font-mono tracking-[0.3em] text-white/30 uppercase mb-2">{details.subtitle}</p>
-            <div className="h-[1px] w-12 bg-white/10 mb-4" />
-            <p className="text-[13px] text-white/50 max-w-[280px] leading-relaxed italic">"{details.hint}"</p>
-          </div>
-        </div>
-
-        {/* 3. Empty State Cards with Hover Effects */}
-        <div className="flex flex-wrap justify-center gap-4">
-          {[1, 2, 3].map((i) => (
-            <motion.div
-              key={i}
-              whileHover={{ y: -5, backgroundColor: "rgba(255,255,255,0.04)" }}
-              className="w-52 h-32 rounded-2xl glass-edge flex flex-col justify-between p-4 cursor-help"
-              style={{
-                background: "rgba(255,255,255,0.01)",
-                border: `1px solid rgba(${theme.glowRgba}, 0.1)`,
-              }}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ ...springTransition, delay: i * 0.1 }}
-            >
-              <div className="space-y-2">
-                <div className="w-full h-1.5 rounded-full bg-white/5 overflow-hidden">
-                  <motion.div
-                    className="h-full"
-                    style={{ background: theme.gradient }}
-                    initial={{ width: 0 }}
-                    animate={{ width: `${Math.random() * 60 + 20}%` }}
-                    transition={{ duration: 1.5, delay: 0.5 }}
-                  />
-                </div>
-                <div className="w-2/3 h-1.5 rounded-full bg-white/5" />
-              </div>
-              <div className="flex justify-between items-center">
-                <div className="w-8 h-8 rounded-lg bg-white/5" />
-                <div className="text-[9px] font-mono text-white/20">
-                  ID_REF_{Math.random().toString(36).substring(7).toUpperCase()}
-                </div>
-              </div>
-            </motion.div>
-          ))}
-        </div>
-      </motion.div>
-    );
-  }
-  function renderGenericSection() {
-    const theme = SECTION_THEMES[activeNav] || SECTION_THEMES["Home"];
-    return (
-      <motion.div
-        key={activeNav}
-        initial={{ opacity: 0, scale: 0.96 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={springTransition}
-        className="flex flex-col items-center justify-center h-full text-center gap-4"
-      >
-        <h1
-          className="text-[48px] font-bold uppercase tracking-[0.05em] leading-none select-none"
-          style={{
-            background: theme.gradient,
-            WebkitBackgroundClip: "text",
-            WebkitTextFillColor: "transparent",
-            backgroundClip: "text",
-            filter: `drop-shadow(0 0 30px rgba(${theme.glowRgba},0.3))`,
-          }}
-        >
-          {activeNav.toUpperCase()}
-        </h1>
-        <p
-          className="text-[11px] tracking-[0.35em] uppercase font-mono"
-          style={{ color: "rgba(255,255,255,0.25)" }}
-        >
-          Launch your business within minutes
-        </p>
-      </motion.div>
-    );
-  }
+  // Cycle gradient every time activeNav changes (non-Home)
+  useEffect(() => {
+    if (activeNav !== "Home") {
+      setCurrentGradientIdx((prev) => (prev + 1) % GRADIENTS.length);
+    }
+  }, [activeNav]);
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
@@ -840,10 +714,33 @@ export default function Dashboard() {
                 </p>
               </div>
             </>
-          ) : isStyledSection ? (
-            renderStyledSection()
           ) : (
-            renderGenericSection()
+            <motion.div
+              key={activeNav}
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={springTransition}
+              className="flex flex-col items-center justify-center h-full text-center gap-5"
+            >
+              <h1
+                className="text-[48px] font-bold uppercase tracking-[0.05em] leading-none select-none"
+                style={{
+                  background: GRADIENTS[currentGradientIdx],
+                  WebkitBackgroundClip: "text",
+                  WebkitTextFillColor: "transparent",
+                  backgroundClip: "text",
+                  filter: "drop-shadow(0 0 30px rgba(255,255,255,0.08))",
+                }}
+              >
+                {activeNav.toUpperCase()}
+              </h1>
+              <p
+                className="text-[11px] tracking-[0.35em] uppercase font-mono"
+                style={{ color: "rgba(255,255,255,0.25)" }}
+              >
+                Launch your business within minutes
+              </p>
+            </motion.div>
           )}
         </div>
 
