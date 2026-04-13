@@ -615,7 +615,7 @@ export default function Dashboard() {
                     }}
                   />
 
-             {/* ── Footer inside input ── */}
+ {/* ── Footer inside input ── */}
                 <div
                   className="flex items-center justify-between px-3 py-2.5 glass-edge"
                   style={{ borderTop: "1px solid rgba(255,255,255,0.1)" }}
@@ -629,8 +629,8 @@ export default function Dashboard() {
                       className="w-7 h-7 rounded-full flex items-center justify-center transition-all duration-200 shrink-0"
                       style={{
                         background: plusMenuOpen ? `rgba(${glowRgba},0.18)` : `rgba(${glowRgba},0.06)`,
-                        border: `1px solid ${plusMenuOpen ? borderColor : `rgba(${glowRgba},0.25)`}`,
-                        color: borderColor,
+                        border: `1px solid ${plusMenuOpen ? (SECTION_THEMES[activeNav]?.color || "#22c55e") : `rgba(${glowRgba},0.25)`}`,
+                        color: SECTION_THEMES[activeNav]?.color || "#22c55e",
                       }}
                       title="Tools & Options"
                     >
@@ -710,7 +710,7 @@ export default function Dashboard() {
                                 }}
                                 className="block w-full text-left px-4 py-2 text-[11px] tracking-[0.08em] transition-colors"
                                 style={{
-                                  color: activeStyle === s ? borderColor : "rgba(255,255,255,0.4)",
+                                  color: activeStyle === s ? (SECTION_THEMES[activeNav]?.color || "#22c55e") : "rgba(255,255,255,0.4)",
                                   background: activeStyle === s ? `rgba(${glowRgba},0.08)` : "transparent",
                                 }}
                               >
@@ -727,7 +727,7 @@ export default function Dashboard() {
                       disabled={!input.trim() || isProcessing}
                       className="w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200"
                       style={{
-                        background: input.trim() ? borderColor : "rgba(255,255,255,0.04)",
+                        background: input.trim() ? (SECTION_THEMES[activeNav]?.color || "#22c55e") : "rgba(255,255,255,0.04)",
                         color: input.trim() ? "#020617" : "rgba(255,255,255,0.15)",
                         boxShadow: input.trim() ? `0 0 14px rgba(${glowRgba},0.5)` : "none",
                         cursor: input.trim() ? "pointer" : "default",
@@ -768,7 +768,7 @@ export default function Dashboard() {
                   </p>
                   <div className="h-[1px] w-8 bg-white/10" />
                 </div>
-              </div> 
+              </div>
              
          {/* Terminal Header — Obsidian Version */}
             <div className="text-center mb-16 shrink-0 relative z-10">
