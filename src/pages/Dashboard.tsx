@@ -49,7 +49,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 
 // ─── DEPLOYMENT VERSION ──────────────────────────────────────────────────────────
-const DEPLOYMENT_ID = "NAZAI_TITAN_V4_STABLE";
+const DEPLOYMENT_ID = "NAZAI_TITAN_V5_STABLE";
 
 // ─── Type Definitions ──────────────────────────────────────────────────────────────
 
@@ -173,6 +173,15 @@ const DEFAULT_AURA_PROFILE: AuraProfile = {
   isLightMode: false,
 };
 
+// Professional placeholder texts for typing animation
+const PLACEHOLDER_TEXTS = [
+  "Generate a business setup for a high-end gym...",
+  "Architect a SaaS platform for automated marketing...",
+  "Design a sustainable fashion brand workflow...",
+  "Build a blueprint for a decentralized AI network...",
+  "Create a launch strategy for a local bakery...",
+];
+
 // ─── Helper Functions ──────────────────────────────────────────────────────────────
 
 const findToolById = (id: string | null): { tool: ToolEntry; category: Category } | null => {
@@ -217,6 +226,52 @@ const getAvatarGradient = (email: string) => {
   return `linear-gradient(135deg, hsl(${hue1}, 70%, 55%), hsl(${hue2}, 70%, 45%))`;
 };
 
+// Typewriter effect function
+const useTypewriter = (texts: string[], intervalSpeed: number = 3000, typingSpeed: number = 50) => {
+  const [currentPlaceholder, setCurrentPlaceholder] = useState(texts[0]);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [currentTextIndex, setCurrentTextIndex] = useState(0);
+
+  useEffect(() => {
+    let timeout: NodeJS.Timeout;
+    
+    const animateText = () => {
+      const fullText = texts[currentTextIndex];
+      
+      if (isDeleting) {
+        if (currentIndex > 0) {
+          setCurrentIndex(prev => prev - 1);
+          setCurrentPlaceholder(fullText.substring(0, currentIndex - 1));
+          timeout = setTimeout(animateText, typingSpeed);
+        } else {
+          setIsDeleting(false);
+          setCurrentTextIndex((prev) => (prev + 1) % texts.length);
+          timeout = setTimeout(animateText, typingSpeed);
+        }
+      } else {
+        if (currentIndex < fullText.length) {
+          setCurrentIndex(prev => prev + 1);
+          setCurrentPlaceholder(fullText.substring(0, currentIndex + 1));
+          timeout = setTimeout(animateText, typingSpeed);
+        } else {
+          timeout = setTimeout(() => {
+            setIsDeleting(true);
+            animateText();
+          }, intervalSpeed);
+          return;
+        }
+      }
+    };
+    
+    timeout = setTimeout(animateText, 100);
+    
+    return () => clearTimeout(timeout);
+  }, [currentIndex, isDeleting, currentTextIndex, texts, typingSpeed, intervalSpeed]);
+
+  return currentPlaceholder;
+};
+
 // Animation variants
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -250,17 +305,15 @@ const laserShineAnimation = {
 export default function Dashboard() {
   const navigate = useNavigate();
 
-  // ── Service Worker Nuke & Cache Busting (TITAN EDITION) ────────────────────────
+  // ── Service Worker Nuke & Cache Busting (TITAN V5) ─────────────────────────────
   useEffect(() => {
     const clearAllCachesAndReload = async () => {
       const currentVersion = localStorage.getItem("nazai_version_id");
       
       if (currentVersion !== DEPLOYMENT_ID) {
-        // Clear all storage
         localStorage.clear();
         sessionStorage.clear();
         
-        // Unregister all service workers
         if ('serviceWorker' in navigator) {
           const registrations = await navigator.serviceWorker.getRegistrations();
           for (const registration of registrations) {
@@ -268,7 +321,6 @@ export default function Dashboard() {
           }
         }
         
-        // Clear caches if available
         if ('caches' in window) {
           const cacheNames = await caches.keys();
           for (const cacheName of cacheNames) {
@@ -276,7 +328,6 @@ export default function Dashboard() {
           }
         }
         
-        // Set new version and force hard reload from server
         localStorage.setItem("nazai_version_id", DEPLOYMENT_ID);
         window.location.replace(window.location.href);
       }
@@ -284,6 +335,9 @@ export default function Dashboard() {
     
     clearAllCachesAndReload();
   }, []);
+
+  // ── Typing Animation Effect ────────────────────────────────────────────────────
+  const dynamicPlaceholder = useTypewriter(PLACEHOLDER_TEXTS, 4000, 60);
 
   // ── State ───────────────────────────────────────────────────────────────────────
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -624,7 +678,6 @@ export default function Dashboard() {
         </div>
 
         <motion.div variants={containerVariants} initial="hidden" animate="visible" className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Colors */}
           <motion.div variants={itemVariants} className="md:col-span-2 p-5 rounded-xl" style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}>
             <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 font-mono" style={{ color: auraProfile.glowPrimary }}><Palette size={16} /> CHROMATIC CORE</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -647,7 +700,6 @@ export default function Dashboard() {
             </div>
           </motion.div>
 
-          {/* Controls */}
           <motion.div variants={itemVariants} className="p-5 rounded-xl" style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}>
             <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 font-mono" style={{ color: auraProfile.glowPrimary }}><Sliders size={16} /> ATMOSPHERIC</h3>
             <div className="space-y-4">
@@ -662,7 +714,6 @@ export default function Dashboard() {
             </div>
           </motion.div>
 
-          {/* Mode Toggle */}
           <motion.div variants={itemVariants} className="p-5 rounded-xl flex items-center justify-between" style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}>
             <div className="flex items-center gap-2">
               {auraProfile.isLightMode ? <Sun size={18} style={{ color: auraProfile.glowPrimary }} /> : <Moon size={18} style={{ color: auraProfile.glowPrimary }} />}
@@ -671,7 +722,6 @@ export default function Dashboard() {
             <Switch checked={auraProfile.isLightMode} onCheckedChange={toggleLightMode} />
           </motion.div>
 
-          {/* Preview */}
           <motion.div variants={itemVariants} className="p-5 rounded-xl text-center" style={{ background: "var(--nazai-card-bg)", border: `1px solid ${auraProfile.glowPrimary}30` }}>
             <p className="text-xs font-mono font-bold" style={{ color: "var(--nazai-text-color)", textShadow: `0 0 ${auraProfile.textGlowIntensity * 8}px ${auraProfile.glowPrimary}` }}>NAZAI:// AURA ACTIVE</p>
             <div className="flex justify-center gap-2 mt-2">
@@ -680,7 +730,6 @@ export default function Dashboard() {
             </div>
           </motion.div>
 
-          {/* Reset */}
           <motion.div variants={itemVariants} className="md:col-span-2">
             <motion.button onClick={resetAuraToDefault} className="w-full py-2.5 rounded-xl text-sm font-medium flex items-center justify-center gap-2 transition-all" style={{ background: "rgba(239,68,68,0.05)", border: "1px solid rgba(239,68,68,0.2)", color: "#ef4444" }} whileHover={{ scale: 1.01, background: "rgba(239,68,68,0.1)" }} whileTap={{ scale: 0.99 }}>
               <RotateCcw size={14} /> RESET TO DEFAULT
@@ -695,18 +744,19 @@ export default function Dashboard() {
     </motion.div>
   );
 
-  // Home View with ELEGANT LASER SHINE
+  // Home View with STABLE INPUT (no jumping)
   const HomeView = () => (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col items-center w-full h-full">
-      <div className="flex-1 w-full max-w-2xl overflow-y-auto py-6 space-y-3">
+    <div className="flex flex-col w-full h-full">
+      {/* Scrollable Messages Area */}
+      <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto py-6 space-y-3 px-4">
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full gap-4 text-center">
             <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.2)` }}>
               <Zap size={22} style={{ color: borderColor }} />
             </div>
             <div>
-              <p className="text-xs font-mono tracking-wide" style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.6)` }}>WORKFLOW ANIMATOR READY</p>
-              <p className="text-[10px] font-mono mt-1 text-white/30">Select an AI engine, then describe your mission.</p>
+              <p className="text-xs font-mono tracking-wide" style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.6)` }}>THE NEURAL ARCHITECT</p>
+              <p className="text-[10px] font-mono mt-1 text-white/30">Design your business blueprint with high-precision AI.</p>
             </div>
           </div>
         )}
@@ -720,16 +770,17 @@ export default function Dashboard() {
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Selected Engine Badge */}
       {activeTool && (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="w-full max-w-2xl mb-2 flex justify-end">
+        <div className="w-full max-w-2xl mx-auto mb-2 flex justify-end px-4">
           <span className="text-[9px] px-2 py-1 rounded-full flex items-center gap-1 font-mono" style={{ background: `rgba(${activeTool.category.glowRgba},0.1)`, border: `1px solid rgba(${activeTool.category.glowRgba},0.2)`, color: activeTool.category.color }}>
             {activeTool.tool.name} <X size={10} className="cursor-pointer hover:opacity-70 transition-opacity" onClick={() => setSelectedModel(null)} />
           </span>
-        </motion.div>
+        </div>
       )}
 
-      {/* ELEGANT INPUT CONTAINER WITH LASER SHINE */}
-      <div className="w-full max-w-2xl mb-4">
+      {/* STABLE INPUT CONTAINER - PINNED TO BOTTOM */}
+      <div className="w-full max-w-2xl mx-auto mb-6 px-4">
         <motion.div 
           className="relative rounded-xl flex flex-col"
           animate={laserShineAnimation}
@@ -743,7 +794,7 @@ export default function Dashboard() {
             value={input} 
             onChange={handleInputChange} 
             onKeyDown={handleKeyDown} 
-            placeholder={activeTool ? `Mission for ${activeTool.tool.name}...` : "Describe your mission..."} 
+            placeholder={activeTool ? `Mission for ${activeTool.tool.name}...` : dynamicPlaceholder}
             rows={1} 
             className="w-full bg-transparent border-none outline-none resize-none font-mono text-xs p-3 min-h-[80px]" 
             style={{ color: "var(--nazai-text-color)" }} 
@@ -776,7 +827,7 @@ export default function Dashboard() {
           </div>
         </motion.div>
       </div>
-    </motion.div>
+    </div>
   );
 
   // Folder View
@@ -839,7 +890,7 @@ export default function Dashboard() {
           </div>
         </header>
 
-        <div className="flex-1 flex flex-col items-center overflow-hidden relative px-3">
+        <div className="flex-1 flex flex-col overflow-hidden relative">
           <AnimatePresence mode="wait">
             {showSettings ? <SettingsView key="settings" /> : activeNav === "Home" ? <HomeView key="home" /> : <FolderView key="folder" />}
           </AnimatePresence>
@@ -851,25 +902,12 @@ export default function Dashboard() {
         </footer>
       </main>
 
-      {/* PLUS MENU MODAL - z-[999] */}
+      {/* Modals remain the same */}
       <AnimatePresence>
         {plusMenuOpen && (
           <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setPlusMenuOpen(false)}
-              className="fixed inset-0 z-[998] bg-black/40 backdrop-blur-sm"
-            />
-            <motion.div
-              initial={{ opacity: 0, y: 20, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 20, scale: 0.95 }}
-              transition={springTransition}
-              className="fixed z-[999] bottom-24 left-1/2 -translate-x-1/2 w-[90vw] max-w-sm rounded-xl overflow-hidden"
-              style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
-            >
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setPlusMenuOpen(false)} className="fixed inset-0 z-[998] bg-black/40 backdrop-blur-sm" />
+            <motion.div initial={{ opacity: 0, y: 20, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 20, scale: 0.95 }} transition={springTransition} className="fixed z-[999] bottom-24 left-1/2 -translate-x-1/2 w-[90vw] max-w-sm rounded-xl overflow-hidden" style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}>
               <div className="px-4 py-2 border-b border-white/10 flex justify-between items-center">
                 <span className="text-[10px] font-mono text-white/40">TOOLS & OPTIONS</span>
                 <button onClick={() => setPlusMenuOpen(false)} className="text-white/40 hover:text-white/80 transition-colors"><X size={14} /></button>
@@ -893,7 +931,6 @@ export default function Dashboard() {
         )}
       </AnimatePresence>
 
-      {/* AI DRAWER MODAL */}
       <AnimatePresence>
         {drawerOpen && (
           <>
@@ -923,7 +960,6 @@ export default function Dashboard() {
         )}
       </AnimatePresence>
 
-      {/* Logout Modal */}
       <AnimatePresence>
         {logoutModalOpen && (
           <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
