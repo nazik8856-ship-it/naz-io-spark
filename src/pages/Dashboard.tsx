@@ -99,6 +99,8 @@ type AuraProfile = {
   isLightMode: boolean;
 };
 
+const APP_VERSION = "2.0.0-BENTO";
+
 // ─── Constants ─────────────────────────────────────────────────────────────────────
 
 const AI_CATEGORIES: Record<string, Category> = {
