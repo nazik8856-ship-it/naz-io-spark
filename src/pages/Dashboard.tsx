@@ -260,9 +260,7 @@ export default function Dashboard() {
   const [missions, setMissions] = useState<Mission[]>([]);
   const [missionsLoading, setMissionsLoading] = useState(true);
 
-  // Aura Design System State
-  const [auraProfile, setAuraProfile] = useState<AuraProfile>(loadAuraProfile);
-  const [showSettings, setShowSettings] = useState(false);
+  // Removed showSettings — activeNav === "Settings" is now the single source of truth
 
   // ── Refs ────────────────────────────────────────────────────────────────────────
   const textareaRef = useRef<HTMLTextAreaElement>(null);
