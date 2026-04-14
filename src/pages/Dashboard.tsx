@@ -49,7 +49,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 
 // ─── DEPLOYMENT VERSION ──────────────────────────────────────────────────────────
-const DEPLOYMENT_ID = "NAZAI_TITAN_V8_STABLE_FUNCTIONAL";
+const DEPLOYMENT_ID = "NAZAI_TITAN_V9_CLICK_STABLE";
 
 // ─── Type Definitions ──────────────────────────────────────────────────────────────
 
@@ -270,10 +270,10 @@ const useTypewriter = (texts: string[], intervalSpeed: number = 4000, typingSpee
   return currentPlaceholder;
 };
 
-// VisualViewport hook for keyboard anchoring with transform-based positioning
+// VisualViewport hook for keyboard anchoring with body lock
 const useVisualViewport = () => {
   const [keyboardHeight, setKeyboardHeight] = useState(0);
-  const [viewportHeight, setViewportHeight] = useState(window.innerHeight);
+  const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
 
   useEffect(() => {
     if (!window.visualViewport) return;
@@ -282,8 +282,27 @@ const useVisualViewport = () => {
       const viewport = window.visualViewport;
       const windowHeight = window.innerHeight;
       const keyboardHeightEstimate = Math.max(0, windowHeight - viewport.height);
+      const keyboardOpen = keyboardHeightEstimate > 150;
+      
       setKeyboardHeight(keyboardHeightEstimate);
-      setViewportHeight(viewport.height);
+      setIsKeyboardOpen(keyboardOpen);
+      
+      // Lock body scroll when keyboard is open to prevent "earthquake" effect
+      if (keyboardOpen) {
+        document.body.style.position = 'fixed';
+        document.body.style.width = '100%';
+        document.body.style.top = `-${window.scrollY}px`;
+        document.body.style.overflow = 'hidden';
+      } else {
+        const scrollY = document.body.style.top;
+        document.body.style.position = '';
+        document.body.style.width = '';
+        document.body.style.top = '';
+        document.body.style.overflow = '';
+        if (scrollY) {
+          window.scrollTo(0, parseInt(scrollY || '0') * -1);
+        }
+      }
     };
 
     window.visualViewport.addEventListener("resize", handleResize);
@@ -291,10 +310,14 @@ const useVisualViewport = () => {
 
     return () => {
       window.visualViewport?.removeEventListener("resize", handleResize);
+      document.body.style.position = '';
+      document.body.style.width = '';
+      document.body.style.top = '';
+      document.body.style.overflow = '';
     };
   }, []);
 
-  return { keyboardHeight, viewportHeight };
+  return { keyboardHeight, isKeyboardOpen };
 };
 
 // Animation variants
@@ -330,7 +353,7 @@ const laserShineAnimation = {
 export default function Dashboard() {
   const navigate = useNavigate();
 
-  // ── Service Worker Nuke & Cache Busting (TITAN V8) ─────────────────────────────
+  // ── Service Worker Nuke & Cache Busting (TITAN V9) ─────────────────────────────
   useEffect(() => {
     const clearAllCachesAndReload = async () => {
       const currentVersion = localStorage.getItem("nazai_version_id");
@@ -582,15 +605,14 @@ export default function Dashboard() {
     appendWord();
   }, []);
 
-  // FIXED: Proper send message handler with focus restoration
+  // FIXED: Send button is enabled unless input is empty OR processing (but processing doesn't block completely)
   const handleSendMessage = useCallback(() => {
     const trimmed = input.trim();
-    if (!trimmed || isProcessing) return;
+    if (!trimmed) return;
     
     const aiMsgIndex = messages.length + 1;
     setMessages((prev) => [...prev, { role: "user", text: trimmed }, { role: "ai", text: "Processing..." }]);
     setInput("");
-    setIsProcessing(true);
     
     // Reset textarea height
     if (textareaRef.current) {
@@ -598,13 +620,11 @@ export default function Dashboard() {
     }
     
     const timeout = setTimeout(() => {
-      setIsProcessing(false);
       streamSimulation(aiMsgIndex);
     }, 8000);
     
     setTimeout(() => {
       clearTimeout(timeout);
-      setIsProcessing(false);
       setMessages((prev) => {
         const updated = [...prev];
         if (updated[aiMsgIndex]) {
@@ -621,9 +641,9 @@ export default function Dashboard() {
         textareaRef.current?.focus();
       }, 100);
     }, 1200);
-  }, [input, messages.length, streamSimulation, activeTool, isProcessing]);
+  }, [input, messages.length, streamSimulation, activeTool]);
 
-  // FIXED: Enter key handler
+  // FIXED: Enter key handler - properly bound
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -665,7 +685,7 @@ export default function Dashboard() {
         key={item.label}
         onClick={() => handleNavClick(item.label)}
         title={item.label}
-        className="w-10 h-10 flex items-center justify-center rounded-xl transition-all duration-200 relative group"
+        className="w-10 h-10 flex items-center justify-center rounded-xl transition-all duration-200 relative group pointer-events-auto"
         whileHover={{ scale: 1.05, backgroundColor: "rgba(255,255,255,0.05)" }}
         whileTap={{ scale: 0.95 }}
       >
@@ -693,7 +713,7 @@ export default function Dashboard() {
       key={mission.id}
       variants={itemVariants}
       whileHover={{ scale: 1.01, backgroundColor: "rgba(255,255,255,0.03)" }}
-      className="group flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer transition-all duration-200"
+      className="group flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer transition-all duration-200 pointer-events-auto"
       style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
     >
       <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.1)` }}>
@@ -711,7 +731,7 @@ export default function Dashboard() {
     </motion.div>
   ), [auraProfile.glowPrimary]);
 
-  // Settings View (Preserved from V7)
+  // Settings View (Preserved from V8)
   const SettingsView = () => (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={springTransition} className="flex-1 overflow-y-auto px-6 py-8">
       <div className="max-w-4xl mx-auto">
@@ -789,13 +809,13 @@ export default function Dashboard() {
     </motion.div>
   );
 
-  // Home View with ABSOLUTE STILLNESS - FIXED INPUT
+  // Home View with FIXED TOUCH LAYERS
   const HomeView = () => (
     <div className="flex flex-col w-full h-full">
       {/* Scrollable Messages Area with bottom padding for fixed input */}
       <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto py-6 space-y-3 px-4 pb-[200px]">
         {messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full gap-4 text-center">
+          <div className="flex flex-col items-center justify-center h-full gap-4 text-center pointer-events-auto">
             <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.2)` }}>
               <Zap size={22} style={{ color: borderColor }} />
             </div>
@@ -806,7 +826,7 @@ export default function Dashboard() {
           </div>
         )}
         {messages.map((msg, i) => (
-          <motion.div key={i} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+          <motion.div key={i} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"} pointer-events-auto`}>
             <div className="max-w-[78%] px-3 py-2 text-xs" style={{ borderRadius: msg.role === "user" ? "12px 12px 2px 12px" : "12px 12px 12px 2px", background: msg.role === "user" ? `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.05)` : "var(--nazai-card-bg)", border: `1px solid var(--nazai-border-light)`, color: "var(--nazai-text-color)" }}>
               {msg.text}
             </div>
@@ -817,7 +837,7 @@ export default function Dashboard() {
 
       {/* Selected Engine Badge - appears above fixed input */}
       {activeTool && (
-        <div className="w-full max-w-2xl mx-auto mb-2 flex justify-end px-4 relative z-[101]">
+        <div className="w-full max-w-2xl mx-auto mb-2 flex justify-end px-4 relative z-[101] pointer-events-auto">
           <span className="text-[9px] px-2 py-1 rounded-full flex items-center gap-1 font-mono" style={{ background: `rgba(${activeTool.category.glowRgba},0.1)`, border: `1px solid rgba(${activeTool.category.glowRgba},0.2)`, color: activeTool.category.color }}>
             {activeTool.tool.name} <X size={10} className="cursor-pointer hover:opacity-70 transition-opacity" onClick={() => setSelectedModel(null)} />
           </span>
@@ -826,13 +846,13 @@ export default function Dashboard() {
 
       {/* ABSOLUTE STILLNESS INPUT CONTAINER - Fixed with proper pointer events */}
       <div 
-        className="fixed left-0 right-0 z-[100] px-4 pointer-events-none"
+        className="fixed left-0 right-0 z-[100] px-4"
         style={{ 
-          bottom: keyboardHeight > 0 ? `${keyboardHeight}px` : '0px',
+          bottom: keyboardHeight > 0 ? `${keyboardHeight + 8}px` : '16px',
           transition: 'bottom 0.2s ease-out',
         }}
       >
-        <div className="w-full max-w-2xl mx-auto pointer-events-auto">
+        <div className="w-full max-w-2xl mx-auto">
           <motion.div 
             className="relative rounded-xl flex flex-col"
             animate={laserShineAnimation}
@@ -848,7 +868,7 @@ export default function Dashboard() {
               onKeyDown={handleKeyDown} 
               placeholder={activeTool ? `Mission for ${activeTool.tool.name}...` : dynamicPlaceholder}
               rows={1} 
-              className="w-full bg-transparent border-none outline-none resize-none font-mono text-xs p-3 overflow-y-auto"
+              className="w-full bg-transparent border-none outline-none resize-none font-mono text-xs p-3 overflow-y-auto pointer-events-auto"
               style={{ 
                 color: "var(--nazai-text-color)",
                 maxHeight: "150px",
@@ -859,21 +879,25 @@ export default function Dashboard() {
               <div className="flex gap-1">
                 <motion.button 
                   onClick={() => setPlusMenuOpen(true)} 
-                  className="w-7 h-7 rounded-full flex items-center justify-center relative z-10 transition-all"
+                  className="w-7 h-7 rounded-full flex items-center justify-center relative z-10 transition-all pointer-events-auto"
                   style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.05)` }}
                   whileHover={{ scale: 1.1, background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.1)` }}
                   whileTap={{ scale: 0.9 }}
                 >
                   <Plus size={12} />
                 </motion.button>
-                <button onClick={() => { setDrawerOpen(true); setPlusMenuOpen(false); }} className="text-[9px] px-2 py-1 rounded font-mono transition-all hover:bg-white/5" style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.03)` }}>
+                <button 
+                  onClick={() => { setDrawerOpen(true); setPlusMenuOpen(false); }} 
+                  className="text-[9px] px-2 py-1 rounded font-mono transition-all hover:bg-white/5 pointer-events-auto" 
+                  style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.03)` }}
+                >
                   {activeTool ? activeTool.tool.name : "Select Engine"}
                 </button>
               </div>
               <motion.button 
                 onClick={handleSendMessage} 
-                disabled={!input.trim() || isProcessing} 
-                className="w-7 h-7 rounded-full flex items-center justify-center transition-all"
+                disabled={!input.trim()} 
+                className="w-7 h-7 rounded-full flex items-center justify-center transition-all pointer-events-auto"
                 style={{ background: input.trim() ? currentTheme.color : "rgba(255,255,255,0.05)" }}
                 whileHover={input.trim() ? { scale: 1.1 } : {}}
                 whileTap={input.trim() ? { scale: 0.9 } : {}}
@@ -887,7 +911,7 @@ export default function Dashboard() {
     </div>
   );
 
-  // Folder View (preserved from V7)
+  // Folder View (preserved from V8)
   const FolderView = () => (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col w-full max-w-4xl flex-1 overflow-y-auto pt-4 pb-8 px-4">
       <div className="text-center mb-5">
@@ -916,11 +940,11 @@ export default function Dashboard() {
           <nav className="flex flex-col gap-1 flex-1">{NAV_ITEMS.map(renderNavItem)}</nav>
           <div className="flex flex-col items-center gap-2 mt-auto">
             {userEmail && (
-              <div className="w-7 h-7 rounded-full flex items-center justify-center text-[9px] font-semibold overflow-hidden" style={{ background: getAvatarGradient(userEmail) }}>
+              <div className="w-7 h-7 rounded-full flex items-center justify-center text-[9px] font-semibold overflow-hidden pointer-events-auto" style={{ background: getAvatarGradient(userEmail) }}>
                 {userEmail[0].toUpperCase()}
               </div>
             )}
-            <button onClick={() => setLogoutModalOpen(true)} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-red-500/10 transition-all"><LogOut size={14} className="text-white/30 hover:text-red-400 transition-colors" /></button>
+            <button onClick={() => setLogoutModalOpen(true)} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-red-500/10 transition-all pointer-events-auto"><LogOut size={14} className="text-white/30 hover:text-red-400 transition-colors" /></button>
           </div>
         </div>
       </motion.aside>
@@ -929,9 +953,9 @@ export default function Dashboard() {
       <main className="flex flex-col flex-1 min-w-0 relative">
         <header className="flex items-center justify-between px-4 py-2 shrink-0" style={{ borderBottom: `1px solid var(--nazai-border-light)`, background: auraProfile.isLightMode ? "rgba(255,255,255,0.8)" : "rgba(2,6,23,0.8)", backdropFilter: `blur(${auraProfile.glassBlur}px)` }}>
           <div className="flex items-center gap-2">
-            <button onClick={() => setSidebarCollapsed(v => !v)} className="text-white/40 hover:text-white/60 transition-colors">{sidebarCollapsed ? <PanelLeft size={14} /> : <PanelLeftClose size={14} />}</button>
+            <button onClick={() => setSidebarCollapsed(v => !v)} className="text-white/40 hover:text-white/60 transition-colors pointer-events-auto">{sidebarCollapsed ? <PanelLeft size={14} /> : <PanelLeftClose size={14} />}</button>
             <span 
-              className="text-[10px] font-mono font-black tracking-tighter" 
+              className="text-[10px] font-mono font-black tracking-tighter pointer-events-auto" 
               style={{ 
                 color: borderColor, 
                 textShadow: `0 0 calc(var(--text-glow-intensity) * 15px) var(--glow-primary)`
@@ -939,9 +963,9 @@ export default function Dashboard() {
             >
               NEURAL://
             </span>
-            <span className="text-[10px] font-mono font-bold" style={{ background: currentTheme.gradient, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>{activeNav.toUpperCase()}</span>
+            <span className="text-[10px] font-mono font-bold pointer-events-auto" style={{ background: currentTheme.gradient, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>{activeNav.toUpperCase()}</span>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 pointer-events-auto">
             <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: borderColor }} />
             <span className="text-[8px] font-mono tracking-wider text-white/30">SECURE_NODE</span>
           </div>
@@ -953,13 +977,13 @@ export default function Dashboard() {
           </AnimatePresence>
         </div>
 
-        <footer className="flex items-center justify-between px-4 py-1.5 shrink-0 text-[8px] font-mono tracking-wider text-white/30" style={{ borderTop: `1px solid var(--nazai-border-light)`, background: auraProfile.isLightMode ? "rgba(255,255,255,0.8)" : "rgba(2,6,23,0.8)" }}>
+        <footer className="flex items-center justify-between px-4 py-1.5 shrink-0 text-[8px] font-mono tracking-wider text-white/30 pointer-events-auto" style={{ borderTop: `1px solid var(--nazai-border-light)`, background: auraProfile.isLightMode ? "rgba(255,255,255,0.8)" : "rgba(2,6,23,0.8)" }}>
           <span>SYSTEM_STABLE</span>
           <div className="flex gap-3"><span>DB:ONLINE</span><span>AI:READY</span></div>
         </footer>
       </main>
 
-      {/* Modals preserved from V7 */}
+      {/* PLUS MENU MODAL - Fixed pointer events */}
       <AnimatePresence>
         {plusMenuOpen && (
           <>
@@ -1001,6 +1025,7 @@ export default function Dashboard() {
         )}
       </AnimatePresence>
 
+      {/* AI DRAWER MODAL */}
       <AnimatePresence>
         {drawerOpen && (
           <>
@@ -1030,6 +1055,7 @@ export default function Dashboard() {
         )}
       </AnimatePresence>
 
+      {/* Logout Modal */}
       <AnimatePresence>
         {logoutModalOpen && (
           <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
