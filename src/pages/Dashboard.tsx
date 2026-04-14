@@ -49,7 +49,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 
 // ─── DEPLOYMENT VERSION ──────────────────────────────────────────────────────────
-const DEPLOYMENT_ID = "NAZAI_TITAN_V6_ANCHORED";
+const DEPLOYMENT_ID = "NAZAI_TITAN_V7_STABLE_ANCHOR";
 
 // ─── Type Definitions ──────────────────────────────────────────────────────────────
 
@@ -173,13 +173,11 @@ const DEFAULT_AURA_PROFILE: AuraProfile = {
   isLightMode: false,
 };
 
-// Professional placeholder texts for typing animation
+// Professional placeholder texts for typing animation - NEURAL ARCHITECT EDITION
 const PLACEHOLDER_TEXTS = [
-  "Generate a business setup for a high-end gym...",
-  "Architect a SaaS platform for automated marketing...",
-  "Design a sustainable fashion brand workflow...",
-  "Build a blueprint for a decentralized AI network...",
-  "Create a launch strategy for a local bakery...",
+  "Architect a high-performance gym business...",
+  "Design a blueprint for an automated SaaS...",
+  "Build a launch strategy for a tech startup...",
 ];
 
 // ─── Helper Functions ──────────────────────────────────────────────────────────────
@@ -272,6 +270,31 @@ const useTypewriter = (texts: string[], intervalSpeed: number = 4000, typingSpee
   return currentPlaceholder;
 };
 
+// VisualViewport hook for keyboard anchoring
+const useVisualViewport = () => {
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  useEffect(() => {
+    if (!window.visualViewport) return;
+
+    const handleResize = () => {
+      const viewport = window.visualViewport;
+      const windowHeight = window.innerHeight;
+      const keyboardHeightEstimate = Math.max(0, windowHeight - viewport.height);
+      setKeyboardHeight(keyboardHeightEstimate);
+    };
+
+    window.visualViewport.addEventListener("resize", handleResize);
+    handleResize();
+
+    return () => {
+      window.visualViewport?.removeEventListener("resize", handleResize);
+    };
+  }, []);
+
+  return keyboardHeight;
+};
+
 // Animation variants
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -305,7 +328,7 @@ const laserShineAnimation = {
 export default function Dashboard() {
   const navigate = useNavigate();
 
-  // ── Service Worker Nuke & Cache Busting (TITAN V6) ─────────────────────────────
+  // ── Service Worker Nuke & Cache Busting (TITAN V7) ─────────────────────────────
   useEffect(() => {
     const clearAllCachesAndReload = async () => {
       const currentVersion = localStorage.getItem("nazai_version_id");
@@ -338,6 +361,9 @@ export default function Dashboard() {
 
   // ── Typing Animation Effect ────────────────────────────────────────────────────
   const dynamicPlaceholder = useTypewriter(PLACEHOLDER_TEXTS, 4000, 40);
+
+  // ── VisualViewport Keyboard Detection ──────────────────────────────────────────
+  const keyboardHeight = useVisualViewport();
 
   // ── State ───────────────────────────────────────────────────────────────────────
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -487,7 +513,7 @@ export default function Dashboard() {
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
-      textareaRef.current.style.height = `${Math.max(textareaRef.current.scrollHeight, 100)}px`;
+      textareaRef.current.style.height = `${Math.min(Math.max(textareaRef.current.scrollHeight, 80), 120)}px`;
     }
   }, [input]);
 
@@ -571,7 +597,7 @@ export default function Dashboard() {
         if (updated[aiMsgIndex]) {
           updated[aiMsgIndex] = {
             ...updated[aiMsgIndex],
-            text: `[${activeTool?.tool.name ?? "NazAI"}] — Executing workflow: "${trimmed.slice(0, 60)}..."`,
+            text: `[${activeTool?.tool.name ?? "Neural Architect"}] — Executing blueprint: "${trimmed.slice(0, 60)}..."`,
           };
         }
         return updated;
@@ -656,7 +682,7 @@ export default function Dashboard() {
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-[13px] font-medium truncate" style={{ color: "var(--nazai-text-color)" }}>
-          {mission.directive?.slice(0, 80) || "Untitled Mission"}
+          {mission.directive?.slice(0, 80) || "Untitled Blueprint"}
         </p>
         <p className="text-[10px] font-mono mt-0.5 text-white/40">
           {formatDistanceToNow(new Date(mission.created_at), { addSuffix: true })}
@@ -666,7 +692,7 @@ export default function Dashboard() {
     </motion.div>
   ), [auraProfile.glowPrimary]);
 
-  // Settings View
+  // Settings View (Preserved from V6)
   const SettingsView = () => (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={springTransition} className="flex-1 overflow-y-auto px-6 py-8">
       <div className="max-w-4xl mx-auto">
@@ -723,7 +749,7 @@ export default function Dashboard() {
           </motion.div>
 
           <motion.div variants={itemVariants} className="p-5 rounded-xl text-center" style={{ background: "var(--nazai-card-bg)", border: `1px solid ${auraProfile.glowPrimary}30` }}>
-            <p className="text-xs font-mono font-bold" style={{ color: "var(--nazai-text-color)", textShadow: `0 0 ${auraProfile.textGlowIntensity * 8}px ${auraProfile.glowPrimary}` }}>NAZAI:// AURA ACTIVE</p>
+            <p className="text-xs font-mono font-bold" style={{ color: "var(--nazai-text-color)", textShadow: `0 0 ${auraProfile.textGlowIntensity * 8}px ${auraProfile.glowPrimary}` }}>NEURAL ARCHITECT:// AURA ACTIVE</p>
             <div className="flex justify-center gap-2 mt-2">
               <div className="w-6 h-6 rounded-full" style={{ background: auraProfile.glowPrimary, boxShadow: `0 0 12px ${auraProfile.glowPrimary}` }} />
               <div className="w-6 h-6 rounded-full" style={{ background: auraProfile.glowSecondary, boxShadow: `0 0 12px ${auraProfile.glowSecondary}` }} />
@@ -744,7 +770,7 @@ export default function Dashboard() {
     </motion.div>
   );
 
-  // Home View with ANCHORED INPUT (fixed to viewport)
+  // Home View with VISUALVIEWPORT ANCHORED INPUT
   const HomeView = () => (
     <div className="flex flex-col w-full h-full">
       {/* Scrollable Messages Area with bottom padding for fixed input */}
@@ -756,7 +782,7 @@ export default function Dashboard() {
             </div>
             <div>
               <p className="text-xs font-mono tracking-wide" style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.6)` }}>THE NEURAL ARCHITECT</p>
-              <p className="text-[10px] font-mono mt-1 text-white/30">Design your business blueprint with high-precision AI.</p>
+              <p className="text-[10px] font-mono mt-1 text-white/30">High-precision business blueprinting engine.</p>
             </div>
           </div>
         )}
@@ -779,8 +805,13 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* FIXED INPUT CONTAINER - Anchored to viewport bottom */}
-      <div className="fixed bottom-0 left-0 right-0 z-[100] pb-8 px-4 bg-gradient-to-t from-[#020617] via-[#020617]/90 to-transparent">
+      {/* VISUALVIEWPORT ANCHORED INPUT - Dynamically positioned above keyboard */}
+      <div 
+        className="fixed left-0 right-0 z-[100] pb-4 px-4 transition-all duration-200 ease-out"
+        style={{ 
+          bottom: keyboardHeight > 0 ? `${keyboardHeight + 8}px` : '16px',
+        }}
+      >
         <div className="w-full max-w-2xl mx-auto">
           <motion.div 
             className="relative rounded-xl flex flex-col"
@@ -797,7 +828,7 @@ export default function Dashboard() {
               onKeyDown={handleKeyDown} 
               placeholder={activeTool ? `Mission for ${activeTool.tool.name}...` : dynamicPlaceholder}
               rows={1} 
-              className="w-full bg-transparent border-none outline-none resize-none font-mono text-xs p-3 min-h-[80px] placeholder:text-white/20" 
+              className="w-full bg-transparent border-none outline-none resize-none font-mono text-xs p-3 overflow-y-auto max-h-[120px]" 
               style={{ color: "var(--nazai-text-color)" }} 
             />
             <div className="flex items-center justify-between px-3 py-2 border-t border-white/5">
@@ -832,7 +863,7 @@ export default function Dashboard() {
     </div>
   );
 
-  // Folder View (preserved from V5)
+  // Folder View (preserved from V6)
   const FolderView = () => (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col w-full max-w-4xl flex-1 overflow-y-auto pt-4 pb-8 px-4">
       <div className="text-center mb-5">
@@ -843,7 +874,7 @@ export default function Dashboard() {
         {missionsLoading ? (
           <div className="flex justify-center py-12"><div className="w-5 h-5 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.4)` }} /></div>
         ) : filteredMissions.length === 0 ? (
-          <div className="text-center py-12"><p className="text-[11px] font-mono text-white/30">No missions found in {activeNav.toLowerCase()}</p></div>
+          <div className="text-center py-12"><p className="text-[11px] font-mono text-white/30">No blueprints found in {activeNav.toLowerCase()}</p></div>
         ) : (filteredMissions.map(renderMissionItem))}
       </motion.div>
     </motion.div>
@@ -882,7 +913,7 @@ export default function Dashboard() {
                 textShadow: `0 0 calc(var(--text-glow-intensity) * 15px) var(--glow-primary)`
               }}
             >
-              NAZAI://
+              NEURAL://
             </span>
             <span className="text-[10px] font-mono font-bold" style={{ background: currentTheme.gradient, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>{activeNav.toUpperCase()}</span>
           </div>
@@ -904,7 +935,7 @@ export default function Dashboard() {
         </footer>
       </main>
 
-      {/* PLUS MENU MODAL - z-[999] */}
+      {/* Modals preserved from V6 */}
       <AnimatePresence>
         {plusMenuOpen && (
           <>
@@ -946,7 +977,6 @@ export default function Dashboard() {
         )}
       </AnimatePresence>
 
-      {/* AI DRAWER MODAL */}
       <AnimatePresence>
         {drawerOpen && (
           <>
@@ -976,7 +1006,6 @@ export default function Dashboard() {
         )}
       </AnimatePresence>
 
-      {/* Logout Modal */}
       <AnimatePresence>
         {logoutModalOpen && (
           <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
