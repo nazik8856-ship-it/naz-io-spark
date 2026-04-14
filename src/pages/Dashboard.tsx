@@ -299,11 +299,12 @@ export default function Dashboard() {
 
   // ── Version Check ───────────────────────────────────────────────────────────────
   useEffect(() => {
-    const storedVersion = localStorage.getItem("nazai_version");
+    const storedVersion = localStorage.getItem("last_run_version");
     if (storedVersion !== APP_VERSION) {
       localStorage.removeItem("nazai-aura-profile");
       localStorage.removeItem("nazai-mission-cache");
-      localStorage.setItem("nazai_version", APP_VERSION);
+      localStorage.removeItem("nazai_version");
+      localStorage.setItem("last_run_version", APP_VERSION);
       if (storedVersion) {
         window.location.reload();
         return;
@@ -352,10 +353,14 @@ export default function Dashboard() {
       }
     };
     getSession();
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
       if (isMounted) {
         setUserEmail(session?.user?.email ?? null);
         setUserId(session?.user?.id ?? null);
+        if (event === "SIGNED_IN") {
+          setActiveNav("Home");
+          setMessages([]);
+        }
       }
     });
     return () => {
@@ -903,11 +908,17 @@ export default function Dashboard() {
         </motion.div>
       )}
 
-      <div className="w-full max-w-2xl mb-4">
-        <div
+      <div className="w-full max-w-2xl mb-4" key={`input-${activeNav}`}>
+        <motion.div
           className="relative rounded-xl flex flex-col"
+          animate={{
+            boxShadow: isTyping
+              ? `0 0 20px rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.4), 0 0 40px rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.15)`
+              : `0 0 15px rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.2), 0 0 30px rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.08)`,
+          }}
+          transition={{ duration: 1.5, repeat: isTyping ? 0 : Infinity, repeatType: "reverse" as const }}
           style={{
-            border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.2)`,
+            border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.35)`,
             background: "var(--nazai-card-bg)",
             backdropFilter: `blur(${auraProfile.glassBlur}px)`,
           }}
@@ -923,9 +934,10 @@ export default function Dashboard() {
             style={{ color: "var(--nazai-text-color)" }}
           />
           <div className="flex items-center justify-between px-3 py-2 border-t border-white/10">
-            <div className="flex gap-1">
+            <div className="flex gap-1 relative z-[60]">
               <button
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
                   setPlusMenuOpen((v) => !v);
                   setDrawerOpen(false);
                 }}
@@ -935,7 +947,8 @@ export default function Dashboard() {
                 <Plus size={12} />
               </button>
               <button
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
                   setDrawerOpen((v) => !v);
                   setPlusMenuOpen(false);
                 }}
@@ -954,7 +967,7 @@ export default function Dashboard() {
               <Send size={11} style={{ color: input.trim() ? "#020617" : "white" }} />
             </button>
           </div>
-        </div>
+        </motion.div>
       </div>
     </motion.div>
   );
@@ -1110,13 +1123,50 @@ export default function Dashboard() {
       {/* Plus Menu Modal */}
       <AnimatePresence>
         {plusMenuOpen && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setPlusMenuOpen(false)}
-            className="fixed inset-0 z-30 bg-black/40"
-          />
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setPlusMenuOpen(false)}
+              className="fixed inset-0 z-[55] bg-black/40"
+            />
+            <motion.div
+              initial={{ opacity: 0, y: 10, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 10, scale: 0.95 }}
+              transition={springTransition}
+              className="fixed z-[60] bottom-28 left-1/2 -translate-x-1/2 w-[90vw] max-w-xs rounded-xl overflow-hidden p-3 space-y-2"
+              style={{
+                background: "var(--nazai-card-bg)",
+                border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.2)`,
+                backdropFilter: `blur(${auraProfile.glassBlur}px)`,
+              }}
+            >
+              <div className="text-[8px] font-mono text-white/40 mb-1">SKILLS</div>
+              {SKILLS.map((skill) => (
+                <button
+                  key={skill.label}
+                  onClick={() => handleSkillClick(skill.label)}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-white/5 transition-colors"
+                >
+                  <skill.icon size={12} style={{ color: auraProfile.glowPrimary }} />
+                  <div>
+                    <div className="text-[10px] font-medium" style={{ color: "var(--nazai-text-color)" }}>{skill.label}</div>
+                    <div className="text-[8px] text-white/30">{skill.description}</div>
+                  </div>
+                </button>
+              ))}
+              <div className="text-[8px] font-mono text-white/40 mt-2 mb-1">ACTIONS</div>
+              <button
+                onClick={handleFileUpload}
+                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-white/5 transition-colors"
+              >
+                <Paperclip size={12} style={{ color: auraProfile.glowPrimary }} />
+                <div className="text-[10px] font-medium" style={{ color: "var(--nazai-text-color)" }}>Attach File</div>
+              </button>
+            </motion.div>
+          </>
         )}
       </AnimatePresence>
 
