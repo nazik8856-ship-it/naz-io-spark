@@ -49,7 +49,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 
 // ─── DEPLOYMENT VERSION ──────────────────────────────────────────────────────────
-const DEPLOYMENT_ID = "NAZAI_V2_FINAL_BENTO";
+const DEPLOYMENT_ID = "NAZAI_ULTIMATE_V3_BENTO";
 
 // ─── Type Definitions ──────────────────────────────────────────────────────────────
 
@@ -223,11 +223,15 @@ const itemVariants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: "easeOut" } },
 };
 
-// Border pulse animation
-const borderPulseAnimation = {
-  opacity: [0.3, 1, 0.3],
+// Border pulse animation for laser shine
+const laserShineAnimation = {
+  boxShadow: [
+    `0 0 15px var(--glow-primary)`,
+    `0 0 30px var(--glow-primary)`,
+    `0 0 15px var(--glow-primary)`,
+  ],
   transition: {
-    duration: 3,
+    duration: 2,
     repeat: Infinity,
     ease: "easeInOut",
   },
@@ -238,14 +242,39 @@ const borderPulseAnimation = {
 export default function Dashboard() {
   const navigate = useNavigate();
 
-  // ── Cache Nuke Effect ───────────────────────────────────────────────────────────
+  // ── Service Worker Nuke & Cache Busting ────────────────────────────────────────
   useEffect(() => {
-    const lastVersion = localStorage.getItem("last_version");
-    if (lastVersion !== DEPLOYMENT_ID) {
-      localStorage.clear();
-      localStorage.setItem("last_version", DEPLOYMENT_ID);
-      window.location.reload(true);
-    }
+    const clearAllCachesAndReload = async () => {
+      const currentVersion = localStorage.getItem("nazai_version_id");
+      
+      if (currentVersion !== DEPLOYMENT_ID) {
+        // Clear all storage
+        localStorage.clear();
+        sessionStorage.clear();
+        
+        // Unregister all service workers
+        if ('serviceWorker' in navigator) {
+          const registrations = await navigator.serviceWorker.getRegistrations();
+          for (const registration of registrations) {
+            await registration.unregister();
+          }
+        }
+        
+        // Clear caches if available
+        if ('caches' in window) {
+          const cacheNames = await caches.keys();
+          for (const cacheName of cacheNames) {
+            await caches.delete(cacheName);
+          }
+        }
+        
+        // Set new version and force hard reload from server
+        localStorage.setItem("nazai_version_id", DEPLOYMENT_ID);
+        window.location.replace(window.location.href);
+      }
+    };
+    
+    clearAllCachesAndReload();
   }, []);
 
   // ── State ───────────────────────────────────────────────────────────────────────
@@ -659,7 +688,7 @@ export default function Dashboard() {
     </motion.div>
   );
 
-  // Home View with RESTORED LASER SHINE and PULSING BORDER
+  // Home View with ENHANCED LASER SHINE and PULSING BORDER
   const HomeView = () => (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col items-center w-full h-full">
       <div className="flex-1 w-full max-w-2xl overflow-y-auto py-6 space-y-3">
@@ -692,16 +721,15 @@ export default function Dashboard() {
         </motion.div>
       )}
 
-      {/* RESTORED INPUT CONTAINER WITH LASER SHINE AND PULSING BORDER */}
+      {/* ENHANCED INPUT CONTAINER WITH LASER SHINE AND PULSING BORDER */}
       <div className="w-full max-w-2xl mb-4">
         <motion.div 
           className="relative rounded-xl flex flex-col"
-          animate={borderPulseAnimation}
+          animate={laserShineAnimation}
           style={{ 
             border: `2px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.6)`,
             background: "var(--nazai-card-bg)", 
             backdropFilter: `blur(${auraProfile.glassBlur}px)`,
-            boxShadow: `0 0 20px ${auraProfile.glowPrimary}`,
           }}
         >
           <textarea 
@@ -716,10 +744,10 @@ export default function Dashboard() {
           />
           <div className="flex items-center justify-between px-3 py-2 border-t border-white/10">
             <div className="flex gap-1">
-              {/* FIXED PLUS BUTTON - Now properly linked */}
+              {/* FIXED PLUS BUTTON with proper z-index handling */}
               <motion.button 
                 onClick={() => setPlusMenuOpen(true)} 
-                className="w-7 h-7 rounded-full flex items-center justify-center"
+                className="w-7 h-7 rounded-full flex items-center justify-center relative z-10"
                 style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.1)` }}
                 whileHover={{ scale: 1.1 }}
                 whileTap={{ scale: 0.9 }}
@@ -785,7 +813,15 @@ export default function Dashboard() {
         <header className="flex items-center justify-between px-4 py-2 shrink-0" style={{ borderBottom: `1px solid var(--nazai-border-light)`, background: auraProfile.isLightMode ? "rgba(255,255,255,0.6)" : "rgba(2,6,23,0.8)", backdropFilter: `blur(${auraProfile.glassBlur}px)` }}>
           <div className="flex items-center gap-2">
             <button onClick={() => setSidebarCollapsed(v => !v)} className="text-white/40">{sidebarCollapsed ? <PanelLeft size={14} /> : <PanelLeftClose size={14} />}</button>
-            <span className="text-[10px] font-mono font-black tracking-tighter" style={{ color: borderColor, textShadow: `0 0 ${auraProfile.textGlowIntensity * 6}px ${auraProfile.glowPrimary}` }}>NAZAI://</span>
+            <span 
+              className="text-[10px] font-mono font-black tracking-tighter" 
+              style={{ 
+                color: borderColor, 
+                textShadow: `0 0 calc(var(--text-glow-intensity) * 20px) var(--glow-primary)`
+              }}
+            >
+              NAZAI://
+            </span>
             <span className="text-[10px] font-mono font-bold" style={{ background: currentTheme.gradient, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>{activeNav.toUpperCase()}</span>
           </div>
           <div className="flex items-center gap-3">
@@ -806,7 +842,7 @@ export default function Dashboard() {
         </footer>
       </main>
 
-      {/* PLUS MENU MODAL - Fixed z-index to z-[100] */}
+      {/* PLUS MENU MODAL - Fixed z-index to z-[999] */}
       <AnimatePresence>
         {plusMenuOpen && (
           <>
@@ -815,14 +851,14 @@ export default function Dashboard() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setPlusMenuOpen(false)}
-              className="fixed inset-0 z-[90] bg-black/40 backdrop-blur-sm"
+              className="fixed inset-0 z-[998] bg-black/40 backdrop-blur-sm"
             />
             <motion.div
               initial={{ opacity: 0, y: 20, scale: 0.95 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 20, scale: 0.95 }}
               transition={springTransition}
-              className="fixed z-[100] bottom-24 left-1/2 -translate-x-1/2 w-[90vw] max-w-sm rounded-xl overflow-hidden"
+              className="fixed z-[999] bottom-24 left-1/2 -translate-x-1/2 w-[90vw] max-w-sm rounded-xl overflow-hidden"
               style={{ background: "var(--nazai-card-bg)", border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.2)`, backdropFilter: `blur(${auraProfile.glassBlur}px)` }}
             >
               <div className="px-4 py-2 border-b border-white/10 flex justify-between items-center">
@@ -852,8 +888,8 @@ export default function Dashboard() {
       <AnimatePresence>
         {drawerOpen && (
           <>
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setDrawerOpen(false)} className="fixed inset-0 z-[90] bg-black/40 backdrop-blur-sm" />
-            <motion.div initial={{ opacity: 0, y: 20, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 20, scale: 0.95 }} transition={springTransition} className="fixed z-[100] bottom-24 left-1/2 -translate-x-1/2 w-[90vw] max-w-md rounded-xl overflow-hidden" style={{ background: "var(--nazai-card-bg)", border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.2)`, backdropFilter: `blur(${auraProfile.glassBlur}px)` }}>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setDrawerOpen(false)} className="fixed inset-0 z-[998] bg-black/40 backdrop-blur-sm" />
+            <motion.div initial={{ opacity: 0, y: 20, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 20, scale: 0.95 }} transition={springTransition} className="fixed z-[999] bottom-24 left-1/2 -translate-x-1/2 w-[90vw] max-w-md rounded-xl overflow-hidden" style={{ background: "var(--nazai-card-bg)", border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.2)`, backdropFilter: `blur(${auraProfile.glassBlur}px)` }}>
               <div className="px-4 py-2 border-b border-white/10 flex justify-between items-center">
                 <span className="text-[10px] font-mono text-white/40">SELECT AI ENGINE</span>
                 <button onClick={() => setDrawerOpen(false)} className="text-white/40 hover:text-white/80"><X size={14} /></button>
@@ -881,7 +917,7 @@ export default function Dashboard() {
       {/* Logout Modal */}
       <AnimatePresence>
         {logoutModalOpen && (
-          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
             <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="max-w-sm w-full rounded-xl p-6 text-center" style={{ background: "var(--nazai-card-bg)", border: "1px solid rgba(239,68,68,0.3)" }}>
               <LogOut size={32} className="mx-auto mb-3 text-red-500" />
               <h3 className="text-sm font-bold mb-1">System Termination</h3>
