@@ -49,7 +49,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 
 // ─── DEPLOYMENT VERSION ──────────────────────────────────────────────────────────
-const DEPLOYMENT_ID = "NAZAI_TITAN_V5_STABLE";
+const DEPLOYMENT_ID = "NAZAI_TITAN_V6_ANCHORED";
 
 // ─── Type Definitions ──────────────────────────────────────────────────────────────
 
@@ -226,8 +226,8 @@ const getAvatarGradient = (email: string) => {
   return `linear-gradient(135deg, hsl(${hue1}, 70%, 55%), hsl(${hue2}, 70%, 45%))`;
 };
 
-// Typewriter effect function
-const useTypewriter = (texts: string[], intervalSpeed: number = 3000, typingSpeed: number = 50) => {
+// Typewriter effect function with refined timing
+const useTypewriter = (texts: string[], intervalSpeed: number = 4000, typingSpeed: number = 40) => {
   const [currentPlaceholder, setCurrentPlaceholder] = useState(texts[0]);
   const [isDeleting, setIsDeleting] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -305,7 +305,7 @@ const laserShineAnimation = {
 export default function Dashboard() {
   const navigate = useNavigate();
 
-  // ── Service Worker Nuke & Cache Busting (TITAN V5) ─────────────────────────────
+  // ── Service Worker Nuke & Cache Busting (TITAN V6) ─────────────────────────────
   useEffect(() => {
     const clearAllCachesAndReload = async () => {
       const currentVersion = localStorage.getItem("nazai_version_id");
@@ -337,7 +337,7 @@ export default function Dashboard() {
   }, []);
 
   // ── Typing Animation Effect ────────────────────────────────────────────────────
-  const dynamicPlaceholder = useTypewriter(PLACEHOLDER_TEXTS, 4000, 60);
+  const dynamicPlaceholder = useTypewriter(PLACEHOLDER_TEXTS, 4000, 40);
 
   // ── State ───────────────────────────────────────────────────────────────────────
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -744,11 +744,11 @@ export default function Dashboard() {
     </motion.div>
   );
 
-  // Home View with STABLE INPUT (no jumping)
+  // Home View with ANCHORED INPUT (fixed to viewport)
   const HomeView = () => (
     <div className="flex flex-col w-full h-full">
-      {/* Scrollable Messages Area */}
-      <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto py-6 space-y-3 px-4">
+      {/* Scrollable Messages Area with bottom padding for fixed input */}
+      <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto py-6 space-y-3 px-4 pb-[200px]">
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full gap-4 text-center">
             <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.2)` }}>
@@ -770,67 +770,69 @@ export default function Dashboard() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Selected Engine Badge */}
+      {/* Selected Engine Badge - appears above fixed input */}
       {activeTool && (
-        <div className="w-full max-w-2xl mx-auto mb-2 flex justify-end px-4">
+        <div className="w-full max-w-2xl mx-auto mb-2 flex justify-end px-4 relative z-[101]">
           <span className="text-[9px] px-2 py-1 rounded-full flex items-center gap-1 font-mono" style={{ background: `rgba(${activeTool.category.glowRgba},0.1)`, border: `1px solid rgba(${activeTool.category.glowRgba},0.2)`, color: activeTool.category.color }}>
             {activeTool.tool.name} <X size={10} className="cursor-pointer hover:opacity-70 transition-opacity" onClick={() => setSelectedModel(null)} />
           </span>
         </div>
       )}
 
-      {/* STABLE INPUT CONTAINER - PINNED TO BOTTOM */}
-      <div className="w-full max-w-2xl mx-auto mb-6 px-4">
-        <motion.div 
-          className="relative rounded-xl flex flex-col"
-          animate={laserShineAnimation}
-          style={{ 
-            border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.3)`,
-            background: "var(--nazai-card-bg)", 
-          }}
-        >
-          <textarea 
-            ref={textareaRef} 
-            value={input} 
-            onChange={handleInputChange} 
-            onKeyDown={handleKeyDown} 
-            placeholder={activeTool ? `Mission for ${activeTool.tool.name}...` : dynamicPlaceholder}
-            rows={1} 
-            className="w-full bg-transparent border-none outline-none resize-none font-mono text-xs p-3 min-h-[80px]" 
-            style={{ color: "var(--nazai-text-color)" }} 
-          />
-          <div className="flex items-center justify-between px-3 py-2 border-t border-white/5">
-            <div className="flex gap-1">
+      {/* FIXED INPUT CONTAINER - Anchored to viewport bottom */}
+      <div className="fixed bottom-0 left-0 right-0 z-[100] pb-8 px-4 bg-gradient-to-t from-[#020617] via-[#020617]/90 to-transparent">
+        <div className="w-full max-w-2xl mx-auto">
+          <motion.div 
+            className="relative rounded-xl flex flex-col"
+            animate={laserShineAnimation}
+            style={{ 
+              border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.3)`,
+              background: "var(--nazai-card-bg)", 
+            }}
+          >
+            <textarea 
+              ref={textareaRef} 
+              value={input} 
+              onChange={handleInputChange} 
+              onKeyDown={handleKeyDown} 
+              placeholder={activeTool ? `Mission for ${activeTool.tool.name}...` : dynamicPlaceholder}
+              rows={1} 
+              className="w-full bg-transparent border-none outline-none resize-none font-mono text-xs p-3 min-h-[80px] placeholder:text-white/20" 
+              style={{ color: "var(--nazai-text-color)" }} 
+            />
+            <div className="flex items-center justify-between px-3 py-2 border-t border-white/5">
+              <div className="flex gap-1">
+                <motion.button 
+                  onClick={() => setPlusMenuOpen(true)} 
+                  className="w-7 h-7 rounded-full flex items-center justify-center relative z-10 transition-all"
+                  style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.05)` }}
+                  whileHover={{ scale: 1.1, background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.1)` }}
+                  whileTap={{ scale: 0.9 }}
+                >
+                  <Plus size={12} />
+                </motion.button>
+                <button onClick={() => { setDrawerOpen(true); setPlusMenuOpen(false); }} className="text-[9px] px-2 py-1 rounded font-mono transition-all hover:bg-white/5" style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.03)` }}>
+                  {activeTool ? activeTool.tool.name : "Select Engine"}
+                </button>
+              </div>
               <motion.button 
-                onClick={() => setPlusMenuOpen(true)} 
-                className="w-7 h-7 rounded-full flex items-center justify-center relative z-10 transition-all"
-                style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.05)` }}
-                whileHover={{ scale: 1.1, background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.1)` }}
-                whileTap={{ scale: 0.9 }}
+                onClick={handleSend} 
+                disabled={!input.trim() || isProcessing} 
+                className="w-7 h-7 rounded-full flex items-center justify-center transition-all"
+                style={{ background: input.trim() ? currentTheme.color : "rgba(255,255,255,0.05)" }}
+                whileHover={input.trim() ? { scale: 1.1 } : {}}
+                whileTap={input.trim() ? { scale: 0.9 } : {}}
               >
-                <Plus size={12} />
+                <Send size={11} style={{ color: input.trim() ? "#020617" : "white/40" }} />
               </motion.button>
-              <button onClick={() => { setDrawerOpen(true); setPlusMenuOpen(false); }} className="text-[9px] px-2 py-1 rounded font-mono transition-all hover:bg-white/5" style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.03)` }}>
-                {activeTool ? activeTool.tool.name : "Select Engine"}
-              </button>
             </div>
-            <motion.button 
-              onClick={handleSend} 
-              disabled={!input.trim() || isProcessing} 
-              className="w-7 h-7 rounded-full flex items-center justify-center transition-all"
-              style={{ background: input.trim() ? currentTheme.color : "rgba(255,255,255,0.05)" }}
-              whileHover={input.trim() ? { scale: 1.1 } : {}}
-              whileTap={input.trim() ? { scale: 0.9 } : {}}
-            >
-              <Send size={11} style={{ color: input.trim() ? "#020617" : "white/40" }} />
-            </motion.button>
-          </div>
-        </motion.div>
+          </motion.div>
+        </div>
       </div>
     </div>
   );
 
-  // Folder View
+  // Folder View (preserved from V5)
   const FolderView = () => (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col w-full max-w-4xl flex-1 overflow-y-auto pt-4 pb-8 px-4">
       <div className="text-center mb-5">
@@ -902,12 +904,25 @@ export default function Dashboard() {
         </footer>
       </main>
 
-      {/* Modals remain the same */}
+      {/* PLUS MENU MODAL - z-[999] */}
       <AnimatePresence>
         {plusMenuOpen && (
           <>
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setPlusMenuOpen(false)} className="fixed inset-0 z-[998] bg-black/40 backdrop-blur-sm" />
-            <motion.div initial={{ opacity: 0, y: 20, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 20, scale: 0.95 }} transition={springTransition} className="fixed z-[999] bottom-24 left-1/2 -translate-x-1/2 w-[90vw] max-w-sm rounded-xl overflow-hidden" style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setPlusMenuOpen(false)}
+              className="fixed inset-0 z-[998] bg-black/40 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, y: 20, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 20, scale: 0.95 }}
+              transition={springTransition}
+              className="fixed z-[999] bottom-24 left-1/2 -translate-x-1/2 w-[90vw] max-w-sm rounded-xl overflow-hidden"
+              style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
+            >
               <div className="px-4 py-2 border-b border-white/10 flex justify-between items-center">
                 <span className="text-[10px] font-mono text-white/40">TOOLS & OPTIONS</span>
                 <button onClick={() => setPlusMenuOpen(false)} className="text-white/40 hover:text-white/80 transition-colors"><X size={14} /></button>
@@ -931,6 +946,7 @@ export default function Dashboard() {
         )}
       </AnimatePresence>
 
+      {/* AI DRAWER MODAL */}
       <AnimatePresence>
         {drawerOpen && (
           <>
@@ -960,6 +976,7 @@ export default function Dashboard() {
         )}
       </AnimatePresence>
 
+      {/* Logout Modal */}
       <AnimatePresence>
         {logoutModalOpen && (
           <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
