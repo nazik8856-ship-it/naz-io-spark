@@ -99,7 +99,7 @@ type AuraProfile = {
   isLightMode: boolean;
 };
 
-const APP_VERSION = "2.0.0-BENTO";
+const APP_VERSION = `2.1.0-BENTO-${Date.now()}`;
 
 // ─── Constants ─────────────────────────────────────────────────────────────────────
 
