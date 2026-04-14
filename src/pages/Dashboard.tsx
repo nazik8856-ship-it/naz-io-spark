@@ -297,6 +297,20 @@ export default function Dashboard() {
     }
   }, [auraProfile]);
 
+  // ── Version Check ───────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const storedVersion = localStorage.getItem("nazai_version");
+    if (storedVersion !== APP_VERSION) {
+      localStorage.removeItem("nazai-aura-profile");
+      localStorage.removeItem("nazai-mission-cache");
+      localStorage.setItem("nazai_version", APP_VERSION);
+      if (storedVersion) {
+        window.location.reload();
+        return;
+      }
+    }
+  }, []);
+
   useEffect(() => {
     saveAuraProfile(auraProfile);
   }, [auraProfile]);
