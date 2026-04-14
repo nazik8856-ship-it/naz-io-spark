@@ -50,7 +50,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 
 // ─── DEPLOYMENT VERSION ──────────────────────────────────────────────────────────
-const DEPLOYMENT_ID = "NAZAI_TITAN_V10_FINAL_STABLE";
+const DEPLOYMENT_ID = "NAZAI_TITAN_V12_FUNCTIONAL_STABLE";
 
 // ─── Type Definitions ──────────────────────────────────────────────────────────────
 
@@ -174,7 +174,7 @@ const DEFAULT_AURA_PROFILE: AuraProfile = {
   isLightMode: false,
 };
 
-// Professional placeholder texts for typing animation - NEURAL ARCHITECT EDITION
+// Professional placeholder texts for typing animation
 const PLACEHOLDER_TEXTS = [
   "Architect a high-performance gym business...",
   "Design a blueprint for an automated SaaS...",
@@ -225,7 +225,7 @@ const getAvatarGradient = (email: string) => {
   return `linear-gradient(135deg, hsl(${hue1}, 70%, 55%), hsl(${hue2}, 70%, 45%))`;
 };
 
-// Typewriter effect function with refined timing
+// Typewriter effect function
 const useTypewriter = (texts: string[], intervalSpeed: number = 4000, typingSpeed: number = 40) => {
   const [currentPlaceholder, setCurrentPlaceholder] = useState(texts[0]);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -271,35 +271,6 @@ const useTypewriter = (texts: string[], intervalSpeed: number = 4000, typingSpee
   return currentPlaceholder;
 };
 
-// VisualViewport hook for keyboard anchoring with body lock
-const useVisualViewport = () => {
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
-  const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
-
-  useEffect(() => {
-    if (!window.visualViewport) return;
-
-    const handleResize = () => {
-      const viewport = window.visualViewport;
-      const windowHeight = window.innerHeight;
-      const keyboardHeightEstimate = Math.max(0, windowHeight - viewport.height);
-      const keyboardOpen = keyboardHeightEstimate > 150;
-      
-      setKeyboardHeight(keyboardHeightEstimate);
-      setIsKeyboardOpen(keyboardOpen);
-    };
-
-    window.visualViewport.addEventListener("resize", handleResize);
-    handleResize();
-
-    return () => {
-      window.visualViewport?.removeEventListener("resize", handleResize);
-    };
-  }, []);
-
-  return { keyboardHeight, isKeyboardOpen };
-};
-
 // Animation variants
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -328,12 +299,18 @@ const laserShineAnimation = {
   },
 };
 
+// Generate fallback structural outline
+const generateFallbackOutline = (prompt: string): string => {
+  const words = prompt.split(' ').slice(0, 10).join(' ');
+  return `[Neural Architect: Connection Delayed]\n\nBased on: "${words}...", the blueprint is being generated. Please check your connection or try again.\n\nPreliminary Structure:\n• Market Analysis\n• Operational Framework\n• Financial Architecture\n• Growth Strategy\n\nReconnect to receive the complete AI-powered strategic plan.`;
+};
+
 // ─── Component ────────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
   const navigate = useNavigate();
 
-  // ── Service Worker Nuke & Cache Busting (TITAN V10) ────────────────────────────
+  // ── Service Worker Nuke & Cache Busting ────────────────────────────────────────
   useEffect(() => {
     const clearAllCachesAndReload = async () => {
       const currentVersion = localStorage.getItem("nazai_version_id");
@@ -366,9 +343,6 @@ export default function Dashboard() {
 
   // ── Typing Animation Effect ────────────────────────────────────────────────────
   const dynamicPlaceholder = useTypewriter(PLACEHOLDER_TEXTS, 4000, 40);
-
-  // ── VisualViewport Keyboard Detection ──────────────────────────────────────────
-  const { keyboardHeight } = useVisualViewport();
 
   // ── State ───────────────────────────────────────────────────────────────────────
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -404,10 +378,10 @@ export default function Dashboard() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const simulationRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const currentAbortControllerRef = useRef<AbortController | null>(null);
 
-  // ── Apply CSS Variables to Document IMMEDIATELY ─────────────────────────────────
+  // ── Apply CSS Variables to Document ────────────────────────────────────────────
   useEffect(() => {
     const root = document.documentElement;
     const primaryRgb = getRgbFromHex(auraProfile.glowPrimary);
@@ -533,11 +507,42 @@ export default function Dashboard() {
     }
   }, [errorMessage]);
 
+  // ─── EARTHQUAKE KILL SWITCH - Lock body scroll on input focus ──────────────────
+  useEffect(() => {
+    const handleFocus = () => {
+      document.documentElement.style.overflow = 'hidden';
+      document.documentElement.style.height = '100%';
+      document.body.style.overflow = 'hidden';
+      document.body.style.height = '100%';
+      document.body.style.position = 'fixed';
+      document.body.style.width = '100%';
+    };
+    
+    const handleBlur = () => {
+      document.documentElement.style.overflow = '';
+      document.documentElement.style.height = '';
+      document.body.style.overflow = '';
+      document.body.style.height = '';
+      document.body.style.position = '';
+      document.body.style.width = '';
+    };
+    
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.addEventListener('focus', handleFocus);
+      textarea.addEventListener('blur', handleBlur);
+      return () => {
+        textarea.removeEventListener('focus', handleFocus);
+        textarea.removeEventListener('blur', handleBlur);
+      };
+    }
+  }, []);
+
   useEffect(() => {
     return () => {
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-      if (simulationRef.current) clearTimeout(simulationRef.current);
       if (abortControllerRef.current) abortControllerRef.current.abort();
+      if (currentAbortControllerRef.current) currentAbortControllerRef.current.abort();
     };
   }, []);
 
@@ -575,35 +580,26 @@ export default function Dashboard() {
     setDrawerOpen(false);
   }, []);
 
-  const streamSimulation = useCallback((msgIndex: number) => {
-    const mockResponse = "[SIMULATION_MODE] // Neural pathway routed through local inference cache. Executing fallback analysis on provided directive. Output confidence: 87.3%.";
-    const words = mockResponse.split(" ");
-    let wordIdx = 0;
-    const appendWord = () => {
-      if (wordIdx >= words.length) return;
-      setMessages((prev) => {
-        const updated = [...prev];
-        if (updated[msgIndex]) {
-          updated[msgIndex] = { ...updated[msgIndex], text: words.slice(0, wordIdx + 1).join(" "), isSimulation: true };
-        }
-        return updated;
-      });
-      wordIdx++;
-      simulationRef.current = setTimeout(appendWord, 50);
-    };
-    appendWord();
-  }, []);
-
-  // FIXED: Message handler with timeout race and proper error handling
+  // ─── FIXED: Main Message Handler with 12-second timeout and state recovery ──────
   const handleSendMessage = useCallback(async () => {
+    // Input sanitization
     const trimmed = input.trim();
     if (!trimmed || isPending) return;
+    
+    // Cancel any pending request
+    if (currentAbortControllerRef.current) {
+      currentAbortControllerRef.current.abort();
+    }
+    
+    // Create new abort controller for this request
+    const abortController = new AbortController();
+    currentAbortControllerRef.current = abortController;
     
     setIsPending(true);
     setErrorMessage(null);
     
     const aiMsgIndex = messages.length + 1;
-    setMessages((prev) => [...prev, { role: "user", text: trimmed }, { role: "ai", text: "Processing..." }]);
+    setMessages((prev) => [...prev, { role: "user", text: trimmed }, { role: "ai", text: "Neural Architect: Processing blueprint..." }]);
     setInput("");
     
     // Reset textarea height
@@ -611,63 +607,118 @@ export default function Dashboard() {
       textareaRef.current.style.height = "auto";
     }
     
-    // Create timeout promise
+    // 12-second timeout promise
     const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error("Connection timeout")), 8000);
+      setTimeout(() => reject(new Error("Connection timeout after 12 seconds")), 12000);
     });
     
     try {
-      // Race between actual function and timeout
-      await Promise.race([
-        supabase.functions.invoke("chat", {
-          body: { message: trimmed, model: selectedModel },
+      // Race between API call and timeout
+      const result = await Promise.race([
+        supabase.functions.invoke("generate-business-plan", {
+          body: { 
+            prompt: trimmed, 
+            model: selectedModel,
+            style: activeStyle,
+            webSearch: webSearchActive,
+          },
+          signal: abortController.signal,
         }),
         timeoutPromise,
-      ]);
+      ]) as { data: any; error: any };
       
-      // Success - update message
+      // Check for abort
+      if (abortController.signal.aborted) return;
+      
+      // Handle error response
+      if (result.error) {
+        throw new Error(result.error.message || "Failed to generate blueprint");
+      }
+      
+      // Success - extract response
+      const outputText = result.data?.plan || result.data?.response || `[Neural Architect]\n\nBlueprint generated for: "${trimmed}"\n\nStrategic framework has been created.`;
+      
+      // Save to missions (History)
+      if (userId) {
+        await supabase.from("missions").insert({
+          user_id: userId,
+          directive: trimmed,
+          status: "completed",
+          created_at: new Date().toISOString(),
+        });
+        // Refresh missions
+        const { data: updatedMissions } = await supabase
+          .from("missions")
+          .select("*")
+          .eq("user_id", userId)
+          .order("created_at", { ascending: false });
+        if (updatedMissions) setMissions(updatedMissions as Mission[]);
+      }
+      
+      // Update message with response
       setMessages((prev) => {
         const updated = [...prev];
         if (updated[aiMsgIndex]) {
           updated[aiMsgIndex] = {
             ...updated[aiMsgIndex],
-            text: `[${activeTool?.tool.name ?? "Neural Architect"}] — Executing blueprint: "${trimmed.slice(0, 60)}..."`,
+            text: outputText,
           };
         }
         return updated;
       });
-    } catch (error) {
-      console.error("Failed to send message:", error);
-      setErrorMessage(error instanceof Error ? error.message : "Connection failed. Please try again.");
       
-      // Update message with error
+    } catch (error) {
+      // Handle abort gracefully
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log("Request aborted");
+        return;
+      }
+      
+      console.error("Failed to send message:", error);
+      const errorMsg = error instanceof Error ? error.message : "Connection failed";
+      setErrorMessage(`Neural Architect: ${errorMsg}`);
+      
+      // Generate fallback outline
+      const fallbackText = generateFallbackOutline(trimmed);
+      
+      // Update message with fallback
       setMessages((prev) => {
         const updated = [...prev];
         if (updated[aiMsgIndex]) {
           updated[aiMsgIndex] = {
             ...updated[aiMsgIndex],
-            text: `[System] — ${error instanceof Error ? error.message : "Request failed. Please check your connection."}`,
+            text: fallbackText,
             isSimulation: true,
           };
         }
         return updated;
       });
     } finally {
+      // FORCE state unlock - ensures Send button is NEVER stuck
       setIsPending(false);
+      currentAbortControllerRef.current = null;
       // Restore focus to textarea after sending
       setTimeout(() => {
         textareaRef.current?.focus();
       }, 100);
     }
-  }, [input, messages.length, activeTool, selectedModel, isPending]);
+  }, [input, messages.length, activeTool, selectedModel, isPending, userId, activeStyle, webSearchActive]);
 
-  // FIXED: Enter key handler - Enter sends, Shift+Enter creates new line
+  // FIXED: Enter key handler
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage();
     }
   }, [handleSendMessage]);
+
+  // FIXED: Send button with onPointerDown for instant mobile response
+  const handleSendPointerDown = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    if (input.trim() && !isPending) {
+      handleSendMessage();
+    }
+  }, [input, isPending, handleSendMessage]);
 
   const handleSignOut = useCallback(async () => {
     setLogoutModalOpen(false);
@@ -749,7 +800,7 @@ export default function Dashboard() {
     </motion.div>
   ), [auraProfile.glowPrimary]);
 
-  // Settings View (Preserved from V9)
+  // Settings View
   const SettingsView = () => (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={springTransition} className="flex-1 overflow-y-auto px-6 py-8">
       <div className="max-w-4xl mx-auto">
@@ -827,7 +878,7 @@ export default function Dashboard() {
     </motion.div>
   );
 
-  // Home View with FINAL STABILIZATION
+  // Home View with EARTHQUAKE-PROOF INPUT
   const HomeView = () => (
     <div className="flex flex-col w-full h-full">
       {/* Error Toast */}
@@ -846,7 +897,7 @@ export default function Dashboard() {
         )}
       </AnimatePresence>
 
-      {/* Scrollable Messages Area with bottom padding for fixed input */}
+      {/* Scrollable Messages Area */}
       <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto py-6 space-y-3 px-4 pb-[200px]">
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full gap-4 text-center pointer-events-auto">
@@ -878,12 +929,11 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* FINAL STABLE INPUT CONTAINER - GPU Accelerated */}
+      {/* EARTHQUAKE-PROOF INPUT CONTAINER - GPU Accelerated */}
       <div 
         className="fixed left-0 right-0 z-[9999]"
         style={{ 
-          bottom: keyboardHeight > 0 ? `${keyboardHeight + 8}px` : '16px',
-          transition: 'bottom 0.2s ease-out',
+          bottom: '16px',
           transform: 'translate3d(0, 0, 0)',
           willChange: 'transform',
         }}
@@ -930,8 +980,9 @@ export default function Dashboard() {
                   {activeTool ? activeTool.tool.name : "Select Engine"}
                 </button>
               </div>
+              {/* Send button with onPointerDown for instant mobile response */}
               <motion.button 
-                onClick={handleSendMessage} 
+                onPointerDown={handleSendPointerDown}
                 disabled={!input.trim() || isPending} 
                 className="w-7 h-7 rounded-full flex items-center justify-center transition-all pointer-events-auto"
                 style={{ background: (input.trim() && !isPending) ? currentTheme.color : "rgba(255,255,255,0.05)" }}
@@ -947,7 +998,7 @@ export default function Dashboard() {
     </div>
   );
 
-  // Folder View (preserved from V9)
+  // Folder View
   const FolderView = () => (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col w-full max-w-4xl flex-1 overflow-y-auto pt-4 pb-8 px-4">
       <div className="text-center mb-5">
@@ -1130,14 +1181,6 @@ export default function Dashboard() {
         
         .font-mono, .font-mono * {
           font-family: 'JetBrains Mono', monospace;
-        }
-        
-        body {
-          overscroll-behavior: none;
-          position: fixed;
-          width: 100%;
-          height: 100%;
-          overflow: hidden;
         }
         
         @keyframes pulse {
