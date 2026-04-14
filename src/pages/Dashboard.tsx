@@ -99,6 +99,8 @@ type AuraProfile = {
   isLightMode: boolean;
 };
 
+const APP_VERSION = "2.0.0-BENTO";
+
 // ─── Constants ─────────────────────────────────────────────────────────────────────
 
 const AI_CATEGORIES: Record<string, Category> = {
@@ -260,7 +262,6 @@ export default function Dashboard() {
 
   // Aura Design System State
   const [auraProfile, setAuraProfile] = useState<AuraProfile>(loadAuraProfile);
-  const [showSettings, setShowSettings] = useState(false);
 
   // ── Refs ────────────────────────────────────────────────────────────────────────
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -295,6 +296,20 @@ export default function Dashboard() {
       root.style.setProperty("--nazai-card-bg", "rgba(255,255,255,0.03)");
     }
   }, [auraProfile]);
+
+  // ── Version Check ───────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const storedVersion = localStorage.getItem("nazai_version");
+    if (storedVersion !== APP_VERSION) {
+      localStorage.removeItem("nazai-aura-profile");
+      localStorage.removeItem("nazai-mission-cache");
+      localStorage.setItem("nazai_version", APP_VERSION);
+      if (storedVersion) {
+        window.location.reload();
+        return;
+      }
+    }
+  }, []);
 
   useEffect(() => {
     saveAuraProfile(auraProfile);
@@ -416,12 +431,7 @@ export default function Dashboard() {
   }, []);
 
   const handleNavClick = useCallback((label: string) => {
-    if (label === "Settings") {
-      setShowSettings(true);
-    } else {
-      setShowSettings(false);
-      setActiveNav(label);
-    }
+    setActiveNav(label);
   }, []);
 
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -520,8 +530,7 @@ export default function Dashboard() {
   const renderNavItem = useCallback(
     (item: (typeof NAV_ITEMS)[number]) => {
       const Icon = item.icon;
-      const isActive = activeNav === item.label && !showSettings;
-      const isSettingsActive = item.label === "Settings" && showSettings;
+      const isActive = activeNav === item.label;
       const itemTheme = SECTION_THEMES[item.label] || SECTION_THEMES["Home"];
       return (
         <motion.button
@@ -532,7 +541,7 @@ export default function Dashboard() {
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
         >
-          {(isActive || isSettingsActive) && (
+          {isActive && (
             <motion.div
               layoutId="nav-active-bg"
               className="absolute inset-0 rounded-lg"
@@ -548,14 +557,14 @@ export default function Dashboard() {
             size={18}
             className="relative z-10"
             style={{
-              color: isActive || isSettingsActive ? itemTheme.color : "rgba(255,255,255,0.25)",
-              filter: isActive || isSettingsActive ? `drop-shadow(0 0 6px rgba(${itemTheme.glowRgba}, 0.6))` : "none",
+              color: isActive ? itemTheme.color : "rgba(255,255,255,0.25)",
+              filter: isActive ? `drop-shadow(0 0 6px rgba(${itemTheme.glowRgba}, 0.6))` : "none",
             }}
           />
         </motion.button>
       );
     },
-    [activeNav, showSettings, handleNavClick],
+    [activeNav, handleNavClick],
   );
 
   const renderMissionItem = useCallback(
@@ -807,7 +816,7 @@ export default function Dashboard() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.3 }}
-          onClick={() => setShowSettings(false)}
+          onClick={() => setActiveNav("Home")}
           className="mt-6 w-full py-2.5 rounded-xl text-sm font-medium"
           style={{
             background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.1)`,
@@ -1073,12 +1082,12 @@ export default function Dashboard() {
 
         <div className="flex-1 flex flex-col items-center overflow-hidden relative px-3">
           <AnimatePresence mode="wait">
-            {showSettings ? (
+            {activeNav === "Settings" ? (
               <SettingsView key="settings" />
             ) : activeNav === "Home" ? (
               <HomeView key="home" />
             ) : (
-              <FolderView key="folder" />
+              <FolderView key={`folder-${activeNav}`} />
             )}
           </AnimatePresence>
         </div>
