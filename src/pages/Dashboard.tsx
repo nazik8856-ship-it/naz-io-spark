@@ -50,7 +50,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 
 // ─── DEPLOYMENT VERSION ──────────────────────────────────────────────────────────
-const DEPLOYMENT_ID = "NAZAI_TITAN_V13_MECHANICAL_OVERRIDE";
+const DEPLOYMENT_ID = "NAZAI_TITAN_V14_NATIVE_FORCE";
 
 // ─── Type Definitions ──────────────────────────────────────────────────────────────
 
@@ -344,6 +344,9 @@ export default function Dashboard() {
   // ── Typing Animation Effect ────────────────────────────────────────────────────
   const dynamicPlaceholder = useTypewriter(PLACEHOLDER_TEXTS, 4000, 40);
 
+  // ── Visual Viewport State for Mechanical Anchoring ─────────────────────────────
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
   // ── State ───────────────────────────────────────────────────────────────────────
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [plusMenuOpen, setPlusMenuOpen] = useState(false);
@@ -372,9 +375,6 @@ export default function Dashboard() {
   // Aura Design System State
   const [auraProfile, setAuraProfile] = useState<AuraProfile>(loadAuraProfile);
   const [showSettings, setShowSettings] = useState(false);
-
-  // ── Visual Viewport State for Mechanical Anchoring ─────────────────────────────
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   // ── Refs ────────────────────────────────────────────────────────────────────────
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -424,6 +424,9 @@ export default function Dashboard() {
       const windowHeight = window.innerHeight;
       const keyboardHeightEstimate = Math.max(0, windowHeight - viewport.height);
       setKeyboardHeight(keyboardHeightEstimate);
+      
+      // Update CSS variable for transform-based positioning
+      document.documentElement.style.setProperty('--keyboard-height', `${keyboardHeightEstimate}px`);
     };
 
     window.visualViewport.addEventListener("resize", handleViewportResize);
@@ -574,7 +577,7 @@ export default function Dashboard() {
     setDrawerOpen(false);
   }, []);
 
-  // ─── MAIN MESSAGE HANDLER with 12-second timeout ────────────────────────────────
+  // ─── MAIN MESSAGE HANDLER with 12-second timeout and force unlock ────────────────
   const handleSendMessage = useCallback(async () => {
     const trimmed = input.trim();
     if (!trimmed || isPending) return;
@@ -673,6 +676,7 @@ export default function Dashboard() {
         return updated;
       });
     } finally {
+      // FORCE state unlock - ensures Send button is NEVER stuck
       setIsPending(false);
       currentAbortControllerRef.current = null;
       setTimeout(() => {
@@ -688,9 +692,11 @@ export default function Dashboard() {
     }
   }, [handleSendMessage]);
 
+  // Haptic feedback on button press
   const handleSendPointerDown = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
     e.preventDefault();
     if (input.trim() && !isPending) {
+      // Visual haptic feedback via scale is handled by Framer Motion
       handleSendMessage();
     }
   }, [input, isPending, handleSendMessage]);
@@ -853,7 +859,7 @@ export default function Dashboard() {
     </motion.div>
   );
 
-  // Home View with MECHANICAL VISUAL VIEWPORT ANCHORING
+  // Home View with NATIVE-FORCE STABILITY
   const HomeView = () => (
     <div className="flex flex-col w-full h-full">
       {/* Error Toast */}
@@ -873,7 +879,7 @@ export default function Dashboard() {
       </AnimatePresence>
 
       {/* Scrollable Messages Area */}
-      <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto py-6 space-y-3 px-4 pb-[200px]" style={{ WebkitOverflowScrolling: "touch" }}>
+      <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto py-6 space-y-3 px-4 pb-[200px]">
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full gap-4 text-center pointer-events-auto">
             <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.2)` }}>
@@ -904,18 +910,17 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* MECHANICAL VISUAL VIEWPORT ANCHORED INPUT */}
+      {/* NATIVE-FORCE INPUT CONTAINER - Hardware accelerated transform */}
       <div 
         ref={inputContainerRef}
-        className="fixed left-0 right-0 z-[9999]"
+        className="fixed left-0 right-0 z-[9999] pointer-events-none"
         style={{ 
-          bottom: keyboardHeight > 0 ? `${keyboardHeight + 12}px` : '16px',
-          transition: 'bottom 0.1s ease-out',
-          transform: 'translate3d(0, 0, 0)',
+          transform: `translateY(calc(-1 * var(--keyboard-height, 0px) + 16px))`,
+          transition: 'transform 0.1s ease-out',
           willChange: 'transform',
         }}
       >
-        <div className="w-full max-w-2xl mx-auto px-4">
+        <div className="w-full max-w-2xl mx-auto px-4 pointer-events-auto">
           <motion.div 
             className="relative rounded-xl flex flex-col"
             animate={laserShineAnimation}
@@ -976,7 +981,7 @@ export default function Dashboard() {
 
   // Folder View
   const FolderView = () => (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col w-full max-w-4xl flex-1 overflow-y-auto pt-4 pb-8 px-4" style={{ WebkitOverflowScrolling: "touch" }}>
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col w-full max-w-4xl flex-1 overflow-y-auto pt-4 pb-8 px-4">
       <div className="text-center mb-5">
         <h1 className="text-3xl font-black uppercase tracking-tighter font-mono" style={{ background: currentTheme.gradient, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>{activeNav}</h1>
         <p className="text-[8px] tracking-[0.3em] uppercase font-mono text-white/30 mt-2">SYSTEM_NODE // {activeNav.toUpperCase()}_TERMINAL</p>
@@ -1136,6 +1141,22 @@ export default function Dashboard() {
       </AnimatePresence>
 
       <style>{`
+        /* GLOBAL LOCKDOWN - Absolute stillness */
+        html, body {
+          position: fixed !important;
+          overflow: hidden !important;
+          overscroll-behavior: none !important;
+          height: 100% !important;
+          width: 100% !important;
+          touch-action: pan-x pan-y !important;
+        }
+        
+        /* Prevent elastic bounce on all scrollable containers */
+        .overflow-y-auto {
+          -webkit-overflow-scrolling: touch;
+          overscroll-behavior: contain;
+        }
+        
         @import url('https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,100..900;1,100..900&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap');
         
         :root {
@@ -1149,6 +1170,7 @@ export default function Dashboard() {
           --nazai-bg-base: #020617;
           --nazai-border-light: rgba(255,255,255,0.05);
           --nazai-card-bg: #0f172a;
+          --keyboard-height: 0px;
         }
         
         * {
@@ -1157,20 +1179,6 @@ export default function Dashboard() {
         
         .font-mono, .font-mono * {
           font-family: 'JetBrains Mono', monospace;
-        }
-        
-        /* Touch stabilization - prevents elastic bounce */
-        .overflow-y-auto {
-          -webkit-overflow-scrolling: touch;
-        }
-        
-        body {
-          touch-action: pan-x pan-y;
-        }
-        
-        /* Background grid touch prevention */
-        .fixed, .absolute, .relative {
-          touch-action: pan-x pan-y;
         }
         
         @keyframes pulse {
