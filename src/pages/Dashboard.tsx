@@ -45,11 +45,11 @@ import {
   Moon,
   RotateCcw,
   Sliders,
-  Sparkles,
-  FolderKanban,
-  Target,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
+
+// ─── DEPLOYMENT VERSION ──────────────────────────────────────────────────────────
+const DEPLOYMENT_ID = "NAZAI_V2_FINAL_BENTO";
 
 // ─── Type Definitions ──────────────────────────────────────────────────────────────
 
@@ -98,8 +98,6 @@ type AuraProfile = {
   glassBlur: number;
   isLightMode: boolean;
 };
-
-const APP_VERSION = `2.1.0-BENTO-${Date.now()}`;
 
 // ─── Constants ─────────────────────────────────────────────────────────────────────
 
@@ -228,13 +226,33 @@ const containerVariants = {
 
 const itemVariants = {
   hidden: { opacity: 0, y: 20 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: "easeOut" as const } },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: "easeOut" } },
+};
+
+// Border pulse animation
+const borderPulseAnimation = {
+  opacity: [0.3, 1, 0.3],
+  transition: {
+    duration: 3,
+    repeat: Infinity,
+    ease: "easeInOut",
+  },
 };
 
 // ─── Component ────────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
   const navigate = useNavigate();
+
+  // ── Cache Nuke Effect ───────────────────────────────────────────────────────────
+  useEffect(() => {
+    const lastVersion = localStorage.getItem("last_version");
+    if (lastVersion !== DEPLOYMENT_ID) {
+      localStorage.clear();
+      localStorage.setItem("last_version", DEPLOYMENT_ID);
+      window.location.reload(true);
+    }
+  }, []);
 
   // ── State ───────────────────────────────────────────────────────────────────────
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -262,6 +280,7 @@ export default function Dashboard() {
 
   // Aura Design System State
   const [auraProfile, setAuraProfile] = useState<AuraProfile>(loadAuraProfile);
+  const [showSettings, setShowSettings] = useState(false);
 
   // ── Refs ────────────────────────────────────────────────────────────────────────
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -271,7 +290,7 @@ export default function Dashboard() {
   const simulationRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // ── Apply CSS Variables ─────────────────────────────────────────────────────────
+  // ── Apply CSS Variables to Document IMMEDIATELY ─────────────────────────────────
   useEffect(() => {
     const root = document.documentElement;
     const primaryRgb = getRgbFromHex(auraProfile.glowPrimary);
@@ -286,7 +305,7 @@ export default function Dashboard() {
 
     if (auraProfile.isLightMode) {
       root.style.setProperty("--nazai-text-color", "#0f172a");
-      root.style.setProperty("--nazai-bg-base", "#f1f5f9");
+      root.style.setProperty("--nazai-bg-base", "#f8fafc");
       root.style.setProperty("--nazai-border-light", "rgba(0,0,0,0.08)");
       root.style.setProperty("--nazai-card-bg", "rgba(255,255,255,0.8)");
     } else {
@@ -296,21 +315,6 @@ export default function Dashboard() {
       root.style.setProperty("--nazai-card-bg", "rgba(255,255,255,0.03)");
     }
   }, [auraProfile]);
-
-  // ── Version Check ───────────────────────────────────────────────────────────────
-  useEffect(() => {
-    const storedVersion = localStorage.getItem("last_run_version");
-    if (storedVersion !== APP_VERSION) {
-      localStorage.removeItem("nazai-aura-profile");
-      localStorage.removeItem("nazai-mission-cache");
-      localStorage.removeItem("nazai_version");
-      localStorage.setItem("last_run_version", APP_VERSION);
-      if (storedVersion) {
-        window.location.reload();
-        return;
-      }
-    }
-  }, []);
 
   useEffect(() => {
     saveAuraProfile(auraProfile);
@@ -353,14 +357,10 @@ export default function Dashboard() {
       }
     };
     getSession();
-    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       if (isMounted) {
         setUserEmail(session?.user?.email ?? null);
         setUserId(session?.user?.id ?? null);
-        if (event === "SIGNED_IN") {
-          setActiveNav("Home");
-          setMessages([]);
-        }
       }
     });
     return () => {
@@ -436,7 +436,12 @@ export default function Dashboard() {
   }, []);
 
   const handleNavClick = useCallback((label: string) => {
-    setActiveNav(label);
+    if (label === "Settings") {
+      setShowSettings(true);
+    } else {
+      setShowSettings(false);
+      setActiveNav(label);
+    }
   }, []);
 
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -535,7 +540,8 @@ export default function Dashboard() {
   const renderNavItem = useCallback(
     (item: (typeof NAV_ITEMS)[number]) => {
       const Icon = item.icon;
-      const isActive = activeNav === item.label;
+      const isActive = activeNav === item.label && !showSettings;
+      const isSettingsActive = item.label === "Settings" && showSettings;
       const itemTheme = SECTION_THEMES[item.label] || SECTION_THEMES["Home"];
       return (
         <motion.button
@@ -546,7 +552,7 @@ export default function Dashboard() {
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
         >
-          {isActive && (
+          {(isActive || isSettingsActive) && (
             <motion.div
               layoutId="nav-active-bg"
               className="absolute inset-0 rounded-lg"
@@ -562,14 +568,14 @@ export default function Dashboard() {
             size={18}
             className="relative z-10"
             style={{
-              color: isActive ? itemTheme.color : "rgba(255,255,255,0.25)",
-              filter: isActive ? `drop-shadow(0 0 6px rgba(${itemTheme.glowRgba}, 0.6))` : "none",
+              color: isActive || isSettingsActive ? itemTheme.color : "rgba(255,255,255,0.25)",
+              filter: isActive || isSettingsActive ? `drop-shadow(0 0 6px rgba(${itemTheme.glowRgba}, 0.6))` : "none",
             }}
           />
         </motion.button>
       );
     },
-    [activeNav, handleNavClick],
+    [activeNav, showSettings, handleNavClick],
   );
 
   const renderMissionItem = useCallback(
@@ -821,7 +827,7 @@ export default function Dashboard() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.3 }}
-          onClick={() => setActiveNav("Home")}
+          onClick={() => setShowSettings(false)}
           className="mt-6 w-full py-2.5 rounded-xl text-sm font-medium"
           style={{
             background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.1)`,
@@ -837,7 +843,7 @@ export default function Dashboard() {
     </motion.div>
   );
 
-  // Home View
+  // Home View with RESTORED LASER SHINE and PULSING BORDER
   const HomeView = () => (
     <motion.div
       initial={{ opacity: 0 }}
@@ -908,19 +914,16 @@ export default function Dashboard() {
         </motion.div>
       )}
 
-      <div className="w-full max-w-2xl mb-4" key={`input-${activeNav}`}>
+      {/* RESTORED INPUT CONTAINER WITH LASER SHINE AND PULSING BORDER */}
+      <div className="w-full max-w-2xl mb-4">
         <motion.div
           className="relative rounded-xl flex flex-col"
-          animate={{
-            boxShadow: isTyping
-              ? `0 0 20px rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.4), 0 0 40px rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.15)`
-              : `0 0 15px rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.2), 0 0 30px rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.08)`,
-          }}
-          transition={{ duration: 1.5, repeat: isTyping ? 0 : Infinity, repeatType: "reverse" as const }}
+          animate={borderPulseAnimation}
           style={{
-            border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.35)`,
+            border: `2px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.6)`,
             background: "var(--nazai-card-bg)",
             backdropFilter: `blur(${auraProfile.glassBlur}px)`,
+            boxShadow: `0 0 20px ${auraProfile.glowPrimary}`,
           }}
         >
           <textarea
@@ -934,22 +937,20 @@ export default function Dashboard() {
             style={{ color: "var(--nazai-text-color)" }}
           />
           <div className="flex items-center justify-between px-3 py-2 border-t border-white/10">
-            <div className="flex gap-1 relative z-[60]">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setPlusMenuOpen((v) => !v);
-                  setDrawerOpen(false);
-                }}
+            <div className="flex gap-1">
+              {/* FIXED PLUS BUTTON - Now properly linked */}
+              <motion.button
+                onClick={() => setPlusMenuOpen(true)}
                 className="w-7 h-7 rounded-full flex items-center justify-center"
                 style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.1)` }}
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
               >
                 <Plus size={12} />
-              </button>
+              </motion.button>
               <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setDrawerOpen((v) => !v);
+                onClick={() => {
+                  setDrawerOpen(true);
                   setPlusMenuOpen(false);
                 }}
                 className="text-[9px] px-2 py-1 rounded"
@@ -958,14 +959,16 @@ export default function Dashboard() {
                 {activeTool ? activeTool.tool.name : "Select Engine"}
               </button>
             </div>
-            <button
+            <motion.button
               onClick={handleSend}
               disabled={!input.trim() || isProcessing}
               className="w-7 h-7 rounded-full flex items-center justify-center"
               style={{ background: input.trim() ? currentTheme.color : "rgba(255,255,255,0.1)" }}
+              whileHover={input.trim() ? { scale: 1.1 } : {}}
+              whileTap={input.trim() ? { scale: 0.9 } : {}}
             >
               <Send size={11} style={{ color: input.trim() ? "#020617" : "white" }} />
-            </button>
+            </motion.button>
           </div>
         </motion.div>
       </div>
@@ -1095,12 +1098,12 @@ export default function Dashboard() {
 
         <div className="flex-1 flex flex-col items-center overflow-hidden relative px-3">
           <AnimatePresence mode="wait">
-            {activeNav === "Settings" ? (
+            {showSettings ? (
               <SettingsView key="settings" />
             ) : activeNav === "Home" ? (
               <HomeView key="home" />
             ) : (
-              <FolderView key={`folder-${activeNav}`} />
+              <FolderView key="folder" />
             )}
           </AnimatePresence>
         </div>
@@ -1120,7 +1123,7 @@ export default function Dashboard() {
         </footer>
       </main>
 
-      {/* Plus Menu Modal */}
+      {/* PLUS MENU MODAL - Fixed z-index to z-[100] */}
       <AnimatePresence>
         {plusMenuOpen && (
           <>
@@ -1129,48 +1132,56 @@ export default function Dashboard() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setPlusMenuOpen(false)}
-              className="fixed inset-0 z-[55] bg-black/40"
+              className="fixed inset-0 z-[90] bg-black/40 backdrop-blur-sm"
             />
             <motion.div
-              initial={{ opacity: 0, y: 10, scale: 0.95 }}
+              initial={{ opacity: 0, y: 20, scale: 0.95 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 10, scale: 0.95 }}
+              exit={{ opacity: 0, y: 20, scale: 0.95 }}
               transition={springTransition}
-              className="fixed z-[60] bottom-28 left-1/2 -translate-x-1/2 w-[90vw] max-w-xs rounded-xl overflow-hidden p-3 space-y-2"
+              className="fixed z-[100] bottom-24 left-1/2 -translate-x-1/2 w-[90vw] max-w-sm rounded-xl overflow-hidden"
               style={{
                 background: "var(--nazai-card-bg)",
                 border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.2)`,
                 backdropFilter: `blur(${auraProfile.glassBlur}px)`,
               }}
             >
-              <div className="text-[8px] font-mono text-white/40 mb-1">SKILLS</div>
-              {SKILLS.map((skill) => (
+              <div className="px-4 py-2 border-b border-white/10 flex justify-between items-center">
+                <span className="text-[10px] font-mono text-white/40">TOOLS & OPTIONS</span>
+                <button onClick={() => setPlusMenuOpen(false)} className="text-white/40 hover:text-white/80">
+                  <X size={14} />
+                </button>
+              </div>
+              <div className="p-3 space-y-2">
                 <button
-                  key={skill.label}
-                  onClick={() => handleSkillClick(skill.label)}
-                  className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-white/5 transition-colors"
+                  onClick={handleFileUpload}
+                  className="flex items-center gap-3 w-full px-3 py-2 rounded-lg hover:bg-white/5 transition-colors"
                 >
-                  <skill.icon size={12} style={{ color: auraProfile.glowPrimary }} />
-                  <div>
-                    <div className="text-[10px] font-medium" style={{ color: "var(--nazai-text-color)" }}>{skill.label}</div>
-                    <div className="text-[8px] text-white/30">{skill.description}</div>
+                  <Paperclip size={14} style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.6)` }} />
+                  <div className="text-left">
+                    <div className="text-xs">Add Files / Photos</div>
+                    <div className="text-[9px] text-white/30">Upload from device</div>
                   </div>
                 </button>
-              ))}
-              <div className="text-[8px] font-mono text-white/40 mt-2 mb-1">ACTIONS</div>
-              <button
-                onClick={handleFileUpload}
-                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-white/5 transition-colors"
-              >
-                <Paperclip size={12} style={{ color: auraProfile.glowPrimary }} />
-                <div className="text-[10px] font-medium" style={{ color: "var(--nazai-text-color)" }}>Attach File</div>
-              </button>
+                <div className="h-px bg-white/10 my-2" />
+                <div className="text-[9px] font-mono text-white/40 px-2">SKILLS</div>
+                {SKILLS.map(({ icon: Icon, label }) => (
+                  <button
+                    key={label}
+                    onClick={() => handleSkillClick(label)}
+                    className="flex items-center gap-3 w-full px-3 py-2 rounded-lg hover:bg-white/5 transition-colors"
+                  >
+                    <Icon size={14} style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.5)` }} />
+                    <span className="text-xs">{label}</span>
+                  </button>
+                ))}
+              </div>
             </motion.div>
           </>
         )}
       </AnimatePresence>
 
-      {/* AI Drawer Modal */}
+      {/* AI DRAWER MODAL */}
       <AnimatePresence>
         {drawerOpen && (
           <>
@@ -1179,22 +1190,25 @@ export default function Dashboard() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setDrawerOpen(false)}
-              className="fixed inset-0 z-30 bg-black/40"
+              className="fixed inset-0 z-[90] bg-black/40 backdrop-blur-sm"
             />
             <motion.div
               initial={{ opacity: 0, y: 20, scale: 0.95 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 20, scale: 0.95 }}
               transition={springTransition}
-              className="fixed z-40 bottom-24 left-1/2 -translate-x-1/2 w-[90vw] max-w-md rounded-xl overflow-hidden"
+              className="fixed z-[100] bottom-24 left-1/2 -translate-x-1/2 w-[90vw] max-w-md rounded-xl overflow-hidden"
               style={{
                 background: "var(--nazai-card-bg)",
                 border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.2)`,
                 backdropFilter: `blur(${auraProfile.glassBlur}px)`,
               }}
             >
-              <div className="px-4 py-2 border-b border-white/10">
+              <div className="px-4 py-2 border-b border-white/10 flex justify-between items-center">
                 <span className="text-[10px] font-mono text-white/40">SELECT AI ENGINE</span>
+                <button onClick={() => setDrawerOpen(false)} className="text-white/40 hover:text-white/80">
+                  <X size={14} />
+                </button>
               </div>
               <div className="p-3 space-y-3">
                 {Object.entries(AI_CATEGORIES).map(([catKey, cat]) => (
@@ -1236,7 +1250,7 @@ export default function Dashboard() {
       {/* Logout Modal */}
       <AnimatePresence>
         {logoutModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
             <motion.div
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
