@@ -45,11 +45,12 @@ import {
   Moon,
   RotateCcw,
   Sliders,
+  AlertCircle,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 
 // ─── DEPLOYMENT VERSION ──────────────────────────────────────────────────────────
-const DEPLOYMENT_ID = "NAZAI_TITAN_V9_CLICK_STABLE";
+const DEPLOYMENT_ID = "NAZAI_TITAN_V10_FINAL_STABLE";
 
 // ─── Type Definitions ──────────────────────────────────────────────────────────────
 
@@ -286,23 +287,6 @@ const useVisualViewport = () => {
       
       setKeyboardHeight(keyboardHeightEstimate);
       setIsKeyboardOpen(keyboardOpen);
-      
-      // Lock body scroll when keyboard is open to prevent "earthquake" effect
-      if (keyboardOpen) {
-        document.body.style.position = 'fixed';
-        document.body.style.width = '100%';
-        document.body.style.top = `-${window.scrollY}px`;
-        document.body.style.overflow = 'hidden';
-      } else {
-        const scrollY = document.body.style.top;
-        document.body.style.position = '';
-        document.body.style.width = '';
-        document.body.style.top = '';
-        document.body.style.overflow = '';
-        if (scrollY) {
-          window.scrollTo(0, parseInt(scrollY || '0') * -1);
-        }
-      }
     };
 
     window.visualViewport.addEventListener("resize", handleResize);
@@ -310,10 +294,6 @@ const useVisualViewport = () => {
 
     return () => {
       window.visualViewport?.removeEventListener("resize", handleResize);
-      document.body.style.position = '';
-      document.body.style.width = '';
-      document.body.style.top = '';
-      document.body.style.overflow = '';
     };
   }, []);
 
@@ -353,7 +333,7 @@ const laserShineAnimation = {
 export default function Dashboard() {
   const navigate = useNavigate();
 
-  // ── Service Worker Nuke & Cache Busting (TITAN V9) ─────────────────────────────
+  // ── Service Worker Nuke & Cache Busting (TITAN V10) ────────────────────────────
   useEffect(() => {
     const clearAllCachesAndReload = async () => {
       const currentVersion = localStorage.getItem("nazai_version_id");
@@ -409,7 +389,8 @@ export default function Dashboard() {
     vercel: false,
     github: false,
   });
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [isPending, setIsPending] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
   const [missions, setMissions] = useState<Mission[]>([]);
   const [missionsLoading, setMissionsLoading] = useState(true);
@@ -544,6 +525,14 @@ export default function Dashboard() {
     }
   }, [input]);
 
+  // Auto-clear error message after 5 seconds
+  useEffect(() => {
+    if (errorMessage) {
+      const timer = setTimeout(() => setErrorMessage(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [errorMessage]);
+
   useEffect(() => {
     return () => {
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
@@ -605,10 +594,13 @@ export default function Dashboard() {
     appendWord();
   }, []);
 
-  // FIXED: Send button is enabled unless input is empty OR processing (but processing doesn't block completely)
-  const handleSendMessage = useCallback(() => {
+  // FIXED: Message handler with timeout race and proper error handling
+  const handleSendMessage = useCallback(async () => {
     const trimmed = input.trim();
-    if (!trimmed) return;
+    if (!trimmed || isPending) return;
+    
+    setIsPending(true);
+    setErrorMessage(null);
     
     const aiMsgIndex = messages.length + 1;
     setMessages((prev) => [...prev, { role: "user", text: trimmed }, { role: "ai", text: "Processing..." }]);
@@ -619,12 +611,21 @@ export default function Dashboard() {
       textareaRef.current.style.height = "auto";
     }
     
-    const timeout = setTimeout(() => {
-      streamSimulation(aiMsgIndex);
-    }, 8000);
+    // Create timeout promise
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error("Connection timeout")), 8000);
+    });
     
-    setTimeout(() => {
-      clearTimeout(timeout);
+    try {
+      // Race between actual function and timeout
+      await Promise.race([
+        supabase.functions.invoke("chat", {
+          body: { message: trimmed, model: selectedModel },
+        }),
+        timeoutPromise,
+      ]);
+      
+      // Success - update message
       setMessages((prev) => {
         const updated = [...prev];
         if (updated[aiMsgIndex]) {
@@ -635,15 +636,32 @@ export default function Dashboard() {
         }
         return updated;
       });
+    } catch (error) {
+      console.error("Failed to send message:", error);
+      setErrorMessage(error instanceof Error ? error.message : "Connection failed. Please try again.");
       
+      // Update message with error
+      setMessages((prev) => {
+        const updated = [...prev];
+        if (updated[aiMsgIndex]) {
+          updated[aiMsgIndex] = {
+            ...updated[aiMsgIndex],
+            text: `[System] — ${error instanceof Error ? error.message : "Request failed. Please check your connection."}`,
+            isSimulation: true,
+          };
+        }
+        return updated;
+      });
+    } finally {
+      setIsPending(false);
       // Restore focus to textarea after sending
       setTimeout(() => {
         textareaRef.current?.focus();
       }, 100);
-    }, 1200);
-  }, [input, messages.length, streamSimulation, activeTool]);
+    }
+  }, [input, messages.length, activeTool, selectedModel, isPending]);
 
-  // FIXED: Enter key handler - properly bound
+  // FIXED: Enter key handler - Enter sends, Shift+Enter creates new line
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -731,7 +749,7 @@ export default function Dashboard() {
     </motion.div>
   ), [auraProfile.glowPrimary]);
 
-  // Settings View (Preserved from V8)
+  // Settings View (Preserved from V9)
   const SettingsView = () => (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={springTransition} className="flex-1 overflow-y-auto px-6 py-8">
       <div className="max-w-4xl mx-auto">
@@ -809,9 +827,25 @@ export default function Dashboard() {
     </motion.div>
   );
 
-  // Home View with FIXED TOUCH LAYERS
+  // Home View with FINAL STABILIZATION
   const HomeView = () => (
     <div className="flex flex-col w-full h-full">
+      {/* Error Toast */}
+      <AnimatePresence>
+        {errorMessage && (
+          <motion.div
+            initial={{ opacity: 0, y: -50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -50 }}
+            className="fixed top-4 left-1/2 -translate-x-1/2 z-[10000] px-4 py-2 rounded-lg flex items-center gap-2 text-xs font-mono"
+            style={{ background: "rgba(239,68,68,0.9)", border: "1px solid rgba(239,68,68,0.5)", color: "white" }}
+          >
+            <AlertCircle size={12} />
+            {errorMessage}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Scrollable Messages Area with bottom padding for fixed input */}
       <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto py-6 space-y-3 px-4 pb-[200px]">
         {messages.length === 0 && (
@@ -835,7 +869,7 @@ export default function Dashboard() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Selected Engine Badge - appears above fixed input */}
+      {/* Selected Engine Badge */}
       {activeTool && (
         <div className="w-full max-w-2xl mx-auto mb-2 flex justify-end px-4 relative z-[101] pointer-events-auto">
           <span className="text-[9px] px-2 py-1 rounded-full flex items-center gap-1 font-mono" style={{ background: `rgba(${activeTool.category.glowRgba},0.1)`, border: `1px solid rgba(${activeTool.category.glowRgba},0.2)`, color: activeTool.category.color }}>
@@ -844,15 +878,17 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* ABSOLUTE STILLNESS INPUT CONTAINER - Fixed with proper pointer events */}
+      {/* FINAL STABLE INPUT CONTAINER - GPU Accelerated */}
       <div 
-        className="fixed left-0 right-0 z-[100] px-4"
+        className="fixed left-0 right-0 z-[9999]"
         style={{ 
           bottom: keyboardHeight > 0 ? `${keyboardHeight + 8}px` : '16px',
           transition: 'bottom 0.2s ease-out',
+          transform: 'translate3d(0, 0, 0)',
+          willChange: 'transform',
         }}
       >
-        <div className="w-full max-w-2xl mx-auto">
+        <div className="w-full max-w-2xl mx-auto px-4">
           <motion.div 
             className="relative rounded-xl flex flex-col"
             animate={laserShineAnimation}
@@ -896,13 +932,13 @@ export default function Dashboard() {
               </div>
               <motion.button 
                 onClick={handleSendMessage} 
-                disabled={!input.trim()} 
+                disabled={!input.trim() || isPending} 
                 className="w-7 h-7 rounded-full flex items-center justify-center transition-all pointer-events-auto"
-                style={{ background: input.trim() ? currentTheme.color : "rgba(255,255,255,0.05)" }}
-                whileHover={input.trim() ? { scale: 1.1 } : {}}
-                whileTap={input.trim() ? { scale: 0.9 } : {}}
+                style={{ background: (input.trim() && !isPending) ? currentTheme.color : "rgba(255,255,255,0.05)" }}
+                whileHover={(input.trim() && !isPending) ? { scale: 1.1 } : {}}
+                whileTap={(input.trim() && !isPending) ? { scale: 0.9 } : {}}
               >
-                <Send size={11} style={{ color: input.trim() ? "#020617" : "white/40" }} />
+                <Send size={11} style={{ color: (input.trim() && !isPending) ? "#020617" : "white/40" }} />
               </motion.button>
             </div>
           </motion.div>
@@ -911,7 +947,7 @@ export default function Dashboard() {
     </div>
   );
 
-  // Folder View (preserved from V8)
+  // Folder View (preserved from V9)
   const FolderView = () => (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col w-full max-w-4xl flex-1 overflow-y-auto pt-4 pb-8 px-4">
       <div className="text-center mb-5">
@@ -983,7 +1019,7 @@ export default function Dashboard() {
         </footer>
       </main>
 
-      {/* PLUS MENU MODAL - Fixed pointer events */}
+      {/* PLUS MENU MODAL */}
       <AnimatePresence>
         {plusMenuOpen && (
           <>
@@ -1094,6 +1130,14 @@ export default function Dashboard() {
         
         .font-mono, .font-mono * {
           font-family: 'JetBrains Mono', monospace;
+        }
+        
+        body {
+          overscroll-behavior: none;
+          position: fixed;
+          width: 100%;
+          height: 100%;
+          overflow: hidden;
         }
         
         @keyframes pulse {
