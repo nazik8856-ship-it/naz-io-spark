@@ -417,12 +417,7 @@ export default function Dashboard() {
   }, []);
 
   const handleNavClick = useCallback((label: string) => {
-    if (label === "Settings") {
-      setShowSettings(true);
-    } else {
-      setShowSettings(false);
-      setActiveNav(label);
-    }
+    setActiveNav(label);
   }, []);
 
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
