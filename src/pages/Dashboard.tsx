@@ -50,7 +50,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 
 // ─── DEPLOYMENT VERSION ──────────────────────────────────────────────────────────
-const DEPLOYMENT_ID = "NAZAI_TITAN_V12_FUNCTIONAL_STABLE";
+const DEPLOYMENT_ID = "NAZAI_TITAN_V13_MECHANICAL_OVERRIDE";
 
 // ─── Type Definitions ──────────────────────────────────────────────────────────────
 
@@ -373,6 +373,9 @@ export default function Dashboard() {
   const [auraProfile, setAuraProfile] = useState<AuraProfile>(loadAuraProfile);
   const [showSettings, setShowSettings] = useState(false);
 
+  // ── Visual Viewport State for Mechanical Anchoring ─────────────────────────────
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
   // ── Refs ────────────────────────────────────────────────────────────────────────
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -380,6 +383,7 @@ export default function Dashboard() {
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const currentAbortControllerRef = useRef<AbortController | null>(null);
+  const inputContainerRef = useRef<HTMLDivElement>(null);
 
   // ── Apply CSS Variables to Document ────────────────────────────────────────────
   useEffect(() => {
@@ -410,6 +414,27 @@ export default function Dashboard() {
   useEffect(() => {
     saveAuraProfile(auraProfile);
   }, [auraProfile]);
+
+  // ─── VISUAL VIEWPORT ANCHOR - Mechanical Override ──────────────────────────────
+  useEffect(() => {
+    if (!window.visualViewport) return;
+
+    const handleViewportResize = () => {
+      const viewport = window.visualViewport;
+      const windowHeight = window.innerHeight;
+      const keyboardHeightEstimate = Math.max(0, windowHeight - viewport.height);
+      setKeyboardHeight(keyboardHeightEstimate);
+    };
+
+    window.visualViewport.addEventListener("resize", handleViewportResize);
+    window.visualViewport.addEventListener("scroll", handleViewportResize);
+    handleViewportResize();
+
+    return () => {
+      window.visualViewport?.removeEventListener("resize", handleViewportResize);
+      window.visualViewport?.removeEventListener("scroll", handleViewportResize);
+    };
+  }, []);
 
   // ── Derived State ───────────────────────────────────────────────────────────────
   const activeTool = useMemo(() => findToolById(selectedModel), [selectedModel]);
@@ -507,37 +532,6 @@ export default function Dashboard() {
     }
   }, [errorMessage]);
 
-  // ─── EARTHQUAKE KILL SWITCH - Lock body scroll on input focus ──────────────────
-  useEffect(() => {
-    const handleFocus = () => {
-      document.documentElement.style.overflow = 'hidden';
-      document.documentElement.style.height = '100%';
-      document.body.style.overflow = 'hidden';
-      document.body.style.height = '100%';
-      document.body.style.position = 'fixed';
-      document.body.style.width = '100%';
-    };
-    
-    const handleBlur = () => {
-      document.documentElement.style.overflow = '';
-      document.documentElement.style.height = '';
-      document.body.style.overflow = '';
-      document.body.style.height = '';
-      document.body.style.position = '';
-      document.body.style.width = '';
-    };
-    
-    const textarea = textareaRef.current;
-    if (textarea) {
-      textarea.addEventListener('focus', handleFocus);
-      textarea.addEventListener('blur', handleBlur);
-      return () => {
-        textarea.removeEventListener('focus', handleFocus);
-        textarea.removeEventListener('blur', handleBlur);
-      };
-    }
-  }, []);
-
   useEffect(() => {
     return () => {
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
@@ -580,18 +574,15 @@ export default function Dashboard() {
     setDrawerOpen(false);
   }, []);
 
-  // ─── FIXED: Main Message Handler with 12-second timeout and state recovery ──────
+  // ─── MAIN MESSAGE HANDLER with 12-second timeout ────────────────────────────────
   const handleSendMessage = useCallback(async () => {
-    // Input sanitization
     const trimmed = input.trim();
     if (!trimmed || isPending) return;
     
-    // Cancel any pending request
     if (currentAbortControllerRef.current) {
       currentAbortControllerRef.current.abort();
     }
     
-    // Create new abort controller for this request
     const abortController = new AbortController();
     currentAbortControllerRef.current = abortController;
     
@@ -602,18 +593,15 @@ export default function Dashboard() {
     setMessages((prev) => [...prev, { role: "user", text: trimmed }, { role: "ai", text: "Neural Architect: Processing blueprint..." }]);
     setInput("");
     
-    // Reset textarea height
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
     
-    // 12-second timeout promise
     const timeoutPromise = new Promise((_, reject) => {
       setTimeout(() => reject(new Error("Connection timeout after 12 seconds")), 12000);
     });
     
     try {
-      // Race between API call and timeout
       const result = await Promise.race([
         supabase.functions.invoke("generate-business-plan", {
           body: { 
@@ -627,18 +615,14 @@ export default function Dashboard() {
         timeoutPromise,
       ]) as { data: any; error: any };
       
-      // Check for abort
       if (abortController.signal.aborted) return;
       
-      // Handle error response
       if (result.error) {
         throw new Error(result.error.message || "Failed to generate blueprint");
       }
       
-      // Success - extract response
       const outputText = result.data?.plan || result.data?.response || `[Neural Architect]\n\nBlueprint generated for: "${trimmed}"\n\nStrategic framework has been created.`;
       
-      // Save to missions (History)
       if (userId) {
         await supabase.from("missions").insert({
           user_id: userId,
@@ -646,7 +630,6 @@ export default function Dashboard() {
           status: "completed",
           created_at: new Date().toISOString(),
         });
-        // Refresh missions
         const { data: updatedMissions } = await supabase
           .from("missions")
           .select("*")
@@ -655,7 +638,6 @@ export default function Dashboard() {
         if (updatedMissions) setMissions(updatedMissions as Mission[]);
       }
       
-      // Update message with response
       setMessages((prev) => {
         const updated = [...prev];
         if (updated[aiMsgIndex]) {
@@ -668,7 +650,6 @@ export default function Dashboard() {
       });
       
     } catch (error) {
-      // Handle abort gracefully
       if (error instanceof Error && error.name === 'AbortError') {
         console.log("Request aborted");
         return;
@@ -678,10 +659,8 @@ export default function Dashboard() {
       const errorMsg = error instanceof Error ? error.message : "Connection failed";
       setErrorMessage(`Neural Architect: ${errorMsg}`);
       
-      // Generate fallback outline
       const fallbackText = generateFallbackOutline(trimmed);
       
-      // Update message with fallback
       setMessages((prev) => {
         const updated = [...prev];
         if (updated[aiMsgIndex]) {
@@ -694,17 +673,14 @@ export default function Dashboard() {
         return updated;
       });
     } finally {
-      // FORCE state unlock - ensures Send button is NEVER stuck
       setIsPending(false);
       currentAbortControllerRef.current = null;
-      // Restore focus to textarea after sending
       setTimeout(() => {
         textareaRef.current?.focus();
       }, 100);
     }
   }, [input, messages.length, activeTool, selectedModel, isPending, userId, activeStyle, webSearchActive]);
 
-  // FIXED: Enter key handler
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -712,7 +688,6 @@ export default function Dashboard() {
     }
   }, [handleSendMessage]);
 
-  // FIXED: Send button with onPointerDown for instant mobile response
   const handleSendPointerDown = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
     e.preventDefault();
     if (input.trim() && !isPending) {
@@ -878,7 +853,7 @@ export default function Dashboard() {
     </motion.div>
   );
 
-  // Home View with EARTHQUAKE-PROOF INPUT
+  // Home View with MECHANICAL VISUAL VIEWPORT ANCHORING
   const HomeView = () => (
     <div className="flex flex-col w-full h-full">
       {/* Error Toast */}
@@ -898,7 +873,7 @@ export default function Dashboard() {
       </AnimatePresence>
 
       {/* Scrollable Messages Area */}
-      <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto py-6 space-y-3 px-4 pb-[200px]">
+      <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto py-6 space-y-3 px-4 pb-[200px]" style={{ WebkitOverflowScrolling: "touch" }}>
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full gap-4 text-center pointer-events-auto">
             <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.2)` }}>
@@ -929,11 +904,13 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* EARTHQUAKE-PROOF INPUT CONTAINER - GPU Accelerated */}
+      {/* MECHANICAL VISUAL VIEWPORT ANCHORED INPUT */}
       <div 
+        ref={inputContainerRef}
         className="fixed left-0 right-0 z-[9999]"
         style={{ 
-          bottom: '16px',
+          bottom: keyboardHeight > 0 ? `${keyboardHeight + 12}px` : '16px',
+          transition: 'bottom 0.1s ease-out',
           transform: 'translate3d(0, 0, 0)',
           willChange: 'transform',
         }}
@@ -980,7 +957,6 @@ export default function Dashboard() {
                   {activeTool ? activeTool.tool.name : "Select Engine"}
                 </button>
               </div>
-              {/* Send button with onPointerDown for instant mobile response */}
               <motion.button 
                 onPointerDown={handleSendPointerDown}
                 disabled={!input.trim() || isPending} 
@@ -1000,7 +976,7 @@ export default function Dashboard() {
 
   // Folder View
   const FolderView = () => (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col w-full max-w-4xl flex-1 overflow-y-auto pt-4 pb-8 px-4">
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col w-full max-w-4xl flex-1 overflow-y-auto pt-4 pb-8 px-4" style={{ WebkitOverflowScrolling: "touch" }}>
       <div className="text-center mb-5">
         <h1 className="text-3xl font-black uppercase tracking-tighter font-mono" style={{ background: currentTheme.gradient, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>{activeNav}</h1>
         <p className="text-[8px] tracking-[0.3em] uppercase font-mono text-white/30 mt-2">SYSTEM_NODE // {activeNav.toUpperCase()}_TERMINAL</p>
@@ -1181,6 +1157,20 @@ export default function Dashboard() {
         
         .font-mono, .font-mono * {
           font-family: 'JetBrains Mono', monospace;
+        }
+        
+        /* Touch stabilization - prevents elastic bounce */
+        .overflow-y-auto {
+          -webkit-overflow-scrolling: touch;
+        }
+        
+        body {
+          touch-action: pan-x pan-y;
+        }
+        
+        /* Background grid touch prevention */
+        .fixed, .absolute, .relative {
+          touch-action: pan-x pan-y;
         }
         
         @keyframes pulse {
