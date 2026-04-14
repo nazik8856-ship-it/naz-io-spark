@@ -49,7 +49,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 
 // ─── DEPLOYMENT VERSION ──────────────────────────────────────────────────────────
-const DEPLOYMENT_ID = "NAZAI_TITAN_V7_STABLE_ANCHOR";
+const DEPLOYMENT_ID = "NAZAI_TITAN_V8_STABLE_FUNCTIONAL";
 
 // ─── Type Definitions ──────────────────────────────────────────────────────────────
 
@@ -270,9 +270,10 @@ const useTypewriter = (texts: string[], intervalSpeed: number = 4000, typingSpee
   return currentPlaceholder;
 };
 
-// VisualViewport hook for keyboard anchoring
+// VisualViewport hook for keyboard anchoring with transform-based positioning
 const useVisualViewport = () => {
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(window.innerHeight);
 
   useEffect(() => {
     if (!window.visualViewport) return;
@@ -282,6 +283,7 @@ const useVisualViewport = () => {
       const windowHeight = window.innerHeight;
       const keyboardHeightEstimate = Math.max(0, windowHeight - viewport.height);
       setKeyboardHeight(keyboardHeightEstimate);
+      setViewportHeight(viewport.height);
     };
 
     window.visualViewport.addEventListener("resize", handleResize);
@@ -292,7 +294,7 @@ const useVisualViewport = () => {
     };
   }, []);
 
-  return keyboardHeight;
+  return { keyboardHeight, viewportHeight };
 };
 
 // Animation variants
@@ -328,7 +330,7 @@ const laserShineAnimation = {
 export default function Dashboard() {
   const navigate = useNavigate();
 
-  // ── Service Worker Nuke & Cache Busting (TITAN V7) ─────────────────────────────
+  // ── Service Worker Nuke & Cache Busting (TITAN V8) ─────────────────────────────
   useEffect(() => {
     const clearAllCachesAndReload = async () => {
       const currentVersion = localStorage.getItem("nazai_version_id");
@@ -363,7 +365,7 @@ export default function Dashboard() {
   const dynamicPlaceholder = useTypewriter(PLACEHOLDER_TEXTS, 4000, 40);
 
   // ── VisualViewport Keyboard Detection ──────────────────────────────────────────
-  const keyboardHeight = useVisualViewport();
+  const { keyboardHeight } = useVisualViewport();
 
   // ── State ───────────────────────────────────────────────────────────────────────
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -510,10 +512,12 @@ export default function Dashboard() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // Auto-resize textarea with max-height limit
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
-      textareaRef.current.style.height = `${Math.min(Math.max(textareaRef.current.scrollHeight, 80), 120)}px`;
+      const newHeight = Math.min(textareaRef.current.scrollHeight, 150);
+      textareaRef.current.style.height = `${newHeight}px`;
     }
   }, [input]);
 
@@ -578,17 +582,26 @@ export default function Dashboard() {
     appendWord();
   }, []);
 
-  const handleSend = useCallback(() => {
+  // FIXED: Proper send message handler with focus restoration
+  const handleSendMessage = useCallback(() => {
     const trimmed = input.trim();
-    if (!trimmed) return;
+    if (!trimmed || isProcessing) return;
+    
     const aiMsgIndex = messages.length + 1;
     setMessages((prev) => [...prev, { role: "user", text: trimmed }, { role: "ai", text: "Processing..." }]);
     setInput("");
     setIsProcessing(true);
+    
+    // Reset textarea height
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+    }
+    
     const timeout = setTimeout(() => {
       setIsProcessing(false);
       streamSimulation(aiMsgIndex);
     }, 8000);
+    
     setTimeout(() => {
       clearTimeout(timeout);
       setIsProcessing(false);
@@ -602,15 +615,21 @@ export default function Dashboard() {
         }
         return updated;
       });
+      
+      // Restore focus to textarea after sending
+      setTimeout(() => {
+        textareaRef.current?.focus();
+      }, 100);
     }, 1200);
-  }, [input, messages.length, streamSimulation, activeTool]);
+  }, [input, messages.length, streamSimulation, activeTool, isProcessing]);
 
+  // FIXED: Enter key handler
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      handleSendMessage();
     }
-  }, [handleSend]);
+  }, [handleSendMessage]);
 
   const handleSignOut = useCallback(async () => {
     setLogoutModalOpen(false);
@@ -692,7 +711,7 @@ export default function Dashboard() {
     </motion.div>
   ), [auraProfile.glowPrimary]);
 
-  // Settings View (Preserved from V6)
+  // Settings View (Preserved from V7)
   const SettingsView = () => (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={springTransition} className="flex-1 overflow-y-auto px-6 py-8">
       <div className="max-w-4xl mx-auto">
@@ -770,7 +789,7 @@ export default function Dashboard() {
     </motion.div>
   );
 
-  // Home View with VISUALVIEWPORT ANCHORED INPUT
+  // Home View with ABSOLUTE STILLNESS - FIXED INPUT
   const HomeView = () => (
     <div className="flex flex-col w-full h-full">
       {/* Scrollable Messages Area with bottom padding for fixed input */}
@@ -805,14 +824,15 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* VISUALVIEWPORT ANCHORED INPUT - Dynamically positioned above keyboard */}
+      {/* ABSOLUTE STILLNESS INPUT CONTAINER - Fixed with proper pointer events */}
       <div 
-        className="fixed left-0 right-0 z-[100] pb-4 px-4 transition-all duration-200 ease-out"
+        className="fixed left-0 right-0 z-[100] px-4 pointer-events-none"
         style={{ 
-          bottom: keyboardHeight > 0 ? `${keyboardHeight + 8}px` : '16px',
+          bottom: keyboardHeight > 0 ? `${keyboardHeight}px` : '0px',
+          transition: 'bottom 0.2s ease-out',
         }}
       >
-        <div className="w-full max-w-2xl mx-auto">
+        <div className="w-full max-w-2xl mx-auto pointer-events-auto">
           <motion.div 
             className="relative rounded-xl flex flex-col"
             animate={laserShineAnimation}
@@ -828,8 +848,12 @@ export default function Dashboard() {
               onKeyDown={handleKeyDown} 
               placeholder={activeTool ? `Mission for ${activeTool.tool.name}...` : dynamicPlaceholder}
               rows={1} 
-              className="w-full bg-transparent border-none outline-none resize-none font-mono text-xs p-3 overflow-y-auto max-h-[120px]" 
-              style={{ color: "var(--nazai-text-color)" }} 
+              className="w-full bg-transparent border-none outline-none resize-none font-mono text-xs p-3 overflow-y-auto"
+              style={{ 
+                color: "var(--nazai-text-color)",
+                maxHeight: "150px",
+                minHeight: "80px",
+              }} 
             />
             <div className="flex items-center justify-between px-3 py-2 border-t border-white/5">
               <div className="flex gap-1">
@@ -847,7 +871,7 @@ export default function Dashboard() {
                 </button>
               </div>
               <motion.button 
-                onClick={handleSend} 
+                onClick={handleSendMessage} 
                 disabled={!input.trim() || isProcessing} 
                 className="w-7 h-7 rounded-full flex items-center justify-center transition-all"
                 style={{ background: input.trim() ? currentTheme.color : "rgba(255,255,255,0.05)" }}
@@ -863,7 +887,7 @@ export default function Dashboard() {
     </div>
   );
 
-  // Folder View (preserved from V6)
+  // Folder View (preserved from V7)
   const FolderView = () => (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col w-full max-w-4xl flex-1 overflow-y-auto pt-4 pb-8 px-4">
       <div className="text-center mb-5">
@@ -935,7 +959,7 @@ export default function Dashboard() {
         </footer>
       </main>
 
-      {/* Modals preserved from V6 */}
+      {/* Modals preserved from V7 */}
       <AnimatePresence>
         {plusMenuOpen && (
           <>
