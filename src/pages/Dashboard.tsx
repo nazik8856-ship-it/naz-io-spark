@@ -169,16 +169,6 @@ const SKILLS = [
   { icon: HeartPulse, label: "Project Health", description: "Analyze system vitality" },
 ];
 
-const GRADIENTS = [
-  "linear-gradient(135deg, #22c55e, #10b981)",
-  "linear-gradient(135deg, #a855f7, #ec4899)",
-  "linear-gradient(135deg, #06b6d4, #3b82f6)",
-  "linear-gradient(135deg, #f59e0b, #d97706)",
-  "linear-gradient(135deg, #818cf8, #c084fc)",
-  "linear-gradient(135deg, #ef4444, #f97316)",
-  "linear-gradient(135deg, #6366f1, #a855f7)",
-] as const;
-
 const springTransition = { type: "spring" as const, damping: 25, stiffness: 400 };
 
 const DEFAULT_AURA_PROFILE: AuraProfile = {
@@ -209,7 +199,6 @@ const getRgbFromHex = (hex: string): string => {
   return `${r},${g},${b}`;
 };
 
-// Load Aura Profile from localStorage
 const loadAuraProfile = (): AuraProfile => {
   const saved = localStorage.getItem("nazai-aura-profile");
   if (saved) {
@@ -222,30 +211,22 @@ const loadAuraProfile = (): AuraProfile => {
   return DEFAULT_AURA_PROFILE;
 };
 
-// Save Aura Profile to localStorage
 const saveAuraProfile = (profile: AuraProfile) => {
   localStorage.setItem("nazai-aura-profile", JSON.stringify(profile));
 };
 
-// Stagger children variants for bento grid
+// Animation variants
 const containerVariants = {
   hidden: { opacity: 0 },
   visible: {
     opacity: 1,
-    transition: {
-      staggerChildren: 0.05,
-      delayChildren: 0.1,
-    },
+    transition: { staggerChildren: 0.05, delayChildren: 0.1 },
   },
 };
 
 const itemVariants = {
   hidden: { opacity: 0, y: 20 },
-  visible: {
-    opacity: 1,
-    y: 0,
-    transition: { duration: 0.4, ease: "easeOut" },
-  },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: "easeOut" } },
 };
 
 // ─── Component ────────────────────────────────────────────────────────────────────
@@ -276,7 +257,6 @@ export default function Dashboard() {
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
   const [missions, setMissions] = useState<Mission[]>([]);
   const [missionsLoading, setMissionsLoading] = useState(true);
-  const [currentGradientIdx, setCurrentGradientIdx] = useState(0);
 
   // Aura Design System State
   const [auraProfile, setAuraProfile] = useState<AuraProfile>(loadAuraProfile);
@@ -290,7 +270,7 @@ export default function Dashboard() {
   const simulationRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // ── Apply CSS Variables to Document ─────────────────────────────────────────────
+  // ── Apply CSS Variables ─────────────────────────────────────────────────────────
   useEffect(() => {
     const root = document.documentElement;
     const primaryRgb = getRgbFromHex(auraProfile.glowPrimary);
@@ -305,9 +285,9 @@ export default function Dashboard() {
 
     if (auraProfile.isLightMode) {
       root.style.setProperty("--nazai-text-color", "#0f172a");
-      root.style.setProperty("--nazai-bg-base", "#f8fafc");
+      root.style.setProperty("--nazai-bg-base", "#f1f5f9");
       root.style.setProperty("--nazai-border-light", "rgba(0,0,0,0.08)");
-      root.style.setProperty("--nazai-card-bg", "rgba(255,255,255,0.7)");
+      root.style.setProperty("--nazai-card-bg", "rgba(255,255,255,0.8)");
     } else {
       root.style.setProperty("--nazai-text-color", "#e2e8f0");
       root.style.setProperty("--nazai-bg-base", "#020617");
@@ -316,12 +296,11 @@ export default function Dashboard() {
     }
   }, [auraProfile]);
 
-  // Save profile when changed
   useEffect(() => {
     saveAuraProfile(auraProfile);
   }, [auraProfile]);
 
-  // ── Derived State (Memoized) ────────────────────────────────────────────────────
+  // ── Derived State ───────────────────────────────────────────────────────────────
   const activeTool = useMemo(() => findToolById(selectedModel), [selectedModel]);
   const isMediaMode = activeTool?.category.label === "CREATION";
   const borderColor = activeTool?.category.color ?? auraProfile.glowPrimary;
@@ -346,11 +325,8 @@ export default function Dashboard() {
   }, [activeNav, missions]);
 
   // ── Effects ──────────────────────────────────────────────────────────────────────
-
-  // Session Management
   useEffect(() => {
     let isMounted = true;
-
     const getSession = async () => {
       const {
         data: { session },
@@ -360,34 +336,28 @@ export default function Dashboard() {
         setUserId(session?.user?.id ?? null);
       }
     };
-
     getSession();
-
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       if (isMounted) {
         setUserEmail(session?.user?.email ?? null);
         setUserId(session?.user?.id ?? null);
       }
     });
-
     return () => {
       isMounted = false;
       listener.subscription.unsubscribe();
     };
   }, []);
 
-  // Fetch Missions with Error Handling
   useEffect(() => {
     if (!userId) {
       setMissions([]);
       setMissionsLoading(false);
       return;
     }
-
     let isMounted = true;
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
-
     const fetchMissions = async () => {
       setMissionsLoading(true);
       try {
@@ -396,9 +366,7 @@ export default function Dashboard() {
           .select("*")
           .eq("user_id", userId)
           .order("created_at", { ascending: false });
-
         if (abortController.signal.aborted) return;
-
         if (error) throw error;
         if (isMounted && data) setMissions(data as Mission[]);
       } catch (error) {
@@ -408,21 +376,17 @@ export default function Dashboard() {
         if (isMounted) setMissionsLoading(false);
       }
     };
-
     fetchMissions();
-
     return () => {
       isMounted = false;
       abortController.abort();
     };
   }, [userId]);
 
-  // Auto-scroll Messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Auto-resize Textarea
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
@@ -430,14 +394,6 @@ export default function Dashboard() {
     }
   }, [input]);
 
-  // Cycle Gradient for Non-Home Pages
-  useEffect(() => {
-    if (activeNav !== "Home" && activeNav !== "Settings") {
-      setCurrentGradientIdx((prev) => (prev + 1) % GRADIENTS.length);
-    }
-  }, [activeNav]);
-
-  // Cleanup Timeouts
   useEffect(() => {
     return () => {
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
@@ -446,8 +402,7 @@ export default function Dashboard() {
     };
   }, []);
 
-  // ── Aura Handlers ───────────────────────────────────────────────────────────────
-
+  // ── Handlers ────────────────────────────────────────────────────────────────────
   const updateAuraProfile = useCallback((updates: Partial<AuraProfile>) => {
     setAuraProfile((prev) => ({ ...prev, ...updates }));
   }, []);
@@ -460,8 +415,6 @@ export default function Dashboard() {
     setAuraProfile((prev) => ({ ...prev, isLightMode: !prev.isLightMode }));
   }, []);
 
-  // ── Navigation Handlers ─────────────────────────────────────────────────────────
-
   const handleNavClick = useCallback((label: string) => {
     if (label === "Settings") {
       setShowSettings(true);
@@ -470,8 +423,6 @@ export default function Dashboard() {
       setActiveNav(label);
     }
   }, []);
-
-  // ── Handlers ────────────────────────────────────────────────────────────────────
 
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInput(e.target.value);
@@ -487,20 +438,15 @@ export default function Dashboard() {
 
   const streamSimulation = useCallback((msgIndex: number) => {
     const mockResponse =
-      "[SIMULATION_MODE] // OFFLINE_DRAFT — Neural pathway rerouted through local inference cache. Executing fallback heuristic analysis on provided directive. Output confidence: 87.3%. Recommended action: retry with primary engine when connectivity is restored.";
+      "[SIMULATION_MODE] // OFFLINE_DRAFT — Neural pathway rerouted through local inference cache. Executing fallback heuristic analysis on provided directive. Output confidence: 87.3%.";
     const words = mockResponse.split(" ");
     let wordIdx = 0;
-
     const appendWord = () => {
       if (wordIdx >= words.length) return;
       setMessages((prev) => {
         const updated = [...prev];
         if (updated[msgIndex]) {
-          updated[msgIndex] = {
-            ...updated[msgIndex],
-            text: words.slice(0, wordIdx + 1).join(" "),
-            isSimulation: true,
-          };
+          updated[msgIndex] = { ...updated[msgIndex], text: words.slice(0, wordIdx + 1).join(" "), isSimulation: true };
         }
         return updated;
       });
@@ -513,17 +459,14 @@ export default function Dashboard() {
   const handleSend = useCallback(() => {
     const trimmed = input.trim();
     if (!trimmed) return;
-
     const aiMsgIndex = messages.length + 1;
     setMessages((prev) => [...prev, { role: "user", text: trimmed }, { role: "ai", text: "Processing..." }]);
     setInput("");
     setIsProcessing(true);
-
     const timeout = setTimeout(() => {
       setIsProcessing(false);
       streamSimulation(aiMsgIndex);
     }, 10000);
-
     setTimeout(() => {
       clearTimeout(timeout);
       setIsProcessing(false);
@@ -532,13 +475,13 @@ export default function Dashboard() {
         if (updated[aiMsgIndex]) {
           updated[aiMsgIndex] = {
             ...updated[aiMsgIndex],
-            text: `[${activeTool?.tool.name ?? "NazAI"} // ${selectedModel ?? "default"}] — Node processing signal recognized. Executing workflow on directive: "${trimmed.slice(0, 60)}..."`,
+            text: `[${activeTool?.tool.name ?? "NazAI"}] — Executing workflow: "${trimmed.slice(0, 60)}..."`,
           };
         }
         return updated;
       });
     }, 1500);
-  }, [input, messages.length, streamSimulation, activeTool, selectedModel]);
+  }, [input, messages.length, streamSimulation, activeTool]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -572,56 +515,7 @@ export default function Dashboard() {
     setConnectorStatus((prev) => ({ ...prev, [key]: checked }));
   }, []);
 
-  // ─── Render Helpers ─────────────────────────────────────────────────────────────
-
-  const renderMissionItem = useCallback(
-    (mission: Mission, index: number) => (
-      <motion.div
-        key={mission.id}
-        variants={itemVariants}
-        whileHover={{
-          scale: 1.02,
-          backgroundColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.08)`,
-          borderColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.3)`,
-        }}
-        className="group flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer transition-all duration-200"
-        style={{
-          background: "var(--nazai-card-bg)",
-          border: "1px solid var(--nazai-border-light)",
-          backdropFilter: `blur(${auraProfile.glassBlur}px)`,
-        }}
-      >
-        <div
-          className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
-          style={{
-            background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.12)`,
-            border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.25)`,
-          }}
-        >
-          <Zap size={14} style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.7)` }} />
-        </div>
-
-        <div className="flex-1 min-w-0">
-          <p className="text-[13px] font-medium truncate" style={{ color: "var(--nazai-text-color)" }}>
-            {mission.directive?.slice(0, 80) || "Untitled Mission"}
-          </p>
-          <p className="text-[10px] font-mono mt-0.5" style={{ color: "rgba(255,255,255,0.3)" }}>
-            {formatDistanceToNow(new Date(mission.created_at), { addSuffix: true })}
-            {mission.status !== "completed" && mission.status !== "active" && (
-              <span className="ml-2 uppercase tracking-wider">{mission.status}</span>
-            )}
-          </p>
-        </div>
-
-        <ChevronRight
-          size={14}
-          className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
-          style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.6)` }}
-        />
-      </motion.div>
-    ),
-    [auraProfile.glowPrimary, auraProfile.glassBlur],
-  );
+  // ─── Render Components ──────────────────────────────────────────────────────────
 
   const renderNavItem = useCallback(
     (item: (typeof NAV_ITEMS)[number]) => {
@@ -629,7 +523,6 @@ export default function Dashboard() {
       const isActive = activeNav === item.label && !showSettings;
       const isSettingsActive = item.label === "Settings" && showSettings;
       const itemTheme = SECTION_THEMES[item.label] || SECTION_THEMES["Home"];
-
       return (
         <motion.button
           key={item.label}
@@ -638,7 +531,6 @@ export default function Dashboard() {
           className="w-10 h-10 flex items-center justify-center rounded-lg transition-all duration-200 relative group"
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
-          style={{ background: isActive || isSettingsActive ? undefined : "transparent" }}
         >
           {(isActive || isSettingsActive) && (
             <motion.div
@@ -666,7 +558,44 @@ export default function Dashboard() {
     [activeNav, showSettings, handleNavClick],
   );
 
-  // Settings View Component with Bento Grid
+  const renderMissionItem = useCallback(
+    (mission: Mission, index: number) => (
+      <motion.div
+        key={mission.id}
+        variants={itemVariants}
+        whileHover={{ scale: 1.01, backgroundColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.08)` }}
+        className="group flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer transition-all duration-200"
+        style={{
+          background: "var(--nazai-card-bg)",
+          border: "1px solid var(--nazai-border-light)",
+          backdropFilter: `blur(${auraProfile.glassBlur}px)`,
+        }}
+      >
+        <div
+          className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+          style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.12)` }}
+        >
+          <Zap size={14} style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.7)` }} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-[13px] font-medium truncate" style={{ color: "var(--nazai-text-color)" }}>
+            {mission.directive?.slice(0, 80) || "Untitled Mission"}
+          </p>
+          <p className="text-[10px] font-mono mt-0.5 text-white/30">
+            {formatDistanceToNow(new Date(mission.created_at), { addSuffix: true })}
+          </p>
+        </div>
+        <ChevronRight
+          size={14}
+          className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+          style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.6)` }}
+        />
+      </motion.div>
+    ),
+    [auraProfile.glowPrimary, auraProfile.glassBlur],
+  );
+
+  // Settings View
   const SettingsView = () => (
     <motion.div
       initial={{ opacity: 0 }}
@@ -675,138 +604,109 @@ export default function Dashboard() {
       transition={springTransition}
       className="flex-1 overflow-y-auto px-6 py-8"
     >
-      <div className="max-w-6xl mx-auto">
-        {/* Header */}
+      <div className="max-w-4xl mx-auto">
         <div className="text-center mb-10">
-          <motion.h1
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="text-[56px] font-black uppercase leading-none tracking-tighter"
+          <h1
+            className="text-5xl font-black uppercase tracking-tighter"
             style={{
               background: `linear-gradient(135deg, ${auraProfile.glowPrimary}, ${auraProfile.glowSecondary})`,
               WebkitBackgroundClip: "text",
               WebkitTextFillColor: "transparent",
-              backgroundClip: "text",
             }}
           >
             AURA STUDIO
-          </motion.h1>
-          <div className="flex items-center justify-center gap-4 mt-4">
-            <div className="h-[1px] w-12 bg-white/10" />
-            <p className="text-[9px] tracking-[0.3em] uppercase font-mono text-white/40">DESIGN SYSTEM // REAL-TIME</p>
-            <div className="h-[1px] w-12 bg-white/10" />
-          </div>
+          </h1>
+          <p className="text-[10px] tracking-[0.3em] uppercase font-mono text-white/40 mt-3">
+            DESIGN SYSTEM // REAL-TIME
+          </p>
         </div>
 
-        {/* Bento Grid Layout */}
         <motion.div
           variants={containerVariants}
           initial="hidden"
           animate="visible"
-          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+          className="grid grid-cols-1 md:grid-cols-2 gap-5"
         >
-          {/* Chromatic Core - Color Section */}
+          {/* Colors */}
           <motion.div
             variants={itemVariants}
-            className="lg:col-span-2 p-6 rounded-2xl"
-            style={{
-              background: "var(--nazai-card-bg)",
-              border: "1px solid var(--nazai-border-light)",
-              backdropFilter: `blur(${auraProfile.glassBlur}px)`,
-            }}
+            className="md:col-span-2 p-5 rounded-xl"
+            style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
           >
             <h3
-              className="text-sm font-semibold mb-4 flex items-center gap-2"
+              className="text-sm font-semibold mb-3 flex items-center gap-2"
               style={{ color: auraProfile.glowPrimary }}
             >
-              <Palette size={16} /> CHROMATIC_CORE
+              <Palette size={16} /> CHROMATIC CORE
             </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Primary Color */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="text-[10px] tracking-[0.1em] font-mono block mb-2 text-white/40">PRIMARY_GLOW</label>
-                <div className="flex items-center gap-3">
+                <label className="text-[9px] font-mono block mb-1 text-white/40">PRIMARY GLOW</label>
+                <div className="flex items-center gap-2">
                   <div
-                    className="w-12 h-12 rounded-xl transition-all hover:scale-105"
-                    style={{ background: auraProfile.glowPrimary, boxShadow: `0 0 20px ${auraProfile.glowPrimary}` }}
+                    className="w-10 h-10 rounded-xl"
+                    style={{ background: auraProfile.glowPrimary, boxShadow: `0 0 15px ${auraProfile.glowPrimary}` }}
                   />
                   <input
                     type="color"
                     value={auraProfile.glowPrimary}
                     onChange={(e) => updateAuraProfile({ glowPrimary: e.target.value })}
-                    className="w-20 h-10 rounded bg-transparent border border-white/20 cursor-pointer"
+                    className="w-16 h-9 rounded bg-transparent border border-white/20"
                   />
                   <input
                     type="text"
                     value={auraProfile.glowPrimary}
                     onChange={(e) => updateAuraProfile({ glowPrimary: e.target.value })}
-                    className="flex-1 px-3 py-2 rounded-lg text-xs font-mono"
-                    style={{
-                      background: "rgba(255,255,255,0.05)",
-                      border: "1px solid rgba(255,255,255,0.1)",
-                      color: "var(--nazai-text-color)",
-                    }}
+                    className="flex-1 px-2 py-1.5 rounded text-xs bg-white/5 border border-white/10"
+                    style={{ color: "var(--nazai-text-color)" }}
                   />
                 </div>
               </div>
-              {/* Secondary Color */}
               <div>
-                <label className="text-[10px] tracking-[0.1em] font-mono block mb-2 text-white/40">
-                  SECONDARY_GLOW
-                </label>
-                <div className="flex items-center gap-3">
+                <label className="text-[9px] font-mono block mb-1 text-white/40">SECONDARY GLOW</label>
+                <div className="flex items-center gap-2">
                   <div
-                    className="w-12 h-12 rounded-xl transition-all hover:scale-105"
+                    className="w-10 h-10 rounded-xl"
                     style={{
                       background: auraProfile.glowSecondary,
-                      boxShadow: `0 0 20px ${auraProfile.glowSecondary}`,
+                      boxShadow: `0 0 15px ${auraProfile.glowSecondary}`,
                     }}
                   />
                   <input
                     type="color"
                     value={auraProfile.glowSecondary}
                     onChange={(e) => updateAuraProfile({ glowSecondary: e.target.value })}
-                    className="w-20 h-10 rounded bg-transparent border border-white/20 cursor-pointer"
+                    className="w-16 h-9 rounded bg-transparent border border-white/20"
                   />
                   <input
                     type="text"
                     value={auraProfile.glowSecondary}
                     onChange={(e) => updateAuraProfile({ glowSecondary: e.target.value })}
-                    className="flex-1 px-3 py-2 rounded-lg text-xs font-mono"
-                    style={{
-                      background: "rgba(255,255,255,0.05)",
-                      border: "1px solid rgba(255,255,255,0.1)",
-                      color: "var(--nazai-text-color)",
-                    }}
+                    className="flex-1 px-2 py-1.5 rounded text-xs bg-white/5 border border-white/10"
+                    style={{ color: "var(--nazai-text-color)" }}
                   />
                 </div>
               </div>
             </div>
           </motion.div>
 
-          {/* Atmospheric Controls */}
+          {/* Controls */}
           <motion.div
             variants={itemVariants}
-            className="p-6 rounded-2xl"
-            style={{
-              background: "var(--nazai-card-bg)",
-              border: "1px solid var(--nazai-border-light)",
-              backdropFilter: `blur(${auraProfile.glassBlur}px)`,
-            }}
+            className="p-5 rounded-xl"
+            style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
           >
             <h3
-              className="text-sm font-semibold mb-4 flex items-center gap-2"
+              className="text-sm font-semibold mb-3 flex items-center gap-2"
               style={{ color: auraProfile.glowPrimary }}
             >
               <Sliders size={16} /> ATMOSPHERIC
             </h3>
-            <div className="space-y-5">
+            <div className="space-y-4">
               <div>
-                <div className="flex justify-between mb-2">
-                  <label className="text-[10px] tracking-[0.1em] font-mono text-white/40">TEXT_GLOW</label>
-                  <span className="text-[10px] font-mono text-white/40">
-                    {auraProfile.textGlowIntensity.toFixed(2)}
-                  </span>
+                <div className="flex justify-between text-[9px] font-mono text-white/40 mb-1">
+                  <span>TEXT GLOW</span>
+                  <span>{auraProfile.textGlowIntensity.toFixed(2)}</span>
                 </div>
                 <input
                   type="range"
@@ -815,16 +715,16 @@ export default function Dashboard() {
                   step="0.01"
                   value={auraProfile.textGlowIntensity}
                   onChange={(e) => updateAuraProfile({ textGlowIntensity: parseFloat(e.target.value) })}
-                  className="w-full h-1 rounded-lg appearance-none cursor-pointer"
+                  className="w-full h-1 rounded-full"
                   style={{
                     background: `linear-gradient(90deg, ${auraProfile.glowPrimary}, ${auraProfile.glowSecondary})`,
                   }}
                 />
               </div>
               <div>
-                <div className="flex justify-between mb-2">
-                  <label className="text-[10px] tracking-[0.1em] font-mono text-white/40">GLASS_BLUR</label>
-                  <span className="text-[10px] font-mono text-white/40">{auraProfile.glassBlur}px</span>
+                <div className="flex justify-between text-[9px] font-mono text-white/40 mb-1">
+                  <span>GLASS BLUR</span>
+                  <span>{auraProfile.glassBlur}px</span>
                 </div>
                 <input
                   type="range"
@@ -833,7 +733,7 @@ export default function Dashboard() {
                   step="1"
                   value={auraProfile.glassBlur}
                   onChange={(e) => updateAuraProfile({ glassBlur: parseInt(e.target.value) })}
-                  className="w-full h-1 rounded-lg appearance-none cursor-pointer"
+                  className="w-full h-1 rounded-full"
                   style={{
                     background: `linear-gradient(90deg, ${auraProfile.glowPrimary}, ${auraProfile.glowSecondary})`,
                   }}
@@ -845,115 +745,77 @@ export default function Dashboard() {
           {/* Mode Toggle */}
           <motion.div
             variants={itemVariants}
-            className="p-6 rounded-2xl"
-            style={{
-              background: "var(--nazai-card-bg)",
-              border: "1px solid var(--nazai-border-light)",
-              backdropFilter: `blur(${auraProfile.glassBlur}px)`,
-            }}
+            className="p-5 rounded-xl flex items-center justify-between"
+            style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
           >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                {auraProfile.isLightMode ? (
-                  <Sun size={20} style={{ color: auraProfile.glowPrimary }} />
-                ) : (
-                  <Moon size={20} style={{ color: auraProfile.glowPrimary }} />
-                )}
-                <div>
-                  <div className="text-sm font-semibold" style={{ color: "var(--nazai-text-color)" }}>
-                    FROSTED QUARTZ
-                  </div>
-                  <div className="text-[9px] font-mono text-white/30 mt-1">
-                    {auraProfile.isLightMode ? "LIGHT_ACTIVE" : "DARK_ACTIVE"}
-                  </div>
-                </div>
+            <div className="flex items-center gap-2">
+              {auraProfile.isLightMode ? (
+                <Sun size={18} style={{ color: auraProfile.glowPrimary }} />
+              ) : (
+                <Moon size={18} style={{ color: auraProfile.glowPrimary }} />
+              )}
+              <div>
+                <div className="text-sm font-semibold">Frosted Quartz</div>
+                <div className="text-[9px] font-mono text-white/30">{auraProfile.isLightMode ? "LIGHT" : "DARK"}</div>
               </div>
-              <Switch checked={auraProfile.isLightMode} onCheckedChange={toggleLightMode} />
             </div>
+            <Switch checked={auraProfile.isLightMode} onCheckedChange={toggleLightMode} />
           </motion.div>
 
-          {/* Preview Panel */}
+          {/* Preview */}
           <motion.div
             variants={itemVariants}
-            className="lg:col-span-2 p-6 rounded-2xl"
-            style={{
-              background: "var(--nazai-card-bg)",
-              border: "1px solid var(--nazai-border-light)",
-              backdropFilter: `blur(${auraProfile.glassBlur}px)`,
-            }}
+            className="p-5 rounded-xl text-center"
+            style={{ background: "var(--nazai-card-bg)", border: `1px solid ${auraProfile.glowPrimary}40` }}
           >
-            <h3
-              className="text-sm font-semibold mb-4 flex items-center gap-2"
-              style={{ color: auraProfile.glowPrimary }}
-            >
-              <Zap size={16} /> REAL-TIME PREVIEW
-            </h3>
-            <div
-              className="p-6 rounded-xl text-center transition-all"
+            <p
+              className="text-xs font-mono font-bold"
               style={{
-                background: auraProfile.isLightMode ? "rgba(255,255,255,0.9)" : "rgba(0,0,0,0.3)",
-                border: `1px solid ${auraProfile.glowPrimary}40`,
-                boxShadow: `0 0 ${auraProfile.textGlowIntensity * 30}px ${auraProfile.glowPrimary}20`,
+                color: "var(--nazai-text-color)",
+                textShadow: `0 0 ${auraProfile.textGlowIntensity * 8}px ${auraProfile.glowPrimary}`,
               }}
             >
-              <p
-                className="text-[14px] font-mono font-bold"
-                style={{
-                  color: "var(--nazai-text-color)",
-                  textShadow: `0 0 ${auraProfile.textGlowIntensity * 10}px ${auraProfile.glowPrimary}`,
-                }}
-              >
-                NAZAI:// AURA_SYSTEM_ACTIVE
-              </p>
-              <div className="flex items-center justify-center gap-3 mt-4">
-                <div
-                  className="w-10 h-10 rounded-full"
-                  style={{ background: auraProfile.glowPrimary, boxShadow: `0 0 20px ${auraProfile.glowPrimary}` }}
-                />
-                <div
-                  className="w-10 h-10 rounded-full"
-                  style={{ background: auraProfile.glowSecondary, boxShadow: `0 0 20px ${auraProfile.glowSecondary}` }}
-                />
-              </div>
+              NAZAI:// AURA ACTIVE
+            </p>
+            <div className="flex justify-center gap-2 mt-2">
+              <div
+                className="w-6 h-6 rounded-full"
+                style={{ background: auraProfile.glowPrimary, boxShadow: `0 0 12px ${auraProfile.glowPrimary}` }}
+              />
+              <div
+                className="w-6 h-6 rounded-full"
+                style={{ background: auraProfile.glowSecondary, boxShadow: `0 0 12px ${auraProfile.glowSecondary}` }}
+              />
             </div>
           </motion.div>
 
-          {/* Reset Button */}
-          <motion.div
-            variants={itemVariants}
-            className="p-6 rounded-2xl flex items-center justify-center"
-            style={{
-              background: "var(--nazai-card-bg)",
-              border: "1px solid var(--nazai-border-light)",
-              backdropFilter: `blur(${auraProfile.glassBlur}px)`,
-            }}
-          >
+          {/* Reset */}
+          <motion.div variants={itemVariants} className="md:col-span-2">
             <motion.button
               onClick={resetAuraToDefault}
-              className="w-full py-3 rounded-xl flex items-center justify-center gap-2 text-sm font-medium transition-all"
+              className="w-full py-2.5 rounded-xl text-sm font-medium flex items-center justify-center gap-2"
               style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444" }}
-              whileHover={{ scale: 1.02, backgroundColor: "rgba(239,68,68,0.2)" }}
-              whileTap={{ scale: 0.98 }}
+              whileHover={{ scale: 1.01 }}
+              whileTap={{ scale: 0.99 }}
             >
               <RotateCcw size={14} /> RESET TO DEFAULT
             </motion.button>
           </motion.div>
         </motion.div>
 
-        {/* Back Button */}
         <motion.button
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
           transition={{ delay: 0.3 }}
           onClick={() => setShowSettings(false)}
-          className="mt-8 w-full py-3 rounded-xl text-sm font-medium transition-all"
+          className="mt-6 w-full py-2.5 rounded-xl text-sm font-medium"
           style={{
             background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.1)`,
             border: `1px solid ${auraProfile.glowPrimary}40`,
             color: auraProfile.glowPrimary,
           }}
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
+          whileHover={{ scale: 1.01 }}
+          whileTap={{ scale: 0.99 }}
         >
           ← RETURN TO DASHBOARD
         </motion.button>
@@ -961,42 +823,31 @@ export default function Dashboard() {
     </motion.div>
   );
 
-  // Home View Component
+  // Home View
   const HomeView = () => (
     <motion.div
-      key="home"
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -20 }}
-      transition={springTransition}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
       className="flex flex-col items-center w-full h-full"
     >
-      {/* Messages */}
-      <div className="flex-1 w-full max-w-2xl overflow-y-auto py-8 space-y-4 scrollbar-thin">
+      <div className="flex-1 w-full max-w-2xl overflow-y-auto py-6 space-y-3">
         {messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full gap-6 text-center select-none">
+          <div className="flex flex-col items-center justify-center h-full gap-4 text-center">
             <div
               className="w-14 h-14 rounded-full flex items-center justify-center"
-              style={{
-                border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.25)`,
-                background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.05)`,
-              }}
+              style={{ border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.25)` }}
             >
-              <Zap
-                size={22}
-                style={{ color: borderColor, filter: `drop-shadow(0 0 8px ${auraProfile.glowPrimary})` }}
-              />
+              <Zap size={22} style={{ color: borderColor }} />
             </div>
             <div>
               <p
-                className="text-[13px] tracking-[0.12em]"
+                className="text-xs tracking-wide"
                 style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.6)` }}
               >
                 WORKFLOW ANIMATOR READY
               </p>
-              <p className="text-[11px] mt-2" style={{ color: "rgba(255,255,255,0.2)" }}>
-                Select an AI engine below, then describe your mission.
-              </p>
+              <p className="text-[10px] mt-1 text-white/30">Select an AI engine, then describe your mission.</p>
             </div>
           </div>
         )}
@@ -1005,30 +856,16 @@ export default function Dashboard() {
             key={i}
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.25 }}
             className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
           >
             <div
-              className="max-w-[78%] px-3.5 py-2.5 text-[13px] leading-relaxed"
+              className="max-w-[78%] px-3 py-2 text-xs"
               style={{
                 borderRadius: msg.role === "user" ? "12px 12px 2px 12px" : "12px 12px 12px 2px",
-                background: msg.isSimulation
-                  ? "rgba(255,165,0,0.06)"
-                  : msg.role === "user"
-                    ? `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.08)`
-                    : auraProfile.isLightMode
-                      ? "rgba(255,255,255,0.6)"
-                      : "rgba(255,255,255,0.03)",
-                border: msg.isSimulation
-                  ? "1px solid rgba(255,165,0,0.25)"
-                  : msg.role === "user"
-                    ? `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.2)`
-                    : "1px solid rgba(255,255,255,0.06)",
-                color: msg.isSimulation
-                  ? "#fbbf24"
-                  : msg.role === "user"
-                    ? "var(--nazai-text-color)"
-                    : "rgba(255,255,255,0.7)",
+                background:
+                  msg.role === "user" ? `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.1)` : "var(--nazai-card-bg)",
+                border: `1px solid var(--nazai-border-light)`,
+                color: "var(--nazai-text-color)",
               }}
             >
               {msg.text}
@@ -1038,64 +875,32 @@ export default function Dashboard() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Media mode + Engine tag bar */}
-      <AnimatePresence>
-        {activeTool && (
-          <motion.div
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 6 }}
-            className="w-full max-w-2xl mb-2 flex items-center gap-2 flex-wrap"
+      {activeTool && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="w-full max-w-2xl mb-2 flex justify-end"
+        >
+          <span
+            className="text-[9px] px-2 py-1 rounded-full flex items-center gap-1"
+            style={{
+              background: `rgba(${activeTool.category.glowRgba},0.15)`,
+              border: `1px solid rgba(${activeTool.category.glowRgba},0.3)`,
+              color: activeTool.category.color,
+            }}
           >
-            {isMediaMode && (
-              <span
-                className="text-[9px] tracking-[0.15em] px-2.5 py-1 rounded animate-media-glow"
-                style={{
-                  background: "rgba(168,85,247,0.12)",
-                  border: "1px solid rgba(168,85,247,0.45)",
-                  color: "#a855f7",
-                }}
-              >
-                ▶ MEDIA_GENERATION_MODE_ACTIVE
-              </span>
-            )}
-            <motion.span
-              className="text-[10px] tracking-[0.1em] px-2.5 py-1 rounded flex items-center gap-1.5 ml-auto transition-all"
-              style={{
-                background: `rgba(${activeTool.category.glowRgba},0.1)`,
-                border: `1px solid rgba(${activeTool.category.glowRgba},0.35)`,
-                color: activeTool.category.color,
-              }}
-              whileHover={{ scale: 1.05, filter: "brightness(1.25)" }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => setSelectedModel(null)}
-              title="Deselect Engine"
-            >
-              {activeTool.tool.name} <X size={10} />
-            </motion.span>
-          </motion.div>
-        )}
-      </AnimatePresence>
+            {activeTool.tool.name} <X size={10} className="cursor-pointer" onClick={() => setSelectedModel(null)} />
+          </span>
+        </motion.div>
+      )}
 
-      {/* Glassmorphic Input Container */}
-      <div className="w-full max-w-2xl mb-6 relative">
+      <div className="w-full max-w-2xl mb-4">
         <div
-          className="relative rounded-xl transition-all duration-300 flex flex-col"
+          className="relative rounded-xl flex flex-col"
           style={{
-            border: `2px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},${isTyping ? "0.7" : activeTool ? "0.4" : "0.15"})`,
-            background: auraProfile.isLightMode ? "rgba(255,255,255,0.6)" : "rgba(255,255,255,0.025)",
+            border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.2)`,
+            background: "var(--nazai-card-bg)",
             backdropFilter: `blur(${auraProfile.glassBlur}px)`,
-            boxShadow: isTyping
-              ? `0 0 0 1px rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.2), 0 0 35px ${auraProfile.glowPrimary}40`
-              : activeTool
-                ? `0 0 0 1px rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.1), 0 0 20px ${auraProfile.glowPrimary}30`
-                : "none",
-            animation: isTyping
-              ? "border-pulse 1.5s ease-in-out infinite"
-              : activeTool
-                ? "border-pulse 3s ease-in-out infinite"
-                : "none",
-            ["--glow-color" as string]: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.4)`,
           }}
         >
           <textarea
@@ -1103,376 +908,170 @@ export default function Dashboard() {
             value={input}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
-            placeholder={
-              activeTool
-                ? `Mission for ${activeTool.tool.name}... (↵ to send)`
-                : "Describe your system mission... (↵ to send)"
-            }
+            placeholder={activeTool ? `Mission for ${activeTool.tool.name}...` : "Describe your mission..."}
             rows={1}
-            className="w-full bg-transparent border-none outline-none resize-none font-mono text-[13px] leading-relaxed placeholder:text-white/18"
-            style={{
-              padding: "16px 16px 8px 16px",
-              minHeight: "140px",
-              color: "var(--nazai-text-color)",
-              caretColor: borderColor,
-            }}
+            className="w-full bg-transparent border-none outline-none resize-none font-mono text-xs p-3 min-h-[80px]"
+            style={{ color: "var(--nazai-text-color)" }}
           />
-
-          {/* Footer inside input */}
-          <div
-            className="flex items-center justify-between px-3 py-2.5"
-            style={{ borderTop: "1px solid rgba(255,255,255,0.1)" }}
-          >
-            <div className="flex items-center gap-2 flex-wrap">
-              <motion.button
+          <div className="flex items-center justify-between px-3 py-2 border-t border-white/10">
+            <div className="flex gap-1">
+              <button
                 onClick={() => {
                   setPlusMenuOpen((v) => !v);
                   setDrawerOpen(false);
                 }}
-                className="w-7 h-7 rounded-full flex items-center justify-center transition-all duration-200 shrink-0"
-                style={{
-                  background: plusMenuOpen
-                    ? `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.18)`
-                    : `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.06)`,
-                  border: `1px solid ${plusMenuOpen ? currentTheme.color : `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.25)`}`,
-                  color: currentTheme.color,
-                }}
-                title="Tools & Options"
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.9 }}
+                className="w-7 h-7 rounded-full flex items-center justify-center"
+                style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.1)` }}
               >
-                <motion.div animate={{ rotate: plusMenuOpen ? 45 : 0 }} transition={springTransition}>
-                  <Plus size={14} />
-                </motion.div>
-              </motion.button>
-
-              <motion.button
+                <Plus size={12} />
+              </button>
+              <button
                 onClick={() => {
                   setDrawerOpen((v) => !v);
                   setPlusMenuOpen(false);
                 }}
-                className="text-[10px] tracking-[0.08em] px-2 py-1 rounded transition-all"
-                style={{
-                  background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.06)`,
-                  border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.2)`,
-                  color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.6)`,
-                }}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
+                className="text-[9px] px-2 py-1 rounded"
+                style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.08)` }}
               >
                 {activeTool ? activeTool.tool.name : "Select Engine"}
-              </motion.button>
+              </button>
             </div>
-
-            <div className="flex items-center gap-2">
-              <motion.button
-                onClick={() => setWebSearchActive((v) => !v)}
-                className="flex items-center gap-1 px-2 py-1 rounded text-[10px] tracking-[0.08em] transition-all"
-                style={{
-                  background: webSearchActive ? "rgba(59,130,246,0.12)" : "rgba(255,255,255,0.03)",
-                  border: webSearchActive ? "1px solid rgba(59,130,246,0.4)" : "1px solid rgba(255,255,255,0.06)",
-                  color: webSearchActive ? "#3b82f6" : "rgba(255,255,255,0.3)",
-                }}
-                title="Toggle Web Search"
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-              >
-                {webSearchActive ? <CheckCircle2 size={11} /> : <Search size={11} />}
-                <span className="hidden sm:inline">Web</span>
-              </motion.button>
-
-              <div className="relative">
-                <motion.button
-                  onClick={() => setStyleDropdownOpen((v) => !v)}
-                  className="flex items-center gap-1 px-2 py-1 rounded text-[10px] tracking-[0.08em] transition-all"
-                  style={{
-                    background: "rgba(255,255,255,0.03)",
-                    border: "1px solid rgba(255,255,255,0.08)",
-                    color: "rgba(255,255,255,0.4)",
-                  }}
-                  title="Output Style"
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                >
-                  <Feather size={11} />
-                  <span className="hidden sm:inline">{activeStyle}</span>
-                  <ChevronDown size={9} />
-                </motion.button>
-                <AnimatePresence>
-                  {styleDropdownOpen && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 4, scale: 0.96 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: 4, scale: 0.96 }}
-                      transition={springTransition}
-                      className="absolute bottom-full right-0 mb-1 rounded-lg overflow-hidden z-50"
-                      style={{
-                        background: "rgba(2,6,23,0.97)",
-                        border: "1px solid rgba(255,255,255,0.1)",
-                        backdropFilter: `blur(${auraProfile.glassBlur}px)`,
-                      }}
-                    >
-                      {STYLES.map((s) => (
-                        <motion.button
-                          key={s}
-                          onClick={() => {
-                            setActiveStyle(s);
-                            setStyleDropdownOpen(false);
-                          }}
-                          className="block w-full text-left px-4 py-2 text-[11px] tracking-[0.08em] transition-colors"
-                          style={{
-                            color: activeStyle === s ? currentTheme.color : "rgba(255,255,255,0.4)",
-                            background:
-                              activeStyle === s
-                                ? `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.08)`
-                                : "transparent",
-                          }}
-                          whileHover={{ backgroundColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.12)`, x: 4 }}
-                        >
-                          {s}
-                        </motion.button>
-                      ))}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-
-              <motion.button
-                onClick={handleSend}
-                disabled={!input.trim() || isProcessing}
-                className="w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200"
-                style={{
-                  background: input.trim() ? currentTheme.color : "rgba(255,255,255,0.04)",
-                  color: input.trim() ? "#020617" : "rgba(255,255,255,0.15)",
-                  boxShadow: input.trim() ? `0 0 14px ${auraProfile.glowPrimary}` : "none",
-                  cursor: input.trim() ? "pointer" : "default",
-                }}
-                whileHover={input.trim() ? { scale: 1.1 } : {}}
-                whileTap={input.trim() ? { scale: 0.9 } : {}}
-              >
-                <Send size={13} />
-              </motion.button>
-            </div>
+            <button
+              onClick={handleSend}
+              disabled={!input.trim() || isProcessing}
+              className="w-7 h-7 rounded-full flex items-center justify-center"
+              style={{ background: input.trim() ? currentTheme.color : "rgba(255,255,255,0.1)" }}
+            >
+              <Send size={11} style={{ color: input.trim() ? "#020617" : "white" }} />
+            </button>
           </div>
         </div>
       </div>
     </motion.div>
   );
 
-  // Folder View Component (Mission Lists)
+  // Folder View
   const FolderView = () => (
     <motion.div
-      key="folder"
-      initial={{ opacity: 0, scale: 0.98 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.98 }}
-      transition={springTransition}
-      className="flex flex-col w-full max-w-5xl flex-1 overflow-y-auto pt-4 pb-12 px-6"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="flex flex-col w-full max-w-4xl flex-1 overflow-y-auto pt-4 pb-8 px-4"
     >
-      {/* Terminal Header */}
-      <div className="text-center mb-6 shrink-0 relative z-10">
+      <div className="text-center mb-5">
         <h1
-          className="text-[48px] font-black uppercase leading-none select-none inline-block tracking-tighter"
+          className="text-3xl font-black uppercase tracking-tighter"
           style={{
-            letterSpacing: "-0.05em",
             background: currentTheme.gradient,
             WebkitBackgroundClip: "text",
             WebkitTextFillColor: "transparent",
-            backgroundClip: "text",
-            color: "transparent",
-            filter: `drop-shadow(0 0 30px rgba(${currentTheme.glowRgba}, 0.3))`,
           }}
         >
-          {String(activeNav)}
+          {activeNav}
         </h1>
-        <div className="flex items-center justify-center gap-4 mt-5">
-          <div className="h-[1px] w-8 bg-white/10" />
-          <p className="text-[9px] tracking-[0.5em] uppercase font-mono text-white/30">
-            SYSTEM_NODE // {String(activeNav).toUpperCase()}_TERMINAL
-          </p>
-          <div className="h-[1px] w-8 bg-white/10" />
-        </div>
+        <p className="text-[8px] tracking-[0.3em] font-mono text-white/30 mt-2">
+          SYSTEM_NODE // {activeNav.toUpperCase()}_TERMINAL
+        </p>
       </div>
-
-      {/* Mission List with Stagger Animation */}
-      <motion.div
-        variants={containerVariants}
-        initial="hidden"
-        animate="visible"
-        className="flex-1 overflow-y-auto scrollbar-thin space-y-2 px-1 pb-8"
-      >
+      <motion.div variants={containerVariants} initial="hidden" animate="visible" className="space-y-2">
         {missionsLoading ? (
-          <div className="flex items-center justify-center py-16">
+          <div className="flex justify-center py-12">
             <div
               className="w-5 h-5 rounded-full border-2 border-t-transparent animate-spin"
-              style={{
-                borderColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.4)`,
-                borderTopColor: "transparent",
-              }}
+              style={{ borderColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.4)` }}
             />
           </div>
         ) : filteredMissions.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 gap-3">
-            <div
-              className="w-12 h-12 rounded-full flex items-center justify-center"
-              style={{
-                border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.15)`,
-                background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.04)`,
-              }}
-            >
-              {(() => {
-                const Icon = activeNavItem.icon;
-                return <Icon size={20} style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.3)` }} />;
-              })()}
-            </div>
-            <p className="text-[12px] tracking-[0.1em] font-mono" style={{ color: "rgba(255,255,255,0.2)" }}>
-              No projects found
-            </p>
-            <p className="text-[10px]" style={{ color: "rgba(255,255,255,0.12)" }}>
-              {activeNav === "Trash"
-                ? "Trashed items will appear here"
-                : "Projects will appear here as you create them"}
-            </p>
+          <div className="text-center py-12">
+            <p className="text-[11px] font-mono text-white/30">No missions found in {activeNav.toLowerCase()}</p>
           </div>
         ) : (
-          filteredMissions.map((mission, index) => renderMissionItem(mission, index))
+          filteredMissions.map(renderMissionItem)
         )}
       </motion.div>
     </motion.div>
   );
 
   // ─── Main Render ────────────────────────────────────────────────────────────────
-
   return (
     <div
-      className="flex h-screen w-screen overflow-hidden font-sans"
-      style={{
-        background: "var(--nazai-bg-base)",
-        color: "var(--nazai-text-color)",
-        transition: "background 0.3s ease, color 0.3s ease",
-      }}
+      className="flex h-screen w-screen overflow-hidden"
+      style={{ background: "var(--nazai-bg-base)", color: "var(--nazai-text-color)" }}
     >
-      <input ref={fileInputRef} type="file" multiple accept="image/*,video/*,.pdf,.doc,.docx" className="hidden" />
+      <input ref={fileInputRef} type="file" multiple className="hidden" />
 
-      {/* ═══════════════════════ SIDEBAR ═══════════════════════ */}
+      {/* Sidebar */}
       <motion.aside
-        animate={{ width: sidebarCollapsed ? 0 : 64 }}
-        transition={{ duration: 0.2, ease: "easeInOut" }}
+        animate={{ width: sidebarCollapsed ? 0 : 56 }}
+        transition={{ duration: 0.2 }}
         className="flex flex-col items-center shrink-0 overflow-hidden z-20"
         style={{ borderRight: `1px solid var(--nazai-border-light)`, background: "var(--nazai-bg-base)" }}
       >
-        <div className="flex flex-col items-center w-16 py-6 h-full">
-          <div className="mb-8">
-            <Zap size={20} style={{ color: borderColor, filter: `drop-shadow(0 0 6px ${auraProfile.glowPrimary})` }} />
+        <div className="flex flex-col items-center w-14 py-4 h-full">
+          <div className="mb-6">
+            <Zap size={18} style={{ color: borderColor }} />
           </div>
           <nav className="flex flex-col gap-1 flex-1">{NAV_ITEMS.map(renderNavItem)}</nav>
           <div className="flex flex-col items-center gap-2 mt-auto">
             {userEmail && (
               <div
-                title={userEmail}
-                className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-semibold"
-                style={{
-                  background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.12)`,
-                  border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.35)`,
-                  color: borderColor,
-                }}
+                className="w-7 h-7 rounded-full flex items-center justify-center text-[9px] font-semibold"
+                style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.15)`, color: borderColor }}
               >
                 {userEmail[0].toUpperCase()}
               </div>
             )}
-            <motion.button
+            <button
               onClick={() => setLogoutModalOpen(true)}
-              title="Sign out"
-              className="w-10 h-10 flex items-center justify-center rounded-lg transition-all duration-200 group"
-              whileHover={{ scale: 1.05, backgroundColor: "rgba(239,68,68,0.1)" }}
-              whileTap={{ scale: 0.95 }}
+              className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-red-500/10"
             >
-              <LogOut size={16} className="text-white/25 group-hover:text-red-400 transition-colors" />
-            </motion.button>
+              <LogOut size={14} className="text-white/30 hover:text-red-400" />
+            </button>
           </div>
         </div>
       </motion.aside>
 
-      {/* ═══════════════════════ MAIN ═══════════════════════ */}
+      {/* Main Content */}
       <main className="flex flex-col flex-1 min-w-0 relative">
         <header
-          className="flex items-center justify-between px-5 py-3 shrink-0"
+          className="flex items-center justify-between px-4 py-2 shrink-0"
           style={{
             borderBottom: `1px solid var(--nazai-border-light)`,
-            background: auraProfile.isLightMode ? "rgba(255,255,255,0.7)" : "rgba(2,6,23,0.92)",
+            background: auraProfile.isLightMode ? "rgba(255,255,255,0.6)" : "rgba(2,6,23,0.8)",
             backdropFilter: `blur(${auraProfile.glassBlur}px)`,
           }}
         >
-          <div className="flex items-center gap-3">
-            <motion.button
-              onClick={() => setSidebarCollapsed((v) => !v)}
-              className="mr-2 transition-colors"
-              style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.5)` }}
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.9 }}
-            >
-              {sidebarCollapsed ? <PanelLeft size={16} /> : <PanelLeftClose size={16} />}
-            </motion.button>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setSidebarCollapsed((v) => !v)} className="text-white/40">
+              {sidebarCollapsed ? <PanelLeft size={14} /> : <PanelLeftClose size={14} />}
+            </button>
             <span
-              className="text-[11px] tracking-tighter font-black font-mono"
+              className="text-[10px] font-mono font-black tracking-tighter"
               style={{
                 color: borderColor,
-                textShadow: `0 0 ${auraProfile.textGlowIntensity * 8}px ${auraProfile.glowPrimary}`,
+                textShadow: `0 0 ${auraProfile.textGlowIntensity * 6}px ${auraProfile.glowPrimary}`,
               }}
             >
               NAZAI://
             </span>
             <span
-              className="text-[11px] font-mono font-bold tracking-[0.1em]"
+              className="text-[10px] font-mono font-bold"
               style={{
                 background: currentTheme.gradient,
                 WebkitBackgroundClip: "text",
                 WebkitTextFillColor: "transparent",
-                backgroundClip: "text",
               }}
             >
               {activeNav.toUpperCase()}
             </span>
-            <ChevronRight size={10} style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.25)` }} />
-            {activeTool && activeNav === "Home" && !showSettings && (
-              <motion.span
-                initial={{ opacity: 0, x: -4 }}
-                animate={{ opacity: 1, x: 0 }}
-                className="text-[11px] tracking-[0.1em]"
-                style={{ color: activeTool.category.color }}
-              >
-                {activeTool.tool.name}
-              </motion.span>
-            )}
           </div>
           <div className="flex items-center gap-3">
-            <span
-              className="text-[9px] tracking-[0.12em]"
-              style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.3)` }}
-            >
-              LINKED
-            </span>
-            <span
-              className="text-[10px] tracking-[0.12em] font-mono select-none"
-              style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.4)` }}
-            >
-              {new Date()
-                .toLocaleDateString("en-US", { weekday: "short", year: "numeric", month: "short", day: "numeric" })
-                .toUpperCase()}
-            </span>
-            <div className="flex items-center gap-2">
-              <div className="w-[6px] h-[6px] rounded-full animate-pulse-glow" style={{ background: borderColor }} />
-              <span
-                className="text-[9px] tracking-[0.15em] font-mono"
-                style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.4)` }}
-              >
-                SYNCHRONIZED
-              </span>
-            </div>
+            <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: borderColor }} />
+            <span className="text-[8px] font-mono tracking-wider text-white/30">SYNCHRONIZED</span>
           </div>
         </header>
 
-        <div className="flex-1 flex flex-col items-center overflow-hidden relative px-4">
+        <div className="flex-1 flex flex-col items-center overflow-hidden relative px-3">
           <AnimatePresence mode="wait">
             {showSettings ? (
               <SettingsView key="settings" />
@@ -1485,53 +1084,128 @@ export default function Dashboard() {
         </div>
 
         <footer
-          className="flex items-center justify-between px-6 py-2 shrink-0"
+          className="flex items-center justify-between px-4 py-1.5 shrink-0 text-[8px] font-mono tracking-wider text-white/30"
           style={{
             borderTop: `1px solid var(--nazai-border-light)`,
-            background: auraProfile.isLightMode ? "rgba(255,255,255,0.7)" : "rgba(2,6,23,0.92)",
-            backdropFilter: `blur(${auraProfile.glassBlur}px)`,
+            background: auraProfile.isLightMode ? "rgba(255,255,255,0.6)" : "rgba(2,6,23,0.8)",
           }}
         >
-          <div className="flex items-center gap-2">
-            <Shield size={10} style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.45)` }} />
-            <span
-              className="text-[10px] tracking-[0.15em]"
-              style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.45)` }}
-            >
-              SECURE_NODE
-            </span>
-          </div>
-          <div className="flex items-center gap-4">
-            {connectorStatus.supabase && (
-              <span className="text-[9px] tracking-[0.1em]" style={{ color: "rgba(34,197,94,0.4)" }}>
-                DB:ON
-              </span>
-            )}
-            {connectorStatus.vercel && (
-              <span className="text-[9px] tracking-[0.1em]" style={{ color: "rgba(255,255,255,0.3)" }}>
-                VERCEL:ON
-              </span>
-            )}
-            {connectorStatus.github && (
-              <span className="text-[9px] tracking-[0.1em]" style={{ color: "rgba(255,255,255,0.3)" }}>
-                GH:ON
-              </span>
-            )}
-            <div className="flex items-center gap-2">
-              <div className="w-[5px] h-[5px] rounded-full animate-pulse-glow" style={{ background: borderColor }} />
-              <span
-                className="text-[10px] tracking-[0.15em] font-mono"
-                style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.45)` }}
-              >
-                SYNCHRONIZED
-              </span>
-            </div>
+          <span>SECURE_NODE</span>
+          <div className="flex gap-3">
+            <span>DB:ON</span>
+            <span>AI:READY</span>
           </div>
         </footer>
       </main>
 
-      {/* PLUS MENU, AI ENGINE DRAWER, and LOGOUT MODAL remain the same as before... */}
-      {/* (Keeping them concise for brevity - they function identically to the previous version) */}
+      {/* Plus Menu Modal */}
+      <AnimatePresence>
+        {plusMenuOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setPlusMenuOpen(false)}
+            className="fixed inset-0 z-30 bg-black/40"
+          />
+        )}
+      </AnimatePresence>
+
+      {/* AI Drawer Modal */}
+      <AnimatePresence>
+        {drawerOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setDrawerOpen(false)}
+              className="fixed inset-0 z-30 bg-black/40"
+            />
+            <motion.div
+              initial={{ opacity: 0, y: 20, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 20, scale: 0.95 }}
+              transition={springTransition}
+              className="fixed z-40 bottom-24 left-1/2 -translate-x-1/2 w-[90vw] max-w-md rounded-xl overflow-hidden"
+              style={{
+                background: "var(--nazai-card-bg)",
+                border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.2)`,
+                backdropFilter: `blur(${auraProfile.glassBlur}px)`,
+              }}
+            >
+              <div className="px-4 py-2 border-b border-white/10">
+                <span className="text-[10px] font-mono text-white/40">SELECT AI ENGINE</span>
+              </div>
+              <div className="p-3 space-y-3">
+                {Object.entries(AI_CATEGORIES).map(([catKey, cat]) => (
+                  <div key={catKey}>
+                    <div className="text-[8px] font-mono mb-1" style={{ color: cat.color }}>
+                      {cat.label}
+                    </div>
+                    <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${cat.tools.length}, 1fr)` }}>
+                      {cat.tools.map((tool) => (
+                        <button
+                          key={tool.id}
+                          onClick={() => handleSelectTool(tool.id)}
+                          className="p-2 rounded-lg text-left transition-all"
+                          style={{
+                            background:
+                              selectedModel === tool.id ? `rgba(${cat.glowRgba},0.15)` : "rgba(255,255,255,0.03)",
+                            border: `1px solid ${selectedModel === tool.id ? cat.color : "rgba(255,255,255,0.1)"}`,
+                          }}
+                        >
+                          <div className="flex items-center gap-1 mb-0.5">
+                            <tool.icon
+                              size={10}
+                              style={{ color: selectedModel === tool.id ? cat.color : "white/40" }}
+                            />
+                            <span className="text-[9px] font-semibold">{tool.name}</span>
+                          </div>
+                          <div className="text-[8px] text-white/30">{tool.subtitle}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Logout Modal */}
+      <AnimatePresence>
+        {logoutModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="max-w-sm w-full rounded-xl p-6 text-center"
+              style={{ background: "var(--nazai-card-bg)", border: "1px solid rgba(239,68,68,0.3)" }}
+            >
+              <LogOut size={32} className="mx-auto mb-3 text-red-500" />
+              <h3 className="text-sm font-bold mb-1">System Termination</h3>
+              <p className="text-xs text-white/50 mb-4">Are you sure you want to log out?</p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setLogoutModalOpen(false)}
+                  className="flex-1 py-2 rounded-lg text-xs bg-white/5 border border-white/10"
+                >
+                  Stay
+                </button>
+                <button
+                  onClick={handleSignOut}
+                  className="flex-1 py-2 rounded-lg text-xs bg-red-500/20 border border-red-500/40 text-red-400"
+                >
+                  Terminate
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       <style>{`
         :root {
@@ -1546,46 +1220,16 @@ export default function Dashboard() {
           --nazai-border-light: rgba(255,255,255,0.06);
           --nazai-card-bg: rgba(255,255,255,0.03);
         }
-
-        @keyframes border-pulse {
-          0%, 100% { box-shadow: 0 0 0 1px var(--glow-color), 0 0 16px var(--glow-color); }
-          50%       { box-shadow: 0 0 0 1px var(--glow-color), 0 0 35px var(--glow-color); }
+        @keyframes pulse {
+          0%, 100% { opacity: 0.4; transform: scale(1); }
+          50% { opacity: 1; transform: scale(1.2); }
         }
-        @keyframes pulse-glow {
-          0%, 100% { transform: scale(1); box-shadow: 0 0 4px currentColor; opacity: 1; }
-          50% { transform: scale(1.2); box-shadow: 0 0 12px currentColor, 0 0 20px currentColor; opacity: 0.7; }
-        }
-        .animate-pulse-glow { animation: pulse-glow 3s ease-in-out infinite; }
-        .animate-media-glow { animation: media-glow 2s ease-in-out infinite; }
-        @keyframes media-glow {
-          0%, 100% { box-shadow: 0 0 8px rgba(168,85,247,0.3); }
-          50% { box-shadow: 0 0 18px rgba(168,85,247,0.5); }
-        }
-        textarea::placeholder { color: rgba(255,255,255,0.18) !important; }
-        textarea { scrollbar-width: none; }
-        textarea::-webkit-scrollbar { display: none; }
-        
-        input[type="range"] {
-          -webkit-appearance: none;
-          background: transparent;
-        }
-        input[type="range"]::-webkit-slider-thumb {
-          -webkit-appearance: none;
-          width: 16px;
-          height: 16px;
-          border-radius: 50%;
-          background: var(--glow-primary);
-          cursor: pointer;
-          box-shadow: 0 0 10px var(--glow-primary);
-          border: 2px solid rgba(255,255,255,0.5);
-        }
-        input[type="color"]::-webkit-color-swatch-wrapper {
-          padding: 0;
-        }
-        input[type="color"]::-webkit-color-swatch {
-          border: none;
-          border-radius: 8px;
-        }
+        .animate-pulse { animation: pulse 2s ease-in-out infinite; }
+        textarea::placeholder { color: rgba(255,255,255,0.2); }
+        input[type="range"] { -webkit-appearance: none; background: transparent; }
+        input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--glow-primary); cursor: pointer; box-shadow: 0 0 8px var(--glow-primary); border: 2px solid rgba(255,255,255,0.5); }
+        input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+        input[type="color"]::-webkit-color-swatch { border: none; border-radius: 8px; }
       `}</style>
     </div>
   );
