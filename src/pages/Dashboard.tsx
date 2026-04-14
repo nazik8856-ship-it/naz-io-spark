@@ -117,13 +117,7 @@ const AI_CATEGORIES: Record<string, Category> = {
     glowRgba: "168,85,247",
     label: "CREATION",
     tools: [
-      {
-        id: "google/gemini-3-flash-image",
-        name: "Nano Banana 2.0",
-        subtitle: "The Designer",
-        icon: Image,
-        isMedia: true,
-      },
+      { id: "google/gemini-3-flash-image", name: "Nano Banana 2.0", subtitle: "The Designer", icon: Image, isMedia: true },
       { id: "google/veo-3", name: "Google Veo 3", subtitle: "The Cinematographer", icon: Video, isMedia: true },
       { id: "elevenlabs/lyria", name: "ElevenLabs Lyria", subtitle: "The Voice", icon: Mic, isMedia: true },
     ],
@@ -277,7 +271,7 @@ export default function Dashboard() {
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
   const [missions, setMissions] = useState<Mission[]>([]);
   const [missionsLoading, setMissionsLoading] = useState(true);
-
+  
   // Aura Design System State
   const [auraProfile, setAuraProfile] = useState<AuraProfile>(loadAuraProfile);
   const [showSettings, setShowSettings] = useState(false);
@@ -295,14 +289,14 @@ export default function Dashboard() {
     const root = document.documentElement;
     const primaryRgb = getRgbFromHex(auraProfile.glowPrimary);
     const secondaryRgb = getRgbFromHex(auraProfile.glowSecondary);
-
+    
     root.style.setProperty("--glow-primary", auraProfile.glowPrimary);
     root.style.setProperty("--glow-primary-rgb", primaryRgb);
     root.style.setProperty("--glow-secondary", auraProfile.glowSecondary);
     root.style.setProperty("--glow-secondary-rgb", secondaryRgb);
     root.style.setProperty("--text-glow-intensity", auraProfile.textGlowIntensity.toString());
     root.style.setProperty("--glass-blur", `${auraProfile.glassBlur}px`);
-
+    
     if (auraProfile.isLightMode) {
       root.style.setProperty("--nazai-text-color", "#0f172a");
       root.style.setProperty("--nazai-bg-base", "#f8fafc");
@@ -329,18 +323,12 @@ export default function Dashboard() {
 
   const filteredMissions = useMemo(() => {
     switch (activeNav) {
-      case "Trash":
-        return missions.filter((m) => m.status === "trashed");
-      case "Archives":
-        return missions.filter((m) => m.status === "archived");
-      case "Recently":
-        return missions.filter((m) => m.status !== "trashed").slice(0, 10);
-      case "History":
-        return missions.filter((m) => m.status === "completed");
-      case "Workflows":
-        return missions.filter((m) => m.status === "pending" || m.status === "active");
-      default:
-        return missions.filter((m) => m.status !== "trashed");
+      case "Trash": return missions.filter((m) => m.status === "trashed");
+      case "Archives": return missions.filter((m) => m.status === "archived");
+      case "Recently": return missions.filter((m) => m.status !== "trashed").slice(0, 10);
+      case "History": return missions.filter((m) => m.status === "completed");
+      case "Workflows": return missions.filter((m) => m.status === "pending" || m.status === "active");
+      default: return missions.filter((m) => m.status !== "trashed");
     }
   }, [activeNav, missions]);
 
@@ -348,9 +336,7 @@ export default function Dashboard() {
   useEffect(() => {
     let isMounted = true;
     const getSession = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      const { data: { session } } = await supabase.auth.getSession();
       if (isMounted) {
         setUserEmail(session?.user?.email ?? null);
         setUserId(session?.user?.id ?? null);
@@ -457,8 +443,7 @@ export default function Dashboard() {
   }, []);
 
   const streamSimulation = useCallback((msgIndex: number) => {
-    const mockResponse =
-      "[SIMULATION_MODE] // OFFLINE_DRAFT — Neural pathway rerouted through local inference cache. Executing fallback heuristic analysis on provided directive. Output confidence: 87.3%.";
+    const mockResponse = "[SIMULATION_MODE] // OFFLINE_DRAFT — Neural pathway rerouted through local inference cache. Executing fallback heuristic analysis on provided directive. Output confidence: 87.3%.";
     const words = mockResponse.split(" ");
     let wordIdx = 0;
     const appendWord = () => {
@@ -503,15 +488,12 @@ export default function Dashboard() {
     }, 1500);
   }, [input, messages.length, streamSimulation, activeTool]);
 
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        handleSend();
-      }
-    },
-    [handleSend],
-  );
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  }, [handleSend]);
 
   const handleSignOut = useCallback(async () => {
     setLogoutModalOpen(false);
@@ -536,307 +518,141 @@ export default function Dashboard() {
   }, []);
 
   // ─── Render Components ──────────────────────────────────────────────────────────
-
-  const renderNavItem = useCallback(
-    (item: (typeof NAV_ITEMS)[number]) => {
-      const Icon = item.icon;
-      const isActive = activeNav === item.label && !showSettings;
-      const isSettingsActive = item.label === "Settings" && showSettings;
-      const itemTheme = SECTION_THEMES[item.label] || SECTION_THEMES["Home"];
-      return (
-        <motion.button
-          key={item.label}
-          onClick={() => handleNavClick(item.label)}
-          title={item.label}
-          className="w-10 h-10 flex items-center justify-center rounded-lg transition-all duration-200 relative group"
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-        >
-          {(isActive || isSettingsActive) && (
-            <motion.div
-              layoutId="nav-active-bg"
-              className="absolute inset-0 rounded-lg"
-              style={{
-                background: itemTheme.gradient,
-                opacity: 0.15,
-                boxShadow: `0 0 20px rgba(${itemTheme.glowRgba}, 0.3)`,
-              }}
-              transition={springTransition}
-            />
-          )}
-          <Icon
-            size={18}
-            className="relative z-10"
-            style={{
-              color: isActive || isSettingsActive ? itemTheme.color : "rgba(255,255,255,0.25)",
-              filter: isActive || isSettingsActive ? `drop-shadow(0 0 6px rgba(${itemTheme.glowRgba}, 0.6))` : "none",
-            }}
-          />
-        </motion.button>
-      );
-    },
-    [activeNav, showSettings, handleNavClick],
-  );
-
-  const renderMissionItem = useCallback(
-    (mission: Mission, index: number) => (
-      <motion.div
-        key={mission.id}
-        variants={itemVariants}
-        whileHover={{ scale: 1.01, backgroundColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.08)` }}
-        className="group flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer transition-all duration-200"
-        style={{
-          background: "var(--nazai-card-bg)",
-          border: "1px solid var(--nazai-border-light)",
-          backdropFilter: `blur(${auraProfile.glassBlur}px)`,
-        }}
+  
+  const renderNavItem = useCallback((item: typeof NAV_ITEMS[number]) => {
+    const Icon = item.icon;
+    const isActive = activeNav === item.label && !showSettings;
+    const isSettingsActive = item.label === "Settings" && showSettings;
+    const itemTheme = SECTION_THEMES[item.label] || SECTION_THEMES["Home"];
+    return (
+      <motion.button
+        key={item.label}
+        onClick={() => handleNavClick(item.label)}
+        title={item.label}
+        className="w-10 h-10 flex items-center justify-center rounded-lg transition-all duration-200 relative group"
+        whileHover={{ scale: 1.05 }}
+        whileTap={{ scale: 0.95 }}
       >
-        <div
-          className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
-          style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.12)` }}
-        >
-          <Zap size={14} style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.7)` }} />
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-[13px] font-medium truncate" style={{ color: "var(--nazai-text-color)" }}>
-            {mission.directive?.slice(0, 80) || "Untitled Mission"}
-          </p>
-          <p className="text-[10px] font-mono mt-0.5 text-white/30">
-            {formatDistanceToNow(new Date(mission.created_at), { addSuffix: true })}
-          </p>
-        </div>
-        <ChevronRight
-          size={14}
-          className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
-          style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.6)` }}
+        {(isActive || isSettingsActive) && (
+          <motion.div
+            layoutId="nav-active-bg"
+            className="absolute inset-0 rounded-lg"
+            style={{ background: itemTheme.gradient, opacity: 0.15, boxShadow: `0 0 20px rgba(${itemTheme.glowRgba}, 0.3)` }}
+            transition={springTransition}
+          />
+        )}
+        <Icon
+          size={18}
+          className="relative z-10"
+          style={{
+            color: isActive || isSettingsActive ? itemTheme.color : "rgba(255,255,255,0.25)",
+            filter: isActive || isSettingsActive ? `drop-shadow(0 0 6px rgba(${itemTheme.glowRgba}, 0.6))` : "none",
+          }}
         />
-      </motion.div>
-    ),
-    [auraProfile.glowPrimary, auraProfile.glassBlur],
-  );
+      </motion.button>
+    );
+  }, [activeNav, showSettings, handleNavClick]);
+
+  const renderMissionItem = useCallback((mission: Mission, index: number) => (
+    <motion.div
+      key={mission.id}
+      variants={itemVariants}
+      whileHover={{ scale: 1.01, backgroundColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.08)` }}
+      className="group flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer transition-all duration-200"
+      style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)", backdropFilter: `blur(${auraProfile.glassBlur}px)` }}
+    >
+      <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.12)` }}>
+        <Zap size={14} style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.7)` }} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-[13px] font-medium truncate" style={{ color: "var(--nazai-text-color)" }}>
+          {mission.directive?.slice(0, 80) || "Untitled Mission"}
+        </p>
+        <p className="text-[10px] font-mono mt-0.5 text-white/30">
+          {formatDistanceToNow(new Date(mission.created_at), { addSuffix: true })}
+        </p>
+      </div>
+      <ChevronRight size={14} className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.6)` }} />
+    </motion.div>
+  ), [auraProfile.glowPrimary, auraProfile.glassBlur]);
 
   // Settings View
   const SettingsView = () => (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={springTransition}
-      className="flex-1 overflow-y-auto px-6 py-8"
-    >
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={springTransition} className="flex-1 overflow-y-auto px-6 py-8">
       <div className="max-w-4xl mx-auto">
         <div className="text-center mb-10">
-          <h1
-            className="text-5xl font-black uppercase tracking-tighter"
-            style={{
-              background: `linear-gradient(135deg, ${auraProfile.glowPrimary}, ${auraProfile.glowSecondary})`,
-              WebkitBackgroundClip: "text",
-              WebkitTextFillColor: "transparent",
-            }}
-          >
+          <h1 className="text-5xl font-black uppercase tracking-tighter" style={{ background: `linear-gradient(135deg, ${auraProfile.glowPrimary}, ${auraProfile.glowSecondary})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
             AURA STUDIO
           </h1>
-          <p className="text-[10px] tracking-[0.3em] uppercase font-mono text-white/40 mt-3">
-            DESIGN SYSTEM // REAL-TIME
-          </p>
+          <p className="text-[10px] tracking-[0.3em] uppercase font-mono text-white/40 mt-3">DESIGN SYSTEM // REAL-TIME</p>
         </div>
 
-        <motion.div
-          variants={containerVariants}
-          initial="hidden"
-          animate="visible"
-          className="grid grid-cols-1 md:grid-cols-2 gap-5"
-        >
+        <motion.div variants={containerVariants} initial="hidden" animate="visible" className="grid grid-cols-1 md:grid-cols-2 gap-5">
           {/* Colors */}
-          <motion.div
-            variants={itemVariants}
-            className="md:col-span-2 p-5 rounded-xl"
-            style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
-          >
-            <h3
-              className="text-sm font-semibold mb-3 flex items-center gap-2"
-              style={{ color: auraProfile.glowPrimary }}
-            >
-              <Palette size={16} /> CHROMATIC CORE
-            </h3>
+          <motion.div variants={itemVariants} className="md:col-span-2 p-5 rounded-xl" style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}>
+            <h3 className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: auraProfile.glowPrimary }}><Palette size={16} /> CHROMATIC CORE</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="text-[9px] font-mono block mb-1 text-white/40">PRIMARY GLOW</label>
                 <div className="flex items-center gap-2">
-                  <div
-                    className="w-10 h-10 rounded-xl"
-                    style={{ background: auraProfile.glowPrimary, boxShadow: `0 0 15px ${auraProfile.glowPrimary}` }}
-                  />
-                  <input
-                    type="color"
-                    value={auraProfile.glowPrimary}
-                    onChange={(e) => updateAuraProfile({ glowPrimary: e.target.value })}
-                    className="w-16 h-9 rounded bg-transparent border border-white/20"
-                  />
-                  <input
-                    type="text"
-                    value={auraProfile.glowPrimary}
-                    onChange={(e) => updateAuraProfile({ glowPrimary: e.target.value })}
-                    className="flex-1 px-2 py-1.5 rounded text-xs bg-white/5 border border-white/10"
-                    style={{ color: "var(--nazai-text-color)" }}
-                  />
+                  <div className="w-10 h-10 rounded-xl" style={{ background: auraProfile.glowPrimary, boxShadow: `0 0 15px ${auraProfile.glowPrimary}` }} />
+                  <input type="color" value={auraProfile.glowPrimary} onChange={(e) => updateAuraProfile({ glowPrimary: e.target.value })} className="w-16 h-9 rounded bg-transparent border border-white/20" />
+                  <input type="text" value={auraProfile.glowPrimary} onChange={(e) => updateAuraProfile({ glowPrimary: e.target.value })} className="flex-1 px-2 py-1.5 rounded text-xs bg-white/5 border border-white/10" style={{ color: "var(--nazai-text-color)" }} />
                 </div>
               </div>
               <div>
                 <label className="text-[9px] font-mono block mb-1 text-white/40">SECONDARY GLOW</label>
                 <div className="flex items-center gap-2">
-                  <div
-                    className="w-10 h-10 rounded-xl"
-                    style={{
-                      background: auraProfile.glowSecondary,
-                      boxShadow: `0 0 15px ${auraProfile.glowSecondary}`,
-                    }}
-                  />
-                  <input
-                    type="color"
-                    value={auraProfile.glowSecondary}
-                    onChange={(e) => updateAuraProfile({ glowSecondary: e.target.value })}
-                    className="w-16 h-9 rounded bg-transparent border border-white/20"
-                  />
-                  <input
-                    type="text"
-                    value={auraProfile.glowSecondary}
-                    onChange={(e) => updateAuraProfile({ glowSecondary: e.target.value })}
-                    className="flex-1 px-2 py-1.5 rounded text-xs bg-white/5 border border-white/10"
-                    style={{ color: "var(--nazai-text-color)" }}
-                  />
+                  <div className="w-10 h-10 rounded-xl" style={{ background: auraProfile.glowSecondary, boxShadow: `0 0 15px ${auraProfile.glowSecondary}` }} />
+                  <input type="color" value={auraProfile.glowSecondary} onChange={(e) => updateAuraProfile({ glowSecondary: e.target.value })} className="w-16 h-9 rounded bg-transparent border border-white/20" />
+                  <input type="text" value={auraProfile.glowSecondary} onChange={(e) => updateAuraProfile({ glowSecondary: e.target.value })} className="flex-1 px-2 py-1.5 rounded text-xs bg-white/5 border border-white/10" style={{ color: "var(--nazai-text-color)" }} />
                 </div>
               </div>
             </div>
           </motion.div>
 
           {/* Controls */}
-          <motion.div
-            variants={itemVariants}
-            className="p-5 rounded-xl"
-            style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
-          >
-            <h3
-              className="text-sm font-semibold mb-3 flex items-center gap-2"
-              style={{ color: auraProfile.glowPrimary }}
-            >
-              <Sliders size={16} /> ATMOSPHERIC
-            </h3>
+          <motion.div variants={itemVariants} className="p-5 rounded-xl" style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}>
+            <h3 className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: auraProfile.glowPrimary }}><Sliders size={16} /> ATMOSPHERIC</h3>
             <div className="space-y-4">
               <div>
-                <div className="flex justify-between text-[9px] font-mono text-white/40 mb-1">
-                  <span>TEXT GLOW</span>
-                  <span>{auraProfile.textGlowIntensity.toFixed(2)}</span>
-                </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.01"
-                  value={auraProfile.textGlowIntensity}
-                  onChange={(e) => updateAuraProfile({ textGlowIntensity: parseFloat(e.target.value) })}
-                  className="w-full h-1 rounded-full"
-                  style={{
-                    background: `linear-gradient(90deg, ${auraProfile.glowPrimary}, ${auraProfile.glowSecondary})`,
-                  }}
-                />
+                <div className="flex justify-between text-[9px] font-mono text-white/40 mb-1"><span>TEXT GLOW</span><span>{auraProfile.textGlowIntensity.toFixed(2)}</span></div>
+                <input type="range" min="0" max="1" step="0.01" value={auraProfile.textGlowIntensity} onChange={(e) => updateAuraProfile({ textGlowIntensity: parseFloat(e.target.value) })} className="w-full h-1 rounded-full" style={{ background: `linear-gradient(90deg, ${auraProfile.glowPrimary}, ${auraProfile.glowSecondary})` }} />
               </div>
               <div>
-                <div className="flex justify-between text-[9px] font-mono text-white/40 mb-1">
-                  <span>GLASS BLUR</span>
-                  <span>{auraProfile.glassBlur}px</span>
-                </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="40"
-                  step="1"
-                  value={auraProfile.glassBlur}
-                  onChange={(e) => updateAuraProfile({ glassBlur: parseInt(e.target.value) })}
-                  className="w-full h-1 rounded-full"
-                  style={{
-                    background: `linear-gradient(90deg, ${auraProfile.glowPrimary}, ${auraProfile.glowSecondary})`,
-                  }}
-                />
+                <div className="flex justify-between text-[9px] font-mono text-white/40 mb-1"><span>GLASS BLUR</span><span>{auraProfile.glassBlur}px</span></div>
+                <input type="range" min="0" max="40" step="1" value={auraProfile.glassBlur} onChange={(e) => updateAuraProfile({ glassBlur: parseInt(e.target.value) })} className="w-full h-1 rounded-full" style={{ background: `linear-gradient(90deg, ${auraProfile.glowPrimary}, ${auraProfile.glowSecondary})` }} />
               </div>
             </div>
           </motion.div>
 
           {/* Mode Toggle */}
-          <motion.div
-            variants={itemVariants}
-            className="p-5 rounded-xl flex items-center justify-between"
-            style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
-          >
+          <motion.div variants={itemVariants} className="p-5 rounded-xl flex items-center justify-between" style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}>
             <div className="flex items-center gap-2">
-              {auraProfile.isLightMode ? (
-                <Sun size={18} style={{ color: auraProfile.glowPrimary }} />
-              ) : (
-                <Moon size={18} style={{ color: auraProfile.glowPrimary }} />
-              )}
-              <div>
-                <div className="text-sm font-semibold">Frosted Quartz</div>
-                <div className="text-[9px] font-mono text-white/30">{auraProfile.isLightMode ? "LIGHT" : "DARK"}</div>
-              </div>
+              {auraProfile.isLightMode ? <Sun size={18} style={{ color: auraProfile.glowPrimary }} /> : <Moon size={18} style={{ color: auraProfile.glowPrimary }} />}
+              <div><div className="text-sm font-semibold">Frosted Quartz</div><div className="text-[9px] font-mono text-white/30">{auraProfile.isLightMode ? "LIGHT" : "DARK"}</div></div>
             </div>
             <Switch checked={auraProfile.isLightMode} onCheckedChange={toggleLightMode} />
           </motion.div>
 
           {/* Preview */}
-          <motion.div
-            variants={itemVariants}
-            className="p-5 rounded-xl text-center"
-            style={{ background: "var(--nazai-card-bg)", border: `1px solid ${auraProfile.glowPrimary}40` }}
-          >
-            <p
-              className="text-xs font-mono font-bold"
-              style={{
-                color: "var(--nazai-text-color)",
-                textShadow: `0 0 ${auraProfile.textGlowIntensity * 8}px ${auraProfile.glowPrimary}`,
-              }}
-            >
-              NAZAI:// AURA ACTIVE
-            </p>
+          <motion.div variants={itemVariants} className="p-5 rounded-xl text-center" style={{ background: "var(--nazai-card-bg)", border: `1px solid ${auraProfile.glowPrimary}40` }}>
+            <p className="text-xs font-mono font-bold" style={{ color: "var(--nazai-text-color)", textShadow: `0 0 ${auraProfile.textGlowIntensity * 8}px ${auraProfile.glowPrimary}` }}>NAZAI:// AURA ACTIVE</p>
             <div className="flex justify-center gap-2 mt-2">
-              <div
-                className="w-6 h-6 rounded-full"
-                style={{ background: auraProfile.glowPrimary, boxShadow: `0 0 12px ${auraProfile.glowPrimary}` }}
-              />
-              <div
-                className="w-6 h-6 rounded-full"
-                style={{ background: auraProfile.glowSecondary, boxShadow: `0 0 12px ${auraProfile.glowSecondary}` }}
-              />
+              <div className="w-6 h-6 rounded-full" style={{ background: auraProfile.glowPrimary, boxShadow: `0 0 12px ${auraProfile.glowPrimary}` }} />
+              <div className="w-6 h-6 rounded-full" style={{ background: auraProfile.glowSecondary, boxShadow: `0 0 12px ${auraProfile.glowSecondary}` }} />
             </div>
           </motion.div>
 
           {/* Reset */}
           <motion.div variants={itemVariants} className="md:col-span-2">
-            <motion.button
-              onClick={resetAuraToDefault}
-              className="w-full py-2.5 rounded-xl text-sm font-medium flex items-center justify-center gap-2"
-              style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444" }}
-              whileHover={{ scale: 1.01 }}
-              whileTap={{ scale: 0.99 }}
-            >
+            <motion.button onClick={resetAuraToDefault} className="w-full py-2.5 rounded-xl text-sm font-medium flex items-center justify-center gap-2" style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444" }} whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.99 }}>
               <RotateCcw size={14} /> RESET TO DEFAULT
             </motion.button>
           </motion.div>
         </motion.div>
 
-        <motion.button
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.3 }}
-          onClick={() => setShowSettings(false)}
-          className="mt-6 w-full py-2.5 rounded-xl text-sm font-medium"
-          style={{
-            background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.1)`,
-            border: `1px solid ${auraProfile.glowPrimary}40`,
-            color: auraProfile.glowPrimary,
-          }}
-          whileHover={{ scale: 1.01 }}
-          whileTap={{ scale: 0.99 }}
-        >
+        <motion.button initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }} onClick={() => setShowSettings(false)} className="mt-6 w-full py-2.5 rounded-xl text-sm font-medium" style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.1)`, border: `1px solid ${auraProfile.glowPrimary}40`, color: auraProfile.glowPrimary }} whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.99 }}>
           ← RETURN TO DASHBOARD
         </motion.button>
       </div>
@@ -845,49 +661,22 @@ export default function Dashboard() {
 
   // Home View with RESTORED LASER SHINE and PULSING BORDER
   const HomeView = () => (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="flex flex-col items-center w-full h-full"
-    >
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col items-center w-full h-full">
       <div className="flex-1 w-full max-w-2xl overflow-y-auto py-6 space-y-3">
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full gap-4 text-center">
-            <div
-              className="w-14 h-14 rounded-full flex items-center justify-center"
-              style={{ border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.25)` }}
-            >
+            <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.25)` }}>
               <Zap size={22} style={{ color: borderColor }} />
             </div>
             <div>
-              <p
-                className="text-xs tracking-wide"
-                style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.6)` }}
-              >
-                WORKFLOW ANIMATOR READY
-              </p>
+              <p className="text-xs tracking-wide" style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.6)` }}>WORKFLOW ANIMATOR READY</p>
               <p className="text-[10px] mt-1 text-white/30">Select an AI engine, then describe your mission.</p>
             </div>
           </div>
         )}
         {messages.map((msg, i) => (
-          <motion.div
-            key={i}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-          >
-            <div
-              className="max-w-[78%] px-3 py-2 text-xs"
-              style={{
-                borderRadius: msg.role === "user" ? "12px 12px 2px 12px" : "12px 12px 12px 2px",
-                background:
-                  msg.role === "user" ? `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.1)` : "var(--nazai-card-bg)",
-                border: `1px solid var(--nazai-border-light)`,
-                color: "var(--nazai-text-color)",
-              }}
-            >
+          <motion.div key={i} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+            <div className="max-w-[78%] px-3 py-2 text-xs" style={{ borderRadius: msg.role === "user" ? "12px 12px 2px 12px" : "12px 12px 12px 2px", background: msg.role === "user" ? `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.1)` : "var(--nazai-card-bg)", border: `1px solid var(--nazai-border-light)`, color: "var(--nazai-text-color)" }}>
               {msg.text}
             </div>
           </motion.div>
@@ -896,19 +685,8 @@ export default function Dashboard() {
       </div>
 
       {activeTool && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="w-full max-w-2xl mb-2 flex justify-end"
-        >
-          <span
-            className="text-[9px] px-2 py-1 rounded-full flex items-center gap-1"
-            style={{
-              background: `rgba(${activeTool.category.glowRgba},0.15)`,
-              border: `1px solid rgba(${activeTool.category.glowRgba},0.3)`,
-              color: activeTool.category.color,
-            }}
-          >
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="w-full max-w-2xl mb-2 flex justify-end">
+          <span className="text-[9px] px-2 py-1 rounded-full flex items-center gap-1" style={{ background: `rgba(${activeTool.category.glowRgba},0.15)`, border: `1px solid rgba(${activeTool.category.glowRgba},0.3)`, color: activeTool.category.color }}>
             {activeTool.tool.name} <X size={10} className="cursor-pointer" onClick={() => setSelectedModel(null)} />
           </span>
         </motion.div>
@@ -916,31 +694,31 @@ export default function Dashboard() {
 
       {/* RESTORED INPUT CONTAINER WITH LASER SHINE AND PULSING BORDER */}
       <div className="w-full max-w-2xl mb-4">
-        <motion.div
+        <motion.div 
           className="relative rounded-xl flex flex-col"
           animate={borderPulseAnimation}
-          style={{
+          style={{ 
             border: `2px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.6)`,
-            background: "var(--nazai-card-bg)",
+            background: "var(--nazai-card-bg)", 
             backdropFilter: `blur(${auraProfile.glassBlur}px)`,
             boxShadow: `0 0 20px ${auraProfile.glowPrimary}`,
           }}
         >
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={handleInputChange}
-            onKeyDown={handleKeyDown}
-            placeholder={activeTool ? `Mission for ${activeTool.tool.name}...` : "Describe your mission..."}
-            rows={1}
-            className="w-full bg-transparent border-none outline-none resize-none font-mono text-xs p-3 min-h-[80px]"
-            style={{ color: "var(--nazai-text-color)" }}
+          <textarea 
+            ref={textareaRef} 
+            value={input} 
+            onChange={handleInputChange} 
+            onKeyDown={handleKeyDown} 
+            placeholder={activeTool ? `Mission for ${activeTool.tool.name}...` : "Describe your mission..."} 
+            rows={1} 
+            className="w-full bg-transparent border-none outline-none resize-none font-mono text-xs p-3 min-h-[80px]" 
+            style={{ color: "var(--nazai-text-color)" }} 
           />
           <div className="flex items-center justify-between px-3 py-2 border-t border-white/10">
             <div className="flex gap-1">
               {/* FIXED PLUS BUTTON - Now properly linked */}
-              <motion.button
-                onClick={() => setPlusMenuOpen(true)}
+              <motion.button 
+                onClick={() => setPlusMenuOpen(true)} 
                 className="w-7 h-7 rounded-full flex items-center justify-center"
                 style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.1)` }}
                 whileHover={{ scale: 1.1 }}
@@ -948,20 +726,13 @@ export default function Dashboard() {
               >
                 <Plus size={12} />
               </motion.button>
-              <button
-                onClick={() => {
-                  setDrawerOpen(true);
-                  setPlusMenuOpen(false);
-                }}
-                className="text-[9px] px-2 py-1 rounded"
-                style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.08)` }}
-              >
+              <button onClick={() => { setDrawerOpen(true); setPlusMenuOpen(false); }} className="text-[9px] px-2 py-1 rounded" style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.08)` }}>
                 {activeTool ? activeTool.tool.name : "Select Engine"}
               </button>
             </div>
-            <motion.button
-              onClick={handleSend}
-              disabled={!input.trim() || isProcessing}
+            <motion.button 
+              onClick={handleSend} 
+              disabled={!input.trim() || isProcessing} 
               className="w-7 h-7 rounded-full flex items-center justify-center"
               style={{ background: input.trim() ? currentTheme.color : "rgba(255,255,255,0.1)" }}
               whileHover={input.trim() ? { scale: 1.1 } : {}}
@@ -977,118 +748,45 @@ export default function Dashboard() {
 
   // Folder View
   const FolderView = () => (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="flex flex-col w-full max-w-4xl flex-1 overflow-y-auto pt-4 pb-8 px-4"
-    >
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col w-full max-w-4xl flex-1 overflow-y-auto pt-4 pb-8 px-4">
       <div className="text-center mb-5">
-        <h1
-          className="text-3xl font-black uppercase tracking-tighter"
-          style={{
-            background: currentTheme.gradient,
-            WebkitBackgroundClip: "text",
-            WebkitTextFillColor: "transparent",
-          }}
-        >
-          {activeNav}
-        </h1>
-        <p className="text-[8px] tracking-[0.3em] font-mono text-white/30 mt-2">
-          SYSTEM_NODE // {activeNav.toUpperCase()}_TERMINAL
-        </p>
+        <h1 className="text-3xl font-black uppercase tracking-tighter" style={{ background: currentTheme.gradient, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>{activeNav}</h1>
+        <p className="text-[8px] tracking-[0.3em] font-mono text-white/30 mt-2">SYSTEM_NODE // {activeNav.toUpperCase()}_TERMINAL</p>
       </div>
       <motion.div variants={containerVariants} initial="hidden" animate="visible" className="space-y-2">
         {missionsLoading ? (
-          <div className="flex justify-center py-12">
-            <div
-              className="w-5 h-5 rounded-full border-2 border-t-transparent animate-spin"
-              style={{ borderColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.4)` }}
-            />
-          </div>
+          <div className="flex justify-center py-12"><div className="w-5 h-5 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.4)` }} /></div>
         ) : filteredMissions.length === 0 ? (
-          <div className="text-center py-12">
-            <p className="text-[11px] font-mono text-white/30">No missions found in {activeNav.toLowerCase()}</p>
-          </div>
-        ) : (
-          filteredMissions.map(renderMissionItem)
-        )}
+          <div className="text-center py-12"><p className="text-[11px] font-mono text-white/30">No missions found in {activeNav.toLowerCase()}</p></div>
+        ) : (filteredMissions.map(renderMissionItem))}
       </motion.div>
     </motion.div>
   );
 
   // ─── Main Render ────────────────────────────────────────────────────────────────
   return (
-    <div
-      className="flex h-screen w-screen overflow-hidden"
-      style={{ background: "var(--nazai-bg-base)", color: "var(--nazai-text-color)" }}
-    >
+    <div className="flex h-screen w-screen overflow-hidden" style={{ background: "var(--nazai-bg-base)", color: "var(--nazai-text-color)" }}>
       <input ref={fileInputRef} type="file" multiple className="hidden" />
 
       {/* Sidebar */}
-      <motion.aside
-        animate={{ width: sidebarCollapsed ? 0 : 56 }}
-        transition={{ duration: 0.2 }}
-        className="flex flex-col items-center shrink-0 overflow-hidden z-20"
-        style={{ borderRight: `1px solid var(--nazai-border-light)`, background: "var(--nazai-bg-base)" }}
-      >
+      <motion.aside animate={{ width: sidebarCollapsed ? 0 : 56 }} transition={{ duration: 0.2 }} className="flex flex-col items-center shrink-0 overflow-hidden z-20" style={{ borderRight: `1px solid var(--nazai-border-light)`, background: "var(--nazai-bg-base)" }}>
         <div className="flex flex-col items-center w-14 py-4 h-full">
-          <div className="mb-6">
-            <Zap size={18} style={{ color: borderColor }} />
-          </div>
+          <div className="mb-6"><Zap size={18} style={{ color: borderColor }} /></div>
           <nav className="flex flex-col gap-1 flex-1">{NAV_ITEMS.map(renderNavItem)}</nav>
           <div className="flex flex-col items-center gap-2 mt-auto">
-            {userEmail && (
-              <div
-                className="w-7 h-7 rounded-full flex items-center justify-center text-[9px] font-semibold"
-                style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.15)`, color: borderColor }}
-              >
-                {userEmail[0].toUpperCase()}
-              </div>
-            )}
-            <button
-              onClick={() => setLogoutModalOpen(true)}
-              className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-red-500/10"
-            >
-              <LogOut size={14} className="text-white/30 hover:text-red-400" />
-            </button>
+            {userEmail && <div className="w-7 h-7 rounded-full flex items-center justify-center text-[9px] font-semibold" style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.15)`, color: borderColor }}>{userEmail[0].toUpperCase()}</div>}
+            <button onClick={() => setLogoutModalOpen(true)} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-red-500/10"><LogOut size={14} className="text-white/30 hover:text-red-400" /></button>
           </div>
         </div>
       </motion.aside>
 
       {/* Main Content */}
       <main className="flex flex-col flex-1 min-w-0 relative">
-        <header
-          className="flex items-center justify-between px-4 py-2 shrink-0"
-          style={{
-            borderBottom: `1px solid var(--nazai-border-light)`,
-            background: auraProfile.isLightMode ? "rgba(255,255,255,0.6)" : "rgba(2,6,23,0.8)",
-            backdropFilter: `blur(${auraProfile.glassBlur}px)`,
-          }}
-        >
+        <header className="flex items-center justify-between px-4 py-2 shrink-0" style={{ borderBottom: `1px solid var(--nazai-border-light)`, background: auraProfile.isLightMode ? "rgba(255,255,255,0.6)" : "rgba(2,6,23,0.8)", backdropFilter: `blur(${auraProfile.glassBlur}px)` }}>
           <div className="flex items-center gap-2">
-            <button onClick={() => setSidebarCollapsed((v) => !v)} className="text-white/40">
-              {sidebarCollapsed ? <PanelLeft size={14} /> : <PanelLeftClose size={14} />}
-            </button>
-            <span
-              className="text-[10px] font-mono font-black tracking-tighter"
-              style={{
-                color: borderColor,
-                textShadow: `0 0 ${auraProfile.textGlowIntensity * 6}px ${auraProfile.glowPrimary}`,
-              }}
-            >
-              NAZAI://
-            </span>
-            <span
-              className="text-[10px] font-mono font-bold"
-              style={{
-                background: currentTheme.gradient,
-                WebkitBackgroundClip: "text",
-                WebkitTextFillColor: "transparent",
-              }}
-            >
-              {activeNav.toUpperCase()}
-            </span>
+            <button onClick={() => setSidebarCollapsed(v => !v)} className="text-white/40">{sidebarCollapsed ? <PanelLeft size={14} /> : <PanelLeftClose size={14} />}</button>
+            <span className="text-[10px] font-mono font-black tracking-tighter" style={{ color: borderColor, textShadow: `0 0 ${auraProfile.textGlowIntensity * 6}px ${auraProfile.glowPrimary}` }}>NAZAI://</span>
+            <span className="text-[10px] font-mono font-bold" style={{ background: currentTheme.gradient, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>{activeNav.toUpperCase()}</span>
           </div>
           <div className="flex items-center gap-3">
             <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: borderColor }} />
@@ -1098,28 +796,13 @@ export default function Dashboard() {
 
         <div className="flex-1 flex flex-col items-center overflow-hidden relative px-3">
           <AnimatePresence mode="wait">
-            {showSettings ? (
-              <SettingsView key="settings" />
-            ) : activeNav === "Home" ? (
-              <HomeView key="home" />
-            ) : (
-              <FolderView key="folder" />
-            )}
+            {showSettings ? <SettingsView key="settings" /> : activeNav === "Home" ? <HomeView key="home" /> : <FolderView key="folder" />}
           </AnimatePresence>
         </div>
 
-        <footer
-          className="flex items-center justify-between px-4 py-1.5 shrink-0 text-[8px] font-mono tracking-wider text-white/30"
-          style={{
-            borderTop: `1px solid var(--nazai-border-light)`,
-            background: auraProfile.isLightMode ? "rgba(255,255,255,0.6)" : "rgba(2,6,23,0.8)",
-          }}
-        >
+        <footer className="flex items-center justify-between px-4 py-1.5 shrink-0 text-[8px] font-mono tracking-wider text-white/30" style={{ borderTop: `1px solid var(--nazai-border-light)`, background: auraProfile.isLightMode ? "rgba(255,255,255,0.6)" : "rgba(2,6,23,0.8)" }}>
           <span>SECURE_NODE</span>
-          <div className="flex gap-3">
-            <span>DB:ON</span>
-            <span>AI:READY</span>
-          </div>
+          <div className="flex gap-3"><span>DB:ON</span><span>AI:READY</span></div>
         </footer>
       </main>
 
@@ -1140,37 +823,21 @@ export default function Dashboard() {
               exit={{ opacity: 0, y: 20, scale: 0.95 }}
               transition={springTransition}
               className="fixed z-[100] bottom-24 left-1/2 -translate-x-1/2 w-[90vw] max-w-sm rounded-xl overflow-hidden"
-              style={{
-                background: "var(--nazai-card-bg)",
-                border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.2)`,
-                backdropFilter: `blur(${auraProfile.glassBlur}px)`,
-              }}
+              style={{ background: "var(--nazai-card-bg)", border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.2)`, backdropFilter: `blur(${auraProfile.glassBlur}px)` }}
             >
               <div className="px-4 py-2 border-b border-white/10 flex justify-between items-center">
                 <span className="text-[10px] font-mono text-white/40">TOOLS & OPTIONS</span>
-                <button onClick={() => setPlusMenuOpen(false)} className="text-white/40 hover:text-white/80">
-                  <X size={14} />
-                </button>
+                <button onClick={() => setPlusMenuOpen(false)} className="text-white/40 hover:text-white/80"><X size={14} /></button>
               </div>
               <div className="p-3 space-y-2">
-                <button
-                  onClick={handleFileUpload}
-                  className="flex items-center gap-3 w-full px-3 py-2 rounded-lg hover:bg-white/5 transition-colors"
-                >
+                <button onClick={handleFileUpload} className="flex items-center gap-3 w-full px-3 py-2 rounded-lg hover:bg-white/5 transition-colors">
                   <Paperclip size={14} style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.6)` }} />
-                  <div className="text-left">
-                    <div className="text-xs">Add Files / Photos</div>
-                    <div className="text-[9px] text-white/30">Upload from device</div>
-                  </div>
+                  <div className="text-left"><div className="text-xs">Add Files / Photos</div><div className="text-[9px] text-white/30">Upload from device</div></div>
                 </button>
                 <div className="h-px bg-white/10 my-2" />
                 <div className="text-[9px] font-mono text-white/40 px-2">SKILLS</div>
                 {SKILLS.map(({ icon: Icon, label }) => (
-                  <button
-                    key={label}
-                    onClick={() => handleSkillClick(label)}
-                    className="flex items-center gap-3 w-full px-3 py-2 rounded-lg hover:bg-white/5 transition-colors"
-                  >
+                  <button key={label} onClick={() => handleSkillClick(label)} className="flex items-center gap-3 w-full px-3 py-2 rounded-lg hover:bg-white/5 transition-colors">
                     <Icon size={14} style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.5)` }} />
                     <span className="text-xs">{label}</span>
                   </button>
@@ -1185,56 +852,20 @@ export default function Dashboard() {
       <AnimatePresence>
         {drawerOpen && (
           <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setDrawerOpen(false)}
-              className="fixed inset-0 z-[90] bg-black/40 backdrop-blur-sm"
-            />
-            <motion.div
-              initial={{ opacity: 0, y: 20, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 20, scale: 0.95 }}
-              transition={springTransition}
-              className="fixed z-[100] bottom-24 left-1/2 -translate-x-1/2 w-[90vw] max-w-md rounded-xl overflow-hidden"
-              style={{
-                background: "var(--nazai-card-bg)",
-                border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.2)`,
-                backdropFilter: `blur(${auraProfile.glassBlur}px)`,
-              }}
-            >
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setDrawerOpen(false)} className="fixed inset-0 z-[90] bg-black/40 backdrop-blur-sm" />
+            <motion.div initial={{ opacity: 0, y: 20, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 20, scale: 0.95 }} transition={springTransition} className="fixed z-[100] bottom-24 left-1/2 -translate-x-1/2 w-[90vw] max-w-md rounded-xl overflow-hidden" style={{ background: "var(--nazai-card-bg)", border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.2)`, backdropFilter: `blur(${auraProfile.glassBlur}px)` }}>
               <div className="px-4 py-2 border-b border-white/10 flex justify-between items-center">
                 <span className="text-[10px] font-mono text-white/40">SELECT AI ENGINE</span>
-                <button onClick={() => setDrawerOpen(false)} className="text-white/40 hover:text-white/80">
-                  <X size={14} />
-                </button>
+                <button onClick={() => setDrawerOpen(false)} className="text-white/40 hover:text-white/80"><X size={14} /></button>
               </div>
               <div className="p-3 space-y-3">
                 {Object.entries(AI_CATEGORIES).map(([catKey, cat]) => (
                   <div key={catKey}>
-                    <div className="text-[8px] font-mono mb-1" style={{ color: cat.color }}>
-                      {cat.label}
-                    </div>
+                    <div className="text-[8px] font-mono mb-1" style={{ color: cat.color }}>{cat.label}</div>
                     <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${cat.tools.length}, 1fr)` }}>
-                      {cat.tools.map((tool) => (
-                        <button
-                          key={tool.id}
-                          onClick={() => handleSelectTool(tool.id)}
-                          className="p-2 rounded-lg text-left transition-all"
-                          style={{
-                            background:
-                              selectedModel === tool.id ? `rgba(${cat.glowRgba},0.15)` : "rgba(255,255,255,0.03)",
-                            border: `1px solid ${selectedModel === tool.id ? cat.color : "rgba(255,255,255,0.1)"}`,
-                          }}
-                        >
-                          <div className="flex items-center gap-1 mb-0.5">
-                            <tool.icon
-                              size={10}
-                              style={{ color: selectedModel === tool.id ? cat.color : "white/40" }}
-                            />
-                            <span className="text-[9px] font-semibold">{tool.name}</span>
-                          </div>
+                      {cat.tools.map(tool => (
+                        <button key={tool.id} onClick={() => handleSelectTool(tool.id)} className="p-2 rounded-lg text-left transition-all" style={{ background: selectedModel === tool.id ? `rgba(${cat.glowRgba},0.15)` : "rgba(255,255,255,0.03)", border: `1px solid ${selectedModel === tool.id ? cat.color : "rgba(255,255,255,0.1)"}` }}>
+                          <div className="flex items-center gap-1 mb-0.5"><tool.icon size={10} style={{ color: selectedModel === tool.id ? cat.color : "white/40" }} /><span className="text-[9px] font-semibold">{tool.name}</span></div>
                           <div className="text-[8px] text-white/30">{tool.subtitle}</div>
                         </button>
                       ))}
@@ -1251,29 +882,13 @@ export default function Dashboard() {
       <AnimatePresence>
         {logoutModalOpen && (
           <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.9 }}
-              className="max-w-sm w-full rounded-xl p-6 text-center"
-              style={{ background: "var(--nazai-card-bg)", border: "1px solid rgba(239,68,68,0.3)" }}
-            >
+            <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="max-w-sm w-full rounded-xl p-6 text-center" style={{ background: "var(--nazai-card-bg)", border: "1px solid rgba(239,68,68,0.3)" }}>
               <LogOut size={32} className="mx-auto mb-3 text-red-500" />
               <h3 className="text-sm font-bold mb-1">System Termination</h3>
               <p className="text-xs text-white/50 mb-4">Are you sure you want to log out?</p>
               <div className="flex gap-2">
-                <button
-                  onClick={() => setLogoutModalOpen(false)}
-                  className="flex-1 py-2 rounded-lg text-xs bg-white/5 border border-white/10"
-                >
-                  Stay
-                </button>
-                <button
-                  onClick={handleSignOut}
-                  className="flex-1 py-2 rounded-lg text-xs bg-red-500/20 border border-red-500/40 text-red-400"
-                >
-                  Terminate
-                </button>
+                <button onClick={() => setLogoutModalOpen(false)} className="flex-1 py-2 rounded-lg text-xs bg-white/5 border border-white/10">Stay</button>
+                <button onClick={handleSignOut} className="flex-1 py-2 rounded-lg text-xs bg-red-500/20 border border-red-500/40 text-red-400">Terminate</button>
               </div>
             </motion.div>
           </div>
