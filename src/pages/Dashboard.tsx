@@ -50,7 +50,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 
 // ─── DEPLOYMENT VERSION ──────────────────────────────────────────────────────────
-const DEPLOYMENT_ID = "NAZAI_TITAN_V14_NATIVE_FORCE";
+const DEPLOYMENT_ID = "NAZAI_TITAN_V15_NUCLEAR_STABILITY";
 
 // ─── Type Definitions ──────────────────────────────────────────────────────────────
 
@@ -180,6 +180,9 @@ const PLACEHOLDER_TEXTS = [
   "Design a blueprint for an automated SaaS...",
   "Build a launch strategy for a tech startup...",
 ];
+
+// Professional system prompt for AI
+const SYSTEM_PROMPT = `You are The Neural Architect, a high-precision business blueprinting AI. Respond in a professional, architectural tone. Provide structured, actionable business plans. Focus on strategic frameworks, market analysis, operational excellence, and financial architecture. Use clear sections and professional language.`;
 
 // ─── Helper Functions ──────────────────────────────────────────────────────────────
 
@@ -384,6 +387,7 @@ export default function Dashboard() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const currentAbortControllerRef = useRef<AbortController | null>(null);
   const inputContainerRef = useRef<HTMLDivElement>(null);
+  const focusSnapIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ── Apply CSS Variables to Document ────────────────────────────────────────────
   useEffect(() => {
@@ -415,7 +419,7 @@ export default function Dashboard() {
     saveAuraProfile(auraProfile);
   }, [auraProfile]);
 
-  // ─── VISUAL VIEWPORT ANCHOR - Mechanical Override ──────────────────────────────
+  // ── VISUAL VIEWPORT ANCHOR - Mechanical Override ──────────────────────────────
   useEffect(() => {
     if (!window.visualViewport) return;
 
@@ -424,9 +428,6 @@ export default function Dashboard() {
       const windowHeight = window.innerHeight;
       const keyboardHeightEstimate = Math.max(0, windowHeight - viewport.height);
       setKeyboardHeight(keyboardHeightEstimate);
-      
-      // Update CSS variable for transform-based positioning
-      document.documentElement.style.setProperty('--keyboard-height', `${keyboardHeightEstimate}px`);
     };
 
     window.visualViewport.addEventListener("resize", handleViewportResize);
@@ -437,6 +438,34 @@ export default function Dashboard() {
       window.visualViewport?.removeEventListener("resize", handleViewportResize);
       window.visualViewport?.removeEventListener("scroll", handleViewportResize);
     };
+  }, []);
+
+  // ── THE INPUT HAMMER: Punish browser scroll attempts ───────────────────────────
+  const handleTextareaFocus = useCallback(() => {
+    // Kill any existing interval
+    if (focusSnapIntervalRef.current) {
+      clearInterval(focusSnapIntervalRef.current);
+    }
+    
+    // Snap to top every 10ms for the first 100ms - brutal but effective
+    let snapCount = 0;
+    focusSnapIntervalRef.current = setInterval(() => {
+      window.scrollTo(0, 0);
+      snapCount++;
+      if (snapCount >= 10) {
+        if (focusSnapIntervalRef.current) {
+          clearInterval(focusSnapIntervalRef.current);
+          focusSnapIntervalRef.current = null;
+        }
+      }
+    }, 10);
+  }, []);
+
+  const handleTextareaBlur = useCallback(() => {
+    if (focusSnapIntervalRef.current) {
+      clearInterval(focusSnapIntervalRef.current);
+      focusSnapIntervalRef.current = null;
+    }
   }, []);
 
   // ── Derived State ───────────────────────────────────────────────────────────────
@@ -518,15 +547,6 @@ export default function Dashboard() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Auto-resize textarea with max-height limit
-  useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-      const newHeight = Math.min(textareaRef.current.scrollHeight, 150);
-      textareaRef.current.style.height = `${newHeight}px`;
-    }
-  }, [input]);
-
   // Auto-clear error message after 5 seconds
   useEffect(() => {
     if (errorMessage) {
@@ -540,6 +560,7 @@ export default function Dashboard() {
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
       if (abortControllerRef.current) abortControllerRef.current.abort();
       if (currentAbortControllerRef.current) currentAbortControllerRef.current.abort();
+      if (focusSnapIntervalRef.current) clearInterval(focusSnapIntervalRef.current);
     };
   }, []);
 
@@ -577,10 +598,17 @@ export default function Dashboard() {
     setDrawerOpen(false);
   }, []);
 
-  // ─── MAIN MESSAGE HANDLER with 12-second timeout and force unlock ────────────────
+  // ─── MAIN MESSAGE HANDLER with validation and system prompt ─────────────────────
   const handleSendMessage = useCallback(async () => {
     const trimmed = input.trim();
-    if (!trimmed || isPending) return;
+    
+    // Validation: minimum 3 words
+    if (trimmed.split(/\s+/).length < 3) {
+      setErrorMessage("Neural Architect: Please provide a more detailed blueprint request (minimum 3 words)");
+      return;
+    }
+    
+    if (isPending) return;
     
     if (currentAbortControllerRef.current) {
       currentAbortControllerRef.current.abort();
@@ -596,10 +624,6 @@ export default function Dashboard() {
     setMessages((prev) => [...prev, { role: "user", text: trimmed }, { role: "ai", text: "Neural Architect: Processing blueprint..." }]);
     setInput("");
     
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-    }
-    
     const timeoutPromise = new Promise((_, reject) => {
       setTimeout(() => reject(new Error("Connection timeout after 12 seconds")), 12000);
     });
@@ -612,6 +636,7 @@ export default function Dashboard() {
             model: selectedModel,
             style: activeStyle,
             webSearch: webSearchActive,
+            systemPrompt: SYSTEM_PROMPT,
           },
           signal: abortController.signal,
         }),
@@ -676,7 +701,6 @@ export default function Dashboard() {
         return updated;
       });
     } finally {
-      // FORCE state unlock - ensures Send button is NEVER stuck
       setIsPending(false);
       currentAbortControllerRef.current = null;
       setTimeout(() => {
@@ -692,11 +716,9 @@ export default function Dashboard() {
     }
   }, [handleSendMessage]);
 
-  // Haptic feedback on button press
   const handleSendPointerDown = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
     e.preventDefault();
     if (input.trim() && !isPending) {
-      // Visual haptic feedback via scale is handled by Framer Motion
       handleSendMessage();
     }
   }, [input, isPending, handleSendMessage]);
@@ -859,7 +881,7 @@ export default function Dashboard() {
     </motion.div>
   );
 
-  // Home View with NATIVE-FORCE STABILITY
+  // Home View with NUCLEAR STABILITY
   const HomeView = () => (
     <div className="flex flex-col w-full h-full">
       {/* Error Toast */}
@@ -879,7 +901,7 @@ export default function Dashboard() {
       </AnimatePresence>
 
       {/* Scrollable Messages Area */}
-      <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto py-6 space-y-3 px-4 pb-[200px]">
+      <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto py-6 space-y-3 px-4 pb-[120px]">
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full gap-4 text-center pointer-events-auto">
             <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.2)` }}>
@@ -910,14 +932,13 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* NATIVE-FORCE INPUT CONTAINER - Hardware accelerated transform */}
+      {/* NUCLEAR INPUT CONTAINER - Fixed height, no auto-grow */}
       <div 
         ref={inputContainerRef}
         className="fixed left-0 right-0 z-[9999] pointer-events-none"
         style={{ 
-          transform: `translateY(calc(-1 * var(--keyboard-height, 0px) + 16px))`,
-          transition: 'transform 0.1s ease-out',
-          willChange: 'transform',
+          bottom: `calc(env(safe-area-inset-bottom, 16px) + ${keyboardHeight}px)`,
+          transition: 'bottom 0.05s linear',
         }}
       >
         <div className="w-full max-w-2xl mx-auto px-4 pointer-events-auto">
@@ -933,14 +954,17 @@ export default function Dashboard() {
               ref={textareaRef} 
               value={input} 
               onChange={handleInputChange} 
-              onKeyDown={handleKeyDown} 
+              onKeyDown={handleKeyDown}
+              onFocus={handleTextareaFocus}
+              onBlur={handleTextareaBlur}
               placeholder={activeTool ? `Mission for ${activeTool.tool.name}...` : dynamicPlaceholder}
-              rows={1} 
-              className="w-full bg-transparent border-none outline-none resize-none font-mono text-xs p-3 overflow-y-auto pointer-events-auto"
+              rows={1}
+              className="w-full bg-transparent border-none outline-none resize-none font-mono text-xs p-3 pointer-events-auto"
               style={{ 
                 color: "var(--nazai-text-color)",
-                maxHeight: "150px",
-                minHeight: "80px",
+                height: "48px",
+                minHeight: "48px",
+                maxHeight: "48px",
               }} 
             />
             <div className="flex items-center justify-between px-3 py-2 border-t border-white/5">
@@ -1141,20 +1165,23 @@ export default function Dashboard() {
       </AnimatePresence>
 
       <style>{`
-        /* GLOBAL LOCKDOWN - Absolute stillness */
+        /* NUCLEAR OPTION - Absolute structural reset */
         html, body {
           position: fixed !important;
           overflow: hidden !important;
           overscroll-behavior: none !important;
-          height: 100% !important;
-          width: 100% !important;
-          touch-action: pan-x pan-y !important;
+          width: 100vw !important;
+          height: 100vh !important;
+          touch-action: none !important;
+          margin: 0 !important;
+          padding: 0 !important;
         }
         
         /* Prevent elastic bounce on all scrollable containers */
         .overflow-y-auto {
           -webkit-overflow-scrolling: touch;
           overscroll-behavior: contain;
+          touch-action: pan-y;
         }
         
         @import url('https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,100..900;1,100..900&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap');
