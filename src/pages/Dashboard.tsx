@@ -50,7 +50,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 
 // ─── DEPLOYMENT VERSION ──────────────────────────────────────────────────────────
-const DEPLOYMENT_ID = "NAZAI_TITAN_V21_FINAL_RESPONSIVE";
+const DEPLOYMENT_ID = "NAZAI_TITAN_V24_GLOW";
 
 // ─── Type Definitions ──────────────────────────────────────────────────────────────
 
@@ -344,46 +344,38 @@ export default function Dashboard() {
     clearAllCachesAndReload();
   }, []);
 
-  // KEEP YOUR ORIGINAL CACHE PURGE
-useEffect(() => {
-  const clearAllCachesAndReload = async () => {
-    // ... your version check logic ...
-  };
-  clearAllCachesAndReload();
-}, []);
-
-// ADD THE TITAN V23 FOCUS INJECTION BELOW IT
-useEffect(() => {
-  const forceFocus = (e: TouchEvent | MouseEvent) => {
-    const y = 'touches' in e ? e.touches[0].clientY : (e as MouseEvent).clientY;
-    // Only trigger if tapping the bottom 30% of the screen
-    if (y > window.innerHeight * 0.7) {
-      const textarea = document.querySelector('textarea');
-      if (textarea) {
-        (textarea as HTMLElement).focus();
+  // ── FOCUS HIJACK: Forces input focus when tapping bottom 30% of screen ─────────
+  useEffect(() => {
+    const forceFocus = (e: TouchEvent | MouseEvent) => {
+      const y = 'touches' in e ? e.touches[0].clientY : (e as MouseEvent).clientY;
+      // Only trigger if tapping the bottom 30% of the screen
+      if (y > window.innerHeight * 0.7) {
+        if (textareaRef.current) {
+          textareaRef.current.focus();
+        }
       }
-    }
-  };
+    };
 
-  const killGhosts = () => {
-    // Physically disables any layers that might be blocking the input
-    const overlays = document.querySelectorAll('.scanlines, .radar-sweep, [class*="fixed"]');
-    overlays.forEach(el => {
-      if (!el.contains(document.querySelector('textarea'))) {
-        (el as HTMLElement).style.pointerEvents = 'none';
-      }
-    });
-  };
+    const killGhosts = () => {
+      // Physically disables any layers that might be blocking the input
+      const overlays = document.querySelectorAll('.scanlines, .radar-sweep, [class*="fixed"]');
+      overlays.forEach(el => {
+        if (!el.contains(document.querySelector('textarea'))) {
+          (el as HTMLElement).style.pointerEvents = 'none';
+        }
+      });
+    };
 
-  window.addEventListener('touchstart', forceFocus);
-  window.addEventListener('mousedown', forceFocus);
-  killGhosts();
+    window.addEventListener('touchstart', forceFocus);
+    window.addEventListener('mousedown', forceFocus);
+    killGhosts();
 
-  return () => {
-    window.removeEventListener('touchstart', forceFocus);
-    window.removeEventListener('mousedown', forceFocus);
-  };
-}, []);
+    return () => {
+      window.removeEventListener('touchstart', forceFocus);
+      window.removeEventListener('mousedown', forceFocus);
+    };
+  }, []);
+
   // ── Typing Animation Effect ────────────────────────────────────────────────────
   const dynamicPlaceholder = useTypewriter(PLACEHOLDER_TEXTS, 4000, 40);
 
@@ -938,7 +930,7 @@ useEffect(() => {
     </motion.div>
   );
 
-  // Home View with ABSOLUTELY GUARANTEED CLICKABLE INPUT
+  // Home View with TITAN V24 GLOW UPGRADE
   const HomeView = () => (
     <div className="flex flex-col w-full h-full">
       {/* Error Toast */}
@@ -960,13 +952,33 @@ useEffect(() => {
       {/* Scrollable Messages Area */}
       <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto py-6 space-y-3 px-4 pb-[120px]">
         {messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full gap-4 text-center">
-            <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.2)` }}>
-              <Zap size={22} style={{ color: borderColor }} />
+          <div className="flex flex-col items-center justify-center h-full gap-6 text-center">
+            {/* GLOWING STATUS INDICATOR - TITAN V24 UPGRADE */}
+            <div className="relative">
+              {/* Outer glow ring */}
+              <div className="absolute inset-0 rounded-full animate-pulse" style={{ 
+                boxShadow: `0 0 30px rgba(6, 182, 212, 0.6)`,
+                background: 'radial-gradient(circle, rgba(6,182,212,0.2) 0%, transparent 70%)'
+              }} />
+              
+              {/* Main ring */}
+              <div className="w-16 h-16 rounded-full border-2 border-cyan-500/50 flex items-center justify-center relative bg-cyan-500/5">
+                {/* Animated ping dot */}
+                <div className="absolute inset-0 rounded-full animate-ping opacity-75" style={{ background: 'rgba(6, 182, 212, 0.3)' }} />
+                <div className="w-3 h-3 rounded-full bg-cyan-500 animate-pulse" style={{ boxShadow: '0 0 10px #06b6d4' }} />
+              </div>
             </div>
-            <div>
-              <p className="text-xs font-mono tracking-wide" style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.6)` }}>THE NEURAL ARCHITECT</p>
-              <p className="text-[10px] font-mono mt-1 text-white/30">High-precision business blueprinting engine.</p>
+            
+            <div className="space-y-2">
+              <p className="text-sm font-mono tracking-wide text-white font-bold" style={{ 
+                textShadow: '0 0 15px rgba(6, 182, 212, 0.8)',
+                color: '#e2e8f0'
+              }}>
+                SYSTEM: READY TO EXECUTE
+              </p>
+              <p className="text-[10px] font-mono text-cyan-400/60 tracking-wider">
+                Neural Link Established // DEPLOYMENT_V24
+              </p>
             </div>
           </div>
         )}
@@ -990,16 +1002,15 @@ useEffect(() => {
       )}
 
       {/* GUARANTEED CLICKABLE INPUT CONTAINER */}
-     <div 
-  ref={inputContainerRef}
-  className="fixed left-0 right-0 z-[99999]" 
-  style={{ 
-    bottom: `calc(env(safe-area-inset-bottom, 16px) + ${keyboardHeight}px)`,
-    pointerEvents: 'auto', // MUST BE AUTO
-    position: 'fixed'
-  }}
->
-      
+      <div 
+        ref={inputContainerRef}
+        className="fixed left-0 right-0 z-[99999]" 
+        style={{ 
+          bottom: `calc(env(safe-area-inset-bottom, 16px) + ${keyboardHeight}px)`,
+          pointerEvents: 'auto',
+          position: 'fixed'
+        }}
+      >
         <div className="w-full max-w-2xl mx-auto px-4 pointer-events-auto">
           <motion.div 
             className="relative rounded-xl flex flex-col pointer-events-auto"
@@ -1020,17 +1031,17 @@ useEffect(() => {
               rows={1}
               className="w-full bg-transparent border-none outline-none resize-none font-mono text-xs p-3"
               style={{ 
-  color: "var(--nazai-text-color)",
-  height: "48px",
-  minHeight: "48px",
-  maxHeight: "48px",
-  zIndex: 100000,
-  position: 'relative',
-  pointerEvents: 'auto',
-  cursor: 'text',
-  WebkitUserSelect: 'text',
-  touchAction: 'manipulation',
-}}
+                color: "var(--nazai-text-color)",
+                height: "48px",
+                minHeight: "48px",
+                maxHeight: "48px",
+                zIndex: 100000,
+                position: 'relative',
+                pointerEvents: 'auto',
+                cursor: 'text',
+                WebkitUserSelect: 'text',
+                touchAction: 'manipulation',
+              }}
             />
             <div className="flex items-center justify-between px-3 py-2 border-t border-white/5 pointer-events-auto">
               <div className="flex gap-1 pointer-events-auto">
@@ -1240,6 +1251,14 @@ useEffect(() => {
           pointer-events: none !important;
         }
         
+        /* FORCE TEXTAREA TO BE UNBLOCKABLE */
+        textarea {
+          z-index: 999999 !important;
+          position: relative !important;
+          pointer-events: auto !important;
+          -webkit-user-select: text !important;
+        }
+        
         /* SURGICAL CLEANUP - Remove tap highlights and optimize touch */
         * {
           -webkit-tap-highlight-color: transparent;
@@ -1250,7 +1269,7 @@ useEffect(() => {
           touch-action: manipulation;
         }
         
-        
+        /* CRITICAL: html, body MUST BE RELATIVE - NOT FIXED */
         html, body {
           height: 100% !important;
           width: 100vw !important;
@@ -1261,11 +1280,11 @@ useEffect(() => {
           touch-action: manipulation;
         }
         
-      
-    body::before, .scanlines, .radar-sweep {
-  pointer-events: none !important;
-  z-index: -1 !important;
-}
+        /* Ensure background animations never block the input */
+        body::before, .scanlines, .radar-sweep {
+          pointer-events: none !important;
+          z-index: -1 !important;
+        }
         
         /* Shake animation for validation feedback */
         @keyframes shake {
