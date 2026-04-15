@@ -750,7 +750,7 @@ export default function Dashboard() {
         }
         return updated;
       });
-    } finally {
+ } finally {
       setIsPending(false);
       currentAbortControllerRef.current = null;
       setTimeout(() => {
@@ -758,8 +758,10 @@ export default function Dashboard() {
       }, 100);
     }
   }, [input, messages.length, activeTool, selectedModel, isPending, userId, activeStyle, webSearchActive]);
+  // --- START PART 2 BRIDGE ---
 
-    const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+
+const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage();
