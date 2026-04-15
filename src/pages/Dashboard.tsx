@@ -1197,15 +1197,15 @@ export default function Dashboard() {
           touch-action: manipulation;
         }
         
-        /* NUCLEAR OPTION - Absolute structural reset */
         html, body {
-          position: fixed !important;
-          overflow: hidden !important;
-          overscroll-behavior: none !important;
-          width: 100vw !important;
-          height: 100vh !important;
-          margin: 0 !important;
-          padding: 0 !important;
+          overflow: hidden;
+          overscroll-behavior: none;
+          width: 100vw;
+          height: 100vh;
+          margin: 0;
+          padding: 0;
+          -webkit-overflow-scrolling: touch;
+          touch-action: auto !important;
         }
         
         /* Prevent elastic bounce on all scrollable containers */
