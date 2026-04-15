@@ -1005,15 +1005,15 @@ const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) 
       )}
 
       {/* GUARANTEED CLICKABLE INPUT CONTAINER */}
-      <div 
-        ref={inputContainerRef}
-        className="fixed left-0 right-0 z-[99999]" 
-        style={{ 
-          bottom: `calc(env(safe-area-inset-bottom, 16px) + ${keyboardHeight}px)`,
-          pointerEvents: 'auto',
-          position: 'fixed'
-        }}
-      >
+     <div 
+  ref={inputContainerRef}
+  className="relative flex items-end gap-2 p-2 bg-black/40 backdrop-blur-xl border border-white/10 rounded-2xl"
+  style={{ 
+    zIndex: 9999999, // Matches the textarea
+    pointerEvents: 'auto',
+    isolation: 'isolate' // Creates a new stacking context so nothing can "leak" through
+  }}
+>
         <div className="w-full max-w-2xl mx-auto px-4 pointer-events-auto">
           <motion.div 
             className="relative rounded-xl flex flex-col pointer-events-auto"
@@ -1033,6 +1033,9 @@ const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) 
   placeholder={activeTool ? `Mission for ${activeTool.tool.name}...` : dynamicPlaceholder}
   rows={1}
   className="w-full bg-transparent border-none outline-none resize-none font-mono text-base p-3"
+  autoComplete="off"
+autoCorrect="off"
+spellCheck="false"
   style={{ 
     color: "var(--nazai-text-color)",
     fontSize: '16px', // TITAN FIX: Forces mobile browsers to act like a native app
