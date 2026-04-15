@@ -627,16 +627,23 @@ export default function Dashboard() {
   }, []);
 
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInput(e.target.value);
-    setIsTyping(true);
-    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-    typingTimeoutRef.current = setTimeout(() => setIsTyping(false), 800);
-  }, []);
+  
+  e.stopPropagation();
+  const val = e.target.value;
+  
+  
+  setInput(val);
 
-  const handleSelectTool = useCallback((id: string) => {
-    setSelectedModel(id);
-    setDrawerOpen(false);
-  }, []);
+  
+  const tempRef = textareaRef.current;
+  if (tempRef) {
+    const start = tempRef.selectionStart;
+    const end = tempRef.selectionEnd;
+    requestAnimationFrame(() => {
+      tempRef.setSelectionRange(start, end);
+    });
+  }
+}, []); 
 
   // ─── MAIN MESSAGE HANDLER with validation, shake, and system prompt ─────────────
 const handleSendMessage = useCallback(async () => {
@@ -1006,11 +1013,13 @@ const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) 
             }}
           >
             <textarea 
+  spellCheck={false}
+  data-gramm={false}
   ref={textareaRef} 
   value={input} 
   onChange={handleInputChange} 
   onKeyDown={handleKeyDown}
-  onFocus={handleTextareaFocus}
+  onFocus={handleTextareaFocus} 
   onBlur={handleTextareaBlur}
   placeholder={activeTool ? `Mission for ${activeTool.tool.name}...` : dynamicPlaceholder}
   rows={1}
