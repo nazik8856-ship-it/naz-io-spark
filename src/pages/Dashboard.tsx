@@ -919,7 +919,7 @@ export default function Dashboard() {
       </AnimatePresence>
 
       {/* Scrollable Messages Area */}
-      <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto py-6 space-y-3 px-4 pb-[120px]">
+      <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto py-6 space-y-3 px-4 pb-4">
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full gap-4 text-center pointer-events-auto">
             <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.2)` }}>
@@ -950,15 +950,10 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* SURGICAL INPUT CONTAINER - Forced top-level interaction */}
+      {/* INPUT CONTAINER - Normal flow, no fixed positioning */}
       <div 
         ref={inputContainerRef}
-        className="fixed left-0 right-0 z-[9999]"
-        style={{ 
-          bottom: `calc(env(safe-area-inset-bottom, 16px) + ${keyboardHeight}px)`,
-          transition: 'bottom 0.05s linear',
-          pointerEvents: 'none',
-        }}
+        className="w-full max-w-2xl mx-auto px-4 pb-3 shrink-0"
       >
         <div className="w-full max-w-2xl mx-auto px-4" style={{ pointerEvents: 'auto' }}>
           <motion.div 
