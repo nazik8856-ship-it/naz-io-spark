@@ -1274,14 +1274,16 @@ const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) 
         
         /* CRITICAL: html, body MUST BE RELATIVE - NOT FIXED */
         html, body {
-          height: 100% !important;
-          width: 100vw !important;
-          margin: 0 !important;
-          padding: 0 !important;
-          overflow: hidden !important;
-          position: relative !important;
-          touch-action: manipulation;
-        }
+  height: 100% !important;
+  width: 100vw !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important; /* Allows the keyboard to scroll the view */
+  position: relative !important; /* REQUIRED for mobile keyboard */
+  -webkit-overflow-scrolling: touch;
+  touch-action: manipulation;
+}
         
         /* Background cleanup - scanlines and radar sweep never block input */
         body::before, .scanlines, .radar-sweep {
