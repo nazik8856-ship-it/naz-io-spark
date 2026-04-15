@@ -639,123 +639,104 @@ export default function Dashboard() {
   }, []);
 
   // ─── MAIN MESSAGE HANDLER with validation, shake, and system prompt ─────────────
-  const handleSendMessage = useCallback(async () => {
+const handleSendMessage = useCallback(async () => {
     const trimmed = input.trim();
     
-    // Validation: minimum 3 words with shake animation
-    if (trimmed.split(/\s+/).length < 3) {
-      setErrorMessage("Neural Architect: Please provide a more detailed blueprint request (minimum 3 words)");
-      
-      // Add shake class to textarea for visual feedback
+    // 1. Silent Exit / Shake if empty
+    if (trimmed.length === 0) {
       if (textareaRef.current) {
         textareaRef.current.classList.add('animate-shake');
-        setTimeout(() => {
-          if (textareaRef.current) {
-            textareaRef.current.classList.remove('animate-shake');
-          }
-        }, 500);
+        setTimeout(() => textareaRef.current?.classList.remove('animate-shake'), 500);
       }
-      return;
+      return; 
     }
     
     if (isPending) return;
-    
+
+    // 2. Abort existing connections
     if (currentAbortControllerRef.current) {
       currentAbortControllerRef.current.abort();
     }
+    const controller = new AbortController();
+    currentAbortControllerRef.current = controller;
     
-    const abortController = new AbortController();
-    currentAbortControllerRef.current = abortController;
-    
-    setIsPending(true);
-    setErrorMessage(null);
-    
+    // 3. UI State Initialization
+    const userMessage = trimmed;
     const aiMsgIndex = messages.length + 1;
-    setMessages((prev) => [...prev, { role: "user", text: trimmed }, { role: "ai", text: "Neural Architect: Processing blueprint..." }]);
-    setInput("");
     
+    setInput(""); 
+    setErrorMessage(null);
+    setIsPending(true);
+    setMessages(prev => [...prev, 
+      { role: 'user', text: userMessage },
+      { role: 'ai', text: "Neural Architect: Processing blueprint..." }
+    ]);
+
+    // 4. Create the 12-second timeout
     const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error("Connection timeout after 12 seconds")), 12000);
+      setTimeout(() => reject(new Error("Connection timeout after 12s")), 12000);
     });
-    
+
     try {
+      // 5. The Execution Race
       const result = await Promise.race([
         supabase.functions.invoke("generate-business-plan", {
           body: { 
-            prompt: trimmed, 
+            prompt: userMessage, 
             model: selectedModel,
             style: activeStyle,
             webSearch: webSearchActive,
             systemPrompt: SYSTEM_PROMPT,
           },
-          signal: abortController.signal,
+          signal: controller.signal,
         }),
         timeoutPromise,
       ]) as { data: any; error: any };
-      
-      if (abortController.signal.aborted) return;
-      
-      if (result.error) {
-        throw new Error(result.error.message || "Failed to generate blueprint");
-      }
-      
-      const outputText = result.data?.plan || result.data?.response || `[Neural Architect]\n\nBlueprint generated for: "${trimmed}"\n\nStrategic framework has been created.`;
-      
+
+      if (result.error) throw new Error(result.error.message || "Link Failed");
+
+      const outputText = result.data?.plan || result.data?.response || `Blueprint generated for: "${userMessage}"`;
+
+      // 6. Database Logging (Missions)
       if (userId) {
         await supabase.from("missions").insert({
           user_id: userId,
-          directive: trimmed,
+          directive: userMessage,
           status: "completed",
           created_at: new Date().toISOString(),
         });
-        const { data: updatedMissions } = await supabase
-          .from("missions")
-          .select("*")
-          .eq("user_id", userId)
-          .order("created_at", { ascending: false });
-        if (updatedMissions) setMissions(updatedMissions as Mission[]);
       }
-      
-      setMessages((prev) => {
+
+      // 7. Update UI with Success
+      setMessages(prev => {
         const updated = [...prev];
         if (updated[aiMsgIndex]) {
-          updated[aiMsgIndex] = {
-            ...updated[aiMsgIndex],
-            text: outputText,
-          };
+          updated[aiMsgIndex] = { ...updated[aiMsgIndex], text: outputText };
         }
         return updated;
       });
-      
+
     } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        console.log("Request aborted");
-        return;
-      }
-      
-      console.error("Failed to send message:", error);
-      const errorMsg = error instanceof Error ? error.message : "Connection failed";
+      console.error("Execution Error:", error);
+      const errorMsg = error instanceof Error ? error.message : "Neural Link Interrupted";
       setErrorMessage(`Neural Architect: ${errorMsg}`);
       
-      const fallbackText = generateFallbackOutline(trimmed);
-      
-      setMessages((prev) => {
+      setMessages(prev => {
         const updated = [...prev];
         if (updated[aiMsgIndex]) {
-          updated[aiMsgIndex] = {
-            ...updated[aiMsgIndex],
-            text: fallbackText,
-            isSimulation: true,
+          updated[aiMsgIndex] = { 
+            ...updated[aiMsgIndex], 
+            text: "SYSTEM ERROR: Secure link failed. Directives stored locally.",
+            isSimulation: true 
           };
         }
         return updated;
       });
- } finally {
+    } finally {
       setIsPending(false);
       currentAbortControllerRef.current = null;
-      setTimeout(() => {
-        textareaRef.current?.focus();
-      }, 100);
+      // NATIVE FEEL: Force keyboard focus back instantly
+      setTimeout(() => textareaRef.current?.focus(), 100);
     }
   }, [input, messages.length, activeTool, selectedModel, isPending, userId, activeStyle, webSearchActive]);
   // --- START PART 2 BRIDGE ---
