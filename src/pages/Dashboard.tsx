@@ -647,106 +647,104 @@ export default function Dashboard() {
 
   // ─── MAIN MESSAGE HANDLER with validation, shake, and system prompt ─────────────
 const handleSendMessage = useCallback(async () => {
-    const trimmed = input.trim();
-    
-    // 1. Silent Exit / Shake if empty
-  if (isPending || input.trim().length === 0) return;
-setIsPending(true); 
-      if (textareaRef.current) {
-        textareaRef.current.classList.add('animate-shake');
-        setTimeout(() => textareaRef.current?.classList.remove('animate-shake'), 500);
-      }
-      
-    
-    
-    if (isPending) return;
-
-    // 2. Abort existing connections
-    if (currentAbortControllerRef.current) {
-      currentAbortControllerRef.current.abort();
+  // 1. GRAB TEXT DIRECTLY FROM HARDWARE (Bypass React State)
+  const currentText = textareaRef.current?.value || "";
+  const trimmed = currentText.trim();
+  
+  // 2. LOCK: Prevent double-sends and empty messages
+  if (isPending || trimmed.length === 0) {
+    if (trimmed.length === 0 && textareaRef.current) {
+      textareaRef.current.classList.add('animate-shake');
+      setTimeout(() => textareaRef.current?.classList.remove('animate-shake'), 500);
     }
-    const controller = new AbortController();
-    currentAbortControllerRef.current = controller;
-    
-    // 3. UI State Initialization
-    const userMessage = trimmed;
-    const aiMsgIndex = messages.length + 1;
-    
-    setInput(""); 
-    setErrorMessage(null);
-    setIsPending(true);
-    setMessages(prev => [...prev, 
-      { role: 'user', text: userMessage },
-      { role: 'ai', text: "Neural Architect: Processing blueprint..." }
-    ]);
+    return;
+  }
 
-    // 4. Create the 12-second timeout
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error("Connection timeout after 12s")), 12000);
+  setIsPending(true); // Lock it immediately
+
+  // 3. ABORT PREVIOUS CONNECTIONS
+  if (currentAbortControllerRef.current) {
+    currentAbortControllerRef.current.abort();
+  }
+  const controller = new AbortController();
+  currentAbortControllerRef.current = controller;
+  
+  // 4. UI INITIALIZATION
+  const userMessage = trimmed;
+  const aiMsgIndex = messages.length + 1;
+  
+  if (textareaRef.current) textareaRef.current.value = ""; // Clear the physical box
+  setErrorMessage(null);
+  setMessages(prev => [...prev, 
+    { role: 'user', text: userMessage },
+    { role: 'ai', text: "Neural Architect: Processing blueprint..." }
+  ]);
+
+  const timeoutPromise = new Promise((_, reject) => {
+    setTimeout(() => reject(new Error("Connection timeout after 12s")), 12000);
+  });
+
+  try {
+    // 5. THE EXECUTION RACE
+    const result = await Promise.race([
+      supabase.functions.invoke("generate-business-plan", {
+        body: { 
+          prompt: userMessage, 
+          model: selectedModel,
+          style: activeStyle,
+          webSearch: webSearchActive,
+          systemPrompt: SYSTEM_PROMPT,
+        },
+        signal: controller.signal,
+      }),
+      timeoutPromise,
+    ]) as { data: any; error: any };
+
+    if (result.error) throw new Error(result.error.message || "Link Failed");
+
+    const outputText = result.data?.plan || result.data?.response || `Blueprint ready for: "${userMessage}"`;
+
+    if (userId) {
+      await supabase.from("missions").insert({
+        user_id: userId,
+        directive: userMessage,
+        status: "completed",
+        created_at: new Date().toISOString(),
+      });
+    }
+
+    setMessages(prev => {
+      const updated = [...prev];
+      if (updated[aiMsgIndex]) {
+        updated[aiMsgIndex] = { ...updated[aiMsgIndex], text: outputText };
+      }
+      return updated;
     });
 
-    try {
-      // 5. The Execution Race
-      const result = await Promise.race([
-        supabase.functions.invoke("generate-business-plan", {
-          body: { 
-            prompt: userMessage, 
-            model: selectedModel,
-            style: activeStyle,
-            webSearch: webSearchActive,
-            systemPrompt: SYSTEM_PROMPT,
-          },
-          signal: controller.signal,
-        }),
-        timeoutPromise,
-      ]) as { data: any; error: any };
-
-      if (result.error) throw new Error(result.error.message || "Link Failed");
-
-      const outputText = result.data?.plan || result.data?.response || `Blueprint generated for: "${userMessage}"`;
-
-      // 6. Database Logging (Missions)
-      if (userId) {
-        await supabase.from("missions").insert({
-          user_id: userId,
-          directive: userMessage,
-          status: "completed",
-          created_at: new Date().toISOString(),
-        });
+  } catch (error) {
+    console.error("Execution Error:", error);
+    setMessages(prev => {
+      const updated = [...prev];
+      if (updated[aiMsgIndex]) {
+        updated[aiMsgIndex] = { 
+          ...updated[aiMsgIndex], 
+          text: "SYSTEM ERROR: Link failed. Directive stored locally.",
+          isSimulation: true 
+        };
       }
-
-      // 7. Update UI with Success
-      setMessages(prev => {
-        const updated = [...prev];
-        if (updated[aiMsgIndex]) {
-          updated[aiMsgIndex] = { ...updated[aiMsgIndex], text: outputText };
-        }
-        return updated;
-      });
-
-    } catch (error) {
-      console.error("Execution Error:", error);
-      const errorMsg = error instanceof Error ? error.message : "Neural Link Interrupted";
-      setErrorMessage(`Neural Architect: ${errorMsg}`);
-      
-      setMessages(prev => {
-        const updated = [...prev];
-        if (updated[aiMsgIndex]) {
-          updated[aiMsgIndex] = { 
-            ...updated[aiMsgIndex], 
-            text: "SYSTEM ERROR: Secure link failed. Directives stored locally.",
-            isSimulation: true 
-          };
-        }
-        return updated;
-      });
-    } finally {
-      setIsPending(false);
-      currentAbortControllerRef.current = null;
-      // NATIVE FEEL: Force keyboard focus back instantly
-      setTimeout(() => textareaRef.current?.focus(), 250); 
-    }
- }, [input, isPending, selectedModel, userId, activeStyle, webSearchActive]);
+      return updated;
+    });
+  } finally {
+    setIsPending(false);
+    currentAbortControllerRef.current = null;
+    // NATIVE FEEL: Refocus and scroll
+    setTimeout(() => {
+      textareaRef.current?.focus();
+      window.scrollTo(0, document.body.scrollHeight);
+    }, 250); 
+  }
+  // IMPORTANT: Removed 'input' from the dependencies below!
+}, [isPending, messages.length, selectedModel, userId, activeStyle, webSearchActive]);
   // --- START PART 2 BRIDGE ---
 
 
@@ -1012,28 +1010,26 @@ const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) 
               background: "var(--nazai-card-bg)", 
             }}
           >
-            <textarea 
-  spellCheck={false}
-  data-gramm={false}
+           <textarea 
   ref={textareaRef} 
-  value={input} 
-  onChange={handleInputChange} 
+  defaultValue="" // MAGIC: This allows the browser to handle typing, NOT React
   onKeyDown={handleKeyDown}
-  onFocus={handleTextareaFocus} 
+  onFocus={handleTextareaFocus}
   onBlur={handleTextareaBlur}
   placeholder={activeTool ? `Mission for ${activeTool.tool.name}...` : dynamicPlaceholder}
   rows={1}
   className="w-full bg-transparent border-none outline-none resize-none font-mono text-base p-3"
   autoComplete="off"
-autoCorrect="off"
-spellCheck="false"
+  autoCorrect="off"
+  spellCheck={false}
+  data-gramm={false}
   style={{ 
     color: "var(--nazai-text-color)",
-    fontSize: '16px', // TITAN FIX: Forces mobile browsers to act like a native app
+    fontSize: '16px', 
     height: "56px", 
     minHeight: "56px",
     maxHeight: "56px",
-    zIndex: 9999999, // NUCLEAR OVERRIDE: Sits above everything
+    zIndex: 9999999,
     position: 'relative',
     pointerEvents: 'auto',
     cursor: 'text',
