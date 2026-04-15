@@ -50,7 +50,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 
 // ─── DEPLOYMENT VERSION ──────────────────────────────────────────────────────────
-const DEPLOYMENT_ID = "NAZAI_TITAN_V18_FINAL_STAND";
+const DEPLOYMENT_ID = "NAZAI_TITAN_V19_SURGICAL_FIX";
 
 // ─── Type Definitions ──────────────────────────────────────────────────────────────
 
@@ -182,7 +182,7 @@ const PLACEHOLDER_TEXTS = [
 ];
 
 // Professional system prompt for AI
-const SYSTEM_PROMPT = `You are the NazAI Architect. Provide only technical business blueprints. No filler. No intro. No trash.`;
+const SYSTEM_PROMPT = `You are The Neural Architect, a high-precision business blueprinting AI. Respond in a professional, architectural tone. Provide structured, actionable business plans. Focus on strategic frameworks, market analysis, operational excellence, and financial architecture. Use clear sections and professional language.`;
 
 // ─── Helper Functions ──────────────────────────────────────────────────────────────
 
@@ -285,7 +285,7 @@ const containerVariants = {
 
 const itemVariants = {
   hidden: { opacity: 0, y: 20 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: "easeOut" as const } },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: "easeOut" } },
 };
 
 // Elegant laser shine animation
@@ -298,7 +298,7 @@ const laserShineAnimation = {
   transition: {
     duration: 3,
     repeat: Infinity,
-    ease: "easeInOut" as const,
+    ease: "easeInOut",
   },
 };
 
@@ -432,7 +432,6 @@ export default function Dashboard() {
 
     window.visualViewport.addEventListener("resize", handleViewportResize);
     window.visualViewport.addEventListener("scroll", handleViewportResize);
-    window.addEventListener("resize", () => window.scrollTo(0, 0));
     handleViewportResize();
 
     return () => {
@@ -446,6 +445,9 @@ export default function Dashboard() {
     // Force scroll into view without bounce
     e.target.scrollIntoView({ block: "center", behavior: "instant" });
     window.scrollTo(0, 0);
+    
+    // Remove shake class if present
+    e.target.classList.remove('animate-shake');
     
     // Kill any existing interval
     if (focusSnapIntervalRef.current) {
@@ -603,27 +605,23 @@ export default function Dashboard() {
     setDrawerOpen(false);
   }, []);
 
-  // ─── MAIN MESSAGE HANDLER with validation and system prompt ─────────────────────
+  // ─── MAIN MESSAGE HANDLER with validation, shake, and system prompt ─────────────
   const handleSendMessage = useCallback(async () => {
     const trimmed = input.trim();
     
-    console.log("SENDING PROMPT:", trimmed);
-    
-    // Validation: reject empty input with visual shake
-    if (!trimmed) {
-      setErrorMessage("Neural Architect: Input cannot be empty.");
-      // Trigger visual shake on input container
-      if (inputContainerRef.current) {
-        inputContainerRef.current.style.animation = "none";
-        void inputContainerRef.current.offsetHeight; // force reflow
-        inputContainerRef.current.style.animation = "shake 0.4s ease";
-      }
-      return;
-    }
-    
-    // Validation: minimum 3 words
+    // Validation: minimum 3 words with shake animation
     if (trimmed.split(/\s+/).length < 3) {
       setErrorMessage("Neural Architect: Please provide a more detailed blueprint request (minimum 3 words)");
+      
+      // Add shake class to textarea for visual feedback
+      if (textareaRef.current) {
+        textareaRef.current.classList.add('animate-shake');
+        setTimeout(() => {
+          if (textareaRef.current) {
+            textareaRef.current.classList.remove('animate-shake');
+          }
+        }, 500);
+      }
       return;
     }
     
@@ -644,17 +642,18 @@ export default function Dashboard() {
     setInput("");
     
     const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error("Connection timeout after 10 seconds")), 10000);
+      setTimeout(() => reject(new Error("Connection timeout after 12 seconds")), 12000);
     });
     
     try {
       const result = await Promise.race([
-        supabase.functions.invoke("process-mission", {
+        supabase.functions.invoke("generate-business-plan", {
           body: { 
-            directive: trimmed, 
+            prompt: trimmed, 
             model: selectedModel,
             style: activeStyle,
             webSearch: webSearchActive,
+            systemPrompt: SYSTEM_PROMPT,
           },
           signal: abortController.signal,
         }),
@@ -667,7 +666,7 @@ export default function Dashboard() {
         throw new Error(result.error.message || "Failed to generate blueprint");
       }
       
-      const outputText = result.data?.solution || result.data?.plan || result.data?.response || `[Neural Architect]\n\nBlueprint generated for: "${trimmed}"\n\nStrategic framework has been created.`;
+      const outputText = result.data?.plan || result.data?.response || `[Neural Architect]\n\nBlueprint generated for: "${trimmed}"\n\nStrategic framework has been created.`;
       
       if (userId) {
         await supabase.from("missions").insert({
@@ -899,7 +898,7 @@ export default function Dashboard() {
     </motion.div>
   );
 
-  // Home View with SURGICAL INPUT LIBERATION
+  // Home View with SURGICAL INPUT LIBERATION - FIXED POINTER EVENTS
   const HomeView = () => (
     <div className="flex flex-col w-full h-full">
       {/* Error Toast */}
@@ -919,7 +918,7 @@ export default function Dashboard() {
       </AnimatePresence>
 
       {/* Scrollable Messages Area */}
-      <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto py-6 space-y-3 px-4 pb-4">
+      <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto py-6 space-y-3 px-4 pb-[120px]">
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full gap-4 text-center pointer-events-auto">
             <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.2)` }}>
@@ -950,12 +949,17 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* INPUT CONTAINER - Normal flow, no fixed positioning */}
+      {/* SURGICAL INPUT CONTAINER - FIXED: parent has pointerEvents: 'auto' */}
       <div 
         ref={inputContainerRef}
-        className="w-full max-w-2xl mx-auto px-4 pb-3 shrink-0"
+        className="fixed left-0 right-0 z-[9999]"
+        style={{ 
+          bottom: `calc(env(safe-area-inset-bottom, 16px) + ${keyboardHeight}px)`,
+          transition: 'bottom 0.05s linear',
+          pointerEvents: 'auto',
+        }}
       >
-        <div>
+        <div className="w-full max-w-2xl mx-auto px-4">
           <motion.div 
             className="relative rounded-xl flex flex-col"
             animate={laserShineAnimation}
@@ -981,13 +985,11 @@ export default function Dashboard() {
                 maxHeight: "48px",
                 cursor: "text",
                 position: "relative",
-                zIndex: 9999,
+                zIndex: 100000,
                 pointerEvents: "auto",
-                WebkitAppearance: "none",
-                appearance: "none",
                 WebkitUserSelect: "text",
-                userSelect: "text",
-              }}
+                touchAction: "manipulation",
+              }} 
             />
             <div className="flex items-center justify-between px-3 py-2 border-t border-white/5">
               <div className="flex gap-1">
@@ -1197,15 +1199,29 @@ export default function Dashboard() {
           touch-action: manipulation;
         }
         
+        /* FIXED: Removed position:fixed - was blocking mobile keyboard input */
         html, body {
-          overflow: hidden;
-          overscroll-behavior: none;
-          width: 100vw;
-          height: 100vh;
-          margin: 0;
-          padding: 0;
-          -webkit-overflow-scrolling: touch;
-          touch-action: auto !important;
+          height: 100% !important;
+          width: 100vw !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          overflow: hidden !important;
+        }
+        
+        /* Ensure no overlay elements block the input */
+        body::before, body::after {
+          z-index: -1 !important;
+          pointer-events: none !important;
+        }
+        
+        /* Shake animation for validation feedback */
+        @keyframes shake {
+          0%, 100% { transform: translateX(0); }
+          10%, 30%, 50%, 70%, 90% { transform: translateX(-2px); }
+          20%, 40%, 60%, 80% { transform: translateX(2px); }
+        }
+        .animate-shake {
+          animation: shake 0.3s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
         }
         
         /* Prevent elastic bounce on all scrollable containers */
@@ -1246,21 +1262,6 @@ export default function Dashboard() {
         .animate-pulse { animation: pulse 2s ease-in-out infinite; }
         
         textarea::placeholder { color: rgba(255,255,255,0.2); }
-        
-        textarea {
-          -webkit-appearance: none !important;
-          appearance: none !important;
-          -webkit-user-select: text !important;
-          user-select: text !important;
-        }
-        
-        @keyframes shake {
-          0%, 100% { transform: translateX(0); }
-          20% { transform: translateX(-6px); }
-          40% { transform: translateX(6px); }
-          60% { transform: translateX(-4px); }
-          80% { transform: translateX(4px); }
-        }
         
         input[type="range"] {
           -webkit-appearance: none;
