@@ -1048,7 +1048,7 @@ const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) 
     touchAction: 'manipulation',
   }}
 />
-            />
+            
             <div className="flex items-center justify-between px-3 py-2 border-t border-white/5 pointer-events-auto">
               <div className="flex gap-1 pointer-events-auto">
                 <motion.button 
