@@ -643,13 +643,14 @@ const handleSendMessage = useCallback(async () => {
     const trimmed = input.trim();
     
     // 1. Silent Exit / Shake if empty
-    if (trimmed.length === 0) {
+  if (isPending || input.trim().length === 0) return;
+setIsPending(true); 
       if (textareaRef.current) {
         textareaRef.current.classList.add('animate-shake');
         setTimeout(() => textareaRef.current?.classList.remove('animate-shake'), 500);
       }
-      return; 
-    }
+      
+    
     
     if (isPending) return;
 
@@ -736,9 +737,9 @@ const handleSendMessage = useCallback(async () => {
       setIsPending(false);
       currentAbortControllerRef.current = null;
       // NATIVE FEEL: Force keyboard focus back instantly
-      setTimeout(() => textareaRef.current?.focus(), 100);
+      setTimeout(() => textareaRef.current?.focus(), 250); 
     }
-  }, [input, messages.length, activeTool, selectedModel, isPending, userId, activeStyle, webSearchActive]);
+ }, [input, isPending, selectedModel, userId, activeStyle, webSearchActive]);
   // --- START PART 2 BRIDGE ---
 
 
