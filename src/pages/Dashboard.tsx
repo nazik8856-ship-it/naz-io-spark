@@ -1024,27 +1024,30 @@ const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) 
             }}
           >
             <textarea 
-              ref={textareaRef} 
-              value={input} 
-              onChange={handleInputChange} 
-              onKeyDown={handleKeyDown}
-              onFocus={handleTextareaFocus}
-              onBlur={handleTextareaBlur}
-              placeholder={activeTool ? `Mission for ${activeTool.tool.name}...` : dynamicPlaceholder}
-              rows={1}
-              className="w-full bg-transparent border-none outline-none resize-none font-mono text-xs p-3"
-              style={{ 
-                color: "var(--nazai-text-color)",
-                height: "48px",
-                minHeight: "48px",
-                maxHeight: "48px",
-                zIndex: 100000,
-                position: 'relative',
-                pointerEvents: 'auto',
-                cursor: 'text',
-                WebkitUserSelect: 'text',
-                touchAction: 'manipulation',
-              }}
+  ref={textareaRef} 
+  value={input} 
+  onChange={handleInputChange} 
+  onKeyDown={handleKeyDown}
+  onFocus={handleTextareaFocus}
+  onBlur={handleTextareaBlur}
+  placeholder={activeTool ? `Mission for ${activeTool.tool.name}...` : dynamicPlaceholder}
+  rows={1}
+  className="w-full bg-transparent border-none outline-none resize-none font-mono text-base p-3"
+  style={{ 
+    color: "var(--nazai-text-color)",
+    fontSize: '16px', // TITAN FIX: Forces mobile browsers to act like a native app
+    height: "56px", 
+    minHeight: "56px",
+    maxHeight: "56px",
+    zIndex: 9999999, // NUCLEAR OVERRIDE: Sits above everything
+    position: 'relative',
+    pointerEvents: 'auto',
+    cursor: 'text',
+    WebkitUserSelect: 'text',
+    userSelect: 'text',
+    touchAction: 'manipulation',
+  }}
+/>
             />
             <div className="flex items-center justify-between px-3 py-2 border-t border-white/5 pointer-events-auto">
               <div className="flex gap-1 pointer-events-auto">
