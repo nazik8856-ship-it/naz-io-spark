@@ -182,7 +182,7 @@ const PLACEHOLDER_TEXTS = [
 ];
 
 // Professional system prompt for AI
-const SYSTEM_PROMPT = `You are The Neural Architect, a high-precision business blueprinting AI. Respond in a professional, architectural tone. Provide structured, actionable business plans. Focus on strategic frameworks, market analysis, operational excellence, and financial architecture. Use clear sections and professional language.`;
+const SYSTEM_PROMPT = `You are the NazAI Master Architect. You do not give generic advice. You provide high-density, agentic business blueprints, technical stacks, and market-entry strategies. Use professional, lethal-precision language.`;
 
 // ─── Helper Functions ──────────────────────────────────────────────────────────────
 
@@ -285,7 +285,7 @@ const containerVariants = {
 
 const itemVariants = {
   hidden: { opacity: 0, y: 20 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: "easeOut" } },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: "easeOut" as const } },
 };
 
 // Elegant laser shine animation
@@ -298,7 +298,7 @@ const laserShineAnimation = {
   transition: {
     duration: 3,
     repeat: Infinity,
-    ease: "easeInOut",
+    ease: "easeInOut" as const,
   },
 };
 
@@ -432,6 +432,7 @@ export default function Dashboard() {
 
     window.visualViewport.addEventListener("resize", handleViewportResize);
     window.visualViewport.addEventListener("scroll", handleViewportResize);
+    window.addEventListener("resize", () => window.scrollTo(0, 0));
     handleViewportResize();
 
     return () => {

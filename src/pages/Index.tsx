@@ -226,7 +226,7 @@ const containerVariants = {
 
 const itemVariants = {
   hidden: { opacity: 0, y: 20 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: "easeOut" } },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: "easeOut" as const } },
 };
 
 // Border pulse animation
@@ -235,7 +235,7 @@ const borderPulseAnimation = {
   transition: {
     duration: 3,
     repeat: Infinity,
-    ease: "easeInOut",
+    ease: "easeInOut" as const,
   },
 };
 
@@ -250,7 +250,7 @@ export default function Dashboard() {
     if (lastVersion !== DEPLOYMENT_ID) {
       localStorage.clear();
       localStorage.setItem("last_version", DEPLOYMENT_ID);
-      window.location.reload(true);
+      window.location.reload();
     }
   }, []);
 
