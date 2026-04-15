@@ -50,7 +50,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 
 // ─── DEPLOYMENT VERSION ──────────────────────────────────────────────────────────
-const DEPLOYMENT_ID = "NAZAI_TITAN_V15_NUCLEAR_STABILITY";
+const DEPLOYMENT_ID = "NAZAI_TITAN_V16_SURGICAL_STRIKE";
 
 // ─── Type Definitions ──────────────────────────────────────────────────────────────
 
@@ -441,7 +441,11 @@ export default function Dashboard() {
   }, []);
 
   // ── THE INPUT HAMMER: Punish browser scroll attempts ───────────────────────────
-  const handleTextareaFocus = useCallback(() => {
+  const handleTextareaFocus = useCallback((e: React.FocusEvent<HTMLTextAreaElement>) => {
+    // Force scroll into view without bounce
+    e.target.scrollIntoView({ block: "center", behavior: "instant" });
+    window.scrollTo(0, 0);
+    
     // Kill any existing interval
     if (focusSnapIntervalRef.current) {
       clearInterval(focusSnapIntervalRef.current);
@@ -881,7 +885,7 @@ export default function Dashboard() {
     </motion.div>
   );
 
-  // Home View with NUCLEAR STABILITY
+  // Home View with SURGICAL INPUT LIBERATION
   const HomeView = () => (
     <div className="flex flex-col w-full h-full">
       {/* Error Toast */}
@@ -932,16 +936,17 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* NUCLEAR INPUT CONTAINER - Fixed height, no auto-grow */}
+      {/* SURGICAL INPUT CONTAINER - Forced top-level interaction */}
       <div 
         ref={inputContainerRef}
-        className="fixed left-0 right-0 z-[9999] pointer-events-none"
+        className="fixed left-0 right-0 z-[9999]"
         style={{ 
           bottom: `calc(env(safe-area-inset-bottom, 16px) + ${keyboardHeight}px)`,
           transition: 'bottom 0.05s linear',
+          pointerEvents: 'none',
         }}
       >
-        <div className="w-full max-w-2xl mx-auto px-4 pointer-events-auto">
+        <div className="w-full max-w-2xl mx-auto px-4" style={{ pointerEvents: 'auto' }}>
           <motion.div 
             className="relative rounded-xl flex flex-col"
             animate={laserShineAnimation}
@@ -959,19 +964,23 @@ export default function Dashboard() {
               onBlur={handleTextareaBlur}
               placeholder={activeTool ? `Mission for ${activeTool.tool.name}...` : dynamicPlaceholder}
               rows={1}
-              className="w-full bg-transparent border-none outline-none resize-none font-mono text-xs p-3 pointer-events-auto"
+              className="w-full bg-transparent border-none outline-none resize-none font-mono text-xs p-3"
               style={{ 
                 color: "var(--nazai-text-color)",
                 height: "48px",
                 minHeight: "48px",
                 maxHeight: "48px",
+                cursor: "text",
+                position: "relative",
+                zIndex: 9999,
+                pointerEvents: "auto",
               }} 
             />
             <div className="flex items-center justify-between px-3 py-2 border-t border-white/5">
               <div className="flex gap-1">
                 <motion.button 
                   onClick={() => setPlusMenuOpen(true)} 
-                  className="w-7 h-7 rounded-full flex items-center justify-center relative z-10 transition-all pointer-events-auto"
+                  className="w-7 h-7 rounded-full flex items-center justify-center relative z-10 transition-all"
                   style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.05)` }}
                   whileHover={{ scale: 1.1, background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.1)` }}
                   whileTap={{ scale: 0.9 }}
@@ -980,7 +989,7 @@ export default function Dashboard() {
                 </motion.button>
                 <button 
                   onClick={() => { setDrawerOpen(true); setPlusMenuOpen(false); }} 
-                  className="text-[9px] px-2 py-1 rounded font-mono transition-all hover:bg-white/5 pointer-events-auto" 
+                  className="text-[9px] px-2 py-1 rounded font-mono transition-all hover:bg-white/5" 
                   style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.03)` }}
                 >
                   {activeTool ? activeTool.tool.name : "Select Engine"}
@@ -989,7 +998,7 @@ export default function Dashboard() {
               <motion.button 
                 onPointerDown={handleSendPointerDown}
                 disabled={!input.trim() || isPending} 
-                className="w-7 h-7 rounded-full flex items-center justify-center transition-all pointer-events-auto"
+                className="w-7 h-7 rounded-full flex items-center justify-center transition-all"
                 style={{ background: (input.trim() && !isPending) ? currentTheme.color : "rgba(255,255,255,0.05)" }}
                 whileHover={(input.trim() && !isPending) ? { scale: 1.1 } : {}}
                 whileTap={(input.trim() && !isPending) ? { scale: 0.9 } : {}}
@@ -1165,6 +1174,16 @@ export default function Dashboard() {
       </AnimatePresence>
 
       <style>{`
+        /* SURGICAL CLEANUP - Remove tap highlights and optimize touch */
+        * {
+          -webkit-tap-highlight-color: transparent;
+        }
+        
+        body {
+          cursor: default;
+          touch-action: manipulation;
+        }
+        
         /* NUCLEAR OPTION - Absolute structural reset */
         html, body {
           position: fixed !important;
@@ -1172,7 +1191,6 @@ export default function Dashboard() {
           overscroll-behavior: none !important;
           width: 100vw !important;
           height: 100vh !important;
-          touch-action: none !important;
           margin: 0 !important;
           padding: 0 !important;
         }
