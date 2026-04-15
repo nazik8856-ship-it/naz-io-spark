@@ -50,7 +50,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 
 // ─── DEPLOYMENT VERSION ──────────────────────────────────────────────────────────
-const DEPLOYMENT_ID = "NAZAI_TITAN_V19_SURGICAL_FIX";
+const DEPLOYMENT_ID = "NAZAI_TITAN_V21_FINAL_RESPONSIVE";
 
 // ─── Type Definitions ──────────────────────────────────────────────────────────────
 
@@ -454,7 +454,7 @@ export default function Dashboard() {
       clearInterval(focusSnapIntervalRef.current);
     }
     
-    // Snap to top every 10ms for the first 100ms - brutal but effective
+    // Snap to top every 10ms for the first 100ms
     let snapCount = 0;
     focusSnapIntervalRef.current = setInterval(() => {
       window.scrollTo(0, 0);
@@ -774,7 +774,7 @@ export default function Dashboard() {
         key={item.label}
         onClick={() => handleNavClick(item.label)}
         title={item.label}
-        className="w-10 h-10 flex items-center justify-center rounded-xl transition-all duration-200 relative group pointer-events-auto"
+        className="w-10 h-10 flex items-center justify-center rounded-xl transition-all duration-200 relative group"
         whileHover={{ scale: 1.05, backgroundColor: "rgba(255,255,255,0.05)" }}
         whileTap={{ scale: 0.95 }}
       >
@@ -802,7 +802,7 @@ export default function Dashboard() {
       key={mission.id}
       variants={itemVariants}
       whileHover={{ scale: 1.01, backgroundColor: "rgba(255,255,255,0.03)" }}
-      className="group flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer transition-all duration-200 pointer-events-auto"
+      className="group flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer transition-all duration-200"
       style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
     >
       <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.1)` }}>
@@ -898,7 +898,7 @@ export default function Dashboard() {
     </motion.div>
   );
 
-  // Home View with SURGICAL INPUT LIBERATION - FIXED POINTER EVENTS
+  // Home View with ABSOLUTELY GUARANTEED CLICKABLE INPUT
   const HomeView = () => (
     <div className="flex flex-col w-full h-full">
       {/* Error Toast */}
@@ -920,7 +920,7 @@ export default function Dashboard() {
       {/* Scrollable Messages Area */}
       <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto py-6 space-y-3 px-4 pb-[120px]">
         {messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full gap-4 text-center pointer-events-auto">
+          <div className="flex flex-col items-center justify-center h-full gap-4 text-center">
             <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.2)` }}>
               <Zap size={22} style={{ color: borderColor }} />
             </div>
@@ -931,7 +931,7 @@ export default function Dashboard() {
           </div>
         )}
         {messages.map((msg, i) => (
-          <motion.div key={i} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"} pointer-events-auto`}>
+          <motion.div key={i} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
             <div className="max-w-[78%] px-3 py-2 text-xs" style={{ borderRadius: msg.role === "user" ? "12px 12px 2px 12px" : "12px 12px 12px 2px", background: msg.role === "user" ? `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.05)` : "var(--nazai-card-bg)", border: `1px solid var(--nazai-border-light)`, color: "var(--nazai-text-color)" }}>
               {msg.text}
             </div>
@@ -942,26 +942,27 @@ export default function Dashboard() {
 
       {/* Selected Engine Badge */}
       {activeTool && (
-        <div className="w-full max-w-2xl mx-auto mb-2 flex justify-end px-4 relative z-[101] pointer-events-auto">
+        <div className="w-full max-w-2xl mx-auto mb-2 flex justify-end px-4 relative z-[101]">
           <span className="text-[9px] px-2 py-1 rounded-full flex items-center gap-1 font-mono" style={{ background: `rgba(${activeTool.category.glowRgba},0.1)`, border: `1px solid rgba(${activeTool.category.glowRgba},0.2)`, color: activeTool.category.color }}>
             {activeTool.tool.name} <X size={10} className="cursor-pointer hover:opacity-70 transition-opacity" onClick={() => setSelectedModel(null)} />
           </span>
         </div>
       )}
 
-      {/* SURGICAL INPUT CONTAINER - FIXED: parent has pointerEvents: 'auto' */}
-      <div 
-        ref={inputContainerRef}
-        className="fixed left-0 right-0 z-[9999]"
-        style={{ 
-          bottom: `calc(env(safe-area-inset-bottom, 16px) + ${keyboardHeight}px)`,
-          transition: 'bottom 0.05s linear',
-          pointerEvents: 'auto',
-        }}
-      >
-        <div className="w-full max-w-2xl mx-auto px-4">
+      {/* GUARANTEED CLICKABLE INPUT CONTAINER */}
+     <div 
+  ref={inputContainerRef}
+  className="fixed left-0 right-0 z-[99999]" 
+  style={{ 
+    bottom: `calc(env(safe-area-inset-bottom, 16px) + ${keyboardHeight}px)`,
+    pointerEvents: 'auto', // MUST BE AUTO
+    position: 'fixed'
+  }}
+>
+      
+        <div className="w-full max-w-2xl mx-auto px-4 pointer-events-auto">
           <motion.div 
-            className="relative rounded-xl flex flex-col"
+            className="relative rounded-xl flex flex-col pointer-events-auto"
             animate={laserShineAnimation}
             style={{ 
               border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.3)`,
@@ -979,23 +980,23 @@ export default function Dashboard() {
               rows={1}
               className="w-full bg-transparent border-none outline-none resize-none font-mono text-xs p-3"
               style={{ 
-                color: "var(--nazai-text-color)",
-                height: "48px",
-                minHeight: "48px",
-                maxHeight: "48px",
-                cursor: "text",
-                position: "relative",
-                zIndex: 100000,
-                pointerEvents: "auto",
-                WebkitUserSelect: "text",
-                touchAction: "manipulation",
-              }} 
+  color: "var(--nazai-text-color)",
+  height: "48px",
+  minHeight: "48px",
+  maxHeight: "48px",
+  zIndex: 100000,
+  position: 'relative',
+  pointerEvents: 'auto',
+  cursor: 'text',
+  WebkitUserSelect: 'text',
+  touchAction: 'manipulation',
+}}
             />
-            <div className="flex items-center justify-between px-3 py-2 border-t border-white/5">
-              <div className="flex gap-1">
+            <div className="flex items-center justify-between px-3 py-2 border-t border-white/5 pointer-events-auto">
+              <div className="flex gap-1 pointer-events-auto">
                 <motion.button 
                   onClick={() => setPlusMenuOpen(true)} 
-                  className="w-7 h-7 rounded-full flex items-center justify-center relative z-10 transition-all"
+                  className="w-7 h-7 rounded-full flex items-center justify-center relative z-10 transition-all pointer-events-auto"
                   style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.05)` }}
                   whileHover={{ scale: 1.1, background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.1)` }}
                   whileTap={{ scale: 0.9 }}
@@ -1004,7 +1005,7 @@ export default function Dashboard() {
                 </motion.button>
                 <button 
                   onClick={() => { setDrawerOpen(true); setPlusMenuOpen(false); }} 
-                  className="text-[9px] px-2 py-1 rounded font-mono transition-all hover:bg-white/5" 
+                  className="text-[9px] px-2 py-1 rounded font-mono transition-all hover:bg-white/5 pointer-events-auto" 
                   style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.03)` }}
                 >
                   {activeTool ? activeTool.tool.name : "Select Engine"}
@@ -1013,7 +1014,7 @@ export default function Dashboard() {
               <motion.button 
                 onPointerDown={handleSendPointerDown}
                 disabled={!input.trim() || isPending} 
-                className="w-7 h-7 rounded-full flex items-center justify-center transition-all"
+                className="w-7 h-7 rounded-full flex items-center justify-center transition-all pointer-events-auto"
                 style={{ background: (input.trim() && !isPending) ? currentTheme.color : "rgba(255,255,255,0.05)" }}
                 whileHover={(input.trim() && !isPending) ? { scale: 1.1 } : {}}
                 whileTap={(input.trim() && !isPending) ? { scale: 0.9 } : {}}
@@ -1056,11 +1057,11 @@ export default function Dashboard() {
           <nav className="flex flex-col gap-1 flex-1">{NAV_ITEMS.map(renderNavItem)}</nav>
           <div className="flex flex-col items-center gap-2 mt-auto">
             {userEmail && (
-              <div className="w-7 h-7 rounded-full flex items-center justify-center text-[9px] font-semibold overflow-hidden pointer-events-auto" style={{ background: getAvatarGradient(userEmail) }}>
+              <div className="w-7 h-7 rounded-full flex items-center justify-center text-[9px] font-semibold overflow-hidden" style={{ background: getAvatarGradient(userEmail) }}>
                 {userEmail[0].toUpperCase()}
               </div>
             )}
-            <button onClick={() => setLogoutModalOpen(true)} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-red-500/10 transition-all pointer-events-auto"><LogOut size={14} className="text-white/30 hover:text-red-400 transition-colors" /></button>
+            <button onClick={() => setLogoutModalOpen(true)} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-red-500/10 transition-all"><LogOut size={14} className="text-white/30 hover:text-red-400 transition-colors" /></button>
           </div>
         </div>
       </motion.aside>
@@ -1069,9 +1070,9 @@ export default function Dashboard() {
       <main className="flex flex-col flex-1 min-w-0 relative">
         <header className="flex items-center justify-between px-4 py-2 shrink-0" style={{ borderBottom: `1px solid var(--nazai-border-light)`, background: auraProfile.isLightMode ? "rgba(255,255,255,0.8)" : "rgba(2,6,23,0.8)", backdropFilter: `blur(${auraProfile.glassBlur}px)` }}>
           <div className="flex items-center gap-2">
-            <button onClick={() => setSidebarCollapsed(v => !v)} className="text-white/40 hover:text-white/60 transition-colors pointer-events-auto">{sidebarCollapsed ? <PanelLeft size={14} /> : <PanelLeftClose size={14} />}</button>
+            <button onClick={() => setSidebarCollapsed(v => !v)} className="text-white/40 hover:text-white/60 transition-colors">{sidebarCollapsed ? <PanelLeft size={14} /> : <PanelLeftClose size={14} />}</button>
             <span 
-              className="text-[10px] font-mono font-black tracking-tighter pointer-events-auto" 
+              className="text-[10px] font-mono font-black tracking-tighter" 
               style={{ 
                 color: borderColor, 
                 textShadow: `0 0 calc(var(--text-glow-intensity) * 15px) var(--glow-primary)`
@@ -1079,9 +1080,9 @@ export default function Dashboard() {
             >
               NEURAL://
             </span>
-            <span className="text-[10px] font-mono font-bold pointer-events-auto" style={{ background: currentTheme.gradient, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>{activeNav.toUpperCase()}</span>
+            <span className="text-[10px] font-mono font-bold" style={{ background: currentTheme.gradient, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>{activeNav.toUpperCase()}</span>
           </div>
-          <div className="flex items-center gap-3 pointer-events-auto">
+          <div className="flex items-center gap-3">
             <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: borderColor }} />
             <span className="text-[8px] font-mono tracking-wider text-white/30">SECURE_NODE</span>
           </div>
@@ -1093,7 +1094,7 @@ export default function Dashboard() {
           </AnimatePresence>
         </div>
 
-        <footer className="flex items-center justify-between px-4 py-1.5 shrink-0 text-[8px] font-mono tracking-wider text-white/30 pointer-events-auto" style={{ borderTop: `1px solid var(--nazai-border-light)`, background: auraProfile.isLightMode ? "rgba(255,255,255,0.8)" : "rgba(2,6,23,0.8)" }}>
+        <footer className="flex items-center justify-between px-4 py-1.5 shrink-0 text-[8px] font-mono tracking-wider text-white/30" style={{ borderTop: `1px solid var(--nazai-border-light)`, background: auraProfile.isLightMode ? "rgba(255,255,255,0.8)" : "rgba(2,6,23,0.8)" }}>
           <span>SYSTEM_STABLE</span>
           <div className="flex gap-3"><span>DB:ONLINE</span><span>AI:READY</span></div>
         </footer>
@@ -1189,6 +1190,16 @@ export default function Dashboard() {
       </AnimatePresence>
 
       <style>{`
+        /* FORCE EVERYTHING TO BE CLICKABLE */
+        * {
+          pointer-events: auto !important;
+        }
+        
+        /* Only elements with this class are intentionally non-clickable */
+        .pointer-events-none {
+          pointer-events: none !important;
+        }
+        
         /* SURGICAL CLEANUP - Remove tap highlights and optimize touch */
         * {
           -webkit-tap-highlight-color: transparent;
@@ -1199,20 +1210,22 @@ export default function Dashboard() {
           touch-action: manipulation;
         }
         
-        /* FIXED: Removed position:fixed - was blocking mobile keyboard input */
+        
         html, body {
           height: 100% !important;
           width: 100vw !important;
           margin: 0 !important;
           padding: 0 !important;
           overflow: hidden !important;
+          position: relative !important;
+          touch-action: manipulation;
         }
         
-        /* Ensure no overlay elements block the input */
-        body::before, body::after {
-          z-index: -1 !important;
-          pointer-events: none !important;
-        }
+      
+    body::before, .scanlines, .radar-sweep {
+  pointer-events: none !important;
+  z-index: -1 !important;
+}
         
         /* Shake animation for validation feedback */
         @keyframes shake {
