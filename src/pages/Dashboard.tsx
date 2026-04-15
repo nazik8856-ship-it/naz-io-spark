@@ -432,6 +432,7 @@ export default function Dashboard() {
 
     window.visualViewport.addEventListener("resize", handleViewportResize);
     window.visualViewport.addEventListener("scroll", handleViewportResize);
+    window.addEventListener("resize", () => window.scrollTo(0, 0));
     handleViewportResize();
 
     return () => {
