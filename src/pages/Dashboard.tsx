@@ -955,7 +955,7 @@ export default function Dashboard() {
         ref={inputContainerRef}
         className="w-full max-w-2xl mx-auto px-4 pb-3 shrink-0"
       >
-        <div className="w-full max-w-2xl mx-auto px-4" style={{ pointerEvents: 'auto' }}>
+        <div>
           <motion.div 
             className="relative rounded-xl flex flex-col"
             animate={laserShineAnimation}
