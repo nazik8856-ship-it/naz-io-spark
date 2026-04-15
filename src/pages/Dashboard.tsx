@@ -228,52 +228,6 @@ const getAvatarGradient = (email: string) => {
   return `linear-gradient(135deg, hsl(${hue1}, 70%, 55%), hsl(${hue2}, 70%, 45%))`;
 };
 
-// Typewriter effect function
-const useTypewriter = (texts: string[], intervalSpeed: number = 4000, typingSpeed: number = 40) => {
-  const [currentPlaceholder, setCurrentPlaceholder] = useState(texts[0]);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [currentTextIndex, setCurrentTextIndex] = useState(0);
-
-  useEffect(() => {
-    let timeout: NodeJS.Timeout;
-    
-    const animateText = () => {
-      const fullText = texts[currentTextIndex];
-      
-      if (isDeleting) {
-        if (currentIndex > 0) {
-          setCurrentIndex(prev => prev - 1);
-          setCurrentPlaceholder(fullText.substring(0, currentIndex - 1));
-          timeout = setTimeout(animateText, typingSpeed);
-        } else {
-          setIsDeleting(false);
-          setCurrentTextIndex((prev) => (prev + 1) % texts.length);
-          timeout = setTimeout(animateText, typingSpeed);
-        }
-      } else {
-        if (currentIndex < fullText.length) {
-          setCurrentIndex(prev => prev + 1);
-          setCurrentPlaceholder(fullText.substring(0, currentIndex + 1));
-          timeout = setTimeout(animateText, typingSpeed);
-        } else {
-          timeout = setTimeout(() => {
-            setIsDeleting(true);
-            animateText();
-          }, intervalSpeed);
-          return;
-        }
-      }
-    };
-    
-    timeout = setTimeout(animateText, 100);
-    
-    return () => clearTimeout(timeout);
-  }, [currentIndex, isDeleting, currentTextIndex, texts, typingSpeed, intervalSpeed]);
-
-  return currentPlaceholder;
-};
-
 // Animation variants
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -348,7 +302,6 @@ export default function Dashboard() {
   useEffect(() => {
     const forceFocus = (e: TouchEvent | MouseEvent) => {
       const y = 'touches' in e ? e.touches[0].clientY : (e as MouseEvent).clientY;
-      // Only trigger if tapping the bottom 30% of the screen
       if (y > window.innerHeight * 0.7) {
         const textarea = document.querySelector('textarea');
         if (textarea) {
@@ -358,7 +311,6 @@ export default function Dashboard() {
     };
 
     const killGhosts = () => {
-      // Physically disables any layers that might be blocking the input
       const overlays = document.querySelectorAll('.scanlines, .radar-sweep, [class*="fixed"]');
       overlays.forEach(el => {
         if (!el.contains(document.querySelector('textarea'))) {
@@ -377,9 +329,6 @@ export default function Dashboard() {
     };
   }, []);
 
-  // ── Typing Animation Effect ────────────────────────────────────────────────────
-  const dynamicPlaceholder = useTypewriter(PLACEHOLDER_TEXTS, 4000, 40);
-
   // ── Visual Viewport State for Mechanical Anchoring ─────────────────────────────
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
@@ -387,8 +336,6 @@ export default function Dashboard() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [plusMenuOpen, setPlusMenuOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
-  const [input, setInput] = useState("");
-  const [isTyping, setIsTyping] = useState(false);
   const [messages, setMessages] = useState<{ role: "user" | "ai"; text: string; isSimulation?: boolean }[]>([]);
   const [activeNav, setActiveNav] = useState<string>("Home");
   const [userEmail, setUserEmail] = useState<string | null>(null);
@@ -475,19 +422,14 @@ export default function Dashboard() {
 
   // ── THE INPUT HAMMER: Punish browser scroll attempts ───────────────────────────
   const handleTextareaFocus = useCallback((e: React.FocusEvent<HTMLTextAreaElement>) => {
-    // Force scroll into view without bounce
     e.target.scrollIntoView({ block: "center", behavior: "instant" });
     window.scrollTo(0, 0);
-    
-    // Remove shake class if present
     e.target.classList.remove('animate-shake');
     
-    // Kill any existing interval
     if (focusSnapIntervalRef.current) {
       clearInterval(focusSnapIntervalRef.current);
     }
     
-    // Snap to top every 10ms for the first 100ms
     let snapCount = 0;
     focusSnapIntervalRef.current = setInterval(() => {
       window.scrollTo(0, 0);
@@ -587,7 +529,6 @@ export default function Dashboard() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Auto-clear error message after 5 seconds
   useEffect(() => {
     if (errorMessage) {
       const timer = setTimeout(() => setErrorMessage(null), 5000);
@@ -626,129 +567,106 @@ export default function Dashboard() {
     }
   }, []);
 
-  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-  
-  e.stopPropagation();
-  const val = e.target.value;
-  
-  
-  setInput(val);
+  const handleSelectTool = useCallback((id: string) => {
+    setSelectedModel(id);
+    setDrawerOpen(false);
+  }, []);
 
-  
-  const tempRef = textareaRef.current;
-  if (tempRef) {
-    const start = tempRef.selectionStart;
-    const end = tempRef.selectionEnd;
-    requestAnimationFrame(() => {
-      tempRef.setSelectionRange(start, end);
-    });
-  }
-}, []); 
-
-  // ─── MAIN MESSAGE HANDLER with validation, shake, and system prompt ─────────────
-const handleSendMessage = useCallback(async () => {
-  // 1. GRAB TEXT DIRECTLY FROM HARDWARE (Bypass React State)
-  const currentText = textareaRef.current?.value || "";
-  const trimmed = currentText.trim();
-  
-  // 2. LOCK: Prevent double-sends and empty messages
-  if (isPending || trimmed.length === 0) {
-    if (trimmed.length === 0 && textareaRef.current) {
-      textareaRef.current.classList.add('animate-shake');
-      setTimeout(() => textareaRef.current?.classList.remove('animate-shake'), 500);
+  // ─── MAIN MESSAGE HANDLER - NO input dependency! ───────────────────────────────
+  const handleSendMessage = useCallback(async () => {
+    const currentText = textareaRef.current?.value || "";
+    const trimmed = currentText.trim();
+    
+    if (isPending || trimmed.length === 0) {
+      if (trimmed.length === 0 && textareaRef.current) {
+        textareaRef.current.classList.add('animate-shake');
+        setTimeout(() => textareaRef.current?.classList.remove('animate-shake'), 500);
+      }
+      return;
     }
-    return;
-  }
 
-  setIsPending(true); // Lock it immediately
+    setIsPending(true);
 
-  // 3. ABORT PREVIOUS CONNECTIONS
-  if (currentAbortControllerRef.current) {
-    currentAbortControllerRef.current.abort();
-  }
-  const controller = new AbortController();
-  currentAbortControllerRef.current = controller;
-  
-  // 4. UI INITIALIZATION
-  const userMessage = trimmed;
-  const aiMsgIndex = messages.length + 1;
-  
-  if (textareaRef.current) textareaRef.current.value = ""; // Clear the physical box
-  setErrorMessage(null);
-  setMessages(prev => [...prev, 
-    { role: 'user', text: userMessage },
-    { role: 'ai', text: "Neural Architect: Processing blueprint..." }
-  ]);
+    if (currentAbortControllerRef.current) {
+      currentAbortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    currentAbortControllerRef.current = controller;
+    
+    const userMessage = trimmed;
+    const aiMsgIndex = messages.length + 1;
+    
+    if (textareaRef.current) textareaRef.current.value = "";
+    setErrorMessage(null);
+    setMessages(prev => [...prev, 
+      { role: 'user', text: userMessage },
+      { role: 'ai', text: "Neural Architect: Processing blueprint..." }
+    ]);
 
-  const timeoutPromise = new Promise((_, reject) => {
-    setTimeout(() => reject(new Error("Connection timeout after 12s")), 12000);
-  });
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error("Connection timeout after 12s")), 12000);
+    });
 
-  try {
-    // 5. THE EXECUTION RACE
-    const result = await Promise.race([
-      supabase.functions.invoke("generate-business-plan", {
-        body: { 
-          prompt: userMessage, 
-          model: selectedModel,
-          style: activeStyle,
-          webSearch: webSearchActive,
-          systemPrompt: SYSTEM_PROMPT,
-        },
-        signal: controller.signal,
-      }),
-      timeoutPromise,
-    ]) as { data: any; error: any };
+    try {
+      const result = await Promise.race([
+        supabase.functions.invoke("generate-business-plan", {
+          body: { 
+            prompt: userMessage, 
+            model: selectedModel,
+            style: activeStyle,
+            webSearch: webSearchActive,
+            systemPrompt: SYSTEM_PROMPT,
+          },
+          signal: controller.signal,
+        }),
+        timeoutPromise,
+      ]) as { data: any; error: any };
 
-    if (result.error) throw new Error(result.error.message || "Link Failed");
+      if (result.error) throw new Error(result.error.message || "Link Failed");
 
-    const outputText = result.data?.plan || result.data?.response || `Blueprint ready for: "${userMessage}"`;
+      const outputText = result.data?.plan || result.data?.response || `Blueprint ready for: "${userMessage}"`;
 
-    if (userId) {
-      await supabase.from("missions").insert({
-        user_id: userId,
-        directive: userMessage,
-        status: "completed",
-        created_at: new Date().toISOString(),
+      if (userId) {
+        await supabase.from("missions").insert({
+          user_id: userId,
+          directive: userMessage,
+          status: "completed",
+          created_at: new Date().toISOString(),
+        });
+      }
+
+      setMessages(prev => {
+        const updated = [...prev];
+        if (updated[aiMsgIndex]) {
+          updated[aiMsgIndex] = { ...updated[aiMsgIndex], text: outputText };
+        }
+        return updated;
       });
+
+    } catch (error) {
+      console.error("Execution Error:", error);
+      setMessages(prev => {
+        const updated = [...prev];
+        if (updated[aiMsgIndex]) {
+          updated[aiMsgIndex] = { 
+            ...updated[aiMsgIndex], 
+            text: "SYSTEM ERROR: Link failed. Directive stored locally.",
+            isSimulation: true 
+          };
+        }
+        return updated;
+      });
+    } finally {
+      setIsPending(false);
+      currentAbortControllerRef.current = null;
+      setTimeout(() => {
+        textareaRef.current?.focus();
+        window.scrollTo(0, document.body.scrollHeight);
+      }, 250);
     }
+  }, [isPending, messages.length, selectedModel, userId, activeStyle, webSearchActive]);
 
-    setMessages(prev => {
-      const updated = [...prev];
-      if (updated[aiMsgIndex]) {
-        updated[aiMsgIndex] = { ...updated[aiMsgIndex], text: outputText };
-      }
-      return updated;
-    });
-
-  } catch (error) {
-    console.error("Execution Error:", error);
-    setMessages(prev => {
-      const updated = [...prev];
-      if (updated[aiMsgIndex]) {
-        updated[aiMsgIndex] = { 
-          ...updated[aiMsgIndex], 
-          text: "SYSTEM ERROR: Link failed. Directive stored locally.",
-          isSimulation: true 
-        };
-      }
-      return updated;
-    });
-  } finally {
-    setIsPending(false);
-    currentAbortControllerRef.current = null;
-    // NATIVE FEEL: Refocus and scroll
-    setTimeout(() => {
-      textareaRef.current?.focus();
-      window.scrollTo(0, document.body.scrollHeight);
-    }, 250); 
-  }
-  // IMPORTANT: Removed 'input' from the dependencies below!
-}, [isPending, messages.length, selectedModel, userId, activeStyle, webSearchActive]);
-  // --- START PART 2 BRIDGE ---
-
-
-const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage();
@@ -757,10 +675,11 @@ const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) 
 
   const handleSendPointerDown = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
     e.preventDefault();
-    if (input.trim() && !isPending) {
+    const currentText = textareaRef.current?.value || "";
+    if (currentText.trim() && !isPending) {
       handleSendMessage();
     }
-  }, [input, isPending, handleSendMessage]);
+  }, [isPending, handleSendMessage]);
 
   const handleSignOut = useCallback(async () => {
     setLogoutModalOpen(false);
@@ -775,9 +694,12 @@ const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) 
 
   const handleSkillClick = useCallback((label: string) => {
     const command = `/${label.toLowerCase().replace(/\s/g, "-")}`;
-    setInput((v) => (v ? `${v}\n${command}` : command));
+    if (textareaRef.current) {
+      const currentVal = textareaRef.current.value;
+      textareaRef.current.value = currentVal ? `${currentVal}\n${command}` : command;
+      textareaRef.current.focus();
+    }
     setPlusMenuOpen(false);
-    setTimeout(() => textareaRef.current?.focus(), 0);
   }, []);
 
   const handleConnectorToggle = useCallback((key: keyof ConnectorStatus, checked: boolean) => {
@@ -943,22 +865,16 @@ const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) 
       <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto py-6 space-y-3 px-4 pb-[120px]">
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full gap-6 text-center">
-            {/* GLOWING STATUS INDICATOR - TITAN V24 UPGRADE */}
             <div className="relative">
-              {/* Outer glow ring */}
               <div className="absolute inset-0 rounded-full animate-pulse" style={{ 
                 boxShadow: `0 0 30px rgba(6, 182, 212, 0.6)`,
                 background: 'radial-gradient(circle, rgba(6,182,212,0.2) 0%, transparent 70%)'
               }} />
-              
-              {/* Main ring */}
               <div className="w-16 h-16 rounded-full border-2 border-cyan-500/50 flex items-center justify-center relative bg-cyan-500/5">
-                {/* Animated ping dot */}
                 <div className="absolute inset-0 rounded-full animate-ping opacity-75" style={{ background: 'rgba(6, 182, 212, 0.3)' }} />
                 <div className="w-3 h-3 rounded-full bg-cyan-500 animate-pulse" style={{ boxShadow: '0 0 10px #06b6d4' }} />
               </div>
             </div>
-            
             <div className="space-y-2">
               <p className="text-sm font-mono tracking-wide text-white font-bold" style={{ 
                 textShadow: '0 0 15px rgba(6, 182, 212, 0.8)',
@@ -990,88 +906,6 @@ const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) 
           </span>
         </div>
       )}
-
-      {/* GUARANTEED CLICKABLE INPUT CONTAINER */}
-     <div 
-  ref={inputContainerRef}
-  className="relative flex items-end gap-2 p-2 bg-black/40 backdrop-blur-xl border border-white/10 rounded-2xl"
-  style={{ 
-    zIndex: 9999999, // Matches the textarea
-    pointerEvents: 'auto',
-    isolation: 'isolate' // Creates a new stacking context so nothing can "leak" through
-  }}
->
-        <div className="w-full max-w-2xl mx-auto px-4 pointer-events-auto">
-          <motion.div 
-            className="relative rounded-xl flex flex-col pointer-events-auto"
-            animate={laserShineAnimation}
-            style={{ 
-              border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.3)`,
-              background: "var(--nazai-card-bg)", 
-            }}
-          >
-           <textarea 
-  ref={textareaRef} 
-  defaultValue="" // MAGIC: This allows the browser to handle typing, NOT React
-  onKeyDown={handleKeyDown}
-  onFocus={handleTextareaFocus}
-  onBlur={handleTextareaBlur}
-  placeholder={activeTool ? `Mission for ${activeTool.tool.name}...` : dynamicPlaceholder}
-  rows={1}
-  className="w-full bg-transparent border-none outline-none resize-none font-mono text-base p-3"
-  autoComplete="off"
-  autoCorrect="off"
-  spellCheck={false}
-  data-gramm={false}
-  style={{ 
-    color: "var(--nazai-text-color)",
-    fontSize: '16px', 
-    height: "56px", 
-    minHeight: "56px",
-    maxHeight: "56px",
-    zIndex: 9999999,
-    position: 'relative',
-    pointerEvents: 'auto',
-    cursor: 'text',
-    WebkitUserSelect: 'text',
-    userSelect: 'text',
-    touchAction: 'manipulation',
-  }}
-/>
-            
-            <div className="flex items-center justify-between px-3 py-2 border-t border-white/5 pointer-events-auto">
-              <div className="flex gap-1 pointer-events-auto">
-                <motion.button 
-                  onClick={() => setPlusMenuOpen(true)} 
-                  className="w-7 h-7 rounded-full flex items-center justify-center relative z-10 transition-all pointer-events-auto"
-                  style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.05)` }}
-                  whileHover={{ scale: 1.1, background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.1)` }}
-                  whileTap={{ scale: 0.9 }}
-                >
-                  <Plus size={12} />
-                </motion.button>
-                <button 
-                  onClick={() => { setDrawerOpen(true); setPlusMenuOpen(false); }} 
-                  className="text-[9px] px-2 py-1 rounded font-mono transition-all hover:bg-white/5 pointer-events-auto" 
-                  style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.03)` }}
-                >
-                  {activeTool ? activeTool.tool.name : "Select Engine"}
-                </button>
-              </div>
-              <motion.button 
-                onPointerDown={handleSendPointerDown}
-                disabled={!input.trim() || isPending} 
-                className="w-7 h-7 rounded-full flex items-center justify-center transition-all pointer-events-auto"
-                style={{ background: (input.trim() && !isPending) ? currentTheme.color : "rgba(255,255,255,0.05)" }}
-                whileHover={(input.trim() && !isPending) ? { scale: 1.1 } : {}}
-                whileTap={(input.trim() && !isPending) ? { scale: 0.9 } : {}}
-              >
-                <Send size={11} style={{ color: (input.trim() && !isPending) ? "#020617" : "white/40" }} />
-              </motion.button>
-            </div>
-          </motion.div>
-        </div>
-      </div>
     </div>
   );
 
@@ -1146,6 +980,87 @@ const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) 
           <div className="flex gap-3"><span>DB:ONLINE</span><span>AI:READY</span></div>
         </footer>
       </main>
+
+      {/* FIXED PILL CONTAINER - Direct child of root div, stays fixed */}
+      <div 
+        ref={inputContainerRef}
+        className="fixed bottom-0 left-0 right-0 z-[99999]"
+        style={{ 
+          pointerEvents: 'auto',
+          isolation: 'isolate'
+        }}
+      >
+        <div className="w-full max-w-2xl mx-auto px-4 pb-4">
+          <motion.div 
+            className="relative rounded-xl flex flex-col"
+            animate={laserShineAnimation}
+            style={{ 
+              border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.3)`,
+              background: "var(--nazai-card-bg)", 
+            }}
+          >
+            <textarea 
+              ref={textareaRef} 
+              defaultValue=""
+              onKeyDown={handleKeyDown}
+              onFocus={handleTextareaFocus}
+              onBlur={handleTextareaBlur}
+              placeholder={activeTool ? `Mission for ${activeTool.tool.name}...` : "Architect a high-performance gym business..."}
+              rows={1}
+              className="w-full bg-transparent border-none outline-none resize-none font-mono text-base p-3"
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck={false}
+              data-gramm={false}
+              style={{ 
+                color: "var(--nazai-text-color)",
+                fontSize: '16px', 
+                height: "56px", 
+                minHeight: "56px",
+                maxHeight: "56px",
+                zIndex: 9999999,
+                position: 'relative',
+                pointerEvents: 'auto',
+                cursor: 'text',
+                WebkitUserSelect: 'text',
+                userSelect: 'text',
+                touchAction: 'manipulation',
+              }}
+            />
+            <div className="flex items-center justify-between px-3 py-2 border-t border-white/5">
+              <div className="flex gap-1">
+                <motion.button 
+                  onClick={() => setPlusMenuOpen(true)} 
+                  className="w-7 h-7 rounded-full flex items-center justify-center relative z-10 transition-all"
+                  style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.05)` }}
+                  whileHover={{ scale: 1.1, background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.1)` }}
+                  whileTap={{ scale: 0.9 }}
+                >
+                  <Plus size={12} />
+                </motion.button>
+                <button 
+                  onClick={() => { setDrawerOpen(true); setPlusMenuOpen(false); }} 
+                  className="text-[9px] px-2 py-1 rounded font-mono transition-all hover:bg-white/5" 
+                  style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.03)` }}
+                >
+                  {activeTool ? activeTool.tool.name : "Select Engine"}
+                </button>
+              </div>
+              <motion.button 
+                onPointerDown={handleSendPointerDown}
+                disabled={isPending} 
+                className="w-7 h-7 rounded-full flex items-center justify-center transition-all"
+                style={{ background: currentTheme.color + "CC" }
+                }
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
+              >
+                <Send size={11} style={{ color: "#020617" }} />
+              </motion.button>
+            </div>
+          </motion.div>
+        </div>
+      </div>
 
       {/* PLUS MENU MODAL */}
       <AnimatePresence>
@@ -1242,12 +1157,10 @@ const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) 
           pointer-events: auto !important;
         }
         
-        /* Only elements with this class are intentionally non-clickable */
         .pointer-events-none {
           pointer-events: none !important;
         }
         
-        /* NUCLEAR CSS - Force textarea to be unblockable */
         textarea {
           z-index: 999999 !important;
           position: relative !important;
@@ -1255,7 +1168,6 @@ const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) 
           -webkit-user-select: text !important;
         }
         
-        /* SURGICAL CLEANUP - Remove tap highlights and optimize touch */
         * {
           -webkit-tap-highlight-color: transparent;
         }
@@ -1265,26 +1177,23 @@ const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) 
           touch-action: manipulation;
         }
         
-        /* CRITICAL: html, body MUST BE RELATIVE - NOT FIXED */
         html, body {
-  height: 100% !important;
-  width: 100vw !important;
-  margin: 0 !important;
-  padding: 0 !important;
-  overflow-x: hidden !important;
-  overflow-y: auto !important; /* Allows the keyboard to scroll the view */
-  position: relative !important; /* REQUIRED for mobile keyboard */
-  -webkit-overflow-scrolling: touch;
-  touch-action: manipulation;
-}
+          height: 100% !important;
+          width: 100vw !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          overflow-x: hidden !important;
+          overflow-y: auto !important;
+          position: relative !important;
+          -webkit-overflow-scrolling: touch;
+          touch-action: manipulation;
+        }
         
-        /* Background cleanup - scanlines and radar sweep never block input */
         body::before, .scanlines, .radar-sweep {
           pointer-events: none !important;
           z-index: -1 !important;
         }
         
-        /* Shake animation for validation feedback */
         @keyframes shake {
           0%, 100% { transform: translateX(0); }
           10%, 30%, 50%, 70%, 90% { transform: translateX(-2px); }
@@ -1294,7 +1203,6 @@ const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) 
           animation: shake 0.3s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
         }
         
-        /* Prevent elastic bounce on all scrollable containers */
         .overflow-y-auto {
           -webkit-overflow-scrolling: touch;
           overscroll-behavior: contain;
