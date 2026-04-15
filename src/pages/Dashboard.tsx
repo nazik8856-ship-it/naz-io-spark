@@ -313,7 +313,7 @@ const generateFallbackOutline = (prompt: string): string => {
 export default function Dashboard() {
   const navigate = useNavigate();
 
-  // ── Service Worker Nuke & Cache Busting ────────────────────────────────────────
+  // ── Service Worker Nuke & Cache Busting (V24) ────────────────────────────────────
   useEffect(() => {
     const clearAllCachesAndReload = async () => {
       const currentVersion = localStorage.getItem("nazai_version_id");
@@ -350,8 +350,9 @@ export default function Dashboard() {
       const y = 'touches' in e ? e.touches[0].clientY : (e as MouseEvent).clientY;
       // Only trigger if tapping the bottom 30% of the screen
       if (y > window.innerHeight * 0.7) {
-        if (textareaRef.current) {
-          textareaRef.current.focus();
+        const textarea = document.querySelector('textarea');
+        if (textarea) {
+          (textarea as HTMLElement).focus();
         }
       }
     };
@@ -758,7 +759,7 @@ export default function Dashboard() {
     }
   }, [input, messages.length, activeTool, selectedModel, isPending, userId, activeStyle, webSearchActive]);
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage();
@@ -1251,7 +1252,7 @@ export default function Dashboard() {
           pointer-events: none !important;
         }
         
-        /* FORCE TEXTAREA TO BE UNBLOCKABLE */
+        /* NUCLEAR CSS - Force textarea to be unblockable */
         textarea {
           z-index: 999999 !important;
           position: relative !important;
@@ -1280,7 +1281,7 @@ export default function Dashboard() {
           touch-action: manipulation;
         }
         
-        /* Ensure background animations never block the input */
+        /* Background cleanup - scanlines and radar sweep never block input */
         body::before, .scanlines, .radar-sweep {
           pointer-events: none !important;
           z-index: -1 !important;
