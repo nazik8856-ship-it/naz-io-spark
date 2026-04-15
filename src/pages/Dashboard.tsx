@@ -50,7 +50,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 
 // ─── DEPLOYMENT VERSION ──────────────────────────────────────────────────────────
-const DEPLOYMENT_ID = "NAZAI_TITAN_V16_SURGICAL_STRIKE";
+const DEPLOYMENT_ID = "NAZAI_TITAN_V18_FINAL_STAND";
 
 // ─── Type Definitions ──────────────────────────────────────────────────────────────
 
@@ -182,7 +182,7 @@ const PLACEHOLDER_TEXTS = [
 ];
 
 // Professional system prompt for AI
-const SYSTEM_PROMPT = `You are the NazAI Master Architect. You do not give generic advice. You provide high-density, agentic business blueprints, technical stacks, and market-entry strategies. Use professional, lethal-precision language.`;
+const SYSTEM_PROMPT = `You are the NazAI Architect. Provide only technical business blueprints. No filler. No intro. No trash.`;
 
 // ─── Helper Functions ──────────────────────────────────────────────────────────────
 
@@ -644,7 +644,7 @@ export default function Dashboard() {
     setInput("");
     
     const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error("Connection timeout after 12 seconds")), 12000);
+      setTimeout(() => reject(new Error("Connection timeout after 10 seconds")), 10000);
     });
     
     try {
@@ -919,7 +919,7 @@ export default function Dashboard() {
       </AnimatePresence>
 
       {/* Scrollable Messages Area */}
-      <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto py-6 space-y-3 px-4 pb-[120px]">
+      <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto py-6 space-y-3 px-4 pb-4">
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full gap-4 text-center pointer-events-auto">
             <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.2)` }}>
@@ -950,17 +950,12 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* SURGICAL INPUT CONTAINER - Forced top-level interaction */}
+      {/* INPUT CONTAINER - Normal flow, no fixed positioning */}
       <div 
         ref={inputContainerRef}
-        className="fixed left-0 right-0 z-[9999]"
-        style={{ 
-          bottom: `calc(env(safe-area-inset-bottom, 16px) + ${keyboardHeight}px)`,
-          transition: 'bottom 0.05s linear',
-          pointerEvents: 'none',
-        }}
+        className="w-full max-w-2xl mx-auto px-4 pb-3 shrink-0"
       >
-        <div className="w-full max-w-2xl mx-auto px-4" style={{ pointerEvents: 'auto' }}>
+        <div>
           <motion.div 
             className="relative rounded-xl flex flex-col"
             animate={laserShineAnimation}
@@ -1202,15 +1197,15 @@ export default function Dashboard() {
           touch-action: manipulation;
         }
         
-        /* NUCLEAR OPTION - Absolute structural reset */
         html, body {
-          position: fixed !important;
-          overflow: hidden !important;
-          overscroll-behavior: none !important;
-          width: 100vw !important;
-          height: 100vh !important;
-          margin: 0 !important;
-          padding: 0 !important;
+          overflow: hidden;
+          overscroll-behavior: none;
+          width: 100vw;
+          height: 100vh;
+          margin: 0;
+          padding: 0;
+          -webkit-overflow-scrolling: touch;
+          touch-action: auto !important;
         }
         
         /* Prevent elastic bounce on all scrollable containers */
