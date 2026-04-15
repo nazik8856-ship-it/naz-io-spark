@@ -344,6 +344,46 @@ export default function Dashboard() {
     clearAllCachesAndReload();
   }, []);
 
+  // KEEP YOUR ORIGINAL CACHE PURGE
+useEffect(() => {
+  const clearAllCachesAndReload = async () => {
+    // ... your version check logic ...
+  };
+  clearAllCachesAndReload();
+}, []);
+
+// ADD THE TITAN V23 FOCUS INJECTION BELOW IT
+useEffect(() => {
+  const forceFocus = (e: TouchEvent | MouseEvent) => {
+    const y = 'touches' in e ? e.touches[0].clientY : (e as MouseEvent).clientY;
+    // Only trigger if tapping the bottom 30% of the screen
+    if (y > window.innerHeight * 0.7) {
+      const textarea = document.querySelector('textarea');
+      if (textarea) {
+        (textarea as HTMLElement).focus();
+      }
+    }
+  };
+
+  const killGhosts = () => {
+    // Physically disables any layers that might be blocking the input
+    const overlays = document.querySelectorAll('.scanlines, .radar-sweep, [class*="fixed"]');
+    overlays.forEach(el => {
+      if (!el.contains(document.querySelector('textarea'))) {
+        (el as HTMLElement).style.pointerEvents = 'none';
+      }
+    });
+  };
+
+  window.addEventListener('touchstart', forceFocus);
+  window.addEventListener('mousedown', forceFocus);
+  killGhosts();
+
+  return () => {
+    window.removeEventListener('touchstart', forceFocus);
+    window.removeEventListener('mousedown', forceFocus);
+  };
+}, []);
   // ── Typing Animation Effect ────────────────────────────────────────────────────
   const dynamicPlaceholder = useTypewriter(PLACEHOLDER_TEXTS, 4000, 40);
 
