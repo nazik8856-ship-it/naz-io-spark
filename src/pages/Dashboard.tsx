@@ -607,6 +607,20 @@ export default function Dashboard() {
   const handleSendMessage = useCallback(async () => {
     const trimmed = input.trim();
     
+    console.log("SENDING PROMPT:", trimmed);
+    
+    // Validation: reject empty input with visual shake
+    if (!trimmed) {
+      setErrorMessage("Neural Architect: Input cannot be empty.");
+      // Trigger visual shake on input container
+      if (inputContainerRef.current) {
+        inputContainerRef.current.style.animation = "none";
+        void inputContainerRef.current.offsetHeight; // force reflow
+        inputContainerRef.current.style.animation = "shake 0.4s ease";
+      }
+      return;
+    }
+    
     // Validation: minimum 3 words
     if (trimmed.split(/\s+/).length < 3) {
       setErrorMessage("Neural Architect: Please provide a more detailed blueprint request (minimum 3 words)");
@@ -635,13 +649,12 @@ export default function Dashboard() {
     
     try {
       const result = await Promise.race([
-        supabase.functions.invoke("generate-business-plan", {
+        supabase.functions.invoke("process-mission", {
           body: { 
-            prompt: trimmed, 
+            directive: trimmed, 
             model: selectedModel,
             style: activeStyle,
             webSearch: webSearchActive,
-            systemPrompt: SYSTEM_PROMPT,
           },
           signal: abortController.signal,
         }),
@@ -654,7 +667,7 @@ export default function Dashboard() {
         throw new Error(result.error.message || "Failed to generate blueprint");
       }
       
-      const outputText = result.data?.plan || result.data?.response || `[Neural Architect]\n\nBlueprint generated for: "${trimmed}"\n\nStrategic framework has been created.`;
+      const outputText = result.data?.solution || result.data?.plan || result.data?.response || `[Neural Architect]\n\nBlueprint generated for: "${trimmed}"\n\nStrategic framework has been created.`;
       
       if (userId) {
         await supabase.from("missions").insert({
@@ -975,7 +988,11 @@ export default function Dashboard() {
                 position: "relative",
                 zIndex: 9999,
                 pointerEvents: "auto",
-              }} 
+                WebkitAppearance: "none",
+                appearance: "none",
+                WebkitUserSelect: "text",
+                userSelect: "text",
+              }}
             />
             <div className="flex items-center justify-between px-3 py-2 border-t border-white/5">
               <div className="flex gap-1">
@@ -1234,6 +1251,21 @@ export default function Dashboard() {
         .animate-pulse { animation: pulse 2s ease-in-out infinite; }
         
         textarea::placeholder { color: rgba(255,255,255,0.2); }
+        
+        textarea {
+          -webkit-appearance: none !important;
+          appearance: none !important;
+          -webkit-user-select: text !important;
+          user-select: text !important;
+        }
+        
+        @keyframes shake {
+          0%, 100% { transform: translateX(0); }
+          20% { transform: translateX(-6px); }
+          40% { transform: translateX(6px); }
+          60% { transform: translateX(-4px); }
+          80% { transform: translateX(4px); }
+        }
         
         input[type="range"] {
           -webkit-appearance: none;
