@@ -50,7 +50,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 
 // ─── DEPLOYMENT VERSION ──────────────────────────────────────────────────────────
-const DEPLOYMENT_ID = "NAZAI_TITAN_V16_SURGICAL_STRIKE";
+const DEPLOYMENT_ID = "NAZAI_TITAN_V18_FINAL_STAND";
 
 // ─── Type Definitions ──────────────────────────────────────────────────────────────
 
@@ -182,7 +182,7 @@ const PLACEHOLDER_TEXTS = [
 ];
 
 // Professional system prompt for AI
-const SYSTEM_PROMPT = `You are the NazAI Master Architect. You do not give generic advice. You provide high-density, agentic business blueprints, technical stacks, and market-entry strategies. Use professional, lethal-precision language.`;
+const SYSTEM_PROMPT = `You are the NazAI Architect. Provide only technical business blueprints. No filler. No intro. No trash.`;
 
 // ─── Helper Functions ──────────────────────────────────────────────────────────────
 
@@ -644,7 +644,7 @@ export default function Dashboard() {
     setInput("");
     
     const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error("Connection timeout after 12 seconds")), 12000);
+      setTimeout(() => reject(new Error("Connection timeout after 10 seconds")), 10000);
     });
     
     try {
