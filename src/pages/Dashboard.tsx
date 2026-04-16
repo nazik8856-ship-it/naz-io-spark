@@ -136,9 +136,6 @@ const AI_CATEGORIES: Record<string, Category> = {
 
 const NAV_ITEMS = [
   { icon: Home, label: "Home" },
-  { icon: MessageSquare, label: "Workflows" },
-  { icon: History, label: "History" },
-  { icon: Layers, label: "Integrations" },
   { icon: Clock, label: "Recently" },
   { icon: Archive, label: "Archives" },
   { icon: Trash2, label: "Trash" },
@@ -147,9 +144,6 @@ const NAV_ITEMS = [
 
 const SECTION_THEMES: Record<string, Theme> = {
   Home: { gradient: "linear-gradient(135deg, #22c55e, #10b981)", glowRgba: "34,197,94", color: "#22c55e" },
-  Workflows: { gradient: "linear-gradient(135deg, #a855f7, #ec4899)", glowRgba: "168,85,247", color: "#a855f7" },
-  History: { gradient: "linear-gradient(135deg, #f59e0b, #d97706)", glowRgba: "245,158,11", color: "#f59e0b" },
-  Integrations: { gradient: "linear-gradient(135deg, #3b82f6, #06b6d4)", glowRgba: "59,130,246", color: "#3b82f6" },
   Recently: { gradient: "linear-gradient(135deg, #06b6d4, #3b82f6)", glowRgba: "6,182,212", color: "#06b6d4" },
   Archives: { gradient: "linear-gradient(135deg, #818cf8, #c084fc)", glowRgba: "129,140,248", color: "#818cf8" },
   Trash: { gradient: "linear-gradient(135deg, #ef4444, #f97316)", glowRgba: "239,68,68", color: "#ef4444" },
@@ -505,9 +499,7 @@ export default function Dashboard() {
     switch (activeNav) {
       case "Trash": return missions.filter((m) => m.status === "trashed");
       case "Archives": return missions.filter((m) => m.status === "archived");
-      case "Recently": return missions.filter((m) => m.status !== "trashed").slice(0, 10);
-      case "History": return missions.filter((m) => m.status === "completed");
-      case "Workflows": return missions.filter((m) => m.status === "pending" || m.status === "active");
+      case "Recently": return missions.filter((m) => m.status !== "trashed" && m.status !== "archived").slice(0, 10);
       default: return missions.filter((m) => m.status !== "trashed");
     }
   }, [activeNav, missions]);
