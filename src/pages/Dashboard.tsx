@@ -934,9 +934,25 @@ export default function Dashboard() {
         )}
         {messages.map((msg, i) => (
           <motion.div key={i} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-            <div className="max-w-[78%] px-3 py-2 text-xs" style={{ borderRadius: msg.role === "user" ? "12px 12px 2px 12px" : "12px 12px 12px 2px", background: msg.role === "user" ? `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.05)` : "var(--nazai-card-bg)", border: `1px solid var(--nazai-border-light)`, color: "var(--nazai-text-color)" }}>
-              {msg.text}
-            </div>
+            {msg.role === "user" ? (
+              <div className="max-w-[78%] px-3 py-2 text-xs font-mono" style={{ borderRadius: "12px 12px 2px 12px", background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.05)`, border: `1px solid var(--nazai-border-light)`, color: "var(--nazai-text-color)" }}>
+                {msg.text}
+              </div>
+            ) : (
+              <div className="max-w-[85%] rounded-xl overflow-hidden" style={{ background: '#0B1F3A', border: '1px solid rgba(255,255,255,0.1)' }}>
+                {/* Terminal Header */}
+                <div className="flex items-center gap-2 px-3 py-2" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(6,182,212,0.03)' }}>
+                  <Brain size={12} style={{ color: '#06b6d4' }} />
+                  <span className="text-[9px] font-mono font-bold tracking-wider" style={{ color: '#06b6d4', textShadow: '0 0 6px rgba(6,182,212,0.4)' }}>
+                    NEURAL ARCHITECT // MISSION_RESULT.LOG
+                  </span>
+                </div>
+                {/* Content */}
+                <div className="px-3 py-2.5">
+                  {formatAIResponse(msg.text)}
+                </div>
+              </div>
+            )}
           </motion.div>
         ))}
         <div ref={messagesEndRef} />
