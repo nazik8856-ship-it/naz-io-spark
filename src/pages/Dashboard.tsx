@@ -1114,8 +1114,9 @@ export default function Dashboard() {
         </footer>
       </main>
 
-      {/* FIXED PILL CONTAINER - Direct child of root div, stays fixed */}
-      <div 
+      {/* FIXED PILL CONTAINER - Only visible on Home */}
+      {activeNav === "Home" && !showSettings && <div 
+
         ref={inputContainerRef}
         className="fixed bottom-0 left-0 right-0 z-[99999]"
         style={{ 
