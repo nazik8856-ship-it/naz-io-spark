@@ -744,6 +744,41 @@ export default function Dashboard() {
     setConnectorStatus((prev) => ({ ...prev, [key]: checked }));
   }, []);
 
+  const handleRestoreMission = useCallback(async (mission: Mission) => {
+    if (!userId) return;
+    const { error } = await supabase
+      .from("missions")
+      .update({ status: "completed" })
+      .eq("id", mission.id)
+      .eq("user_id", userId);
+    if (!error) {
+      setMissions(prev => prev.map(m => m.id === mission.id ? { ...m, status: "completed" as const } : m));
+      // Restore prompt to input and navigate to Home
+      if (textareaRef.current) textareaRef.current.value = mission.directive || "";
+      setActiveNav("Home");
+      setShowSettings(false);
+      // Emerald toast
+      setErrorMessage(null);
+      const toastEl = document.createElement("div");
+      toastEl.textContent = "✓ Project Restored";
+      toastEl.style.cssText = "position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:100000;padding:8px 20px;border-radius:8px;font-size:12px;font-family:monospace;font-weight:bold;color:#020617;background:#50C878;box-shadow:0 0 20px rgba(80,200,120,0.5);transition:opacity 0.5s";
+      document.body.appendChild(toastEl);
+      setTimeout(() => { toastEl.style.opacity = "0"; setTimeout(() => toastEl.remove(), 500); }, 2500);
+    }
+  }, [userId]);
+
+  const handleDeleteMissionPermanently = useCallback(async (missionId: string) => {
+    if (!userId) return;
+    const { error } = await supabase
+      .from("missions")
+      .delete()
+      .eq("id", missionId)
+      .eq("user_id", userId);
+    if (!error) {
+      setMissions(prev => prev.filter(m => m.id !== missionId));
+    }
+  }, [userId]);
+
   // ─── Render Components ──────────────────────────────────────────────────────────
   
   const renderNavItem = useCallback((item: typeof NAV_ITEMS[number]) => {
