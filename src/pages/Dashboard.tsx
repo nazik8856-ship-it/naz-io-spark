@@ -570,8 +570,10 @@ export default function Dashboard() {
   }, [userId]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    }, 50);
+  }, [messages, isLoading]);
 
   useEffect(() => {
     if (errorMessage) {
