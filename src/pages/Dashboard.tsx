@@ -136,9 +136,6 @@ const AI_CATEGORIES: Record<string, Category> = {
 
 const NAV_ITEMS = [
   { icon: Home, label: "Home" },
-  { icon: MessageSquare, label: "Workflows" },
-  { icon: History, label: "History" },
-  { icon: Layers, label: "Integrations" },
   { icon: Clock, label: "Recently" },
   { icon: Archive, label: "Archives" },
   { icon: Trash2, label: "Trash" },
@@ -147,9 +144,6 @@ const NAV_ITEMS = [
 
 const SECTION_THEMES: Record<string, Theme> = {
   Home: { gradient: "linear-gradient(135deg, #22c55e, #10b981)", glowRgba: "34,197,94", color: "#22c55e" },
-  Workflows: { gradient: "linear-gradient(135deg, #a855f7, #ec4899)", glowRgba: "168,85,247", color: "#a855f7" },
-  History: { gradient: "linear-gradient(135deg, #f59e0b, #d97706)", glowRgba: "245,158,11", color: "#f59e0b" },
-  Integrations: { gradient: "linear-gradient(135deg, #3b82f6, #06b6d4)", glowRgba: "59,130,246", color: "#3b82f6" },
   Recently: { gradient: "linear-gradient(135deg, #06b6d4, #3b82f6)", glowRgba: "6,182,212", color: "#06b6d4" },
   Archives: { gradient: "linear-gradient(135deg, #818cf8, #c084fc)", glowRgba: "129,140,248", color: "#818cf8" },
   Trash: { gradient: "linear-gradient(135deg, #ef4444, #f97316)", glowRgba: "239,68,68", color: "#ef4444" },
@@ -505,9 +499,7 @@ export default function Dashboard() {
     switch (activeNav) {
       case "Trash": return missions.filter((m) => m.status === "trashed");
       case "Archives": return missions.filter((m) => m.status === "archived");
-      case "Recently": return missions.filter((m) => m.status !== "trashed").slice(0, 10);
-      case "History": return missions.filter((m) => m.status === "completed");
-      case "Workflows": return missions.filter((m) => m.status === "pending" || m.status === "active");
+      case "Recently": return missions.filter((m) => m.status !== "trashed" && m.status !== "archived").slice(0, 10);
       default: return missions.filter((m) => m.status !== "trashed");
     }
   }, [activeNav, missions]);
@@ -752,6 +744,41 @@ export default function Dashboard() {
     setConnectorStatus((prev) => ({ ...prev, [key]: checked }));
   }, []);
 
+  const handleRestoreMission = useCallback(async (mission: Mission) => {
+    if (!userId) return;
+    const { error } = await supabase
+      .from("missions")
+      .update({ status: "completed" })
+      .eq("id", mission.id)
+      .eq("user_id", userId);
+    if (!error) {
+      setMissions(prev => prev.map(m => m.id === mission.id ? { ...m, status: "completed" as const } : m));
+      // Restore prompt to input and navigate to Home
+      if (textareaRef.current) textareaRef.current.value = mission.directive || "";
+      setActiveNav("Home");
+      setShowSettings(false);
+      // Emerald toast
+      setErrorMessage(null);
+      const toastEl = document.createElement("div");
+      toastEl.textContent = "✓ Project Restored";
+      toastEl.style.cssText = "position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:100000;padding:8px 20px;border-radius:8px;font-size:12px;font-family:monospace;font-weight:bold;color:#020617;background:#50C878;box-shadow:0 0 20px rgba(80,200,120,0.5);transition:opacity 0.5s";
+      document.body.appendChild(toastEl);
+      setTimeout(() => { toastEl.style.opacity = "0"; setTimeout(() => toastEl.remove(), 500); }, 2500);
+    }
+  }, [userId]);
+
+  const handleDeleteMissionPermanently = useCallback(async (missionId: string) => {
+    if (!userId) return;
+    const { error } = await supabase
+      .from("missions")
+      .delete()
+      .eq("id", missionId)
+      .eq("user_id", userId);
+    if (!error) {
+      setMissions(prev => prev.filter(m => m.id !== missionId));
+    }
+  }, [userId]);
+
   // ─── Render Components ──────────────────────────────────────────────────────────
   
   const renderNavItem = useCallback((item: typeof NAV_ITEMS[number]) => {
@@ -971,7 +998,8 @@ export default function Dashboard() {
     </div>
   );
 
-  // Folder View
+  // Folder View with Restore/Delete actions
+  const isTrashOrArchive = activeNav === "Trash" || activeNav === "Archives";
   const FolderView = () => (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col w-full max-w-4xl flex-1 overflow-y-auto pt-4 pb-8 px-4">
       <div className="text-center mb-5">
@@ -983,7 +1011,50 @@ export default function Dashboard() {
           <div className="flex justify-center py-12"><div className="w-5 h-5 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.4)` }} /></div>
         ) : filteredMissions.length === 0 ? (
           <div className="text-center py-12"><p className="text-[11px] font-mono text-white/30">No blueprints found in {activeNav.toLowerCase()}</p></div>
-        ) : (filteredMissions.map(renderMissionItem))}
+        ) : (filteredMissions.map((mission, index) => (
+          <motion.div
+            key={mission.id}
+            variants={itemVariants}
+            whileHover={{ scale: 1.01, backgroundColor: "rgba(255,255,255,0.03)" }}
+            className="group flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer transition-all duration-200"
+            style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
+            onClick={() => isTrashOrArchive ? handleRestoreMission(mission) : undefined}
+          >
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.1)` }}>
+              <Zap size={14} style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.7)` }} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[13px] font-medium truncate" style={{ color: "var(--nazai-text-color)" }}>
+                {mission.directive?.slice(0, 80) || "Untitled Blueprint"}
+              </p>
+              <p className="text-[10px] font-mono mt-0.5 text-white/40">
+                {formatDistanceToNow(new Date(mission.created_at), { addSuffix: true })}
+              </p>
+            </div>
+            {isTrashOrArchive ? (
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleRestoreMission(mission); }}
+                  className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-emerald-500/10 transition-all"
+                  title="Restore"
+                >
+                  <RotateCcw size={13} className="text-emerald-400" />
+                </button>
+                {activeNav === "Trash" && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleDeleteMissionPermanently(mission.id); }}
+                    className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-500/10 transition-all"
+                    title="Delete Permanently"
+                  >
+                    <X size={13} className="text-red-400" />
+                  </button>
+                )}
+              </div>
+            ) : (
+              <ChevronRight size={14} className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-white/30" />
+            )}
+          </motion.div>
+        )))}
       </motion.div>
     </motion.div>
   );
@@ -1043,8 +1114,9 @@ export default function Dashboard() {
         </footer>
       </main>
 
-      {/* FIXED PILL CONTAINER - Direct child of root div, stays fixed */}
-      <div 
+      {/* FIXED PILL CONTAINER - Only visible on Home */}
+      {activeNav === "Home" && !showSettings && <div 
+
         ref={inputContainerRef}
         className="fixed bottom-0 left-0 right-0 z-[99999]"
         style={{ 
@@ -1122,7 +1194,7 @@ export default function Dashboard() {
             </div>
           </motion.div>
         </div>
-      </div>
+      </div>}
 
       {/* PLUS MENU MODAL */}
       <AnimatePresence>
