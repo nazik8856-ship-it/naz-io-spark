@@ -998,7 +998,8 @@ export default function Dashboard() {
     </div>
   );
 
-  // Folder View
+  // Folder View with Restore/Delete actions
+  const isTrashOrArchive = activeNav === "Trash" || activeNav === "Archives";
   const FolderView = () => (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col w-full max-w-4xl flex-1 overflow-y-auto pt-4 pb-8 px-4">
       <div className="text-center mb-5">
@@ -1010,7 +1011,50 @@ export default function Dashboard() {
           <div className="flex justify-center py-12"><div className="w-5 h-5 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.4)` }} /></div>
         ) : filteredMissions.length === 0 ? (
           <div className="text-center py-12"><p className="text-[11px] font-mono text-white/30">No blueprints found in {activeNav.toLowerCase()}</p></div>
-        ) : (filteredMissions.map(renderMissionItem))}
+        ) : (filteredMissions.map((mission, index) => (
+          <motion.div
+            key={mission.id}
+            variants={itemVariants}
+            whileHover={{ scale: 1.01, backgroundColor: "rgba(255,255,255,0.03)" }}
+            className="group flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer transition-all duration-200"
+            style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
+            onClick={() => isTrashOrArchive ? handleRestoreMission(mission) : undefined}
+          >
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.1)` }}>
+              <Zap size={14} style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.7)` }} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[13px] font-medium truncate" style={{ color: "var(--nazai-text-color)" }}>
+                {mission.directive?.slice(0, 80) || "Untitled Blueprint"}
+              </p>
+              <p className="text-[10px] font-mono mt-0.5 text-white/40">
+                {formatDistanceToNow(new Date(mission.created_at), { addSuffix: true })}
+              </p>
+            </div>
+            {isTrashOrArchive ? (
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleRestoreMission(mission); }}
+                  className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-emerald-500/10 transition-all"
+                  title="Restore"
+                >
+                  <RotateCcw size={13} className="text-emerald-400" />
+                </button>
+                {activeNav === "Trash" && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleDeleteMissionPermanently(mission.id); }}
+                    className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-500/10 transition-all"
+                    title="Delete Permanently"
+                  >
+                    <X size={13} className="text-red-400" />
+                  </button>
+                )}
+              </div>
+            ) : (
+              <ChevronRight size={14} className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-white/30" />
+            )}
+          </motion.div>
+        )))}
       </motion.div>
     </motion.div>
   );
