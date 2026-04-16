@@ -573,7 +573,7 @@ export default function Dashboard() {
     setTimeout(() => {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
     }, 50);
-  }, [messages, isLoading]);
+  }, [messages]);
 
   useEffect(() => {
     if (errorMessage) {
