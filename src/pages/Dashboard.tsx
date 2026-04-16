@@ -239,7 +239,7 @@ const containerVariants = {
 
 const itemVariants = {
   hidden: { opacity: 0, y: 20 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: "easeOut" } },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: "easeOut" as const } },
 };
 
 // Elegant laser shine animation
@@ -252,8 +252,52 @@ const laserShineAnimation = {
   transition: {
     duration: 3,
     repeat: Infinity,
-    ease: "easeInOut",
+    ease: "easeInOut" as const,
   },
+};
+
+// Format AI response text with styled sections
+const formatAIResponse = (text: string) => {
+  const lines = text.split('\n');
+  return lines.map((line, i) => {
+    // Match headers like [STRATEGY], [MARKET], etc.
+    const headerMatch = line.match(/^\[([A-Z_\s]+)\]/);
+    if (headerMatch) {
+      return (
+        <div key={i} className="mt-3 mb-1">
+          <span className="font-mono text-[11px] font-black tracking-wider" style={{ color: '#06b6d4', textShadow: '0 0 8px rgba(6,182,212,0.6)' }}>
+            [{headerMatch[1]}]
+          </span>
+          <span className="text-[11px] ml-1" style={{ color: 'rgba(255,255,255,0.8)' }}>
+            {line.slice(headerMatch[0].length)}
+          </span>
+        </div>
+      );
+    }
+    // Bullet points
+    if (line.trim().startsWith('- ') || line.trim().startsWith('• ')) {
+      return (
+        <div key={i} className="flex gap-2 ml-2 my-0.5">
+          <span style={{ color: '#06b6d4' }}>›</span>
+          <span className="text-[11px]" style={{ color: 'rgba(255,255,255,0.75)' }}>{line.trim().slice(2)}</span>
+        </div>
+      );
+    }
+    // Numbered items
+    const numMatch = line.trim().match(/^(\d+[\.\)]) /);
+    if (numMatch) {
+      return (
+        <div key={i} className="flex gap-2 ml-2 my-0.5">
+          <span className="font-mono text-[10px] font-bold" style={{ color: '#06b6d4' }}>{numMatch[1]}</span>
+          <span className="text-[11px]" style={{ color: 'rgba(255,255,255,0.75)' }}>{line.trim().slice(numMatch[0].length)}</span>
+        </div>
+      );
+    }
+    // Empty lines
+    if (!line.trim()) return <div key={i} className="h-2" />;
+    // Regular text
+    return <p key={i} className="text-[11px] my-0.5" style={{ color: 'rgba(255,255,255,0.75)' }}>{line}</p>;
+  });
 };
 
 // Generate fallback structural outline
