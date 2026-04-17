@@ -376,10 +376,10 @@ export default function Dashboard() {
     };
   }, []);
 
-  // ── Visual Viewport State for Mechanical Anchoring ─────────────────────────────
+ // ─── 0. VIEWPORT & MECHANICAL ANCHORING ───────────────────────────────────
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
-  // ── State ───────────────────────────────────────────────────────────────────────
+  // ─── 1. COMPLETE STATE BLOCK ────────────────────────────────────────────────
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [plusMenuOpen, setPlusMenuOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
@@ -391,11 +391,46 @@ export default function Dashboard() {
   const [webSearchActive, setWebSearchActive] = useState(false);
   const [activeStyle, setActiveStyle] = useState<Style>("Technical");
   const [styleDropdownOpen, setStyleDropdownOpen] = useState(false);
+  const [isPending, setIsPending] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [logoutModalOpen, setLogoutModalOpen] = useState(false);
+  const [missions, setMissions] = useState<Mission[]>([]);
+  const [missionsLoading, setMissionsLoading] = useState(true);
   const [connectorStatus, setConnectorStatus] = useState<ConnectorStatus>({
     supabase: true,
     vercel: false,
     github: false,
   });
+
+  // ─── 2. IDENTITY BRIDGE ───────────────────────────────────────────────────
+  useEffect(() => {
+    // Initial Recovery: Check for existing session on mount
+    const getInitialSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        setUserId(session.user.id);
+        setUserEmail(session.user.email ?? null);
+        console.log("TITAN: Session Recovered:", session.user.id);
+      }
+    };
+    getInitialSession();
+
+    // Real-time Bridge: Catch SIGN_UP, SIGN_IN, and SIGN_OUT events
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log("TITAN: Auth State Change Event:", event);
+      if (session?.user) {
+        setUserId(session.user.id);
+        setUserEmail(session.user.email ?? null);
+      } else {
+        setUserId(null);
+        setUserEmail(null);
+        setMissions([]); // Wipe state on logout for security
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []); // Intentional empty array for mount-only setup
+  // ─── END PASTE ──────────────────────────────────────────────────────────────
   const [isPending, setIsPending] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
