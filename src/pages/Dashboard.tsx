@@ -794,6 +794,57 @@ export default function Dashboard() {
     }
   }, [userId]);
 
+  // ── Lifecycle modal: open / confirm ─────────────────────────────────────────────
+  const openLifecycleModal = useCallback((mission: Mission) => {
+    setLifecycleTarget(mission);
+    setLifecycleChoice(null);
+  }, []);
+
+  const closeLifecycleModal = useCallback(() => {
+    setLifecycleTarget(null);
+    setLifecycleChoice(null);
+  }, []);
+
+  const confirmLifecycleAction = useCallback(async () => {
+    if (!lifecycleTarget || !lifecycleChoice || !userId) return;
+    const target = lifecycleTarget;
+    const action = lifecycleChoice;
+
+    if (action === "removed") {
+      const { error } = await supabase
+        .from("missions")
+        .delete()
+        .eq("id", target.id)
+        .eq("user_id", userId);
+      if (!error) setMissions(prev => prev.filter(m => m.id !== target.id));
+    } else {
+      const newStatus: MissionStatus = action; // "trashed" | "archived"
+      const { error } = await supabase
+        .from("missions")
+        .update({ status: newStatus })
+        .eq("id", target.id)
+        .eq("user_id", userId);
+      if (!error) {
+        setMissions(prev =>
+          prev.map(m => (m.id === target.id ? { ...m, status: newStatus } : m)),
+        );
+      }
+    }
+
+    // Cleanup: if user is currently viewing this mission on Home, navigate away
+    if (activeMissionId === target.id) {
+      setActiveMissionId(null);
+      setMessages([]);
+      if (textareaRef.current) textareaRef.current.value = "";
+      if (activeNav === "Home") {
+        setActiveNav("Recently");
+        setShowSettings(false);
+      }
+    }
+
+    closeLifecycleModal();
+  }, [lifecycleTarget, lifecycleChoice, userId, activeMissionId, activeNav, closeLifecycleModal]);
+
   // ─── Render Components ──────────────────────────────────────────────────────────
   
   const renderNavItem = useCallback((item: typeof NAV_ITEMS[number]) => {
