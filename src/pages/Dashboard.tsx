@@ -1343,6 +1343,88 @@ export default function Dashboard() {
         )}
       </AnimatePresence>
 
+      {/* Mission Lifecycle Modal */}
+      <AnimatePresence>
+        {lifecycleTarget && (
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={closeLifecycleModal}>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.92 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.92 }}
+              transition={springTransition}
+              onClick={(e) => e.stopPropagation()}
+              className="max-w-sm w-full rounded-xl p-5"
+              style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
+            >
+              <div className="mb-4">
+                <div className="text-[9px] font-mono tracking-[0.2em] text-white/40 mb-1">MISSION_LIFECYCLE</div>
+                <h3 className="text-sm font-bold font-mono" style={{ color: "var(--nazai-text-color)" }}>Manage Blueprint</h3>
+                <p className="text-[11px] text-white/50 mt-1 truncate font-mono">"{lifecycleTarget.directive?.slice(0, 60) || "Untitled"}"</p>
+              </div>
+
+              <div className="space-y-2 mb-5">
+                {([
+                  { id: "trashed", label: "Move to Trash", color: "#ef4444" },
+                  { id: "archived", label: "Move to Archives", color: "#818cf8" },
+                  { id: "removed", label: "Remove Entirely", color: "#dc2626" },
+                ] as const).map((opt) => {
+                  const selected = lifecycleChoice === opt.id;
+                  return (
+                    <label
+                      key={opt.id}
+                      className="flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-all"
+                      style={{
+                        background: selected ? `${opt.color}10` : "rgba(255,255,255,0.02)",
+                        border: `1px solid ${selected ? opt.color + "60" : "rgba(255,255,255,0.05)"}`,
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name="lifecycle"
+                        value={opt.id}
+                        checked={selected}
+                        onChange={() => setLifecycleChoice(opt.id)}
+                        className="sr-only"
+                      />
+                      <div
+                        className="w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0"
+                        style={{ borderColor: selected ? opt.color : "rgba(255,255,255,0.3)" }}
+                      >
+                        {selected && <div className="w-1.5 h-1.5 rounded-full" style={{ background: opt.color, boxShadow: `0 0 6px ${opt.color}` }} />}
+                      </div>
+                      <span className="text-xs font-mono" style={{ color: selected ? opt.color : "var(--nazai-text-color)" }}>
+                        {opt.label}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={closeLifecycleModal}
+                  className="flex-1 py-2 rounded-lg text-xs font-mono bg-white/5 border border-white/10 hover:bg-white/10 transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmLifecycleAction}
+                  disabled={!lifecycleChoice}
+                  className="flex-1 py-2 rounded-lg text-xs font-mono font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                  style={{
+                    background: lifecycleChoice ? `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.15)` : "rgba(255,255,255,0.05)",
+                    border: `1px solid ${lifecycleChoice ? auraProfile.glowPrimary + "60" : "rgba(255,255,255,0.1)"}`,
+                    color: lifecycleChoice ? auraProfile.glowPrimary : "rgba(255,255,255,0.4)",
+                  }}
+                >
+                  OK
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Logout Modal */}
       <AnimatePresence>
         {logoutModalOpen && (
