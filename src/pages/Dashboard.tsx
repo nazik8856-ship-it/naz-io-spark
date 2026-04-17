@@ -376,7 +376,7 @@ export default function Dashboard() {
     };
   }, []);
 
- // ─── 0. VIEWPORT & MECHANICAL ANCHORING ───────────────────────────────────
+// ─── 0. VIEWPORT & MECHANICAL ANCHORING ───────────────────────────────────
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   // ─── 1. COMPLETE STATE BLOCK ────────────────────────────────────────────────
