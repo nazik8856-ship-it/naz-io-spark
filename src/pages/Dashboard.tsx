@@ -374,12 +374,12 @@ export default function Dashboard() {
       window.removeEventListener('touchstart', forceFocus);
       window.removeEventListener('mousedown', forceFocus);
     };
-  }, []);
+  }, []); 
 
 // ─── 0. VIEWPORT & MECHANICAL ANCHORING ───────────────────────────────────
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
-  // ─── 1. COMPLETE STATE BLOCK ────────────────────────────────────────────────
+  // ─── 1. COMPLETE STATE BLOCK (NO DUPLICATES) ──────────────────────────────
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [plusMenuOpen, setPlusMenuOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
@@ -402,9 +402,19 @@ export default function Dashboard() {
     github: false,
   });
 
+  // Aura Design System State
+  const [auraProfile, setAuraProfile] = useState<AuraProfile>(loadAuraProfile);
+  const [showSettings, setShowSettings] = useState(false);
+
+  // Mission Lifecycle Modal State
+  const [lifecycleTarget, setLifecycleTarget] = useState<Mission | null>(null);
+  const [lifecycleChoice, setLifecycleChoice] = useState<LifecycleAction | null>(null);
+  const [activeMissionId, setActiveMissionId] = useState<string | null>(null);
+  const [projectsExpanded, setProjectsExpanded] = useState(true);
+
   // ─── 2. IDENTITY BRIDGE ───────────────────────────────────────────────────
   useEffect(() => {
-    // Initial Recovery: Check for existing session on mount
+    // Initial Recovery
     const getInitialSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
@@ -415,40 +425,23 @@ export default function Dashboard() {
     };
     getInitialSession();
 
-    // Real-time Bridge: Catch SIGN_UP, SIGN_IN, and SIGN_OUT events
+    // Real-time Bridge for Sign-Up/Sign-In
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      console.log("TITAN: Auth State Change Event:", event);
+      console.log("TITAN: Auth Event:", event);
       if (session?.user) {
         setUserId(session.user.id);
         setUserEmail(session.user.email ?? null);
       } else {
         setUserId(null);
         setUserEmail(null);
-        setMissions([]); // Wipe state on logout for security
+        setMissions([]); 
       }
     });
 
     return () => subscription.unsubscribe();
-  }, []); // Intentional empty array for mount-only setup
+  }, []);
   // ─── END PASTE ──────────────────────────────────────────────────────────────
-  const [isPending, setIsPending] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [logoutModalOpen, setLogoutModalOpen] = useState(false);
-  const [missions, setMissions] = useState<Mission[]>([]);
-  const [missionsLoading, setMissionsLoading] = useState(true);
-  
-  // Aura Design System State
-  const [auraProfile, setAuraProfile] = useState<AuraProfile>(loadAuraProfile);
-  const [showSettings, setShowSettings] = useState(false);
-
-  // Mission Lifecycle Modal State
-  const [lifecycleTarget, setLifecycleTarget] = useState<Mission | null>(null);
-  const [lifecycleChoice, setLifecycleChoice] = useState<LifecycleAction | null>(null);
-  // Track which mission is currently visible in the Home view (for cleanup-on-action)
-  const [activeMissionId, setActiveMissionId] = useState<string | null>(null);
-  // Open chat feed expand/collapse (Gems-style)
-  const [projectsExpanded, setProjectsExpanded] = useState(true);
-
+ 
   // ── Refs ────────────────────────────────────────────────────────────────────────
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
