@@ -521,6 +521,12 @@ export default function Dashboard() {
     }
   }, [activeNav, missions]);
 
+  // Open chat feed shown in the sidebar (excludes archived/trashed)
+  const openChatFeed = useMemo(
+    () => missions.filter((m) => m.status !== "trashed" && m.status !== "archived"),
+    [missions],
+  );
+
   // ── Effects ──────────────────────────────────────────────────────────────────────
   useEffect(() => {
     let isMounted = true;
