@@ -1237,6 +1237,29 @@ export default function Dashboard() {
             </span>
           </div>
 
+          {/* ─── NEW CHAT BUTTON (TITAN UPGRADE) ─── */}
+          <div className="px-4 pb-4">
+            <button
+              onClick={() => {
+                setMessages([]);
+                setActiveMissionId(null);
+                if (textareaRef.current) textareaRef.current.focus();
+                setDrawerOpen(false);
+              }}
+              className="flex items-center gap-3 w-full p-3 rounded-xl transition-all duration-300 group relative overflow-hidden border border-white/5 bg-white/[0.03] hover:bg-white/[0.06]"
+            >
+              {/* Subtle Glow Layer */}
+              <div className="absolute inset-0 bg-glow-primary opacity-0 group-hover:opacity-5 transition-opacity" />
+              
+              <div className="p-1.5 rounded-lg bg-white/5 group-hover:bg-glow-primary/20 transition-colors">
+                <Plus size={16} className="text-white/70 group-hover:text-glow-primary transition-colors" />
+              </div>
+              
+              <span className="text-[13px] font-semibold text-white/60 group-hover:text-white transition-colors">
+                New chat
+              </span>
+            </button>
+          </div>
           {/* Home (top nav) */}
           <div className="px-2 pb-2 shrink-0">
             {TOP_NAV_ITEMS.map((item) => {
