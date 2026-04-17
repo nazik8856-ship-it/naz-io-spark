@@ -1155,18 +1155,190 @@ export default function Dashboard() {
     <div className="flex h-screen w-screen overflow-hidden font-sans" style={{ background: "var(--nazai-bg-base)", color: "var(--nazai-text-color)" }}>
       <input ref={fileInputRef} type="file" multiple className="hidden" />
 
-      {/* Sidebar */}
-      <motion.aside animate={{ width: sidebarCollapsed ? 0 : 56 }} transition={{ duration: 0.2 }} className="flex flex-col items-center shrink-0 overflow-hidden z-20" style={{ borderRight: `1px solid var(--nazai-border-light)`, background: "var(--nazai-bg-base)" }}>
-        <div className="flex flex-col items-center w-14 py-4 h-full">
-          <div className="mb-6"><Zap size={18} style={{ color: borderColor }} /></div>
-          <nav className="flex flex-col gap-1 flex-1">{NAV_ITEMS.map(renderNavItem)}</nav>
-          <div className="flex flex-col items-center gap-2 mt-auto">
-            {userEmail && (
-              <div className="w-7 h-7 rounded-full flex items-center justify-center text-[9px] font-semibold overflow-hidden" style={{ background: getAvatarGradient(userEmail) }}>
-                {userEmail[0].toUpperCase()}
-              </div>
+      {/* Sidebar — Open Chat Feed Layout */}
+      <motion.aside
+        animate={{ width: sidebarCollapsed ? 0 : 260 }}
+        transition={{ duration: 0.25 }}
+        className="flex flex-col shrink-0 overflow-hidden z-20"
+        style={{
+          borderRight: `1px solid var(--nazai-border-light)`,
+          background: "#0B1F3A",
+        }}
+      >
+        <div className="flex flex-col w-[260px] h-full">
+          {/* Brand */}
+          <div className="flex items-center gap-2 px-4 pt-4 pb-3 shrink-0">
+            <Zap size={16} style={{ color: borderColor }} />
+            <span
+              className="text-[10px] font-mono font-black tracking-[0.2em]"
+              style={{ color: borderColor, textShadow: `0 0 8px ${borderColor}80` }}
+            >
+              NEURAL://
+            </span>
+          </div>
+
+          {/* Home (top nav) */}
+          <div className="px-2 pb-2 shrink-0">
+            {TOP_NAV_ITEMS.map((item) => {
+              const Icon = item.icon;
+              const isActive = activeNav === item.label && !showSettings && !activeMissionId;
+              const itemTheme = SECTION_THEMES[item.label];
+              return (
+                <button
+                  key={item.label}
+                  onClick={() => {
+                    setActiveMissionId(null);
+                    setMessages([]);
+                    handleNavClick(item.label);
+                  }}
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all hover:bg-white/[0.04]"
+                  style={{
+                    background: isActive ? `${itemTheme.color}15` : "transparent",
+                  }}
+                >
+                  <Icon
+                    size={15}
+                    style={{ color: isActive ? itemTheme.color : "rgba(255,255,255,0.5)" }}
+                  />
+                  <span
+                    className="text-[12px] font-medium"
+                    style={{ color: isActive ? itemTheme.color : "rgba(255,255,255,0.7)" }}
+                  >
+                    {item.label}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Projects collapsible header */}
+          <button
+            onClick={() => setProjectsExpanded((v) => !v)}
+            className="flex items-center justify-between px-4 py-2 mt-1 mb-1 shrink-0 hover:bg-white/[0.02] transition-all"
+          >
+            <span className="text-[9px] font-mono font-bold tracking-[0.25em] uppercase text-white/40">
+              Projects
+            </span>
+            <ChevronDown
+              size={12}
+              className="text-white/40 transition-transform"
+              style={{ transform: projectsExpanded ? "rotate(0deg)" : "rotate(-90deg)" }}
+            />
+          </button>
+
+          {/* Open Chat Feed */}
+          <AnimatePresence initial={false}>
+            {projectsExpanded && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="flex-1 min-h-0 overflow-hidden flex flex-col"
+              >
+                <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-2 space-y-0.5">
+                  {missionsLoading ? (
+                    <div className="flex justify-center py-6">
+                      <div
+                        className="w-3.5 h-3.5 rounded-full border-2 border-t-transparent animate-spin"
+                        style={{ borderColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.4)` }}
+                      />
+                    </div>
+                  ) : openChatFeed.length === 0 ? (
+                    <p className="text-[10px] font-mono text-white/25 px-3 py-4 text-center">
+                      No chats yet
+                    </p>
+                  ) : (
+                    openChatFeed.map((mission) => {
+                      const isActive = activeMissionId === mission.id;
+                      const title = mission.directive?.trim().slice(0, 40) || "Untitled";
+                      return (
+                        <div
+                          key={mission.id}
+                          onClick={() => handleLoadMission(mission)}
+                          className="group relative flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all hover:bg-white/[0.04]"
+                          style={{
+                            background: isActive ? "rgba(80,200,120,0.12)" : "transparent",
+                            boxShadow: isActive ? "inset 0 0 0 1px rgba(80,200,120,0.35), 0 0 12px rgba(80,200,120,0.15)" : "none",
+                          }}
+                        >
+                          <span
+                            className="text-[12px] truncate flex-1"
+                            style={{
+                              color: isActive ? "#50C878" : "rgba(255,255,255,0.75)",
+                              textShadow: isActive ? "0 0 6px rgba(80,200,120,0.4)" : "none",
+                            }}
+                          >
+                            {title}
+                          </span>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openLifecycleModal(mission);
+                            }}
+                            className="w-6 h-6 rounded-md flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-white/10 transition-all shrink-0"
+                            title="Manage"
+                          >
+                            <MoreHorizontal size={13} className="text-white/60" />
+                          </button>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </motion.div>
             )}
-            <button onClick={() => setLogoutModalOpen(true)} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-red-500/10 transition-all"><LogOut size={14} className="text-white/30 hover:text-red-400 transition-colors" /></button>
+          </AnimatePresence>
+
+          {/* Bottom Admin Stack: Archives / Trash / Settings + Sign Out */}
+          <div
+            className="px-2 pt-2 pb-3 shrink-0 space-y-0.5"
+            style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
+          >
+            {BOTTOM_NAV_ITEMS.map((item) => {
+              const Icon = item.icon;
+              const isActive =
+                (item.label === "Settings" && showSettings) ||
+                (item.label !== "Settings" && activeNav === item.label && !showSettings);
+              const itemTheme = SECTION_THEMES[item.label];
+              return (
+                <button
+                  key={item.label}
+                  onClick={() => handleNavClick(item.label)}
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all hover:bg-white/[0.04]"
+                  style={{
+                    background: isActive ? `${itemTheme.color}15` : "transparent",
+                  }}
+                >
+                  <Icon
+                    size={14}
+                    style={{ color: isActive ? itemTheme.color : "rgba(255,255,255,0.45)" }}
+                  />
+                  <span
+                    className="text-[11px] font-medium"
+                    style={{ color: isActive ? itemTheme.color : "rgba(255,255,255,0.6)" }}
+                  >
+                    {item.label}
+                  </span>
+                </button>
+              );
+            })}
+
+            <button
+              onClick={() => setLogoutModalOpen(true)}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all hover:bg-red-500/10 mt-1"
+            >
+              <LogOut size={14} className="text-white/40" />
+              <span className="text-[11px] font-medium text-white/60">Sign Out</span>
+              {userEmail && (
+                <div
+                  className="ml-auto w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-semibold overflow-hidden"
+                  style={{ background: getAvatarGradient(userEmail) }}
+                >
+                  {userEmail[0].toUpperCase()}
+                </div>
+              )}
+            </button>
           </div>
         </div>
       </motion.aside>
