@@ -70,14 +70,18 @@ type Category = {
   tools: ToolEntry[];
 };
 
+type MissionStatus = "pending" | "active" | "completed" | "recently" | "archived" | "trashed";
+
 type Mission = {
   id: string;
   user_id: string;
   directive: string;
-  status: "pending" | "active" | "completed" | "archived" | "trashed";
+  status: MissionStatus;
   created_at: string;
   updated_at: string;
 };
+
+type LifecycleAction = "trashed" | "archived" | "removed";
 
 type Theme = {
   gradient: string;
