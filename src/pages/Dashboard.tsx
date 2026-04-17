@@ -798,6 +798,18 @@ export default function Dashboard() {
     }
   }, [userId]);
 
+  // Load a mission into the Home view as the active chat
+  const handleLoadMission = useCallback((mission: Mission) => {
+    setActiveMissionId(mission.id);
+    setActiveNav("Home");
+    setShowSettings(false);
+    setMessages([
+      { role: "user", text: mission.directive || "" },
+    ]);
+    if (textareaRef.current) textareaRef.current.value = "";
+    setTimeout(() => textareaRef.current?.focus(), 50);
+  }, []);
+
   // ── Lifecycle modal: open / confirm ─────────────────────────────────────────────
   const openLifecycleModal = useCallback((mission: Mission) => {
     setLifecycleTarget(mission);
