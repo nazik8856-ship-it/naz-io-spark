@@ -733,7 +733,6 @@ export default function Dashboard() {
       }
     } catch (err: any) {
       console.error("VAULT SYNC ERROR:", err.message);
-      // We don't stop the AI, but we notify the console
     }
     // ─────────────────────────────────────────────────────────────────────────────
 
@@ -804,7 +803,7 @@ export default function Dashboard() {
     if (currentText.trim() && !isPending) {
       handleSendMessage();
     }
-}, [isPending, messages.length, selectedModel, userId, activeStyle, webSearchActive, activeMissionId]);
+  }, [isPending, handleSendMessage]);
 
   const handleSignOut = useCallback(async () => {
     setLogoutModalOpen(false);
