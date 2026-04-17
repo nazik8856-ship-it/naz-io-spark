@@ -804,7 +804,7 @@ export default function Dashboard() {
     if (currentText.trim() && !isPending) {
       handleSendMessage();
     }
-  }, [isPending, handleSendMessage]);
+}, [isPending, messages.length, selectedModel, userId, activeStyle, webSearchActive, activeMissionId]);
 
   const handleSignOut = useCallback(async () => {
     setLogoutModalOpen(false);
