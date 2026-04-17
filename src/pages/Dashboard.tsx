@@ -665,35 +665,77 @@ export default function Dashboard() {
     ]);
 
     // ─── THE "TITAN" MANUAL SAVE PROTOCOL ───────────────────────────────────────
+   const handleSendMessage = useCallback(async () => {
+    const currentText = textareaRef.current?.value || "";
+    const trimmed = currentText.trim();
+    
+    // 1. SYSTEM GUARD: EMPTY OR PENDING
+    if (isPending || trimmed.length === 0) {
+      if (trimmed.length === 0 && textareaRef.current) {
+        textareaRef.current.classList.add('animate-shake');
+        setTimeout(() => textareaRef.current?.classList.remove('animate-shake'), 500);
+      }
+      return;
+    }
+
+    // 2. IDENTITY GUARD: 403 PREVENTION
+    if (!userId) {
+      console.error("MISSION ABORTED: No User ID found. RLS will trigger 403.");
+      setErrorMessage("Please sign in to save your progress.");
+      return;
+    }
+
+    setIsPending(true);
+
+    if (currentAbortControllerRef.current) {
+      currentAbortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    currentAbortControllerRef.current = controller;
+    
+    const userMessage = trimmed;
+    const aiMsgIndex = messages.length + 1;
+    
+    if (textareaRef.current) textareaRef.current.value = "";
+    setErrorMessage(null);
+    setMessages(prev => [...prev, 
+      { role: 'user', text: userMessage },
+      { role: 'ai', text: "Neural Architect: Processing blueprint..." }
+    ]);
+
+    // ─── THE "TITAN" MANUAL SAVE PROTOCOL ───────────────────────────────────────
     let missionToUpdateId = activeMissionId;
 
-    if (userId) {
-      try {
-        if (missionToUpdateId) {
-          // Keep existing chat updated
-          await supabase.from("missions").update({
-            directive: userMessage,
-            updated_at: new Date().toISOString(),
-          }).eq("id", missionToUpdateId);
-        } else {
-          // Create NEW mission and sync Sidebar immediately
-          const { data: savedMission } = await supabase.from("missions").insert({
-            user_id: userId,
-            directive: userMessage,
-            status: "recently",
-            created_at: new Date().toISOString(),
-          }).select().single();
+    try {
+      if (missionToUpdateId) {
+        console.log("TITAN: Updating existing mission:", missionToUpdateId);
+        await supabase.from("missions").update({
+          directive: userMessage,
+          updated_at: new Date().toISOString(),
+        }).eq("id", missionToUpdateId).eq("user_id", userId);
+      } else {
+        console.log("TITAN: Vaulting new mission for:", userId);
+        const { data: savedMission, error: saveError } = await supabase.from("missions").insert({
+          user_id: userId,
+          directive: userMessage,
+          status: "recently",
+          created_at: new Date().toISOString(),
+        }).select().single();
 
-          if (savedMission) {
-            setMissions(prev => [savedMission as Mission, ...prev]);
-            setActiveMissionId(savedMission.id);
-            missionToUpdateId = savedMission.id;
-          }
+        if (saveError) throw saveError;
+
+        if (savedMission) {
+          console.log("TITAN: Vault Success. ID:", savedMission.id);
+          setMissions(prev => [savedMission as Mission, ...prev]);
+          setActiveMissionId(savedMission.id);
+          missionToUpdateId = savedMission.id;
         }
-      } catch (err) {
-        console.error("Vault Sync Error:", err);
       }
+    } catch (err: any) {
+      console.error("VAULT SYNC ERROR:", err.message);
+      // We don't stop the AI, but we notify the console
     }
+    // ─────────────────────────────────────────────────────────────────────────────
 
     const timeoutPromise = new Promise((_, reject) => {
       setTimeout(() => reject(new Error("Connection timeout after 12s")), 12000);
@@ -769,7 +811,6 @@ export default function Dashboard() {
     await supabase.auth.signOut();
     navigate("/");
   }, [navigate]);
-
   // ─── THE MANUAL SIDEBAR LIFECYCLE ───────────────────────────────────────────
   
   const handleUpdateMissionStatus = useCallback(async (missionId: string, newStatus: "recently" | "archived" | "trash") => {
