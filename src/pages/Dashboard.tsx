@@ -46,6 +46,7 @@ import {
   RotateCcw,
   Sliders,
   AlertCircle,
+  MoreHorizontal,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 
