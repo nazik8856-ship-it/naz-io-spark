@@ -402,6 +402,12 @@ export default function Dashboard() {
   const [auraProfile, setAuraProfile] = useState<AuraProfile>(loadAuraProfile);
   const [showSettings, setShowSettings] = useState(false);
 
+  // Mission Lifecycle Modal State
+  const [lifecycleTarget, setLifecycleTarget] = useState<Mission | null>(null);
+  const [lifecycleChoice, setLifecycleChoice] = useState<LifecycleAction | null>(null);
+  // Track which mission is currently visible in the Home view (for cleanup-on-action)
+  const [activeMissionId, setActiveMissionId] = useState<string | null>(null);
+
   // ── Refs ────────────────────────────────────────────────────────────────────────
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
