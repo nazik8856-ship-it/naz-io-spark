@@ -139,13 +139,17 @@ const AI_CATEGORIES: Record<string, Category> = {
   },
 };
 
-const NAV_ITEMS = [
+const TOP_NAV_ITEMS = [
   { icon: Home, label: "Home" },
-  { icon: Clock, label: "Recently" },
+] as const;
+
+const BOTTOM_NAV_ITEMS = [
   { icon: Archive, label: "Archives" },
   { icon: Trash2, label: "Trash" },
   { icon: Settings, label: "Settings" },
 ] as const;
+
+const NAV_ITEMS = [...TOP_NAV_ITEMS, ...BOTTOM_NAV_ITEMS] as const;
 
 const SECTION_THEMES: Record<string, Theme> = {
   Home: { gradient: "linear-gradient(135deg, #22c55e, #10b981)", glowRgba: "34,197,94", color: "#22c55e" },
