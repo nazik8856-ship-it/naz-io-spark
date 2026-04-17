@@ -633,39 +633,8 @@ export default function Dashboard() {
     setDrawerOpen(false);
   }, []);
 
-  // ─── MAIN MESSAGE HANDLER - NO input dependency! ───────────────────────────────
- const handleSendMessage = useCallback(async () => {
-    const currentText = textareaRef.current?.value || "";
-    const trimmed = currentText.trim();
-    
-    if (isPending || trimmed.length === 0) {
-      if (trimmed.length === 0 && textareaRef.current) {
-        textareaRef.current.classList.add('animate-shake');
-        setTimeout(() => textareaRef.current?.classList.remove('animate-shake'), 500);
-      }
-      return;
-    }
-
-    setIsPending(true);
-
-    if (currentAbortControllerRef.current) {
-      currentAbortControllerRef.current.abort();
-    }
-    const controller = new AbortController();
-    currentAbortControllerRef.current = controller;
-    
-    const userMessage = trimmed;
-    const aiMsgIndex = messages.length + 1;
-    
-    if (textareaRef.current) textareaRef.current.value = "";
-    setErrorMessage(null);
-    setMessages(prev => [...prev, 
-      { role: 'user', text: userMessage },
-      { role: 'ai', text: "Neural Architect: Processing blueprint..." }
-    ]);
-
-    // ─── THE "TITAN" MANUAL SAVE PROTOCOL ───────────────────────────────────────
-   const handleSendMessage = useCallback(async () => {
+ // ─── THE TITAN UNIFIED MESSAGE HANDLER ──────────────────────────────────────
+  const handleSendMessage = useCallback(async () => {
     const currentText = textareaRef.current?.value || "";
     const trimmed = currentText.trim();
     
@@ -680,7 +649,7 @@ export default function Dashboard() {
 
     // 2. IDENTITY GUARD: 403 PREVENTION
     if (!userId) {
-      console.error("MISSION ABORTED: No User ID found. RLS will trigger 403.");
+      console.error("MISSION ABORTED: No User ID found.");
       setErrorMessage("Please sign in to save your progress.");
       return;
     }
@@ -703,7 +672,7 @@ export default function Dashboard() {
       { role: 'ai', text: "Neural Architect: Processing blueprint..." }
     ]);
 
-    // ─── THE "TITAN" MANUAL SAVE PROTOCOL ───────────────────────────────────────
+    // ─── THE VAULT SAVE PROTOCOL ───────────────────────────────────────────────
     let missionToUpdateId = activeMissionId;
 
     try {
@@ -790,6 +759,7 @@ export default function Dashboard() {
     }
   }, [isPending, messages.length, selectedModel, userId, activeStyle, webSearchActive, activeMissionId]);
 
+  // ─── INPUT TRIGGERS ────────────────────────────────────────────────────────
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
