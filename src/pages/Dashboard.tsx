@@ -314,15 +314,19 @@ const generateFallbackOutline = (prompt: string): string => {
 export default function Dashboard() {
   const navigate = useNavigate();
 
-  // ── Service Worker Nuke & Cache Busting (V24) ────────────────────────────────────
+  // ─── THE SURGICAL NUKE (V24.1) ───────────────────────────────────────────
   useEffect(() => {
-    const clearAllCachesAndReload = async () => {
+    const clearLogicCachesAndReload = async () => {
       const currentVersion = localStorage.getItem("nazai_version_id");
       
       if (currentVersion !== DEPLOYMENT_ID) {
-        localStorage.clear();
+        console.log("TITAN: New version detected. Executing surgical cache purge...");
+
+        // 1. DO NOT use localStorage.clear() - We want to keep Aura Profiles.
+        // Instead, only remove specific logic-heavy flags if necessary.
         sessionStorage.clear();
         
+        // 2. Kill the Service Workers (The main cause of "Sticky" old versions)
         if ('serviceWorker' in navigator) {
           const registrations = await navigator.serviceWorker.getRegistrations();
           for (const registration of registrations) {
@@ -330,6 +334,7 @@ export default function Dashboard() {
           }
         }
         
+        // 3. Wipe the Assets Cache (Forces browser to download new JS/CSS)
         if ('caches' in window) {
           const cacheNames = await caches.keys();
           for (const cacheName of cacheNames) {
@@ -337,14 +342,16 @@ export default function Dashboard() {
           }
         }
         
+        // 4. Anchor the new version ID
         localStorage.setItem("nazai_version_id", DEPLOYMENT_ID);
-        window.location.replace(window.location.href);
+        
+        // 5. Hard reload from server
+        window.location.reload();
       }
     };
     
-    clearAllCachesAndReload();
+    clearLogicCachesAndReload();
   }, []);
-
   // ── FOCUS HIJACK: Forces input focus when tapping bottom 30% of screen ─────────
   useEffect(() => {
     const forceFocus = (e: TouchEvent | MouseEvent) => {
