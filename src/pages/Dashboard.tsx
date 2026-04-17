@@ -309,106 +309,10 @@ const generateFallbackOutline = (prompt: string): string => {
   return `[Neural Architect: Connection Delayed]\n\nBased on: "${words}...", the blueprint is being generated. Please check your connection or try again.\n\nPreliminary Structure:\n• Market Analysis\n• Operational Framework\n• Financial Architecture\n• Growth Strategy\n\nReconnect to receive the complete AI-powered strategic plan.`;
 };
 
-// ─── SPLASH SCREEN COMPONENT ─────────────────────────────────────────────────────
-// ─── NazAI Titan Splash Component ────────────────────────────────────────────────
-
-const NazAISplash = ({ isLoading }: { isLoading: boolean }) => {
-  const [scanComplete, setScanComplete] = useState(false);
-  const [showPulse, setShowPulse] = useState(false);
-
-  useEffect(() => {
-    if (!isLoading) return;
-    // Sync with the 2.5s scan duration
-    const timer = setTimeout(() => {
-      setShowPulse(true);
-      setTimeout(() => setScanComplete(true), 600); // Allow pulse to finish
-    }, 2500);
-    return () => clearTimeout(timer);
-  }, [isLoading]);
-
-  if (!isLoading && scanComplete) return null;
-
-  return (
-    <AnimatePresence>
-      <motion.div
-        className="fixed inset-0 z-[10000] flex items-center justify-center overflow-hidden bg-[#020617]"
-        initial={{ opacity: 1 }}
-        exit={{ opacity: 0, filter: "blur(20px)" }}
-        transition={{ duration: 0.8, ease: "circIn" }}
-      >
-        {/* THE SCANNING RAY (Line 396-407 Upgrade) */}
-        <motion.div
-          className="absolute left-0 right-0 z-[10002]"
-          initial={{ top: "-10%", height: "2px" }}
-          animate={{ top: "110%" }}
-          transition={{ duration: 2.5, ease: "linear" }}
-          style={{
-            background: "#fff",
-            boxShadow: `
-              0 0 10px #22c55e,
-              0 0 30px #22c55e,
-              0 0 60px rgba(34,197,94,0.8),
-              0 0 100px rgba(34,197,94,0.4)
-            `,
-          }}
-        />
-
-        {/* LOGO CONTAINER (Line 410-456 Upgrade) */}
-        <div className="relative z-10 flex flex-col items-center gap-6">
-          {/* Zap Icon with High-Intensity Pulse */}
-          <motion.div
-            animate={{
-              scale: showPulse ? [1, 1.4, 1] : 1,
-              filter: showPulse ? "brightness(2)" : "brightness(1)",
-            }}
-            transition={{ duration: 0.4, ease: "easeOut" }}
-          >
-            <Zap 
-              size={72} 
-              className="fill-[#22c55e] text-[#22c55e]" 
-              style={{ filter: "drop-shadow(0 0 15px rgba(34,197,94,0.5))" }}
-            />
-          </motion.div>
-
-          <div className="text-center overflow-hidden">
-            <motion.h1
-              className="text-5xl font-black italic uppercase font-mono tracking-[0.5em] text-white"
-              initial={{ opacity: 0, letterSpacing: "1em", filter: "blur(10px)" }}
-              animate={{ 
-                opacity: [0, 1, 0.4, 1], 
-                letterSpacing: "0.5em",
-                filter: "blur(0px)" 
-              }}
-              transition={{ duration: 1.2, times: [0, 0.4, 0.6, 1], ease: "circOut" }}
-            >
-              NAZAI
-            </motion.h1>
-            
-            <motion.p
-              className="mt-2 text-xs font-mono tracking-[0.4em] text-[#22c55e]/60"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 1, duration: 0.5 }}
-            >
-              NEURAL ARCHITECT // SYSTEM ACTIVE
-            </motion.p>
-          </div>
-        </div>
-
-        {/* Cinematic Grid Overlay */}
-        <div className="absolute inset-0 opacity-10 pointer-events-none bg-[linear-gradient(rgba(34,197,94,0.1)_1px,transparent_1px),linear-gradient(90deg,rgba(34,197,94,0.1)_1px,transparent_1px)] bg-[size:40px_40px]" />
-      </motion.div>
-    </AnimatePresence>
-  );
-};
 // ─── Component ────────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
   const navigate = useNavigate();
-
-  // ─── SPLASH SCREEN STATE ──────────────────────────────────────────────────────
-  const [isInitialLoading, setIsInitialLoading] = useState(true);
-  const [isDataReady, setIsDataReady] = useState(false);
 
   // ─── THE SURGICAL NUKE (V24.1) ───────────────────────────────────────────
   useEffect(() => {
@@ -448,16 +352,7 @@ export default function Dashboard() {
     
     clearLogicCachesAndReload();
   }, []);
-
-  // ─── SPLASH SCREEN TIMING ──────────────────────────────────────────────────────
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setIsDataReady(true);
-    }, 1800);
-    return () => clearTimeout(timer);
-  }, []);
-
-  // ─── FOCUS HIJACK: Forces input focus when tapping bottom 30% of screen ─────────
+  // ── FOCUS HIJACK: Forces input focus when tapping bottom 30% of screen ─────────
   useEffect(() => {
     const forceFocus = (e: TouchEvent | MouseEvent) => {
       const y = 'touches' in e ? e.touches[0].clientY : (e as MouseEvent).clientY;
@@ -523,16 +418,6 @@ export default function Dashboard() {
   const [lifecycleChoice, setLifecycleChoice] = useState<LifecycleAction | null>(null);
   const [activeMissionId, setActiveMissionId] = useState<string | null>(null);
   const [projectsExpanded, setProjectsExpanded] = useState(true);
-
-  // ─── SPLASH SCREEN EXIT CONDITION ──────────────────────────────────────────────
-  useEffect(() => {
-    if (isDataReady && missions !== undefined) {
-      const timer = setTimeout(() => {
-        setIsInitialLoading(false);
-      }, 500);
-      return () => clearTimeout(timer);
-    }
-  }, [isDataReady, missions]);
 
   // ─── 2. IDENTITY BRIDGE ───────────────────────────────────────────────────
   useEffect(() => {
@@ -1327,644 +1212,634 @@ export default function Dashboard() {
 
   // ─── Main Render ────────────────────────────────────────────────────────────────
   return (
-    <>
-      <NazAISplash isLoading={isInitialLoading} />
-      
-      <motion.div
-        className="flex h-screen w-screen overflow-hidden font-sans"
-        style={{ background: "var(--nazai-bg-base)", color: "var(--nazai-text-color)" }}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: isInitialLoading ? 0 : 1 }}
-        transition={{ duration: 0.8, ease: "easeInOut" }}
+    <div className="flex h-screen w-screen overflow-hidden font-sans" style={{ background: "var(--nazai-bg-base)", color: "var(--nazai-text-color)" }}>
+      <input ref={fileInputRef} type="file" multiple className="hidden" />
+
+      {/* Sidebar — Open Chat Feed Layout */}
+      <motion.aside
+        animate={{ width: sidebarCollapsed ? 0 : 260 }}
+        transition={{ duration: 0.25 }}
+        className="flex flex-col shrink-0 overflow-hidden z-20"
+        style={{
+          borderRight: `1px solid var(--nazai-border-light)`,
+          background: "#0B1F3A",
+        }}
       >
-        <input ref={fileInputRef} type="file" multiple className="hidden" />
-
-        {/* Sidebar — Open Chat Feed Layout */}
-        <motion.aside
-          animate={{ width: sidebarCollapsed ? 0 : 260 }}
-          transition={{ duration: 0.25 }}
-          className="flex flex-col shrink-0 overflow-hidden z-20"
-          style={{
-            borderRight: `1px solid var(--nazai-border-light)`,
-            background: "#0B1F3A",
-          }}
-        >
-          <div className="flex flex-col w-[260px] h-full">
-            {/* Brand */}
-            <div className="flex items-center gap-2 px-4 pt-4 pb-3 shrink-0">
-              <Zap size={16} style={{ color: borderColor }} />
-              <span
-                className="text-[10px] font-mono font-black tracking-[0.2em]"
-                style={{ color: borderColor, textShadow: `0 0 8px ${borderColor}80` }}
-              >
-                NEURAL://
-              </span>
-            </div>
-
-            {/* ─── NEW CHAT BUTTON (TITAN UPGRADE) ─── */}
-            <div className="px-4 pb-4">
-              <button
-                onClick={() => {
-                  setMessages([]);
-                  setActiveMissionId(null);
-                  if (textareaRef.current) textareaRef.current.focus();
-                  setDrawerOpen(false);
-                }}
-                className="flex items-center gap-3 w-full p-3 rounded-xl transition-all duration-300 group relative overflow-hidden border border-white/5 bg-white/[0.03] hover:bg-white/[0.06]"
-              >
-                {/* Subtle Glow Layer */}
-                <div className="absolute inset-0 bg-glow-primary opacity-0 group-hover:opacity-5 transition-opacity" />
-                
-                <div className="p-1.5 rounded-lg bg-white/5 group-hover:bg-glow-primary/20 transition-colors">
-                  <Plus size={16} className="text-white/70 group-hover:text-glow-primary transition-colors" />
-                </div>
-                
-                <span className="text-[13px] font-semibold text-white/60 group-hover:text-white transition-colors">
-                  New chat
-                </span>
-              </button>
-            </div>
-            {/* Home (top nav) */}
-            <div className="px-2 pb-2 shrink-0">
-              {TOP_NAV_ITEMS.map((item) => {
-                const Icon = item.icon;
-                const isActive = activeNav === item.label && !showSettings && !activeMissionId;
-                const itemTheme = SECTION_THEMES[item.label];
-                return (
-                  <button
-                    key={item.label}
-                    onClick={() => {
-                      setActiveMissionId(null);
-                      setMessages([]);
-                      handleNavClick(item.label);
-                    }}
-                    className="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all hover:bg-white/[0.04]"
-                    style={{
-                      background: isActive ? `${itemTheme.color}15` : "transparent",
-                    }}
-                  >
-                    <Icon
-                      size={15}
-                      style={{ color: isActive ? itemTheme.color : "rgba(255,255,255,0.5)" }}
-                    />
-                    <span
-                      className="text-[12px] font-medium"
-                      style={{ color: isActive ? itemTheme.color : "rgba(255,255,255,0.7)" }}
-                    >
-                      {item.label}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Projects collapsible header */}
-            <button
-              onClick={() => setProjectsExpanded((v) => !v)}
-              className="flex items-center justify-between px-4 py-2 mt-1 mb-1 shrink-0 hover:bg-white/[0.02] transition-all"
+        <div className="flex flex-col w-[260px] h-full">
+          {/* Brand */}
+          <div className="flex items-center gap-2 px-4 pt-4 pb-3 shrink-0">
+            <Zap size={16} style={{ color: borderColor }} />
+            <span
+              className="text-[10px] font-mono font-black tracking-[0.2em]"
+              style={{ color: borderColor, textShadow: `0 0 8px ${borderColor}80` }}
             >
-              <span className="text-[9px] font-mono font-bold tracking-[0.25em] uppercase text-white/40">
-                Projects
-              </span>
-              <ChevronDown
-                size={12}
-                className="text-white/40 transition-transform"
-                style={{ transform: projectsExpanded ? "rotate(0deg)" : "rotate(-90deg)" }}
-              />
-            </button>
+              NEURAL://
+            </span>
+          </div>
 
-            {/* Open Chat Feed */}
-            <AnimatePresence initial={false}>
-              {projectsExpanded && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: "auto", opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.2 }}
-                  className="flex-1 min-h-0 overflow-hidden flex flex-col"
+          {/* ─── NEW CHAT BUTTON (TITAN UPGRADE) ─── */}
+          <div className="px-4 pb-4">
+            <button
+              onClick={() => {
+                setMessages([]);
+                setActiveMissionId(null);
+                if (textareaRef.current) textareaRef.current.focus();
+                setDrawerOpen(false);
+              }}
+              className="flex items-center gap-3 w-full p-3 rounded-xl transition-all duration-300 group relative overflow-hidden border border-white/5 bg-white/[0.03] hover:bg-white/[0.06]"
+            >
+              {/* Subtle Glow Layer */}
+              <div className="absolute inset-0 bg-glow-primary opacity-0 group-hover:opacity-5 transition-opacity" />
+              
+              <div className="p-1.5 rounded-lg bg-white/5 group-hover:bg-glow-primary/20 transition-colors">
+                <Plus size={16} className="text-white/70 group-hover:text-glow-primary transition-colors" />
+              </div>
+              
+              <span className="text-[13px] font-semibold text-white/60 group-hover:text-white transition-colors">
+                New chat
+              </span>
+            </button>
+          </div>
+          {/* Home (top nav) */}
+          <div className="px-2 pb-2 shrink-0">
+            {TOP_NAV_ITEMS.map((item) => {
+              const Icon = item.icon;
+              const isActive = activeNav === item.label && !showSettings && !activeMissionId;
+              const itemTheme = SECTION_THEMES[item.label];
+              return (
+                <button
+                  key={item.label}
+                  onClick={() => {
+                    setActiveMissionId(null);
+                    setMessages([]);
+                    handleNavClick(item.label);
+                  }}
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all hover:bg-white/[0.04]"
+                  style={{
+                    background: isActive ? `${itemTheme.color}15` : "transparent",
+                  }}
                 >
-                  <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-2 space-y-0.5">
-                    {missionsLoading ? (
-                      <div className="flex justify-center py-6">
+                  <Icon
+                    size={15}
+                    style={{ color: isActive ? itemTheme.color : "rgba(255,255,255,0.5)" }}
+                  />
+                  <span
+                    className="text-[12px] font-medium"
+                    style={{ color: isActive ? itemTheme.color : "rgba(255,255,255,0.7)" }}
+                  >
+                    {item.label}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Projects collapsible header */}
+          <button
+            onClick={() => setProjectsExpanded((v) => !v)}
+            className="flex items-center justify-between px-4 py-2 mt-1 mb-1 shrink-0 hover:bg-white/[0.02] transition-all"
+          >
+            <span className="text-[9px] font-mono font-bold tracking-[0.25em] uppercase text-white/40">
+              Projects
+            </span>
+            <ChevronDown
+              size={12}
+              className="text-white/40 transition-transform"
+              style={{ transform: projectsExpanded ? "rotate(0deg)" : "rotate(-90deg)" }}
+            />
+          </button>
+
+          {/* Open Chat Feed */}
+          <AnimatePresence initial={false}>
+            {projectsExpanded && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="flex-1 min-h-0 overflow-hidden flex flex-col"
+              >
+                <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-2 space-y-0.5">
+                  {missionsLoading ? (
+                    <div className="flex justify-center py-6">
+                      <div
+                        className="w-3.5 h-3.5 rounded-full border-2 border-t-transparent animate-spin"
+                        style={{ borderColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.4)` }}
+                      />
+                    </div>
+                  ) : openChatFeed.length === 0 ? (
+                    <p className="text-[10px] font-mono text-white/25 px-3 py-4 text-center">
+                      No chats yet
+                    </p>
+                  ) : (
+                    openChatFeed.map((mission) => {
+                      const isActive = activeMissionId === mission.id;
+                      const title = mission.directive?.trim().slice(0, 40) || "Untitled";
+                      return (
                         <div
-                          className="w-3.5 h-3.5 rounded-full border-2 border-t-transparent animate-spin"
-                          style={{ borderColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.4)` }}
-                        />
-                      </div>
-                    ) : openChatFeed.length === 0 ? (
-                      <p className="text-[10px] font-mono text-white/25 px-3 py-4 text-center">
-                        No chats yet
-                      </p>
-                    ) : (
-                      openChatFeed.map((mission) => {
-                        const isActive = activeMissionId === mission.id;
-                        const title = mission.directive?.trim().slice(0, 40) || "Untitled";
-                        return (
-                          <div
-                            key={mission.id}
-                            onClick={() => handleLoadMission(mission)}
-                            className="group relative flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all hover:bg-white/[0.04]"
+                          key={mission.id}
+                          onClick={() => handleLoadMission(mission)}
+                          className="group relative flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all hover:bg-white/[0.04]"
+                          style={{
+                            background: isActive ? "rgba(80,200,120,0.12)" : "transparent",
+                            boxShadow: isActive ? "inset 0 0 0 1px rgba(80,200,120,0.35), 0 0 12px rgba(80,200,120,0.15)" : "none",
+                          }}
+                        >
+                          <span
+                            className="text-[12px] truncate flex-1"
                             style={{
-                              background: isActive ? "rgba(80,200,120,0.12)" : "transparent",
-                              boxShadow: isActive ? "inset 0 0 0 1px rgba(80,200,120,0.35), 0 0 12px rgba(80,200,120,0.15)" : "none",
+                              color: isActive ? "#50C878" : "rgba(255,255,255,0.75)",
+                              textShadow: isActive ? "0 0 6px rgba(80,200,120,0.4)" : "none",
                             }}
                           >
-                            <span
-                              className="text-[12px] truncate flex-1"
-                              style={{
-                                color: isActive ? "#50C878" : "rgba(255,255,255,0.75)",
-                                textShadow: isActive ? "0 0 6px rgba(80,200,120,0.4)" : "none",
-                              }}
-                            >
-                              {title}
-                            </span>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openLifecycleModal(mission);
-                              }}
-                              className="w-6 h-6 rounded-md flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-white/10 transition-all shrink-0"
-                              title="Manage"
-                            >
-                              <MoreHorizontal size={13} className="text-white/60" />
-                            </button>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+                            {title}
+                          </span>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openLifecycleModal(mission);
+                            }}
+                            className="w-6 h-6 rounded-md flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-white/10 transition-all shrink-0"
+                            title="Manage"
+                          >
+                            <MoreHorizontal size={13} className="text-white/60" />
+                          </button>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
-            {/* Bottom Admin Stack: Archives / Trash / Settings + Sign Out */}
-            <div
-              className="px-2 pt-2 pb-3 shrink-0 space-y-0.5"
-              style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
+          {/* Bottom Admin Stack: Archives / Trash / Settings + Sign Out */}
+          <div
+            className="px-2 pt-2 pb-3 shrink-0 space-y-0.5"
+            style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
+          >
+            {BOTTOM_NAV_ITEMS.map((item) => {
+              const Icon = item.icon;
+              const isActive =
+                (item.label === "Settings" && showSettings) ||
+                (item.label !== "Settings" && activeNav === item.label && !showSettings);
+              const itemTheme = SECTION_THEMES[item.label];
+              return (
+                <button
+                  key={item.label}
+                  onClick={() => handleNavClick(item.label)}
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all hover:bg-white/[0.04]"
+                  style={{
+                    background: isActive ? `${itemTheme.color}15` : "transparent",
+                  }}
+                >
+                  <Icon
+                    size={14}
+                    style={{ color: isActive ? itemTheme.color : "rgba(255,255,255,0.45)" }}
+                  />
+                  <span
+                    className="text-[11px] font-medium"
+                    style={{ color: isActive ? itemTheme.color : "rgba(255,255,255,0.6)" }}
+                  >
+                    {item.label}
+                  </span>
+                </button>
+              );
+            })}
+
+            <button
+              onClick={() => setLogoutModalOpen(true)}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all hover:bg-red-500/10 mt-1"
             >
-              {BOTTOM_NAV_ITEMS.map((item) => {
-                const Icon = item.icon;
-                const isActive =
-                  (item.label === "Settings" && showSettings) ||
-                  (item.label !== "Settings" && activeNav === item.label && !showSettings);
-                const itemTheme = SECTION_THEMES[item.label];
-                return (
-                  <button
-                    key={item.label}
-                    onClick={() => handleNavClick(item.label)}
-                    className="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all hover:bg-white/[0.04]"
-                    style={{
-                      background: isActive ? `${itemTheme.color}15` : "transparent",
-                    }}
-                  >
-                    <Icon
-                      size={14}
-                      style={{ color: isActive ? itemTheme.color : "rgba(255,255,255,0.45)" }}
-                    />
-                    <span
-                      className="text-[11px] font-medium"
-                      style={{ color: isActive ? itemTheme.color : "rgba(255,255,255,0.6)" }}
-                    >
-                      {item.label}
-                    </span>
-                  </button>
-                );
-              })}
-
-              <button
-                onClick={() => setLogoutModalOpen(true)}
-                className="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all hover:bg-red-500/10 mt-1"
-              >
-                <LogOut size={14} className="text-white/40" />
-                <span className="text-[11px] font-medium text-white/60">Sign Out</span>
-                {userEmail && (
-                  <div
-                    className="ml-auto w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-semibold overflow-hidden"
-                    style={{ background: getAvatarGradient(userEmail) }}
-                  >
-                    {userEmail[0].toUpperCase()}
-                  </div>
-                )}
-              </button>
-            </div>
+              <LogOut size={14} className="text-white/40" />
+              <span className="text-[11px] font-medium text-white/60">Sign Out</span>
+              {userEmail && (
+                <div
+                  className="ml-auto w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-semibold overflow-hidden"
+                  style={{ background: getAvatarGradient(userEmail) }}
+                >
+                  {userEmail[0].toUpperCase()}
+                </div>
+              )}
+            </button>
           </div>
-        </motion.aside>
+        </div>
+      </motion.aside>
 
-        {/* Main Content */}
-        <main className="flex flex-col flex-1 min-w-0 relative">
-          <header className="flex items-center justify-between px-4 py-2 shrink-0" style={{ borderBottom: `1px solid var(--nazai-border-light)`, background: auraProfile.isLightMode ? "rgba(255,255,255,0.8)" : "rgba(2,6,23,0.8)", backdropFilter: `blur(${auraProfile.glassBlur}px)` }}>
-            <div className="flex items-center gap-2">
-              <button onClick={() => setSidebarCollapsed(v => !v)} className="text-white/40 hover:text-white/60 transition-colors">{sidebarCollapsed ? <PanelLeft size={14} /> : <PanelLeftClose size={14} />}</button>
-              <span 
-                className="text-[10px] font-mono font-black tracking-tighter" 
-                style={{ 
-                  color: borderColor, 
-                  textShadow: `0 0 calc(var(--text-glow-intensity) * 15px) var(--glow-primary)`
-                }}
-              >
-                NEURAL://
-              </span>
-              <span className="text-[10px] font-mono font-bold" style={{ background: currentTheme.gradient, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>{activeNav.toUpperCase()}</span>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: borderColor }} />
-              <span className="text-[8px] font-mono tracking-wider text-white/30">SECURE_NODE</span>
-            </div>
-          </header>
-
-          <div className="flex-1 flex flex-col overflow-hidden relative">
-            <AnimatePresence mode="wait">
-              {showSettings ? <SettingsView key="settings" /> : activeNav === "Home" ? <HomeView key="home" /> : <FolderView key="folder" />}
-            </AnimatePresence>
-          </div>
-
-          <footer className="flex items-center justify-between px-4 py-1.5 shrink-0 text-[8px] font-mono tracking-wider text-white/30" style={{ borderTop: `1px solid var(--nazai-border-light)`, background: auraProfile.isLightMode ? "rgba(255,255,255,0.8)" : "rgba(2,6,23,0.8)" }}>
-            <span>SYSTEM_STABLE</span>
-            <div className="flex gap-3"><span>DB:ONLINE</span><span>AI:READY</span></div>
-          </footer>
-        </main>
-
-        {/* FIXED PILL CONTAINER - Only visible on Home */}
-        {activeNav === "Home" && !showSettings && <div 
-
-          ref={inputContainerRef}
-          className="fixed bottom-0 left-0 right-0 z-[99999]"
-          style={{ 
-            pointerEvents: 'auto',
-            isolation: 'isolate'
-          }}
-        >
-          <div className="w-full max-w-2xl mx-auto px-4 pb-4">
-            <motion.div 
-              className="relative rounded-xl flex flex-col"
-              animate={laserShineAnimation}
+      {/* Main Content */}
+      <main className="flex flex-col flex-1 min-w-0 relative">
+        <header className="flex items-center justify-between px-4 py-2 shrink-0" style={{ borderBottom: `1px solid var(--nazai-border-light)`, background: auraProfile.isLightMode ? "rgba(255,255,255,0.8)" : "rgba(2,6,23,0.8)", backdropFilter: `blur(${auraProfile.glassBlur}px)` }}>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setSidebarCollapsed(v => !v)} className="text-white/40 hover:text-white/60 transition-colors">{sidebarCollapsed ? <PanelLeft size={14} /> : <PanelLeftClose size={14} />}</button>
+            <span 
+              className="text-[10px] font-mono font-black tracking-tighter" 
               style={{ 
-                border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.3)`,
-                background: "var(--nazai-card-bg)", 
+                color: borderColor, 
+                textShadow: `0 0 calc(var(--text-glow-intensity) * 15px) var(--glow-primary)`
               }}
             >
-              <textarea 
-                ref={textareaRef} 
-                defaultValue=""
-                onKeyDown={handleKeyDown}
-                onFocus={handleTextareaFocus}
-                onBlur={handleTextareaBlur}
-                placeholder={activeTool ? `Mission for ${activeTool.tool.name}...` : "Architect a high-performance gym business..."}
-                rows={1}
-                className="w-full bg-transparent border-none outline-none resize-none font-mono text-base p-3"
-                autoComplete="off"
-                autoCorrect="off"
-                spellCheck={false}
-                data-gramm={false}
-                style={{ 
-                  color: "var(--nazai-text-color)",
-                  fontSize: '16px', 
-                  height: "56px", 
-                  minHeight: "56px",
-                  maxHeight: "56px",
-                  zIndex: 9999999,
-                  position: 'relative',
-                  pointerEvents: 'auto',
-                  cursor: 'text',
-                  WebkitUserSelect: 'text',
-                  userSelect: 'text',
-                  touchAction: 'manipulation',
-                }}
-              />
-              <div className="flex items-center justify-between px-3 py-2 border-t border-white/5">
-                <div className="flex gap-1">
-                  <motion.button 
-                    onClick={() => setPlusMenuOpen(true)} 
-                    className="w-7 h-7 rounded-full flex items-center justify-center relative z-10 transition-all"
-                    style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.05)` }}
-                    whileHover={{ scale: 1.1, background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.1)` }}
-                    whileTap={{ scale: 0.9 }}
-                  >
-                    <Plus size={12} />
-                  </motion.button>
-                  <button 
-                    onClick={() => { setDrawerOpen(true); setPlusMenuOpen(false); }} 
-                    className="text-[9px] px-2 py-1 rounded font-mono transition-all hover:bg-white/5" 
-                    style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.03)` }}
-                  >
-                    {activeTool ? activeTool.tool.name : "Select Engine"}
-                  </button>
-                </div>
+              NEURAL://
+            </span>
+            <span className="text-[10px] font-mono font-bold" style={{ background: currentTheme.gradient, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>{activeNav.toUpperCase()}</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: borderColor }} />
+            <span className="text-[8px] font-mono tracking-wider text-white/30">SECURE_NODE</span>
+          </div>
+        </header>
+
+        <div className="flex-1 flex flex-col overflow-hidden relative">
+          <AnimatePresence mode="wait">
+            {showSettings ? <SettingsView key="settings" /> : activeNav === "Home" ? <HomeView key="home" /> : <FolderView key="folder" />}
+          </AnimatePresence>
+        </div>
+
+        <footer className="flex items-center justify-between px-4 py-1.5 shrink-0 text-[8px] font-mono tracking-wider text-white/30" style={{ borderTop: `1px solid var(--nazai-border-light)`, background: auraProfile.isLightMode ? "rgba(255,255,255,0.8)" : "rgba(2,6,23,0.8)" }}>
+          <span>SYSTEM_STABLE</span>
+          <div className="flex gap-3"><span>DB:ONLINE</span><span>AI:READY</span></div>
+        </footer>
+      </main>
+
+      {/* FIXED PILL CONTAINER - Only visible on Home */}
+      {activeNav === "Home" && !showSettings && <div 
+
+        ref={inputContainerRef}
+        className="fixed bottom-0 left-0 right-0 z-[99999]"
+        style={{ 
+          pointerEvents: 'auto',
+          isolation: 'isolate'
+        }}
+      >
+        <div className="w-full max-w-2xl mx-auto px-4 pb-4">
+          <motion.div 
+            className="relative rounded-xl flex flex-col"
+            animate={laserShineAnimation}
+            style={{ 
+              border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.3)`,
+              background: "var(--nazai-card-bg)", 
+            }}
+          >
+            <textarea 
+              ref={textareaRef} 
+              defaultValue=""
+              onKeyDown={handleKeyDown}
+              onFocus={handleTextareaFocus}
+              onBlur={handleTextareaBlur}
+              placeholder={activeTool ? `Mission for ${activeTool.tool.name}...` : "Architect a high-performance gym business..."}
+              rows={1}
+              className="w-full bg-transparent border-none outline-none resize-none font-mono text-base p-3"
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck={false}
+              data-gramm={false}
+              style={{ 
+                color: "var(--nazai-text-color)",
+                fontSize: '16px', 
+                height: "56px", 
+                minHeight: "56px",
+                maxHeight: "56px",
+                zIndex: 9999999,
+                position: 'relative',
+                pointerEvents: 'auto',
+                cursor: 'text',
+                WebkitUserSelect: 'text',
+                userSelect: 'text',
+                touchAction: 'manipulation',
+              }}
+            />
+            <div className="flex items-center justify-between px-3 py-2 border-t border-white/5">
+              <div className="flex gap-1">
                 <motion.button 
-                  onPointerDown={handleSendPointerDown}
-                  disabled={isPending} 
-                  className="w-7 h-7 rounded-full flex items-center justify-center transition-all"
-                  style={{ background: currentTheme.color + "CC" }
-                  }
-                  whileHover={{ scale: 1.1 }}
+                  onClick={() => setPlusMenuOpen(true)} 
+                  className="w-7 h-7 rounded-full flex items-center justify-center relative z-10 transition-all"
+                  style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.05)` }}
+                  whileHover={{ scale: 1.1, background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.1)` }}
                   whileTap={{ scale: 0.9 }}
                 >
-                  <Send size={11} style={{ color: "#020617" }} />
+                  <Plus size={12} />
                 </motion.button>
+                <button 
+                  onClick={() => { setDrawerOpen(true); setPlusMenuOpen(false); }} 
+                  className="text-[9px] px-2 py-1 rounded font-mono transition-all hover:bg-white/5" 
+                  style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.03)` }}
+                >
+                  {activeTool ? activeTool.tool.name : "Select Engine"}
+                </button>
+              </div>
+              <motion.button 
+                onPointerDown={handleSendPointerDown}
+                disabled={isPending} 
+                className="w-7 h-7 rounded-full flex items-center justify-center transition-all"
+                style={{ background: currentTheme.color + "CC" }
+                }
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
+              >
+                <Send size={11} style={{ color: "#020617" }} />
+              </motion.button>
+            </div>
+          </motion.div>
+        </div>
+      </div>}
+
+      {/* PLUS MENU MODAL */}
+      <AnimatePresence>
+        {plusMenuOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setPlusMenuOpen(false)}
+              className="fixed inset-0 z-[998] bg-black/40 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, y: 20, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 20, scale: 0.95 }}
+              transition={springTransition}
+              className="fixed z-[999] bottom-24 left-1/2 -translate-x-1/2 w-[90vw] max-w-sm rounded-xl overflow-hidden"
+              style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
+            >
+              <div className="px-4 py-2 border-b border-white/10 flex justify-between items-center">
+                <span className="text-[10px] font-mono text-white/40">TOOLS & OPTIONS</span>
+                <button onClick={() => setPlusMenuOpen(false)} className="text-white/40 hover:text-white/80 transition-colors"><X size={14} /></button>
+              </div>
+              <div className="p-3 space-y-2">
+                <button onClick={handleFileUpload} className="flex items-center gap-3 w-full px-3 py-2 rounded-lg hover:bg-white/5 transition-all">
+                  <Paperclip size={14} style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.6)` }} />
+                  <div className="text-left"><div className="text-xs">Add Files / Photos</div><div className="text-[9px] text-white/30">Upload from device</div></div>
+                </button>
+                <div className="h-px bg-white/10 my-2" />
+                <div className="text-[9px] font-mono text-white/40 px-2">SKILLS</div>
+                {SKILLS.map(({ icon: Icon, label }) => (
+                  <button key={label} onClick={() => handleSkillClick(label)} className="flex items-center gap-3 w-full px-3 py-2 rounded-lg hover:bg-white/5 transition-all">
+                    <Icon size={14} style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.5)` }} />
+                    <span className="text-xs">{label}</span>
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* AI DRAWER MODAL */}
+      <AnimatePresence>
+        {drawerOpen && (
+          <>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setDrawerOpen(false)} className="fixed inset-0 z-[998] bg-black/40 backdrop-blur-sm" />
+            <motion.div initial={{ opacity: 0, y: 20, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 20, scale: 0.95 }} transition={springTransition} className="fixed z-[999] bottom-24 left-1/2 -translate-x-1/2 w-[90vw] max-w-md rounded-xl overflow-hidden" style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}>
+              <div className="px-4 py-2 border-b border-white/10 flex justify-between items-center">
+                <span className="text-[10px] font-mono text-white/40">SELECT AI ENGINE</span>
+                <button onClick={() => setDrawerOpen(false)} className="text-white/40 hover:text-white/80 transition-colors"><X size={14} /></button>
+              </div>
+              <div className="p-3 space-y-3">
+                {Object.entries(AI_CATEGORIES).map(([catKey, cat]) => (
+                  <div key={catKey}>
+                    <div className="text-[8px] font-mono mb-1" style={{ color: cat.color }}>{cat.label}</div>
+                    <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${cat.tools.length}, 1fr)` }}>
+                      {cat.tools.map(tool => (
+                        <button key={tool.id} onClick={() => handleSelectTool(tool.id)} className="p-2 rounded-lg text-left transition-all" style={{ background: selectedModel === tool.id ? `rgba(${cat.glowRgba},0.1)` : "rgba(255,255,255,0.02)", border: `1px solid ${selectedModel === tool.id ? cat.color : "rgba(255,255,255,0.05)"}` }}>
+                          <div className="flex items-center gap-1 mb-0.5"><tool.icon size={10} style={{ color: selectedModel === tool.id ? cat.color : "white/40" }} /><span className="text-[9px] font-semibold">{tool.name}</span></div>
+                          <div className="text-[8px] text-white/30">{tool.subtitle}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Mission Lifecycle Modal */}
+      <AnimatePresence>
+        {lifecycleTarget && (
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={closeLifecycleModal}>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.92 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.92 }}
+              transition={springTransition}
+              onClick={(e) => e.stopPropagation()}
+              className="max-w-sm w-full rounded-xl p-5"
+              style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
+            >
+              <div className="mb-4">
+                <div className="text-[9px] font-mono tracking-[0.2em] text-white/40 mb-1">MISSION_LIFECYCLE</div>
+                <h3 className="text-sm font-bold font-mono" style={{ color: "var(--nazai-text-color)" }}>Manage Blueprint</h3>
+                <p className="text-[11px] text-white/50 mt-1 truncate font-mono">"{lifecycleTarget.directive?.slice(0, 60) || "Untitled"}"</p>
+              </div>
+
+              <div className="space-y-2 mb-5">
+                {([
+                  { id: "trashed", label: "Move to Trash", color: "#ef4444" },
+                  { id: "archived", label: "Move to Archives", color: "#818cf8" },
+                  { id: "removed", label: "Remove Entirely", color: "#dc2626" },
+                ] as const).map((opt) => {
+                  const selected = lifecycleChoice === opt.id;
+                  return (
+                    <label
+                      key={opt.id}
+                      className="flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-all"
+                      style={{
+                        background: selected ? `${opt.color}10` : "rgba(255,255,255,0.02)",
+                        border: `1px solid ${selected ? opt.color + "60" : "rgba(255,255,255,0.05)"}`,
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name="lifecycle"
+                        value={opt.id}
+                        checked={selected}
+                        onChange={() => setLifecycleChoice(opt.id)}
+                        className="sr-only"
+                      />
+                      <div
+                        className="w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0"
+                        style={{ borderColor: selected ? opt.color : "rgba(255,255,255,0.3)" }}
+                      >
+                        {selected && <div className="w-1.5 h-1.5 rounded-full" style={{ background: opt.color, boxShadow: `0 0 6px ${opt.color}` }} />}
+                      </div>
+                      <span className="text-xs font-mono" style={{ color: selected ? opt.color : "var(--nazai-text-color)" }}>
+                        {opt.label}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={closeLifecycleModal}
+                  className="flex-1 py-2 rounded-lg text-xs font-mono bg-white/5 border border-white/10 hover:bg-white/10 transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmLifecycleAction}
+                  disabled={!lifecycleChoice}
+                  className="flex-1 py-2 rounded-lg text-xs font-mono font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                  style={{
+                    background: lifecycleChoice ? `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.15)` : "rgba(255,255,255,0.05)",
+                    border: `1px solid ${lifecycleChoice ? auraProfile.glowPrimary + "60" : "rgba(255,255,255,0.1)"}`,
+                    color: lifecycleChoice ? auraProfile.glowPrimary : "rgba(255,255,255,0.4)",
+                  }}
+                >
+                  OK
+                </button>
               </div>
             </motion.div>
           </div>
-        </div>}
+        )}
+      </AnimatePresence>
 
-        {/* PLUS MENU MODAL */}
-        <AnimatePresence>
-          {plusMenuOpen && (
-            <>
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                onClick={() => setPlusMenuOpen(false)}
-                className="fixed inset-0 z-[998] bg-black/40 backdrop-blur-sm"
-              />
-              <motion.div
-                initial={{ opacity: 0, y: 20, scale: 0.95 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: 20, scale: 0.95 }}
-                transition={springTransition}
-                className="fixed z-[999] bottom-24 left-1/2 -translate-x-1/2 w-[90vw] max-w-sm rounded-xl overflow-hidden"
-                style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
-              >
-                <div className="px-4 py-2 border-b border-white/10 flex justify-between items-center">
-                  <span className="text-[10px] font-mono text-white/40">TOOLS & OPTIONS</span>
-                  <button onClick={() => setPlusMenuOpen(false)} className="text-white/40 hover:text-white/80 transition-colors"><X size={14} /></button>
-                </div>
-                <div className="p-3 space-y-2">
-                  <button onClick={handleFileUpload} className="flex items-center gap-3 w-full px-3 py-2 rounded-lg hover:bg-white/5 transition-all">
-                    <Paperclip size={14} style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.6)` }} />
-                    <div className="text-left"><div className="text-xs">Add Files / Photos</div><div className="text-[9px] text-white/30">Upload from device</div></div>
-                  </button>
-                  <div className="h-px bg-white/10 my-2" />
-                  <div className="text-[9px] font-mono text-white/40 px-2">SKILLS</div>
-                  {SKILLS.map(({ icon: Icon, label }) => (
-                    <button key={label} onClick={() => handleSkillClick(label)} className="flex items-center gap-3 w-full px-3 py-2 rounded-lg hover:bg-white/5 transition-all">
-                      <Icon size={14} style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.5)` }} />
-                      <span className="text-xs">{label}</span>
-                    </button>
-                  ))}
-                </div>
-              </motion.div>
-            </>
-          )}
-        </AnimatePresence>
+      {/* Logout Modal */}
+      <AnimatePresence>
+        {logoutModalOpen && (
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="max-w-sm w-full rounded-xl p-6 text-center" style={{ background: "var(--nazai-card-bg)", border: "1px solid rgba(239,68,68,0.2)" }}>
+              <LogOut size={32} className="mx-auto mb-3 text-red-500" />
+              <h3 className="text-sm font-bold mb-1 font-mono">System Termination</h3>
+              <p className="text-xs text-white/50 mb-4">Are you sure you want to log out?</p>
+              <div className="flex gap-2">
+                <button onClick={() => setLogoutModalOpen(false)} className="flex-1 py-2 rounded-lg text-xs bg-white/5 border border-white/10 hover:bg-white/10 transition-all">Stay</button>
+                <button onClick={handleSignOut} className="flex-1 py-2 rounded-lg text-xs bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-all">Terminate</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
-        {/* AI DRAWER MODAL */}
-        <AnimatePresence>
-          {drawerOpen && (
-            <>
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setDrawerOpen(false)} className="fixed inset-0 z-[998] bg-black/40 backdrop-blur-sm" />
-              <motion.div initial={{ opacity: 0, y: 20, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 20, scale: 0.95 }} transition={springTransition} className="fixed z-[999] bottom-24 left-1/2 -translate-x-1/2 w-[90vw] max-w-md rounded-xl overflow-hidden" style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}>
-                <div className="px-4 py-2 border-b border-white/10 flex justify-between items-center">
-                  <span className="text-[10px] font-mono text-white/40">SELECT AI ENGINE</span>
-                  <button onClick={() => setDrawerOpen(false)} className="text-white/40 hover:text-white/80 transition-colors"><X size={14} /></button>
-                </div>
-                <div className="p-3 space-y-3">
-                  {Object.entries(AI_CATEGORIES).map(([catKey, cat]) => (
-                    <div key={catKey}>
-                      <div className="text-[8px] font-mono mb-1" style={{ color: cat.color }}>{cat.label}</div>
-                      <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${cat.tools.length}, 1fr)` }}>
-                        {cat.tools.map(tool => (
-                          <button key={tool.id} onClick={() => handleSelectTool(tool.id)} className="p-2 rounded-lg text-left transition-all" style={{ background: selectedModel === tool.id ? `rgba(${cat.glowRgba},0.1)` : "rgba(255,255,255,0.02)", border: `1px solid ${selectedModel === tool.id ? cat.color : "rgba(255,255,255,0.05)"}` }}>
-                            <div className="flex items-center gap-1 mb-0.5"><tool.icon size={10} style={{ color: selectedModel === tool.id ? cat.color : "white/40" }} /><span className="text-[9px] font-semibold">{tool.name}</span></div>
-                            <div className="text-[8px] text-white/30">{tool.subtitle}</div>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </motion.div>
-            </>
-          )}
-        </AnimatePresence>
-
-        {/* Mission Lifecycle Modal */}
-        <AnimatePresence>
-          {lifecycleTarget && (
-            <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={closeLifecycleModal}>
-              <motion.div
-                initial={{ opacity: 0, scale: 0.92 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.92 }}
-                transition={springTransition}
-                onClick={(e) => e.stopPropagation()}
-                className="max-w-sm w-full rounded-xl p-5"
-                style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
-              >
-                <div className="mb-4">
-                  <div className="text-[9px] font-mono tracking-[0.2em] text-white/40 mb-1">MISSION_LIFECYCLE</div>
-                  <h3 className="text-sm font-bold font-mono" style={{ color: "var(--nazai-text-color)" }}>Manage Blueprint</h3>
-                  <p className="text-[11px] text-white/50 mt-1 truncate font-mono">"{lifecycleTarget.directive?.slice(0, 60) || "Untitled"}"</p>
-                </div>
-
-                <div className="space-y-2 mb-5">
-                  {([
-                    { id: "trashed", label: "Move to Trash", color: "#ef4444" },
-                    { id: "archived", label: "Move to Archives", color: "#818cf8" },
-                    { id: "removed", label: "Remove Entirely", color: "#dc2626" },
-                  ] as const).map((opt) => {
-                    const selected = lifecycleChoice === opt.id;
-                    return (
-                      <label
-                        key={opt.id}
-                        className="flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-all"
-                        style={{
-                          background: selected ? `${opt.color}10` : "rgba(255,255,255,0.02)",
-                          border: `1px solid ${selected ? opt.color + "60" : "rgba(255,255,255,0.05)"}`,
-                        }}
-                      >
-                        <input
-                          type="radio"
-                          name="lifecycle"
-                          value={opt.id}
-                          checked={selected}
-                          onChange={() => setLifecycleChoice(opt.id)}
-                          className="sr-only"
-                        />
-                        <div
-                          className="w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0"
-                          style={{ borderColor: selected ? opt.color : "rgba(255,255,255,0.3)" }}
-                        >
-                          {selected && <div className="w-1.5 h-1.5 rounded-full" style={{ background: opt.color, boxShadow: `0 0 6px ${opt.color}` }} />}
-                        </div>
-                        <span className="text-xs font-mono" style={{ color: selected ? opt.color : "var(--nazai-text-color)" }}>
-                          {opt.label}
-                        </span>
-                      </label>
-                    );
-                  })}
-                </div>
-
-                <div className="flex gap-2">
-                  <button
-                    onClick={closeLifecycleModal}
-                    className="flex-1 py-2 rounded-lg text-xs font-mono bg-white/5 border border-white/10 hover:bg-white/10 transition-all"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={confirmLifecycleAction}
-                    disabled={!lifecycleChoice}
-                    className="flex-1 py-2 rounded-lg text-xs font-mono font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                    style={{
-                      background: lifecycleChoice ? `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.15)` : "rgba(255,255,255,0.05)",
-                      border: `1px solid ${lifecycleChoice ? auraProfile.glowPrimary + "60" : "rgba(255,255,255,0.1)"}`,
-                      color: lifecycleChoice ? auraProfile.glowPrimary : "rgba(255,255,255,0.4)",
-                    }}
-                  >
-                    OK
-                  </button>
-                </div>
-              </motion.div>
-            </div>
-          )}
-        </AnimatePresence>
-
-        {/* Logout Modal */}
-        <AnimatePresence>
-          {logoutModalOpen && (
-            <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-              <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="max-w-sm w-full rounded-xl p-6 text-center" style={{ background: "var(--nazai-card-bg)", border: "1px solid rgba(239,68,68,0.2)" }}>
-                <LogOut size={32} className="mx-auto mb-3 text-red-500" />
-                <h3 className="text-sm font-bold mb-1 font-mono">System Termination</h3>
-                <p className="text-xs text-white/50 mb-4">Are you sure you want to log out?</p>
-                <div className="flex gap-2">
-                  <button onClick={() => setLogoutModalOpen(false)} className="flex-1 py-2 rounded-lg text-xs bg-white/5 border border-white/10 hover:bg-white/10 transition-all">Stay</button>
-                  <button onClick={handleSignOut} className="flex-1 py-2 rounded-lg text-xs bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-all">Terminate</button>
-                </div>
-              </motion.div>
-            </div>
-          )}
-        </AnimatePresence>
-
-        <style>{`
-          /* FORCE EVERYTHING TO BE CLICKABLE */
-          * {
-            pointer-events: auto !important;
-          }
-          
-          .pointer-events-none {
-            pointer-events: none !important;
-          }
-          
-          textarea {
-            z-index: 999999 !important;
-            position: relative !important;
-            pointer-events: auto !important;
-            -webkit-user-select: text !important;
-          }
-          
-          * {
-            -webkit-tap-highlight-color: transparent;
-          }
-          
-          body {
-            cursor: default;
-            touch-action: manipulation;
-          }
-          
-          html, body {
-            height: 100% !important;
-            width: 100vw !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            overflow-x: hidden !important;
-            overflow-y: auto !important;
-            position: relative !important;
-            -webkit-overflow-scrolling: touch;
-            touch-action: manipulation;
-          }
-          
-          body::before, .scanlines, .radar-sweep {
-            pointer-events: none !important;
-            z-index: -1 !important;
-          }
-          
-          @keyframes shake {
-            0%, 100% { transform: translateX(0); }
-            10%, 30%, 50%, 70%, 90% { transform: translateX(-2px); }
-            20%, 40%, 60%, 80% { transform: translateX(2px); }
-          }
-          .animate-shake {
-            animation: shake 0.3s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
-          }
-          
-          .overflow-y-auto {
-            -webkit-overflow-scrolling: touch;
-            overscroll-behavior: contain;
-            touch-action: pan-y;
-          }
-          
-          @import url('https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,100..900;1,100..900&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap');
-          
-          :root {
-            --glow-primary: #22c55e;
-            --glow-primary-rgb: 34,197,94;
-            --glow-secondary: #a855f7;
-            --glow-secondary-rgb: 168,85,247;
-            --text-glow-intensity: 0.5;
-            --glass-blur: 16px;
-            --nazai-text-color: #e2e8f0;
-            --nazai-bg-base: #020617;
-            --nazai-border-light: rgba(255,255,255,0.05);
-            --nazai-card-bg: #0f172a;
-            --keyboard-height: 0px;
-          }
-          
-          * {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-          }
-          
-          .font-mono, .font-mono * {
-            font-family: 'JetBrains Mono', monospace;
-          }
-          
-          @keyframes pulse {
-            0%, 100% { opacity: 0.4; transform: scale(1); }
-            50% { opacity: 1; transform: scale(1.2); }
-          }
-          .animate-pulse { animation: pulse 2s ease-in-out infinite; }
-          
-          textarea::placeholder { color: rgba(255,255,255,0.2); }
-          
-          input[type="range"] {
-            -webkit-appearance: none;
-            background: transparent;
-          }
-          input[type="range"]::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            width: 14px;
-            height: 14px;
-            border-radius: 50%;
-            background: var(--glow-primary);
-            cursor: pointer;
-            box-shadow: 0 0 8px var(--glow-primary);
-            border: 2px solid rgba(255,255,255,0.5);
-          }
-          input[type="color"]::-webkit-color-swatch-wrapper {
-            padding: 0;
-          }
-          input[type="color"]::-webkit-color-swatch {
-            border: none;
-            border-radius: 8px;
-          }
-          
-          ::-webkit-scrollbar {
-            width: 4px;
-            height: 4px;
-          }
-          ::-webkit-scrollbar-track {
-            background: rgba(255,255,255,0.02);
-          }
-          ::-webkit-scrollbar-thumb {
-            background: rgba(255,255,255,0.1);
-            border-radius: 4px;
-          }
-          ::-webkit-scrollbar-thumb:hover {
-            background: rgba(255,255,255,0.2);
-          }
-        `}</style>
-      </motion.div>
-    </>
+      <style>{`
+        /* FORCE EVERYTHING TO BE CLICKABLE */
+        * {
+          pointer-events: auto !important;
+        }
+        
+        .pointer-events-none {
+          pointer-events: none !important;
+        }
+        
+        textarea {
+          z-index: 999999 !important;
+          position: relative !important;
+          pointer-events: auto !important;
+          -webkit-user-select: text !important;
+        }
+        
+        * {
+          -webkit-tap-highlight-color: transparent;
+        }
+        
+        body {
+          cursor: default;
+          touch-action: manipulation;
+        }
+        
+        html, body {
+          height: 100% !important;
+          width: 100vw !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          overflow-x: hidden !important;
+          overflow-y: auto !important;
+          position: relative !important;
+          -webkit-overflow-scrolling: touch;
+          touch-action: manipulation;
+        }
+        
+        body::before, .scanlines, .radar-sweep {
+          pointer-events: none !important;
+          z-index: -1 !important;
+        }
+        
+        @keyframes shake {
+          0%, 100% { transform: translateX(0); }
+          10%, 30%, 50%, 70%, 90% { transform: translateX(-2px); }
+          20%, 40%, 60%, 80% { transform: translateX(2px); }
+        }
+        .animate-shake {
+          animation: shake 0.3s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+        }
+        
+        .overflow-y-auto {
+          -webkit-overflow-scrolling: touch;
+          overscroll-behavior: contain;
+          touch-action: pan-y;
+        }
+        
+        @import url('https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,100..900;1,100..900&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap');
+        
+        :root {
+          --glow-primary: #22c55e;
+          --glow-primary-rgb: 34,197,94;
+          --glow-secondary: #a855f7;
+          --glow-secondary-rgb: 168,85,247;
+          --text-glow-intensity: 0.5;
+          --glass-blur: 16px;
+          --nazai-text-color: #e2e8f0;
+          --nazai-bg-base: #020617;
+          --nazai-border-light: rgba(255,255,255,0.05);
+          --nazai-card-bg: #0f172a;
+          --keyboard-height: 0px;
+        }
+        
+        * {
+          font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+        
+        .font-mono, .font-mono * {
+          font-family: 'JetBrains Mono', monospace;
+        }
+        
+        @keyframes pulse {
+          0%, 100% { opacity: 0.4; transform: scale(1); }
+          50% { opacity: 1; transform: scale(1.2); }
+        }
+        .animate-pulse { animation: pulse 2s ease-in-out infinite; }
+        
+        textarea::placeholder { color: rgba(255,255,255,0.2); }
+        
+        input[type="range"] {
+          -webkit-appearance: none;
+          background: transparent;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+          -webkit-appearance: none;
+          width: 14px;
+          height: 14px;
+          border-radius: 50%;
+          background: var(--glow-primary);
+          cursor: pointer;
+          box-shadow: 0 0 8px var(--glow-primary);
+          border: 2px solid rgba(255,255,255,0.5);
+        }
+        input[type="color"]::-webkit-color-swatch-wrapper {
+          padding: 0;
+        }
+        input[type="color"]::-webkit-color-swatch {
+          border: none;
+          border-radius: 8px;
+        }
+        
+        ::-webkit-scrollbar {
+          width: 4px;
+          height: 4px;
+        }
+        ::-webkit-scrollbar-track {
+          background: rgba(255,255,255,0.02);
+        }
+        ::-webkit-scrollbar-thumb {
+          background: rgba(255,255,255,0.1);
+          border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+          background: rgba(255,255,255,0.2);
+        }
+      `}</style>
+    </div>
   );
 }
