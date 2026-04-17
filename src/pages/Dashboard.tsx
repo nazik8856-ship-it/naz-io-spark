@@ -76,7 +76,7 @@ type Mission = {
   id: string;
   user_id: string;
   directive: string;
-  status: MissionStatus;
+  status: 'recently' | 'archived' | 'trash';
   created_at: string;
   updated_at: string;
 };
