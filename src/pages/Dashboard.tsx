@@ -676,12 +676,16 @@ export default function Dashboard() {
       const outputText = result.data?.plan || result.data?.response || `Blueprint ready for: "${userMessage}"`;
 
       if (userId) {
-        await supabase.from("missions").insert({
+        const { data: savedMission } = await supabase.from("missions").insert({
           user_id: userId,
           directive: userMessage,
-          status: "completed",
+          status: "recently",
           created_at: new Date().toISOString(),
-        });
+        }).select().single();
+        if (savedMission) {
+          setMissions(prev => [savedMission as Mission, ...prev]);
+          setActiveMissionId(savedMission.id);
+        }
       }
 
       setMessages(prev => {
