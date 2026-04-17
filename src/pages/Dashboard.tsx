@@ -1117,7 +1117,16 @@ export default function Dashboard() {
                 )}
               </div>
             ) : (
-              <ChevronRight size={14} className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-white/30" />
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  onClick={(e) => { e.stopPropagation(); openLifecycleModal(mission); }}
+                  className="w-7 h-7 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-white/10 transition-all"
+                  title="Manage"
+                >
+                  <MoreHorizontal size={14} className="text-white/60" />
+                </button>
+                <ChevronRight size={14} className="opacity-0 group-hover:opacity-100 transition-opacity text-white/30" />
+              </div>
             )}
           </motion.div>
         )))}
