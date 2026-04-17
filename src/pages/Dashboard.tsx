@@ -411,6 +411,8 @@ export default function Dashboard() {
   const [lifecycleChoice, setLifecycleChoice] = useState<LifecycleAction | null>(null);
   // Track which mission is currently visible in the Home view (for cleanup-on-action)
   const [activeMissionId, setActiveMissionId] = useState<string | null>(null);
+  // Open chat feed expand/collapse (Gems-style)
+  const [projectsExpanded, setProjectsExpanded] = useState(true);
 
   // ── Refs ────────────────────────────────────────────────────────────────────────
   const textareaRef = useRef<HTMLTextAreaElement>(null);
