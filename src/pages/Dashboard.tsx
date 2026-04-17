@@ -634,7 +634,7 @@ export default function Dashboard() {
   }, []);
 
   // ─── MAIN MESSAGE HANDLER - NO input dependency! ───────────────────────────────
-  const handleSendMessage = useCallback(async () => {
+ const handleSendMessage = useCallback(async () => {
     const currentText = textareaRef.current?.value || "";
     const trimmed = currentText.trim();
     
@@ -664,6 +664,37 @@ export default function Dashboard() {
       { role: 'ai', text: "Neural Architect: Processing blueprint..." }
     ]);
 
+    // ─── THE "TITAN" MANUAL SAVE PROTOCOL ───────────────────────────────────────
+    let missionToUpdateId = activeMissionId;
+
+    if (userId) {
+      try {
+        if (missionToUpdateId) {
+          // Keep existing chat updated
+          await supabase.from("missions").update({
+            directive: userMessage,
+            updated_at: new Date().toISOString(),
+          }).eq("id", missionToUpdateId);
+        } else {
+          // Create NEW mission and sync Sidebar immediately
+          const { data: savedMission } = await supabase.from("missions").insert({
+            user_id: userId,
+            directive: userMessage,
+            status: "recently",
+            created_at: new Date().toISOString(),
+          }).select().single();
+
+          if (savedMission) {
+            setMissions(prev => [savedMission as Mission, ...prev]);
+            setActiveMissionId(savedMission.id);
+            missionToUpdateId = savedMission.id;
+          }
+        }
+      } catch (err) {
+        console.error("Vault Sync Error:", err);
+      }
+    }
+
     const timeoutPromise = new Promise((_, reject) => {
       setTimeout(() => reject(new Error("Connection timeout after 12s")), 12000);
     });
@@ -686,19 +717,6 @@ export default function Dashboard() {
       if (result.error) throw new Error(result.error.message || "Link Failed");
 
       const outputText = result.data?.plan || result.data?.response || `Blueprint ready for: "${userMessage}"`;
-
-      if (userId) {
-        const { data: savedMission } = await supabase.from("missions").insert({
-          user_id: userId,
-          directive: userMessage,
-          status: "recently",
-          created_at: new Date().toISOString(),
-        }).select().single();
-        if (savedMission) {
-          setMissions(prev => [savedMission as Mission, ...prev]);
-          setActiveMissionId(savedMission.id);
-        }
-      }
 
       setMessages(prev => {
         const updated = [...prev];
@@ -729,7 +747,7 @@ export default function Dashboard() {
         window.scrollTo(0, document.body.scrollHeight);
       }, 250);
     }
-  }, [isPending, messages.length, selectedModel, userId, activeStyle, webSearchActive]);
+  }, [isPending, messages.length, selectedModel, userId, activeStyle, webSearchActive, activeMissionId]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -752,47 +770,40 @@ export default function Dashboard() {
     navigate("/");
   }, [navigate]);
 
-  const handleFileUpload = useCallback(() => {
-    fileInputRef.current?.click();
-    setPlusMenuOpen(false);
-  }, []);
-
-  const handleSkillClick = useCallback((label: string) => {
-    const command = `/${label.toLowerCase().replace(/\s/g, "-")}`;
-    if (textareaRef.current) {
-      const currentVal = textareaRef.current.value;
-      textareaRef.current.value = currentVal ? `${currentVal}\n${command}` : command;
-      textareaRef.current.focus();
-    }
-    setPlusMenuOpen(false);
-  }, []);
-
-  const handleConnectorToggle = useCallback((key: keyof ConnectorStatus, checked: boolean) => {
-    setConnectorStatus((prev) => ({ ...prev, [key]: checked }));
-  }, []);
-
-  const handleRestoreMission = useCallback(async (mission: Mission) => {
+  // ─── THE MANUAL SIDEBAR LIFECYCLE ───────────────────────────────────────────
+  
+  const handleUpdateMissionStatus = useCallback(async (missionId: string, newStatus: "recently" | "archived" | "trash") => {
     if (!userId) return;
     const { error } = await supabase
       .from("missions")
-      .update({ status: "completed" })
-      .eq("id", mission.id)
+      .update({ status: newStatus })
+      .eq("id", missionId)
       .eq("user_id", userId);
+      
     if (!error) {
-      setMissions(prev => prev.map(m => m.id === mission.id ? { ...m, status: "completed" as const } : m));
-      // Restore prompt to input and navigate to Home
-      if (textareaRef.current) textareaRef.current.value = mission.directive || "";
-      setActiveNav("Home");
-      setShowSettings(false);
-      // Emerald toast
-      setErrorMessage(null);
-      const toastEl = document.createElement("div");
-      toastEl.textContent = "✓ Project Restored";
-      toastEl.style.cssText = "position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:100000;padding:8px 20px;border-radius:8px;font-size:12px;font-family:monospace;font-weight:bold;color:#020617;background:#50C878;box-shadow:0 0 20px rgba(80,200,120,0.5);transition:opacity 0.5s";
-      document.body.appendChild(toastEl);
-      setTimeout(() => { toastEl.style.opacity = "0"; setTimeout(() => toastEl.remove(), 500); }, 2500);
+      setMissions(prev => prev.map(m => m.id === missionId ? { ...m, status: newStatus } : m));
+      
+      // If we move it to trash, we shouldn't have it active on the home screen
+      if (newStatus === "trash" && activeMissionId === missionId) {
+        setActiveMissionId(null);
+        setMessages([]);
+      }
     }
-  }, [userId]);
+  }, [userId, activeMissionId]);
+
+  const handleRestoreMission = useCallback(async (mission: Mission) => {
+    await handleUpdateMissionStatus(mission.id, "recently");
+    if (textareaRef.current) textareaRef.current.value = mission.directive || "";
+    setActiveNav("Home");
+    setShowSettings(false);
+    
+    // Emerald Toast Notification
+    const toastEl = document.createElement("div");
+    toastEl.textContent = "✓ Mission Restored to Feed";
+    toastEl.style.cssText = "position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:100;padding:8px 20px;border-radius:8px;font-size:12px;font-family:monospace;font-weight:bold;color:#020617;background:#50C878;box-shadow:0 0 20px rgba(80,200,120,0.5);";
+    document.body.appendChild(toastEl);
+    setTimeout(() => toastEl.remove(), 2500);
+  }, [handleUpdateMissionStatus]);
 
   const handleDeleteMissionPermanently = useCallback(async (missionId: string) => {
     if (!userId) return;
@@ -806,18 +817,14 @@ export default function Dashboard() {
     }
   }, [userId]);
 
-  // Load a mission into the Home view as the active chat
   const handleLoadMission = useCallback((mission: Mission) => {
     setActiveMissionId(mission.id);
     setActiveNav("Home");
     setShowSettings(false);
-    setMessages([
-      { role: "user", text: mission.directive || "" },
-    ]);
+    setMessages([{ role: "user", text: mission.directive || "" }]);
     if (textareaRef.current) textareaRef.current.value = "";
     setTimeout(() => textareaRef.current?.focus(), 50);
-  }, []);
-
+  }, []); 
   // ── Lifecycle modal: open / confirm ─────────────────────────────────────────────
   const openLifecycleModal = useCallback((mission: Mission) => {
     setLifecycleTarget(mission);
