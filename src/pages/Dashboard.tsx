@@ -47,11 +47,14 @@ import {
   Sliders,
   AlertCircle,
   MoreHorizontal,
+  Copy,
+  Share2,
+  RotateCw,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 
 // ─── DEPLOYMENT VERSION ──────────────────────────────────────────────────────────
-const DEPLOYMENT_ID = "NAZAI_TITAN_V24_GLOW";
+const DEPLOYMENT_ID = "NAZAI_TITAN_V25_ARCHITECT";
 
 // ─── Type Definitions ──────────────────────────────────────────────────────────────
 
@@ -75,7 +78,8 @@ type MissionStatus = "pending" | "active" | "completed" | "recently" | "archived
 type Mission = {
   id: string;
   user_id: string;
-  directive: string;
+  prompt: string;
+  response?: string;
   status: MissionStatus;
   created_at: string;
   updated_at: string;
@@ -191,6 +195,50 @@ const PLACEHOLDER_TEXTS = [
 // Professional system prompt for AI
 const SYSTEM_PROMPT = `You are The Neural Architect, a high-precision business blueprinting AI. Respond in a professional, architectural tone. Provide structured, actionable business plans. Focus on strategic frameworks, market analysis, operational excellence, and financial architecture. Use clear sections and professional language.`;
 
+// Dynamic card suggestions - PROFESSIONAL DEVELOPER LOGIC
+const getSuggestionsFromResponse = (response: string): string[] => {
+  const lowerResponse = response.toLowerCase();
+  const suggestions: string[] = [];
+  
+  if (lowerResponse.includes("code") || lowerResponse.includes("api") || lowerResponse.includes("architecture") || lowerResponse.includes("tech")) {
+    suggestions.push("Architecture Blueprint", "Edge-Case Debugging", "Performance Optimization");
+  } else if (lowerResponse.includes("business") || lowerResponse.includes("market") || lowerResponse.includes("strategy") || lowerResponse.includes("financial")) {
+    suggestions.push("Generate 12-Month Cashflow", "Identify Competitor Weaknesses", "GTM Strategy");
+  } else {
+    suggestions.push("Stress-Test Logic Gate", "Compliance Check", "Security Audit");
+  }
+  
+  // Always add a Titan suggestion
+  suggestions.push("Generate Technical Blueprint");
+  
+  return suggestions.slice(0, 4);
+};
+
+const getInitialCards = (missions: Mission[]): string[] => {
+  if (missions.length === 0) {
+    return ["Strategy Framework", "Financial Architecture", "Market Analysis", "Operational Excellence"];
+  }
+  
+  const recentPrompts = missions.slice(0, 3).map(m => m.prompt.toLowerCase());
+  const cards: string[] = [];
+  
+  if (recentPrompts.some(p => p.includes("saas") || p.includes("software") || p.includes("tech"))) {
+    cards.push("Optimize SaaS Scaling");
+  } else {
+    cards.push("Business Strategy");
+  }
+  
+  if (recentPrompts.some(p => p.includes("finance") || p.includes("revenue") || p.includes("cash"))) {
+    cards.push("Financial Projections");
+  } else {
+    cards.push("Financial Modeling");
+  }
+  
+  cards.push("Technical Blueprint", "Market Entry Strategy");
+  
+  return cards.slice(0, 4);
+};
+
 // ─── Helper Functions ──────────────────────────────────────────────────────────────
 
 const findToolById = (id: string | null): { tool: ToolEntry; category: Category } | null => {
@@ -267,7 +315,6 @@ const laserShineAnimation = {
 const formatAIResponse = (text: string) => {
   const lines = text.split("\n");
   return lines.map((line, i) => {
-    // Match headers like [STRATEGY], [MARKET], etc.
     const headerMatch = line.match(/^\[([A-Z_\s]+)\]/);
     if (headerMatch) {
       return (
@@ -284,7 +331,6 @@ const formatAIResponse = (text: string) => {
         </div>
       );
     }
-    // Bullet points
     if (line.trim().startsWith("- ") || line.trim().startsWith("• ")) {
       return (
         <div key={i} className="flex gap-2 ml-2 my-0.5">
@@ -295,7 +341,6 @@ const formatAIResponse = (text: string) => {
         </div>
       );
     }
-    // Numbered items
     const numMatch = line.trim().match(/^(\d+[\.\)]) /);
     if (numMatch) {
       return (
@@ -309,9 +354,7 @@ const formatAIResponse = (text: string) => {
         </div>
       );
     }
-    // Empty lines
     if (!line.trim()) return <div key={i} className="h-2" />;
-    // Regular text
     return (
       <p key={i} className="text-[11px] my-0.5" style={{ color: "rgba(255,255,255,0.75)" }}>
         {line}
@@ -338,12 +381,8 @@ export default function Dashboard() {
 
       if (currentVersion !== DEPLOYMENT_ID) {
         console.log("TITAN: New version detected. Executing surgical cache purge...");
-
-        // 1. DO NOT use localStorage.clear() - We want to keep Aura Profiles.
-        // Instead, only remove specific logic-heavy flags if necessary.
         sessionStorage.clear();
 
-        // 2. Kill the Service Workers (The main cause of "Sticky" old versions)
         if ("serviceWorker" in navigator) {
           const registrations = await navigator.serviceWorker.getRegistrations();
           for (const registration of registrations) {
@@ -351,7 +390,6 @@ export default function Dashboard() {
           }
         }
 
-        // 3. Wipe the Assets Cache (Forces browser to download new JS/CSS)
         if ("caches" in window) {
           const cacheNames = await caches.keys();
           for (const cacheName of cacheNames) {
@@ -359,17 +397,15 @@ export default function Dashboard() {
           }
         }
 
-        // 4. Anchor the new version ID
         localStorage.setItem("nazai_version_id", DEPLOYMENT_ID);
-
-        // 5. Hard reload from server
         window.location.reload();
       }
     };
 
     clearLogicCachesAndReload();
   }, []);
-  // ── FOCUS HIJACK: Forces input focus when tapping bottom 30% of screen ─────────
+  
+  // ─── FOCUS HIJACK: Forces input focus when tapping bottom 30% of screen ─────────
   useEffect(() => {
     const forceFocus = (e: TouchEvent | MouseEvent) => {
       const y = "touches" in e ? e.touches[0].clientY : (e as MouseEvent).clientY;
@@ -425,6 +461,11 @@ export default function Dashboard() {
     vercel: false,
     github: false,
   });
+  
+  // Checkpoint revert modal state
+  const [revertModalOpen, setRevertModalOpen] = useState(false);
+  const [revertTargetIndex, setRevertTargetIndex] = useState<number | null>(null);
+  const [revertDropdownOpen, setRevertDropdownOpen] = useState<number | null>(null);
 
   // Aura Design System State
   const [auraProfile, setAuraProfile] = useState<AuraProfile>(loadAuraProfile);
@@ -436,9 +477,12 @@ export default function Dashboard() {
   const [activeMissionId, setActiveMissionId] = useState<string | null>(null);
   const [projectsExpanded, setProjectsExpanded] = useState(true);
 
+  // Dynamic cards state
+  const [initialCards, setInitialCards] = useState<string[]>([]);
+  const [suggestionCards, setSuggestionCards] = useState<string[]>([]);
+
   // ─── 2. IDENTITY BRIDGE ───────────────────────────────────────────────────
   useEffect(() => {
-    // Initial Recovery
     const getInitialSession = async () => {
       const {
         data: { session },
@@ -451,7 +495,6 @@ export default function Dashboard() {
     };
     getInitialSession();
 
-    // Real-time Bridge for Sign-Up/Sign-In
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
@@ -468,8 +511,7 @@ export default function Dashboard() {
 
     return () => subscription.unsubscribe();
   }, []);
-  // ─── END PASTE ──────────────────────────────────────────────────────────────
-
+  
   // ── Refs ────────────────────────────────────────────────────────────────────────
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -587,6 +629,22 @@ export default function Dashboard() {
     [missions],
   );
 
+  // Update dynamic cards based on missions and messages
+  useEffect(() => {
+    if (missions.length > 0) {
+      setInitialCards(getInitialCards(missions));
+    } else {
+      setInitialCards(["Strategy Framework", "Financial Architecture", "Market Analysis", "Operational Excellence"]);
+    }
+  }, [missions]);
+
+  useEffect(() => {
+    if (messages.length > 0 && messages[messages.length - 1]?.role === "ai") {
+      const lastResponse = messages[messages.length - 1].text;
+      setSuggestionCards(getSuggestionsFromResponse(lastResponse));
+    }
+  }, [messages]);
+
   // ── Effects ──────────────────────────────────────────────────────────────────────
   useEffect(() => {
     let isMounted = true;
@@ -612,39 +670,47 @@ export default function Dashboard() {
     };
   }, []);
 
-  useEffect(() => {
+  // FIXED: fetchMissions with proper select fields including response
+  const fetchMissions = useCallback(async () => {
     if (!userId) {
       setMissions([]);
       setMissionsLoading(false);
       return;
     }
+
     let isMounted = true;
     const abortController = new AbortController();
-    abortControllerRef.current = abortController;
-    const fetchMissions = async () => {
+
+    try {
       setMissionsLoading(true);
-      try {
-        const { data, error } = await supabase
-          .from("missions")
-          .select("*")
-          .eq("user_id", userId)
-          .order("created_at", { ascending: false });
-        if (abortController.signal.aborted) return;
-        if (error) throw error;
-        if (isMounted && data) setMissions(data as Mission[]);
-      } catch (error) {
-        console.error("Failed to fetch missions:", error);
-        if (isMounted) setMissions([]);
-      } finally {
-        if (isMounted) setMissionsLoading(false);
+      const { data, error } = await supabase
+        .from("missions")
+        .select("id, created_at, prompt, response, status, user_id")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false });
+
+      if (abortController.signal.aborted) return;
+      if (error) throw error;
+
+      if (isMounted && data) {
+        setMissions(data as Mission[]);
       }
-    };
-    fetchMissions();
+    } catch (error) {
+      console.error("Failed to fetch missions:", error);
+      if (isMounted) setMissions([]);
+    } finally {
+      if (isMounted) setMissionsLoading(false);
+    }
+
     return () => {
       isMounted = false;
       abortController.abort();
     };
   }, [userId]);
+
+  useEffect(() => {
+    fetchMissions();
+  }, [fetchMissions]);
 
   useEffect(() => {
     setTimeout(() => {
@@ -695,12 +761,102 @@ export default function Dashboard() {
     setDrawerOpen(false);
   }, []);
 
+  // Copy message to clipboard
+  const handleCopyMessage = useCallback((text: string) => {
+    navigator.clipboard.writeText(text);
+    const toastEl = document.createElement("div");
+    toastEl.textContent = "✓ Copied to clipboard";
+    toastEl.style.cssText = "position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:10000;padding:8px 20px;border-radius:8px;font-size:12px;font-family:monospace;font-weight:bold;color:#020617;background:#50C878;box-shadow:0 0 20px rgba(80,200,120,0.5);";
+    document.body.appendChild(toastEl);
+    setTimeout(() => toastEl.remove(), 2000);
+  }, []);
+
+  // Regenerate message
+  const handleRegenerateMessage = useCallback(async (index: number) => {
+    const userMessageIndex = index - 1;
+    if (userMessageIndex >= 0 && messages[userMessageIndex]?.role === "user") {
+      const userPrompt = messages[userMessageIndex].text;
+      setMessages(prev => {
+        const newMessages = prev.slice(0, index);
+        newMessages.push({ role: "ai", text: "Neural Architect: Regenerating blueprint..." });
+        return newMessages;
+      });
+      
+      const controller = new AbortController();
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error("Connection timeout after 12s")), 12000);
+      });
+      
+      try {
+        const result = await Promise.race([
+          supabase.functions.invoke("generate-business-plan", {
+            body: {
+              prompt: userPrompt,
+              model: selectedModel,
+              style: activeStyle,
+              webSearch: webSearchActive,
+              systemPrompt: SYSTEM_PROMPT,
+            },
+            signal: controller.signal,
+          }),
+          timeoutPromise,
+        ]) as { data: any; error: any };
+        
+        if (result.error) throw new Error(result.error.message || "Link Failed");
+        const outputText = result.data?.plan || result.data?.response || `Blueprint ready for: "${userPrompt}"`;
+        
+        setMessages(prev => {
+          const updated = [...prev];
+          if (updated[index]) {
+            updated[index] = { ...updated[index], text: outputText };
+          }
+          return updated;
+        });
+      } catch (error) {
+        console.error("Regeneration error:", error);
+        setMessages(prev => {
+          const updated = [...prev];
+          if (updated[index]) {
+            updated[index] = { ...updated[index], text: "SYSTEM ERROR: Regeneration failed.", isSimulation: true };
+          }
+          return updated;
+        });
+      }
+    }
+  }, [messages, selectedModel, activeStyle, webSearchActive]);
+
+  // Share message
+  const handleShareMessage = useCallback((text: string) => {
+    if (navigator.share) {
+      navigator.share({
+        title: "Neural Architect Blueprint",
+        text: text,
+      }).catch(console.error);
+    } else {
+      handleCopyMessage(text);
+    }
+  }, [handleCopyMessage]);
+
+  // Revert to checkpoint
+  const openRevertModal = useCallback((index: number) => {
+    setRevertTargetIndex(index);
+    setRevertModalOpen(true);
+    setRevertDropdownOpen(null);
+  }, []);
+
+  const confirmRevert = useCallback(() => {
+    if (revertTargetIndex !== null) {
+      setMessages(prev => prev.slice(0, revertTargetIndex));
+      setRevertModalOpen(false);
+      setRevertTargetIndex(null);
+    }
+  }, [revertTargetIndex]);
+
   // ─── THE TITAN UNIFIED MESSAGE HANDLER ──────────────────────────────────────
-  const handleSendMessage = useCallback(async () => {
-    const currentText = textareaRef.current?.value || "";
+  const handleSendMessage = useCallback(async (customMessage?: string) => {
+    const currentText = customMessage ?? textareaRef.current?.value || "";
     const trimmed = currentText.trim();
 
-    // 1. SYSTEM GUARD: EMPTY OR PENDING
     if (isPending || trimmed.length === 0) {
       if (trimmed.length === 0 && textareaRef.current) {
         textareaRef.current.classList.add("animate-shake");
@@ -709,7 +865,6 @@ export default function Dashboard() {
       return;
     }
 
-    // 2. IDENTITY GUARD: 403 PREVENTION
     if (!userId) {
       console.error("MISSION ABORTED: No User ID found.");
       setErrorMessage("Please sign in to save your progress.");
@@ -727,7 +882,7 @@ export default function Dashboard() {
     const userMessage = trimmed;
     const aiMsgIndex = messages.length + 1;
 
-    if (textareaRef.current) textareaRef.current.value = "";
+    if (textareaRef.current && !customMessage) textareaRef.current.value = "";
     setErrorMessage(null);
     setMessages((prev) => [
       ...prev,
@@ -735,8 +890,8 @@ export default function Dashboard() {
       { role: "ai", text: "Neural Architect: Processing blueprint..." },
     ]);
 
-    // ─── THE VAULT SAVE PROTOCOL ───────────────────────────────────────────────
     let missionToUpdateId = activeMissionId;
+    let finalResponseText = "";
 
     try {
       if (missionToUpdateId) {
@@ -744,7 +899,7 @@ export default function Dashboard() {
         await supabase
           .from("missions")
           .update({
-            directive: userMessage,
+            prompt: userMessage,
             updated_at: new Date().toISOString(),
           })
           .eq("id", missionToUpdateId)
@@ -755,9 +910,10 @@ export default function Dashboard() {
           .from("missions")
           .insert({
             user_id: userId,
-            directive: userMessage,
+            prompt: userMessage,
             status: "recently",
             created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
           })
           .select()
           .single();
@@ -774,7 +930,6 @@ export default function Dashboard() {
     } catch (err: any) {
       console.error("VAULT SYNC ERROR:", err.message);
     }
-    // ─────────────────────────────────────────────────────────────────────────────
 
     const timeoutPromise = new Promise((_, reject) => {
       setTimeout(() => reject(new Error("Connection timeout after 12s")), 12000);
@@ -798,6 +953,7 @@ export default function Dashboard() {
       if (result.error) throw new Error(result.error.message || "Link Failed");
 
       const outputText = result.data?.plan || result.data?.response || `Blueprint ready for: "${userMessage}"`;
+      finalResponseText = outputText;
 
       setMessages((prev) => {
         const updated = [...prev];
@@ -806,14 +962,31 @@ export default function Dashboard() {
         }
         return updated;
       });
+
+      // CRITICAL FIX: Update mission with response text
+      if (missionToUpdateId) {
+        await supabase
+          .from("missions")
+          .update({
+            response: finalResponseText,
+            updated_at: new Date().toISOString(),
+            status: "completed"
+          })
+          .eq("id", missionToUpdateId)
+          .eq("user_id", userId);
+        
+        fetchMissions();
+      }
+
     } catch (error) {
       console.error("Execution Error:", error);
+      finalResponseText = "SYSTEM ERROR: Link failed. Directive stored locally.";
       setMessages((prev) => {
         const updated = [...prev];
         if (updated[aiMsgIndex]) {
           updated[aiMsgIndex] = {
             ...updated[aiMsgIndex],
-            text: "SYSTEM ERROR: Link failed. Directive stored locally.",
+            text: finalResponseText,
             isSimulation: true,
           };
         }
@@ -827,7 +1000,7 @@ export default function Dashboard() {
         window.scrollTo(0, document.body.scrollHeight);
       }, 250);
     }
-  }, [isPending, messages.length, selectedModel, userId, activeStyle, webSearchActive, activeMissionId]);
+  }, [isPending, messages.length, selectedModel, userId, activeStyle, webSearchActive, activeMissionId, fetchMissions]);
 
   // ─── INPUT TRIGGERS ────────────────────────────────────────────────────────
   const handleKeyDown = useCallback(
@@ -856,6 +1029,7 @@ export default function Dashboard() {
     await supabase.auth.signOut();
     navigate("/");
   }, [navigate]);
+  
   // ─── THE MANUAL SIDEBAR LIFECYCLE ───────────────────────────────────────────
 
   const handleUpdateMissionStatus = useCallback(
@@ -882,11 +1056,10 @@ export default function Dashboard() {
   const handleRestoreMission = useCallback(
     async (mission: Mission) => {
       await handleUpdateMissionStatus(mission.id, "recently");
-      if (textareaRef.current) textareaRef.current.value = mission.directive || "";
+      if (textareaRef.current) textareaRef.current.value = mission.prompt || "";
       setActiveNav("Home");
       setShowSettings(false);
 
-      // Emerald Toast Notification
       const toastEl = document.createElement("div");
       toastEl.textContent = "✓ Mission Restored to Feed";
       toastEl.style.cssText =
@@ -912,11 +1085,15 @@ export default function Dashboard() {
     setActiveMissionId(mission.id);
     setActiveNav("Home");
     setShowSettings(false);
-    setMessages([{ role: "user", text: mission.directive || "" }]);
+    setMessages([{ role: "user", text: mission.prompt || "" }]);
+    if (mission.response) {
+      setMessages(prev => [...prev, { role: "ai", text: mission.response || "" }]);
+    }
     if (textareaRef.current) textareaRef.current.value = "";
     setTimeout(() => textareaRef.current?.focus(), 50);
   }, []);
-  // ── Lifecycle modal: open / confirm ─────────────────────────────────────────────
+  
+  // ─── Lifecycle modal: open / confirm ─────────────────────────────────────────────
   const openLifecycleModal = useCallback((mission: Mission) => {
     setLifecycleTarget(mission);
     setLifecycleChoice(null);
@@ -947,7 +1124,6 @@ export default function Dashboard() {
       }
     }
 
-    // Cleanup: if user is currently viewing this mission on Home, navigate away
     if (activeMissionId === target.id) {
       setActiveMissionId(null);
       setMessages([]);
@@ -1007,6 +1183,7 @@ export default function Dashboard() {
         whileHover={{ scale: 1.01, backgroundColor: "rgba(255,255,255,0.03)" }}
         className="group flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer transition-all duration-200"
         style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
+        onClick={() => handleLoadMission(mission)}
       >
         <div
           className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
@@ -1015,10 +1192,15 @@ export default function Dashboard() {
           <Zap size={14} style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.7)` }} />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-[13px] font-medium truncate" style={{ color: "var(--nazai-text-color)" }}>
-            {mission.directive?.slice(0, 80) || "Untitled Blueprint"}
+          <p className="text-[13px] font-medium truncate line-clamp-2" style={{ color: "var(--nazai-text-color)" }}>
+            {mission.prompt?.slice(0, 80) || "Untitled Blueprint"}
           </p>
-          <p className="text-[10px] font-mono mt-0.5 text-white/40">
+          {mission.response && (
+            <p className="text-[10px] font-mono mt-1 line-clamp-2" style={{ color: '#50C878' }}>
+              {mission.response.slice(0, 100)}...
+            </p>
+          )}
+          <p className="text-[9px] font-mono mt-1 text-white/30">
             {formatDistanceToNow(new Date(mission.created_at), { addSuffix: true })}
           </p>
         </div>
@@ -1028,7 +1210,7 @@ export default function Dashboard() {
         />
       </motion.div>
     ),
-    [auraProfile.glowPrimary],
+    [auraProfile.glowPrimary, handleLoadMission],
   );
 
   // Settings View
@@ -1254,7 +1436,65 @@ export default function Dashboard() {
     </motion.div>
   );
 
-  // Home View with TITAN V24 GLOW UPGRADE
+  // Message Action Bar Component
+  const MessageActionBar = ({ message, index }: { message: { role: string; text: string }; index: number }) => {
+    if (message.role !== "ai") return null;
+    
+    return (
+      <div className="flex items-center gap-1 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button
+          onClick={() => handleCopyMessage(message.text)}
+          className="p-1.5 rounded-md hover:bg-white/10 transition-all"
+          title="Copy"
+        >
+          <Copy size={12} className="text-white/40" />
+        </button>
+        <button
+          onClick={() => handleRegenerateMessage(index)}
+          className="p-1.5 rounded-md hover:bg-white/10 transition-all"
+          title="Regenerate"
+        >
+          <RotateCw size={12} className="text-white/40" />
+        </button>
+        <button
+          onClick={() => handleShareMessage(message.text)}
+          className="p-1.5 rounded-md hover:bg-white/10 transition-all"
+          title="Share"
+        >
+          <Share2 size={12} className="text-white/40" />
+        </button>
+        <div className="relative">
+          <button
+            onClick={() => setRevertDropdownOpen(revertDropdownOpen === index ? null : index)}
+            className="p-1.5 rounded-md hover:bg-white/10 transition-all"
+            title="More options"
+          >
+            <MoreHorizontal size={12} className="text-white/40" />
+          </button>
+          <AnimatePresence>
+            {revertDropdownOpen === index && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="absolute bottom-full left-0 mb-1 w-44 rounded-lg overflow-hidden z-50"
+                style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
+              >
+                <button
+                  onClick={() => openRevertModal(index)}
+                  className="w-full px-3 py-2 text-left text-xs hover:bg-white/5 transition-all flex items-center gap-2"
+                >
+                  <RotateCcw size={12} /> Revert to checkpoint
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      </div>
+    );
+  };
+
+  // Home View with Intelligent Cards
   const HomeView = () => (
     <div className="flex flex-col w-full h-full">
       {/* Error Toast */}
@@ -1274,7 +1514,7 @@ export default function Dashboard() {
       </AnimatePresence>
 
       {/* Scrollable Messages Area */}
-      <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto py-6 space-y-3 px-4 pb-[120px]">
+      <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto py-6 space-y-4 px-4 pb-[120px]">
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full gap-6 text-center">
             <div className="relative">
@@ -1304,10 +1544,10 @@ export default function Dashboard() {
                   color: "#e2e8f0",
                 }}
               >
-                SYSTEM: READY TO EXECUTE
+                THE NEURAL ARCHITECT
               </p>
               <p className="text-[10px] font-mono text-cyan-400/60 tracking-wider">
-                Neural Link Established // DEPLOYMENT_V24
+                High-precision business blueprinting engine
               </p>
             </div>
           </div>
@@ -1317,7 +1557,7 @@ export default function Dashboard() {
             key={i}
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+            className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"} group`}
           >
             {msg.role === "user" ? (
               <div
@@ -1332,26 +1572,27 @@ export default function Dashboard() {
                 {msg.text}
               </div>
             ) : (
-              <div
-                className="max-w-[85%] rounded-xl overflow-hidden"
-                style={{ background: "#0B1F3A", border: "1px solid rgba(255,255,255,0.1)" }}
-              >
-                {/* Terminal Header */}
+              <>
                 <div
-                  className="flex items-center gap-2 px-3 py-2"
-                  style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", background: "rgba(6,182,212,0.03)" }}
+                  className="max-w-[85%] rounded-xl overflow-hidden"
+                  style={{ background: "#0B1F3A", border: "1px solid rgba(255,255,255,0.1)" }}
                 >
-                  <Brain size={12} style={{ color: "#06b6d4" }} />
-                  <span
-                    className="text-[9px] font-mono font-bold tracking-wider"
-                    style={{ color: "#06b6d4", textShadow: "0 0 6px rgba(6,182,212,0.4)" }}
+                  <div
+                    className="flex items-center gap-2 px-3 py-2"
+                    style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", background: "rgba(6,182,212,0.03)" }}
                   >
-                    NEURAL ARCHITECT // MISSION_RESULT.LOG
-                  </span>
+                    <Brain size={12} style={{ color: "#06b6d4" }} />
+                    <span
+                      className="text-[9px] font-mono font-bold tracking-wider"
+                      style={{ color: "#06b6d4", textShadow: "0 0 6px rgba(6,182,212,0.4)" }}
+                    >
+                      NEURAL ARCHITECT // MISSION_RESULT.LOG
+                    </span>
+                  </div>
+                  <div className="px-3 py-2.5">{formatAIResponse(msg.text)}</div>
                 </div>
-                {/* Content */}
-                <div className="px-3 py-2.5">{formatAIResponse(msg.text)}</div>
-              </div>
+                <MessageActionBar message={msg} index={i} />
+              </>
             )}
           </motion.div>
         ))}
@@ -1378,6 +1619,175 @@ export default function Dashboard() {
           </span>
         </div>
       )}
+
+      {/* Intelligent Prompt Cards - Dynamic based on conversation state */}
+      <AnimatePresence mode="wait">
+        {messages.length === 0 ? (
+          <motion.div
+            key="initial-cards"
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.8 }}
+            transition={{ duration: 0.3 }}
+            className="w-full max-w-2xl mx-auto mb-4 px-4"
+          >
+            <div className="grid grid-cols-2 gap-3">
+              {initialCards.map((card, idx) => (
+                <motion.button
+                  key={idx}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: idx * 0.1 }}
+                  onClick={() => handleSendMessage(card)}
+                  className="group p-4 rounded-xl text-left transition-all duration-200 hover:scale-[1.02]"
+                  style={{
+                    background: "rgba(255,255,255,0.02)",
+                    border: "1px solid rgba(255,255,255,0.06)",
+                  }}
+                  whileHover={{ borderColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.3)` }}
+                >
+                  <p className="text-[11px] font-mono font-bold uppercase tracking-wider mb-1" style={{ color: auraProfile.glowPrimary }}>
+                    MISSION STARTER
+                  </p>
+                  <p className="text-[13px] font-medium" style={{ color: "var(--nazai-text-color)" }}>
+                    {card}
+                  </p>
+                  <ChevronRight size={14} className="mt-2 opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: auraProfile.glowPrimary }} />
+                </motion.button>
+              ))}
+            </div>
+          </motion.div>
+        ) : suggestionCards.length > 0 && (
+          <motion.div
+            key="suggestion-pills"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            transition={{ duration: 0.3 }}
+            className="w-full max-w-2xl mx-auto mb-3 px-4"
+          >
+            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+              <style>{`
+                .scrollbar-hide::-webkit-scrollbar {
+                  display: none;
+                }
+                .scrollbar-hide {
+                  -ms-overflow-style: none;
+                  scrollbar-width: none;
+                }
+              `}</style>
+              {suggestionCards.map((suggestion, idx) => (
+                <motion.button
+                  key={idx}
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: idx * 0.05 }}
+                  onClick={() => handleSendMessage(suggestion)}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-full text-[10px] font-mono whitespace-nowrap transition-all duration-200 hover:scale-105"
+                  style={{
+                    background: "rgba(255,255,255,0.03)",
+                    border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.2)`,
+                    color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.8)`,
+                  }}
+                  whileHover={{
+                    background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.1)`,
+                    borderColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.4)`,
+                    boxShadow: `0 0 12px rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.2)`,
+                  }}
+                >
+                  <span>{suggestion}</span>
+                  <ChevronRight size={10} />
+                </motion.button>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Fixed Input Pill */}
+      <div
+        ref={inputContainerRef}
+        className="fixed bottom-0 left-0 right-0 z-[99999]"
+        style={{
+          pointerEvents: "auto",
+          isolation: "isolate",
+        }}
+      >
+        <div className="w-full max-w-2xl mx-auto px-4 pb-4">
+          <motion.div
+            className="relative rounded-xl flex flex-col"
+            animate={laserShineAnimation}
+            style={{
+              border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.3)`,
+              background: "var(--nazai-card-bg)",
+            }}
+          >
+            <textarea
+              ref={textareaRef}
+              defaultValue=""
+              onKeyDown={handleKeyDown}
+              onFocus={handleTextareaFocus}
+              onBlur={handleTextareaBlur}
+              placeholder={
+                activeTool ? `Mission for ${activeTool.tool.name}...` : "Architect a high-performance gym business..."
+              }
+              rows={1}
+              className="w-full bg-transparent border-none outline-none resize-none font-mono text-base p-3"
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck={false}
+              data-gramm={false}
+              style={{
+                color: "var(--nazai-text-color)",
+                fontSize: "16px",
+                height: "56px",
+                minHeight: "56px",
+                maxHeight: "56px",
+                zIndex: 9999999,
+                position: "relative",
+                pointerEvents: "auto",
+                cursor: "text",
+                WebkitUserSelect: "text",
+                userSelect: "text",
+                touchAction: "manipulation",
+              }}
+            />
+            <div className="flex items-center justify-between px-3 py-2 border-t border-white/5">
+              <div className="flex gap-1">
+                <motion.button
+                  onClick={() => setPlusMenuOpen(true)}
+                  className="w-7 h-7 rounded-full flex items-center justify-center relative z-10 transition-all"
+                  style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.05)` }}
+                  whileHover={{ scale: 1.1, background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.1)` }}
+                  whileTap={{ scale: 0.9 }}
+                >
+                  <Plus size={12} />
+                </motion.button>
+                <button
+                  onClick={() => {
+                    setDrawerOpen(true);
+                    setPlusMenuOpen(false);
+                  }}
+                  className="text-[9px] px-2 py-1 rounded font-mono transition-all hover:bg-white/5"
+                  style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.03)` }}
+                >
+                  {activeTool ? activeTool.tool.name : "Select Engine"}
+                </button>
+              </div>
+              <motion.button
+                onPointerDown={handleSendPointerDown}
+                disabled={isPending}
+                className="w-7 h-7 rounded-full flex items-center justify-center transition-all"
+                style={{ background: currentTheme.color + "CC" }}
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
+              >
+                <Send size={11} style={{ color: "#020617" }} />
+              </motion.button>
+            </div>
+          </motion.div>
+        </div>
+      </div>
     </div>
   );
 
@@ -1425,7 +1835,7 @@ export default function Dashboard() {
               whileHover={{ scale: 1.01, backgroundColor: "rgba(255,255,255,0.03)" }}
               className="group flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer transition-all duration-200"
               style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
-              onClick={() => (isTrashOrArchive ? handleRestoreMission(mission) : undefined)}
+              onClick={() => (isTrashOrArchive ? handleRestoreMission(mission) : handleLoadMission(mission))}
             >
               <div
                 className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
@@ -1434,10 +1844,15 @@ export default function Dashboard() {
                 <Zap size={14} style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.7)` }} />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-[13px] font-medium truncate" style={{ color: "var(--nazai-text-color)" }}>
-                  {mission.directive?.slice(0, 80) || "Untitled Blueprint"}
+                <p className="text-[13px] font-medium truncate line-clamp-2" style={{ color: "var(--nazai-text-color)" }}>
+                  {mission.prompt?.slice(0, 80) || "Untitled Blueprint"}
                 </p>
-                <p className="text-[10px] font-mono mt-0.5 text-white/40">
+                {mission.response && (
+                  <p className="text-[10px] font-mono mt-1 line-clamp-2" style={{ color: '#50C878' }}>
+                    {mission.response.slice(0, 100)}...
+                  </p>
+                )}
+                <p className="text-[9px] font-mono mt-1 text-white/30">
                   {formatDistanceToNow(new Date(mission.created_at), { addSuffix: true })}
                 </p>
               </div>
@@ -1491,6 +1906,64 @@ export default function Dashboard() {
     </motion.div>
   );
 
+  // Revert Checkpoint Modal with backdrop-blur-xl
+  const RevertModal = () => (
+    <AnimatePresence>
+      {revertModalOpen && (
+        <div
+          className="fixed inset-0 z-[2000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xl"
+          onClick={() => setRevertModalOpen(false)}
+        >
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            transition={springTransition}
+            onClick={(e) => e.stopPropagation()}
+            className="max-w-sm w-full rounded-xl p-6 text-center"
+            style={{
+              background: "var(--nazai-card-bg)",
+              border: `1px solid rgba(34,197,94,0.2)`,
+            }}
+          >
+            <div className="mb-4">
+              <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3"
+                style={{ background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.2)" }}
+              >
+                <RotateCcw size={20} style={{ color: "#22c55e" }} />
+              </div>
+              <h3 className="text-sm font-bold font-mono mb-2" style={{ color: "var(--nazai-text-color)" }}>
+                Revert to Checkpoint?
+              </h3>
+              <p className="text-[11px] text-white/50">
+                All subsequent progress after this point will be lost. This action cannot be undone.
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setRevertModalOpen(false)}
+                className="flex-1 py-2 rounded-lg text-xs font-mono bg-white/5 border border-white/10 hover:bg-white/10 transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmRevert}
+                className="flex-1 py-2 rounded-lg text-xs font-mono font-bold transition-all"
+                style={{
+                  background: "rgba(34,197,94,0.15)",
+                  border: "1px solid rgba(34,197,94,0.4)",
+                  color: "#22c55e",
+                }}
+              >
+                OK
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+  );
+
   // ─── Main Render ────────────────────────────────────────────────────────────────
   return (
     <div
@@ -1532,7 +2005,6 @@ export default function Dashboard() {
               }}
               className="flex items-center gap-3 w-full p-3 rounded-xl transition-all duration-300 group relative overflow-hidden border border-white/5 bg-white/[0.03] hover:bg-white/[0.06]"
             >
-              {/* Subtle Glow Layer */}
               <div className="absolute inset-0 bg-glow-primary opacity-0 group-hover:opacity-5 transition-opacity" />
 
               <div className="p-1.5 rounded-lg bg-white/5 group-hover:bg-glow-primary/20 transition-colors">
@@ -1544,6 +2016,7 @@ export default function Dashboard() {
               </span>
             </button>
           </div>
+          
           {/* Home (top nav) */}
           <div className="px-2 pb-2 shrink-0">
             {TOP_NAV_ITEMS.map((item) => {
@@ -1611,7 +2084,7 @@ export default function Dashboard() {
                   ) : (
                     openChatFeed.map((mission) => {
                       const isActive = activeMissionId === mission.id;
-                      const title = mission.directive?.trim().slice(0, 40) || "Untitled";
+                      const title = mission.prompt?.trim().slice(0, 40) || "Untitled";
                       return (
                         <div
                           key={mission.id}
@@ -1772,92 +2245,8 @@ export default function Dashboard() {
         </footer>
       </main>
 
-      {/* FIXED PILL CONTAINER - Only visible on Home */}
-      {activeNav === "Home" && !showSettings && (
-        <div
-          ref={inputContainerRef}
-          className="fixed bottom-0 left-0 right-0 z-[99999]"
-          style={{
-            pointerEvents: "auto",
-            isolation: "isolate",
-          }}
-        >
-          <div className="w-full max-w-2xl mx-auto px-4 pb-4">
-            <motion.div
-              className="relative rounded-xl flex flex-col"
-              animate={laserShineAnimation}
-              style={{
-                border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.3)`,
-                background: "var(--nazai-card-bg)",
-              }}
-            >
-              <textarea
-                ref={textareaRef}
-                defaultValue=""
-                onKeyDown={handleKeyDown}
-                onFocus={handleTextareaFocus}
-                onBlur={handleTextareaBlur}
-                placeholder={
-                  activeTool ? `Mission for ${activeTool.tool.name}...` : "Architect a high-performance gym business..."
-                }
-                rows={1}
-                className="w-full bg-transparent border-none outline-none resize-none font-mono text-base p-3"
-                autoComplete="off"
-                autoCorrect="off"
-                spellCheck={false}
-                data-gramm={false}
-                style={{
-                  color: "var(--nazai-text-color)",
-                  fontSize: "16px",
-                  height: "56px",
-                  minHeight: "56px",
-                  maxHeight: "56px",
-                  zIndex: 9999999,
-                  position: "relative",
-                  pointerEvents: "auto",
-                  cursor: "text",
-                  WebkitUserSelect: "text",
-                  userSelect: "text",
-                  touchAction: "manipulation",
-                }}
-              />
-              <div className="flex items-center justify-between px-3 py-2 border-t border-white/5">
-                <div className="flex gap-1">
-                  <motion.button
-                    onClick={() => setPlusMenuOpen(true)}
-                    className="w-7 h-7 rounded-full flex items-center justify-center relative z-10 transition-all"
-                    style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.05)` }}
-                    whileHover={{ scale: 1.1, background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.1)` }}
-                    whileTap={{ scale: 0.9 }}
-                  >
-                    <Plus size={12} />
-                  </motion.button>
-                  <button
-                    onClick={() => {
-                      setDrawerOpen(true);
-                      setPlusMenuOpen(false);
-                    }}
-                    className="text-[9px] px-2 py-1 rounded font-mono transition-all hover:bg-white/5"
-                    style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.03)` }}
-                  >
-                    {activeTool ? activeTool.tool.name : "Select Engine"}
-                  </button>
-                </div>
-                <motion.button
-                  onPointerDown={handleSendPointerDown}
-                  disabled={isPending}
-                  className="w-7 h-7 rounded-full flex items-center justify-center transition-all"
-                  style={{ background: currentTheme.color + "CC" }}
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.9 }}
-                >
-                  <Send size={11} style={{ color: "#020617" }} />
-                </motion.button>
-              </div>
-            </motion.div>
-          </div>
-        </div>
-      )}
+      {/* Revert Modal */}
+      <RevertModal />
 
       {/* PLUS MENU MODAL */}
       <AnimatePresence>
@@ -2012,7 +2401,7 @@ export default function Dashboard() {
                   Manage Blueprint
                 </h3>
                 <p className="text-[11px] text-white/50 mt-1 truncate font-mono">
-                  "{lifecycleTarget.directive?.slice(0, 60) || "Untitled"}"
+                  "{lifecycleTarget.prompt?.slice(0, 60) || "Untitled"}"
                 </p>
               </div>
 
@@ -2180,6 +2569,20 @@ export default function Dashboard() {
           -webkit-overflow-scrolling: touch;
           overscroll-behavior: contain;
           touch-action: pan-y;
+        }
+        
+        .line-clamp-2 {
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+        }
+        
+        .line-clamp-3 {
+          display: -webkit-box;
+          -webkit-line-clamp: 3;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
         }
         
         @import url('https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,100..900;1,100..900&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap');
