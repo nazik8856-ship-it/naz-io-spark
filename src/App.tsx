@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider } from "@/hooks/useAuth";
 import { Toaster } from "@/components/ui/toaster";
 import { lazy, Suspense } from "react";
+import EntranceSplash from "@/components/EntranceSplash";
 
 // ─── Route Components ─────────────────────────────────────────────────────────
 const Workflower = lazy(() => import("./pages/Workflower"));
@@ -29,38 +30,34 @@ const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
       <BrowserRouter>
-        {/* Added a main wrapper to prevent layout shifts and white flashes */}
         <main className="min-h-screen bg-[#020617] selection:bg-[#00A3FF]/30">
-          <Suspense fallback={<PageSkeleton />}>
-            <Routes>
-              {/* Core Routes */}
-              <Route path="/" element={<Workflower />} />
-              <Route path="/workflower" element={<Workflower />} />
-              <Route path="/workspace" element={<Workspace />} />
-              <Route path="/generating" element={<Generating />} />
+          <EntranceSplash>
+            <Suspense fallback={<PageSkeleton />}>
+              <Routes>
+                {/* Core Routes */}
+                <Route path="/" element={<Workflower />} />
+                <Route path="/workflower" element={<Workflower />} />
+                <Route path="/workspace" element={<Workspace />} />
+                <Route path="/generating" element={<Generating />} />
 
-              {/* Auth Routes */}
-              <Route path="/signup" element={<Signup />} />
-              <Route path="/login" element={<Signup />} />
-              <Route path="/auth/callback" element={<AuthCallback />} />
+                {/* Auth Routes */}
+                <Route path="/signup" element={<Signup />} />
+                <Route path="/login" element={<Signup />} />
+                <Route path="/auth/callback" element={<AuthCallback />} />
 
-              {/* Mission Generator & Dashboard */}
-              <Route path="/generate" element={<Generator />} />
+                {/* Mission Generator & Dashboard */}
+                <Route path="/generate" element={<Generator />} />
 
-              {/* Nested Dashboard Routes */}
-              {/* Keep the /* if Dashboard uses nested <Routes>, but this is often the cause of "Node not found" if Dashboard is simple */}
-              <Route path="/dashboard/*" element={<Dashboard />} />
+                {/* Nested Dashboard Routes */}
+                <Route path="/dashboard/*" element={<Dashboard />} />
 
-              {/* Catch-all Redirect */}
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
+                {/* Catch-all Redirect */}
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
 
-            {/* CRITICAL FIX: Move Toaster INSIDE Suspense. 
-                This ensures the toast container is part of the same lifecycle 
-                as your lazy-loaded pages.
-            */}
-            <Toaster />
-          </Suspense>
+              <Toaster />
+            </Suspense>
+          </EntranceSplash>
         </main>
       </BrowserRouter>
     </AuthProvider>
