@@ -49,18 +49,9 @@ import {
   MoreHorizontal,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
-import {
-  GeminiLogo,
-  ClaudeLogo,
-  OpenAILogo,
-  NanoBananaLogo,
-  VeoLogo,
-  ElevenLabsLogo,
-  GrokLogo,
-} from "@/components/EngineLogos";
 
 // ─── DEPLOYMENT VERSION ──────────────────────────────────────────────────────────
-const DEPLOYMENT_ID = "NAZAI_TITAN_V25_BRAND_LOGOS";
+const DEPLOYMENT_ID = "NAZAI_TITAN_V24_GLOW";
 
 // ─── Type Definitions ──────────────────────────────────────────────────────────────
 
@@ -84,8 +75,7 @@ type MissionStatus = "pending" | "active" | "completed" | "recently" | "archived
 type Mission = {
   id: string;
   user_id: string;
-  prompt: string;
-  response?: string;
+  directive: string;
   status: MissionStatus;
   created_at: string;
   updated_at: string;
@@ -123,9 +113,9 @@ const AI_CATEGORIES: Record<string, Category> = {
     glowRgba: "34,197,94",
     label: "LOGIC",
     tools: [
-      { id: "google/gemini-3.1-pro", name: "Gemini 3.1 Pro", subtitle: "The Brain", icon: GeminiLogo },
-      { id: "anthropic/claude-4.6-sonnet", name: "Claude 4.6 Sonnet", subtitle: "The Architect", icon: ClaudeLogo },
-      { id: "openai/gpt-5.4", name: "GPT-5.4", subtitle: "The Manager", icon: OpenAILogo },
+      { id: "google/gemini-3.1-pro", name: "Gemini 3.1 Pro", subtitle: "The Brain", icon: Brain },
+      { id: "anthropic/claude-4.6-sonnet", name: "Claude 4.6 Sonnet", subtitle: "The Architect", icon: Building2 },
+      { id: "openai/gpt-5.4", name: "GPT-5.4", subtitle: "The Manager", icon: Briefcase },
     ],
   },
   CREATION: {
@@ -133,9 +123,15 @@ const AI_CATEGORIES: Record<string, Category> = {
     glowRgba: "168,85,247",
     label: "CREATION",
     tools: [
-      { id: "google/gemini-3-flash-image", name: "Nano Banana 2.0", subtitle: "The Designer", icon: NanoBananaLogo, isMedia: true },
-      { id: "google/veo-3", name: "Google Veo 3", subtitle: "The Cinematographer", icon: VeoLogo, isMedia: true },
-      { id: "elevenlabs/lyria", name: "ElevenLabs Lyria", subtitle: "The Voice", icon: ElevenLabsLogo, isMedia: true },
+      {
+        id: "google/gemini-3-flash-image",
+        name: "Nano Banana 2.0",
+        subtitle: "The Designer",
+        icon: Image,
+        isMedia: true,
+      },
+      { id: "google/veo-3", name: "Google Veo 3", subtitle: "The Cinematographer", icon: Video, isMedia: true },
+      { id: "elevenlabs/lyria", name: "ElevenLabs Lyria", subtitle: "The Voice", icon: Mic, isMedia: true },
     ],
   },
   RESEARCH: {
@@ -143,14 +139,13 @@ const AI_CATEGORIES: Record<string, Category> = {
     glowRgba: "6,182,212",
     label: "RESEARCH",
     tools: [
-      { id: "x-ai/grok-4.20", name: "Grok 4.20", subtitle: "The Trendsetter", icon: GrokLogo },
+      { id: "google/notebooklm", name: "NotebookLM", subtitle: "The Librarian", icon: BookOpen },
+      { id: "x-ai/grok-4.20", name: "Grok 4.20", subtitle: "The Trendsetter", icon: TrendingUp },
     ],
   },
 };
 
-const TOP_NAV_ITEMS = [
-  { icon: Home, label: "Home" },
-] as const;
+const TOP_NAV_ITEMS = [{ icon: Home, label: "Home" }] as const;
 
 const BOTTOM_NAV_ITEMS = [
   { icon: Archive, label: "Archives" },
@@ -234,7 +229,7 @@ const saveAuraProfile = (profile: AuraProfile) => {
 
 // Generate geometric gradient avatar colors
 const getAvatarGradient = (email: string) => {
-  const hash = email.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  const hash = email.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
   const hue1 = hash % 360;
   const hue2 = (hue1 + 40) % 360;
   return `linear-gradient(135deg, hsl(${hue1}, 70%, 55%), hsl(${hue2}, 70%, 45%))`;
@@ -270,144 +265,65 @@ const laserShineAnimation = {
 
 // Format AI response text with styled sections
 const formatAIResponse = (text: string) => {
-  const lines = text.split('\n');
+  const lines = text.split("\n");
   return lines.map((line, i) => {
+    // Match headers like [STRATEGY], [MARKET], etc.
     const headerMatch = line.match(/^\[([A-Z_\s]+)\]/);
     if (headerMatch) {
       return (
         <div key={i} className="mt-3 mb-1">
-          <span className="font-mono text-[11px] font-black tracking-wider" style={{ color: '#06b6d4', textShadow: '0 0 8px rgba(6,182,212,0.6)' }}>
+          <span
+            className="font-mono text-[11px] font-black tracking-wider"
+            style={{ color: "#06b6d4", textShadow: "0 0 8px rgba(6,182,212,0.6)" }}
+          >
             [{headerMatch[1]}]
           </span>
-          <span className="text-[11px] ml-1" style={{ color: 'rgba(255,255,255,0.8)' }}>
+          <span className="text-[11px] ml-1" style={{ color: "rgba(255,255,255,0.8)" }}>
             {line.slice(headerMatch[0].length)}
           </span>
         </div>
       );
     }
-    if (line.trim().startsWith('- ') || line.trim().startsWith('• ')) {
+    // Bullet points
+    if (line.trim().startsWith("- ") || line.trim().startsWith("• ")) {
       return (
         <div key={i} className="flex gap-2 ml-2 my-0.5">
-          <span style={{ color: '#06b6d4' }}>›</span>
-          <span className="text-[11px]" style={{ color: 'rgba(255,255,255,0.75)' }}>{line.trim().slice(2)}</span>
+          <span style={{ color: "#06b6d4" }}>›</span>
+          <span className="text-[11px]" style={{ color: "rgba(255,255,255,0.75)" }}>
+            {line.trim().slice(2)}
+          </span>
         </div>
       );
     }
+    // Numbered items
     const numMatch = line.trim().match(/^(\d+[\.\)]) /);
     if (numMatch) {
       return (
         <div key={i} className="flex gap-2 ml-2 my-0.5">
-          <span className="font-mono text-[10px] font-bold" style={{ color: '#06b6d4' }}>{numMatch[1]}</span>
-          <span className="text-[11px]" style={{ color: 'rgba(255,255,255,0.75)' }}>{line.trim().slice(numMatch[0].length)}</span>
+          <span className="font-mono text-[10px] font-bold" style={{ color: "#06b6d4" }}>
+            {numMatch[1]}
+          </span>
+          <span className="text-[11px]" style={{ color: "rgba(255,255,255,0.75)" }}>
+            {line.trim().slice(numMatch[0].length)}
+          </span>
         </div>
       );
     }
+    // Empty lines
     if (!line.trim()) return <div key={i} className="h-2" />;
-    return <p key={i} className="text-[11px] my-0.5" style={{ color: 'rgba(255,255,255,0.75)' }}>{line}</p>;
+    // Regular text
+    return (
+      <p key={i} className="text-[11px] my-0.5" style={{ color: "rgba(255,255,255,0.75)" }}>
+        {line}
+      </p>
+    );
   });
 };
 
 // Generate fallback structural outline
 const generateFallbackOutline = (prompt: string): string => {
-  const words = prompt.split(' ').slice(0, 10).join(' ');
+  const words = prompt.split(" ").slice(0, 10).join(" ");
   return `[Neural Architect: Connection Delayed]\n\nBased on: "${words}...", the blueprint is being generated. Please check your connection or try again.\n\nPreliminary Structure:\n• Market Analysis\n• Operational Framework\n• Financial Architecture\n• Growth Strategy\n\nReconnect to receive the complete AI-powered strategic plan.`;
-};
-
-// ─── SPLASH SCREEN COMPONENT ─────────────────────────────────────────────────────
-const NazAISplash = ({ isLoading }: { isLoading: boolean }) => {
-  const [scanComplete, setScanComplete] = useState(false);
-  const [showPulse, setShowPulse] = useState(false);
-
-  useEffect(() => {
-    if (!isLoading) return;
-    const timer = setTimeout(() => {
-      setShowPulse(true);
-      setTimeout(() => setScanComplete(true), 300);
-    }, 2500);
-    return () => clearTimeout(timer);
-  }, [isLoading]);
-
-  if (!isLoading && !scanComplete) return null;
-
-  return (
-    <motion.div
-      className="fixed inset-0 z-[200] flex items-center justify-center overflow-hidden"
-      style={{ background: "#020617" }}
-      initial={{ opacity: 1, filter: "blur(0px)", scale: 1 }}
-      animate={{ opacity: isLoading ? 1 : 0, filter: isLoading ? "blur(0px)" : "blur(20px)", scale: isLoading ? 1 : 1.1 }}
-      exit={{ opacity: 0, filter: "blur(20px)", scale: 1.1 }}
-      transition={{ duration: 0.8, ease: "easeInOut" }}
-    >
-      <motion.div
-        className="absolute left-0 right-0 h-[2px]"
-        style={{
-          background: "linear-gradient(90deg, transparent, #22c55e, #22c55e, #22c55e, transparent)",
-          boxShadow: "0 0 20px #22c55e, 0 0 40px rgba(34,197,94,0.5)",
-        }}
-        initial={{ top: "-10%" }}
-        animate={{ top: "110%" }}
-        transition={{
-          duration: 2.5,
-          ease: "linear",
-        }}
-        onAnimationComplete={() => setShowPulse(true)}
-      />
-
-      <motion.div
-        className="relative z-10 flex flex-col items-center gap-4"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.3, duration: 0.5 }}
-      >
-        <motion.div
-          animate={{
-            scale: showPulse ? [1, 1.3, 1] : 1,
-            boxShadow: showPulse
-              ? ["0 0 0px #22c55e", "0 0 60px #22c55e", "0 0 0px #22c55e"]
-              : "0 0 0px #22c55e",
-          }}
-          transition={{ duration: 0.5, ease: "circOut" }}
-          className="relative"
-        >
-          <Zap size={64} style={{ color: "#22c55e" }} />
-        </motion.div>
-
-        <motion.div
-          className="text-center"
-          animate={{
-            textShadow: showPulse
-              ? ["0 0 0px #22c55e", "0 0 30px #22c55e", "0 0 0px #22c55e"]
-              : "0 0 0px #22c55e",
-          }}
-          transition={{ duration: 0.5, ease: "circOut" }}
-        >
-          <motion.h1
-            className="text-4xl font-black uppercase tracking-tighter font-mono"
-            style={{ color: "#e2e8f0" }}
-            animate={{
-              opacity: [0, 1, 0.8, 1],
-            }}
-            transition={{
-              duration: 1.5,
-              times: [0, 0.3, 0.6, 1],
-              ease: "circOut",
-            }}
-          >
-            NAZAI
-          </motion.h1>
-          <motion.p
-            className="text-[10px] font-mono tracking-[0.3em]"
-            style={{ color: "rgba(34,197,94,0.6)" }}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.8, duration: 0.5 }}
-          >
-            NEURAL ARCHITECT
-          </motion.p>
-        </motion.div>
-      </motion.div>
-    </motion.div>
-  );
 };
 
 // ─── Component ────────────────────────────────────────────────────────────────────
@@ -415,55 +331,50 @@ const NazAISplash = ({ isLoading }: { isLoading: boolean }) => {
 export default function Dashboard() {
   const navigate = useNavigate();
 
-  // Splash screen state
-  const [isInitialLoading, setIsInitialLoading] = useState(true);
-  const [isDataReady, setIsDataReady] = useState(false);
-
   // ─── THE SURGICAL NUKE (V24.1) ───────────────────────────────────────────
   useEffect(() => {
     const clearLogicCachesAndReload = async () => {
       const currentVersion = localStorage.getItem("nazai_version_id");
-      
+
       if (currentVersion !== DEPLOYMENT_ID) {
         console.log("TITAN: New version detected. Executing surgical cache purge...");
+
+        // 1. DO NOT use localStorage.clear() - We want to keep Aura Profiles.
+        // Instead, only remove specific logic-heavy flags if necessary.
         sessionStorage.clear();
-        
-        if ('serviceWorker' in navigator) {
+
+        // 2. Kill the Service Workers (The main cause of "Sticky" old versions)
+        if ("serviceWorker" in navigator) {
           const registrations = await navigator.serviceWorker.getRegistrations();
           for (const registration of registrations) {
             await registration.unregister();
           }
         }
-        
-        if ('caches' in window) {
+
+        // 3. Wipe the Assets Cache (Forces browser to download new JS/CSS)
+        if ("caches" in window) {
           const cacheNames = await caches.keys();
           for (const cacheName of cacheNames) {
             await caches.delete(cacheName);
           }
         }
-        
+
+        // 4. Anchor the new version ID
         localStorage.setItem("nazai_version_id", DEPLOYMENT_ID);
+
+        // 5. Hard reload from server
         window.location.reload();
       }
     };
-    
+
     clearLogicCachesAndReload();
   }, []);
-
-  // Splash screen timing
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setIsDataReady(true);
-    }, 1800);
-    return () => clearTimeout(timer);
-  }, []);
-
-  // ─── FOCUS HIJACK: Forces input focus when tapping bottom 30% of screen ─────────
+  // ── FOCUS HIJACK: Forces input focus when tapping bottom 30% of screen ─────────
   useEffect(() => {
     const forceFocus = (e: TouchEvent | MouseEvent) => {
-      const y = 'touches' in e ? e.touches[0].clientY : (e as MouseEvent).clientY;
+      const y = "touches" in e ? e.touches[0].clientY : (e as MouseEvent).clientY;
       if (y > window.innerHeight * 0.7) {
-        const textarea = document.querySelector('textarea');
+        const textarea = document.querySelector("textarea");
         if (textarea) {
           (textarea as HTMLElement).focus();
         }
@@ -472,22 +383,22 @@ export default function Dashboard() {
 
     const killGhosts = () => {
       const overlays = document.querySelectorAll('.scanlines, .radar-sweep, [class*="fixed"]');
-      overlays.forEach(el => {
-        if (!el.contains(document.querySelector('textarea'))) {
-          (el as HTMLElement).style.pointerEvents = 'none';
+      overlays.forEach((el) => {
+        if (!el.contains(document.querySelector("textarea"))) {
+          (el as HTMLElement).style.pointerEvents = "none";
         }
       });
     };
 
-    window.addEventListener('touchstart', forceFocus);
-    window.addEventListener('mousedown', forceFocus);
+    window.addEventListener("touchstart", forceFocus);
+    window.addEventListener("mousedown", forceFocus);
     killGhosts();
 
     return () => {
-      window.removeEventListener('touchstart', forceFocus);
-      window.removeEventListener('mousedown', forceFocus);
+      window.removeEventListener("touchstart", forceFocus);
+      window.removeEventListener("mousedown", forceFocus);
     };
-  }, []); 
+  }, []);
 
   // ─── 0. VIEWPORT & MECHANICAL ANCHORING ───────────────────────────────────
   const [keyboardHeight, setKeyboardHeight] = useState(0);
@@ -525,20 +436,13 @@ export default function Dashboard() {
   const [activeMissionId, setActiveMissionId] = useState<string | null>(null);
   const [projectsExpanded, setProjectsExpanded] = useState(true);
 
-  // Splash screen exit condition
-  useEffect(() => {
-    if (isDataReady && missions !== undefined) {
-      const timer = setTimeout(() => {
-        setIsInitialLoading(false);
-      }, 500);
-      return () => clearTimeout(timer);
-    }
-  }, [isDataReady, missions]);
-
   // ─── 2. IDENTITY BRIDGE ───────────────────────────────────────────────────
   useEffect(() => {
+    // Initial Recovery
     const getInitialSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       if (session?.user) {
         setUserId(session.user.id);
         setUserEmail(session.user.email ?? null);
@@ -547,7 +451,10 @@ export default function Dashboard() {
     };
     getInitialSession();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    // Real-time Bridge for Sign-Up/Sign-In
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
       console.log("TITAN: Auth Event:", event);
       if (session?.user) {
         setUserId(session.user.id);
@@ -555,13 +462,14 @@ export default function Dashboard() {
       } else {
         setUserId(null);
         setUserEmail(null);
-        setMissions([]); 
+        setMissions([]);
       }
     });
 
     return () => subscription.unsubscribe();
   }, []);
- 
+  // ─── END PASTE ──────────────────────────────────────────────────────────────
+
   // ── Refs ────────────────────────────────────────────────────────────────────────
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -577,14 +485,14 @@ export default function Dashboard() {
     const root = document.documentElement;
     const primaryRgb = getRgbFromHex(auraProfile.glowPrimary);
     const secondaryRgb = getRgbFromHex(auraProfile.glowSecondary);
-    
+
     root.style.setProperty("--glow-primary", auraProfile.glowPrimary);
     root.style.setProperty("--glow-primary-rgb", primaryRgb);
     root.style.setProperty("--glow-secondary", auraProfile.glowSecondary);
     root.style.setProperty("--glow-secondary-rgb", secondaryRgb);
     root.style.setProperty("--text-glow-intensity", auraProfile.textGlowIntensity.toString());
     root.style.setProperty("--glass-blur", `${auraProfile.glassBlur}px`);
-    
+
     if (auraProfile.isLightMode) {
       root.style.setProperty("--nazai-text-color", "#0f172a");
       root.style.setProperty("--nazai-bg-base", "#f1f5f9");
@@ -627,12 +535,12 @@ export default function Dashboard() {
   const handleTextareaFocus = useCallback((e: React.FocusEvent<HTMLTextAreaElement>) => {
     e.target.scrollIntoView({ block: "center", behavior: "instant" });
     window.scrollTo(0, 0);
-    e.target.classList.remove('animate-shake');
-    
+    e.target.classList.remove("animate-shake");
+
     if (focusSnapIntervalRef.current) {
       clearInterval(focusSnapIntervalRef.current);
     }
-    
+
     let snapCount = 0;
     focusSnapIntervalRef.current = setInterval(() => {
       window.scrollTo(0, 0);
@@ -662,10 +570,14 @@ export default function Dashboard() {
 
   const filteredMissions = useMemo(() => {
     switch (activeNav) {
-      case "Trash": return missions.filter((m) => m.status === "trashed");
-      case "Archives": return missions.filter((m) => m.status === "archived");
-      case "Recently": return missions.filter((m) => m.status !== "trashed" && m.status !== "archived").slice(0, 10);
-      default: return missions.filter((m) => m.status !== "trashed");
+      case "Trash":
+        return missions.filter((m) => m.status === "trashed");
+      case "Archives":
+        return missions.filter((m) => m.status === "archived");
+      case "Recently":
+        return missions.filter((m) => m.status !== "trashed" && m.status !== "archived").slice(0, 10);
+      default:
+        return missions.filter((m) => m.status !== "trashed");
     }
   }, [activeNav, missions]);
 
@@ -675,11 +587,13 @@ export default function Dashboard() {
     [missions],
   );
 
-  // ─── Effects ──────────────────────────────────────────────────────────────────────
+  // ── Effects ──────────────────────────────────────────────────────────────────────
   useEffect(() => {
     let isMounted = true;
     const getSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       if (isMounted) {
         setUserEmail(session?.user?.email ?? null);
         setUserId(session?.user?.id ?? null);
@@ -698,38 +612,34 @@ export default function Dashboard() {
     };
   }, []);
 
-  // FIXED: fetchMissions with proper select fields including response
-  const fetchMissions = useCallback(async () => {
+  useEffect(() => {
     if (!userId) {
       setMissions([]);
       setMissionsLoading(false);
       return;
     }
-
     let isMounted = true;
     const abortController = new AbortController();
-
-    try {
+    abortControllerRef.current = abortController;
+    const fetchMissions = async () => {
       setMissionsLoading(true);
-      const { data, error } = await supabase
-        .from("missions")
-        .select("id, created_at, prompt, response, status, user_id")
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false });
-
-      if (abortController.signal.aborted) return;
-      if (error) throw error;
-
-      if (isMounted && data) {
-        setMissions(data as Mission[]);
+      try {
+        const { data, error } = await supabase
+          .from("missions")
+          .select("*")
+          .eq("user_id", userId)
+          .order("created_at", { ascending: false });
+        if (abortController.signal.aborted) return;
+        if (error) throw error;
+        if (isMounted && data) setMissions(data as Mission[]);
+      } catch (error) {
+        console.error("Failed to fetch missions:", error);
+        if (isMounted) setMissions([]);
+      } finally {
+        if (isMounted) setMissionsLoading(false);
       }
-    } catch (error) {
-      console.error("Failed to fetch missions:", error);
-      if (isMounted) setMissions([]);
-    } finally {
-      if (isMounted) setMissionsLoading(false);
-    }
-
+    };
+    fetchMissions();
     return () => {
       isMounted = false;
       abortController.abort();
@@ -737,14 +647,9 @@ export default function Dashboard() {
   }, [userId]);
 
   useEffect(() => {
-    fetchMissions();
-  }, [fetchMissions]);
-
-  useEffect(() => {
-    const scrollTimer = setTimeout(() => {
+    setTimeout(() => {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
     }, 50);
-    return () => clearTimeout(scrollTimer);
   }, [messages]);
 
   useEffect(() => {
@@ -794,15 +699,17 @@ export default function Dashboard() {
   const handleSendMessage = useCallback(async () => {
     const currentText = textareaRef.current?.value || "";
     const trimmed = currentText.trim();
-    
+
+    // 1. SYSTEM GUARD: EMPTY OR PENDING
     if (isPending || trimmed.length === 0) {
       if (trimmed.length === 0 && textareaRef.current) {
-        textareaRef.current.classList.add('animate-shake');
-        setTimeout(() => textareaRef.current?.classList.remove('animate-shake'), 500);
+        textareaRef.current.classList.add("animate-shake");
+        setTimeout(() => textareaRef.current?.classList.remove("animate-shake"), 500);
       }
       return;
     }
 
+    // 2. IDENTITY GUARD: 403 PREVENTION
     if (!userId) {
       console.error("MISSION ABORTED: No User ID found.");
       setErrorMessage("Please sign in to save your progress.");
@@ -816,42 +723,50 @@ export default function Dashboard() {
     }
     const controller = new AbortController();
     currentAbortControllerRef.current = controller;
-    
+
     const userMessage = trimmed;
     const aiMsgIndex = messages.length + 1;
-    
+
     if (textareaRef.current) textareaRef.current.value = "";
     setErrorMessage(null);
-    setMessages(prev => [...prev, 
-      { role: 'user', text: userMessage },
-      { role: 'ai', text: "Neural Architect: Processing blueprint..." }
+    setMessages((prev) => [
+      ...prev,
+      { role: "user", text: userMessage },
+      { role: "ai", text: "Neural Architect: Processing blueprint..." },
     ]);
 
+    // ─── THE VAULT SAVE PROTOCOL ───────────────────────────────────────────────
     let missionToUpdateId = activeMissionId;
-    let savedResponse: string | null = null;
 
     try {
       if (missionToUpdateId) {
         console.log("TITAN: Updating existing mission:", missionToUpdateId);
-        await supabase.from("missions").update({
-          prompt: userMessage,
-          updated_at: new Date().toISOString(),
-        }).eq("id", missionToUpdateId).eq("user_id", userId);
+        await supabase
+          .from("missions")
+          .update({
+            directive: userMessage,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", missionToUpdateId)
+          .eq("user_id", userId);
       } else {
         console.log("TITAN: Vaulting new mission for:", userId);
-        const { data: savedMission, error: saveError } = await supabase.from("missions").insert({
-          user_id: userId,
-          prompt: userMessage,
-          status: "recently",
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        }).select().single();
+        const { data: savedMission, error: saveError } = await supabase
+          .from("missions")
+          .insert({
+            user_id: userId,
+            directive: userMessage,
+            status: "recently",
+            created_at: new Date().toISOString(),
+          })
+          .select()
+          .single();
 
         if (saveError) throw saveError;
 
         if (savedMission) {
           console.log("TITAN: Vault Success. ID:", savedMission.id);
-          setMissions(prev => [savedMission as Mission, ...prev]);
+          setMissions((prev) => [savedMission as Mission, ...prev]);
           setActiveMissionId(savedMission.id);
           missionToUpdateId = savedMission.id;
         }
@@ -859,16 +774,17 @@ export default function Dashboard() {
     } catch (err: any) {
       console.error("VAULT SYNC ERROR:", err.message);
     }
+    // ─────────────────────────────────────────────────────────────────────────────
 
     const timeoutPromise = new Promise((_, reject) => {
       setTimeout(() => reject(new Error("Connection timeout after 12s")), 12000);
     });
 
     try {
-      const result = await Promise.race([
+      const result = (await Promise.race([
         supabase.functions.invoke("generate-business-plan", {
-          body: { 
-            prompt: userMessage, 
+          body: {
+            prompt: userMessage,
             model: selectedModel,
             style: activeStyle,
             webSearch: webSearchActive,
@@ -877,46 +793,28 @@ export default function Dashboard() {
           signal: controller.signal,
         }),
         timeoutPromise,
-      ]) as { data: any; error: any };
+      ])) as { data: any; error: any };
 
       if (result.error) throw new Error(result.error.message || "Link Failed");
 
       const outputText = result.data?.plan || result.data?.response || `Blueprint ready for: "${userMessage}"`;
-      savedResponse = outputText;
 
-      setMessages(prev => {
+      setMessages((prev) => {
         const updated = [...prev];
         if (updated[aiMsgIndex]) {
           updated[aiMsgIndex] = { ...updated[aiMsgIndex], text: outputText };
         }
         return updated;
       });
-
-      // CRITICAL FIX: Update mission with response text
-      if (missionToUpdateId) {
-        await supabase
-          .from("missions")
-          .update({ 
-            response: outputText,
-            updated_at: new Date().toISOString(),
-            status: "completed"
-          })
-          .eq("id", missionToUpdateId)
-          .eq("user_id", userId);
-        
-        // Refresh missions list
-        fetchMissions();
-      }
-
     } catch (error) {
       console.error("Execution Error:", error);
-      setMessages(prev => {
+      setMessages((prev) => {
         const updated = [...prev];
         if (updated[aiMsgIndex]) {
-          updated[aiMsgIndex] = { 
-            ...updated[aiMsgIndex], 
+          updated[aiMsgIndex] = {
+            ...updated[aiMsgIndex],
             text: "SYSTEM ERROR: Link failed. Directive stored locally.",
-            isSimulation: true 
+            isSimulation: true,
           };
         }
         return updated;
@@ -929,86 +827,95 @@ export default function Dashboard() {
         window.scrollTo(0, document.body.scrollHeight);
       }, 250);
     }
-  }, [isPending, messages.length, selectedModel, userId, activeStyle, webSearchActive, activeMissionId, fetchMissions]);
+  }, [isPending, messages.length, selectedModel, userId, activeStyle, webSearchActive, activeMissionId]);
 
   // ─── INPUT TRIGGERS ────────────────────────────────────────────────────────
-  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSendMessage();
-    }
-  }, [handleSendMessage]);
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        handleSendMessage();
+      }
+    },
+    [handleSendMessage],
+  );
 
-  const handleSendPointerDown = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
-    e.preventDefault();
-    const currentText = textareaRef.current?.value || "";
-    if (currentText.trim() && !isPending) {
-      handleSendMessage();
-    }
-  }, [isPending, handleSendMessage]);
+  const handleSendPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      const currentText = textareaRef.current?.value || "";
+      if (currentText.trim() && !isPending) {
+        handleSendMessage();
+      }
+    },
+    [isPending, handleSendMessage],
+  );
 
   const handleSignOut = useCallback(async () => {
     setLogoutModalOpen(false);
     await supabase.auth.signOut();
     navigate("/");
   }, [navigate]);
-  
   // ─── THE MANUAL SIDEBAR LIFECYCLE ───────────────────────────────────────────
-  const handleUpdateMissionStatus = useCallback(async (missionId: string, newStatus: MissionStatus) => {
-    if (!userId) return;
-    const { error } = await supabase
-      .from("missions")
-      .update({ status: newStatus })
-      .eq("id", missionId)
-      .eq("user_id", userId);
-      
-    if (!error) {
-      setMissions(prev => prev.map(m => m.id === missionId ? { ...m, status: newStatus } : m));
-      
-      if (newStatus === "trashed" && activeMissionId === missionId) {
-        setActiveMissionId(null);
-        setMessages([]);
+
+  const handleUpdateMissionStatus = useCallback(
+    async (missionId: string, newStatus: MissionStatus) => {
+      if (!userId) return;
+      const { error } = await supabase
+        .from("missions")
+        .update({ status: newStatus })
+        .eq("id", missionId)
+        .eq("user_id", userId);
+
+      if (!error) {
+        setMissions((prev) => prev.map((m) => (m.id === missionId ? { ...m, status: newStatus } : m)));
+
+        if (newStatus === "trashed" && activeMissionId === missionId) {
+          setActiveMissionId(null);
+          setMessages([]);
+        }
       }
-    }
-  }, [userId, activeMissionId]);
+    },
+    [userId, activeMissionId],
+  );
 
-  const handleRestoreMission = useCallback(async (mission: Mission) => {
-    await handleUpdateMissionStatus(mission.id, "recently");
-    if (textareaRef.current) textareaRef.current.value = mission.prompt || "";
-    setActiveNav("Home");
-    setShowSettings(false);
-    
-    const toastEl = document.createElement("div");
-    toastEl.textContent = "✓ Mission Restored to Feed";
-    toastEl.style.cssText = "position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:100;padding:8px 20px;border-radius:8px;font-size:12px;font-family:monospace;font-weight:bold;color:#020617;background:#50C878;box-shadow:0 0 20px rgba(80,200,120,0.5);";
-    document.body.appendChild(toastEl);
-    setTimeout(() => toastEl.remove(), 2500);
-  }, [handleUpdateMissionStatus]);
+  const handleRestoreMission = useCallback(
+    async (mission: Mission) => {
+      await handleUpdateMissionStatus(mission.id, "recently");
+      if (textareaRef.current) textareaRef.current.value = mission.directive || "";
+      setActiveNav("Home");
+      setShowSettings(false);
 
-  const handleDeleteMissionPermanently = useCallback(async (missionId: string) => {
-    if (!userId) return;
-    const { error } = await supabase
-      .from("missions")
-      .delete()
-      .eq("id", missionId)
-      .eq("user_id", userId);
-    if (!error) {
-      setMissions(prev => prev.filter(m => m.id !== missionId));
-    }
-  }, [userId]);
+      // Emerald Toast Notification
+      const toastEl = document.createElement("div");
+      toastEl.textContent = "✓ Mission Restored to Feed";
+      toastEl.style.cssText =
+        "position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:100;padding:8px 20px;border-radius:8px;font-size:12px;font-family:monospace;font-weight:bold;color:#020617;background:#50C878;box-shadow:0 0 20px rgba(80,200,120,0.5);";
+      document.body.appendChild(toastEl);
+      setTimeout(() => toastEl.remove(), 2500);
+    },
+    [handleUpdateMissionStatus],
+  );
+
+  const handleDeleteMissionPermanently = useCallback(
+    async (missionId: string) => {
+      if (!userId) return;
+      const { error } = await supabase.from("missions").delete().eq("id", missionId).eq("user_id", userId);
+      if (!error) {
+        setMissions((prev) => prev.filter((m) => m.id !== missionId));
+      }
+    },
+    [userId],
+  );
 
   const handleLoadMission = useCallback((mission: Mission) => {
     setActiveMissionId(mission.id);
     setActiveNav("Home");
     setShowSettings(false);
-    setMessages([{ role: "user", text: mission.prompt || "" }]);
-    if (mission.response) {
-      setMessages(prev => [...prev, { role: "ai", text: mission.response || "" }]);
-    }
+    setMessages([{ role: "user", text: mission.directive || "" }]);
     if (textareaRef.current) textareaRef.current.value = "";
     setTimeout(() => textareaRef.current?.focus(), 50);
   }, []);
-
   // ── Lifecycle modal: open / confirm ─────────────────────────────────────────────
   const openLifecycleModal = useCallback((mission: Mission) => {
     setLifecycleTarget(mission);
@@ -1026,26 +933,21 @@ export default function Dashboard() {
     const action = lifecycleChoice;
 
     if (action === "removed") {
-      const { error } = await supabase
-        .from("missions")
-        .delete()
-        .eq("id", target.id)
-        .eq("user_id", userId);
-      if (!error) setMissions(prev => prev.filter(m => m.id !== target.id));
+      const { error } = await supabase.from("missions").delete().eq("id", target.id).eq("user_id", userId);
+      if (!error) setMissions((prev) => prev.filter((m) => m.id !== target.id));
     } else {
-      const newStatus: MissionStatus = action === "trashed" ? "trashed" : "archived";
+      const newStatus: MissionStatus = action; // "trashed" | "archived"
       const { error } = await supabase
         .from("missions")
         .update({ status: newStatus })
         .eq("id", target.id)
         .eq("user_id", userId);
       if (!error) {
-        setMissions(prev =>
-          prev.map(m => (m.id === target.id ? { ...m, status: newStatus } : m)),
-        );
+        setMissions((prev) => prev.map((m) => (m.id === target.id ? { ...m, status: newStatus } : m)));
       }
     }
 
+    // Cleanup: if user is currently viewing this mission on Home, navigate away
     if (activeMissionId === target.id) {
       setActiveMissionId(null);
       setMessages([]);
@@ -1060,149 +962,302 @@ export default function Dashboard() {
   }, [lifecycleTarget, lifecycleChoice, userId, activeMissionId, activeNav, closeLifecycleModal]);
 
   // ─── Render Components ──────────────────────────────────────────────────────────
-  
-  const renderNavItem = useCallback((item: typeof NAV_ITEMS[number]) => {
-    const Icon = item.icon;
-    const isActive = activeNav === item.label && !showSettings;
-    const isSettingsActive = item.label === "Settings" && showSettings;
-    const itemTheme = SECTION_THEMES[item.label] || SECTION_THEMES["Home"];
-    return (
-      <motion.button
-        key={item.label}
-        onClick={() => handleNavClick(item.label)}
-        title={item.label}
-        className="w-10 h-10 flex items-center justify-center rounded-xl transition-all duration-200 relative group"
-        whileHover={{ scale: 1.05, backgroundColor: "rgba(255,255,255,0.05)" }}
-        whileTap={{ scale: 0.95 }}
-      >
-        {(isActive || isSettingsActive) && (
-          <motion.div
-            layoutId="nav-active-bg"
-            className="absolute inset-0 rounded-xl"
-            style={{ background: itemTheme.gradient, opacity: 0.1 }}
-            transition={springTransition}
-          />
-        )}
-        <Icon
-          size={18}
-          className="relative z-10 transition-colors duration-200"
-          style={{
-            color: isActive || isSettingsActive ? itemTheme.color : "rgba(255,255,255,0.4)",
-          }}
-        />
-      </motion.button>
-    );
-  }, [activeNav, showSettings, handleNavClick]);
 
-  const renderMissionItem = useCallback((mission: Mission, index: number) => (
-    <motion.div
-      key={mission.id}
-      variants={itemVariants}
-      whileHover={{ scale: 1.01, backgroundColor: "rgba(255,255,255,0.03)" }}
-      className="group flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer transition-all duration-200"
-      style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
-    >
-      <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.1)` }}>
-        <Zap size={14} style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.7)` }} />
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-[13px] font-medium truncate line-clamp-2" style={{ color: "var(--nazai-text-color)" }}>
-          {mission.prompt?.slice(0, 80) || "Untitled Blueprint"}
-        </p>
-        {mission.response && (
-          <p className="text-[10px] font-mono mt-1 line-clamp-2" style={{ color: '#50C878' }}>
-            {mission.response.slice(0, 100)}...
+  const renderNavItem = useCallback(
+    (item: (typeof NAV_ITEMS)[number]) => {
+      const Icon = item.icon;
+      const isActive = activeNav === item.label && !showSettings;
+      const isSettingsActive = item.label === "Settings" && showSettings;
+      const itemTheme = SECTION_THEMES[item.label] || SECTION_THEMES["Home"];
+      return (
+        <motion.button
+          key={item.label}
+          onClick={() => handleNavClick(item.label)}
+          title={item.label}
+          className="w-10 h-10 flex items-center justify-center rounded-xl transition-all duration-200 relative group"
+          whileHover={{ scale: 1.05, backgroundColor: "rgba(255,255,255,0.05)" }}
+          whileTap={{ scale: 0.95 }}
+        >
+          {(isActive || isSettingsActive) && (
+            <motion.div
+              layoutId="nav-active-bg"
+              className="absolute inset-0 rounded-xl"
+              style={{ background: itemTheme.gradient, opacity: 0.1 }}
+              transition={springTransition}
+            />
+          )}
+          <Icon
+            size={18}
+            className="relative z-10 transition-colors duration-200"
+            style={{
+              color: isActive || isSettingsActive ? itemTheme.color : "rgba(255,255,255,0.4)",
+            }}
+          />
+        </motion.button>
+      );
+    },
+    [activeNav, showSettings, handleNavClick],
+  );
+
+  const renderMissionItem = useCallback(
+    (mission: Mission, index: number) => (
+      <motion.div
+        key={mission.id}
+        variants={itemVariants}
+        whileHover={{ scale: 1.01, backgroundColor: "rgba(255,255,255,0.03)" }}
+        className="group flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer transition-all duration-200"
+        style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
+      >
+        <div
+          className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+          style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.1)` }}
+        >
+          <Zap size={14} style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.7)` }} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-[13px] font-medium truncate" style={{ color: "var(--nazai-text-color)" }}>
+            {mission.directive?.slice(0, 80) || "Untitled Blueprint"}
           </p>
-        )}
-        <p className="text-[9px] font-mono mt-1 text-white/30">
-          {formatDistanceToNow(new Date(mission.created_at), { addSuffix: true })}
-        </p>
-      </div>
-      <ChevronRight size={14} className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-white/30" />
-    </motion.div>
-  ), [auraProfile.glowPrimary]);
+          <p className="text-[10px] font-mono mt-0.5 text-white/40">
+            {formatDistanceToNow(new Date(mission.created_at), { addSuffix: true })}
+          </p>
+        </div>
+        <ChevronRight
+          size={14}
+          className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-white/30"
+        />
+      </motion.div>
+    ),
+    [auraProfile.glowPrimary],
+  );
 
   // Settings View
   const SettingsView = () => (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={springTransition} className="flex-1 overflow-y-auto px-6 py-8">
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={springTransition}
+      className="flex-1 overflow-y-auto px-6 py-8"
+    >
       <div className="max-w-4xl mx-auto">
         <div className="text-center mb-10">
-          <h1 className="text-5xl font-black uppercase tracking-tighter font-mono" style={{ background: `linear-gradient(135deg, ${auraProfile.glowPrimary}, ${auraProfile.glowSecondary})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
+          <h1
+            className="text-5xl font-black uppercase tracking-tighter font-mono"
+            style={{
+              background: `linear-gradient(135deg, ${auraProfile.glowPrimary}, ${auraProfile.glowSecondary})`,
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+            }}
+          >
             AURA STUDIO
           </h1>
-          <p className="text-[10px] tracking-[0.3em] uppercase font-mono text-white/40 mt-3">DESIGN SYSTEM // REAL-TIME</p>
+          <p className="text-[10px] tracking-[0.3em] uppercase font-mono text-white/40 mt-3">
+            DESIGN SYSTEM // REAL-TIME
+          </p>
         </div>
 
-        <motion.div variants={containerVariants} initial="hidden" animate="visible" className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <motion.div variants={itemVariants} className="md:col-span-2 p-5 rounded-xl" style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}>
-            <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 font-mono" style={{ color: auraProfile.glowPrimary }}><Palette size={16} /> CHROMATIC CORE</h3>
+        <motion.div
+          variants={containerVariants}
+          initial="hidden"
+          animate="visible"
+          className="grid grid-cols-1 md:grid-cols-2 gap-4"
+        >
+          <motion.div
+            variants={itemVariants}
+            className="md:col-span-2 p-5 rounded-xl"
+            style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
+          >
+            <h3
+              className="text-sm font-semibold mb-3 flex items-center gap-2 font-mono"
+              style={{ color: auraProfile.glowPrimary }}
+            >
+              <Palette size={16} /> CHROMATIC CORE
+            </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="text-[9px] font-mono block mb-1 text-white/40">PRIMARY GLOW</label>
                 <div className="flex items-center gap-2">
-                  <div className="w-10 h-10 rounded-xl" style={{ background: auraProfile.glowPrimary, boxShadow: `0 0 15px ${auraProfile.glowPrimary}` }} />
-                  <input type="color" value={auraProfile.glowPrimary} onChange={(e) => updateAuraProfile({ glowPrimary: e.target.value })} className="w-16 h-9 rounded bg-transparent border border-white/20 cursor-pointer" />
-                  <input type="text" value={auraProfile.glowPrimary} onChange={(e) => updateAuraProfile({ glowPrimary: e.target.value })} className="flex-1 px-2 py-1.5 rounded text-xs bg-white/5 border border-white/10 font-mono" style={{ color: "var(--nazai-text-color)" }} />
+                  <div
+                    className="w-10 h-10 rounded-xl"
+                    style={{ background: auraProfile.glowPrimary, boxShadow: `0 0 15px ${auraProfile.glowPrimary}` }}
+                  />
+                  <input
+                    type="color"
+                    value={auraProfile.glowPrimary}
+                    onChange={(e) => updateAuraProfile({ glowPrimary: e.target.value })}
+                    className="w-16 h-9 rounded bg-transparent border border-white/20 cursor-pointer"
+                  />
+                  <input
+                    type="text"
+                    value={auraProfile.glowPrimary}
+                    onChange={(e) => updateAuraProfile({ glowPrimary: e.target.value })}
+                    className="flex-1 px-2 py-1.5 rounded text-xs bg-white/5 border border-white/10 font-mono"
+                    style={{ color: "var(--nazai-text-color)" }}
+                  />
                 </div>
               </div>
               <div>
                 <label className="text-[9px] font-mono block mb-1 text-white/40">SECONDARY GLOW</label>
                 <div className="flex items-center gap-2">
-                  <div className="w-10 h-10 rounded-xl" style={{ background: auraProfile.glowSecondary, boxShadow: `0 0 15px ${auraProfile.glowSecondary}` }} />
-                  <input type="color" value={auraProfile.glowSecondary} onChange={(e) => updateAuraProfile({ glowSecondary: e.target.value })} className="w-16 h-9 rounded bg-transparent border border-white/20 cursor-pointer" />
-                  <input type="text" value={auraProfile.glowSecondary} onChange={(e) => updateAuraProfile({ glowSecondary: e.target.value })} className="flex-1 px-2 py-1.5 rounded text-xs bg-white/5 border border-white/10 font-mono" style={{ color: "var(--nazai-text-color)" }} />
+                  <div
+                    className="w-10 h-10 rounded-xl"
+                    style={{
+                      background: auraProfile.glowSecondary,
+                      boxShadow: `0 0 15px ${auraProfile.glowSecondary}`,
+                    }}
+                  />
+                  <input
+                    type="color"
+                    value={auraProfile.glowSecondary}
+                    onChange={(e) => updateAuraProfile({ glowSecondary: e.target.value })}
+                    className="w-16 h-9 rounded bg-transparent border border-white/20 cursor-pointer"
+                  />
+                  <input
+                    type="text"
+                    value={auraProfile.glowSecondary}
+                    onChange={(e) => updateAuraProfile({ glowSecondary: e.target.value })}
+                    className="flex-1 px-2 py-1.5 rounded text-xs bg-white/5 border border-white/10 font-mono"
+                    style={{ color: "var(--nazai-text-color)" }}
+                  />
                 </div>
               </div>
             </div>
           </motion.div>
 
-          <motion.div variants={itemVariants} className="p-5 rounded-xl" style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}>
-            <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 font-mono" style={{ color: auraProfile.glowPrimary }}><Sliders size={16} /> ATMOSPHERIC</h3>
+          <motion.div
+            variants={itemVariants}
+            className="p-5 rounded-xl"
+            style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
+          >
+            <h3
+              className="text-sm font-semibold mb-3 flex items-center gap-2 font-mono"
+              style={{ color: auraProfile.glowPrimary }}
+            >
+              <Sliders size={16} /> ATMOSPHERIC
+            </h3>
             <div className="space-y-4">
               <div>
-                <div className="flex justify-between text-[9px] font-mono text-white/40 mb-1"><span>TEXT GLOW</span><span>{auraProfile.textGlowIntensity.toFixed(2)}</span></div>
-                <input type="range" min="0" max="1" step="0.01" value={auraProfile.textGlowIntensity} onChange={(e) => updateAuraProfile({ textGlowIntensity: parseFloat(e.target.value) })} className="w-full h-1 rounded-full" style={{ background: `linear-gradient(90deg, ${auraProfile.glowPrimary}, ${auraProfile.glowSecondary})` }} />
+                <div className="flex justify-between text-[9px] font-mono text-white/40 mb-1">
+                  <span>TEXT GLOW</span>
+                  <span>{auraProfile.textGlowIntensity.toFixed(2)}</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={auraProfile.textGlowIntensity}
+                  onChange={(e) => updateAuraProfile({ textGlowIntensity: parseFloat(e.target.value) })}
+                  className="w-full h-1 rounded-full"
+                  style={{
+                    background: `linear-gradient(90deg, ${auraProfile.glowPrimary}, ${auraProfile.glowSecondary})`,
+                  }}
+                />
               </div>
               <div>
-                <div className="flex justify-between text-[9px] font-mono text-white/40 mb-1"><span>GLASS BLUR</span><span>{auraProfile.glassBlur}px</span></div>
-                <input type="range" min="0" max="40" step="1" value={auraProfile.glassBlur} onChange={(e) => updateAuraProfile({ glassBlur: parseInt(e.target.value) })} className="w-full h-1 rounded-full" style={{ background: `linear-gradient(90deg, ${auraProfile.glowPrimary}, ${auraProfile.glowSecondary})` }} />
+                <div className="flex justify-between text-[9px] font-mono text-white/40 mb-1">
+                  <span>GLASS BLUR</span>
+                  <span>{auraProfile.glassBlur}px</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="40"
+                  step="1"
+                  value={auraProfile.glassBlur}
+                  onChange={(e) => updateAuraProfile({ glassBlur: parseInt(e.target.value) })}
+                  className="w-full h-1 rounded-full"
+                  style={{
+                    background: `linear-gradient(90deg, ${auraProfile.glowPrimary}, ${auraProfile.glowSecondary})`,
+                  }}
+                />
               </div>
             </div>
           </motion.div>
 
-          <motion.div variants={itemVariants} className="p-5 rounded-xl flex items-center justify-between" style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}>
+          <motion.div
+            variants={itemVariants}
+            className="p-5 rounded-xl flex items-center justify-between"
+            style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
+          >
             <div className="flex items-center gap-2">
-              {auraProfile.isLightMode ? <Sun size={18} style={{ color: auraProfile.glowPrimary }} /> : <Moon size={18} style={{ color: auraProfile.glowPrimary }} />}
-              <div><div className="text-sm font-semibold font-mono">Frosted Quartz</div><div className="text-[9px] font-mono text-white/40">{auraProfile.isLightMode ? "LIGHT" : "DARK"}</div></div>
+              {auraProfile.isLightMode ? (
+                <Sun size={18} style={{ color: auraProfile.glowPrimary }} />
+              ) : (
+                <Moon size={18} style={{ color: auraProfile.glowPrimary }} />
+              )}
+              <div>
+                <div className="text-sm font-semibold font-mono">Frosted Quartz</div>
+                <div className="text-[9px] font-mono text-white/40">{auraProfile.isLightMode ? "LIGHT" : "DARK"}</div>
+              </div>
             </div>
             <Switch checked={auraProfile.isLightMode} onCheckedChange={toggleLightMode} />
           </motion.div>
 
-          <motion.div variants={itemVariants} className="p-5 rounded-xl text-center" style={{ background: "var(--nazai-card-bg)", border: `1px solid ${auraProfile.glowPrimary}30` }}>
-            <p className="text-xs font-mono font-bold" style={{ color: "var(--nazai-text-color)", textShadow: `0 0 ${auraProfile.textGlowIntensity * 8}px ${auraProfile.glowPrimary}` }}>NEURAL ARCHITECT:// AURA ACTIVE</p>
+          <motion.div
+            variants={itemVariants}
+            className="p-5 rounded-xl text-center"
+            style={{ background: "var(--nazai-card-bg)", border: `1px solid ${auraProfile.glowPrimary}30` }}
+          >
+            <p
+              className="text-xs font-mono font-bold"
+              style={{
+                color: "var(--nazai-text-color)",
+                textShadow: `0 0 ${auraProfile.textGlowIntensity * 8}px ${auraProfile.glowPrimary}`,
+              }}
+            >
+              NEURAL ARCHITECT:// AURA ACTIVE
+            </p>
             <div className="flex justify-center gap-2 mt-2">
-              <div className="w-6 h-6 rounded-full" style={{ background: auraProfile.glowPrimary, boxShadow: `0 0 12px ${auraProfile.glowPrimary}` }} />
-              <div className="w-6 h-6 rounded-full" style={{ background: auraProfile.glowSecondary, boxShadow: `0 0 12px ${auraProfile.glowSecondary}` }} />
+              <div
+                className="w-6 h-6 rounded-full"
+                style={{ background: auraProfile.glowPrimary, boxShadow: `0 0 12px ${auraProfile.glowPrimary}` }}
+              />
+              <div
+                className="w-6 h-6 rounded-full"
+                style={{ background: auraProfile.glowSecondary, boxShadow: `0 0 12px ${auraProfile.glowSecondary}` }}
+              />
             </div>
           </motion.div>
 
           <motion.div variants={itemVariants} className="md:col-span-2">
-            <motion.button onClick={resetAuraToDefault} className="w-full py-2.5 rounded-xl text-sm font-medium flex items-center justify-center gap-2 transition-all" style={{ background: "rgba(239,68,68,0.05)", border: "1px solid rgba(239,68,68,0.2)", color: "#ef4444" }} whileHover={{ scale: 1.01, background: "rgba(239,68,68,0.1)" }} whileTap={{ scale: 0.99 }}>
+            <motion.button
+              onClick={resetAuraToDefault}
+              className="w-full py-2.5 rounded-xl text-sm font-medium flex items-center justify-center gap-2 transition-all"
+              style={{ background: "rgba(239,68,68,0.05)", border: "1px solid rgba(239,68,68,0.2)", color: "#ef4444" }}
+              whileHover={{ scale: 1.01, background: "rgba(239,68,68,0.1)" }}
+              whileTap={{ scale: 0.99 }}
+            >
               <RotateCcw size={14} /> RESET TO DEFAULT
             </motion.button>
           </motion.div>
         </motion.div>
 
-        <motion.button initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }} onClick={() => setShowSettings(false)} className="mt-6 w-full py-2.5 rounded-xl text-sm font-medium transition-all" style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.05)`, border: `1px solid ${auraProfile.glowPrimary}20`, color: auraProfile.glowPrimary }} whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.99 }}>
+        <motion.button
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.3 }}
+          onClick={() => setShowSettings(false)}
+          className="mt-6 w-full py-2.5 rounded-xl text-sm font-medium transition-all"
+          style={{
+            background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.05)`,
+            border: `1px solid ${auraProfile.glowPrimary}20`,
+            color: auraProfile.glowPrimary,
+          }}
+          whileHover={{ scale: 1.01 }}
+          whileTap={{ scale: 0.99 }}
+        >
           ← RETURN TO DASHBOARD
         </motion.button>
       </div>
     </motion.div>
   );
 
-  // Home View
+  // Home View with TITAN V24 GLOW UPGRADE
   const HomeView = () => (
     <div className="flex flex-col w-full h-full">
+      {/* Error Toast */}
       <AnimatePresence>
         {errorMessage && (
           <motion.div
@@ -1218,49 +1273,84 @@ export default function Dashboard() {
         )}
       </AnimatePresence>
 
+      {/* Scrollable Messages Area */}
       <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto py-6 space-y-3 px-4 pb-[120px]">
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full gap-6 text-center">
             <div className="relative">
-              <div className="absolute inset-0 rounded-full animate-pulse" style={{ 
-                boxShadow: `0 0 30px rgba(6, 182, 212, 0.6)`,
-                background: 'radial-gradient(circle, rgba(6,182,212,0.2) 0%, transparent 70%)'
-              }} />
+              <div
+                className="absolute inset-0 rounded-full animate-pulse"
+                style={{
+                  boxShadow: `0 0 30px rgba(6, 182, 212, 0.6)`,
+                  background: "radial-gradient(circle, rgba(6,182,212,0.2) 0%, transparent 70%)",
+                }}
+              />
               <div className="w-16 h-16 rounded-full border-2 border-cyan-500/50 flex items-center justify-center relative bg-cyan-500/5">
-                <div className="absolute inset-0 rounded-full animate-ping opacity-75" style={{ background: 'rgba(6, 182, 212, 0.3)' }} />
-                <div className="w-3 h-3 rounded-full bg-cyan-500 animate-pulse" style={{ boxShadow: '0 0 10px #06b6d4' }} />
+                <div
+                  className="absolute inset-0 rounded-full animate-ping opacity-75"
+                  style={{ background: "rgba(6, 182, 212, 0.3)" }}
+                />
+                <div
+                  className="w-3 h-3 rounded-full bg-cyan-500 animate-pulse"
+                  style={{ boxShadow: "0 0 10px #06b6d4" }}
+                />
               </div>
             </div>
             <div className="space-y-2">
-              <p className="text-sm font-mono tracking-wide text-white font-bold" style={{ 
-                textShadow: '0 0 15px rgba(6, 182, 212, 0.8)',
-                color: '#e2e8f0'
-              }}>
+              <p
+                className="text-sm font-mono tracking-wide text-white font-bold"
+                style={{
+                  textShadow: "0 0 15px rgba(6, 182, 212, 0.8)",
+                  color: "#e2e8f0",
+                }}
+              >
                 SYSTEM: READY TO EXECUTE
               </p>
               <p className="text-[10px] font-mono text-cyan-400/60 tracking-wider">
-                Neural Link Established // DEPLOYMENT_V25
+                Neural Link Established // DEPLOYMENT_V24
               </p>
             </div>
           </div>
         )}
         {messages.map((msg, i) => (
-          <motion.div key={i} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+          <motion.div
+            key={i}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+          >
             {msg.role === "user" ? (
-              <div className="max-w-[78%] px-3 py-2 text-xs font-mono" style={{ borderRadius: "12px 12px 2px 12px", background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.05)`, border: `1px solid var(--nazai-border-light)`, color: "var(--nazai-text-color)" }}>
+              <div
+                className="max-w-[78%] px-3 py-2 text-xs font-mono"
+                style={{
+                  borderRadius: "12px 12px 2px 12px",
+                  background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.05)`,
+                  border: `1px solid var(--nazai-border-light)`,
+                  color: "var(--nazai-text-color)",
+                }}
+              >
                 {msg.text}
               </div>
             ) : (
-              <div className="max-w-[85%] rounded-xl overflow-hidden" style={{ background: '#0B1F3A', border: '1px solid rgba(255,255,255,0.1)' }}>
-                <div className="flex items-center gap-2 px-3 py-2" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(6,182,212,0.03)' }}>
-                  <Brain size={12} style={{ color: '#06b6d4' }} />
-                  <span className="text-[9px] font-mono font-bold tracking-wider" style={{ color: '#06b6d4', textShadow: '0 0 6px rgba(6,182,212,0.4)' }}>
+              <div
+                className="max-w-[85%] rounded-xl overflow-hidden"
+                style={{ background: "#0B1F3A", border: "1px solid rgba(255,255,255,0.1)" }}
+              >
+                {/* Terminal Header */}
+                <div
+                  className="flex items-center gap-2 px-3 py-2"
+                  style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", background: "rgba(6,182,212,0.03)" }}
+                >
+                  <Brain size={12} style={{ color: "#06b6d4" }} />
+                  <span
+                    className="text-[9px] font-mono font-bold tracking-wider"
+                    style={{ color: "#06b6d4", textShadow: "0 0 6px rgba(6,182,212,0.4)" }}
+                  >
                     NEURAL ARCHITECT // MISSION_RESULT.LOG
                   </span>
                 </div>
-                <div className="px-3 py-2.5">
-                  {formatAIResponse(msg.text)}
-                </div>
+                {/* Content */}
+                <div className="px-3 py-2.5">{formatAIResponse(msg.text)}</div>
               </div>
             )}
           </motion.div>
@@ -1268,29 +1358,65 @@ export default function Dashboard() {
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Selected Engine Badge */}
       {activeTool && (
         <div className="w-full max-w-2xl mx-auto mb-2 flex justify-end px-4 relative z-[101]">
-          <span className="text-[9px] px-2 py-1 rounded-full flex items-center gap-1 font-mono" style={{ background: `rgba(${activeTool.category.glowRgba},0.1)`, border: `1px solid rgba(${activeTool.category.glowRgba},0.2)`, color: activeTool.category.color }}>
-            {activeTool.tool.name} <X size={10} className="cursor-pointer hover:opacity-70 transition-opacity" onClick={() => setSelectedModel(null)} />
+          <span
+            className="text-[9px] px-2 py-1 rounded-full flex items-center gap-1 font-mono"
+            style={{
+              background: `rgba(${activeTool.category.glowRgba},0.1)`,
+              border: `1px solid rgba(${activeTool.category.glowRgba},0.2)`,
+              color: activeTool.category.color,
+            }}
+          >
+            {activeTool.tool.name}{" "}
+            <X
+              size={10}
+              className="cursor-pointer hover:opacity-70 transition-opacity"
+              onClick={() => setSelectedModel(null)}
+            />
           </span>
         </div>
       )}
     </div>
   );
 
-  // Folder View
+  // Folder View with Restore/Delete actions
   const isTrashOrArchive = activeNav === "Trash" || activeNav === "Archives";
   const FolderView = () => (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col w-full max-w-4xl flex-1 overflow-y-auto pt-4 pb-8 px-4">
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="flex flex-col w-full max-w-4xl flex-1 overflow-y-auto pt-4 pb-8 px-4"
+    >
       <div className="text-center mb-5">
-        <h1 className="text-3xl font-black uppercase tracking-tighter font-mono" style={{ background: currentTheme.gradient, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>{activeNav}</h1>
-        <p className="text-[8px] tracking-[0.3em] uppercase font-mono text-white/30 mt-2">SYSTEM_NODE // {activeNav.toUpperCase()}_TERMINAL</p>
+        <h1
+          className="text-3xl font-black uppercase tracking-tighter font-mono"
+          style={{
+            background: currentTheme.gradient,
+            WebkitBackgroundClip: "text",
+            WebkitTextFillColor: "transparent",
+          }}
+        >
+          {activeNav}
+        </h1>
+        <p className="text-[8px] tracking-[0.3em] uppercase font-mono text-white/30 mt-2">
+          SYSTEM_NODE // {activeNav.toUpperCase()}_TERMINAL
+        </p>
       </div>
       <motion.div variants={containerVariants} initial="hidden" animate="visible" className="space-y-2">
         {missionsLoading ? (
-          <div className="flex justify-center py-12"><div className="w-5 h-5 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.4)` }} /></div>
+          <div className="flex justify-center py-12">
+            <div
+              className="w-5 h-5 rounded-full border-2 border-t-transparent animate-spin"
+              style={{ borderColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.4)` }}
+            />
+          </div>
         ) : filteredMissions.length === 0 ? (
-          <div className="text-center py-12"><p className="text-[11px] font-mono text-white/30">No blueprints found in {activeNav.toLowerCase()}</p></div>
+          <div className="text-center py-12">
+            <p className="text-[11px] font-mono text-white/30">No blueprints found in {activeNav.toLowerCase()}</p>
+          </div>
         ) : (
           filteredMissions.map((mission, index) => (
             <motion.div
@@ -1299,28 +1425,29 @@ export default function Dashboard() {
               whileHover={{ scale: 1.01, backgroundColor: "rgba(255,255,255,0.03)" }}
               className="group flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer transition-all duration-200"
               style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
-              onClick={() => isTrashOrArchive ? handleRestoreMission(mission) : handleLoadMission(mission)}
+              onClick={() => (isTrashOrArchive ? handleRestoreMission(mission) : undefined)}
             >
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.1)` }}>
+              <div
+                className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+                style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.1)` }}
+              >
                 <Zap size={14} style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.7)` }} />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-[13px] font-medium truncate line-clamp-2" style={{ color: "var(--nazai-text-color)" }}>
-                  {mission.prompt?.slice(0, 80) || "Untitled Blueprint"}
+                <p className="text-[13px] font-medium truncate" style={{ color: "var(--nazai-text-color)" }}>
+                  {mission.directive?.slice(0, 80) || "Untitled Blueprint"}
                 </p>
-                {mission.response && (
-                  <p className="text-[10px] font-mono mt-1 line-clamp-2" style={{ color: '#50C878' }}>
-                    {mission.response.slice(0, 100)}...
-                  </p>
-                )}
-                <p className="text-[9px] font-mono mt-1 text-white/30">
+                <p className="text-[10px] font-mono mt-0.5 text-white/40">
                   {formatDistanceToNow(new Date(mission.created_at), { addSuffix: true })}
                 </p>
               </div>
               {isTrashOrArchive ? (
                 <div className="flex items-center gap-1 shrink-0">
                   <button
-                    onClick={(e) => { e.stopPropagation(); handleRestoreMission(mission); }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRestoreMission(mission);
+                    }}
                     className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-emerald-500/10 transition-all"
                     title="Restore"
                   >
@@ -1328,7 +1455,10 @@ export default function Dashboard() {
                   </button>
                   {activeNav === "Trash" && (
                     <button
-                      onClick={(e) => { e.stopPropagation(); handleDeleteMissionPermanently(mission.id); }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteMissionPermanently(mission.id);
+                      }}
                       className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-500/10 transition-all"
                       title="Delete Permanently"
                     >
@@ -1339,13 +1469,19 @@ export default function Dashboard() {
               ) : (
                 <div className="flex items-center gap-1 shrink-0">
                   <button
-                    onClick={(e) => { e.stopPropagation(); openLifecycleModal(mission); }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openLifecycleModal(mission);
+                    }}
                     className="w-7 h-7 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-white/10 transition-all"
                     title="Manage"
                   >
                     <MoreHorizontal size={14} className="text-white/60" />
                   </button>
-                  <ChevronRight size={14} className="opacity-0 group-hover:opacity-100 transition-opacity text-white/30" />
+                  <ChevronRight
+                    size={14}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity text-white/30"
+                  />
                 </div>
               )}
             </motion.div>
@@ -1357,649 +1493,764 @@ export default function Dashboard() {
 
   // ─── Main Render ────────────────────────────────────────────────────────────────
   return (
-    <>
-      <NazAISplash isLoading={isInitialLoading} />
-      
-      <motion.div
-        className="flex h-screen w-screen overflow-hidden font-sans"
-        style={{ background: "var(--nazai-bg-base)", color: "var(--nazai-text-color)" }}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: isInitialLoading ? 0 : 1 }}
-        transition={{ duration: 0.8, ease: "easeInOut" }}
+    <div
+      className="flex h-screen w-screen overflow-hidden font-sans"
+      style={{ background: "var(--nazai-bg-base)", color: "var(--nazai-text-color)" }}
+    >
+      <input ref={fileInputRef} type="file" multiple className="hidden" />
+
+      {/* Sidebar — Open Chat Feed Layout */}
+      <motion.aside
+        animate={{ width: sidebarCollapsed ? 0 : 260 }}
+        transition={{ duration: 0.25 }}
+        className="flex flex-col shrink-0 overflow-hidden z-20"
+        style={{
+          borderRight: `1px solid var(--nazai-border-light)`,
+          background: "#0B1F3A",
+        }}
       >
-        <input ref={fileInputRef} type="file" multiple className="hidden" />
-
-        {/* Sidebar */}
-        <motion.aside
-          animate={{ width: sidebarCollapsed ? 0 : 260 }}
-          transition={{ duration: 0.25 }}
-          className="flex flex-col shrink-0 overflow-hidden z-20"
-          style={{
-            borderRight: `1px solid var(--nazai-border-light)`,
-            background: "#0B1F3A",
-          }}
-        >
-          <div className="flex flex-col w-[260px] h-full">
-            <div className="flex items-center gap-2 px-4 pt-4 pb-3 shrink-0">
-              <Zap size={16} style={{ color: borderColor }} />
-              <span
-                className="text-[10px] font-mono font-black tracking-[0.2em]"
-                style={{ color: borderColor, textShadow: `0 0 8px ${borderColor}80` }}
-              >
-                NEURAL://
-              </span>
-            </div>
-
-            <div className="px-4 pb-4">
-              <button
-                onClick={() => {
-                  setMessages([]);
-                  setActiveMissionId(null);
-                  if (textareaRef.current) textareaRef.current.focus();
-                  setDrawerOpen(false);
-                }}
-                className="flex items-center gap-3 w-full p-3 rounded-xl transition-all duration-300 group relative overflow-hidden border border-white/5 bg-white/[0.03] hover:bg-white/[0.06]"
-              >
-                <div className="absolute inset-0 bg-glow-primary opacity-0 group-hover:opacity-5 transition-opacity" />
-                <div className="p-1.5 rounded-lg bg-white/5 group-hover:bg-glow-primary/20 transition-colors">
-                  <Plus size={16} className="text-white/70 group-hover:text-glow-primary transition-colors" />
-                </div>
-                <span className="text-[13px] font-semibold text-white/60 group-hover:text-white transition-colors">
-                  New chat
-                </span>
-              </button>
-            </div>
-
-            <div className="px-2 pb-2 shrink-0">
-              {TOP_NAV_ITEMS.map((item) => {
-                const Icon = item.icon;
-                const isActive = activeNav === item.label && !showSettings && !activeMissionId;
-                const itemTheme = SECTION_THEMES[item.label];
-                return (
-                  <button
-                    key={item.label}
-                    onClick={() => {
-                      setActiveMissionId(null);
-                      setMessages([]);
-                      handleNavClick(item.label);
-                    }}
-                    className="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all hover:bg-white/[0.04]"
-                    style={{
-                      background: isActive ? `${itemTheme.color}15` : "transparent",
-                    }}
-                  >
-                    <Icon
-                      size={15}
-                      style={{ color: isActive ? itemTheme.color : "rgba(255,255,255,0.5)" }}
-                    />
-                    <span
-                      className="text-[12px] font-medium"
-                      style={{ color: isActive ? itemTheme.color : "rgba(255,255,255,0.7)" }}
-                    >
-                      {item.label}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-
-            <button
-              onClick={() => setProjectsExpanded((v) => !v)}
-              className="flex items-center justify-between px-4 py-2 mt-1 mb-1 shrink-0 hover:bg-white/[0.02] transition-all"
+        <div className="flex flex-col w-[260px] h-full">
+          {/* Brand */}
+          <div className="flex items-center gap-2 px-4 pt-4 pb-3 shrink-0">
+            <Zap size={16} style={{ color: borderColor }} />
+            <span
+              className="text-[10px] font-mono font-black tracking-[0.2em]"
+              style={{ color: borderColor, textShadow: `0 0 8px ${borderColor}80` }}
             >
-              <span className="text-[9px] font-mono font-bold tracking-[0.25em] uppercase text-white/40">
-                Projects
-              </span>
-              <ChevronDown
-                size={12}
-                className="text-white/40 transition-transform"
-                style={{ transform: projectsExpanded ? "rotate(0deg)" : "rotate(-90deg)" }}
-              />
-            </button>
+              NEURAL://
+            </span>
+          </div>
 
-            <AnimatePresence initial={false}>
-              {projectsExpanded && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: "auto", opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.2 }}
-                  className="flex-1 min-h-0 overflow-hidden flex flex-col"
+          {/* ─── NEW CHAT BUTTON (TITAN UPGRADE) ─── */}
+          <div className="px-4 pb-4">
+            <button
+              onClick={() => {
+                setMessages([]);
+                setActiveMissionId(null);
+                if (textareaRef.current) textareaRef.current.focus();
+                setDrawerOpen(false);
+              }}
+              className="flex items-center gap-3 w-full p-3 rounded-xl transition-all duration-300 group relative overflow-hidden border border-white/5 bg-white/[0.03] hover:bg-white/[0.06]"
+            >
+              {/* Subtle Glow Layer */}
+              <div className="absolute inset-0 bg-glow-primary opacity-0 group-hover:opacity-5 transition-opacity" />
+
+              <div className="p-1.5 rounded-lg bg-white/5 group-hover:bg-glow-primary/20 transition-colors">
+                <Plus size={16} className="text-white/70 group-hover:text-glow-primary transition-colors" />
+              </div>
+
+              <span className="text-[13px] font-semibold text-white/60 group-hover:text-white transition-colors">
+                New chat
+              </span>
+            </button>
+          </div>
+          {/* Home (top nav) */}
+          <div className="px-2 pb-2 shrink-0">
+            {TOP_NAV_ITEMS.map((item) => {
+              const Icon = item.icon;
+              const isActive = activeNav === item.label && !showSettings && !activeMissionId;
+              const itemTheme = SECTION_THEMES[item.label];
+              return (
+                <button
+                  key={item.label}
+                  onClick={() => {
+                    setActiveMissionId(null);
+                    setMessages([]);
+                    handleNavClick(item.label);
+                  }}
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all hover:bg-white/[0.04]"
+                  style={{
+                    background: isActive ? `${itemTheme.color}15` : "transparent",
+                  }}
                 >
-                  <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-2 space-y-0.5">
-                    {missionsLoading ? (
-                      <div className="flex justify-center py-6">
+                  <Icon size={15} style={{ color: isActive ? itemTheme.color : "rgba(255,255,255,0.5)" }} />
+                  <span
+                    className="text-[12px] font-medium"
+                    style={{ color: isActive ? itemTheme.color : "rgba(255,255,255,0.7)" }}
+                  >
+                    {item.label}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Projects collapsible header */}
+          <button
+            onClick={() => setProjectsExpanded((v) => !v)}
+            className="flex items-center justify-between px-4 py-2 mt-1 mb-1 shrink-0 hover:bg-white/[0.02] transition-all"
+          >
+            <span className="text-[9px] font-mono font-bold tracking-[0.25em] uppercase text-white/40">Projects</span>
+            <ChevronDown
+              size={12}
+              className="text-white/40 transition-transform"
+              style={{ transform: projectsExpanded ? "rotate(0deg)" : "rotate(-90deg)" }}
+            />
+          </button>
+
+          {/* Open Chat Feed */}
+          <AnimatePresence initial={false}>
+            {projectsExpanded && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="flex-1 min-h-0 overflow-hidden flex flex-col"
+              >
+                <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-2 space-y-0.5">
+                  {missionsLoading ? (
+                    <div className="flex justify-center py-6">
+                      <div
+                        className="w-3.5 h-3.5 rounded-full border-2 border-t-transparent animate-spin"
+                        style={{ borderColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.4)` }}
+                      />
+                    </div>
+                  ) : openChatFeed.length === 0 ? (
+                    <p className="text-[10px] font-mono text-white/25 px-3 py-4 text-center">No chats yet</p>
+                  ) : (
+                    openChatFeed.map((mission) => {
+                      const isActive = activeMissionId === mission.id;
+                      const title = mission.directive?.trim().slice(0, 40) || "Untitled";
+                      return (
                         <div
-                          className="w-3.5 h-3.5 rounded-full border-2 border-t-transparent animate-spin"
-                          style={{ borderColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.4)` }}
-                        />
-                      </div>
-                    ) : openChatFeed.length === 0 ? (
-                      <p className="text-[10px] font-mono text-white/25 px-3 py-4 text-center">
-                        No chats yet
-                      </p>
-                    ) : (
-                      openChatFeed.map((mission) => {
-                        const isActive = activeMissionId === mission.id;
-                        const title = mission.prompt?.trim().slice(0, 40) || "Untitled";
-                        return (
-                          <div
-                            key={mission.id}
-                            onClick={() => handleLoadMission(mission)}
-                            className="group relative flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all hover:bg-white/[0.04]"
+                          key={mission.id}
+                          onClick={() => handleLoadMission(mission)}
+                          className="group relative flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all hover:bg-white/[0.04]"
+                          style={{
+                            background: isActive ? "rgba(80,200,120,0.12)" : "transparent",
+                            boxShadow: isActive
+                              ? "inset 0 0 0 1px rgba(80,200,120,0.35), 0 0 12px rgba(80,200,120,0.15)"
+                              : "none",
+                          }}
+                        >
+                          <span
+                            className="text-[12px] truncate flex-1"
                             style={{
-                              background: isActive ? "rgba(80,200,120,0.12)" : "transparent",
-                              boxShadow: isActive ? "inset 0 0 0 1px rgba(80,200,120,0.35), 0 0 12px rgba(80,200,120,0.15)" : "none",
+                              color: isActive ? "#50C878" : "rgba(255,255,255,0.75)",
+                              textShadow: isActive ? "0 0 6px rgba(80,200,120,0.4)" : "none",
                             }}
                           >
-                            <span
-                              className="text-[12px] truncate flex-1"
-                              style={{
-                                color: isActive ? "#50C878" : "rgba(255,255,255,0.75)",
-                                textShadow: isActive ? "0 0 6px rgba(80,200,120,0.4)" : "none",
-                              }}
-                            >
-                              {title}
-                            </span>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openLifecycleModal(mission);
-                              }}
-                              className="w-6 h-6 rounded-md flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-white/10 transition-all shrink-0"
-                              title="Manage"
-                            >
-                              <MoreHorizontal size={13} className="text-white/60" />
-                            </button>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+                            {title}
+                          </span>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openLifecycleModal(mission);
+                            }}
+                            className="w-6 h-6 rounded-md flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-white/10 transition-all shrink-0"
+                            title="Manage"
+                          >
+                            <MoreHorizontal size={13} className="text-white/60" />
+                          </button>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
-            <div
-              className="px-2 pt-2 pb-3 shrink-0 space-y-0.5"
-              style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
-            >
-              {BOTTOM_NAV_ITEMS.map((item) => {
-                const Icon = item.icon;
-                const isActive =
-                  (item.label === "Settings" && showSettings) ||
-                  (item.label !== "Settings" && activeNav === item.label && !showSettings);
-                const itemTheme = SECTION_THEMES[item.label];
-                return (
-                  <button
-                    key={item.label}
-                    onClick={() => handleNavClick(item.label)}
-                    className="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all hover:bg-white/[0.04]"
-                    style={{
-                      background: isActive ? `${itemTheme.color}15` : "transparent",
-                    }}
-                  >
-                    <Icon
-                      size={14}
-                      style={{ color: isActive ? itemTheme.color : "rgba(255,255,255,0.45)" }}
-                    />
-                    <span
-                      className="text-[11px] font-medium"
-                      style={{ color: isActive ? itemTheme.color : "rgba(255,255,255,0.6)" }}
-                    >
-                      {item.label}
-                    </span>
-                  </button>
-                );
-              })}
-
-              <button
-                onClick={() => setLogoutModalOpen(true)}
-                className="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all hover:bg-red-500/10 mt-1"
-              >
-                <LogOut size={14} className="text-white/40" />
-                <span className="text-[11px] font-medium text-white/60">Sign Out</span>
-                {userEmail && (
-                  <div
-                    className="ml-auto w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-semibold overflow-hidden"
-                    style={{ background: getAvatarGradient(userEmail) }}
-                  >
-                    {userEmail[0].toUpperCase()}
-                  </div>
-                )}
-              </button>
-            </div>
-          </div>
-        </motion.aside>
-
-        {/* Main Content */}
-        <main className="flex flex-col flex-1 min-w-0 relative">
-          <header className="flex items-center justify-between px-4 py-2 shrink-0" style={{ borderBottom: `1px solid var(--nazai-border-light)`, background: auraProfile.isLightMode ? "rgba(255,255,255,0.8)" : "rgba(2,6,23,0.8)", backdropFilter: `blur(${auraProfile.glassBlur}px)` }}>
-            <div className="flex items-center gap-2">
-              <button onClick={() => setSidebarCollapsed(v => !v)} className="text-white/40 hover:text-white/60 transition-colors">{sidebarCollapsed ? <PanelLeft size={14} /> : <PanelLeftClose size={14} />}</button>
-              <span 
-                className="text-[10px] font-mono font-black tracking-tighter" 
-                style={{ 
-                  color: borderColor, 
-                  textShadow: `0 0 calc(var(--text-glow-intensity) * 15px) var(--glow-primary)`
-                }}
-              >
-                NEURAL://
-              </span>
-              <span className="text-[10px] font-mono font-bold" style={{ background: currentTheme.gradient, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>{activeNav.toUpperCase()}</span>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: borderColor }} />
-              <span className="text-[8px] font-mono tracking-wider text-white/30">SECURE_NODE</span>
-            </div>
-          </header>
-
-          <div className="flex-1 flex flex-col overflow-hidden relative">
-            <AnimatePresence mode="wait">
-              {showSettings ? <SettingsView key="settings" /> : activeNav === "Home" ? <HomeView key="home" /> : <FolderView key="folder" />}
-            </AnimatePresence>
-          </div>
-
-          <footer className="flex items-center justify-between px-4 py-1.5 shrink-0 text-[8px] font-mono tracking-wider text-white/30" style={{ borderTop: `1px solid var(--nazai-border-light)`, background: auraProfile.isLightMode ? "rgba(255,255,255,0.8)" : "rgba(2,6,23,0.8)" }}>
-            <span>SYSTEM_STABLE</span>
-            <div className="flex gap-3"><span>DB:ONLINE</span><span>AI:READY</span></div>
-          </footer>
-        </main>
-
-        {/* Fixed Input Pill */}
-        {activeNav === "Home" && !showSettings && (
-          <div 
-            ref={inputContainerRef}
-            className="fixed bottom-0 left-0 right-0 z-[99999]"
-            style={{ 
-              pointerEvents: 'auto',
-              isolation: 'isolate'
-            }}
+          {/* Bottom Admin Stack: Archives / Trash / Settings + Sign Out */}
+          <div
+            className="px-2 pt-2 pb-3 shrink-0 space-y-0.5"
+            style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
           >
-            <div className="w-full max-w-2xl mx-auto px-4 pb-4">
-              <motion.div 
-                className="relative rounded-xl flex flex-col"
-                animate={laserShineAnimation}
-                style={{ 
-                  border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.3)`,
-                  background: "var(--nazai-card-bg)", 
-                }}
-              >
-                <textarea 
-                  ref={textareaRef} 
-                  defaultValue=""
-                  onKeyDown={handleKeyDown}
-                  onFocus={handleTextareaFocus}
-                  onBlur={handleTextareaBlur}
-                  placeholder={activeTool ? `Mission for ${activeTool.tool.name}...` : "Architect a high-performance gym business..."}
-                  rows={1}
-                  className="w-full bg-transparent border-none outline-none resize-none font-mono text-base p-3"
-                  autoComplete="off"
-                  autoCorrect="off"
-                  spellCheck={false}
-                  data-gramm={false}
-                  style={{ 
-                    color: "var(--nazai-text-color)",
-                    fontSize: '16px', 
-                    height: "56px", 
-                    minHeight: "56px",
-                    maxHeight: "56px",
-                    zIndex: 9999999,
-                    position: 'relative',
-                    pointerEvents: 'auto',
-                    cursor: 'text',
-                    WebkitUserSelect: 'text',
-                    userSelect: 'text',
-                    touchAction: 'manipulation',
+            {BOTTOM_NAV_ITEMS.map((item) => {
+              const Icon = item.icon;
+              const isActive =
+                (item.label === "Settings" && showSettings) ||
+                (item.label !== "Settings" && activeNav === item.label && !showSettings);
+              const itemTheme = SECTION_THEMES[item.label];
+              return (
+                <button
+                  key={item.label}
+                  onClick={() => handleNavClick(item.label)}
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all hover:bg-white/[0.04]"
+                  style={{
+                    background: isActive ? `${itemTheme.color}15` : "transparent",
                   }}
-                />
-                <div className="flex items-center justify-between px-3 py-2 border-t border-white/5">
-                  <div className="flex gap-1">
-                    <motion.button 
-                      onClick={() => setPlusMenuOpen(true)} 
-                      className="w-7 h-7 rounded-full flex items-center justify-center relative z-10 transition-all"
-                      style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.05)` }}
-                      whileHover={{ scale: 1.1, background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.1)` }}
-                      whileTap={{ scale: 0.9 }}
-                    >
-                      <Plus size={12} />
-                    </motion.button>
-                    <button 
-                      onClick={() => { setDrawerOpen(true); setPlusMenuOpen(false); }} 
-                      className="text-[9px] px-2 py-1 rounded font-mono transition-all hover:bg-white/5" 
-                      style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.03)` }}
-                    >
-                      {activeTool ? activeTool.tool.name : "Select Engine"}
-                    </button>
-                  </div>
-                  <motion.button 
-                    onPointerDown={handleSendPointerDown}
-                    disabled={isPending} 
-                    className="w-7 h-7 rounded-full flex items-center justify-center transition-all"
-                    style={{ background: currentTheme.color + "CC" }}
-                    whileHover={{ scale: 1.1 }}
+                >
+                  <Icon size={14} style={{ color: isActive ? itemTheme.color : "rgba(255,255,255,0.45)" }} />
+                  <span
+                    className="text-[11px] font-medium"
+                    style={{ color: isActive ? itemTheme.color : "rgba(255,255,255,0.6)" }}
+                  >
+                    {item.label}
+                  </span>
+                </button>
+              );
+            })}
+
+            <button
+              onClick={() => setLogoutModalOpen(true)}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all hover:bg-red-500/10 mt-1"
+            >
+              <LogOut size={14} className="text-white/40" />
+              <span className="text-[11px] font-medium text-white/60">Sign Out</span>
+              {userEmail && (
+                <div
+                  className="ml-auto w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-semibold overflow-hidden"
+                  style={{ background: getAvatarGradient(userEmail) }}
+                >
+                  {userEmail[0].toUpperCase()}
+                </div>
+              )}
+            </button>
+          </div>
+        </div>
+      </motion.aside>
+
+      {/* Main Content */}
+      <main className="flex flex-col flex-1 min-w-0 relative">
+        <header
+          className="flex items-center justify-between px-4 py-2 shrink-0"
+          style={{
+            borderBottom: `1px solid var(--nazai-border-light)`,
+            background: auraProfile.isLightMode ? "rgba(255,255,255,0.8)" : "rgba(2,6,23,0.8)",
+            backdropFilter: `blur(${auraProfile.glassBlur}px)`,
+          }}
+        >
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setSidebarCollapsed((v) => !v)}
+              className="text-white/40 hover:text-white/60 transition-colors"
+            >
+              {sidebarCollapsed ? <PanelLeft size={14} /> : <PanelLeftClose size={14} />}
+            </button>
+            <span
+              className="text-[10px] font-mono font-black tracking-tighter"
+              style={{
+                color: borderColor,
+                textShadow: `0 0 calc(var(--text-glow-intensity) * 15px) var(--glow-primary)`,
+              }}
+            >
+              NEURAL://
+            </span>
+            <span
+              className="text-[10px] font-mono font-bold"
+              style={{
+                background: currentTheme.gradient,
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+              }}
+            >
+              {activeNav.toUpperCase()}
+            </span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: borderColor }} />
+            <span className="text-[8px] font-mono tracking-wider text-white/30">SECURE_NODE</span>
+          </div>
+        </header>
+
+        <div className="flex-1 flex flex-col overflow-hidden relative">
+          <AnimatePresence mode="wait">
+            {showSettings ? (
+              <SettingsView key="settings" />
+            ) : activeNav === "Home" ? (
+              <HomeView key="home" />
+            ) : (
+              <FolderView key="folder" />
+            )}
+          </AnimatePresence>
+        </div>
+
+        <footer
+          className="flex items-center justify-between px-4 py-1.5 shrink-0 text-[8px] font-mono tracking-wider text-white/30"
+          style={{
+            borderTop: `1px solid var(--nazai-border-light)`,
+            background: auraProfile.isLightMode ? "rgba(255,255,255,0.8)" : "rgba(2,6,23,0.8)",
+          }}
+        >
+          <span>SYSTEM_STABLE</span>
+          <div className="flex gap-3">
+            <span>DB:ONLINE</span>
+            <span>AI:READY</span>
+          </div>
+        </footer>
+      </main>
+
+      {/* FIXED PILL CONTAINER - Only visible on Home */}
+      {activeNav === "Home" && !showSettings && (
+        <div
+          ref={inputContainerRef}
+          className="fixed bottom-0 left-0 right-0 z-[99999]"
+          style={{
+            pointerEvents: "auto",
+            isolation: "isolate",
+          }}
+        >
+          <div className="w-full max-w-2xl mx-auto px-4 pb-4">
+            <motion.div
+              className="relative rounded-xl flex flex-col"
+              animate={laserShineAnimation}
+              style={{
+                border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.3)`,
+                background: "var(--nazai-card-bg)",
+              }}
+            >
+              <textarea
+                ref={textareaRef}
+                defaultValue=""
+                onKeyDown={handleKeyDown}
+                onFocus={handleTextareaFocus}
+                onBlur={handleTextareaBlur}
+                placeholder={
+                  activeTool ? `Mission for ${activeTool.tool.name}...` : "Architect a high-performance gym business..."
+                }
+                rows={1}
+                className="w-full bg-transparent border-none outline-none resize-none font-mono text-base p-3"
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
+                data-gramm={false}
+                style={{
+                  color: "var(--nazai-text-color)",
+                  fontSize: "16px",
+                  height: "56px",
+                  minHeight: "56px",
+                  maxHeight: "56px",
+                  zIndex: 9999999,
+                  position: "relative",
+                  pointerEvents: "auto",
+                  cursor: "text",
+                  WebkitUserSelect: "text",
+                  userSelect: "text",
+                  touchAction: "manipulation",
+                }}
+              />
+              <div className="flex items-center justify-between px-3 py-2 border-t border-white/5">
+                <div className="flex gap-1">
+                  <motion.button
+                    onClick={() => setPlusMenuOpen(true)}
+                    className="w-7 h-7 rounded-full flex items-center justify-center relative z-10 transition-all"
+                    style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.05)` }}
+                    whileHover={{ scale: 1.1, background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.1)` }}
                     whileTap={{ scale: 0.9 }}
                   >
-                    <Send size={11} style={{ color: "#020617" }} />
+                    <Plus size={12} />
                   </motion.button>
-                </div>
-              </motion.div>
-            </div>
-          </div>
-        )}
-
-        {/* Plus Menu Modal */}
-        <AnimatePresence>
-          {plusMenuOpen && (
-            <>
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                onClick={() => setPlusMenuOpen(false)}
-                className="fixed inset-0 z-[998] bg-black/40 backdrop-blur-sm"
-              />
-              <motion.div
-                initial={{ opacity: 0, y: 20, scale: 0.95 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: 20, scale: 0.95 }}
-                transition={springTransition}
-                className="fixed z-[999] bottom-24 left-1/2 -translate-x-1/2 w-[90vw] max-w-sm rounded-xl overflow-hidden"
-                style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
-              >
-                <div className="px-4 py-2 border-b border-white/10 flex justify-between items-center">
-                  <span className="text-[10px] font-mono text-white/40">TOOLS & OPTIONS</span>
-                  <button onClick={() => setPlusMenuOpen(false)} className="text-white/40 hover:text-white/80 transition-colors"><X size={14} /></button>
-                </div>
-                <div className="p-3 space-y-2">
-                  <button onClick={() => { fileInputRef.current?.click(); setPlusMenuOpen(false); }} className="flex items-center gap-3 w-full px-3 py-2 rounded-lg hover:bg-white/5 transition-all">
-                    <Paperclip size={14} style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.6)` }} />
-                    <div className="text-left"><div className="text-xs">Add Files / Photos</div><div className="text-[9px] text-white/30">Upload from device</div></div>
+                  <button
+                    onClick={() => {
+                      setDrawerOpen(true);
+                      setPlusMenuOpen(false);
+                    }}
+                    className="text-[9px] px-2 py-1 rounded font-mono transition-all hover:bg-white/5"
+                    style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.03)` }}
+                  >
+                    {activeTool ? activeTool.tool.name : "Select Engine"}
                   </button>
-                  <div className="h-px bg-white/10 my-2" />
-                  <div className="text-[9px] font-mono text-white/40 px-2">SKILLS</div>
-                  {SKILLS.map(({ icon: Icon, label }) => (
-                    <button key={label} onClick={() => { if (textareaRef.current) { textareaRef.current.value = `[${label}] `; textareaRef.current.focus(); } setPlusMenuOpen(false); }} className="flex items-center gap-3 w-full px-3 py-2 rounded-lg hover:bg-white/5 transition-all">
-                      <Icon size={14} style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.5)` }} />
-                      <span className="text-xs">{label}</span>
-                    </button>
-                  ))}
                 </div>
-              </motion.div>
-            </>
-          )}
-        </AnimatePresence>
+                <motion.button
+                  onPointerDown={handleSendPointerDown}
+                  disabled={isPending}
+                  className="w-7 h-7 rounded-full flex items-center justify-center transition-all"
+                  style={{ background: currentTheme.color + "CC" }}
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
+                >
+                  <Send size={11} style={{ color: "#020617" }} />
+                </motion.button>
+              </div>
+            </motion.div>
+          </div>
+        </div>
+      )}
 
-        {/* AI Drawer Modal */}
-        <AnimatePresence>
-          {drawerOpen && (
-            <>
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setDrawerOpen(false)} className="fixed inset-0 z-[998] bg-black/40 backdrop-blur-sm" />
-              <motion.div initial={{ opacity: 0, y: 20, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 20, scale: 0.95 }} transition={springTransition} className="fixed z-[999] bottom-24 left-1/2 -translate-x-1/2 w-[90vw] max-w-md rounded-xl overflow-hidden" style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}>
-                <div className="px-4 py-2 border-b border-white/10 flex justify-between items-center">
-                  <span className="text-[10px] font-mono text-white/40">SELECT AI ENGINE</span>
-                  <button onClick={() => setDrawerOpen(false)} className="text-white/40 hover:text-white/80 transition-colors"><X size={14} /></button>
-                </div>
-                <div className="p-3 space-y-3">
-                  {Object.entries(AI_CATEGORIES).map(([catKey, cat]) => (
-                    <div key={catKey}>
-                      <div className="text-[8px] font-mono mb-1" style={{ color: cat.color }}>{cat.label}</div>
-                      <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${cat.tools.length}, 1fr)` }}>
-                        {cat.tools.map(tool => (
-                          <button key={tool.id} onClick={() => handleSelectTool(tool.id)} className="p-2 rounded-lg text-left transition-all" style={{ background: selectedModel === tool.id ? `rgba(${cat.glowRgba},0.1)` : "rgba(255,255,255,0.02)", border: `1px solid ${selectedModel === tool.id ? cat.color : "rgba(255,255,255,0.05)"}` }}>
-                            <div className="flex items-center gap-1 mb-0.5"><tool.icon size={10} style={{ color: selectedModel === tool.id ? cat.color : "white/40" }} /><span className="text-[9px] font-semibold">{tool.name}</span></div>
-                            <div className="text-[8px] text-white/30">{tool.subtitle}</div>
-                          </button>
-                        ))}
-                      </div>
+      {/* PLUS MENU MODAL */}
+      <AnimatePresence>
+        {plusMenuOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setPlusMenuOpen(false)}
+              className="fixed inset-0 z-[998] bg-black/40 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, y: 20, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 20, scale: 0.95 }}
+              transition={springTransition}
+              className="fixed z-[999] bottom-24 left-1/2 -translate-x-1/2 w-[90vw] max-w-sm rounded-xl overflow-hidden"
+              style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
+            >
+              <div className="px-4 py-2 border-b border-white/10 flex justify-between items-center">
+                <span className="text-[10px] font-mono text-white/40">TOOLS & OPTIONS</span>
+                <button
+                  onClick={() => setPlusMenuOpen(false)}
+                  className="text-white/40 hover:text-white/80 transition-colors"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+              <div className="p-3 space-y-2">
+                <button
+                  onClick={() => {
+                    fileInputRef.current?.click();
+                    setPlusMenuOpen(false);
+                  }}
+                  className="flex items-center gap-3 w-full px-3 py-2 rounded-lg hover:bg-white/5 transition-all"
+                >
+                  <Paperclip size={14} style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.6)` }} />
+                  <div className="text-left">
+                    <div className="text-xs">Add Files / Photos</div>
+                    <div className="text-[9px] text-white/30">Upload from device</div>
+                  </div>
+                </button>
+                <div className="h-px bg-white/10 my-2" />
+                <div className="text-[9px] font-mono text-white/40 px-2">SKILLS</div>
+                {SKILLS.map(({ icon: Icon, label }) => (
+                  <button
+                    key={label}
+                    onClick={() => {
+                      if (textareaRef.current) {
+                        textareaRef.current.value = `[${label}] `;
+                        textareaRef.current.focus();
+                      }
+                      setPlusMenuOpen(false);
+                    }}
+                    className="flex items-center gap-3 w-full px-3 py-2 rounded-lg hover:bg-white/5 transition-all"
+                  >
+                    <Icon size={14} style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.5)` }} />
+                    <span className="text-xs">{label}</span>
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* AI DRAWER MODAL */}
+      <AnimatePresence>
+        {drawerOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setDrawerOpen(false)}
+              className="fixed inset-0 z-[998] bg-black/40 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, y: 20, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 20, scale: 0.95 }}
+              transition={springTransition}
+              className="fixed z-[999] bottom-24 left-1/2 -translate-x-1/2 w-[90vw] max-w-md rounded-xl overflow-hidden"
+              style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
+            >
+              <div className="px-4 py-2 border-b border-white/10 flex justify-between items-center">
+                <span className="text-[10px] font-mono text-white/40">SELECT AI ENGINE</span>
+                <button
+                  onClick={() => setDrawerOpen(false)}
+                  className="text-white/40 hover:text-white/80 transition-colors"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+              <div className="p-3 space-y-3">
+                {Object.entries(AI_CATEGORIES).map(([catKey, cat]) => (
+                  <div key={catKey}>
+                    <div className="text-[8px] font-mono mb-1" style={{ color: cat.color }}>
+                      {cat.label}
                     </div>
-                  ))}
-                </div>
-              </motion.div>
-            </>
-          )}
-        </AnimatePresence>
+                    <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${cat.tools.length}, 1fr)` }}>
+                      {cat.tools.map((tool) => (
+                        <button
+                          key={tool.id}
+                          onClick={() => handleSelectTool(tool.id)}
+                          className="p-2 rounded-lg text-left transition-all"
+                          style={{
+                            background:
+                              selectedModel === tool.id ? `rgba(${cat.glowRgba},0.1)` : "rgba(255,255,255,0.02)",
+                            border: `1px solid ${selectedModel === tool.id ? cat.color : "rgba(255,255,255,0.05)"}`,
+                          }}
+                        >
+                          <div className="flex items-center gap-1 mb-0.5">
+                            <tool.icon
+                              size={10}
+                              style={{ color: selectedModel === tool.id ? cat.color : "white/40" }}
+                            />
+                            <span className="text-[9px] font-semibold">{tool.name}</span>
+                          </div>
+                          <div className="text-[8px] text-white/30">{tool.subtitle}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
 
-        {/* Mission Lifecycle Modal */}
-        <AnimatePresence>
-          {lifecycleTarget && (
-            <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={closeLifecycleModal}>
-              <motion.div
-                initial={{ opacity: 0, scale: 0.92 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.92 }}
-                transition={springTransition}
-                onClick={(e) => e.stopPropagation()}
-                className="max-w-sm w-full rounded-xl p-5"
-                style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
-              >
-                <div className="mb-4">
-                  <div className="text-[9px] font-mono tracking-[0.2em] text-white/40 mb-1">MISSION_LIFECYCLE</div>
-                  <h3 className="text-sm font-bold font-mono" style={{ color: "var(--nazai-text-color)" }}>Manage Blueprint</h3>
-                  <p className="text-[11px] text-white/50 mt-1 truncate font-mono">"{lifecycleTarget.prompt?.slice(0, 60) || "Untitled"}"</p>
-                </div>
+      {/* Mission Lifecycle Modal */}
+      <AnimatePresence>
+        {lifecycleTarget && (
+          <div
+            className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+            onClick={closeLifecycleModal}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.92 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.92 }}
+              transition={springTransition}
+              onClick={(e) => e.stopPropagation()}
+              className="max-w-sm w-full rounded-xl p-5"
+              style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
+            >
+              <div className="mb-4">
+                <div className="text-[9px] font-mono tracking-[0.2em] text-white/40 mb-1">MISSION_LIFECYCLE</div>
+                <h3 className="text-sm font-bold font-mono" style={{ color: "var(--nazai-text-color)" }}>
+                  Manage Blueprint
+                </h3>
+                <p className="text-[11px] text-white/50 mt-1 truncate font-mono">
+                  "{lifecycleTarget.directive?.slice(0, 60) || "Untitled"}"
+                </p>
+              </div>
 
-                <div className="space-y-2 mb-5">
-                  {([
+              <div className="space-y-2 mb-5">
+                {(
+                  [
                     { id: "trashed", label: "Move to Trash", color: "#ef4444" },
                     { id: "archived", label: "Move to Archives", color: "#818cf8" },
                     { id: "removed", label: "Remove Entirely", color: "#dc2626" },
-                  ] as const).map((opt) => {
-                    const selected = lifecycleChoice === opt.id;
-                    return (
-                      <label
-                        key={opt.id}
-                        className="flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-all"
-                        style={{
-                          background: selected ? `${opt.color}10` : "rgba(255,255,255,0.02)",
-                          border: `1px solid ${selected ? opt.color + "60" : "rgba(255,255,255,0.05)"}`,
-                        }}
+                  ] as const
+                ).map((opt) => {
+                  const selected = lifecycleChoice === opt.id;
+                  return (
+                    <label
+                      key={opt.id}
+                      className="flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-all"
+                      style={{
+                        background: selected ? `${opt.color}10` : "rgba(255,255,255,0.02)",
+                        border: `1px solid ${selected ? opt.color + "60" : "rgba(255,255,255,0.05)"}`,
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name="lifecycle"
+                        value={opt.id}
+                        checked={selected}
+                        onChange={() => setLifecycleChoice(opt.id)}
+                        className="sr-only"
+                      />
+                      <div
+                        className="w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0"
+                        style={{ borderColor: selected ? opt.color : "rgba(255,255,255,0.3)" }}
                       >
-                        <input
-                          type="radio"
-                          name="lifecycle"
-                          value={opt.id}
-                          checked={selected}
-                          onChange={() => setLifecycleChoice(opt.id)}
-                          className="sr-only"
-                        />
-                        <div
-                          className="w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0"
-                          style={{ borderColor: selected ? opt.color : "rgba(255,255,255,0.3)" }}
-                        >
-                          {selected && <div className="w-1.5 h-1.5 rounded-full" style={{ background: opt.color, boxShadow: `0 0 6px ${opt.color}` }} />}
-                        </div>
-                        <span className="text-xs font-mono" style={{ color: selected ? opt.color : "var(--nazai-text-color)" }}>
-                          {opt.label}
-                        </span>
-                      </label>
-                    );
-                  })}
-                </div>
+                        {selected && (
+                          <div
+                            className="w-1.5 h-1.5 rounded-full"
+                            style={{ background: opt.color, boxShadow: `0 0 6px ${opt.color}` }}
+                          />
+                        )}
+                      </div>
+                      <span
+                        className="text-xs font-mono"
+                        style={{ color: selected ? opt.color : "var(--nazai-text-color)" }}
+                      >
+                        {opt.label}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
 
-                <div className="flex gap-2">
-                  <button
-                    onClick={closeLifecycleModal}
-                    className="flex-1 py-2 rounded-lg text-xs font-mono bg-white/5 border border-white/10 hover:bg-white/10 transition-all"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={confirmLifecycleAction}
-                    disabled={!lifecycleChoice}
-                    className="flex-1 py-2 rounded-lg text-xs font-mono font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                    style={{
-                      background: lifecycleChoice ? `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.15)` : "rgba(255,255,255,0.05)",
-                      border: `1px solid ${lifecycleChoice ? auraProfile.glowPrimary + "60" : "rgba(255,255,255,0.1)"}`,
-                      color: lifecycleChoice ? auraProfile.glowPrimary : "rgba(255,255,255,0.4)",
-                    }}
-                  >
-                    OK
-                  </button>
-                </div>
-              </motion.div>
-            </div>
-          )}
-        </AnimatePresence>
+              <div className="flex gap-2">
+                <button
+                  onClick={closeLifecycleModal}
+                  className="flex-1 py-2 rounded-lg text-xs font-mono bg-white/5 border border-white/10 hover:bg-white/10 transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmLifecycleAction}
+                  disabled={!lifecycleChoice}
+                  className="flex-1 py-2 rounded-lg text-xs font-mono font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                  style={{
+                    background: lifecycleChoice
+                      ? `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.15)`
+                      : "rgba(255,255,255,0.05)",
+                    border: `1px solid ${lifecycleChoice ? auraProfile.glowPrimary + "60" : "rgba(255,255,255,0.1)"}`,
+                    color: lifecycleChoice ? auraProfile.glowPrimary : "rgba(255,255,255,0.4)",
+                  }}
+                >
+                  OK
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
-        {/* Logout Modal */}
-        <AnimatePresence>
-          {logoutModalOpen && (
-            <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-              <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="max-w-sm w-full rounded-xl p-6 text-center" style={{ background: "var(--nazai-card-bg)", border: "1px solid rgba(239,68,68,0.2)" }}>
-                <LogOut size={32} className="mx-auto mb-3 text-red-500" />
-                <h3 className="text-sm font-bold mb-1 font-mono">System Termination</h3>
-                <p className="text-xs text-white/50 mb-4">Are you sure you want to log out?</p>
-                <div className="flex gap-2">
-                  <button onClick={() => setLogoutModalOpen(false)} className="flex-1 py-2 rounded-lg text-xs bg-white/5 border border-white/10 hover:bg-white/10 transition-all">Stay</button>
-                  <button onClick={handleSignOut} className="flex-1 py-2 rounded-lg text-xs bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-all">Terminate</button>
-                </div>
-              </motion.div>
-            </div>
-          )}
-        </AnimatePresence>
+      {/* Logout Modal */}
+      <AnimatePresence>
+        {logoutModalOpen && (
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="max-w-sm w-full rounded-xl p-6 text-center"
+              style={{ background: "var(--nazai-card-bg)", border: "1px solid rgba(239,68,68,0.2)" }}
+            >
+              <LogOut size={32} className="mx-auto mb-3 text-red-500" />
+              <h3 className="text-sm font-bold mb-1 font-mono">System Termination</h3>
+              <p className="text-xs text-white/50 mb-4">Are you sure you want to log out?</p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setLogoutModalOpen(false)}
+                  className="flex-1 py-2 rounded-lg text-xs bg-white/5 border border-white/10 hover:bg-white/10 transition-all"
+                >
+                  Stay
+                </button>
+                <button
+                  onClick={handleSignOut}
+                  className="flex-1 py-2 rounded-lg text-xs bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-all"
+                >
+                  Terminate
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
-        <style>{`
-          * {
-            pointer-events: auto !important;
-          }
-          
-          .pointer-events-none {
-            pointer-events: none !important;
-          }
-          
-          textarea {
-            z-index: 999999 !important;
-            position: relative !important;
-            pointer-events: auto !important;
-            -webkit-user-select: text !important;
-          }
-          
-          * {
-            -webkit-tap-highlight-color: transparent;
-          }
-          
-          body {
-            cursor: default;
-            touch-action: manipulation;
-          }
-          
-          html, body {
-            height: 100% !important;
-            width: 100vw !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            overflow-x: hidden !important;
-            overflow-y: auto !important;
-            position: relative !important;
-            -webkit-overflow-scrolling: touch;
-            touch-action: manipulation;
-          }
-          
-          body::before, .scanlines, .radar-sweep {
-            pointer-events: none !important;
-            z-index: -1 !important;
-          }
-          
-          @keyframes shake {
-            0%, 100% { transform: translateX(0); }
-            10%, 30%, 50%, 70%, 90% { transform: translateX(-2px); }
-            20%, 40%, 60%, 80% { transform: translateX(2px); }
-          }
-          .animate-shake {
-            animation: shake 0.3s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
-          }
-          
-          .overflow-y-auto {
-            -webkit-overflow-scrolling: touch;
-            overscroll-behavior: contain;
-            touch-action: pan-y;
-          }
-          
-          .line-clamp-2 {
-            display: -webkit-box;
-            -webkit-line-clamp: 2;
-            -webkit-box-orient: vertical;
-            overflow: hidden;
-          }
-          
-          .line-clamp-3 {
-            display: -webkit-box;
-            -webkit-line-clamp: 3;
-            -webkit-box-orient: vertical;
-            overflow: hidden;
-          }
-          
-          @import url('https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,100..900;1,100..900&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap');
-          
-          :root {
-            --glow-primary: #22c55e;
-            --glow-primary-rgb: 34,197,94;
-            --glow-secondary: #a855f7;
-            --glow-secondary-rgb: 168,85,247;
-            --text-glow-intensity: 0.5;
-            --glass-blur: 16px;
-            --nazai-text-color: #e2e8f0;
-            --nazai-bg-base: #020617;
-            --nazai-border-light: rgba(255,255,255,0.05);
-            --nazai-card-bg: #0f172a;
-            --keyboard-height: 0px;
-          }
-          
-          * {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-          }
-          
-          .font-mono, .font-mono * {
-            font-family: 'JetBrains Mono', monospace;
-          }
-          
-          @keyframes pulse {
-            0%, 100% { opacity: 0.4; transform: scale(1); }
-            50% { opacity: 1; transform: scale(1.2); }
-          }
-          .animate-pulse { animation: pulse 2s ease-in-out infinite; }
-          
-          textarea::placeholder { color: rgba(255,255,255,0.2); }
-          
-          input[type="range"] {
-            -webkit-appearance: none;
-            background: transparent;
-          }
-          input[type="range"]::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            width: 14px;
-            height: 14px;
-            border-radius: 50%;
-            background: var(--glow-primary);
-            cursor: pointer;
-            box-shadow: 0 0 8px var(--glow-primary);
-            border: 2px solid rgba(255,255,255,0.5);
-          }
-          input[type="color"]::-webkit-color-swatch-wrapper {
-            padding: 0;
-          }
-          input[type="color"]::-webkit-color-swatch {
-            border: none;
-            border-radius: 8px;
-          }
-          
-          ::-webkit-scrollbar {
-            width: 4px;
-            height: 4px;
-          }
-          ::-webkit-scrollbar-track {
-            background: rgba(255,255,255,0.02);
-          }
-          ::-webkit-scrollbar-thumb {
-            background: rgba(255,255,255,0.1);
-            border-radius: 4px;
-          }
-          ::-webkit-scrollbar-thumb:hover {
-            background: rgba(255,255,255,0.2);
-          }
-        `}</style>
-      </motion.div>
-    </>
+      <style>{`
+        /* FORCE EVERYTHING TO BE CLICKABLE */
+        * {
+          pointer-events: auto !important;
+        }
+        
+        .pointer-events-none {
+          pointer-events: none !important;
+        }
+        
+        textarea {
+          z-index: 999999 !important;
+          position: relative !important;
+          pointer-events: auto !important;
+          -webkit-user-select: text !important;
+        }
+        
+        * {
+          -webkit-tap-highlight-color: transparent;
+        }
+        
+        body {
+          cursor: default;
+          touch-action: manipulation;
+        }
+        
+        html, body {
+          height: 100% !important;
+          width: 100vw !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          overflow-x: hidden !important;
+          overflow-y: auto !important;
+          position: relative !important;
+          -webkit-overflow-scrolling: touch;
+          touch-action: manipulation;
+        }
+        
+        body::before, .scanlines, .radar-sweep {
+          pointer-events: none !important;
+          z-index: -1 !important;
+        }
+        
+        @keyframes shake {
+          0%, 100% { transform: translateX(0); }
+          10%, 30%, 50%, 70%, 90% { transform: translateX(-2px); }
+          20%, 40%, 60%, 80% { transform: translateX(2px); }
+        }
+        .animate-shake {
+          animation: shake 0.3s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+        }
+        
+        .overflow-y-auto {
+          -webkit-overflow-scrolling: touch;
+          overscroll-behavior: contain;
+          touch-action: pan-y;
+        }
+        
+        @import url('https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,100..900;1,100..900&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap');
+        
+        :root {
+          --glow-primary: #22c55e;
+          --glow-primary-rgb: 34,197,94;
+          --glow-secondary: #a855f7;
+          --glow-secondary-rgb: 168,85,247;
+          --text-glow-intensity: 0.5;
+          --glass-blur: 16px;
+          --nazai-text-color: #e2e8f0;
+          --nazai-bg-base: #020617;
+          --nazai-border-light: rgba(255,255,255,0.05);
+          --nazai-card-bg: #0f172a;
+          --keyboard-height: 0px;
+        }
+        
+        * {
+          font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+        
+        .font-mono, .font-mono * {
+          font-family: 'JetBrains Mono', monospace;
+        }
+        
+        @keyframes pulse {
+          0%, 100% { opacity: 0.4; transform: scale(1); }
+          50% { opacity: 1; transform: scale(1.2); }
+        }
+        .animate-pulse { animation: pulse 2s ease-in-out infinite; }
+        
+        textarea::placeholder { color: rgba(255,255,255,0.2); }
+        
+        input[type="range"] {
+          -webkit-appearance: none;
+          background: transparent;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+          -webkit-appearance: none;
+          width: 14px;
+          height: 14px;
+          border-radius: 50%;
+          background: var(--glow-primary);
+          cursor: pointer;
+          box-shadow: 0 0 8px var(--glow-primary);
+          border: 2px solid rgba(255,255,255,0.5);
+        }
+        input[type="color"]::-webkit-color-swatch-wrapper {
+          padding: 0;
+        }
+        input[type="color"]::-webkit-color-swatch {
+          border: none;
+          border-radius: 8px;
+        }
+        
+        ::-webkit-scrollbar {
+          width: 4px;
+          height: 4px;
+        }
+        ::-webkit-scrollbar-track {
+          background: rgba(255,255,255,0.02);
+        }
+        ::-webkit-scrollbar-thumb {
+          background: rgba(255,255,255,0.1);
+          border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+          background: rgba(255,255,255,0.2);
+        }
+      `}</style>
+    </div>
   );
 }
