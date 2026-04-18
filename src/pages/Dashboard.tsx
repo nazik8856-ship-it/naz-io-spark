@@ -817,7 +817,7 @@ export default function Dashboard() {
   }, [navigate]);
   // ─── THE MANUAL SIDEBAR LIFECYCLE ───────────────────────────────────────────
   
-  const handleUpdateMissionStatus = useCallback(async (missionId: string, newStatus: "recently" | "archived" | "trash") => {
+  const handleUpdateMissionStatus = useCallback(async (missionId: string, newStatus: MissionStatus) => {
     if (!userId) return;
     const { error } = await supabase
       .from("missions")
@@ -828,8 +828,7 @@ export default function Dashboard() {
     if (!error) {
       setMissions(prev => prev.map(m => m.id === missionId ? { ...m, status: newStatus } : m));
       
-      // If we move it to trash, we shouldn't have it active on the home screen
-      if (newStatus === "trash" && activeMissionId === missionId) {
+      if (newStatus === "trashed" && activeMissionId === missionId) {
         setActiveMissionId(null);
         setMessages([]);
       }
