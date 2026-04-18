@@ -49,9 +49,18 @@ import {
   MoreHorizontal,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
+import {
+  GeminiLogo,
+  ClaudeLogo,
+  OpenAILogo,
+  NanoBananaLogo,
+  VeoLogo,
+  ElevenLabsLogo,
+  GrokLogo,
+} from "@/components/EngineLogos";
 
 // ─── DEPLOYMENT VERSION ──────────────────────────────────────────────────────────
-const DEPLOYMENT_ID = "NAZAI_TITAN_V24_GLOW";
+const DEPLOYMENT_ID = "NAZAI_TITAN_V25_BRAND_LOGOS";
 
 // ─── Type Definitions ──────────────────────────────────────────────────────────────
 
@@ -113,9 +122,9 @@ const AI_CATEGORIES: Record<string, Category> = {
     glowRgba: "34,197,94",
     label: "LOGIC",
     tools: [
-      { id: "google/gemini-3.1-pro", name: "Gemini 3.1 Pro", subtitle: "The Brain", icon: Brain },
-      { id: "anthropic/claude-4.6-sonnet", name: "Claude 4.6 Sonnet", subtitle: "The Architect", icon: Building2 },
-      { id: "openai/gpt-5.4", name: "GPT-5.4", subtitle: "The Manager", icon: Briefcase },
+      { id: "google/gemini-3.1-pro", name: "Gemini 3.1 Pro", subtitle: "The Brain", icon: GeminiLogo },
+      { id: "anthropic/claude-4.6-sonnet", name: "Claude 4.6 Sonnet", subtitle: "The Architect", icon: ClaudeLogo },
+      { id: "openai/gpt-5.4", name: "GPT-5.4", subtitle: "The Manager", icon: OpenAILogo },
     ],
   },
   CREATION: {
@@ -123,9 +132,9 @@ const AI_CATEGORIES: Record<string, Category> = {
     glowRgba: "168,85,247",
     label: "CREATION",
     tools: [
-      { id: "google/gemini-3-flash-image", name: "Nano Banana 2.0", subtitle: "The Designer", icon: Image, isMedia: true },
-      { id: "google/veo-3", name: "Google Veo 3", subtitle: "The Cinematographer", icon: Video, isMedia: true },
-      { id: "elevenlabs/lyria", name: "ElevenLabs Lyria", subtitle: "The Voice", icon: Mic, isMedia: true },
+      { id: "google/gemini-3-flash-image", name: "Nano Banana 2.0", subtitle: "The Designer", icon: NanoBananaLogo, isMedia: true },
+      { id: "google/veo-3", name: "Google Veo 3", subtitle: "The Cinematographer", icon: VeoLogo, isMedia: true },
+      { id: "elevenlabs/lyria", name: "ElevenLabs Lyria", subtitle: "The Voice", icon: ElevenLabsLogo, isMedia: true },
     ],
   },
   RESEARCH: {
@@ -133,8 +142,7 @@ const AI_CATEGORIES: Record<string, Category> = {
     glowRgba: "6,182,212",
     label: "RESEARCH",
     tools: [
-      { id: "google/notebooklm", name: "NotebookLM", subtitle: "The Librarian", icon: BookOpen },
-      { id: "x-ai/grok-4.20", name: "Grok 4.20", subtitle: "The Trendsetter", icon: TrendingUp },
+      { id: "x-ai/grok-4.20", name: "Grok 4.20", subtitle: "The Trendsetter", icon: GrokLogo },
     ],
   },
 };
