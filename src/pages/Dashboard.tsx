@@ -76,7 +76,7 @@ type Mission = {
   id: string;
   user_id: string;
   directive: string;
-  status: 'recently' | 'archived' | 'trash';
+  status: MissionStatus;
   created_at: string;
   updated_at: string;
 };
@@ -817,7 +817,7 @@ export default function Dashboard() {
   }, [navigate]);
   // ─── THE MANUAL SIDEBAR LIFECYCLE ───────────────────────────────────────────
   
-  const handleUpdateMissionStatus = useCallback(async (missionId: string, newStatus: "recently" | "archived" | "trash") => {
+  const handleUpdateMissionStatus = useCallback(async (missionId: string, newStatus: MissionStatus) => {
     if (!userId) return;
     const { error } = await supabase
       .from("missions")
@@ -828,8 +828,7 @@ export default function Dashboard() {
     if (!error) {
       setMissions(prev => prev.map(m => m.id === missionId ? { ...m, status: newStatus } : m));
       
-      // If we move it to trash, we shouldn't have it active on the home screen
-      if (newStatus === "trash" && activeMissionId === missionId) {
+      if (newStatus === "trashed" && activeMissionId === missionId) {
         setActiveMissionId(null);
         setMessages([]);
       }
@@ -1566,14 +1565,14 @@ export default function Dashboard() {
                 <button onClick={() => setPlusMenuOpen(false)} className="text-white/40 hover:text-white/80 transition-colors"><X size={14} /></button>
               </div>
               <div className="p-3 space-y-2">
-                <button onClick={handleFileUpload} className="flex items-center gap-3 w-full px-3 py-2 rounded-lg hover:bg-white/5 transition-all">
+                <button onClick={() => { fileInputRef.current?.click(); setPlusMenuOpen(false); }} className="flex items-center gap-3 w-full px-3 py-2 rounded-lg hover:bg-white/5 transition-all">
                   <Paperclip size={14} style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.6)` }} />
                   <div className="text-left"><div className="text-xs">Add Files / Photos</div><div className="text-[9px] text-white/30">Upload from device</div></div>
                 </button>
                 <div className="h-px bg-white/10 my-2" />
                 <div className="text-[9px] font-mono text-white/40 px-2">SKILLS</div>
                 {SKILLS.map(({ icon: Icon, label }) => (
-                  <button key={label} onClick={() => handleSkillClick(label)} className="flex items-center gap-3 w-full px-3 py-2 rounded-lg hover:bg-white/5 transition-all">
+                  <button key={label} onClick={() => { if (textareaRef.current) { textareaRef.current.value = `[${label}] `; textareaRef.current.focus(); } setPlusMenuOpen(false); }} className="flex items-center gap-3 w-full px-3 py-2 rounded-lg hover:bg-white/5 transition-all">
                     <Icon size={14} style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.5)` }} />
                     <span className="text-xs">{label}</span>
                   </button>
