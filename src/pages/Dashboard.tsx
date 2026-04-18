@@ -604,15 +604,43 @@ export default function Dashboard() {
     abortControllerRef.current = abortController;
     const fetchMissions = async () => {
       setMissionsLoading(true);
+      useEffect(() => {
+    if (!userId) {
+      setMissions([]);
+      setMissionsLoading(false);
+      return;
+    }
+
+    let isMounted = true;
+    const abortController = new AbortController();
+
+ useEffect(() => {
+    // Safety check: Don't fetch if there is no user
+    if (!userId) {
+      setMissions([]);
+      setMissionsLoading(false);
+      return;
+    }
+
+    let isMounted = true;
+    const abortController = new AbortController();
+
+    const fetchMissions = async () => {
       try {
+        setMissionsLoading(true);
         const { data, error } = await supabase
           .from("missions")
-          .select("*")
+          .select("id, created_at, prompt, response, status, user_id")
           .eq("user_id", userId)
           .order("created_at", { ascending: false });
+
         if (abortController.signal.aborted) return;
         if (error) throw error;
-        if (isMounted && data) setMissions(data as Mission[]);
+
+        if (isMounted && data) {
+          // Ensure your 'Mission' type includes 'response: string'
+          setMissions(data as Mission[]);
+        }
       } catch (error) {
         console.error("Failed to fetch missions:", error);
         if (isMounted) setMissions([]);
@@ -620,20 +648,27 @@ export default function Dashboard() {
         if (isMounted) setMissionsLoading(false);
       }
     };
+
     fetchMissions();
+
     return () => {
       isMounted = false;
       abortController.abort();
     };
   }, [userId]);
 
+  // ─── UI & NAVIGATION EFFECTS ──────────────────────────────────────────────────
+
   useEffect(() => {
-    setTimeout(() => {
+    // Smooth scroll to bottom of chat
+    const scrollTimer = setTimeout(() => {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
     }, 50);
+    return () => clearTimeout(scrollTimer);
   }, [messages]);
 
   useEffect(() => {
+    // Auto-clear error messages after 5 seconds
     if (errorMessage) {
       const timer = setTimeout(() => setErrorMessage(null), 5000);
       return () => clearTimeout(timer);
@@ -641,6 +676,7 @@ export default function Dashboard() {
   }, [errorMessage]);
 
   useEffect(() => {
+    // Global cleanup for intervals and controllers on unmount
     return () => {
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
       if (abortControllerRef.current) abortControllerRef.current.abort();
