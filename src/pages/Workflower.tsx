@@ -1,16 +1,98 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
-import { Activity, Cpu, Zap, Radio, MessageSquare, Globe, AlertTriangle } from "lucide-react";
+import {
+  Activity,
+  Cpu,
+  Zap,
+  Radio,
+  MessageSquare,
+  Globe,
+  AlertTriangle,
+  Send,
+  Target,
+  Settings2,
+  Wallet,
+  Megaphone,
+  Code2,
+  TrendingUp,
+  ChevronDown,
+  ArrowRight,
+} from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import AuthModal from "@/components/AuthModal";
 import MissionWorkspace from "@/components/mission/MissionWorkspace";
 
 const NODES = [
-  { id: "input", label: "INPUT SENSOR", desc: "SIGNAL CAPTURE & VALIDATION", icon: Radio },
-  { id: "logic", label: "LOGIC GATE", desc: "DECISION MATRIX ARCHITECT", icon: Cpu },
-  { id: "engine", label: "AUTO ENGINE", desc: "PROCESS CORE EXECUTION", icon: Activity },
-  { id: "exec", label: "EXECUTION", desc: "DEPLOY & LIVE SIGNAL", icon: Zap },
+  {
+    id: "input",
+    label: "INPUT SENSOR",
+    desc: "Document validation & multi-source context capture",
+    icon: Radio,
+  },
+  {
+    id: "logic",
+    label: "LOGIC GATE",
+    desc: "Branching logic & multi-scenario simulation",
+    icon: Cpu,
+  },
+  {
+    id: "engine",
+    label: "AUTO ENGINE",
+    desc: "Multi-agent orchestration — agents working for you",
+    icon: Activity,
+  },
+  {
+    id: "exec",
+    label: "EXECUTION",
+    desc: "Live deployment of dashboards, code & automations",
+    icon: Zap,
+  },
+];
+
+const DOMAINS = [
+  {
+    icon: Target,
+    title: "Strategy",
+    summary: "Market research, SWOT, 5-year forecasting.",
+    bullets: ["Competitive intelligence sweeps", "SWOT + PESTEL analysis", "5-year scenario forecasting"],
+  },
+  {
+    icon: Settings2,
+    title: "Operations",
+    summary: "Workflow automation, CRM, HR processes.",
+    bullets: ["End-to-end workflow automation", "CRM & ticketing orchestration", "HR onboarding pipelines"],
+  },
+  {
+    icon: Wallet,
+    title: "Finance",
+    summary: "Cash flow modeling, tax optimization, contracts.",
+    bullets: ["12/24/60-month cash-flow models", "Tax-strategy optimization", "Contract drafting & review"],
+  },
+  {
+    icon: Megaphone,
+    title: "Marketing",
+    summary: "Lead gen agents, email sequences, SEO.",
+    bullets: ["Autonomous lead-gen agents", "Multi-touch email sequences", "Programmatic SEO"],
+  },
+  {
+    icon: Code2,
+    title: "Tech",
+    summary: "SaaS building, app deployment, API orchestration.",
+    bullets: ["Full-stack SaaS scaffolding", "One-click app deployment", "API + webhook orchestration"],
+  },
+  {
+    icon: TrendingUp,
+    title: "Scaling",
+    summary: "Hiring plans, international expansion, org design.",
+    bullets: ["Hiring plans & comp bands", "International expansion playbooks", "Org-design optimization"],
+  },
+];
+
+const TYPEWRITER_PROMPTS = [
+  "Build and launch a complete AI-powered SaaS subscription platform for fitness coaches with marketing automation",
+  "Create a full business strategy, financial projections, and daily operations dashboard for my e-commerce store",
+  "Orchestrate a complete merger analysis + legal contracts + integration plan for two consulting firms",
 ];
 
 const Workflower = () => {
