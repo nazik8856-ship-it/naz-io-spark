@@ -1700,68 +1700,44 @@ const HomeView = () => (
     {/* ─── PROMPT CARDS - ABSOLUTE POSITIONED ABOVE INPUT BAR ─── */}
     {/* Wrapper with position: absolute, bottom aligned to sit right above the input */}
     <div 
-      className="absolute left-0 right-0 z-40"
+      {/* ─── PROMPT CARDS - OPTICALLY BALANCED OFFSET ─── */}
+    <div 
+      className="absolute left-1/2 z-40 w-full max-w-2xl"
       style={{ 
-        bottom: "120px", // Sits right above the input bar
-        pointerEvents: "none" // Allows clicking through the container to the input
+        bottom: "135px", // Slightly higher for better breathing room
+        pointerEvents: "none", // Critical: prevents the container from blocking the input
+        transform: "translateX(calc(-50% - 24px))", // The "Leftward" nudge to balance the Send button
       }}
     >
-      <div className="w-full max-w-2xl mx-auto px-4">
+      <div className="w-full px-4">
         <AnimatePresence mode="wait">
           {messages.length === 0 && (
             <motion.div
               key="initial-cards"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 20 }}
-              transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
             >
               <div className="grid grid-cols-2 gap-4">
-                {/* TOP 2 ONLY - surgical card removal */}
                 {initialCards.slice(0, 2).map((card, idx) => (
                   <motion.button
                     key={idx}
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ delay: 0.1 + idx * 0.08 }}
                     onClick={() => handleSendMessage(card)}
-                    className="group relative p-5 rounded-2xl text-left transition-all duration-300 overflow-hidden cursor-pointer"
-                    style={{
-                      background: "rgba(255,255,255,0.03)",
-                      border: "1px solid rgba(255,255,255,0.1)",
-                      backdropFilter: "blur(16px)",
-                      pointerEvents: "auto", // Buttons remain clickable
-                    }}
+                    className="group relative p-5 rounded-2xl text-left transition-all duration-300 backdrop-blur-xl border border-white/10 bg-white/5 hover:bg-white/10"
+                    style={{ pointerEvents: "auto" }} // Re-enable clicking for the buttons themselves
                     whileHover={{ 
-                      y: -4,
-                      backgroundColor: "rgba(255,255,255,0.06)",
-                      borderColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.5)`,
-                      boxShadow: `0 8px 30px -8px rgba(0,0,0,0.4)`
+                      y: -5, 
+                      borderColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.4)`,
+                      backgroundColor: "rgba(255,255,255,0.08)"
                     }}
-                    whileTap={{ scale: 0.98 }}
+                    whileTap={{ scale: 0.97 }}
                   >
-                    <div className="absolute inset-0 bg-gradient-to-br from-transparent via-transparent to-white/[0.02] pointer-events-none" />
-                    
-                    <div className="relative z-10">
-                      <div className="flex items-center gap-2 mb-2">
-                        <div 
-                          className="w-1.5 h-1.5 rounded-full animate-pulse" 
-                          style={{ backgroundColor: auraProfile.glowPrimary }} 
-                        />
-                        <p className="text-[9px] font-mono font-black uppercase tracking-[0.2em]" style={{ color: auraProfile.glowPrimary }}>
-                          INITIATE MISSION
-                        </p>
-                      </div>
-                      
-                      <p className="text-[14px] font-bold leading-tight text-white/90 group-hover:text-white transition-colors line-clamp-2">
-                        {card}
-                      </p>
-                      
-                      <div className="flex items-center gap-1 mt-3 text-[8px] font-mono font-bold text-white/30 group-hover:text-white/60 transition-all">
-                        <span>DEPLOY MODULE</span>
-                        <ChevronRight size={10} style={{ color: auraProfile.glowPrimary }} />
-                      </div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: auraProfile.glowPrimary }} />
+                      <p className="text-[9px] font-mono font-black uppercase tracking-[0.2em]" style={{ color: auraProfile.glowPrimary }}>INITIATE MISSION</p>
                     </div>
+                    <p className="text-[14px] font-bold leading-tight text-white/90 line-clamp-2">{card}</p>
                   </motion.button>
                 ))}
               </div>
