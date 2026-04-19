@@ -1571,9 +1571,9 @@ export default function Dashboard() {
     </AnimatePresence>
   );
 
-// Home View with Intelligent Cards - Full Ready-to-Paste Section
+// Home View with Intelligent Cards - Fixed Absolute Positioning Above Input
 const HomeView = () => (
-  <div className="flex flex-col w-full h-full">
+  <div className="relative flex flex-col w-full h-full">
     {/* Error Toast */}
     <AnimatePresence>
       {errorMessage && (
@@ -1591,7 +1591,7 @@ const HomeView = () => (
     </AnimatePresence>
 
     {/* Scrollable Messages Area */}
-    <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto py-6 space-y-4 px-4 pb-[120px]">
+    <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto py-6 space-y-4 px-4 pb-[140px]">
       {messages.length === 0 && (
         <div className="flex flex-col items-center justify-center h-full gap-6 text-center">
           <div className="relative">
@@ -1697,69 +1697,79 @@ const HomeView = () => (
       </div>
     )}
 
-    {/* ─── VISIBLE CARDS: INITIAL CARDS GRID WITH mt-[-15vh] LIFT ─── */}
-    <AnimatePresence mode="wait">
-      {messages.length === 0 && (
-        <motion.div
-          key="initial-cards"
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95 }}
-          transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
-          /* THE LOVABLE LIFT: mt-[-15vh] - professional but fully visible on all screens */
-          className="w-full max-w-2xl mx-auto px-4 mb-8 mt-[-15vh] relative z-10"
-        >
-          <div className="grid grid-cols-2 gap-4">
-            {/* TOP 2 ONLY - surgical card removal */}
-            {initialCards.slice(0, 2).map((card, idx) => (
-              <motion.button
-                key={idx}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.15 + idx * 0.08 }}
-                onClick={() => handleSendMessage(card)}
-                className="group relative p-6 rounded-2xl text-left transition-all duration-300 overflow-hidden"
-                style={{
-                  background: "rgba(255,255,255,0.02)",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  backdropFilter: "blur(12px)",
-                }}
-                whileHover={{ 
-                  y: -6,
-                  backgroundColor: "rgba(255,255,255,0.05)",
-                  borderColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.5)`,
-                  boxShadow: `0 10px 40px -10px rgba(0,0,0,0.5)`
-                }}
-                whileTap={{ scale: 0.97 }}
-              >
-                <div className="absolute inset-0 bg-gradient-to-br from-transparent via-transparent to-white/[0.03] pointer-events-none" />
-                
-                <div className="relative z-10">
-                  <div className="flex items-center gap-2 mb-3">
-                    <div 
-                      className="w-2 h-2 rounded-full animate-pulse shadow-[0_0_10px_rgba(255,255,255,0.2)]" 
-                      style={{ backgroundColor: auraProfile.glowPrimary }} 
-                    />
-                    <p className="text-[10px] font-mono font-black uppercase tracking-[0.25em]" style={{ color: auraProfile.glowPrimary }}>
-                      INITIATE MISSION
-                    </p>
-                  </div>
-                  
-                  <p className="text-[15px] font-bold leading-tight text-white/90 group-hover:text-white transition-colors">
-                    {card}
-                  </p>
-                  
-                  <div className="flex items-center gap-1.5 mt-5 text-[9px] font-mono font-bold text-white/30 group-hover:text-white/70 transition-all transform translate-x-[-8px] group-hover:translate-x-0">
-                    <span>DEPLOY MODULE</span>
-                    <ChevronRight size={12} style={{ color: auraProfile.glowPrimary }} />
-                  </div>
-                </div>
-              </motion.button>
-            ))}
-          </div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+    {/* ─── PROMPT CARDS - ABSOLUTE POSITIONED ABOVE INPUT BAR ─── */}
+    {/* Wrapper with position: absolute, bottom aligned to sit right above the input */}
+    <div 
+      className="absolute left-0 right-0 z-40"
+      style={{ 
+        bottom: "120px", // Sits right above the input bar
+        pointerEvents: "none" // Allows clicking through the container to the input
+      }}
+    >
+      <div className="w-full max-w-2xl mx-auto px-4">
+        <AnimatePresence mode="wait">
+          {messages.length === 0 && (
+            <motion.div
+              key="initial-cards"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+              transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
+            >
+              <div className="grid grid-cols-2 gap-4">
+                {/* TOP 2 ONLY - surgical card removal */}
+                {initialCards.slice(0, 2).map((card, idx) => (
+                  <motion.button
+                    key={idx}
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: 0.1 + idx * 0.08 }}
+                    onClick={() => handleSendMessage(card)}
+                    className="group relative p-5 rounded-2xl text-left transition-all duration-300 overflow-hidden cursor-pointer"
+                    style={{
+                      background: "rgba(255,255,255,0.03)",
+                      border: "1px solid rgba(255,255,255,0.1)",
+                      backdropFilter: "blur(16px)",
+                      pointerEvents: "auto", // Buttons remain clickable
+                    }}
+                    whileHover={{ 
+                      y: -4,
+                      backgroundColor: "rgba(255,255,255,0.06)",
+                      borderColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.5)`,
+                      boxShadow: `0 8px 30px -8px rgba(0,0,0,0.4)`
+                    }}
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    <div className="absolute inset-0 bg-gradient-to-br from-transparent via-transparent to-white/[0.02] pointer-events-none" />
+                    
+                    <div className="relative z-10">
+                      <div className="flex items-center gap-2 mb-2">
+                        <div 
+                          className="w-1.5 h-1.5 rounded-full animate-pulse" 
+                          style={{ backgroundColor: auraProfile.glowPrimary }} 
+                        />
+                        <p className="text-[9px] font-mono font-black uppercase tracking-[0.2em]" style={{ color: auraProfile.glowPrimary }}>
+                          INITIATE MISSION
+                        </p>
+                      </div>
+                      
+                      <p className="text-[14px] font-bold leading-tight text-white/90 group-hover:text-white transition-colors line-clamp-2">
+                        {card}
+                      </p>
+                      
+                      <div className="flex items-center gap-1 mt-3 text-[8px] font-mono font-bold text-white/30 group-hover:text-white/60 transition-all">
+                        <span>DEPLOY MODULE</span>
+                        <ChevronRight size={10} style={{ color: auraProfile.glowPrimary }} />
+                      </div>
+                    </div>
+                  </motion.button>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </div>
 
     {/* ─── FIXED INPUT PILL (Floating Architecture) ─── */}
     <div
@@ -1770,14 +1780,14 @@ const HomeView = () => (
         isolation: "isolate",
       }}
     >
-      {/* pb-8 adds professional breathing room from the bottom edge */}
-      <div className="w-full max-w-2xl mx-auto px-4 pb-8">
+      {/* pb-6 adds professional breathing room from the bottom edge */}
+      <div className="w-full max-w-2xl mx-auto px-4 pb-6">
         <motion.div
           className="relative rounded-2xl flex flex-col overflow-hidden shadow-2xl"
           animate={laserShineAnimation}
           style={{
-            border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.2)`,
-            background: "rgba(13, 17, 28, 0.85)",
+            border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.25)`,
+            background: "rgba(10, 14, 23, 0.95)",
             backdropFilter: "blur(20px)",
           }}
         >
@@ -1798,31 +1808,31 @@ const HomeView = () => (
             style={{
               color: "var(--nazai-text-color)",
               fontSize: "16px",
-              height: "64px",
-              minHeight: "64px",
-              maxHeight: "64px",
+              height: "60px",
+              minHeight: "60px",
+              maxHeight: "60px",
               zIndex: 10,
               position: "relative",
             }}
           />
-          <div className="flex items-center justify-between px-4 py-3 border-t border-white/5 bg-black/20">
+          <div className="flex items-center justify-between px-4 py-2.5 border-t border-white/5 bg-black/30">
             <div className="flex gap-2">
               <motion.button
                 onClick={() => setPlusMenuOpen(true)}
-                className="w-8 h-8 rounded-xl flex items-center justify-center relative z-10 transition-all border border-white/5"
-                style={{ background: "rgba(255,255,255,0.03)" }}
-                whileHover={{ scale: 1.1, background: "rgba(255,255,255,0.08)" }}
+                className="w-8 h-8 rounded-xl flex items-center justify-center relative z-10 transition-all border border-white/10"
+                style={{ background: "rgba(255,255,255,0.05)" }}
+                whileHover={{ scale: 1.1, background: "rgba(255,255,255,0.1)" }}
                 whileTap={{ scale: 0.9 }}
               >
-                <Plus size={14} />
+                <Plus size={14} className="text-white/70" />
               </motion.button>
               <button
                 onClick={() => {
                   setDrawerOpen(true);
                   setPlusMenuOpen(false);
                 }}
-                className="text-[10px] px-3 py-1 rounded-lg font-mono font-bold tracking-tight transition-all hover:bg-white/10 flex items-center gap-2 border border-white/5"
-                style={{ background: "rgba(255,255,255,0.02)", color: auraProfile.glowPrimary }}
+                className="text-[10px] px-3 py-1.5 rounded-lg font-mono font-bold tracking-tight transition-all hover:bg-white/10 flex items-center gap-2 border border-white/10"
+                style={{ background: "rgba(255,255,255,0.03)", color: auraProfile.glowPrimary }}
               >
                 <Brain size={12} />
                 {activeTool ? activeTool.tool.name.toUpperCase() : "SELECT ENGINE"}
@@ -1832,9 +1842,9 @@ const HomeView = () => (
             <motion.button
               onPointerDown={handleSendPointerDown}
               disabled={isPending}
-              className="w-8 h-8 rounded-xl flex items-center justify-center transition-all shadow-lg shadow-cyan-500/10"
+              className="w-8 h-8 rounded-xl flex items-center justify-center transition-all shadow-lg"
               style={{ background: currentTheme.color }}
-              whileHover={{ scale: 1.1, brightness: 1.2 }}
+              whileHover={{ scale: 1.1, brightness: 1.15 }}
               whileTap={{ scale: 0.9 }}
             >
               <Send size={13} style={{ color: "#020617" }} />
