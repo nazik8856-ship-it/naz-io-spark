@@ -1990,6 +1990,7 @@ export default function Dashboard() {
       style={{ background: "var(--nazai-bg-base)", color: "var(--nazai-text-color)" }}
     >
       <input ref={fileInputRef} type="file" multiple className="hidden" />
+      <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" />
 
       {/* Sidebar — Open Chat Feed Layout */}
       <motion.aside
