@@ -1702,12 +1702,12 @@ export default function Dashboard() {
         {messages.length === 0 ? (
           <motion.div
             key="initial-cards"
-            initial={{ opacity: 0, y: 40 }}
+            initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95 }}
-            transition={{ duration: 0.5, ease: [0.23, 1, 0.32, 1] }}
-            /* Significant lift: mt-[-22vh] pulls the cards into the upper-middle focal point */
-            className="w-full max-w-2xl mx-auto px-4 mb-12 mt-[-22vh] relative z-10"
+            transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
+            /* 🚀 THE HIGH-ALTITUDE LIFT: mt-[-25vh] pulls it to the upper-middle quadrant */
+            className="w-full max-w-2xl mx-auto px-4 mb-8 mt-[-25vh] relative z-10"
           >
             <div className="grid grid-cols-2 gap-4">
               {initialCards.map((card, idx) => (
@@ -1763,9 +1763,9 @@ export default function Dashboard() {
             initial={{ opacity: 0, y: 15 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 15 }}
-            className="w-full max-w-2xl mx-auto mb-6 px-4"
+            className="w-full max-w-2xl mx-auto mb-6 px-4 mt-[-12vh]"
           >
-            <div className="flex gap-2 overflow-x-auto pb-3 scrollbar-hide">
+            <div className="flex gap-2 overflow-x-auto pb-3 scrollbar-hide justify-center flex-wrap">
               {suggestionCards.map((suggestion, idx) => (
                 <motion.button
                   key={idx}
