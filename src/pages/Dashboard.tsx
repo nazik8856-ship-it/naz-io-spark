@@ -1571,7 +1571,7 @@ export default function Dashboard() {
     </AnimatePresence>
   );
 
-  // Home View with Intelligent Cards
+ // ─── HOME VIEW (Correctly Closed & Structured) ───
   const HomeView = () => (
     <div className="flex flex-col w-full h-full">
       {/* Error Toast */}
@@ -1614,13 +1614,7 @@ export default function Dashboard() {
               </div>
             </div>
             <div className="space-y-2">
-              <p
-                className="text-sm font-mono tracking-wide text-white font-bold"
-                style={{
-                  textShadow: "0 0 15px rgba(6, 182, 212, 0.8)",
-                  color: "#e2e8f0",
-                }}
-              >
+              <p className="text-sm font-mono tracking-wide text-white font-bold" style={{ textShadow: "0 0 15px rgba(6, 182, 212, 0.8)", color: "#e2e8f0" }}>
                 THE NEURAL ARCHITECT
               </p>
               <p className="text-[10px] font-mono text-cyan-400/60 tracking-wider">
@@ -1629,6 +1623,7 @@ export default function Dashboard() {
             </div>
           </div>
         )}
+
         {messages.map((msg, i) => (
           <motion.div
             key={i}
@@ -1637,32 +1632,15 @@ export default function Dashboard() {
             className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"} group`}
           >
             {msg.role === "user" ? (
-              <div
-                className="max-w-[78%] px-3 py-2 text-xs font-mono"
-                style={{
-                  borderRadius: "12px 12px 2px 12px",
-                  background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.05)`,
-                  border: `1px solid var(--nazai-border-light)`,
-                  color: "var(--nazai-text-color)",
-                }}
-              >
+              <div className="max-w-[78%] px-3 py-2 text-xs font-mono" style={{ borderRadius: "12px 12px 2px 12px", background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.05)`, border: `1px solid var(--nazai-border-light)`, color: "var(--nazai-text-color)" }}>
                 {msg.text}
               </div>
             ) : (
               <>
-                <div
-                  className="max-w-[85%] rounded-xl overflow-hidden"
-                  style={{ background: "#0B1F3A", border: "1px solid rgba(255,255,255,0.1)" }}
-                >
-                  <div
-                    className="flex items-center gap-2 px-3 py-2"
-                    style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", background: "rgba(6,182,212,0.03)" }}
-                  >
+                <div className="max-w-[85%] rounded-xl overflow-hidden" style={{ background: "#0B1F3A", border: "1px solid rgba(255,255,255,0.1)" }}>
+                  <div className="flex items-center gap-2 px-3 py-2" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", background: "rgba(6,182,212,0.03)" }}>
                     <Brain size={12} style={{ color: "#06b6d4" }} />
-                    <span
-                      className="text-[9px] font-mono font-bold tracking-wider"
-                      style={{ color: "#06b6d4", textShadow: "0 0 6px rgba(6,182,212,0.4)" }}
-                    >
+                    <span className="text-[9px] font-mono font-bold tracking-wider" style={{ color: "#06b6d4", textShadow: "0 0 6px rgba(6,182,212,0.4)" }}>
                       NEURAL ARCHITECT // MISSION_RESULT.LOG
                     </span>
                   </div>
@@ -1679,199 +1657,117 @@ export default function Dashboard() {
       {/* Selected Engine Badge */}
       {activeTool && (
         <div className="w-full max-w-2xl mx-auto mb-2 flex justify-end px-4 relative z-[101]">
-          <span
-            className="text-[9px] px-2 py-1 rounded-full flex items-center gap-1 font-mono"
-            style={{
-              background: `rgba(${activeTool.category.glowRgba},0.1)`,
-              border: `1px solid rgba(${activeTool.category.glowRgba},0.2)`,
-              color: activeTool.category.color,
-            }}
-          >
-            {activeTool.tool.name}{" "}
-            <X
-              size={10}
-              className="cursor-pointer hover:opacity-70 transition-opacity"
-              onClick={() => setSelectedModel(null)}
-            />
+          <span className="text-[9px] px-2 py-1 rounded-full flex items-center gap-1 font-mono" style={{ background: `rgba(${activeTool.category.glowRgba},0.1)`, border: `1px solid rgba(${activeTool.category.glowRgba},0.2)`, color: activeTool.category.color }}>
+            {activeTool.tool.name} <X size={10} className="cursor-pointer hover:opacity-70 transition-opacity" onClick={() => setSelectedModel(null)} />
           </span>
         </div>
       )}
 
-     {/* ─── DUAL-ZONE ARCHITECTURAL CARDS ─── */}
+      {/* ─── INTELLIGENT PROMPT CARDS ─── */}
       <AnimatePresence mode="wait">
-        {messages.length === 0 ? (
-          <div className="flex flex-col w-full items-center">
-            
-            {/* ZONE 1: PRIMARY MISSION GRID (SCREENSHOT 1 - TOP 2 ONLY) */}
-            motion.div
-              key="primary-grid"
-              initial={{ opacity: 0, y: 30 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
-              /* 🚀 THE SWEET SPOT: -22vh gives altitude without hiding content */
-              className="w-full max-w-2xl mx-auto px-4 mb-8 mt-[-22vh] relative z-10"
-              style={{ pointerEvents: 'auto' }}
-            >
-              <div className="grid grid-cols-2 gap-4">
-                {/* Only the top two cards for maximum clarity */}
-                {initialCards.slice(0, 2).map((card, idx) => (
-                  <motion.button
-                    key={idx}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.15 + idx * 0.08 }}
-                    onClick={() => handleSendMessage(card)}
-                    className="group relative p-6 rounded-2xl text-left transition-all duration-300 overflow-hidden"
-                    style={{
-                      background: "rgba(255,255,255,0.02)",
-                      border: "1px solid rgba(255,255,255,0.08)",
-                      backdropFilter: "blur(12px)",
-                    }}
-                    whileHover={{ 
-                      y: -6,
-                      backgroundColor: "rgba(255,255,255,0.05)",
-                      borderColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.5)`,
-                      boxShadow: `0 10px 40px -10px rgba(0,0,0,0.5)`
-                    }}
-                    whileTap={{ scale: 0.97 }}
-                  >
-                    <div className="absolute inset-0 bg-gradient-to-br from-transparent via-transparent to-white/[0.03] pointer-events-none" />
-                    <div className="relative z-10">
-                      <div className="flex items-center gap-2 mb-3">
-                        <div className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: auraProfile.glowPrimary }} />
-                        <p className="text-[10px] font-mono font-black uppercase tracking-[0.25em]" style={{ color: auraProfile.glowPrimary }}>
-                          INITIATE MISSION
-                        </p>
-                      </div>
-                      <p className="text-[15px] font-bold leading-tight text-white/90 group-hover:text-white transition-colors">
-                        {card}
-                      </p>
-                      <div className="flex items-center gap-1.5 mt-5 text-[9px] font-mono font-bold text-white/30 group-hover:text-white/70 transition-all transform translate-x-[-8px] group-hover:translate-x-0">
-                        <span>DEPLOY MODULE</span>
-                        <ChevronRight size={12} style={{ color: auraProfile.glowPrimary }} />
-                      </div>
+        {messages.length === 0 && (
+          <motion.div
+            key="initial-cards"
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
+            className="w-full max-w-2xl mx-auto px-4 mb-8 mt-[-22vh] relative z-10"
+            style={{ pointerEvents: 'auto' }}
+          >
+            <div className="grid grid-cols-2 gap-4">
+              {initialCards.slice(0, 2).map((card, idx) => (
+                <motion.button
+                  key={idx}
+                  onClick={() => handleSendMessage(card)}
+                  className="group relative p-6 rounded-2xl text-left transition-all duration-300 backdrop-blur-xl border border-white/10 bg-white/5 hover:bg-white/10 hover:border-white/20"
+                  whileHover={{ y: -6 }}
+                  whileTap={{ scale: 0.97 }}
+                >
+                  <div className="relative z-10">
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: auraProfile.glowPrimary }} />
+                      <p className="text-[10px] font-mono font-black uppercase tracking-[0.25em]" style={{ color: auraProfile.glowPrimary }}>INITIATE MISSION</p>
                     </div>
-                  </motion.button>
-                ))}
-              </div>
-            </motion.div>
-           
-  // Folder View with Restore/Delete actions
-  const isTrashOrArchive = activeNav === "Trash" || activeNav === "Archives";
-  const FolderView = () => (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="flex flex-col w-full max-w-4xl flex-1 overflow-y-auto pt-4 pb-8 px-4"
-    >
-      <div className="text-center mb-5">
-        <h1
-          className="text-3xl font-black uppercase tracking-tighter font-mono"
-          style={{
-            background: currentTheme.gradient,
-            WebkitBackgroundClip: "text",
-            WebkitTextFillColor: "transparent",
-          }}
-        >
-          {activeNav}
-        </h1>
-        <p className="text-[8px] tracking-[0.3em] uppercase font-mono text-white/30 mt-2">
-          SYSTEM_NODE // {activeNav.toUpperCase()}_TERMINAL
-        </p>
-      </div>
-      <motion.div variants={containerVariants} initial="hidden" animate="visible" className="space-y-2">
-        {missionsLoading ? (
-          <div className="flex justify-center py-12">
-            <div
-              className="w-5 h-5 rounded-full border-2 border-t-transparent animate-spin"
-              style={{ borderColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.4)` }}
-            />
-          </div>
-        ) : filteredMissions.length === 0 ? (
-          <div className="text-center py-12">
-            <p className="text-[11px] font-mono text-white/30">No blueprints found in {activeNav.toLowerCase()}</p>
-          </div>
-        ) : (
-          filteredMissions.map((mission, index) => (
-            <motion.div
-              key={mission.id}
-              variants={itemVariants}
-              whileHover={{ scale: 1.01, backgroundColor: "rgba(255,255,255,0.03)" }}
-              className="group flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer transition-all duration-200"
-              style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
-              onClick={() => (isTrashOrArchive ? handleRestoreMission(mission) : handleLoadMission(mission))}
-            >
-              <div
-                className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
-                style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.1)` }}
-              >
-                <Zap size={14} style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.7)` }} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-[13px] font-medium truncate line-clamp-2" style={{ color: "var(--nazai-text-color)" }}>
-                  {mission.prompt?.slice(0, 80) || "Untitled Blueprint"}
-                </p>
-                {mission.response && (
-                  <p className="text-[10px] font-mono mt-1 line-clamp-2" style={{ color: '#50C878' }}>
-                    {mission.response.slice(0, 100)}...
-                  </p>
-                )}
-                <p className="text-[9px] font-mono mt-1 text-white/30">
-                  {formatDistanceToNow(new Date(mission.created_at), { addSuffix: true })}
-                </p>
-              </div>
-              {isTrashOrArchive ? (
-                <div className="flex items-center gap-1 shrink-0">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleRestoreMission(mission);
-                    }}
-                    className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-emerald-500/10 transition-all"
-                    title="Restore"
-                  >
-                    <RotateCcw size={13} className="text-emerald-400" />
-                  </button>
-                  {activeNav === "Trash" && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteMissionPermanently(mission.id);
-                      }}
-                      className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-500/10 transition-all"
-                      title="Delete Permanently"
-                    >
-                      <X size={13} className="text-red-400" />
-                    </button>
-                  )}
-                </div>
-              ) : (
-                <div className="flex items-center gap-1 shrink-0">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      openLifecycleModal(mission);
-                    }}
-                    className="w-7 h-7 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-white/10 transition-all"
-                    title="Manage"
-                  >
-                    <MoreHorizontal size={14} className="text-white/60" />
-                  </button>
-                  <ChevronRight
-                    size={14}
-                    className="opacity-0 group-hover:opacity-100 transition-opacity text-white/30"
-                  />
-                </div>
-              )}
-            </motion.div>
-          ))
+                    <p className="text-[15px] font-bold leading-tight text-white/90">{card}</p>
+                  </div>
+                </motion.button>
+              ))}
+            </div>
+          </motion.div>
         )}
-      </motion.div>
-    </motion.div>
+      </AnimatePresence>
+    </div>
   );
 
+  // ─── FOLDER VIEW (Cleanly Separated) ───
+  const FolderView = () => {
+    const isTrashOrArchive = activeNav === "Trash" || activeNav === "Archives";
+    
+    return (
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="flex flex-col w-full max-w-4xl flex-1 overflow-y-auto pt-4 pb-8 px-4 mx-auto"
+      >
+        <div className="text-center mb-5">
+          <h1 className="text-3xl font-black uppercase tracking-tighter font-mono" style={{ background: currentTheme.gradient, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
+            {activeNav}
+          </h1>
+          <p className="text-[8px] tracking-[0.3em] uppercase font-mono text-white/30 mt-2">
+            SYSTEM_NODE // {activeNav.toUpperCase()}_TERMINAL
+          </p>
+        </div>
+        
+        <motion.div variants={containerVariants} initial="hidden" animate="visible" className="space-y-2">
+          {missionsLoading ? (
+            <div className="flex justify-center py-12">
+              <div className="w-5 h-5 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.4)` }} />
+            </div>
+          ) : filteredMissions.length === 0 ? (
+            <div className="text-center py-12">
+              <p className="text-[11px] font-mono text-white/30">No blueprints found in {activeNav.toLowerCase()}</p>
+            </div>
+          ) : (
+            filteredMissions.map((mission, index) => (
+              <motion.div
+                key={mission.id}
+                variants={itemVariants}
+                whileHover={{ scale: 1.01, backgroundColor: "rgba(255,255,255,0.03)" }}
+                className="group flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer transition-all duration-200"
+                style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
+                onClick={() => (isTrashOrArchive ? handleRestoreMission(mission) : handleLoadMission(mission))}
+              >
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.1)` }}>
+                  <Zap size={14} style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.7)` }} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[13px] font-medium truncate line-clamp-2" style={{ color: "var(--nazai-text-color)" }}>
+                    {mission.prompt?.slice(0, 80) || "Untitled Blueprint"}
+                  </p>
+                  <p className="text-[9px] font-mono mt-1 text-white/30">
+                    {formatDistanceToNow(new Date(mission.created_at), { addSuffix: true })}
+                  </p>
+                </div>
+                {isTrashOrArchive ? (
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button onClick={(e) => { e.stopPropagation(); handleRestoreMission(mission); }} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-emerald-500/10"><RotateCcw size={13} className="text-emerald-400" /></button>
+                    {activeNav === "Trash" && <button onClick={(e) => { e.stopPropagation(); handleDeleteMissionPermanently(mission.id); }} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-500/10"><X size={13} className="text-red-400" /></button>}
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button onClick={(e) => { e.stopPropagation(); openLifecycleModal(mission); }} className="w-7 h-7 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-white/10"><MoreHorizontal size={14} className="text-white/60" /></button>
+                    <ChevronRight size={14} className="opacity-0 group-hover:opacity-100 text-white/30" />
+                  </div>
+                )}
+              </motion.div>
+            ))
+          )}
+        </motion.div>
+      </motion.div>
+    );
+  };
   // ─── Main Render ────────────────────────────────────────────────────────────────
   return (
     <div
