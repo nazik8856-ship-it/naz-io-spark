@@ -1513,6 +1513,64 @@ export default function Dashboard() {
     );
   };
 
+  // Revert Checkpoint Modal with backdrop-blur-xl
+  const RevertModal = () => (
+    <AnimatePresence>
+      {revertModalOpen && (
+        <div
+          className="fixed inset-0 z-[2000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xl"
+          onClick={() => setRevertModalOpen(false)}
+        >
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            transition={springTransition}
+            onClick={(e) => e.stopPropagation()}
+            className="max-w-sm w-full rounded-xl p-6 text-center"
+            style={{
+              background: "var(--nazai-card-bg)",
+              border: `1px solid rgba(34,197,94,0.2)`,
+            }}
+          >
+            <div className="mb-4">
+              <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3"
+                style={{ background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.2)" }}
+              >
+                <RotateCcw size={20} style={{ color: "#22c55e" }} />
+              </div>
+              <h3 className="text-sm font-bold font-mono mb-2" style={{ color: "var(--nazai-text-color)" }}>
+                Revert to Checkpoint?
+              </h3>
+              <p className="text-[11px] text-white/50">
+                All subsequent progress after this point will be lost. This action cannot be undone.
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setRevertModalOpen(false)}
+                className="flex-1 py-2 rounded-lg text-xs font-mono bg-white/5 border border-white/10 hover:bg-white/10 transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmRevert}
+                className="flex-1 py-2 rounded-lg text-xs font-mono font-bold transition-all"
+                style={{
+                  background: "rgba(34,197,94,0.15)",
+                  border: "1px solid rgba(34,197,94,0.4)",
+                  color: "#22c55e",
+                }}
+              >
+                OK
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+  );
+
   // Home View with Intelligent Cards
   const HomeView = () => (
     <div className="flex flex-col w-full h-full">
@@ -1639,7 +1697,7 @@ export default function Dashboard() {
         </div>
       )}
 
-     {/* ─── INTELLIGENT PROMPT CARDS (High-Altitude Architect Layout) ─── */}
+      {/* ─── INTELLIGENT PROMPT CARDS (High-Altitude Architect Layout) ─── */}
       <AnimatePresence mode="wait">
         {messages.length === 0 ? (
           <motion.div
@@ -1728,7 +1786,7 @@ export default function Dashboard() {
             </div>
           </motion.div>
         )}
-      </AnimatePresence> 
+      </AnimatePresence>
 
       {/* ─── FIXED INPUT PILL (Floating Architecture) ─── */}
       <div
@@ -1811,7 +1869,10 @@ export default function Dashboard() {
             </div>
           </motion.div>
         </div>
-      </div> 
+      </div>
+    </div>
+  );
+
   // Folder View with Restore/Delete actions
   const isTrashOrArchive = activeNav === "Trash" || activeNav === "Archives";
   const FolderView = () => (
@@ -1925,64 +1986,6 @@ export default function Dashboard() {
         )}
       </motion.div>
     </motion.div>
-  );
-
-  // Revert Checkpoint Modal with backdrop-blur-xl
-  const RevertModal = () => (
-    <AnimatePresence>
-      {revertModalOpen && (
-        <div
-          className="fixed inset-0 z-[2000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xl"
-          onClick={() => setRevertModalOpen(false)}
-        >
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            transition={springTransition}
-            onClick={(e) => e.stopPropagation()}
-            className="max-w-sm w-full rounded-xl p-6 text-center"
-            style={{
-              background: "var(--nazai-card-bg)",
-              border: `1px solid rgba(34,197,94,0.2)`,
-            }}
-          >
-            <div className="mb-4">
-              <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3"
-                style={{ background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.2)" }}
-              >
-                <RotateCcw size={20} style={{ color: "#22c55e" }} />
-              </div>
-              <h3 className="text-sm font-bold font-mono mb-2" style={{ color: "var(--nazai-text-color)" }}>
-                Revert to Checkpoint?
-              </h3>
-              <p className="text-[11px] text-white/50">
-                All subsequent progress after this point will be lost. This action cannot be undone.
-              </p>
-            </div>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setRevertModalOpen(false)}
-                className="flex-1 py-2 rounded-lg text-xs font-mono bg-white/5 border border-white/10 hover:bg-white/10 transition-all"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={confirmRevert}
-                className="flex-1 py-2 rounded-lg text-xs font-mono font-bold transition-all"
-                style={{
-                  background: "rgba(34,197,94,0.15)",
-                  border: "1px solid rgba(34,197,94,0.4)",
-                  color: "#22c55e",
-                }}
-              >
-                OK
-              </button>
-            </div>
-          </motion.div>
-        </div>
-      )}
-    </AnimatePresence>
   );
 
   // ─── Main Render ────────────────────────────────────────────────────────────────
