@@ -2310,6 +2310,19 @@ export default function Dashboard() {
                     <div className="text-[9px] text-white/30">Upload from device</div>
                   </div>
                 </button>
+                <button
+                  onClick={() => {
+                    cameraInputRef.current?.click();
+                    setPlusMenuOpen(false);
+                  }}
+                  className="flex items-center gap-3 w-full px-3 py-2 rounded-lg hover:bg-white/5 transition-all"
+                >
+                  <Camera size={14} style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.6)` }} />
+                  <div className="text-left">
+                    <div className="text-xs">Take a Photo</div>
+                    <div className="text-[9px] text-white/30">Open device camera</div>
+                  </div>
+                </button>
                 <div className="h-px bg-white/10 my-2" />
                 <div className="text-[9px] font-mono text-white/40 px-2">SKILLS</div>
                 {SKILLS.map(({ icon: Icon, label }) => (
