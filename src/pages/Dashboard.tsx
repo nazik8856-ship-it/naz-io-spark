@@ -1703,17 +1703,18 @@ export default function Dashboard() {
           <div className="flex flex-col w-full items-center">
             
             {/* ZONE 1: PRIMARY MISSION GRID (SCREENSHOT 1 - TOP 2 ONLY) */}
-            <motion.div
+            motion.div
               key="primary-grid"
               initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95 }}
               transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
-              /* 🚀 HIGH-ALTITUDE LIFT: Pulls the main grid to the top-middle */
-              className="w-full max-w-2xl mx-auto px-4 mb-8 mt-[-28vh] relative z-10"
+              /* 🚀 THE SWEET SPOT: -22vh gives altitude without hiding content */
+              className="w-full max-w-2xl mx-auto px-4 mb-8 mt-[-22vh] relative z-10"
+              style={{ pointerEvents: 'auto' }}
             >
               <div className="grid grid-cols-2 gap-4">
-                {/* .slice(0, 2) ensures only the top two blueprint cards appear */}
+                {/* Only the top two cards for maximum clarity */}
                 {initialCards.slice(0, 2).map((card, idx) => (
                   <motion.button
                     key={idx}
@@ -1739,9 +1740,13 @@ export default function Dashboard() {
                     <div className="relative z-10">
                       <div className="flex items-center gap-2 mb-3">
                         <div className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: auraProfile.glowPrimary }} />
-                        <p className="text-[10px] font-mono font-black uppercase tracking-[0.25em]" style={{ color: auraProfile.glowPrimary }}>INITIATE MISSION</p>
+                        <p className="text-[10px] font-mono font-black uppercase tracking-[0.25em]" style={{ color: auraProfile.glowPrimary }}>
+                          INITIATE MISSION
+                        </p>
                       </div>
-                      <p className="text-[15px] font-bold leading-tight text-white/90 group-hover:text-white transition-colors">{card}</p>
+                      <p className="text-[15px] font-bold leading-tight text-white/90 group-hover:text-white transition-colors">
+                        {card}
+                      </p>
                       <div className="flex items-center gap-1.5 mt-5 text-[9px] font-mono font-bold text-white/30 group-hover:text-white/70 transition-all transform translate-x-[-8px] group-hover:translate-x-0">
                         <span>DEPLOY MODULE</span>
                         <ChevronRight size={12} style={{ color: auraProfile.glowPrimary }} />
@@ -1751,80 +1756,7 @@ export default function Dashboard() {
                 ))}
               </div>
             </motion.div>
-
-            {/* ZONE 2: UTILITY SUGGESTION PILLS (SCREENSHOT 2 - ABOVE INPUT) */}
-            <motion.div
-              key="suggestion-pills"
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 15 }}
-              /* 🚀 ANCHOR LIFT: Pulls the pills to sit right above the input bar */
-              className="w-full max-w-2xl mx-auto mb-6 px-4 mt-[-10vh] relative z-10"
-            >
-              <div className="flex gap-2 overflow-x-auto pb-3 scrollbar-hide justify-center flex-wrap">
-                {suggestionCards.map((suggestion, idx) => (
-                  <motion.button
-                    key={idx}
-                    whileHover={{ scale: 1.05, backgroundColor: "rgba(255,255,255,0.08)" }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => handleSendMessage(suggestion)}
-                    className="flex items-center gap-2 px-4 py-2 rounded-full text-[11px] font-bold whitespace-nowrap border transition-all"
-                    style={{
-                      background: "rgba(255,255,255,0.04)",
-                      borderColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.25)`,
-                      color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},1)`,
-                    }}
-                  >
-                    {suggestion}
-                    <ChevronRight size={12} />
-                  </motion.button>
-                ))}
-              </div>
-            </motion.div>
-          </div>
-        ) : null}
-      </AnimatePresence>
-
-      {/* ─── FIXED INPUT PILL (Floating Architecture) ─── */}
-      <div
-        ref={inputContainerRef}
-        className="fixed bottom-0 left-0 right-0 z-[99999]"
-        style={{ pointerEvents: "auto", isolation: "isolate" }}
-      >
-        <div className="w-full max-w-2xl mx-auto px-4 pb-8">
-          <motion.div
-            className="relative rounded-2xl flex flex-col overflow-hidden shadow-2xl"
-            style={{
-              border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.2)`,
-              background: "rgba(13, 17, 28, 0.85)",
-              backdropFilter: "blur(20px)",
-            }}
-          >
-            <textarea
-              ref={textareaRef}
-              onKeyDown={handleKeyDown}
-              placeholder={activeTool ? `Mission for ${activeTool.tool.name}...` : "Architect a high-performance gym business..."}
-              rows={1}
-              className="w-full bg-transparent border-none outline-none resize-none font-mono text-base p-4 pt-5 text-white"
-              style={{ height: "64px", minHeight: "64px" }}
-            />
-            <div className="flex items-center justify-between px-4 py-3 border-t border-white/5 bg-black/20">
-              <div className="flex gap-2">
-                <motion.button onClick={() => setPlusMenuOpen(true)} className="w-8 h-8 rounded-xl flex items-center justify-center border border-white/5 bg-white/5"><Plus size={14} /></motion.button>
-                <button onClick={() => setDrawerOpen(true)} className="text-[10px] px-3 py-1 rounded-lg font-mono font-bold border border-white/5 flex items-center gap-2" style={{ color: auraProfile.glowPrimary }}>
-                  <Brain size={12} /> {activeTool ? activeTool.tool.name.toUpperCase() : "SELECT ENGINE"}
-                </button>
-              </div>
-              <motion.button onPointerDown={handleSendPointerDown} disabled={isPending} className="w-8 h-8 rounded-xl flex items-center justify-center shadow-lg" style={{ background: currentTheme.color }}>
-                <Send size={13} style={{ color: "#020617" }} />
-              </motion.button>
-            </div>
-          </motion.div>
-        </div>
-      </div>
-    </div>
-  );
-
+           
   // Folder View with Restore/Delete actions
   const isTrashOrArchive = activeNav === "Trash" || activeNav === "Archives";
   const FolderView = () => (
