@@ -17,6 +17,10 @@ import {
   TrendingUp,
   ChevronDown,
   ArrowRight,
+  Youtube,
+  Music2,
+  FileText,
+  Mail,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
