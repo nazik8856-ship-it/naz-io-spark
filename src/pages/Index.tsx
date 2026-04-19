@@ -45,6 +45,10 @@ import {
   Moon,
   RotateCcw,
   Sliders,
+  Youtube,
+  Music2,
+  Mail,
+  FileText,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 
@@ -1108,132 +1112,164 @@ export default function Dashboard() {
           </AnimatePresence>
         </div>
 
-        <footer
-          className="shrink-0 px-8 py-10 relative overflow-hidden"
-          style={{
-            borderTop: `1px solid var(--nazai-border-light)`,
-            background: auraProfile.isLightMode
-              ? "linear-gradient(180deg, rgba(248,250,252,0.4) 0%, #000000 100%)"
-              : "linear-gradient(180deg, rgba(2,6,23,0.6) 0%, #000000 100%)",
-          }}
-        >
-          {/* Ambient glow */}
-          <div
-            aria-hidden
-            className="absolute -top-20 left-1/2 -translate-x-1/2 w-[80%] h-32 rounded-full blur-3xl opacity-20 pointer-events-none"
-            style={{ background: `radial-gradient(ellipse, ${auraProfile.glowPrimary}, transparent 70%)` }}
-          />
+        {messages.length === 0 && (
+          <footer
+            className="shrink-0 px-8 py-10 relative overflow-hidden"
+            style={{
+              borderTop: `1px solid var(--nazai-border-light)`,
+              background: auraProfile.isLightMode
+                ? "linear-gradient(180deg, rgba(248,250,252,0.4) 0%, #000000 100%)"
+                : "linear-gradient(180deg, rgba(2,6,23,0.6) 0%, #000000 100%)",
+              backdropFilter: `blur(${auraProfile.glassBlur}px)`,
+            }}
+          >
+            {/* Ambient glow */}
+            <div
+              aria-hidden
+              className="absolute -top-20 left-1/2 -translate-x-1/2 w-[80%] h-32 rounded-full blur-3xl opacity-15 pointer-events-none"
+              style={{ background: `radial-gradient(ellipse, ${auraProfile.glowPrimary}, transparent 70%)` }}
+            />
 
-          <div className="relative grid grid-cols-1 md:grid-cols-3 gap-10 items-start">
-            {/* LEFT — Brand */}
-            <div className="flex flex-col gap-4">
-              <div className="flex items-center gap-3">
-                <div
-                  className="relative w-10 h-10 rounded-lg flex items-center justify-center font-bold text-lg"
-                  style={{
-                    background: `radial-gradient(circle, rgba(0,163,255,0.25), transparent 70%)`,
-                    color: "#00A3FF",
-                    textShadow: "0 0 12px rgba(0,163,255,0.8)",
-                    fontFamily: "'JetBrains Mono', monospace",
-                  }}
-                >
-                  N
-                </div>
-                <span
-                  className="text-2xl font-extrabold italic tracking-tight"
-                  style={{
-                    fontFamily: "'JetBrains Mono', monospace",
-                    color: "#FFFFFF",
-                  }}
-                >
-                  NAZ<span style={{ color: "#00A3FF", textShadow: "0 0 10px rgba(0,163,255,0.6)" }}>AI</span>
-                </span>
-              </div>
+            {/* Brand row */}
+            <div className="relative flex items-center gap-3 mb-8">
               <div
-                className="text-[10px] font-mono tracking-[0.25em] uppercase leading-relaxed"
-                style={{ color: "rgba(148,163,184,0.6)" }}
-              >
-                Autonomous Logic<br />
-                Deployment<br />
-                Global Sector Alpha<br />
-                © {new Date().getFullYear()} NazAI Systems
-              </div>
-            </div>
-
-            {/* CENTER — CORE_INDEX */}
-            <div className="flex flex-col gap-4">
-              <div
-                className="text-xs font-mono font-bold tracking-[0.3em]"
+                className="relative w-10 h-10 rounded-lg flex items-center justify-center font-bold text-lg"
                 style={{
-                  color: "#22c55e",
-                  textShadow: "0 0 12px rgba(34,197,94,0.6)",
+                  background: `radial-gradient(circle, rgba(0,163,255,0.25), transparent 70%)`,
+                  color: "#00A3FF",
+                  textShadow: "0 0 12px rgba(0,163,255,0.8)",
+                  fontFamily: "'JetBrains Mono', monospace",
                 }}
               >
-                CORE_INDEX
+                N
               </div>
-              <ul className="flex flex-col gap-3">
-                {[
-                  { label: "WORKFLOWER", href: "/workflower" },
-                  { label: "SECURITY", href: "/privacy" },
-                  { label: "GLOBAL_API", href: "#" },
-                ].map((item) => (
-                  <li key={item.label}>
-                    <a
-                      href={item.href}
-                      className="text-[11px] font-mono tracking-[0.25em] transition-all duration-200 hover:tracking-[0.3em]"
-                      style={{
-                        color: "rgba(148,163,184,0.7)",
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.color = "#FFFFFF";
-                        e.currentTarget.style.textShadow = "0 0 8px rgba(34,197,94,0.5)";
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.color = "rgba(148,163,184,0.7)";
-                        e.currentTarget.style.textShadow = "none";
-                      }}
-                    >
-                      {item.label}
-                    </a>
-                  </li>
-                ))}
-              </ul>
+              <span
+                className="text-2xl font-extrabold italic tracking-tight"
+                style={{ fontFamily: "'JetBrains Mono', monospace", color: "#FFFFFF" }}
+              >
+                NAZ<span style={{ color: "#00A3FF", textShadow: "0 0 10px rgba(0,163,255,0.6)" }}>AI</span>
+              </span>
             </div>
 
-            {/* RIGHT — System Status */}
-            <div className="flex md:justify-end items-start">
-              <div className="flex items-center gap-3">
-                <div className="flex flex-col items-end leading-tight">
-                  <span
-                    className="text-[11px] font-mono font-bold tracking-[0.25em]"
-                    style={{
-                      color: "#00A3FF",
-                      textShadow: "0 0 10px rgba(0,163,255,0.5)",
-                    }}
+            {/* 4-column grid */}
+            <div className="relative grid grid-cols-2 md:grid-cols-4 gap-8">
+              {/* FEATURES */}
+              <div className="flex flex-col gap-3">
+                <h4
+                  className="text-[11px] font-mono font-bold tracking-[0.3em] uppercase"
+                  style={{ color: "#22c55e", textShadow: "0 0 8px rgba(34,197,94,0.4)" }}
+                >
+                  Features
+                </h4>
+                {["Neural Engine", "Market Logic", "Financial Gates", "Truth Vector"].map((label) => (
+                  <a
+                    key={label}
+                    href="#"
+                    className="text-sm transition-colors duration-200 hover:text-white"
+                    style={{ color: "rgba(148,163,184,0.7)" }}
                   >
-                    SYSTEM
-                  </span>
-                  <span
-                    className="text-[11px] font-mono font-bold tracking-[0.25em]"
-                    style={{
-                      color: "#00A3FF",
-                      textShadow: "0 0 10px rgba(0,163,255,0.5)",
-                    }}
+                    {label}
+                  </a>
+                ))}
+              </div>
+
+              {/* EXAMPLES */}
+              <div className="flex flex-col gap-3">
+                <h4
+                  className="text-[11px] font-mono font-bold tracking-[0.3em] uppercase"
+                  style={{ color: "#22c55e", textShadow: "0 0 8px rgba(34,197,94,0.4)" }}
+                >
+                  Examples
+                </h4>
+                {["SaaS Blueprint", "Retail Scaling", "Gym Architecture", "Agency Playbook"].map((label) => (
+                  <a
+                    key={label}
+                    href="#"
+                    className="text-sm transition-colors duration-200 hover:text-white"
+                    style={{ color: "rgba(148,163,184,0.7)" }}
                   >
-                    OPERATIONAL
-                  </span>
-                </div>
-                <div className="relative">
-                  <Globe size={18} style={{ color: "#00A3FF" }} />
-                  <span
-                    className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full animate-pulse"
-                    style={{ background: "#22c55e", boxShadow: "0 0 6px #22c55e" }}
-                  />
-                </div>
+                    {label}
+                  </a>
+                ))}
+              </div>
+
+              {/* RESOURCES */}
+              <div className="flex flex-col gap-3">
+                <h4
+                  className="text-[11px] font-mono font-bold tracking-[0.3em] uppercase"
+                  style={{ color: "#22c55e", textShadow: "0 0 8px rgba(34,197,94,0.4)" }}
+                >
+                  Resources
+                </h4>
+                <a
+                  href="https://www.youtube.com/@NazAI-n8b"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 text-sm transition-colors duration-200 hover:text-white"
+                  style={{ color: "rgba(148,163,184,0.7)" }}
+                >
+                  <Youtube size={14} />
+                  YouTube
+                </a>
+                <a
+                  href="https://www.tiktok.com/@nazai.ai.business"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 text-sm transition-colors duration-200 hover:text-white"
+                  style={{ color: "rgba(148,163,184,0.7)" }}
+                >
+                  <Music2 size={14} />
+                  TikTok
+                </a>
+              </div>
+
+              {/* LEGAL + CONTACT */}
+              <div className="flex flex-col gap-3">
+                <h4
+                  className="text-[11px] font-mono font-bold tracking-[0.3em] uppercase"
+                  style={{ color: "#22c55e", textShadow: "0 0 8px rgba(34,197,94,0.4)" }}
+                >
+                  Legal
+                </h4>
+                <a
+                  href="/terms"
+                  className="flex items-center gap-2 text-sm transition-colors duration-200 hover:text-white"
+                  style={{ color: "rgba(148,163,184,0.7)" }}
+                >
+                  <FileText size={14} />
+                  Terms
+                </a>
+                <a
+                  href="/privacy"
+                  className="text-sm transition-colors duration-200 hover:text-white"
+                  style={{ color: "rgba(148,163,184,0.7)" }}
+                >
+                  Privacy Policy
+                </a>
+                <a
+                  href="mailto:nazai8832@gmail.com"
+                  className="flex items-center gap-2 text-sm transition-colors duration-200 hover:text-white mt-1"
+                  style={{ color: "rgba(148,163,184,0.55)" }}
+                >
+                  <Mail size={14} />
+                  nazai8832@gmail.com
+                </a>
               </div>
             </div>
-          </div>
-        </footer>
+
+            {/* Bottom bar */}
+            <div
+              className="relative mt-8 pt-4 flex items-center justify-between text-[10px] font-mono tracking-[0.25em] uppercase"
+              style={{ borderTop: `1px solid var(--nazai-border-light)`, color: "rgba(148,163,184,0.5)" }}
+            >
+              <span>© {new Date().getFullYear()} NazAI Systems · Autonomous Logic Deployment</span>
+              <span className="flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: "#22c55e", boxShadow: "0 0 6px #22c55e" }} />
+                System Operational
+              </span>
+            </div>
+          </footer>
+        )}
       </main>
 
       {/* PLUS MENU MODAL - Fixed z-index to z-[100] */}
