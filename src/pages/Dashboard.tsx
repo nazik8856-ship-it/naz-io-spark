@@ -982,12 +982,11 @@ export default function Dashboard() {
         return updated;
       });
 
-      // CRITICAL FIX: Update mission with response text
+      // CRITICAL FIX: Mark mission as completed (response text not persisted - schema only stores directive)
       if (missionToUpdateId) {
         await supabase
           .from("missions")
           .update({
-            response: finalResponseText,
             updated_at: new Date().toISOString(),
             status: "completed"
           })
