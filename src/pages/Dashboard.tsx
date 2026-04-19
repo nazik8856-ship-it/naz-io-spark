@@ -50,6 +50,12 @@ import {
   Copy,
   Share2,
   RotateCw,
+  Camera,
+  Youtube,
+  Music2,
+  Mail,
+  FileText,
+  Shield,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 
