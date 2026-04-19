@@ -55,7 +55,6 @@ import {
   Music2,
   Mail,
   FileText,
-  Shield,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 
