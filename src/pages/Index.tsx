@@ -1109,16 +1109,129 @@ export default function Dashboard() {
         </div>
 
         <footer
-          className="flex items-center justify-between px-4 py-1.5 shrink-0 text-[8px] font-mono tracking-wider text-white/30"
+          className="shrink-0 px-8 py-10 relative overflow-hidden"
           style={{
             borderTop: `1px solid var(--nazai-border-light)`,
-            background: auraProfile.isLightMode ? "rgba(255,255,255,0.6)" : "rgba(2,6,23,0.8)",
+            background: auraProfile.isLightMode
+              ? "linear-gradient(180deg, rgba(248,250,252,0.4) 0%, #000000 100%)"
+              : "linear-gradient(180deg, rgba(2,6,23,0.6) 0%, #000000 100%)",
           }}
         >
-          <span>SECURE_NODE</span>
-          <div className="flex gap-3">
-            <span>DB:ON</span>
-            <span>AI:READY</span>
+          {/* Ambient glow */}
+          <div
+            aria-hidden
+            className="absolute -top-20 left-1/2 -translate-x-1/2 w-[80%] h-32 rounded-full blur-3xl opacity-20 pointer-events-none"
+            style={{ background: `radial-gradient(ellipse, ${auraProfile.glowPrimary}, transparent 70%)` }}
+          />
+
+          <div className="relative grid grid-cols-1 md:grid-cols-3 gap-10 items-start">
+            {/* LEFT — Brand */}
+            <div className="flex flex-col gap-4">
+              <div className="flex items-center gap-3">
+                <div
+                  className="relative w-10 h-10 rounded-lg flex items-center justify-center font-bold text-lg"
+                  style={{
+                    background: `radial-gradient(circle, rgba(0,163,255,0.25), transparent 70%)`,
+                    color: "#00A3FF",
+                    textShadow: "0 0 12px rgba(0,163,255,0.8)",
+                    fontFamily: "'JetBrains Mono', monospace",
+                  }}
+                >
+                  N
+                </div>
+                <span
+                  className="text-2xl font-extrabold italic tracking-tight"
+                  style={{
+                    fontFamily: "'JetBrains Mono', monospace",
+                    color: "#FFFFFF",
+                  }}
+                >
+                  NAZ<span style={{ color: "#00A3FF", textShadow: "0 0 10px rgba(0,163,255,0.6)" }}>AI</span>
+                </span>
+              </div>
+              <div
+                className="text-[10px] font-mono tracking-[0.25em] uppercase leading-relaxed"
+                style={{ color: "rgba(148,163,184,0.6)" }}
+              >
+                Autonomous Logic<br />
+                Deployment<br />
+                Global Sector Alpha<br />
+                © {new Date().getFullYear()} NazAI Systems
+              </div>
+            </div>
+
+            {/* CENTER — CORE_INDEX */}
+            <div className="flex flex-col gap-4">
+              <div
+                className="text-xs font-mono font-bold tracking-[0.3em]"
+                style={{
+                  color: "#22c55e",
+                  textShadow: "0 0 12px rgba(34,197,94,0.6)",
+                }}
+              >
+                CORE_INDEX
+              </div>
+              <ul className="flex flex-col gap-3">
+                {[
+                  { label: "WORKFLOWER", href: "/workflower" },
+                  { label: "SECURITY", href: "/privacy" },
+                  { label: "GLOBAL_API", href: "#" },
+                ].map((item) => (
+                  <li key={item.label}>
+                    <a
+                      href={item.href}
+                      className="text-[11px] font-mono tracking-[0.25em] transition-all duration-200 hover:tracking-[0.3em]"
+                      style={{
+                        color: "rgba(148,163,184,0.7)",
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.color = "#FFFFFF";
+                        e.currentTarget.style.textShadow = "0 0 8px rgba(34,197,94,0.5)";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.color = "rgba(148,163,184,0.7)";
+                        e.currentTarget.style.textShadow = "none";
+                      }}
+                    >
+                      {item.label}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* RIGHT — System Status */}
+            <div className="flex md:justify-end items-start">
+              <div className="flex items-center gap-3">
+                <div className="flex flex-col items-end leading-tight">
+                  <span
+                    className="text-[11px] font-mono font-bold tracking-[0.25em]"
+                    style={{
+                      color: "#00A3FF",
+                      textShadow: "0 0 10px rgba(0,163,255,0.5)",
+                    }}
+                  >
+                    SYSTEM
+                  </span>
+                  <span
+                    className="text-[11px] font-mono font-bold tracking-[0.25em]"
+                    style={{
+                      color: "#00A3FF",
+                      textShadow: "0 0 10px rgba(0,163,255,0.5)",
+                    }}
+                  >
+                    OPERATIONAL
+                  </span>
+                </div>
+                <div className="relative">
+                  <Globe size={18} style={{ color: "#00A3FF" }} />
+                  <span
+                    className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full animate-pulse"
+                    style={{ background: "#22c55e", boxShadow: "0 0 6px #22c55e" }}
+                  />
+                </div>
+              </div>
+            </div>
           </div>
         </footer>
       </main>
