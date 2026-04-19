@@ -17,6 +17,10 @@ import {
   TrendingUp,
   ChevronDown,
   ArrowRight,
+  Youtube,
+  Music2,
+  FileText,
+  Mail,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
@@ -465,45 +469,154 @@ const Workflower = () => {
           </div>
         </section>
 
-        {/* FOOTER */}
-        <footer className="py-24 px-8 bg-[#030303] border-t border-white/5 relative overflow-hidden">
+        {/* FOOTER — Architect's Footer (4-column glassmorphism) */}
+        <footer className="py-20 px-8 bg-[#030303] border-t border-white/5 relative overflow-hidden">
+          {/* Ambient glows */}
           <div className="absolute left-0 top-0 w-64 h-64 bg-[#00A3FF]/5 blur-[100px] -translate-x-1/2 -translate-y-1/2 pointer-events-none" />
-          <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-20 relative z-10">
-            <div className="space-y-8">
-              <div className="flex items-center gap-4 group cursor-default">
-                <div className="relative">
-                  <div className="absolute inset-0 bg-[#00A3FF]/20 blur-md rounded-full animate-pulse" />
-                  <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" className="relative z-10 text-[#00A3FF] drop-shadow-[0_0_8px_rgba(0,163,255,0.8)]">
-                    <circle cx="20" cy="20" r="18" stroke="currentColor" strokeWidth="1" strokeDasharray="4 4" className="animate-[spin_20s_linear_infinite]" />
-                    <path d="M12 28V12L28 28V12" stroke="currentColor" strokeWidth="2.5" strokeLinecap="square" />
-                  </svg>
-                </div>
-                <h2 className="text-2xl font-black uppercase tracking-tighter italic">
-                  Naz<span className="text-[#00A3FF]">AI</span>
-                </h2>
+          <div className="absolute right-0 bottom-0 w-64 h-64 bg-[#22c55e]/5 blur-[100px] translate-x-1/2 translate-y-1/2 pointer-events-none" />
+
+          <div className="max-w-6xl mx-auto relative z-10">
+            {/* Brand row */}
+            <div className="flex items-center gap-4 mb-12">
+              <div className="relative">
+                <div className="absolute inset-0 bg-[#00A3FF]/20 blur-md rounded-full animate-pulse" />
+                <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" className="relative z-10 text-[#00A3FF] drop-shadow-[0_0_8px_rgba(0,163,255,0.8)]">
+                  <circle cx="20" cy="20" r="18" stroke="currentColor" strokeWidth="1" strokeDasharray="4 4" className="animate-[spin_20s_linear_infinite]" />
+                  <path d="M12 28V12L28 28V12" stroke="currentColor" strokeWidth="2.5" strokeLinecap="square" />
+                </svg>
               </div>
-              <p className="text-[11px] text-white/30 leading-loose uppercase tracking-[0.3em]">
-                Autonomous Logic Deployment
-                <br />
-                Global Sector Alpha
-                <br />© {new Date().getFullYear()} NazAI Systems
-              </p>
+              <h2
+                className="text-2xl font-extrabold italic tracking-tight"
+                style={{ fontFamily: "'JetBrains Mono', monospace", color: "#FFFFFF" }}
+              >
+                NAZ<span style={{ color: "#00A3FF", textShadow: "0 0 10px rgba(0,163,255,0.6)" }}>AI</span>
+              </h2>
             </div>
 
-            <div className="flex flex-col gap-6">
-              <span className="text-[12px] font-black text-[#10B981] uppercase tracking-[0.5em] mb-4">Core_Index</span>
-              {["Workflower", "Security", "Global_API"].map((l) => (
-                <span key={l} className="text-[10px] text-white/40 hover:text-[#39FF14] hover:tracking-[0.6em] transition-all cursor-pointer uppercase tracking-[0.4em] font-bold">
-                  {l}
-                </span>
-              ))}
+            {/* 4-column grid */}
+            <div
+              className="grid grid-cols-2 md:grid-cols-4 gap-10 p-8 rounded-2xl"
+              style={{
+                background: "linear-gradient(180deg, rgba(11,31,58,0.4) 0%, rgba(2,6,23,0.6) 100%)",
+                border: "1px solid rgba(255,255,255,0.05)",
+                backdropFilter: "blur(12px)",
+              }}
+            >
+              {/* FEATURES */}
+              <div className="flex flex-col gap-3">
+                <h4
+                  className="text-[11px] font-mono font-bold tracking-[0.3em] uppercase mb-1"
+                  style={{ color: "#22c55e", textShadow: "0 0 8px rgba(34,197,94,0.4)" }}
+                >
+                  Features
+                </h4>
+                {["Neural Engine", "Market Logic", "Financial Gates", "Truth Vector"].map((label) => (
+                  <a
+                    key={label}
+                    href="#"
+                    className="text-sm transition-colors duration-200 hover:text-white"
+                    style={{ color: "rgba(148,163,184,0.7)" }}
+                  >
+                    {label}
+                  </a>
+                ))}
+              </div>
+
+              {/* EXAMPLES */}
+              <div className="flex flex-col gap-3">
+                <h4
+                  className="text-[11px] font-mono font-bold tracking-[0.3em] uppercase mb-1"
+                  style={{ color: "#22c55e", textShadow: "0 0 8px rgba(34,197,94,0.4)" }}
+                >
+                  Examples
+                </h4>
+                {["SaaS Blueprint", "Retail Scaling", "Gym Architecture", "Agency Playbook"].map((label) => (
+                  <a
+                    key={label}
+                    href="#"
+                    className="text-sm transition-colors duration-200 hover:text-white"
+                    style={{ color: "rgba(148,163,184,0.7)" }}
+                  >
+                    {label}
+                  </a>
+                ))}
+              </div>
+
+              {/* RESOURCES */}
+              <div className="flex flex-col gap-3">
+                <h4
+                  className="text-[11px] font-mono font-bold tracking-[0.3em] uppercase mb-1"
+                  style={{ color: "#22c55e", textShadow: "0 0 8px rgba(34,197,94,0.4)" }}
+                >
+                  Resources
+                </h4>
+                <a
+                  href="https://www.youtube.com/@NazAI-n8b"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 text-sm transition-colors duration-200 hover:text-white"
+                  style={{ color: "rgba(148,163,184,0.7)" }}
+                >
+                  <Youtube size={14} />
+                  YouTube
+                </a>
+                <a
+                  href="https://www.tiktok.com/@nazai.ai.business"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 text-sm transition-colors duration-200 hover:text-white"
+                  style={{ color: "rgba(148,163,184,0.7)" }}
+                >
+                  <Music2 size={14} />
+                  TikTok
+                </a>
+              </div>
+
+              {/* LEGAL + CONTACT */}
+              <div className="flex flex-col gap-3">
+                <h4
+                  className="text-[11px] font-mono font-bold tracking-[0.3em] uppercase mb-1"
+                  style={{ color: "#22c55e", textShadow: "0 0 8px rgba(34,197,94,0.4)" }}
+                >
+                  Legal
+                </h4>
+                <a
+                  href="/terms"
+                  className="flex items-center gap-2 text-sm transition-colors duration-200 hover:text-white"
+                  style={{ color: "rgba(148,163,184,0.7)" }}
+                >
+                  <FileText size={14} />
+                  Terms
+                </a>
+                <a
+                  href="/privacy"
+                  className="text-sm transition-colors duration-200 hover:text-white"
+                  style={{ color: "rgba(148,163,184,0.7)" }}
+                >
+                  Privacy Policy
+                </a>
+                <a
+                  href="mailto:nazai8832@gmail.com"
+                  className="flex items-center gap-2 text-sm transition-colors duration-200 hover:text-white mt-1"
+                  style={{ color: "rgba(148,163,184,0.55)" }}
+                >
+                  <Mail size={14} />
+                  nazai8832@gmail.com
+                </a>
+              </div>
             </div>
 
-            <div className="flex flex-col md:items-end gap-4 text-right">
-              <p className="text-[11px] text-[#00A3FF] uppercase tracking-[0.4em] flex items-center gap-3">
+            {/* Bottom bar */}
+            <div
+              className="mt-8 pt-4 flex items-center justify-between text-[10px] font-mono tracking-[0.25em] uppercase"
+              style={{ borderTop: "1px solid rgba(255,255,255,0.05)", color: "rgba(148,163,184,0.5)" }}
+            >
+              <span>© {new Date().getFullYear()} NazAI Systems · Autonomous Logic Deployment</span>
+              <span className="flex items-center gap-2">
+                <Globe size={12} className="text-[#00A3FF]/60" />
+                <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: "#22c55e", boxShadow: "0 0 6px #22c55e" }} />
                 System Operational
-                <Globe size={16} className="text-[#00A3FF]/40 animate-pulse" />
-              </p>
+              </span>
             </div>
           </div>
         </footer>
