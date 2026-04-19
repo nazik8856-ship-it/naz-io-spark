@@ -50,6 +50,11 @@ import {
   Copy,
   Share2,
   RotateCw,
+  Camera,
+  Youtube,
+  Music2,
+  Mail,
+  FileText,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 
@@ -516,6 +521,7 @@ export default function Dashboard() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const currentAbortControllerRef = useRef<AbortController | null>(null);
@@ -685,7 +691,7 @@ export default function Dashboard() {
       setMissionsLoading(true);
       const { data, error } = await supabase
         .from("missions")
-        .select("id, created_at, prompt, response, status, user_id")
+        .select("id, created_at, updated_at, directive, status, user_id")
         .eq("user_id", userId)
         .order("created_at", { ascending: false });
 
@@ -693,7 +699,15 @@ export default function Dashboard() {
       if (error) throw error;
 
       if (isMounted && data) {
-        setMissions(data as Mission[]);
+        const mapped: Mission[] = data.map((row: any) => ({
+          id: row.id,
+          user_id: row.user_id,
+          prompt: row.directive ?? "",
+          status: (row.status ?? "recently") as MissionStatus,
+          created_at: row.created_at,
+          updated_at: row.updated_at,
+        }));
+        setMissions(mapped);
       }
     } catch (error) {
       console.error("Failed to fetch missions:", error);
@@ -899,7 +913,7 @@ export default function Dashboard() {
         await supabase
           .from("missions")
           .update({
-            prompt: userMessage,
+            directive: userMessage,
             updated_at: new Date().toISOString(),
           })
           .eq("id", missionToUpdateId)
@@ -910,10 +924,8 @@ export default function Dashboard() {
           .from("missions")
           .insert({
             user_id: userId,
-            prompt: userMessage,
+            directive: userMessage,
             status: "recently",
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
           })
           .select()
           .single();
@@ -922,7 +934,15 @@ export default function Dashboard() {
 
         if (savedMission) {
           console.log("TITAN: Vault Success. ID:", savedMission.id);
-          setMissions((prev) => [savedMission as Mission, ...prev]);
+          const newMission: Mission = {
+            id: savedMission.id,
+            user_id: savedMission.user_id,
+            prompt: savedMission.directive ?? userMessage,
+            status: (savedMission.status ?? "recently") as MissionStatus,
+            created_at: savedMission.created_at,
+            updated_at: savedMission.updated_at,
+          };
+          setMissions((prev) => [newMission, ...prev]);
           setActiveMissionId(savedMission.id);
           missionToUpdateId = savedMission.id;
         }
@@ -963,12 +983,11 @@ export default function Dashboard() {
         return updated;
       });
 
-      // CRITICAL FIX: Update mission with response text
+      // CRITICAL FIX: Mark mission as completed (response text not persisted - schema only stores directive)
       if (missionToUpdateId) {
         await supabase
           .from("missions")
           .update({
-            response: finalResponseText,
             updated_at: new Date().toISOString(),
             status: "completed"
           })
@@ -1704,6 +1723,121 @@ export default function Dashboard() {
         )}
       </AnimatePresence>
 
+      {/* ─── ARCHITECT'S FOOTER (Only on empty Home view) ─── */}
+      {messages.length === 0 && (
+        <motion.footer
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.4, duration: 0.5 }}
+          className="w-full max-w-5xl mx-auto px-6 pb-32 mt-2"
+        >
+          <div
+            className="rounded-xl p-5 backdrop-blur-md"
+            style={{
+              background: "rgba(11, 31, 58, 0.35)",
+              border: "1px solid rgba(255,255,255,0.05)",
+              boxShadow: "0 0 40px rgba(6,182,212,0.04) inset",
+            }}
+          >
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+              {/* Features */}
+              <div>
+                <div className="text-[9px] font-mono font-bold tracking-[0.2em] mb-3" style={{ color: borderColor }}>
+                  FEATURES
+                </div>
+                <ul className="space-y-1.5 text-[11px] font-mono text-white/50">
+                  <li className="hover:text-white/80 transition-colors cursor-pointer">Neural Engine</li>
+                  <li className="hover:text-white/80 transition-colors cursor-pointer">Market Logic</li>
+                  <li className="hover:text-white/80 transition-colors cursor-pointer">Financial Gates</li>
+                  <li className="hover:text-white/80 transition-colors cursor-pointer">Truth Vector</li>
+                </ul>
+              </div>
+
+              {/* Examples */}
+              <div>
+                <div className="text-[9px] font-mono font-bold tracking-[0.2em] mb-3" style={{ color: borderColor }}>
+                  EXAMPLES
+                </div>
+                <ul className="space-y-1.5 text-[11px] font-mono text-white/50">
+                  <li
+                    className="hover:text-white/80 transition-colors cursor-pointer"
+                    onClick={() => handleSendMessage("Architect a SaaS Blueprint with subscription pricing and a 30-day onboarding funnel.")}
+                  >
+                    SaaS Blueprint
+                  </li>
+                  <li
+                    className="hover:text-white/80 transition-colors cursor-pointer"
+                    onClick={() => handleSendMessage("Build a Retail Scaling plan with multi-channel logistics and inventory ops.")}
+                  >
+                    Retail Scaling
+                  </li>
+                </ul>
+              </div>
+
+              {/* Resources */}
+              <div>
+                <div className="text-[9px] font-mono font-bold tracking-[0.2em] mb-3" style={{ color: borderColor }}>
+                  RESOURCES
+                </div>
+                <ul className="space-y-1.5 text-[11px] font-mono text-white/50">
+                  <li>
+                    <a
+                      href="https://www.youtube.com/@NazAI-n8b"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1.5 hover:text-white/80 transition-colors"
+                    >
+                      <Youtube size={10} /> YouTube
+                    </a>
+                  </li>
+                  <li>
+                    <a
+                      href="https://www.tiktok.com/@nazai.ai.business"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1.5 hover:text-white/80 transition-colors"
+                    >
+                      <Music2 size={10} /> TikTok
+                    </a>
+                  </li>
+                </ul>
+              </div>
+
+              {/* Legal & Contact */}
+              <div>
+                <div className="text-[9px] font-mono font-bold tracking-[0.2em] mb-3" style={{ color: borderColor }}>
+                  LEGAL
+                </div>
+                <ul className="space-y-1.5 text-[11px] font-mono text-white/50">
+                  <li>
+                    <a href="/terms" className="flex items-center gap-1.5 hover:text-white/80 transition-colors">
+                      <FileText size={10} /> Terms
+                    </a>
+                  </li>
+                  <li>
+                    <a href="/privacy" className="hover:text-white/80 transition-colors">
+                      Privacy Policy
+                    </a>
+                  </li>
+                  <li className="pt-1.5">
+                    <a
+                      href="mailto:nazai8832@gmail.com"
+                      className="flex items-center gap-1.5 hover:text-white/80 transition-colors"
+                    >
+                      <Mail size={10} /> nazai8832@gmail.com
+                    </a>
+                  </li>
+                </ul>
+              </div>
+            </div>
+            <div className="mt-4 pt-3 border-t border-white/5 flex justify-between items-center text-[8px] font-mono text-white/25 tracking-wider">
+              <span>NAZAI // NEURAL ARCHITECT v25</span>
+              <span>© {new Date().getFullYear()} ALL SYSTEMS NOMINAL</span>
+            </div>
+          </div>
+        </motion.footer>
+      )}
+
       {/* Fixed Input Pill */}
       <div
         ref={inputContainerRef}
@@ -1971,6 +2105,7 @@ export default function Dashboard() {
       style={{ background: "var(--nazai-bg-base)", color: "var(--nazai-text-color)" }}
     >
       <input ref={fileInputRef} type="file" multiple className="hidden" />
+      <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" />
 
       {/* Sidebar — Open Chat Feed Layout */}
       <motion.aside
@@ -2288,6 +2423,19 @@ export default function Dashboard() {
                   <div className="text-left">
                     <div className="text-xs">Add Files / Photos</div>
                     <div className="text-[9px] text-white/30">Upload from device</div>
+                  </div>
+                </button>
+                <button
+                  onClick={() => {
+                    cameraInputRef.current?.click();
+                    setPlusMenuOpen(false);
+                  }}
+                  className="flex items-center gap-3 w-full px-3 py-2 rounded-lg hover:bg-white/5 transition-all"
+                >
+                  <Camera size={14} style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.6)` }} />
+                  <div className="text-left">
+                    <div className="text-xs">Take a Photo</div>
+                    <div className="text-[9px] text-white/30">Open device camera</div>
                   </div>
                 </button>
                 <div className="h-px bg-white/10 my-2" />
