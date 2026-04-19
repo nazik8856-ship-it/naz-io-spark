@@ -1639,59 +1639,59 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* ─── INTELLIGENT PROMPT CARDS (Elevated Architect Layout) ─── */}
+     {/* ─── INTELLIGENT PROMPT CARDS (High-Altitude Architect Layout) ─── */}
       <AnimatePresence mode="wait">
         {messages.length === 0 ? (
           <motion.div
             key="initial-cards"
-            initial={{ opacity: 0, y: 30 }}
+            initial={{ opacity: 0, y: 40 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95 }}
-            transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
-            /* Added mt-[-10vh] to pull the cards UP relative to the center */
-            className="w-full max-w-2xl mx-auto px-4 mb-8 mt-[-8vh]"
+            transition={{ duration: 0.5, ease: [0.23, 1, 0.32, 1] }}
+            /* Significant lift: mt-[-22vh] pulls the cards into the upper-middle focal point */
+            className="w-full max-w-2xl mx-auto px-4 mb-12 mt-[-22vh] relative z-10"
           >
             <div className="grid grid-cols-2 gap-4">
               {initialCards.map((card, idx) => (
                 <motion.button
                   key={idx}
-                  initial={{ opacity: 0, y: 15 }}
+                  initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.1 + idx * 0.08 }}
+                  transition={{ delay: 0.15 + idx * 0.08 }}
                   onClick={() => handleSendMessage(card)}
-                  className="group relative p-5 rounded-2xl text-left transition-all duration-300 hover:shadow-[0_0_30px_rgba(255,255,255,0.03)] overflow-hidden"
+                  className="group relative p-6 rounded-2xl text-left transition-all duration-300 overflow-hidden"
                   style={{
                     background: "rgba(255,255,255,0.02)",
-                    border: "1px solid rgba(255,255,255,0.07)",
-                    backdropFilter: "blur(10px)",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                    backdropFilter: "blur(12px)",
                   }}
                   whileHover={{ 
-                    y: -4,
-                    backgroundColor: "rgba(255,255,255,0.04)",
-                    borderColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.4)` 
+                    y: -6,
+                    backgroundColor: "rgba(255,255,255,0.05)",
+                    borderColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.5)`,
+                    boxShadow: `0 10px 40px -10px rgba(0,0,0,0.5)`
                   }}
-                  whileTap={{ scale: 0.98 }}
+                  whileTap={{ scale: 0.97 }}
                 >
-                  {/* Internal Glow Effect */}
-                  <div className="absolute inset-0 bg-gradient-to-br from-transparent via-transparent to-white/[0.02] pointer-events-none" />
+                  <div className="absolute inset-0 bg-gradient-to-br from-transparent via-transparent to-white/[0.03] pointer-events-none" />
                   
                   <div className="relative z-10">
-                    <div className="flex items-center gap-2 mb-2">
+                    <div className="flex items-center gap-2 mb-3">
                       <div 
-                        className="w-1.5 h-1.5 rounded-full animate-pulse" 
+                        className="w-2 h-2 rounded-full animate-pulse shadow-[0_0_10px_rgba(255,255,255,0.2)]" 
                         style={{ backgroundColor: auraProfile.glowPrimary }} 
                       />
-                      <p className="text-[10px] font-mono font-black uppercase tracking-[0.2em]" style={{ color: auraProfile.glowPrimary }}>
+                      <p className="text-[10px] font-mono font-black uppercase tracking-[0.25em]" style={{ color: auraProfile.glowPrimary }}>
                         INITIATE MISSION
                       </p>
                     </div>
                     
-                    <p className="text-[14px] font-semibold leading-snug text-white/90 group-hover:text-white transition-colors">
+                    <p className="text-[15px] font-bold leading-tight text-white/90 group-hover:text-white transition-colors">
                       {card}
                     </p>
                     
-                    <div className="flex items-center gap-1 mt-4 text-[10px] font-mono text-white/30 group-hover:text-white/60 transition-all transform translate-x-[-5px] group-hover:translate-x-0">
-                      <span>DEPLOY</span>
+                    <div className="flex items-center gap-1.5 mt-5 text-[9px] font-mono font-bold text-white/30 group-hover:text-white/70 transition-all transform translate-x-[-8px] group-hover:translate-x-0">
+                      <span>DEPLOY MODULE</span>
                       <ChevronRight size={12} style={{ color: auraProfile.glowPrimary }} />
                     </div>
                   </div>
@@ -1702,10 +1702,10 @@ export default function Dashboard() {
         ) : suggestionCards.length > 0 && (
           <motion.div
             key="suggestion-pills"
-            initial={{ opacity: 0, y: 10 }}
+            initial={{ opacity: 0, y: 15 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 10 }}
-            className="w-full max-w-2xl mx-auto mb-4 px-4"
+            exit={{ opacity: 0, y: 15 }}
+            className="w-full max-w-2xl mx-auto mb-6 px-4"
           >
             <div className="flex gap-2 overflow-x-auto pb-3 scrollbar-hide">
               {suggestionCards.map((suggestion, idx) => (
@@ -1717,7 +1717,7 @@ export default function Dashboard() {
                   className="flex items-center gap-2 px-4 py-2 rounded-full text-[11px] font-bold whitespace-nowrap border transition-all"
                   style={{
                     background: "rgba(255,255,255,0.04)",
-                    borderColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.2)`,
+                    borderColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.25)`,
                     color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},1)`,
                   }}
                 >
@@ -1729,9 +1729,8 @@ export default function Dashboard() {
           </motion.div>
         )}
       </AnimatePresence> 
-      
 
-      {/* Fixed Input Pill */}
+      {/* ─── FIXED INPUT PILL (Floating Architecture) ─── */}
       <div
         ref={inputContainerRef}
         className="fixed bottom-0 left-0 right-0 z-[99999]"
@@ -1740,13 +1739,15 @@ export default function Dashboard() {
           isolation: "isolate",
         }}
       >
-        <div className="w-full max-w-2xl mx-auto px-4 pb-4">
+        {/* pb-8 adds professional breathing room from the bottom edge */}
+        <div className="w-full max-w-2xl mx-auto px-4 pb-8">
           <motion.div
-            className="relative rounded-xl flex flex-col"
+            className="relative rounded-2xl flex flex-col overflow-hidden shadow-2xl"
             animate={laserShineAnimation}
             style={{
-              border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.3)`,
-              background: "var(--nazai-card-bg)",
+              border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.2)`,
+              background: "rgba(13, 17, 28, 0.85)",
+              backdropFilter: "blur(20px)",
             }}
           >
             <textarea
@@ -1759,65 +1760,58 @@ export default function Dashboard() {
                 activeTool ? `Mission for ${activeTool.tool.name}...` : "Architect a high-performance gym business..."
               }
               rows={1}
-              className="w-full bg-transparent border-none outline-none resize-none font-mono text-base p-3"
+              className="w-full bg-transparent border-none outline-none resize-none font-mono text-base p-4 pt-5"
               autoComplete="off"
               autoCorrect="off"
               spellCheck={false}
-              data-gramm={false}
               style={{
                 color: "var(--nazai-text-color)",
                 fontSize: "16px",
-                height: "56px",
-                minHeight: "56px",
-                maxHeight: "56px",
-                zIndex: 9999999,
+                height: "64px",
+                minHeight: "64px",
+                maxHeight: "64px",
+                zIndex: 10,
                 position: "relative",
-                pointerEvents: "auto",
-                cursor: "text",
-                WebkitUserSelect: "text",
-                userSelect: "text",
-                touchAction: "manipulation",
               }}
             />
-            <div className="flex items-center justify-between px-3 py-2 border-t border-white/5">
-              <div className="flex gap-1">
+            <div className="flex items-center justify-between px-4 py-3 border-t border-white/5 bg-black/20">
+              <div className="flex gap-2">
                 <motion.button
                   onClick={() => setPlusMenuOpen(true)}
-                  className="w-7 h-7 rounded-full flex items-center justify-center relative z-10 transition-all"
-                  style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.05)` }}
-                  whileHover={{ scale: 1.1, background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.1)` }}
+                  className="w-8 h-8 rounded-xl flex items-center justify-center relative z-10 transition-all border border-white/5"
+                  style={{ background: "rgba(255,255,255,0.03)" }}
+                  whileHover={{ scale: 1.1, background: "rgba(255,255,255,0.08)" }}
                   whileTap={{ scale: 0.9 }}
                 >
-                  <Plus size={12} />
+                  <Plus size={14} />
                 </motion.button>
                 <button
                   onClick={() => {
                     setDrawerOpen(true);
                     setPlusMenuOpen(false);
                   }}
-                  className="text-[9px] px-2 py-1 rounded font-mono transition-all hover:bg-white/5"
-                  style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.03)` }}
+                  className="text-[10px] px-3 py-1 rounded-lg font-mono font-bold tracking-tight transition-all hover:bg-white/10 flex items-center gap-2 border border-white/5"
+                  style={{ background: "rgba(255,255,255,0.02)", color: auraProfile.glowPrimary }}
                 >
-                  {activeTool ? activeTool.tool.name : "Select Engine"}
+                  <Brain size={12} />
+                  {activeTool ? activeTool.tool.name.toUpperCase() : "SELECT ENGINE"}
                 </button>
               </div>
+              
               <motion.button
                 onPointerDown={handleSendPointerDown}
                 disabled={isPending}
-                className="w-7 h-7 rounded-full flex items-center justify-center transition-all"
-                style={{ background: currentTheme.color + "CC" }}
-                whileHover={{ scale: 1.1 }}
+                className="w-8 h-8 rounded-xl flex items-center justify-center transition-all shadow-lg shadow-cyan-500/10"
+                style={{ background: currentTheme.color }}
+                whileHover={{ scale: 1.1, brightness: 1.2 }}
                 whileTap={{ scale: 0.9 }}
               >
-                <Send size={11} style={{ color: "#020617" }} />
+                <Send size={13} style={{ color: "#020617" }} />
               </motion.button>
             </div>
           </motion.div>
         </div>
-      </div>
-    </div>
-  );
-
+      </div> 
   // Folder View with Restore/Delete actions
   const isTrashOrArchive = activeNav === "Trash" || activeNav === "Archives";
   const FolderView = () => (
