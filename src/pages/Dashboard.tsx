@@ -690,7 +690,7 @@ export default function Dashboard() {
       setMissionsLoading(true);
       const { data, error } = await supabase
         .from("missions")
-        .select("id, created_at, prompt, response, status, user_id")
+        .select("id, created_at, updated_at, directive, status, user_id")
         .eq("user_id", userId)
         .order("created_at", { ascending: false });
 
@@ -698,7 +698,15 @@ export default function Dashboard() {
       if (error) throw error;
 
       if (isMounted && data) {
-        setMissions(data as Mission[]);
+        const mapped: Mission[] = data.map((row: any) => ({
+          id: row.id,
+          user_id: row.user_id,
+          prompt: row.directive ?? "",
+          status: (row.status ?? "recently") as MissionStatus,
+          created_at: row.created_at,
+          updated_at: row.updated_at,
+        }));
+        setMissions(mapped);
       }
     } catch (error) {
       console.error("Failed to fetch missions:", error);
