@@ -912,7 +912,7 @@ export default function Dashboard() {
         await supabase
           .from("missions")
           .update({
-            prompt: userMessage,
+            directive: userMessage,
             updated_at: new Date().toISOString(),
           })
           .eq("id", missionToUpdateId)
@@ -923,10 +923,8 @@ export default function Dashboard() {
           .from("missions")
           .insert({
             user_id: userId,
-            prompt: userMessage,
+            directive: userMessage,
             status: "recently",
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
           })
           .select()
           .single();
@@ -935,7 +933,15 @@ export default function Dashboard() {
 
         if (savedMission) {
           console.log("TITAN: Vault Success. ID:", savedMission.id);
-          setMissions((prev) => [savedMission as Mission, ...prev]);
+          const newMission: Mission = {
+            id: savedMission.id,
+            user_id: savedMission.user_id,
+            prompt: savedMission.directive ?? userMessage,
+            status: (savedMission.status ?? "recently") as MissionStatus,
+            created_at: savedMission.created_at,
+            updated_at: savedMission.updated_at,
+          };
+          setMissions((prev) => [newMission, ...prev]);
           setActiveMissionId(savedMission.id);
           missionToUpdateId = savedMission.id;
         }
