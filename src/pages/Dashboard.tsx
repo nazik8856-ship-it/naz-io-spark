@@ -56,8 +56,7 @@ import { Switch } from "@/components/ui/switch";
 // ─── DEPLOYMENT VERSION ──────────────────────────────────────────────────────────
 const DEPLOYMENT_ID = "NAZAI_TITAN_V25_ARCHITECT";
 
-// ─── Type Definitions 
-──────────────────────────────────────────────────────────────
+// ─── Type Definitions ──────────────────────────────────────────────────────────────
 
 type ToolEntry = {
   id: string;
@@ -275,6 +274,7 @@ const loadAuraProfile = (): AuraProfile => {
 const saveAuraProfile = (profile: AuraProfile) => {
   localStorage.setItem("nazai-aura-profile", JSON.stringify(profile));
 };
+
 // Generate geometric gradient avatar colors
 const getAvatarGradient = (email: string) => {
   const hash = email.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
@@ -386,7 +386,7 @@ export default function Dashboard() {
         if ("serviceWorker" in navigator) {
           const registrations = await navigator.serviceWorker.getRegistrations();
           for (const registration of registrations) {
-await registration.unregister();
+            await registration.unregister();
           }
         }
 
@@ -501,7 +501,7 @@ await registration.unregister();
       console.log("TITAN: Auth Event:", event);
       if (session?.user) {
         setUserId(session.user.id);
-setUserEmail(session.user.email ?? null);
+        setUserEmail(session.user.email ?? null);
       } else {
         setUserId(null);
         setUserEmail(null);
@@ -612,7 +612,8 @@ setUserEmail(session.user.email ?? null);
 
   const filteredMissions = useMemo(() => {
     switch (activeNav) {
-      case "Trash":   return missions.filter((m) => m.status === "trashed");
+      case "Trash":
+        return missions.filter((m) => m.status === "trashed");
       case "Archives":
         return missions.filter((m) => m.status === "archived");
       case "Recently":
@@ -784,7 +785,7 @@ setUserEmail(session.user.email ?? null);
       const controller = new AbortController();
       const timeoutPromise = new Promise((_, reject) => {
         setTimeout(() => reject(new Error("Connection timeout after 12s")), 12000);
-     });
+      });
       
       try {
         const result = await Promise.race([
@@ -1240,7 +1241,7 @@ setUserEmail(session.user.email ?? null);
 
         <motion.div
           variants={containerVariants}
-initial="hidden"
+          initial="hidden"
           animate="visible"
           className="grid grid-cols-1 md:grid-cols-2 gap-4"
         >
@@ -1454,7 +1455,7 @@ initial="hidden"
           title="Regenerate"
         >
           <RotateCw size={12} className="text-white/40" />
-    </button>
+        </button>
         <button
           onClick={() => handleShareMessage(message.text)}
           className="p-1.5 rounded-md hover:bg-white/10 transition-all"
@@ -1676,7 +1677,7 @@ initial="hidden"
                 }
               `}</style>
               {suggestionCards.map((suggestion, idx) => (
-  <motion.button
+                <motion.button
                   key={idx}
                   initial={{ opacity: 0, x: -10 }}
                   animate={{ opacity: 1, x: 0 }}
@@ -1943,7 +1944,7 @@ initial="hidden"
                 onClick={() => setRevertModalOpen(false)}
                 className="flex-1 py-2 rounded-lg text-xs font-mono bg-white/5 border border-white/10 hover:bg-white/10 transition-all"
               >
-     Cancel
+                Cancel
               </button>
               <button
                 onClick={confirmRevert}
@@ -2215,7 +2216,7 @@ initial="hidden"
             <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: borderColor }} />
             <span className="text-[8px] font-mono tracking-wider text-white/30">SECURE_NODE</span>
           </div>
-     </header>
+        </header>
 
         <div className="flex-1 flex flex-col overflow-hidden relative">
           <AnimatePresence mode="wait">
@@ -2536,7 +2537,7 @@ initial="hidden"
         body {
           cursor: default;
           touch-action: manipulation;
-      }
+        }
         
         html, body {
           height: 100% !important;
