@@ -1639,39 +1639,62 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Intelligent Prompt Cards - Dynamic based on conversation state */}
+      {/* ─── INTELLIGENT PROMPT CARDS (Elevated Architect Layout) ─── */}
       <AnimatePresence mode="wait">
         {messages.length === 0 ? (
           <motion.div
             key="initial-cards"
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.8 }}
-            transition={{ duration: 0.3 }}
-            className="w-full max-w-2xl mx-auto mb-4 px-4"
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
+            /* Added mt-[-10vh] to pull the cards UP relative to the center */
+            className="w-full max-w-2xl mx-auto px-4 mb-8 mt-[-8vh]"
           >
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-4">
               {initialCards.map((card, idx) => (
                 <motion.button
                   key={idx}
-                  initial={{ opacity: 0, y: 20 }}
+                  initial={{ opacity: 0, y: 15 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: idx * 0.1 }}
+                  transition={{ delay: 0.1 + idx * 0.08 }}
                   onClick={() => handleSendMessage(card)}
-                  className="group p-4 rounded-xl text-left transition-all duration-200 hover:scale-[1.02]"
+                  className="group relative p-5 rounded-2xl text-left transition-all duration-300 hover:shadow-[0_0_30px_rgba(255,255,255,0.03)] overflow-hidden"
                   style={{
                     background: "rgba(255,255,255,0.02)",
-                    border: "1px solid rgba(255,255,255,0.06)",
+                    border: "1px solid rgba(255,255,255,0.07)",
+                    backdropFilter: "blur(10px)",
                   }}
-                  whileHover={{ borderColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.3)` }}
+                  whileHover={{ 
+                    y: -4,
+                    backgroundColor: "rgba(255,255,255,0.04)",
+                    borderColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.4)` 
+                  }}
+                  whileTap={{ scale: 0.98 }}
                 >
-                  <p className="text-[11px] font-mono font-bold uppercase tracking-wider mb-1" style={{ color: auraProfile.glowPrimary }}>
-                    MISSION STARTER
-                  </p>
-                  <p className="text-[13px] font-medium" style={{ color: "var(--nazai-text-color)" }}>
-                    {card}
-                  </p>
-                  <ChevronRight size={14} className="mt-2 opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: auraProfile.glowPrimary }} />
+                  {/* Internal Glow Effect */}
+                  <div className="absolute inset-0 bg-gradient-to-br from-transparent via-transparent to-white/[0.02] pointer-events-none" />
+                  
+                  <div className="relative z-10">
+                    <div className="flex items-center gap-2 mb-2">
+                      <div 
+                        className="w-1.5 h-1.5 rounded-full animate-pulse" 
+                        style={{ backgroundColor: auraProfile.glowPrimary }} 
+                      />
+                      <p className="text-[10px] font-mono font-black uppercase tracking-[0.2em]" style={{ color: auraProfile.glowPrimary }}>
+                        INITIATE MISSION
+                      </p>
+                    </div>
+                    
+                    <p className="text-[14px] font-semibold leading-snug text-white/90 group-hover:text-white transition-colors">
+                      {card}
+                    </p>
+                    
+                    <div className="flex items-center gap-1 mt-4 text-[10px] font-mono text-white/30 group-hover:text-white/60 transition-all transform translate-x-[-5px] group-hover:translate-x-0">
+                      <span>DEPLOY</span>
+                      <ChevronRight size={12} style={{ color: auraProfile.glowPrimary }} />
+                    </div>
+                  </div>
                 </motion.button>
               ))}
             </div>
@@ -1679,50 +1702,33 @@ export default function Dashboard() {
         ) : suggestionCards.length > 0 && (
           <motion.div
             key="suggestion-pills"
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 20 }}
-            transition={{ duration: 0.3 }}
-            className="w-full max-w-2xl mx-auto mb-3 px-4"
+            exit={{ opacity: 0, y: 10 }}
+            className="w-full max-w-2xl mx-auto mb-4 px-4"
           >
-            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-              <style>{`
-                .scrollbar-hide::-webkit-scrollbar {
-                  display: none;
-                }
-                .scrollbar-hide {
-                  -ms-overflow-style: none;
-                  scrollbar-width: none;
-                }
-              `}</style>
+            <div className="flex gap-2 overflow-x-auto pb-3 scrollbar-hide">
               {suggestionCards.map((suggestion, idx) => (
                 <motion.button
                   key={idx}
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: idx * 0.05 }}
+                  whileHover={{ scale: 1.05, backgroundColor: "rgba(255,255,255,0.08)" }}
+                  whileTap={{ scale: 0.95 }}
                   onClick={() => handleSendMessage(suggestion)}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded-full text-[10px] font-mono whitespace-nowrap transition-all duration-200 hover:scale-105"
+                  className="flex items-center gap-2 px-4 py-2 rounded-full text-[11px] font-bold whitespace-nowrap border transition-all"
                   style={{
-                    background: "rgba(255,255,255,0.03)",
-                    border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.2)`,
-                    color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.8)`,
-                  }}
-                  whileHover={{
-                    background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.1)`,
-                    borderColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.4)`,
-                    boxShadow: `0 0 12px rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.2)`,
+                    background: "rgba(255,255,255,0.04)",
+                    borderColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.2)`,
+                    color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},1)`,
                   }}
                 >
-                  <span>{suggestion}</span>
-                  <ChevronRight size={10} />
+                  {suggestion}
+                  <ChevronRight size={12} />
                 </motion.button>
               ))}
             </div>
           </motion.div>
         )}
-      </AnimatePresence>
-
+      </AnimatePresence> 
       
 
       {/* Fixed Input Pill */}
