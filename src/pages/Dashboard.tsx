@@ -794,10 +794,10 @@ const SettingsView = ({ customPalette, setCustomPalette, auraProfile, updateAura
             </div>
           </motion.div>
 
-          {/* Connected Apps Grid */}
+          {/* Connected Apps Grid - Responsive: 1 column on mobile, 2 on tablet, 4 on desktop */}
           <motion.div
             variants={itemVariants}
-            className="md:col-span-2 p-5 rounded-xl"
+            className="md:col-span-2 p-5 rounded-xl overflow-x-hidden w-full"
             style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
           >
             <h3
@@ -806,27 +806,28 @@ const SettingsView = ({ customPalette, setCustomPalette, auraProfile, updateAura
             >
               <Database size={16} /> CONNECTED APPS
             </h3>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {/* Responsive grid: 1 column on mobile, 2 on tablet, 4 on desktop - NO OVERFLOW */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 w-full mx-auto overflow-x-hidden">
               {/* GitHub */}
-              <div className="p-3 rounded-xl text-center transition-all hover:scale-105" style={{ background: "#24292e", border: "1px solid rgba(255,255,255,0.1)" }}>
+              <div className="p-3 rounded-xl text-center transition-all hover:scale-105 w-full" style={{ background: "#24292e", border: "1px solid rgba(255,255,255,0.1)" }}>
                 <Github size={24} className="mx-auto mb-2 text-white" />
                 <p className="text-[10px] font-mono font-bold text-white">GitHub</p>
                 <p className="text-[8px] text-white/50">Connected</p>
               </div>
               {/* Vercel */}
-              <div className="p-3 rounded-xl text-center transition-all hover:scale-105" style={{ background: "#000000", border: "1px solid rgba(255,255,255,0.1)" }}>
+              <div className="p-3 rounded-xl text-center transition-all hover:scale-105 w-full" style={{ background: "#000000", border: "1px solid rgba(255,255,255,0.1)" }}>
                 <svg className="w-6 h-6 mx-auto mb-2 text-white" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L2 22h20L12 2z"/></svg>
                 <p className="text-[10px] font-mono font-bold text-white">Vercel</p>
                 <p className="text-[8px] text-white/50">Connected</p>
               </div>
               {/* Google Cloud */}
-              <div className="p-3 rounded-xl text-center transition-all hover:scale-105" style={{ background: "#4285F4", border: "1px solid rgba(255,255,255,0.1)" }}>
+              <div className="p-3 rounded-xl text-center transition-all hover:scale-105 w-full" style={{ background: "#4285F4", border: "1px solid rgba(255,255,255,0.1)" }}>
                 <svg className="w-6 h-6 mx-auto mb-2 text-white" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></svg>
                 <p className="text-[10px] font-mono font-bold text-white">Google Cloud</p>
                 <p className="text-[8px] text-white/50">Connected</p>
               </div>
               {/* OpenAI */}
-              <div className="p-3 rounded-xl text-center transition-all hover:scale-105" style={{ background: "#10a37f", border: "1px solid rgba(255,255,255,0.1)" }}>
+              <div className="p-3 rounded-xl text-center transition-all hover:scale-105 w-full" style={{ background: "#10a37f", border: "1px solid rgba(255,255,255,0.1)" }}>
                 <Brain size={24} className="mx-auto mb-2 text-white" />
                 <p className="text-[10px] font-mono font-bold text-white">OpenAI</p>
                 <p className="text-[8px] text-white/50">Connected</p>
@@ -1246,17 +1247,16 @@ const HomeView = ({
       </div>
     </div>
 
-    {/* ─── FIXED INPUT PILL (Floating Architecture) - Centered on mobile ─── */}
+    {/* ─── FIXED INPUT PILL - PERFECTLY CENTERED ON MOBILE ─── */}
     <div
       ref={inputContainerRef}
-      className="fixed bottom-0 left-0 right-0 z-[99999] flex justify-center"
+      className="fixed bottom-4 left-1/2 z-40 w-[94%] sm:w-full sm:max-w-2xl -translate-x-1/2"
       style={{
         pointerEvents: "auto",
         isolation: "isolate",
       }}
     >
-      {/* w-[92%] on mobile, max-w-2xl on larger screens */}
-      <div className="w-[92%] sm:w-full sm:max-w-2xl mx-auto px-0 sm:px-4 pb-6">
+      <div className="w-full px-0 sm:px-4">
         <motion.div
           className="relative rounded-2xl flex flex-col overflow-hidden shadow-2xl"
           animate={laserShineAnimation}
@@ -2620,7 +2620,7 @@ export default function Dashboard() {
       <input ref={fileInputRef} type="file" multiple className="hidden" />
       <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" />
 
-      {/* Mobile Overlay when sidebar is open - darkens main content */}
+      {/* Mobile Backdrop Overlay when sidebar is open */}
       <AnimatePresence>
         {isSidebarOpen && (
           <motion.div
@@ -2628,12 +2628,12 @@ export default function Dashboard() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={() => setIsSidebarOpen(false)}
-            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 lg:hidden"
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[998] lg:hidden"
           />
         )}
       </AnimatePresence>
 
-      {/* Mobile Sidebar - Fixed, slides in from left, floats over content */}
+      {/* Mobile Sidebar - Fixed, slides in from left, floats over content, NO PUSH */}
       <AnimatePresence mode="wait">
         {isSidebarOpen && (
           <motion.aside
@@ -2642,7 +2642,7 @@ export default function Dashboard() {
             animate={{ x: 0 }}
             exit={{ x: "-100%" }}
             transition={{ duration: 0.25, ease: "easeInOut" }}
-            className="fixed top-0 left-0 bottom-0 z-50 w-64 flex flex-col lg:hidden"
+            className="fixed top-0 left-0 bottom-0 z-[999] w-[280px] flex flex-col lg:hidden"
             style={{
               background: "#0B1F3A",
               borderRight: `1px solid var(--nazai-border-light)`,
@@ -2714,18 +2714,16 @@ export default function Dashboard() {
         </div>
       </motion.aside>
 
-      {/* Main Content - Always full width on mobile, shifts on desktop when sidebar is open */}
+      {/* Main Content - ALWAYS w-full on mobile, never shifts when sidebar opens */}
       <main 
-        className="flex flex-col flex-1 min-w-0 relative transition-all duration-250"
+        className="flex flex-col flex-1 min-w-0 relative w-full"
         style={{
-          // On desktop, if sidebar is NOT collapsed, main content has margin-left
-          // On mobile, main content is always full width (sidebar floats over)
-          marginLeft: window.innerWidth >= 1024 && !sidebarCollapsed ? '0px' : '0px',
+          marginLeft: 0, // Mobile always has no margin - sidebar floats over
         }}
       >
-        {/* Mobile Header with Menu Button */}
+        {/* Mobile Header with Menu Button - HIGH z-index and pointer-events-auto */}
         <header
-          className="flex items-center justify-between px-4 py-2 shrink-0 lg:hidden"
+          className="flex items-center justify-between px-4 py-2 shrink-0 lg:hidden relative"
           style={{
             borderBottom: `1px solid var(--nazai-border-light)`,
             background: auraProfile.isLightMode ? "rgba(255,255,255,0.8)" : "rgba(2,6,23,0.8)",
@@ -2733,12 +2731,19 @@ export default function Dashboard() {
           }}
         >
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setIsSidebarOpen(true)}
-              className="text-white/60 hover:text-white/80 transition-colors"
-            >
-              <Menu size={20} />
-            </button>
+            {/* FIXED: Dead Hamburger Button - High z-index, explicit handler */}
+            <div className="z-[9999] relative pointer-events-auto">
+              <button
+                onClick={(e) => { 
+                  e.stopPropagation(); 
+                  setIsSidebarOpen(true); 
+                }}
+                className="text-white/60 hover:text-white/80 transition-colors p-2 -ml-2 rounded-lg active:scale-95"
+                style={{ pointerEvents: "auto" }}
+              >
+                <Menu size={20} />
+              </button>
+            </div>
             <span
               className="text-[10px] font-mono font-black tracking-tighter"
               style={{
