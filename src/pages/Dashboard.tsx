@@ -1710,9 +1710,9 @@ const HomeView = () => (
     <div 
       className="absolute left-1/2 z-40 w-full max-w-2xl"
       style={{ 
-        bottom: "120px", // Sits right above the input bar
-        pointerEvents: "none", // Allows clicking through the container to the input
-        transform: "translateX(calc(-50% - 20px))", // Horizontal offset - nudges left to balance Send button
+        bottom: "140px",
+        pointerEvents: "none",
+        transform: "translateX(calc(-50% - 24px))",
       }}
     >
       <div className="w-full px-4">
