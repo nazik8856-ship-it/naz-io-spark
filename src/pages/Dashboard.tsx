@@ -56,18 +56,12 @@ import {
   Mail,
   FileText,
   Wand2,
+  User,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 
 // ─── DEPLOYMENT VERSION ──────────────────────────────────────────────────────────
 const DEPLOYMENT_ID = "NAZAI_TITAN_V25_ARCHITECT";
-
-// ─── Placeholder: Folder System (offline shell) ────────────────────────────────
-const FolderView = () => (
-  <div className="p-8 text-white/20 font-mono text-xs">
-    Folder System Offline // Initializing...
-  </div>
-);
 
 // ─── Type Definitions ──────────────────────────────────────────────────────────────
 
@@ -120,6 +114,22 @@ type AuraProfile = {
   textGlowIntensity: number;
   glassBlur: number;
   isLightMode: boolean;
+};
+
+// Custom Theme Type
+type CustomPalette = {
+  glow: string;
+  bg: string;
+  textType: 'solid' | 'gradient';
+  bgType: 'color' | 'gradient' | 'image';
+  bgImage: string;
+};
+
+// User Context Type
+type UserContext = {
+  identity: string;
+  goals: string;
+  style: string;
 };
 
 // ─── Constants ─────────────────────────────────────────────────────────────────────
@@ -196,6 +206,22 @@ const DEFAULT_AURA_PROFILE: AuraProfile = {
   textGlowIntensity: 0.5,
   glassBlur: 16,
   isLightMode: false,
+};
+
+// Default Custom Palette
+const DEFAULT_CUSTOM_PALETTE: CustomPalette = {
+  glow: '#06b6d4',
+  bg: '#020617',
+  textType: 'solid',
+  bgType: 'color',
+  bgImage: '',
+};
+
+// Default User Context
+const DEFAULT_USER_CONTEXT: UserContext = {
+  identity: '14-year-old Software Architect from Sumy, Ukraine',
+  goals: 'NazAI AI-powered business launcher',
+  style: 'Perspective, accurate, direct Yes-man/No-man',
 };
 
 // Professional placeholder texts for typing animation
@@ -382,6 +408,1032 @@ const generateFallbackOutline = (prompt: string): string => {
   return `[Neural Architect: Connection Delayed]\n\nBased on: "${words}...", the blueprint is being generated. Please check your connection or try again.\n\nPreliminary Structure:\n• Market Analysis\n• Operational Framework\n• Financial Architecture\n• Growth Strategy\n\nReconnect to receive the complete AI-powered strategic plan.`;
 };
 
+// ─── Folder View Components (Trash & Archives) ────────────────────────────────────
+
+// TrashView Component - Shows deleted items with permanent wipe and restore
+const TrashView = ({ missions, onRestore, onPermanentDelete }: { 
+  missions: Mission[]; 
+  onRestore: (mission: Mission) => void; 
+  onPermanentDelete: (missionId: string) => void;
+}) => {
+  const trashedMissions = missions.filter(m => m.status === "trashed");
+  
+  return (
+    <div className="flex flex-col w-full max-w-4xl mx-auto flex-1 overflow-y-auto pt-8 pb-8 px-4">
+      <div className="text-center mb-8">
+        <h1 className="text-3xl font-black uppercase tracking-tighter font-mono bg-gradient-to-r from-red-500 to-orange-500 bg-clip-text text-transparent">
+          TRASH
+        </h1>
+        <p className="text-[8px] tracking-[0.3em] uppercase font-mono text-white/30 mt-2">
+          PERMANENT DELETION ZONE // 30 DAY RETENTION
+        </p>
+      </div>
+      
+      {trashedMissions.length === 0 ? (
+        <div className="text-center py-20">
+          <Trash2 size={48} className="mx-auto text-white/10 mb-4" />
+          <p className="text-[11px] font-mono text-white/30">Trash is empty</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {trashedMissions.map((mission) => (
+            <motion.div
+              key={mission.id}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="group flex items-center gap-3 px-4 py-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all"
+            >
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 bg-red-500/10">
+                <Trash2 size={14} className="text-red-400" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[13px] font-medium truncate text-white/80">
+                  {mission.prompt?.slice(0, 80) || "Untitled"}
+                </p>
+                <p className="text-[9px] font-mono mt-1 text-white/30">
+                  {formatDistanceToNow(new Date(mission.created_at), { addSuffix: true })}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => onRestore(mission)}
+                  className="px-3 py-1.5 rounded-lg text-[10px] font-mono font-bold bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/30 transition-all"
+                >
+                  Restore
+                </button>
+                <button
+                  onClick={() => onPermanentDelete(mission.id)}
+                  className="px-3 py-1.5 rounded-lg text-[10px] font-mono font-bold bg-red-500/20 border border-red-500/30 text-red-400 hover:bg-red-500/30 transition-all"
+                >
+                  Wipe
+                </button>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ArchivesView Component - Shows archived items with vault-like aesthetic
+const ArchivesView = ({ missions, onRestore }: { 
+  missions: Mission[]; 
+  onRestore: (mission: Mission) => void;
+}) => {
+  const archivedMissions = missions.filter(m => m.status === "archived");
+  
+  return (
+    <div className="flex flex-col w-full max-w-4xl mx-auto flex-1 overflow-y-auto pt-8 pb-8 px-4">
+      <div className="text-center mb-8">
+        <h1 className="text-3xl font-black uppercase tracking-tighter font-mono bg-gradient-to-r from-indigo-500 to-purple-500 bg-clip-text text-transparent">
+          ARCHIVES
+        </h1>
+        <p className="text-[8px] tracking-[0.3em] uppercase font-mono text-white/30 mt-2">
+          SECURE VAULT // COLD STORAGE
+        </p>
+      </div>
+      
+      {archivedMissions.length === 0 ? (
+        <div className="text-center py-20">
+          <Archive size={48} className="mx-auto text-white/10 mb-4" />
+          <p className="text-[11px] font-mono text-white/30">Archive is empty</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {archivedMissions.map((mission) => (
+            <motion.div
+              key={mission.id}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="group flex items-center gap-3 px-4 py-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all"
+            >
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 bg-indigo-500/10">
+                <Archive size={14} className="text-indigo-400" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[13px] font-medium truncate text-white/80">
+                  {mission.prompt?.slice(0, 80) || "Untitled"}
+                </p>
+                <p className="text-[9px] font-mono mt-1 text-white/30">
+                  {formatDistanceToNow(new Date(mission.created_at), { addSuffix: true })}
+                </p>
+              </div>
+              <button
+                onClick={() => onRestore(mission)}
+                className="px-3 py-1.5 rounded-lg text-[10px] font-mono font-bold bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/30 transition-all"
+              >
+                Restore to Home
+              </button>
+            </motion.div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// SettingsView Component - Neural Custom Theme & Connected Apps
+const SettingsView = ({ customPalette, setCustomPalette, auraProfile, updateAuraProfile, resetAuraToDefault, toggleLightMode, userContext, setUserContext }: {
+  customPalette: CustomPalette;
+  setCustomPalette: (palette: CustomPalette) => void;
+  auraProfile: AuraProfile;
+  updateAuraProfile: (updates: Partial<AuraProfile>) => void;
+  resetAuraToDefault: () => void;
+  toggleLightMode: () => void;
+  userContext: UserContext;
+  setUserContext: (context: UserContext) => void;
+}) => {
+  const [neuralCustomActive, setNeuralCustomActive] = useState(false);
+  
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={springTransition}
+      className="flex-1 overflow-y-auto px-6 py-8"
+    >
+      <div className="max-w-4xl mx-auto">
+        <div className="text-center mb-10">
+          <h1
+            className="text-5xl font-black uppercase tracking-tighter font-mono"
+            style={{
+              background: `linear-gradient(135deg, ${neuralCustomActive ? customPalette.glow : auraProfile.glowPrimary}, ${auraProfile.glowSecondary})`,
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+            }}
+          >
+            NEURAL CUSTOM
+          </h1>
+          <p className="text-[10px] tracking-[0.3em] uppercase font-mono text-white/40 mt-3">
+            THEME STUDIO // CONNECTED APPS
+          </p>
+        </div>
+
+        <motion.div
+          variants={containerVariants}
+          initial="hidden"
+          animate="visible"
+          className="grid grid-cols-1 md:grid-cols-2 gap-4"
+        >
+          {/* Neural Custom Toggle */}
+          <motion.div
+            variants={itemVariants}
+            className="md:col-span-2 p-5 rounded-xl flex items-center justify-between"
+            style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
+          >
+            <div className="flex items-center gap-3">
+              <Palette size={18} style={{ color: neuralCustomActive ? customPalette.glow : auraProfile.glowPrimary }} />
+              <div>
+                <div className="text-sm font-semibold font-mono">Neural Custom Theme</div>
+                <div className="text-[9px] font-mono text-white/40">Override default Aura design</div>
+              </div>
+            </div>
+            <Switch checked={neuralCustomActive} onCheckedChange={setNeuralCustomActive} />
+          </motion.div>
+
+          {/* Theme Inputs - Only show when Neural Custom is active */}
+          {neuralCustomActive && (
+            <>
+              <motion.div
+                variants={itemVariants}
+                className="md:col-span-2 p-5 rounded-xl"
+                style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
+              >
+                <h3
+                  className="text-sm font-semibold mb-3 flex items-center gap-2 font-mono"
+                  style={{ color: customPalette.glow }}
+                >
+                  <Sliders size={16} /> CHROMATIC CONTROLS
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-[9px] font-mono block mb-1 text-white/40">GLOW COLOR</label>
+                    <div className="flex items-center gap-2">
+                      <div
+                        className="w-10 h-10 rounded-xl"
+                        style={{ background: customPalette.glow, boxShadow: `0 0 15px ${customPalette.glow}` }}
+                      />
+                      <input
+                        type="color"
+                        value={customPalette.glow}
+                        onChange={(e) => setCustomPalette({ ...customPalette, glow: e.target.value })}
+                        className="w-16 h-9 rounded bg-transparent border border-white/20 cursor-pointer"
+                      />
+                      <input
+                        type="text"
+                        value={customPalette.glow}
+                        onChange={(e) => setCustomPalette({ ...customPalette, glow: e.target.value })}
+                        className="flex-1 px-2 py-1.5 rounded text-xs bg-white/5 border border-white/10 font-mono"
+                        style={{ color: "var(--nazai-text-color)" }}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-mono block mb-1 text-white/40">BACKGROUND COLOR</label>
+                    <div className="flex items-center gap-2">
+                      <div
+                        className="w-10 h-10 rounded-xl"
+                        style={{ background: customPalette.bg }}
+                      />
+                      <input
+                        type="color"
+                        value={customPalette.bg}
+                        onChange={(e) => setCustomPalette({ ...customPalette, bg: e.target.value })}
+                        className="w-16 h-9 rounded bg-transparent border border-white/20 cursor-pointer"
+                      />
+                      <input
+                        type="text"
+                        value={customPalette.bg}
+                        onChange={(e) => setCustomPalette({ ...customPalette, bg: e.target.value })}
+                        className="flex-1 px-2 py-1.5 rounded text-xs bg-white/5 border border-white/10 font-mono"
+                        style={{ color: "var(--nazai-text-color)" }}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-mono block mb-1 text-white/40">BACKGROUND TYPE</label>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setCustomPalette({ ...customPalette, bgType: "color" })}
+                        className={`px-3 py-1.5 rounded-lg text-[10px] font-mono transition-all ${customPalette.bgType === "color" ? "bg-white/20" : "bg-white/5"}`}
+                      >
+                        Color
+                      </button>
+                      <button
+                        onClick={() => setCustomPalette({ ...customPalette, bgType: "gradient" })}
+                        className={`px-3 py-1.5 rounded-lg text-[10px] font-mono transition-all ${customPalette.bgType === "gradient" ? "bg-white/20" : "bg-white/5"}`}
+                      >
+                        Gradient
+                      </button>
+                      <button
+                        onClick={() => setCustomPalette({ ...customPalette, bgType: "image" })}
+                        className={`px-3 py-1.5 rounded-lg text-[10px] font-mono transition-all ${customPalette.bgType === "image" ? "bg-white/20" : "bg-white/5"}`}
+                      >
+                        Image
+                      </button>
+                    </div>
+                  </div>
+                  {customPalette.bgType === "image" && (
+                    <div>
+                      <label className="text-[9px] font-mono block mb-1 text-white/40">BACKGROUND IMAGE URL</label>
+                      <input
+                        type="text"
+                        value={customPalette.bgImage}
+                        onChange={(e) => setCustomPalette({ ...customPalette, bgImage: e.target.value })}
+                        placeholder="https://example.com/image.jpg"
+                        className="w-full px-3 py-2 rounded-lg text-xs bg-white/5 border border-white/10 font-mono"
+                        style={{ color: "var(--nazai-text-color)" }}
+                      />
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            </>
+          )}
+
+          {/* Aura Studio Section (Always visible) */}
+          <motion.div
+            variants={itemVariants}
+            className="md:col-span-2 p-5 rounded-xl"
+            style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
+          >
+            <h3
+              className="text-sm font-semibold mb-3 flex items-center gap-2 font-mono"
+              style={{ color: auraProfile.glowPrimary }}
+            >
+              <Palette size={16} /> AURA STUDIO
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-[9px] font-mono block mb-1 text-white/40">PRIMARY GLOW</label>
+                <div className="flex items-center gap-2">
+                  <div
+                    className="w-10 h-10 rounded-xl"
+                    style={{ background: auraProfile.glowPrimary, boxShadow: `0 0 15px ${auraProfile.glowPrimary}` }}
+                  />
+                  <input
+                    type="color"
+                    value={auraProfile.glowPrimary}
+                    onChange={(e) => updateAuraProfile({ glowPrimary: e.target.value })}
+                    className="w-16 h-9 rounded bg-transparent border border-white/20 cursor-pointer"
+                  />
+                  <input
+                    type="text"
+                    value={auraProfile.glowPrimary}
+                    onChange={(e) => updateAuraProfile({ glowPrimary: e.target.value })}
+                    className="flex-1 px-2 py-1.5 rounded text-xs bg-white/5 border border-white/10 font-mono"
+                    style={{ color: "var(--nazai-text-color)" }}
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-[9px] font-mono block mb-1 text-white/40">SECONDARY GLOW</label>
+                <div className="flex items-center gap-2">
+                  <div
+                    className="w-10 h-10 rounded-xl"
+                    style={{
+                      background: auraProfile.glowSecondary,
+                      boxShadow: `0 0 15px ${auraProfile.glowSecondary}`,
+                    }}
+                  />
+                  <input
+                    type="color"
+                    value={auraProfile.glowSecondary}
+                    onChange={(e) => updateAuraProfile({ glowSecondary: e.target.value })}
+                    className="w-16 h-9 rounded bg-transparent border border-white/20 cursor-pointer"
+                  />
+                  <input
+                    type="text"
+                    value={auraProfile.glowSecondary}
+                    onChange={(e) => updateAuraProfile({ glowSecondary: e.target.value })}
+                    className="flex-1 px-2 py-1.5 rounded text-xs bg-white/5 border border-white/10 font-mono"
+                    style={{ color: "var(--nazai-text-color)" }}
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-[9px] font-mono block mb-1 text-white/40">TEXT GLOW INTENSITY</label>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={auraProfile.textGlowIntensity}
+                  onChange={(e) => updateAuraProfile({ textGlowIntensity: parseFloat(e.target.value) })}
+                  className="w-full h-1 rounded-full"
+                  style={{
+                    background: `linear-gradient(90deg, ${auraProfile.glowPrimary}, ${auraProfile.glowSecondary})`,
+                  }}
+                />
+              </div>
+              <div>
+                <label className="text-[9px] font-mono block mb-1 text-white/40">GLASS BLUR</label>
+                <input
+                  type="range"
+                  min="0"
+                  max="40"
+                  step="1"
+                  value={auraProfile.glassBlur}
+                  onChange={(e) => updateAuraProfile({ glassBlur: parseInt(e.target.value) })}
+                  className="w-full h-1 rounded-full"
+                  style={{
+                    background: `linear-gradient(90deg, ${auraProfile.glowPrimary}, ${auraProfile.glowSecondary})`,
+                  }}
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-between mt-4 pt-3 border-t border-white/10">
+              <div className="flex items-center gap-2">
+                {auraProfile.isLightMode ? <Sun size={16} /> : <Moon size={16} />}
+                <span className="text-[10px] font-mono">Light Mode</span>
+              </div>
+              <Switch checked={auraProfile.isLightMode} onCheckedChange={toggleLightMode} />
+            </div>
+          </motion.div>
+
+          {/* Connected Apps Grid */}
+          <motion.div
+            variants={itemVariants}
+            className="md:col-span-2 p-5 rounded-xl"
+            style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
+          >
+            <h3
+              className="text-sm font-semibold mb-3 flex items-center gap-2 font-mono"
+              style={{ color: neuralCustomActive ? customPalette.glow : auraProfile.glowPrimary }}
+            >
+              <Database size={16} /> CONNECTED APPS
+            </h3>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {/* GitHub */}
+              <div className="p-3 rounded-xl text-center transition-all hover:scale-105" style={{ background: "#24292e", border: "1px solid rgba(255,255,255,0.1)" }}>
+                <Github size={24} className="mx-auto mb-2 text-white" />
+                <p className="text-[10px] font-mono font-bold text-white">GitHub</p>
+                <p className="text-[8px] text-white/50">Connected</p>
+              </div>
+              {/* Vercel */}
+              <div className="p-3 rounded-xl text-center transition-all hover:scale-105" style={{ background: "#000000", border: "1px solid rgba(255,255,255,0.1)" }}>
+                <svg className="w-6 h-6 mx-auto mb-2 text-white" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L2 22h20L12 2z"/></svg>
+                <p className="text-[10px] font-mono font-bold text-white">Vercel</p>
+                <p className="text-[8px] text-white/50">Connected</p>
+              </div>
+              {/* Google Cloud */}
+              <div className="p-3 rounded-xl text-center transition-all hover:scale-105" style={{ background: "#4285F4", border: "1px solid rgba(255,255,255,0.1)" }}>
+                <svg className="w-6 h-6 mx-auto mb-2 text-white" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></svg>
+                <p className="text-[10px] font-mono font-bold text-white">Google Cloud</p>
+                <p className="text-[8px] text-white/50">Connected</p>
+              </div>
+              {/* OpenAI */}
+              <div className="p-3 rounded-xl text-center transition-all hover:scale-105" style={{ background: "#10a37f", border: "1px solid rgba(255,255,255,0.1)" }}>
+                <Brain size={24} className="mx-auto mb-2 text-white" />
+                <p className="text-[10px] font-mono font-bold text-white">OpenAI</p>
+                <p className="text-[8px] text-white/50">Connected</p>
+              </div>
+            </div>
+          </motion.div>
+
+          {/* Personal Context Section */}
+          <motion.div
+            variants={itemVariants}
+            className="md:col-span-2 p-5 rounded-xl"
+            style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
+          >
+            <h3
+              className="text-sm font-semibold mb-3 flex items-center gap-2 font-mono"
+              style={{ color: neuralCustomActive ? customPalette.glow : auraProfile.glowPrimary }}
+            >
+              <User size={16} /> NEURAL CONTEXT
+            </h3>
+            <div className="grid grid-cols-1 gap-4">
+              <div>
+                <label className="text-[9px] font-mono block mb-1 text-white/40">IDENTITY</label>
+                <input
+                  type="text"
+                  value={userContext.identity}
+                  onChange={(e) => setUserContext({ ...userContext, identity: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg text-xs bg-white/5 border border-white/10 font-mono"
+                  style={{ color: "var(--nazai-text-color)" }}
+                />
+              </div>
+              <div>
+                <label className="text-[9px] font-mono block mb-1 text-white/40">PROJECT GOALS</label>
+                <input
+                  type="text"
+                  value={userContext.goals}
+                  onChange={(e) => setUserContext({ ...userContext, goals: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg text-xs bg-white/5 border border-white/10 font-mono"
+                  style={{ color: "var(--nazai-text-color)" }}
+                />
+              </div>
+              <div>
+                <label className="text-[9px] font-mono block mb-1 text-white/40">INTERACTION STYLE</label>
+                <select
+                  value={userContext.style}
+                  onChange={(e) => setUserContext({ ...userContext, style: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg text-xs bg-white/5 border border-white/10 font-mono"
+                  style={{ color: "var(--nazai-text-color)" }}
+                >
+                  <option value="Perspective, accurate, direct Yes-man/No-man">Yes-man/No-man (Balanced)</option>
+                  <option value="Direct, concise, technical">Direct & Technical</option>
+                  <option value="Supportive, encouraging, constructive">Supportive & Constructive</option>
+                  <option value="Challenging, critical, stress-testing">Challenging & Critical</option>
+                </select>
+              </div>
+            </div>
+          </motion.div>
+
+          <motion.div variants={itemVariants} className="md:col-span-2">
+            <motion.button
+              onClick={resetAuraToDefault}
+              className="w-full py-2.5 rounded-xl text-sm font-medium flex items-center justify-center gap-2 transition-all"
+              style={{ background: "rgba(239,68,68,0.05)", border: "1px solid rgba(239,68,68,0.2)", color: "#ef4444" }}
+              whileHover={{ scale: 1.01, background: "rgba(239,68,68,0.1)" }}
+              whileTap={{ scale: 0.99 }}
+            >
+              <RotateCcw size={14} /> RESET AURA TO DEFAULT
+            </motion.button>
+          </motion.div>
+        </motion.div>
+      </div>
+    </motion.div>
+  );
+};
+
+// Message Action Bar Component
+const MessageActionBar = ({ message, index, handleCopyMessage, handleRegenerateMessage, handleShareMessage, openRevertModal, revertDropdownOpen, setRevertDropdownOpen }: { 
+  message: { role: string; text: string }; 
+  index: number;
+  handleCopyMessage: (text: string) => void;
+  handleRegenerateMessage: (index: number) => void;
+  handleShareMessage: (text: string) => void;
+  openRevertModal: (index: number) => void;
+  revertDropdownOpen: number | null;
+  setRevertDropdownOpen: (index: number | null) => void;
+}) => {
+  if (message.role !== "ai") return null;
+  
+  return (
+    <div className="flex items-center gap-1 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
+      <button
+        onClick={() => handleCopyMessage(message.text)}
+        className="p-1.5 rounded-md hover:bg-white/10 transition-all"
+        title="Copy"
+      >
+        <Copy size={12} className="text-white/40" />
+      </button>
+      <button
+        onClick={() => handleRegenerateMessage(index)}
+        className="p-1.5 rounded-md hover:bg-white/10 transition-all"
+        title="Regenerate"
+      >
+        <RotateCw size={12} className="text-white/40" />
+      </button>
+      <button
+        onClick={() => handleShareMessage(message.text)}
+        className="p-1.5 rounded-md hover:bg-white/10 transition-all"
+        title="Share"
+      >
+        <Share2 size={12} className="text-white/40" />
+      </button>
+      <div className="relative">
+        <button
+          onClick={() => setRevertDropdownOpen(revertDropdownOpen === index ? null : index)}
+          className="p-1.5 rounded-md hover:bg-white/10 transition-all"
+          title="More options"
+        >
+          <MoreHorizontal size={12} className="text-white/40" />
+        </button>
+        <AnimatePresence>
+          {revertDropdownOpen === index && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="absolute bottom-full left-0 mb-1 w-44 rounded-lg overflow-hidden z-50"
+              style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
+            >
+              <button
+                onClick={() => openRevertModal(index)}
+                className="w-full px-3 py-2 text-left text-xs hover:bg-white/5 transition-all flex items-center gap-2"
+              >
+                <RotateCcw size={12} /> Revert to checkpoint
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </div>
+  );
+};
+
+// Revert Checkpoint Modal with backdrop-blur-xl
+const RevertModal = ({ revertModalOpen, setRevertModalOpen, confirmRevert }: {
+  revertModalOpen: boolean;
+  setRevertModalOpen: (open: boolean) => void;
+  confirmRevert: () => void;
+}) => (
+  <AnimatePresence>
+    {revertModalOpen && (
+      <div
+        className="fixed inset-0 z-[2000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xl"
+        onClick={() => setRevertModalOpen(false)}
+      >
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.95 }}
+          transition={springTransition}
+          onClick={(e) => e.stopPropagation()}
+          className="max-w-sm w-full rounded-xl p-6 text-center"
+          style={{
+            background: "var(--nazai-card-bg)",
+            border: `1px solid rgba(34,197,94,0.2)`,
+          }}
+        >
+          <div className="mb-4">
+            <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3"
+              style={{ background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.2)" }}
+            >
+              <RotateCcw size={20} style={{ color: "#22c55e" }} />
+            </div>
+            <h3 className="text-sm font-bold font-mono mb-2" style={{ color: "var(--nazai-text-color)" }}>
+              Revert to Checkpoint?
+            </h3>
+            <p className="text-[11px] text-white/50">
+              All subsequent progress after this point will be lost. This action cannot be undone.
+            </p>
+          </div>
+          <div className="flex gap-3">
+            <button
+              onClick={() => setRevertModalOpen(false)}
+              className="flex-1 py-2 rounded-lg text-xs font-mono bg-white/5 border border-white/10 hover:bg-white/10 transition-all"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={confirmRevert}
+              className="flex-1 py-2 rounded-lg text-xs font-mono font-bold transition-all"
+              style={{
+                background: "rgba(34,197,94,0.15)",
+                border: "1px solid rgba(34,197,94,0.4)",
+                color: "#22c55e",
+              }}
+            >
+              OK
+            </button>
+          </div>
+        </motion.div>
+      </div>
+    )}
+  </AnimatePresence>
+);
+
+// Home View with Intelligent Cards - Fixed Absolute Positioning Above Input
+const HomeView = ({ 
+  errorMessage, messages, activeTool, initialCards, auraProfile, currentTheme, isPending,
+  handleSendMessage, handleKeyDown, handleTextareaFocus, handleTextareaBlur, handleSendPointerDown,
+  setSelectedModel, setPlusMenuOpen, setDrawerOpen, textareaRef, inputContainerRef, messagesEndRef,
+  formatAIResponse, getRgbFromHex, laserShineAnimation, userMissionAssets, setUserMissionAssets,
+  activeAssetIndex, setActiveAssetIndex, isDragOver, setIsDragOver, revertDropdownOpen, setRevertDropdownOpen,
+  openRevertModal, handleCopyMessage, handleRegenerateMessage, handleShareMessage, confirmRevert, revertModalOpen, setRevertModalOpen
+}: any) => (
+  <div className="relative flex flex-col w-full h-full">
+    {/* Error Toast */}
+    <AnimatePresence>
+      {errorMessage && (
+        <motion.div
+          initial={{ opacity: 0, y: -50 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -50 }}
+          className="fixed top-4 left-1/2 -translate-x-1/2 z-[10000] px-4 py-2 rounded-lg flex items-center gap-2 text-xs font-mono"
+          style={{ background: "rgba(239,68,68,0.9)", border: "1px solid rgba(239,68,68,0.5)", color: "white" }}
+        >
+          <AlertCircle size={12} />
+          {errorMessage}
+        </motion.div>
+      )}
+    </AnimatePresence>
+
+    {/* Scrollable Messages Area */}
+    <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto py-6 space-y-4 px-4 pb-[140px]">
+      {messages.length === 0 && (
+        <div className="flex flex-col items-center justify-center h-full gap-6 text-center">
+          <div className="relative">
+            <div
+              className="absolute inset-0 rounded-full animate-pulse"
+              style={{
+                boxShadow: `0 0 30px rgba(6, 182, 212, 0.6)`,
+                background: "radial-gradient(circle, rgba(6,182,212,0.2) 0%, transparent 70%)",
+              }}
+            />
+            <div className="w-16 h-16 rounded-full border-2 border-cyan-500/50 flex items-center justify-center relative bg-cyan-500/5">
+              <div
+                className="absolute inset-0 rounded-full animate-ping opacity-75"
+                style={{ background: "rgba(6, 182, 212, 0.3)" }}
+              />
+              <div
+                className="w-3 h-3 rounded-full bg-cyan-500 animate-pulse"
+                style={{ boxShadow: "0 0 10px #06b6d4" }}
+              />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <p
+              className="text-sm font-mono tracking-wide text-white font-bold"
+              style={{
+                textShadow: "0 0 15px rgba(6, 182, 212, 0.8)",
+                color: "#e2e8f0",
+              }}
+            >
+              THE NEURAL ARCHITECT
+            </p>
+            <p className="text-[10px] font-mono text-cyan-400/60 tracking-wider">
+              High-precision business blueprinting engine
+            </p>
+          </div>
+        </div>
+      )}
+      {messages.map((msg: any, i: number) => (
+        <motion.div
+          key={i}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"} group`}
+        >
+          {msg.role === "user" ? (
+            <div
+              className="max-w-[78%] px-3 py-2 text-xs font-mono"
+              style={{
+                borderRadius: "12px 12px 2px 12px",
+                background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.05)`,
+                border: `1px solid var(--nazai-border-light)`,
+                color: "var(--nazai-text-color)",
+              }}
+            >
+              {msg.text}
+            </div>
+          ) : (
+            <>
+              <div
+                className="max-w-[85%] rounded-xl overflow-hidden"
+                style={{ background: "#0B1F3A", border: "1px solid rgba(255,255,255,0.1)" }}
+              >
+                <div
+                  className="flex items-center gap-2 px-3 py-2"
+                  style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", background: "rgba(6,182,212,0.03)" }}
+                >
+                  <Brain size={12} style={{ color: "#06b6d4" }} />
+                  <span
+                    className="text-[9px] font-mono font-bold tracking-wider"
+                    style={{ color: "#06b6d4", textShadow: "0 0 6px rgba(6,182,212,0.4)" }}
+                  >
+                    NEURAL ARCHITECT // MISSION_RESULT.LOG
+                  </span>
+                </div>
+                <div className="px-3 py-2.5">{formatAIResponse(msg.text)}</div>
+              </div>
+              <MessageActionBar 
+                message={msg} 
+                index={i} 
+                handleCopyMessage={handleCopyMessage}
+                handleRegenerateMessage={handleRegenerateMessage}
+                handleShareMessage={handleShareMessage}
+                openRevertModal={openRevertModal}
+                revertDropdownOpen={revertDropdownOpen}
+                setRevertDropdownOpen={setRevertDropdownOpen}
+              />
+            </>
+          )}
+        </motion.div>
+      ))}
+      <div ref={messagesEndRef} />
+    </div>
+
+    {/* Selected Engine Badge */}
+    {activeTool && (
+      <div className="w-full max-w-2xl mx-auto mb-2 flex justify-end px-4 relative z-[101]">
+        <span
+          className="text-[9px] px-2 py-1 rounded-full flex items-center gap-1 font-mono"
+          style={{
+            background: `rgba(${activeTool.category.glowRgba},0.1)`,
+            border: `1px solid rgba(${activeTool.category.glowRgba},0.2)`,
+            color: activeTool.category.color,
+          }}
+        >
+          {activeTool.tool.name}{" "}
+          <X
+            size={10}
+            className="cursor-pointer hover:opacity-70 transition-opacity"
+            onClick={() => setSelectedModel(null)}
+          />
+        </span>
+      </div>
+    )}
+
+    {/* ─── PROMPT CARDS - ABSOLUTE POSITIONED ABOVE INPUT BAR WITH HORIZONTAL OFFSET ─── */}
+    <div 
+      className="absolute left-1/2 z-40 w-full max-w-2xl"
+      style={{ 
+        bottom: "140px",
+        pointerEvents: "none",
+        transform: "translateX(calc(-50% - 24px))",
+      }}
+    >
+      <div className="w-full px-4">
+        <AnimatePresence mode="wait">
+          {messages.length === 0 && (
+            <motion.div
+              key="initial-cards"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+              transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
+            >
+              <div className="grid grid-cols-2 gap-4">
+                {initialCards.slice(0, 2).map((card: string, idx: number) => (
+                  <motion.button
+                    key={idx}
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: 0.1 + idx * 0.08 }}
+                    onClick={() => handleSendMessage(card)}
+                    className="group relative p-5 rounded-2xl text-left transition-all duration-300 overflow-hidden cursor-pointer"
+                    style={{
+                      background: "rgba(255,255,255,0.03)",
+                      border: "1px solid rgba(255,255,255,0.1)",
+                      backdropFilter: "blur(16px)",
+                      pointerEvents: "auto",
+                    }}
+                    whileHover={{ 
+                      y: -4,
+                      backgroundColor: "rgba(255,255,255,0.06)",
+                      borderColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.5)`,
+                      boxShadow: `0 8px 30px -8px rgba(0,0,0,0.4)`
+                    }}
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    <div className="absolute inset-0 bg-gradient-to-br from-transparent via-transparent to-white/[0.02] pointer-events-none" />
+                    
+                    <div className="relative z-10">
+                      <div className="flex items-center gap-2 mb-2">
+                        <div 
+                          className="w-1.5 h-1.5 rounded-full animate-pulse" 
+                          style={{ backgroundColor: auraProfile.glowPrimary }} 
+                        />
+                        <p className="text-[9px] font-mono font-black uppercase tracking-[0.2em]" style={{ color: auraProfile.glowPrimary }}>
+                          INITIATE MISSION
+                        </p>
+                      </div>
+                      
+                      <p className="text-[14px] font-bold leading-tight text-white/90 group-hover:text-white transition-colors line-clamp-2">
+                        {card}
+                      </p>
+                      
+                      <div className="flex items-center gap-1 mt-3 text-[8px] font-mono font-bold text-white/30 group-hover:text-white/60 transition-all">
+                        <span>DEPLOY MODULE</span>
+                        <ChevronRight size={10} style={{ color: auraProfile.glowPrimary }} />
+                      </div>
+                    </div>
+                  </motion.button>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </div>
+
+    {/* ─── FIXED INPUT PILL (Floating Architecture) ─── */}
+    <div
+      ref={inputContainerRef}
+      className="fixed bottom-0 left-0 right-0 z-[99999]"
+      style={{
+        pointerEvents: "auto",
+        isolation: "isolate",
+      }}
+    >
+      <div className="w-full max-w-2xl mx-auto px-4 pb-6">
+        <motion.div
+          className="relative rounded-2xl flex flex-col overflow-hidden shadow-2xl"
+          animate={laserShineAnimation}
+          onDragOver={(e) => {
+            e.preventDefault();
+            if (e.dataTransfer.types.includes("Files")) setIsDragOver(true);
+          }}
+          onDragLeave={(e) => {
+            e.preventDefault();
+            setIsDragOver(false);
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            setIsDragOver(false);
+            const files = Array.from(e.dataTransfer.files);
+            if (files.length === 0) return;
+            const newAssets = files.map((file) => ({
+              id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              url: URL.createObjectURL(file),
+              name: file.name,
+            }));
+            setUserMissionAssets((prev: any[]) => {
+              const next = [...prev, ...newAssets];
+              setActiveAssetIndex(next.length - newAssets.length);
+              return next;
+            });
+          }}
+          style={{
+            border: `1px solid ${
+              isDragOver
+                ? auraProfile.glowPrimary
+                : `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.25)`
+            }`,
+            boxShadow: isDragOver
+              ? `0 0 24px ${auraProfile.glowPrimary}55, inset 0 0 24px ${auraProfile.glowPrimary}22`
+              : undefined,
+            background: "rgba(10, 14, 23, 0.95)",
+            backdropFilter: "blur(20px)",
+            transition: "border-color 180ms ease, box-shadow 220ms ease",
+          }}
+        >
+          <textarea
+            ref={textareaRef}
+            defaultValue=""
+            onKeyDown={handleKeyDown}
+            onFocus={handleTextareaFocus}
+            onBlur={handleTextareaBlur}
+            placeholder={
+              activeTool ? `Mission for ${activeTool.tool.name}...` : "Architect a high-performance gym business..."
+            }
+            rows={1}
+            className="w-full bg-transparent border-none outline-none resize-none font-mono text-base p-4 pt-5"
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
+            style={{
+              color: "var(--nazai-text-color)",
+              fontSize: "16px",
+              height: "60px",
+              minHeight: "60px",
+              maxHeight: "60px",
+              zIndex: 10,
+              position: "relative",
+            }}
+          />
+          <AnimatePresence>
+            {userMissionAssets.length > 0 && (
+              <motion.div
+                key="guardian-strip"
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={springTransition}
+                className="px-3 pt-2 pb-1 flex items-center gap-2 overflow-x-auto"
+                style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}
+              >
+                {userMissionAssets.map((asset: any, i: number) => {
+                  const isActive = i === activeAssetIndex;
+                  return (
+                    <motion.div
+                      key={asset.id}
+                      initial={{ scale: 0.4, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      exit={{ scale: 0.4, opacity: 0 }}
+                      transition={{ ...springTransition, stiffness: 500 }}
+                      className="relative shrink-0 rounded-lg overflow-hidden group"
+                      style={{
+                        width: 44,
+                        height: 44,
+                        border: `1px solid ${
+                          isActive
+                            ? auraProfile.glowPrimary
+                            : "rgba(255,255,255,0.08)"
+                        }`,
+                        boxShadow: isActive
+                          ? `0 0 10px ${auraProfile.glowPrimary}66`
+                          : undefined,
+                      }}
+                    >
+                      <img
+                        src={asset.url}
+                        alt={asset.name}
+                        className="w-full h-full object-cover"
+                        style={{ filter: "grayscale(0.5) contrast(1.1)" }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setActiveAssetIndex(
+                            (i + 1) % userMissionAssets.length,
+                          )
+                        }
+                        title="Cycle vibe-matched asset"
+                        className="absolute inset-0 flex items-center justify-center bg-black/55 opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <Wand2
+                          size={14}
+                          style={{ color: auraProfile.glowPrimary }}
+                        />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setUserMissionAssets((prev: any[]) =>
+                            prev.filter((a: any) => a.id !== asset.id),
+                          );
+                          setActiveAssetIndex(0);
+                        }}
+                        className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-black/80 border border-white/20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <X size={8} className="text-white/70" />
+                      </button>
+                    </motion.div>
+                  );
+                })}
+              </motion.div>
+            )}
+          </AnimatePresence>
+          <div className="flex items-center justify-between px-4 py-2.5 border-t border-white/5 bg-black/30">
+            <div className="flex gap-2">
+              <motion.button
+                onClick={() => setPlusMenuOpen(true)}
+                className="w-8 h-8 rounded-xl flex items-center justify-center relative z-10 transition-all border border-white/10"
+                style={{ background: "rgba(255,255,255,0.05)" }}
+                whileHover={{ scale: 1.1, background: "rgba(255,255,255,0.1)" }}
+                whileTap={{ scale: 0.9 }}
+              >
+                <Plus size={14} className="text-white/70" />
+              </motion.button>
+              <button
+                onClick={() => {
+                  setDrawerOpen(true);
+                  setPlusMenuOpen(false);
+                }}
+                className="text-[10px] px-3 py-1.5 rounded-lg font-mono font-bold tracking-tight transition-all hover:bg-white/10 flex items-center gap-2 border border-white/10"
+                style={{ background: "rgba(255,255,255,0.03)", color: auraProfile.glowPrimary }}
+              >
+                <Brain size={12} />
+                {activeTool ? activeTool.tool.name.toUpperCase() : "SELECT ENGINE"}
+              </button>
+            </div>
+            
+            <motion.button
+              onPointerDown={handleSendPointerDown}
+              disabled={isPending}
+              className="w-8 h-8 rounded-xl flex items-center justify-center transition-all shadow-lg"
+              style={{ background: currentTheme.color }}
+              whileHover={{ scale: 1.1, filter: "brightness(1.15)" }}
+              whileTap={{ scale: 0.9 }}
+            >
+              <Send size={13} style={{ color: "#020617" }} />
+            </motion.button>
+          </div>
+        </motion.div>
+      </div>
+    </div>
+    <RevertModal revertModalOpen={revertModalOpen} setRevertModalOpen={setRevertModalOpen} confirmRevert={confirmRevert} />
+  </div>
+);
+
 // ─── Component ────────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
@@ -457,7 +1509,7 @@ export default function Dashboard() {
   const [plusMenuOpen, setPlusMenuOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [messages, setMessages] = useState<{ role: "user" | "ai"; text: string; isSimulation?: boolean }[]>([]);
-  const [activeNav, setActiveNav] = useState<string>("Home");
+  const [activeNav, setActiveNav] = useState<string>("home");
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -493,10 +1545,35 @@ export default function Dashboard() {
   // Dynamic cards state
   const [initialCards, setInitialCards] = useState<string[]>([]);
   const [suggestionCards, setSuggestionCards] = useState<string[]>([]);
-  // ── Guardian Drop Zone State ────────────────────────────────────────────────
+  
+  // ─── Guardian Drop Zone State ────────────────────────────────────────────────
   const [userMissionAssets, setUserMissionAssets] = useState<{ id: string; url: string; name: string }[]>([]);
   const [activeAssetIndex, setActiveAssetIndex] = useState(0);
   const [isDragOver, setIsDragOver] = useState(false);
+
+  // ─── Advanced Theme & Apps State ─────────────────────────────────────────────
+  const [customPalette, setCustomPalette] = useState<CustomPalette>(DEFAULT_CUSTOM_PALETTE);
+  
+  // ─── Connected Apps State (Hook Point) ──────────────────────────────────────
+  const [proposedApps, setProposedApps] = useState<any[]>([]);
+  
+  // ─── Identity & Neural Context Logic ────────────────────────────────────────
+  const [userContext, setUserContext] = useState<UserContext>(DEFAULT_USER_CONTEXT);
+
+  // ─── Dynamic CSS Variable Injection ──────────────────────────────────────────
+  useEffect(() => {
+    const root = document.documentElement;
+    root.style.setProperty("--nazai-glow", customPalette.glow);
+    root.style.setProperty("--nazai-bg", customPalette.bg);
+    
+    if (customPalette.bgType === "image" && customPalette.bgImage) {
+      root.style.setProperty("--nazai-bg-image", `url(${customPalette.bgImage})`);
+    } else if (customPalette.bgType === "gradient") {
+      root.style.setProperty("--nazai-bg-image", `linear-gradient(135deg, ${customPalette.glow}22, ${customPalette.bg})`);
+    } else {
+      root.style.setProperty("--nazai-bg-image", "none");
+    }
+  }, [customPalette]);
 
   // ─── 2. IDENTITY BRIDGE ───────────────────────────────────────────────────
   useEffect(() => {
@@ -625,16 +1702,16 @@ export default function Dashboard() {
   const activeTool = useMemo(() => findToolById(selectedModel), [selectedModel]);
   const isMediaMode = activeTool?.category.label === "CREATION";
   const borderColor = activeTool?.category.color ?? auraProfile.glowPrimary;
-  const activeNavItem = NAV_ITEMS.find((n) => n.label === activeNav) ?? NAV_ITEMS[0];
-  const currentTheme = SECTION_THEMES[activeNav] ?? getDefaultTheme();
+  const activeNavItem = NAV_ITEMS.find((n) => n.label.toLowerCase() === activeNav) ?? NAV_ITEMS[0];
+  const currentTheme = SECTION_THEMES[activeNav === "home" ? "Home" : activeNav === "trash" ? "Trash" : activeNav === "archives" ? "Archives" : "Home"] ?? getDefaultTheme();
 
   const filteredMissions = useMemo(() => {
     switch (activeNav) {
-      case "Trash":
+      case "trash":
         return missions.filter((m) => m.status === "trashed");
-      case "Archives":
+      case "archives":
         return missions.filter((m) => m.status === "archived");
-      case "Recently":
+      case "recently":
         return missions.filter((m) => m.status !== "trashed" && m.status !== "archived").slice(0, 10);
       default:
         return missions.filter((m) => m.status !== "trashed");
@@ -776,9 +1853,10 @@ export default function Dashboard() {
   const handleNavClick = useCallback((label: string) => {
     if (label === "Settings") {
       setShowSettings(true);
+      setActiveNav("settings");
     } else {
       setShowSettings(false);
-      setActiveNav(label);
+      setActiveNav(label.toLowerCase());
     }
   }, []);
 
@@ -786,6 +1864,15 @@ export default function Dashboard() {
     setSelectedModel(id);
     setDrawerOpen(false);
   }, []);
+
+  // Sign Out Handler
+  const handleSignOut = useCallback(() => {
+    console.log("SIGN_OUT_EVENT_TRIGGERED");
+    setLogoutModalOpen(false);
+    supabase.auth.signOut().then(() => {
+      navigate("/");
+    });
+  }, [navigate]);
 
   // Copy message to clipboard
   const handleCopyMessage = useCallback((text: string) => {
@@ -814,10 +1901,13 @@ export default function Dashboard() {
       });
       
       try {
+        // Build context-aware system prompt with user context
+        const contextPrompt = `[SYSTEM_DIRECTIVE: You are interacting with ${userContext.identity}. Project: ${userContext.goals}. Style: ${userContext.style}. Provide right and perspective responses only. Say "You're completely wrong" if I'm wrong.]\n\nUser Query: ${userPrompt}`;
+        
         const result = await Promise.race([
           supabase.functions.invoke("generate-business-plan", {
             body: {
-              prompt: userPrompt,
+              prompt: contextPrompt,
               model: selectedModel,
               style: activeStyle,
               webSearch: webSearchActive,
@@ -849,7 +1939,7 @@ export default function Dashboard() {
         });
       }
     }
-  }, [messages, selectedModel, activeStyle, webSearchActive]);
+  }, [messages, selectedModel, activeStyle, webSearchActive, userContext]);
 
   // Share message
   const handleShareMessage = useCallback((text: string) => {
@@ -910,9 +2000,13 @@ export default function Dashboard() {
 
     if (textareaRef.current && !customMessage) textareaRef.current.value = "";
     setErrorMessage(null);
+    
+    // Build context-aware system prompt with user context
+    const contextPrompt = `[SYSTEM_DIRECTIVE: You are interacting with ${userContext.identity}. Project: ${userContext.goals}. Style: ${userContext.style}. Provide right and perspective responses only. Say "You're completely wrong" if I'm wrong.]\n\nUser Query: ${userMessage}`;
+    
     setMessages((prev) => [
       ...prev,
-      { role: "user", text: userMessage },
+      { role: "user", text: contextPrompt },
       { role: "ai", text: "Neural Architect: Processing blueprint..." },
     ]);
 
@@ -971,7 +2065,7 @@ export default function Dashboard() {
       const result = (await Promise.race([
         supabase.functions.invoke("generate-business-plan", {
           body: {
-            prompt: userMessage,
+            prompt: contextPrompt,
             model: selectedModel,
             style: activeStyle,
             webSearch: webSearchActive,
@@ -1031,7 +2125,7 @@ export default function Dashboard() {
         window.scrollTo(0, document.body.scrollHeight);
       }, 250);
     }
-  }, [isPending, messages.length, selectedModel, userId, activeStyle, webSearchActive, activeMissionId, fetchMissions]);
+  }, [isPending, messages.length, selectedModel, userId, activeStyle, webSearchActive, activeMissionId, fetchMissions, userContext]);
 
   // ─── INPUT TRIGGERS ────────────────────────────────────────────────────────
   const handleKeyDown = useCallback(
@@ -1055,12 +2149,6 @@ export default function Dashboard() {
     [isPending, handleSendMessage],
   );
 
-  const handleSignOut = useCallback(async () => {
-    setLogoutModalOpen(false);
-    await supabase.auth.signOut();
-    navigate("/");
-  }, [navigate]);
-  
   // ─── THE MANUAL SIDEBAR LIFECYCLE ───────────────────────────────────────────
 
   const handleUpdateMissionStatus = useCallback(
@@ -1088,7 +2176,7 @@ export default function Dashboard() {
     async (mission: Mission) => {
       await handleUpdateMissionStatus(mission.id, "recently");
       if (textareaRef.current) textareaRef.current.value = mission.prompt || "";
-      setActiveNav("Home");
+      setActiveNav("home");
       setShowSettings(false);
 
       const toastEl = document.createElement("div");
@@ -1114,7 +2202,7 @@ export default function Dashboard() {
 
   const handleLoadMission = useCallback((mission: Mission) => {
     setActiveMissionId(mission.id);
-    setActiveNav("Home");
+    setActiveNav("home");
     setShowSettings(false);
     setMessages([{ role: "user", text: mission.prompt || "" }]);
     if (mission.response) {
@@ -1159,8 +2247,8 @@ export default function Dashboard() {
       setActiveMissionId(null);
       setMessages([]);
       if (textareaRef.current) textareaRef.current.value = "";
-      if (activeNav === "Home") {
-        setActiveNav("Recently");
+      if (activeNav === "home") {
+        setActiveNav("recently");
         setShowSettings(false);
       }
     }
@@ -1173,7 +2261,7 @@ export default function Dashboard() {
   const renderNavItem = useCallback(
     (item: (typeof NAV_ITEMS)[number]) => {
       const Icon = item.icon;
-      const isActive = activeNav === item.label && !showSettings;
+      const isActive = activeNav === item.label.toLowerCase() && !showSettings;
       const isSettingsActive = item.label === "Settings" && showSettings;
       const itemTheme = SECTION_THEMES[item.label] || SECTION_THEMES["Home"];
       return (
@@ -1244,737 +2332,76 @@ export default function Dashboard() {
     [auraProfile.glowPrimary, handleLoadMission],
   );
 
-  // Settings View
-  const SettingsView = () => (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={springTransition}
-      className="flex-1 overflow-y-auto px-6 py-8"
-    >
-      <div className="max-w-4xl mx-auto">
-        <div className="text-center mb-10">
-          <h1
-            className="text-5xl font-black uppercase tracking-tighter font-mono"
-            style={{
-              background: `linear-gradient(135deg, ${auraProfile.glowPrimary}, ${auraProfile.glowSecondary})`,
-              WebkitBackgroundClip: "text",
-              WebkitTextFillColor: "transparent",
-            }}
-          >
-            AURA STUDIO
-          </h1>
-          <p className="text-[10px] tracking-[0.3em] uppercase font-mono text-white/40 mt-3">
-            DESIGN SYSTEM // REAL-TIME
-          </p>
-        </div>
-
-        <motion.div
-          variants={containerVariants}
-          initial="hidden"
-          animate="visible"
-          className="grid grid-cols-1 md:grid-cols-2 gap-4"
-        >
-          <motion.div
-            variants={itemVariants}
-            className="md:col-span-2 p-5 rounded-xl"
-            style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
-          >
-            <h3
-              className="text-sm font-semibold mb-3 flex items-center gap-2 font-mono"
-              style={{ color: auraProfile.glowPrimary }}
-            >
-              <Palette size={16} /> CHROMATIC CORE
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="text-[9px] font-mono block mb-1 text-white/40">PRIMARY GLOW</label>
-                <div className="flex items-center gap-2">
-                  <div
-                    className="w-10 h-10 rounded-xl"
-                    style={{ background: auraProfile.glowPrimary, boxShadow: `0 0 15px ${auraProfile.glowPrimary}` }}
-                  />
-                  <input
-                    type="color"
-                    value={auraProfile.glowPrimary}
-                    onChange={(e) => updateAuraProfile({ glowPrimary: e.target.value })}
-                    className="w-16 h-9 rounded bg-transparent border border-white/20 cursor-pointer"
-                  />
-                  <input
-                    type="text"
-                    value={auraProfile.glowPrimary}
-                    onChange={(e) => updateAuraProfile({ glowPrimary: e.target.value })}
-                    className="flex-1 px-2 py-1.5 rounded text-xs bg-white/5 border border-white/10 font-mono"
-                    style={{ color: "var(--nazai-text-color)" }}
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="text-[9px] font-mono block mb-1 text-white/40">SECONDARY GLOW</label>
-                <div className="flex items-center gap-2">
-                  <div
-                    className="w-10 h-10 rounded-xl"
-                    style={{
-                      background: auraProfile.glowSecondary,
-                      boxShadow: `0 0 15px ${auraProfile.glowSecondary}`,
-                    }}
-                  />
-                  <input
-                    type="color"
-                    value={auraProfile.glowSecondary}
-                    onChange={(e) => updateAuraProfile({ glowSecondary: e.target.value })}
-                    className="w-16 h-9 rounded bg-transparent border border-white/20 cursor-pointer"
-                  />
-                  <input
-                    type="text"
-                    value={auraProfile.glowSecondary}
-                    onChange={(e) => updateAuraProfile({ glowSecondary: e.target.value })}
-                    className="flex-1 px-2 py-1.5 rounded text-xs bg-white/5 border border-white/10 font-mono"
-                    style={{ color: "var(--nazai-text-color)" }}
-                  />
-                </div>
-              </div>
-            </div>
-          </motion.div>
-
-          <motion.div
-            variants={itemVariants}
-            className="p-5 rounded-xl"
-            style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
-          >
-            <h3
-              className="text-sm font-semibold mb-3 flex items-center gap-2 font-mono"
-              style={{ color: auraProfile.glowPrimary }}
-            >
-              <Sliders size={16} /> ATMOSPHERIC
-            </h3>
-            <div className="space-y-4">
-              <div>
-                <div className="flex justify-between text-[9px] font-mono text-white/40 mb-1">
-                  <span>TEXT GLOW</span>
-                  <span>{auraProfile.textGlowIntensity.toFixed(2)}</span>
-                </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.01"
-                  value={auraProfile.textGlowIntensity}
-                  onChange={(e) => updateAuraProfile({ textGlowIntensity: parseFloat(e.target.value) })}
-                  className="w-full h-1 rounded-full"
-                  style={{
-                    background: `linear-gradient(90deg, ${auraProfile.glowPrimary}, ${auraProfile.glowSecondary})`,
-                  }}
-                />
-              </div>
-              <div>
-                <div className="flex justify-between text-[9px] font-mono text-white/40 mb-1">
-                  <span>GLASS BLUR</span>
-                  <span>{auraProfile.glassBlur}px</span>
-                </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="40"
-                  step="1"
-                  value={auraProfile.glassBlur}
-                  onChange={(e) => updateAuraProfile({ glassBlur: parseInt(e.target.value) })}
-                  className="w-full h-1 rounded-full"
-                  style={{
-                    background: `linear-gradient(90deg, ${auraProfile.glowPrimary}, ${auraProfile.glowSecondary})`,
-                  }}
-                />
-              </div>
-            </div>
-          </motion.div>
-
-          <motion.div
-            variants={itemVariants}
-            className="p-5 rounded-xl flex items-center justify-between"
-            style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
-          >
-            <div className="flex items-center gap-2">
-              {auraProfile.isLightMode ? (
-                <Sun size={18} style={{ color: auraProfile.glowPrimary }} />
-              ) : (
-                <Moon size={18} style={{ color: auraProfile.glowPrimary }} />
-              )}
-              <div>
-                <div className="text-sm font-semibold font-mono">Frosted Quartz</div>
-                <div className="text-[9px] font-mono text-white/40">{auraProfile.isLightMode ? "LIGHT" : "DARK"}</div>
-              </div>
-            </div>
-            <Switch checked={auraProfile.isLightMode} onCheckedChange={toggleLightMode} />
-          </motion.div>
-
-          <motion.div
-            variants={itemVariants}
-            className="p-5 rounded-xl text-center"
-            style={{ background: "var(--nazai-card-bg)", border: `1px solid ${auraProfile.glowPrimary}30` }}
-          >
-            <p
-              className="text-xs font-mono font-bold"
-              style={{
-                color: "var(--nazai-text-color)",
-                textShadow: `0 0 ${auraProfile.textGlowIntensity * 8}px ${auraProfile.glowPrimary}`,
-              }}
-            >
-              NEURAL ARCHITECT:// AURA ACTIVE
-            </p>
-            <div className="flex justify-center gap-2 mt-2">
-              <div
-                className="w-6 h-6 rounded-full"
-                style={{ background: auraProfile.glowPrimary, boxShadow: `0 0 12px ${auraProfile.glowPrimary}` }}
-              />
-              <div
-                className="w-6 h-6 rounded-full"
-                style={{ background: auraProfile.glowSecondary, boxShadow: `0 0 12px ${auraProfile.glowSecondary}` }}
-              />
-            </div>
-          </motion.div>
-
-          <motion.div variants={itemVariants} className="md:col-span-2">
-            <motion.button
-              onClick={resetAuraToDefault}
-              className="w-full py-2.5 rounded-xl text-sm font-medium flex items-center justify-center gap-2 transition-all"
-              style={{ background: "rgba(239,68,68,0.05)", border: "1px solid rgba(239,68,68,0.2)", color: "#ef4444" }}
-              whileHover={{ scale: 1.01, background: "rgba(239,68,68,0.1)" }}
-              whileTap={{ scale: 0.99 }}
-            >
-              <RotateCcw size={14} /> RESET TO DEFAULT
-            </motion.button>
-          </motion.div>
-        </motion.div>
-
-        <motion.button
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.3 }}
-          onClick={() => setShowSettings(false)}
-          className="mt-6 w-full py-2.5 rounded-xl text-sm font-medium transition-all"
-          style={{
-            background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.05)`,
-            border: `1px solid ${auraProfile.glowPrimary}20`,
-            color: auraProfile.glowPrimary,
-          }}
-          whileHover={{ scale: 1.01 }}
-          whileTap={{ scale: 0.99 }}
-        >
-          ← RETURN TO DASHBOARD
-        </motion.button>
-      </div>
-    </motion.div>
-  );
-
-  // Message Action Bar Component
-  const MessageActionBar = ({ message, index }: { message: { role: string; text: string }; index: number }) => {
-    if (message.role !== "ai") return null;
-    
-    return (
-      <div className="flex items-center gap-1 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
-        <button
-          onClick={() => handleCopyMessage(message.text)}
-          className="p-1.5 rounded-md hover:bg-white/10 transition-all"
-          title="Copy"
-        >
-          <Copy size={12} className="text-white/40" />
-        </button>
-        <button
-          onClick={() => handleRegenerateMessage(index)}
-          className="p-1.5 rounded-md hover:bg-white/10 transition-all"
-          title="Regenerate"
-        >
-          <RotateCw size={12} className="text-white/40" />
-        </button>
-        <button
-          onClick={() => handleShareMessage(message.text)}
-          className="p-1.5 rounded-md hover:bg-white/10 transition-all"
-          title="Share"
-        >
-          <Share2 size={12} className="text-white/40" />
-        </button>
-        <div className="relative">
-          <button
-            onClick={() => setRevertDropdownOpen(revertDropdownOpen === index ? null : index)}
-            className="p-1.5 rounded-md hover:bg-white/10 transition-all"
-            title="More options"
-          >
-            <MoreHorizontal size={12} className="text-white/40" />
-          </button>
-          <AnimatePresence>
-            {revertDropdownOpen === index && (
-              <motion.div
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                className="absolute bottom-full left-0 mb-1 w-44 rounded-lg overflow-hidden z-50"
-                style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
-              >
-                <button
-                  onClick={() => openRevertModal(index)}
-                  className="w-full px-3 py-2 text-left text-xs hover:bg-white/5 transition-all flex items-center gap-2"
-                >
-                  <RotateCcw size={12} /> Revert to checkpoint
-                </button>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-      </div>
-    );
+  // ─── Main Render ────────────────────────────────────────────────────────────────
+  
+  // Render content based on activeNav
+  const renderContent = () => {
+    switch(activeNav) {
+      case 'trash':
+        return <TrashView 
+          missions={missions}
+          onRestore={handleRestoreMission}
+          onPermanentDelete={handleDeleteMissionPermanently}
+        />;
+      case 'archives':
+        return <ArchivesView 
+          missions={missions}
+          onRestore={handleRestoreMission}
+        />;
+      case 'settings':
+        return <SettingsView 
+          customPalette={customPalette}
+          setCustomPalette={setCustomPalette}
+          auraProfile={auraProfile}
+          updateAuraProfile={updateAuraProfile}
+          resetAuraToDefault={resetAuraToDefault}
+          toggleLightMode={toggleLightMode}
+          userContext={userContext}
+          setUserContext={setUserContext}
+        />;
+      case 'home':
+      default:
+        return <HomeView 
+          errorMessage={errorMessage}
+          messages={messages}
+          activeTool={activeTool}
+          initialCards={initialCards}
+          auraProfile={auraProfile}
+          currentTheme={currentTheme}
+          isPending={isPending}
+          handleSendMessage={handleSendMessage}
+          handleKeyDown={handleKeyDown}
+          handleTextareaFocus={handleTextareaFocus}
+          handleTextareaBlur={handleTextareaBlur}
+          handleSendPointerDown={handleSendPointerDown}
+          setSelectedModel={setSelectedModel}
+          setPlusMenuOpen={setPlusMenuOpen}
+          setDrawerOpen={setDrawerOpen}
+          textareaRef={textareaRef}
+          inputContainerRef={inputContainerRef}
+          messagesEndRef={messagesEndRef}
+          formatAIResponse={formatAIResponse}
+          getRgbFromHex={getRgbFromHex}
+          laserShineAnimation={laserShineAnimation}
+          userMissionAssets={userMissionAssets}
+          setUserMissionAssets={setUserMissionAssets}
+          activeAssetIndex={activeAssetIndex}
+          setActiveAssetIndex={setActiveAssetIndex}
+          isDragOver={isDragOver}
+          setIsDragOver={setIsDragOver}
+          revertDropdownOpen={revertDropdownOpen}
+          setRevertDropdownOpen={setRevertDropdownOpen}
+          openRevertModal={openRevertModal}
+          handleCopyMessage={handleCopyMessage}
+          handleRegenerateMessage={handleRegenerateMessage}
+          handleShareMessage={handleShareMessage}
+          confirmRevert={confirmRevert}
+          revertModalOpen={revertModalOpen}
+          setRevertModalOpen={setRevertModalOpen}
+        />;
+    }
   };
 
-  // Revert Checkpoint Modal with backdrop-blur-xl
-  const RevertModal = () => (
-    <AnimatePresence>
-      {revertModalOpen && (
-        <div
-          className="fixed inset-0 z-[2000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xl"
-          onClick={() => setRevertModalOpen(false)}
-        >
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            transition={springTransition}
-            onClick={(e) => e.stopPropagation()}
-            className="max-w-sm w-full rounded-xl p-6 text-center"
-            style={{
-              background: "var(--nazai-card-bg)",
-              border: `1px solid rgba(34,197,94,0.2)`,
-            }}
-          >
-            <div className="mb-4">
-              <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3"
-                style={{ background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.2)" }}
-              >
-                <RotateCcw size={20} style={{ color: "#22c55e" }} />
-              </div>
-              <h3 className="text-sm font-bold font-mono mb-2" style={{ color: "var(--nazai-text-color)" }}>
-                Revert to Checkpoint?
-              </h3>
-              <p className="text-[11px] text-white/50">
-                All subsequent progress after this point will be lost. This action cannot be undone.
-              </p>
-            </div>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setRevertModalOpen(false)}
-                className="flex-1 py-2 rounded-lg text-xs font-mono bg-white/5 border border-white/10 hover:bg-white/10 transition-all"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={confirmRevert}
-                className="flex-1 py-2 rounded-lg text-xs font-mono font-bold transition-all"
-                style={{
-                  background: "rgba(34,197,94,0.15)",
-                  border: "1px solid rgba(34,197,94,0.4)",
-                  color: "#22c55e",
-                }}
-              >
-                OK
-              </button>
-            </div>
-          </motion.div>
-        </div>
-      )}
-    </AnimatePresence>
-  );
-
-// Home View with Intelligent Cards - Fixed Absolute Positioning Above Input
-const HomeView = () => (
-  <div className="relative flex flex-col w-full h-full">
-    {/* Error Toast */}
-    <AnimatePresence>
-      {errorMessage && (
-        <motion.div
-          initial={{ opacity: 0, y: -50 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -50 }}
-          className="fixed top-4 left-1/2 -translate-x-1/2 z-[10000] px-4 py-2 rounded-lg flex items-center gap-2 text-xs font-mono"
-          style={{ background: "rgba(239,68,68,0.9)", border: "1px solid rgba(239,68,68,0.5)", color: "white" }}
-        >
-          <AlertCircle size={12} />
-          {errorMessage}
-        </motion.div>
-      )}
-    </AnimatePresence>
-
-    {/* Scrollable Messages Area */}
-    <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto py-6 space-y-4 px-4 pb-[140px]">
-      {messages.length === 0 && (
-        <div className="flex flex-col items-center justify-center h-full gap-6 text-center">
-          <div className="relative">
-            <div
-              className="absolute inset-0 rounded-full animate-pulse"
-              style={{
-                boxShadow: `0 0 30px rgba(6, 182, 212, 0.6)`,
-                background: "radial-gradient(circle, rgba(6,182,212,0.2) 0%, transparent 70%)",
-              }}
-            />
-            <div className="w-16 h-16 rounded-full border-2 border-cyan-500/50 flex items-center justify-center relative bg-cyan-500/5">
-              <div
-                className="absolute inset-0 rounded-full animate-ping opacity-75"
-                style={{ background: "rgba(6, 182, 212, 0.3)" }}
-              />
-              <div
-                className="w-3 h-3 rounded-full bg-cyan-500 animate-pulse"
-                style={{ boxShadow: "0 0 10px #06b6d4" }}
-              />
-            </div>
-          </div>
-          <div className="space-y-2">
-            <p
-              className="text-sm font-mono tracking-wide text-white font-bold"
-              style={{
-                textShadow: "0 0 15px rgba(6, 182, 212, 0.8)",
-                color: "#e2e8f0",
-              }}
-            >
-              THE NEURAL ARCHITECT
-            </p>
-            <p className="text-[10px] font-mono text-cyan-400/60 tracking-wider">
-              High-precision business blueprinting engine
-            </p>
-          </div>
-        </div>
-      )}
-      {messages.map((msg, i) => (
-        <motion.div
-          key={i}
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"} group`}
-        >
-          {msg.role === "user" ? (
-            <div
-              className="max-w-[78%] px-3 py-2 text-xs font-mono"
-              style={{
-                borderRadius: "12px 12px 2px 12px",
-                background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.05)`,
-                border: `1px solid var(--nazai-border-light)`,
-                color: "var(--nazai-text-color)",
-              }}
-            >
-              {msg.text}
-            </div>
-          ) : (
-            <>
-              <div
-                className="max-w-[85%] rounded-xl overflow-hidden"
-                style={{ background: "#0B1F3A", border: "1px solid rgba(255,255,255,0.1)" }}
-              >
-                <div
-                  className="flex items-center gap-2 px-3 py-2"
-                  style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", background: "rgba(6,182,212,0.03)" }}
-                >
-                  <Brain size={12} style={{ color: "#06b6d4" }} />
-                  <span
-                    className="text-[9px] font-mono font-bold tracking-wider"
-                    style={{ color: "#06b6d4", textShadow: "0 0 6px rgba(6,182,212,0.4)" }}
-                  >
-                    NEURAL ARCHITECT // MISSION_RESULT.LOG
-                  </span>
-                </div>
-                <div className="px-3 py-2.5">{formatAIResponse(msg.text)}</div>
-              </div>
-              <MessageActionBar message={msg} index={i} />
-            </>
-          )}
-        </motion.div>
-      ))}
-      <div ref={messagesEndRef} />
-    </div>
-
-    {/* Selected Engine Badge */}
-    {activeTool && (
-      <div className="w-full max-w-2xl mx-auto mb-2 flex justify-end px-4 relative z-[101]">
-        <span
-          className="text-[9px] px-2 py-1 rounded-full flex items-center gap-1 font-mono"
-          style={{
-            background: `rgba(${activeTool.category.glowRgba},0.1)`,
-            border: `1px solid rgba(${activeTool.category.glowRgba},0.2)`,
-            color: activeTool.category.color,
-          }}
-        >
-          {activeTool.tool.name}{" "}
-          <X
-            size={10}
-            className="cursor-pointer hover:opacity-70 transition-opacity"
-            onClick={() => setSelectedModel(null)}
-          />
-        </span>
-      </div>
-    )}
-
-    {/* ─── PROMPT CARDS - ABSOLUTE POSITIONED ABOVE INPUT BAR WITH HORIZONTAL OFFSET ─── */}
-    {/* Wrapper with position: absolute, bottom aligned to sit right above the input */}
-    <div 
-      className="absolute left-1/2 z-40 w-full max-w-2xl"
-      style={{ 
-        bottom: "140px",
-        pointerEvents: "none",
-        transform: "translateX(calc(-50% - 24px))",
-      }}
-    >
-      <div className="w-full px-4">
-        <AnimatePresence mode="wait">
-          {messages.length === 0 && (
-            <motion.div
-              key="initial-cards"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 20 }}
-              transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
-            >
-              <div className="grid grid-cols-2 gap-4">
-                {/* TOP 2 ONLY - surgical card removal */}
-                {initialCards.slice(0, 2).map((card, idx) => (
-                  <motion.button
-                    key={idx}
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ delay: 0.1 + idx * 0.08 }}
-                    onClick={() => handleSendMessage(card)}
-                    className="group relative p-5 rounded-2xl text-left transition-all duration-300 overflow-hidden cursor-pointer"
-                    style={{
-                      background: "rgba(255,255,255,0.03)",
-                      border: "1px solid rgba(255,255,255,0.1)",
-                      backdropFilter: "blur(16px)",
-                      pointerEvents: "auto", // Buttons remain clickable
-                    }}
-                    whileHover={{ 
-                      y: -4,
-                      backgroundColor: "rgba(255,255,255,0.06)",
-                      borderColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.5)`,
-                      boxShadow: `0 8px 30px -8px rgba(0,0,0,0.4)`
-                    }}
-                    whileTap={{ scale: 0.98 }}
-                  >
-                    <div className="absolute inset-0 bg-gradient-to-br from-transparent via-transparent to-white/[0.02] pointer-events-none" />
-                    
-                    <div className="relative z-10">
-                      <div className="flex items-center gap-2 mb-2">
-                        <div 
-                          className="w-1.5 h-1.5 rounded-full animate-pulse" 
-                          style={{ backgroundColor: auraProfile.glowPrimary }} 
-                        />
-                        <p className="text-[9px] font-mono font-black uppercase tracking-[0.2em]" style={{ color: auraProfile.glowPrimary }}>
-                          INITIATE MISSION
-                        </p>
-                      </div>
-                      
-                      <p className="text-[14px] font-bold leading-tight text-white/90 group-hover:text-white transition-colors line-clamp-2">
-                        {card}
-                      </p>
-                      
-                      <div className="flex items-center gap-1 mt-3 text-[8px] font-mono font-bold text-white/30 group-hover:text-white/60 transition-all">
-                        <span>DEPLOY MODULE</span>
-                        <ChevronRight size={10} style={{ color: auraProfile.glowPrimary }} />
-                      </div>
-                    </div>
-                  </motion.button>
-                ))}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-    </div>
-
-    {/* ─── FIXED INPUT PILL (Floating Architecture) ─── */}
-    <div
-      ref={inputContainerRef}
-      className="fixed bottom-0 left-0 right-0 z-[99999]"
-      style={{
-        pointerEvents: "auto",
-        isolation: "isolate",
-      }}
-    >
-      {/* pb-6 adds professional breathing room from the bottom edge */}
-      <div className="w-full max-w-2xl mx-auto px-4 pb-6">
-        <motion.div
-          className="relative rounded-2xl flex flex-col overflow-hidden shadow-2xl"
-          animate={laserShineAnimation}
-          onDragOver={(e) => {
-            e.preventDefault();
-            if (e.dataTransfer.types.includes("Files")) setIsDragOver(true);
-          }}
-          onDragLeave={(e) => {
-            e.preventDefault();
-            setIsDragOver(false);
-          }}
-          onDrop={(e) => {
-            e.preventDefault();
-            setIsDragOver(false);
-            const files = Array.from(e.dataTransfer.files);
-            if (files.length === 0) return;
-            const newAssets = files.map((file) => ({
-              id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-              url: URL.createObjectURL(file),
-              name: file.name,
-            }));
-            setUserMissionAssets((prev) => {
-              const next = [...prev, ...newAssets];
-              setActiveAssetIndex(next.length - newAssets.length);
-              return next;
-            });
-          }}
-          style={{
-            border: `1px solid ${
-              isDragOver
-                ? auraProfile.glowPrimary
-                : `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.25)`
-            }`,
-            boxShadow: isDragOver
-              ? `0 0 24px ${auraProfile.glowPrimary}55, inset 0 0 24px ${auraProfile.glowPrimary}22`
-              : undefined,
-            background: "rgba(10, 14, 23, 0.95)",
-            backdropFilter: "blur(20px)",
-            transition: "border-color 180ms ease, box-shadow 220ms ease",
-          }}
-        >
-          <textarea
-            ref={textareaRef}
-            defaultValue=""
-            onKeyDown={handleKeyDown}
-            onFocus={handleTextareaFocus}
-            onBlur={handleTextareaBlur}
-            placeholder={
-              activeTool ? `Mission for ${activeTool.tool.name}...` : "Architect a high-performance gym business..."
-            }
-            rows={1}
-            className="w-full bg-transparent border-none outline-none resize-none font-mono text-base p-4 pt-5"
-            autoComplete="off"
-            autoCorrect="off"
-            spellCheck={false}
-            style={{
-              color: "var(--nazai-text-color)",
-              fontSize: "16px",
-              height: "60px",
-              minHeight: "60px",
-              maxHeight: "60px",
-              zIndex: 10,
-              position: "relative",
-            }}
-          />
-          {/* ─── GUARDIAN ASSET STRIP (Brand-Snap Thumbnails) ─── */}
-          <AnimatePresence>
-            {userMissionAssets.length > 0 && (
-              <motion.div
-                key="guardian-strip"
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={springTransition}
-                className="px-3 pt-2 pb-1 flex items-center gap-2 overflow-x-auto"
-                style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}
-              >
-                {userMissionAssets.map((asset, i) => {
-                  const isActive = i === activeAssetIndex;
-                  return (
-                    <motion.div
-                      key={asset.id}
-                      initial={{ scale: 0.4, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
-                      exit={{ scale: 0.4, opacity: 0 }}
-                      transition={{ ...springTransition, stiffness: 500 }}
-                      className="relative shrink-0 rounded-lg overflow-hidden group"
-                      style={{
-                        width: 44,
-                        height: 44,
-                        border: `1px solid ${
-                          isActive
-                            ? auraProfile.glowPrimary
-                            : "rgba(255,255,255,0.08)"
-                        }`,
-                        boxShadow: isActive
-                          ? `0 0 10px ${auraProfile.glowPrimary}66`
-                          : undefined,
-                      }}
-                    >
-                      <img
-                        src={asset.url}
-                        alt={asset.name}
-                        className="w-full h-full object-cover"
-                        style={{ filter: "grayscale(0.5) contrast(1.1)" }}
-                      />
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setActiveAssetIndex(
-                            (i + 1) % userMissionAssets.length,
-                          )
-                        }
-                        title="Cycle vibe-matched asset"
-                        className="absolute inset-0 flex items-center justify-center bg-black/55 opacity-0 group-hover:opacity-100 transition-opacity"
-                      >
-                        <Wand2
-                          size={14}
-                          style={{ color: auraProfile.glowPrimary }}
-                        />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setUserMissionAssets((prev) =>
-                            prev.filter((a) => a.id !== asset.id),
-                          );
-                          setActiveAssetIndex(0);
-                        }}
-                        className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-black/80 border border-white/20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                      >
-                        <X size={8} className="text-white/70" />
-                      </button>
-                    </motion.div>
-                  );
-                })}
-              </motion.div>
-            )}
-          </AnimatePresence>
-          <div className="flex items-center justify-between px-4 py-2.5 border-t border-white/5 bg-black/30">
-            <div className="flex gap-2">
-              <motion.button
-                onClick={() => setPlusMenuOpen(true)}
-                className="w-8 h-8 rounded-xl flex items-center justify-center relative z-10 transition-all border border-white/10"
-                style={{ background: "rgba(255,255,255,0.05)" }}
-                whileHover={{ scale: 1.1, background: "rgba(255,255,255,0.1)" }}
-                whileTap={{ scale: 0.9 }}
-              >
-                <Plus size={14} className="text-white/70" />
-              </motion.button>
-              <button
-                onClick={() => {
-                  setDrawerOpen(true);
-                  setPlusMenuOpen(false);
-                }}
-                className="text-[10px] px-3 py-1.5 rounded-lg font-mono font-bold tracking-tight transition-all hover:bg-white/10 flex items-center gap-2 border border-white/10"
-                style={{ background: "rgba(255,255,255,0.03)", color: auraProfile.glowPrimary }}
-              >
-                <Brain size={12} />
-                {activeTool ? activeTool.tool.name.toUpperCase() : "SELECT ENGINE"}
-              </button>
-            </div>
-            
-            <motion.button
-              onPointerDown={handleSendPointerDown}
-              disabled={isPending}
-              className="w-8 h-8 rounded-xl flex items-center justify-center transition-all shadow-lg"
-              style={{ background: currentTheme.color, filter: "brightness(1)" }}
-              whileHover={{ scale: 1.1, filter: "brightness(1.15)" }}
-              whileTap={{ scale: 0.9 }}
-            >
-              <Send size={13} style={{ color: "#020617" }} />
-            </motion.button>
-          </div>
-        </motion.div>
-      </div>
-    </div>
-  </div>
-);
-  // ─── Main Render ────────────────────────────────────────────────────────────────
   return (
     <div
       className="flex h-screen w-screen overflow-hidden font-sans"
@@ -2032,7 +2459,7 @@ const HomeView = () => (
           <div className="px-2 pb-2 shrink-0">
             {TOP_NAV_ITEMS.map((item) => {
               const Icon = item.icon;
-              const isActive = activeNav === item.label && !showSettings && !activeMissionId;
+              const isActive = activeNav === item.label.toLowerCase() && !showSettings && !activeMissionId;
               const itemTheme = SECTION_THEMES[item.label];
               return (
                 <button
@@ -2145,7 +2572,7 @@ const HomeView = () => (
               const Icon = item.icon;
               const isActive =
                 (item.label === "Settings" && showSettings) ||
-                (item.label !== "Settings" && activeNav === item.label && !showSettings);
+                (item.label !== "Settings" && activeNav === item.label.toLowerCase() && !showSettings);
               const itemTheme = SECTION_THEMES[item.label];
               return (
                 <button
@@ -2231,11 +2658,7 @@ const HomeView = () => (
 
         <div className="flex-1 flex flex-col overflow-hidden relative">
           <AnimatePresence mode="wait">
-            {showSettings ? (
-              <SettingsView key="settings" />
-            ) : (
-              <HomeView key="home" />
-            )}
+            {renderContent()}
           </AnimatePresence>
         </div>
 
@@ -2253,9 +2676,6 @@ const HomeView = () => (
           </div>
         </footer>
       </main>
-
-      {/* Revert Modal */}
-      <RevertModal />
 
       {/* PLUS MENU MODAL */}
       <AnimatePresence>
@@ -2620,6 +3040,9 @@ const HomeView = () => (
           --nazai-bg-base: #020617;
           --nazai-border-light: rgba(255,255,255,0.05);
           --nazai-card-bg: #0f172a;
+          --nazai-glow: #06b6d4;
+          --nazai-bg: #020617;
+          --nazai-bg-image: none;
           --keyboard-height: 0px;
         }
         
