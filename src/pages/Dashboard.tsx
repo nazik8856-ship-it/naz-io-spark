@@ -1798,10 +1798,42 @@ const HomeView = () => (
         <motion.div
           className="relative rounded-2xl flex flex-col overflow-hidden shadow-2xl"
           animate={laserShineAnimation}
+          onDragOver={(e) => {
+            e.preventDefault();
+            if (e.dataTransfer.types.includes("Files")) setIsDragOver(true);
+          }}
+          onDragLeave={(e) => {
+            e.preventDefault();
+            setIsDragOver(false);
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            setIsDragOver(false);
+            const files = Array.from(e.dataTransfer.files);
+            if (files.length === 0) return;
+            const newAssets = files.map((file) => ({
+              id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              url: URL.createObjectURL(file),
+              name: file.name,
+            }));
+            setUserMissionAssets((prev) => {
+              const next = [...prev, ...newAssets];
+              setActiveAssetIndex(next.length - newAssets.length);
+              return next;
+            });
+          }}
           style={{
-            border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.25)`,
+            border: `1px solid ${
+              isDragOver
+                ? auraProfile.glowPrimary
+                : `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.25)`
+            }`,
+            boxShadow: isDragOver
+              ? `0 0 24px ${auraProfile.glowPrimary}55, inset 0 0 24px ${auraProfile.glowPrimary}22`
+              : undefined,
             background: "rgba(10, 14, 23, 0.95)",
             backdropFilter: "blur(20px)",
+            transition: "border-color 180ms ease, box-shadow 220ms ease",
           }}
         >
           <textarea
