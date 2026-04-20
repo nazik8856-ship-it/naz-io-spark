@@ -128,7 +128,7 @@ export interface GuardianResult {
   filterCss: string;
   overlay: number;
   fitSuggestion: "fit" | "fill" | null;
-  alignment: GuardianAction["mode"] | null;
+  alignment: "wrap-left" | "wrap-right" | "above" | "below" | null;
 }
 
 export interface GuardianContext {
