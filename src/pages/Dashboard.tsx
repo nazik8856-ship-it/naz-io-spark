@@ -57,6 +57,7 @@ import {
   FileText,
   Wand2,
   User,
+  Menu,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 
@@ -1171,7 +1172,7 @@ const HomeView = ({
       </div>
     )}
 
-    {/* ─── PROMPT CARDS - ABSOLUTE POSITIONED ABOVE INPUT BAR WITH HORIZONTAL OFFSET ─── */}
+    {/* ─── PROMPT CARDS - RESPONSIVE STACK ON MOBILE ─── */}
     <div 
       className="absolute left-1/2 z-40 w-full max-w-2xl"
       style={{ 
@@ -1190,7 +1191,8 @@ const HomeView = ({
               exit={{ opacity: 0, y: 20 }}
               transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
             >
-              <div className="grid grid-cols-2 gap-4">
+              {/* Responsive grid: 1 column on mobile, 2 columns on larger screens */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {initialCards.slice(0, 2).map((card: string, idx: number) => (
                   <motion.button
                     key={idx}
@@ -1244,16 +1246,17 @@ const HomeView = ({
       </div>
     </div>
 
-    {/* ─── FIXED INPUT PILL (Floating Architecture) ─── */}
+    {/* ─── FIXED INPUT PILL (Floating Architecture) - Centered on mobile ─── */}
     <div
       ref={inputContainerRef}
-      className="fixed bottom-0 left-0 right-0 z-[99999]"
+      className="fixed bottom-0 left-0 right-0 z-[99999] flex justify-center"
       style={{
         pointerEvents: "auto",
         isolation: "isolate",
       }}
     >
-      <div className="w-full max-w-2xl mx-auto px-4 pb-6">
+      {/* w-[92%] on mobile, max-w-2xl on larger screens */}
+      <div className="w-[92%] sm:w-full sm:max-w-2xl mx-auto px-0 sm:px-4 pb-6">
         <motion.div
           className="relative rounded-2xl flex flex-col overflow-hidden shadow-2xl"
           animate={laserShineAnimation}
@@ -1434,6 +1437,208 @@ const HomeView = ({
   </div>
 );
 
+// Sidebar Content Component (DRY - used for both mobile and desktop)
+function SidebarContent({ 
+  borderColor, activeNav, showSettings, activeMissionId, handleNavClick, 
+  setActiveMissionId, setMessages, textareaRef, setDrawerOpen,
+  missionsLoading, openChatFeed, handleLoadMission, openLifecycleModal,
+  userEmail, getAvatarGradient, setLogoutModalOpen
+}: any) {
+  const [projectsExpanded, setProjectsExpanded] = useState(true);
+  
+  return (
+    <>
+      {/* Brand */}
+      <div className="flex items-center gap-2 px-4 pt-4 pb-3 shrink-0">
+        <Zap size={16} style={{ color: borderColor }} />
+        <span
+          className="text-[10px] font-mono font-black tracking-[0.2em]"
+          style={{ color: borderColor, textShadow: `0 0 8px ${borderColor}80` }}
+        >
+          NEURAL://
+        </span>
+      </div>
+
+      {/* NEW CHAT BUTTON */}
+      <div className="px-4 pb-4">
+        <button
+          onClick={() => {
+            setMessages([]);
+            setActiveMissionId(null);
+            if (textareaRef?.current) textareaRef.current.focus();
+            setDrawerOpen(false);
+          }}
+          className="flex items-center gap-3 w-full p-3 rounded-xl transition-all duration-300 group relative overflow-hidden border border-white/5 bg-white/[0.03] hover:bg-white/[0.06]"
+        >
+          <div className="absolute inset-0 bg-glow-primary opacity-0 group-hover:opacity-5 transition-opacity" />
+          <div className="p-1.5 rounded-lg bg-white/5 group-hover:bg-glow-primary/20 transition-colors">
+            <Plus size={16} className="text-white/70 group-hover:text-glow-primary transition-colors" />
+          </div>
+          <span className="text-[13px] font-semibold text-white/60 group-hover:text-white transition-colors">
+            New chat
+          </span>
+        </button>
+      </div>
+      
+      {/* Home (top nav) */}
+      <div className="px-2 pb-2 shrink-0">
+        {TOP_NAV_ITEMS.map((item) => {
+          const Icon = item.icon;
+          const isActive = activeNav === item.label.toLowerCase() && !showSettings && !activeMissionId;
+          const itemTheme = SECTION_THEMES[item.label];
+          return (
+            <button
+              key={item.label}
+              onClick={() => {
+                setActiveMissionId(null);
+                setMessages([]);
+                handleNavClick(item.label);
+              }}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all hover:bg-white/[0.04]"
+              style={{
+                background: isActive ? `${itemTheme.color}15` : "transparent",
+              }}
+            >
+              <Icon size={15} style={{ color: isActive ? itemTheme.color : "rgba(255,255,255,0.5)" }} />
+              <span
+                className="text-[12px] font-medium"
+                style={{ color: isActive ? itemTheme.color : "rgba(255,255,255,0.7)" }}
+              >
+                {item.label}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Projects collapsible header */}
+      <button
+        onClick={() => setProjectsExpanded((v) => !v)}
+        className="flex items-center justify-between px-4 py-2 mt-1 mb-1 shrink-0 hover:bg-white/[0.02] transition-all"
+      >
+        <span className="text-[9px] font-mono font-bold tracking-[0.25em] uppercase text-white/40">Projects</span>
+        <ChevronDown
+          size={12}
+          className="text-white/40 transition-transform"
+          style={{ transform: projectsExpanded ? "rotate(0deg)" : "rotate(-90deg)" }}
+        />
+      </button>
+
+      {/* Open Chat Feed */}
+      <AnimatePresence initial={false}>
+        {projectsExpanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="flex-1 min-h-0 overflow-hidden flex flex-col"
+          >
+            <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-2 space-y-0.5">
+              {missionsLoading ? (
+                <div className="flex justify-center py-6">
+                  <div
+                    className="w-3.5 h-3.5 rounded-full border-2 border-t-transparent animate-spin"
+                    style={{ borderColor: `rgba(${getRgbFromHex(borderColor)},0.4)` }}
+                  />
+                </div>
+              ) : openChatFeed.length === 0 ? (
+                <p className="text-[10px] font-mono text-white/25 px-3 py-4 text-center">No chats yet</p>
+              ) : (
+                openChatFeed.map((mission: Mission) => {
+                  const isActive = activeMissionId === mission.id;
+                  const title = mission.prompt?.trim().slice(0, 40) || "Untitled";
+                  return (
+                    <div
+                      key={mission.id}
+                      onClick={() => handleLoadMission(mission)}
+                      className="group relative flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all hover:bg-white/[0.04]"
+                      style={{
+                        background: isActive ? "rgba(80,200,120,0.12)" : "transparent",
+                        boxShadow: isActive
+                          ? "inset 0 0 0 1px rgba(80,200,120,0.35), 0 0 12px rgba(80,200,120,0.15)"
+                          : "none",
+                      }}
+                    >
+                      <span
+                        className="text-[12px] truncate flex-1"
+                        style={{
+                          color: isActive ? "#50C878" : "rgba(255,255,255,0.75)",
+                          textShadow: isActive ? "0 0 6px rgba(80,200,120,0.4)" : "none",
+                        }}
+                      >
+                        {title}
+                      </span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openLifecycleModal(mission);
+                        }}
+                        className="w-6 h-6 rounded-md flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-white/10 transition-all shrink-0"
+                        title="Manage"
+                      >
+                        <MoreHorizontal size={13} className="text-white/60" />
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Bottom Admin Stack: Archives / Trash / Settings + Sign Out */}
+      <div
+        className="px-2 pt-2 pb-3 shrink-0 space-y-0.5"
+        style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
+      >
+        {BOTTOM_NAV_ITEMS.map((item) => {
+          const Icon = item.icon;
+          const isActive =
+            (item.label === "Settings" && showSettings) ||
+            (item.label !== "Settings" && activeNav === item.label.toLowerCase() && !showSettings);
+          const itemTheme = SECTION_THEMES[item.label];
+          return (
+            <button
+              key={item.label}
+              onClick={() => handleNavClick(item.label)}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all hover:bg-white/[0.04]"
+              style={{
+                background: isActive ? `${itemTheme.color}15` : "transparent",
+              }}
+            >
+              <Icon size={14} style={{ color: isActive ? itemTheme.color : "rgba(255,255,255,0.45)" }} />
+              <span
+                className="text-[11px] font-medium"
+                style={{ color: isActive ? itemTheme.color : "rgba(255,255,255,0.6)" }}
+              >
+                {item.label}
+              </span>
+            </button>
+          );
+        })}
+
+        <button
+          onClick={() => setLogoutModalOpen(true)}
+          className="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all hover:bg-red-500/10 mt-1"
+        >
+          <LogOut size={14} className="text-white/40" />
+          <span className="text-[11px] font-medium text-white/60">Sign Out</span>
+          {userEmail && (
+            <div
+              className="ml-auto w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-semibold overflow-hidden"
+              style={{ background: getAvatarGradient(userEmail) }}
+            >
+              {userEmail[0].toUpperCase()}
+            </div>
+          )}
+        </button>
+      </div>
+    </>
+  );
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
@@ -1513,6 +1718,7 @@ export default function Dashboard() {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [webSearchActive, setWebSearchActive] = useState(false);
   const [activeStyle, setActiveStyle] = useState<Style>("Technical");
   const [styleDropdownOpen, setStyleDropdownOpen] = useState(false);
@@ -1858,6 +2064,8 @@ export default function Dashboard() {
       setShowSettings(false);
       setActiveNav(label.toLowerCase());
     }
+    // Close mobile sidebar after navigation
+    setIsSidebarOpen(false);
   }, []);
 
   const handleSelectTool = useCallback((id: string) => {
@@ -2178,6 +2386,7 @@ export default function Dashboard() {
       if (textareaRef.current) textareaRef.current.value = mission.prompt || "";
       setActiveNav("home");
       setShowSettings(false);
+      setIsSidebarOpen(false);
 
       const toastEl = document.createElement("div");
       toastEl.textContent = "✓ Mission Restored to Feed";
@@ -2204,6 +2413,7 @@ export default function Dashboard() {
     setActiveMissionId(mission.id);
     setActiveNav("home");
     setShowSettings(false);
+    setIsSidebarOpen(false);
     setMessages([{ role: "user", text: mission.prompt || "" }]);
     if (mission.response) {
       setMessages(prev => [...prev, { role: "ai", text: mission.response || "" }]);
@@ -2410,213 +2620,154 @@ export default function Dashboard() {
       <input ref={fileInputRef} type="file" multiple className="hidden" />
       <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" />
 
-      {/* Sidebar — Open Chat Feed Layout */}
+      {/* Mobile Overlay when sidebar is open - darkens main content */}
+      <AnimatePresence>
+        {isSidebarOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setIsSidebarOpen(false)}
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 lg:hidden"
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Mobile Sidebar - Fixed, slides in from left, floats over content */}
+      <AnimatePresence mode="wait">
+        {isSidebarOpen && (
+          <motion.aside
+            key="mobile-sidebar"
+            initial={{ x: "-100%" }}
+            animate={{ x: 0 }}
+            exit={{ x: "-100%" }}
+            transition={{ duration: 0.25, ease: "easeInOut" }}
+            className="fixed top-0 left-0 bottom-0 z-50 w-64 flex flex-col lg:hidden"
+            style={{
+              background: "#0B1F3A",
+              borderRight: `1px solid var(--nazai-border-light)`,
+            }}
+          >
+            <div className="flex flex-col h-full">
+              {/* Close button */}
+              <div className="flex justify-end p-3">
+                <button
+                  onClick={() => setIsSidebarOpen(false)}
+                  className="p-2 rounded-lg hover:bg-white/10 transition-all"
+                >
+                  <X size={18} className="text-white/60" />
+                </button>
+              </div>
+              {/* Sidebar Content */}
+              <SidebarContent 
+                borderColor={borderColor}
+                activeNav={activeNav}
+                showSettings={showSettings}
+                activeMissionId={activeMissionId}
+                handleNavClick={handleNavClick}
+                setActiveMissionId={setActiveMissionId}
+                setMessages={setMessages}
+                textareaRef={textareaRef}
+                setDrawerOpen={setDrawerOpen}
+                missionsLoading={missionsLoading}
+                openChatFeed={openChatFeed}
+                handleLoadMission={handleLoadMission}
+                openLifecycleModal={openLifecycleModal}
+                userEmail={userEmail}
+                getAvatarGradient={getAvatarGradient}
+                setLogoutModalOpen={setLogoutModalOpen}
+              />
+            </div>
+          </motion.aside>
+        )}
+      </AnimatePresence>
+
+      {/* Desktop Sidebar - Always visible in flow, collapsible */}
       <motion.aside
         animate={{ width: sidebarCollapsed ? 0 : 260 }}
         transition={{ duration: 0.25 }}
-        className="flex flex-col shrink-0 overflow-hidden z-20"
+        className="hidden lg:flex flex-col shrink-0 overflow-hidden z-20"
         style={{
           borderRight: `1px solid var(--nazai-border-light)`,
           background: "#0B1F3A",
         }}
       >
         <div className="flex flex-col w-[260px] h-full">
-          {/* Brand */}
-          <div className="flex items-center gap-2 px-4 pt-4 pb-3 shrink-0">
-            <Zap size={16} style={{ color: borderColor }} />
-            <span
-              className="text-[10px] font-mono font-black tracking-[0.2em]"
-              style={{ color: borderColor, textShadow: `0 0 8px ${borderColor}80` }}
-            >
-              NEURAL://
-            </span>
-          </div>
-
-          {/* ─── NEW CHAT BUTTON (TITAN UPGRADE) ─── */}
-          <div className="px-4 pb-4">
-            <button
-              onClick={() => {
-                setMessages([]);
-                setActiveMissionId(null);
-                if (textareaRef.current) textareaRef.current.focus();
-                setDrawerOpen(false);
-              }}
-              className="flex items-center gap-3 w-full p-3 rounded-xl transition-all duration-300 group relative overflow-hidden border border-white/5 bg-white/[0.03] hover:bg-white/[0.06]"
-            >
-              <div className="absolute inset-0 bg-glow-primary opacity-0 group-hover:opacity-5 transition-opacity" />
-
-              <div className="p-1.5 rounded-lg bg-white/5 group-hover:bg-glow-primary/20 transition-colors">
-                <Plus size={16} className="text-white/70 group-hover:text-glow-primary transition-colors" />
-              </div>
-
-              <span className="text-[13px] font-semibold text-white/60 group-hover:text-white transition-colors">
-                New chat
-              </span>
-            </button>
-          </div>
-          
-          {/* Home (top nav) */}
-          <div className="px-2 pb-2 shrink-0">
-            {TOP_NAV_ITEMS.map((item) => {
-              const Icon = item.icon;
-              const isActive = activeNav === item.label.toLowerCase() && !showSettings && !activeMissionId;
-              const itemTheme = SECTION_THEMES[item.label];
-              return (
-                <button
-                  key={item.label}
-                  onClick={() => {
-                    setActiveMissionId(null);
-                    setMessages([]);
-                    handleNavClick(item.label);
-                  }}
-                  className="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all hover:bg-white/[0.04]"
-                  style={{
-                    background: isActive ? `${itemTheme.color}15` : "transparent",
-                  }}
-                >
-                  <Icon size={15} style={{ color: isActive ? itemTheme.color : "rgba(255,255,255,0.5)" }} />
-                  <span
-                    className="text-[12px] font-medium"
-                    style={{ color: isActive ? itemTheme.color : "rgba(255,255,255,0.7)" }}
-                  >
-                    {item.label}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Projects collapsible header */}
-          <button
-            onClick={() => setProjectsExpanded((v) => !v)}
-            className="flex items-center justify-between px-4 py-2 mt-1 mb-1 shrink-0 hover:bg-white/[0.02] transition-all"
-          >
-            <span className="text-[9px] font-mono font-bold tracking-[0.25em] uppercase text-white/40">Projects</span>
-            <ChevronDown
-              size={12}
-              className="text-white/40 transition-transform"
-              style={{ transform: projectsExpanded ? "rotate(0deg)" : "rotate(-90deg)" }}
-            />
-          </button>
-
-          {/* Open Chat Feed */}
-          <AnimatePresence initial={false}>
-            {projectsExpanded && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.2 }}
-                className="flex-1 min-h-0 overflow-hidden flex flex-col"
-              >
-                <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-2 space-y-0.5">
-                  {missionsLoading ? (
-                    <div className="flex justify-center py-6">
-                      <div
-                        className="w-3.5 h-3.5 rounded-full border-2 border-t-transparent animate-spin"
-                        style={{ borderColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.4)` }}
-                      />
-                    </div>
-                  ) : openChatFeed.length === 0 ? (
-                    <p className="text-[10px] font-mono text-white/25 px-3 py-4 text-center">No chats yet</p>
-                  ) : (
-                    openChatFeed.map((mission) => {
-                      const isActive = activeMissionId === mission.id;
-                      const title = mission.prompt?.trim().slice(0, 40) || "Untitled";
-                      return (
-                        <div
-                          key={mission.id}
-                          onClick={() => handleLoadMission(mission)}
-                          className="group relative flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all hover:bg-white/[0.04]"
-                          style={{
-                            background: isActive ? "rgba(80,200,120,0.12)" : "transparent",
-                            boxShadow: isActive
-                              ? "inset 0 0 0 1px rgba(80,200,120,0.35), 0 0 12px rgba(80,200,120,0.15)"
-                              : "none",
-                          }}
-                        >
-                          <span
-                            className="text-[12px] truncate flex-1"
-                            style={{
-                              color: isActive ? "#50C878" : "rgba(255,255,255,0.75)",
-                              textShadow: isActive ? "0 0 6px rgba(80,200,120,0.4)" : "none",
-                            }}
-                          >
-                            {title}
-                          </span>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openLifecycleModal(mission);
-                            }}
-                            className="w-6 h-6 rounded-md flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-white/10 transition-all shrink-0"
-                            title="Manage"
-                          >
-                            <MoreHorizontal size={13} className="text-white/60" />
-                          </button>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* Bottom Admin Stack: Archives / Trash / Settings + Sign Out */}
-          <div
-            className="px-2 pt-2 pb-3 shrink-0 space-y-0.5"
-            style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
-          >
-            {BOTTOM_NAV_ITEMS.map((item) => {
-              const Icon = item.icon;
-              const isActive =
-                (item.label === "Settings" && showSettings) ||
-                (item.label !== "Settings" && activeNav === item.label.toLowerCase() && !showSettings);
-              const itemTheme = SECTION_THEMES[item.label];
-              return (
-                <button
-                  key={item.label}
-                  onClick={() => handleNavClick(item.label)}
-                  className="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all hover:bg-white/[0.04]"
-                  style={{
-                    background: isActive ? `${itemTheme.color}15` : "transparent",
-                  }}
-                >
-                  <Icon size={14} style={{ color: isActive ? itemTheme.color : "rgba(255,255,255,0.45)" }} />
-                  <span
-                    className="text-[11px] font-medium"
-                    style={{ color: isActive ? itemTheme.color : "rgba(255,255,255,0.6)" }}
-                  >
-                    {item.label}
-                  </span>
-                </button>
-              );
-            })}
-
-            <button
-              onClick={() => setLogoutModalOpen(true)}
-              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all hover:bg-red-500/10 mt-1"
-            >
-              <LogOut size={14} className="text-white/40" />
-              <span className="text-[11px] font-medium text-white/60">Sign Out</span>
-              {userEmail && (
-                <div
-                  className="ml-auto w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-semibold overflow-hidden"
-                  style={{ background: getAvatarGradient(userEmail) }}
-                >
-                  {userEmail[0].toUpperCase()}
-                </div>
-              )}
-            </button>
-          </div>
+          <SidebarContent 
+            borderColor={borderColor}
+            activeNav={activeNav}
+            showSettings={showSettings}
+            activeMissionId={activeMissionId}
+            handleNavClick={handleNavClick}
+            setActiveMissionId={setActiveMissionId}
+            setMessages={setMessages}
+            textareaRef={textareaRef}
+            setDrawerOpen={setDrawerOpen}
+            missionsLoading={missionsLoading}
+            openChatFeed={openChatFeed}
+            handleLoadMission={handleLoadMission}
+            openLifecycleModal={openLifecycleModal}
+            userEmail={userEmail}
+            getAvatarGradient={getAvatarGradient}
+            setLogoutModalOpen={setLogoutModalOpen}
+          />
         </div>
       </motion.aside>
 
-      {/* Main Content */}
-      <main className="flex flex-col flex-1 min-w-0 relative">
+      {/* Main Content - Always full width on mobile, shifts on desktop when sidebar is open */}
+      <main 
+        className="flex flex-col flex-1 min-w-0 relative transition-all duration-250"
+        style={{
+          // On desktop, if sidebar is NOT collapsed, main content has margin-left
+          // On mobile, main content is always full width (sidebar floats over)
+          marginLeft: window.innerWidth >= 1024 && !sidebarCollapsed ? '0px' : '0px',
+        }}
+      >
+        {/* Mobile Header with Menu Button */}
         <header
-          className="flex items-center justify-between px-4 py-2 shrink-0"
+          className="flex items-center justify-between px-4 py-2 shrink-0 lg:hidden"
+          style={{
+            borderBottom: `1px solid var(--nazai-border-light)`,
+            background: auraProfile.isLightMode ? "rgba(255,255,255,0.8)" : "rgba(2,6,23,0.8)",
+            backdropFilter: `blur(${auraProfile.glassBlur}px)`,
+          }}
+        >
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsSidebarOpen(true)}
+              className="text-white/60 hover:text-white/80 transition-colors"
+            >
+              <Menu size={20} />
+            </button>
+            <span
+              className="text-[10px] font-mono font-black tracking-tighter"
+              style={{
+                color: borderColor,
+                textShadow: `0 0 calc(var(--text-glow-intensity) * 15px) var(--glow-primary)`,
+              }}
+            >
+              NEURAL://
+            </span>
+            <span
+              className="text-[10px] font-mono font-bold"
+              style={{
+                background: currentTheme.gradient,
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+              }}
+            >
+              {activeNav.toUpperCase()}
+            </span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: borderColor }} />
+            <span className="text-[8px] font-mono tracking-wider text-white/30">SECURE_NODE</span>
+          </div>
+        </header>
+
+        {/* Desktop Header */}
+        <header
+          className="hidden lg:flex items-center justify-between px-4 py-2 shrink-0"
           style={{
             borderBottom: `1px solid var(--nazai-border-light)`,
             background: auraProfile.isLightMode ? "rgba(255,255,255,0.8)" : "rgba(2,6,23,0.8)",
