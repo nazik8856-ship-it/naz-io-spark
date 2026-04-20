@@ -493,6 +493,10 @@ export default function Dashboard() {
   // Dynamic cards state
   const [initialCards, setInitialCards] = useState<string[]>([]);
   const [suggestionCards, setSuggestionCards] = useState<string[]>([]);
+  // ── Guardian Drop Zone State ────────────────────────────────────────────────
+  const [userMissionAssets, setUserMissionAssets] = useState<{ id: string; url: string; name: string }[]>([]);
+  const [activeAssetIndex, setActiveAssetIndex] = useState(0);
+  const [isDragOver, setIsDragOver] = useState(false);
 
   // ─── 2. IDENTITY BRIDGE ───────────────────────────────────────────────────
   useEffect(() => {
