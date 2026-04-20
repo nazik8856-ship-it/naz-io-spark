@@ -447,7 +447,10 @@ const Workflower = () => {
           </div>
         </section>
 
-        {/* DIAGNOSTICS */}
+        {/* DESIGN GUARDIAN — Brand-Snap Canvas */}
+        <GuardianCanvas />
+
+
         <section className="py-28 px-8">
           <div className="max-w-2xl mx-auto border border-[#00A3FF]/30 bg-black/80 p-12 rounded-3xl shadow-2xl backdrop-blur-xl">
             <div className="flex items-center gap-3 mb-10 border-b border-white/5 pb-6">
