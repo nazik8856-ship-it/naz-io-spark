@@ -1860,6 +1860,80 @@ const HomeView = () => (
               position: "relative",
             }}
           />
+          {/* ─── GUARDIAN ASSET STRIP (Brand-Snap Thumbnails) ─── */}
+          <AnimatePresence>
+            {userMissionAssets.length > 0 && (
+              <motion.div
+                key="guardian-strip"
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={springTransition}
+                className="px-3 pt-2 pb-1 flex items-center gap-2 overflow-x-auto"
+                style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}
+              >
+                {userMissionAssets.map((asset, i) => {
+                  const isActive = i === activeAssetIndex;
+                  return (
+                    <motion.div
+                      key={asset.id}
+                      initial={{ scale: 0.4, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      exit={{ scale: 0.4, opacity: 0 }}
+                      transition={{ ...springTransition, stiffness: 500 }}
+                      className="relative shrink-0 rounded-lg overflow-hidden group"
+                      style={{
+                        width: 44,
+                        height: 44,
+                        border: `1px solid ${
+                          isActive
+                            ? auraProfile.glowPrimary
+                            : "rgba(255,255,255,0.08)"
+                        }`,
+                        boxShadow: isActive
+                          ? `0 0 10px ${auraProfile.glowPrimary}66`
+                          : undefined,
+                      }}
+                    >
+                      <img
+                        src={asset.url}
+                        alt={asset.name}
+                        className="w-full h-full object-cover"
+                        style={{ filter: "grayscale(0.5) contrast(1.1)" }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setActiveAssetIndex(
+                            (i + 1) % userMissionAssets.length,
+                          )
+                        }
+                        title="Cycle vibe-matched asset"
+                        className="absolute inset-0 flex items-center justify-center bg-black/55 opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <Wand2
+                          size={14}
+                          style={{ color: auraProfile.glowPrimary }}
+                        />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setUserMissionAssets((prev) =>
+                            prev.filter((a) => a.id !== asset.id),
+                          );
+                          setActiveAssetIndex(0);
+                        }}
+                        className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-black/80 border border-white/20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <X size={8} className="text-white/70" />
+                      </button>
+                    </motion.div>
+                  );
+                })}
+              </motion.div>
+            )}
+          </AnimatePresence>
           <div className="flex items-center justify-between px-4 py-2.5 border-t border-white/5 bg-black/30">
             <div className="flex gap-2">
               <motion.button
