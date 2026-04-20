@@ -26,6 +26,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import AuthModal from "@/components/AuthModal";
 import MissionWorkspace from "@/components/mission/MissionWorkspace";
+import GuardianCanvas from "@/components/workflower/GuardianCanvas";
 
 const NODES = [
   {
