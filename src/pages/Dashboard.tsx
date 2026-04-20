@@ -1844,8 +1844,8 @@ const HomeView = () => (
               onPointerDown={handleSendPointerDown}
               disabled={isPending}
               className="w-8 h-8 rounded-xl flex items-center justify-center transition-all shadow-lg"
-              style={{ background: currentTheme.color }}
-              whileHover={{ scale: 1.1, brightness: 1.15 }}
+              style={{ background: currentTheme.color, filter: "brightness(1)" }}
+              whileHover={{ scale: 1.1, filter: "brightness(1.15)" }}
               whileTap={{ scale: 0.9 }}
             >
               <Send size={13} style={{ color: "#020617" }} />
@@ -2115,10 +2115,8 @@ const HomeView = () => (
           <AnimatePresence mode="wait">
             {showSettings ? (
               <SettingsView key="settings" />
-            ) : activeNav === "Home" ? (
-              <HomeView key="home" />
             ) : (
-              <FolderView key="folder" />
+              <HomeView key="home" />
             )}
           </AnimatePresence>
         </div>
