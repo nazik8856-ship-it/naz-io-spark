@@ -55,11 +55,19 @@ import {
   Music2,
   Mail,
   FileText,
+  Wand2,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 
 // ─── DEPLOYMENT VERSION ──────────────────────────────────────────────────────────
 const DEPLOYMENT_ID = "NAZAI_TITAN_V25_ARCHITECT";
+
+// ─── Placeholder: Folder System (offline shell) ────────────────────────────────
+const FolderView = () => (
+  <div className="p-8 text-white/20 font-mono text-xs">
+    Folder System Offline // Initializing...
+  </div>
+);
 
 // ─── Type Definitions ──────────────────────────────────────────────────────────────
 
