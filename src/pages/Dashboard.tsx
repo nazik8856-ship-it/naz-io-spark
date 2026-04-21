@@ -1448,8 +1448,27 @@ function SidebarContent({
   
   return (
     <>
+      {/* Trust Bridge — Back to Landing */}
+      <div className="px-3 pt-4 pb-2 shrink-0">
+        <a
+          href="/"
+          className="group flex items-center gap-2 px-2.5 py-2 rounded-lg border border-white/5 bg-white/[0.02] hover:border-[#06b6d4]/40 hover:bg-[#06b6d4]/[0.06] transition-all"
+          style={{ opacity: 0.8 }}
+          title="Back to Landing"
+        >
+          <Home
+            size={13}
+            className="text-white/60 group-hover:text-[#06b6d4] transition-colors"
+            style={{ filter: "drop-shadow(0 0 6px transparent)" }}
+          />
+          <span className="text-[11px] font-medium tracking-wide text-white/60 group-hover:text-white transition-colors">
+            Back to Landing
+          </span>
+        </a>
+      </div>
+
       {/* Brand */}
-      <div className="flex items-center gap-2 px-4 pt-4 pb-3 shrink-0">
+      <div className="flex items-center gap-2 px-4 pt-2 pb-3 shrink-0">
         <Zap size={16} style={{ color: borderColor }} />
         <span
           className="text-[10px] font-mono font-black tracking-[0.2em]"

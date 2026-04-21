@@ -176,26 +176,67 @@ const Workflower = () => {
         transition={{ duration: 1, ease: [0.22, 1, 0.36, 1] }}
         className="relative z-10 flex flex-col"
       >
-        {/* HEADER */}
-        <header className="flex items-center justify-between px-8 py-5 border-b border-white/5 bg-black/60 backdrop-blur-xl sticky top-0 z-50">
-          <div className="flex items-center gap-4">
-            <div className="w-10 h-10 rounded-lg border border-[#00A3FF]/40 flex items-center justify-center bg-[#00A3FF]/10 shadow-[0_0_20px_rgba(0,163,255,0.3)]">
-              <span className="text-[#00A3FF] font-black text-xl italic">N</span>
-            </div>
-            <div>
-              <h1 className="text-lg font-black uppercase tracking-tighter italic leading-none">
-                Naz<span className="text-[#00A3FF]">AI</span>
-              </h1>
-              <p className="text-[7px] text-white/40 tracking-[0.4em] uppercase font-bold mt-0.5">
-                Global Systems
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded border border-[#39FF14]/20 bg-[#39FF14]/5">
-            <div className="w-1.5 h-1.5 rounded-full bg-[#39FF14] animate-pulse" />
-            <span className="text-[8px] text-[#39FF14] uppercase tracking-[0.2em] font-black">System_Active</span>
+        {/* HEADER — Sticky glassmorphism nav */}
+        <header
+          className="sticky top-0 z-50 border-b border-white/5"
+          style={{
+            background: "rgba(2,6,23,0.65)",
+            backdropFilter: "blur(20px) saturate(180%)",
+            WebkitBackdropFilter: "blur(20px) saturate(180%)",
+          }}
+        >
+          <div className="max-w-7xl mx-auto flex items-center justify-between px-6 md:px-8 py-4 gap-4">
+            <a href="/" className="flex items-center gap-3 shrink-0">
+              <div className="w-9 h-9 rounded-lg border border-[#06b6d4]/40 flex items-center justify-center bg-[#06b6d4]/10 shadow-[0_0_20px_rgba(6,182,212,0.25)]">
+                <span className="text-[#06b6d4] font-black text-lg italic" style={{ fontFamily: "'JetBrains Mono', monospace" }}>N</span>
+              </div>
+              <div className="leading-none">
+                <h1 className="text-base font-black uppercase tracking-tighter italic text-white" style={{ fontFamily: "'Inter', sans-serif" }}>
+                  Naz<span className="text-[#06b6d4]">AI</span>
+                </h1>
+                <p className="text-[7px] text-white/40 tracking-[0.4em] uppercase font-bold mt-0.5" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                  Global Systems
+                </p>
+              </div>
+            </a>
+
+            {/* Desktop nav */}
+            <nav className="hidden md:flex items-center gap-1">
+              {[
+                { label: "Home", href: "#top" },
+                { label: "Domain Master", href: "#domain-master" },
+                { label: "Our Features", href: "#features" },
+                { label: "Brand-Snap Canvas", href: "#brand-snap" },
+              ].map((item) => (
+                <a
+                  key={item.label}
+                  href={item.href}
+                  className="px-3 py-2 text-[12px] font-medium tracking-wide text-white/60 hover:text-white transition-colors rounded-lg hover:bg-white/[0.04]"
+                  style={{ fontFamily: "'Inter', sans-serif" }}
+                >
+                  {item.label}
+                </a>
+              ))}
+              <button
+                onClick={() => (user ? navigate("/dashboard") : setAuthModalOpen(true))}
+                className="ml-2 px-4 py-2 text-[12px] font-bold tracking-wide rounded-lg border border-[#06b6d4]/40 bg-[#06b6d4]/10 text-[#06b6d4] hover:bg-[#06b6d4]/20 hover:border-[#06b6d4]/60 transition-all"
+                style={{ fontFamily: "'Inter', sans-serif", boxShadow: "0 0 20px rgba(6,182,212,0.15)" }}
+              >
+                Dashboard
+              </button>
+            </nav>
+
+            {/* Mobile dashboard button */}
+            <button
+              onClick={() => (user ? navigate("/dashboard") : setAuthModalOpen(true))}
+              className="md:hidden px-3 py-1.5 text-[10px] font-bold rounded-lg border border-[#06b6d4]/40 bg-[#06b6d4]/10 text-[#06b6d4]"
+            >
+              Dashboard
+            </button>
           </div>
         </header>
+
+        <div id="top" />
 
         {/* HERO — TITAN ENTRANCE */}
         <div className="relative pt-20 pb-24 px-6 overflow-hidden">
@@ -307,7 +348,7 @@ const Workflower = () => {
         </div>
 
         {/* DOMAIN MASTER — 6 expandable glass cards */}
-        <section className="relative py-24 px-6 border-t border-white/5">
+        <section id="domain-master" className="relative py-24 px-6 border-t border-white/5 scroll-mt-20">
           <div className="max-w-6xl mx-auto">
             <div className="text-center mb-16">
               <span className="text-[10px] tracking-[0.5em] text-[#22c55e] font-black uppercase block mb-4">
@@ -386,7 +427,7 @@ const Workflower = () => {
 
 
         {/* FEATURES SECTION */}
-        <section className="py-12 md:py-24 px-4 md:px-8 relative">
+        <section id="features" className="py-12 md:py-24 px-4 md:px-8 relative scroll-mt-20">
           <div className="max-w-6xl mx-auto flex flex-col items-center">
             <div className="flex flex-col items-center mb-0 z-20 w-full">
               <h2 className="text-white text-3xl md:text-6xl font-black uppercase tracking-[0.2em] md:tracking-[0.4em] mb-4 drop-shadow-[0_0_20px_rgba(255,255,255,0.3)] text-center">
@@ -426,29 +467,159 @@ const Workflower = () => {
           </div>
         </section>
 
-        {/* LOGIC ORCHESTRATION */}
-        <section className="py-28 px-8 bg-black/60 border-y border-white/5">
-          <div className="max-w-6xl mx-auto text-center">
-            <h2 className="text-[11px] font-black uppercase tracking-[0.6em] text-[#00A3FF] mb-16 drop-shadow-[0_0_10px_rgba(0,163,255,0.4)]">
-              LOGIC_ORCHESTRATION_CORE
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-10">
-              {NODES.map((node, i) => (
-                <div key={i} className="group p-8 border border-white/5 bg-[#0A192F]/40 hover:border-[#00A3FF]/40 transition-all text-left">
-                  <h3 className="text-xs font-black text-[#00A3FF] uppercase mb-6 tracking-widest border-l-2 border-[#39FF14] pl-3">
-                    0{i + 1}_{node.label}
-                  </h3>
-                  <p className="text-[12px] text-white font-medium uppercase leading-relaxed tracking-wider">
-                    {node.desc}
-                  </p>
-                </div>
-              ))}
+        {/* NAZAI OPERATIONS — Mission Execution Blueprint Timeline */}
+        <section id="operations" className="py-24 md:py-28 px-6 md:px-8 bg-black/40 border-y border-white/5 scroll-mt-20">
+          <div className="max-w-6xl mx-auto">
+            <div className="text-center mb-16">
+              <span
+                className="text-[10px] tracking-[0.5em] text-[#06b6d4] font-black uppercase block mb-4"
+                style={{ fontFamily: "'JetBrains Mono', monospace", textShadow: "0 0 12px rgba(6,182,212,0.4)" }}
+              >
+                NazAI Operations
+              </span>
+              <h2
+                className="text-3xl md:text-5xl font-black tracking-tighter text-white mb-4"
+                style={{ fontFamily: "'Inter', sans-serif" }}
+              >
+                The Mission Execution Blueprint.
+              </h2>
+              <p className="text-sm text-white/50 max-w-2xl mx-auto leading-relaxed" style={{ fontFamily: "'Inter', sans-serif" }}>
+                Four orchestrated stages that transform a single directive into a synchronized, vault-archived business asset.
+              </p>
+            </div>
+
+            {/* Timeline */}
+            <div className="relative">
+              {/* Vertical connector (mobile) */}
+              <div className="absolute left-6 top-2 bottom-2 w-px bg-gradient-to-b from-transparent via-[#06b6d4]/40 to-transparent md:hidden" />
+              {/* Horizontal connector (desktop) */}
+              <div className="hidden md:block absolute top-7 left-[8%] right-[8%] h-px bg-gradient-to-r from-transparent via-[#06b6d4]/30 to-transparent" />
+
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6 md:gap-4 relative">
+                {[
+                  { stage: "01", title: "Neural Intake", desc: "Directly captures your vision through high-fidelity neural processing of text and assets." },
+                  { stage: "02", title: "Domain Calibration", desc: "AI agents calibrate the mission against market-leading billion-dollar strategies." },
+                  { stage: "03", title: "Asset Synthesis", desc: "Real-time generation of websites, branding, and codebases within the Brand-Snap Canvas." },
+                  { stage: "04", title: "Vault Synchronization", desc: "Automatic archival of every version and mission into your private Dashboard Vault." },
+                ].map((item, i) => (
+                  <motion.div
+                    key={item.stage}
+                    initial={{ opacity: 0, y: 20 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true, margin: "-50px" }}
+                    transition={{ duration: 0.5, delay: i * 0.08 }}
+                    className="relative pl-16 md:pl-0 md:text-center"
+                  >
+                    {/* Stage marker */}
+                    <div className="absolute left-0 md:left-1/2 md:-translate-x-1/2 top-0 md:relative md:mx-auto md:mb-5 w-12 h-12 md:w-14 md:h-14 rounded-full border border-[#06b6d4]/40 bg-[#020617] flex items-center justify-center shadow-[0_0_24px_rgba(6,182,212,0.25)] z-10">
+                      <span
+                        className="text-[10px] md:text-[11px] font-black text-[#06b6d4] tracking-tight"
+                        style={{ fontFamily: "'JetBrains Mono', monospace" }}
+                      >
+                        {item.stage}
+                      </span>
+                    </div>
+
+                    <div className="rounded-xl border border-white/5 bg-white/[0.02] p-5 md:p-6 hover:border-[#06b6d4]/30 hover:bg-white/[0.04] transition-all backdrop-blur-sm">
+                      <h3
+                        className="text-base md:text-lg font-bold text-white mb-2 tracking-tight"
+                        style={{ fontFamily: "'Inter', sans-serif" }}
+                      >
+                        {item.title}
+                      </h3>
+                      <p
+                        className="text-[12px] md:text-[13px] text-white/55 leading-relaxed"
+                        style={{ fontFamily: "'Inter', sans-serif" }}
+                      >
+                        {item.desc}
+                      </p>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
             </div>
           </div>
         </section>
 
         {/* DESIGN GUARDIAN — Brand-Snap Canvas */}
-        <GuardianCanvas />
+        <div id="brand-snap" className="scroll-mt-20">
+          <GuardianCanvas />
+        </div>
+
+        {/* SYSTEM PULSE — Latest Updates */}
+        <section className="py-20 md:py-24 px-6 md:px-8 border-t border-white/5">
+          <div className="max-w-5xl mx-auto">
+            <div className="flex items-center gap-3 mb-10">
+              <div className="w-2 h-2 rounded-full bg-[#06b6d4] shadow-[0_0_10px_#06b6d4] animate-pulse" />
+              <span
+                className="text-[10px] tracking-[0.5em] text-[#06b6d4] font-black uppercase"
+                style={{ fontFamily: "'JetBrains Mono', monospace" }}
+              >
+                System Pulse
+              </span>
+              <div className="flex-1 h-px bg-gradient-to-r from-[#06b6d4]/30 to-transparent" />
+            </div>
+
+            <h3
+              className="text-2xl md:text-3xl font-black tracking-tight text-white mb-8"
+              style={{ fontFamily: "'Inter', sans-serif" }}
+            >
+              Latest Updates
+            </h3>
+
+            <div className="space-y-3">
+              {[
+                { version: "v2.5", title: "Titan Deployment", desc: "Mobile Z-Index and UI Shift resolved." },
+                { version: "v2.4", title: "Neural Calibration", desc: "Enhanced Brand-Snap accuracy for canvas drops." },
+                { version: "v2.3", title: "Vault Protocol", desc: "Improved search indexing for archived missions." },
+              ].map((u, i) => (
+                <motion.div
+                  key={u.version}
+                  initial={{ opacity: 0, x: -10 }}
+                  whileInView={{ opacity: 1, x: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ duration: 0.4, delay: i * 0.06 }}
+                  className="group flex items-center gap-4 p-4 md:p-5 rounded-xl border border-white/5 bg-white/[0.02] hover:border-[#06b6d4]/30 hover:bg-white/[0.04] transition-all"
+                >
+                  {/* Active pulse dot */}
+                  <div className="relative shrink-0">
+                    <div className="w-2 h-2 rounded-full bg-[#06b6d4]" />
+                    <div className="absolute inset-0 w-2 h-2 rounded-full bg-[#06b6d4] animate-ping opacity-60" />
+                  </div>
+
+                  <span
+                    className="shrink-0 px-2 py-0.5 text-[10px] font-bold rounded border border-[#06b6d4]/30 bg-[#06b6d4]/10 text-[#06b6d4]"
+                    style={{ fontFamily: "'JetBrains Mono', monospace" }}
+                  >
+                    {u.version}
+                  </span>
+
+                  <div className="flex-1 min-w-0 flex flex-col md:flex-row md:items-baseline gap-1 md:gap-3">
+                    <span
+                      className="text-[13px] md:text-sm font-semibold text-white truncate"
+                      style={{ fontFamily: "'Inter', sans-serif" }}
+                    >
+                      {u.title}
+                    </span>
+                    <span
+                      className="text-[12px] text-white/50 truncate"
+                      style={{ fontFamily: "'Inter', sans-serif" }}
+                    >
+                      {u.desc}
+                    </span>
+                  </div>
+
+                  <span
+                    className="hidden md:inline-block text-[9px] tracking-[0.25em] uppercase text-[#22c55e]/70 font-black shrink-0"
+                    style={{ fontFamily: "'JetBrains Mono', monospace" }}
+                  >
+                    Active
+                  </span>
+                </motion.div>
+              ))}
+            </div>
+          </div>
+        </section>
 
 
         <section className="py-28 px-8">
@@ -473,152 +644,151 @@ const Workflower = () => {
           </div>
         </section>
 
-        {/* FOOTER — Architect's Footer (4-column glassmorphism) */}
-        <footer className="py-20 px-8 bg-[#030303] border-t border-white/5 relative overflow-hidden">
-          {/* Ambient glows */}
-          <div className="absolute left-0 top-0 w-64 h-64 bg-[#00A3FF]/5 blur-[100px] -translate-x-1/2 -translate-y-1/2 pointer-events-none" />
-          <div className="absolute right-0 bottom-0 w-64 h-64 bg-[#22c55e]/5 blur-[100px] translate-x-1/2 translate-y-1/2 pointer-events-none" />
+        {/* FOOTER — Minimalist Obsidian */}
+        <footer
+          className="px-6 md:px-8 pt-16 pb-8 border-t border-white/5 relative overflow-hidden"
+          style={{ background: "#020617" }}
+        >
+          {/* Single ambient glow */}
+          <div className="absolute left-1/2 top-0 w-[400px] h-[200px] bg-[#06b6d4]/5 blur-[100px] -translate-x-1/2 -translate-y-1/2 pointer-events-none" />
 
           <div className="max-w-6xl mx-auto relative z-10">
-            {/* Brand row */}
-            <div className="flex items-center gap-4 mb-12">
-              <div className="relative">
-                <div className="absolute inset-0 bg-[#00A3FF]/20 blur-md rounded-full animate-pulse" />
-                <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" className="relative z-10 text-[#00A3FF] drop-shadow-[0_0_8px_rgba(0,163,255,0.8)]">
-                  <circle cx="20" cy="20" r="18" stroke="currentColor" strokeWidth="1" strokeDasharray="4 4" className="animate-[spin_20s_linear_infinite]" />
-                  <path d="M12 28V12L28 28V12" stroke="currentColor" strokeWidth="2.5" strokeLinecap="square" />
-                </svg>
+            <div className="grid grid-cols-1 md:grid-cols-[1.5fr_1fr_1fr_1fr] gap-10 md:gap-8 mb-12">
+              {/* Brand + tagline */}
+              <div className="flex flex-col gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg border border-[#06b6d4]/40 flex items-center justify-center bg-[#06b6d4]/10 shadow-[0_0_20px_rgba(6,182,212,0.25)]">
+                    <span
+                      className="text-[#06b6d4] font-black text-lg italic"
+                      style={{ fontFamily: "'JetBrains Mono', monospace" }}
+                    >
+                      N
+                    </span>
+                  </div>
+                  <h2
+                    className="text-lg font-black tracking-tight text-white"
+                    style={{ fontFamily: "'Inter', sans-serif" }}
+                  >
+                    Naz<span className="text-[#06b6d4]">AI</span>
+                  </h2>
+                </div>
+                <p
+                  className="text-[12px] text-white/50 leading-relaxed max-w-xs"
+                  style={{ fontFamily: "'Inter', sans-serif" }}
+                >
+                  Built for the Future.
+                </p>
+                <p
+                  className="text-[10px] tracking-[0.3em] uppercase text-[#06b6d4]/70 font-bold mt-1"
+                  style={{ fontFamily: "'JetBrains Mono', monospace" }}
+                >
+                  AI Business OS
+                </p>
               </div>
-              <h2
-                className="text-2xl font-extrabold italic tracking-tight"
-                style={{ fontFamily: "'JetBrains Mono', monospace", color: "#FFFFFF" }}
-              >
-                NAZ<span style={{ color: "#00A3FF", textShadow: "0 0 10px rgba(0,163,255,0.6)" }}>AI</span>
-              </h2>
-            </div>
 
-            {/* 4-column grid */}
-            <div
-              className="grid grid-cols-2 md:grid-cols-4 gap-10 p-8 rounded-2xl"
-              style={{
-                background: "linear-gradient(180deg, rgba(11,31,58,0.4) 0%, rgba(2,6,23,0.6) 100%)",
-                border: "1px solid rgba(255,255,255,0.05)",
-                backdropFilter: "blur(12px)",
-              }}
-            >
-              {/* FEATURES */}
+              {/* PRODUCT */}
               <div className="flex flex-col gap-3">
                 <h4
-                  className="text-[11px] font-mono font-bold tracking-[0.3em] uppercase mb-1"
-                  style={{ color: "#22c55e", textShadow: "0 0 8px rgba(34,197,94,0.4)" }}
+                  className="text-[10px] font-bold tracking-[0.3em] uppercase text-white/40 mb-1"
+                  style={{ fontFamily: "'JetBrains Mono', monospace" }}
                 >
-                  Features
+                  Product
                 </h4>
-                {["Neural Engine", "Market Logic", "Financial Gates", "Truth Vector"].map((label) => (
+                {[
+                  { label: "Domain Master", href: "#domain-master" },
+                  { label: "Our Features", href: "#features" },
+                  { label: "Brand-Snap Canvas", href: "#brand-snap" },
+                  { label: "Operations", href: "#operations" },
+                ].map((item) => (
                   <a
-                    key={label}
-                    href="#"
-                    className="text-sm transition-colors duration-200 hover:text-white"
-                    style={{ color: "rgba(148,163,184,0.7)" }}
+                    key={item.label}
+                    href={item.href}
+                    className="text-[13px] text-white/60 hover:text-[#06b6d4] transition-colors"
+                    style={{ fontFamily: "'Inter', sans-serif" }}
                   >
-                    {label}
+                    {item.label}
                   </a>
                 ))}
               </div>
 
-              {/* EXAMPLES */}
+              {/* COMPANY */}
               <div className="flex flex-col gap-3">
                 <h4
-                  className="text-[11px] font-mono font-bold tracking-[0.3em] uppercase mb-1"
-                  style={{ color: "#22c55e", textShadow: "0 0 8px rgba(34,197,94,0.4)" }}
+                  className="text-[10px] font-bold tracking-[0.3em] uppercase text-white/40 mb-1"
+                  style={{ fontFamily: "'JetBrains Mono', monospace" }}
                 >
-                  Examples
-                </h4>
-                {["SaaS Blueprint", "Retail Scaling", "Gym Architecture", "Agency Playbook"].map((label) => (
-                  <a
-                    key={label}
-                    href="#"
-                    className="text-sm transition-colors duration-200 hover:text-white"
-                    style={{ color: "rgba(148,163,184,0.7)" }}
-                  >
-                    {label}
-                  </a>
-                ))}
-              </div>
-
-              {/* RESOURCES */}
-              <div className="flex flex-col gap-3">
-                <h4
-                  className="text-[11px] font-mono font-bold tracking-[0.3em] uppercase mb-1"
-                  style={{ color: "#22c55e", textShadow: "0 0 8px rgba(34,197,94,0.4)" }}
-                >
-                  Resources
+                  Company
                 </h4>
                 <a
                   href="https://www.youtube.com/@NazAI-n8b"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-2 text-sm transition-colors duration-200 hover:text-white"
-                  style={{ color: "rgba(148,163,184,0.7)" }}
+                  className="flex items-center gap-2 text-[13px] text-white/60 hover:text-[#06b6d4] transition-colors"
+                  style={{ fontFamily: "'Inter', sans-serif" }}
                 >
-                  <Youtube size={14} />
+                  <Youtube size={13} />
                   YouTube
                 </a>
                 <a
                   href="https://www.tiktok.com/@nazai.ai.business"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-2 text-sm transition-colors duration-200 hover:text-white"
-                  style={{ color: "rgba(148,163,184,0.7)" }}
+                  className="flex items-center gap-2 text-[13px] text-white/60 hover:text-[#06b6d4] transition-colors"
+                  style={{ fontFamily: "'Inter', sans-serif" }}
                 >
-                  <Music2 size={14} />
+                  <Music2 size={13} />
                   TikTok
+                </a>
+                <a
+                  href="mailto:nazai8832@gmail.com"
+                  className="flex items-center gap-2 text-[13px] text-white/60 hover:text-[#06b6d4] transition-colors"
+                  style={{ fontFamily: "'Inter', sans-serif" }}
+                >
+                  <Mail size={13} />
+                  Contact
                 </a>
               </div>
 
-              {/* LEGAL + CONTACT */}
+              {/* LEGAL */}
               <div className="flex flex-col gap-3">
                 <h4
-                  className="text-[11px] font-mono font-bold tracking-[0.3em] uppercase mb-1"
-                  style={{ color: "#22c55e", textShadow: "0 0 8px rgba(34,197,94,0.4)" }}
+                  className="text-[10px] font-bold tracking-[0.3em] uppercase text-white/40 mb-1"
+                  style={{ fontFamily: "'JetBrains Mono', monospace" }}
                 >
                   Legal
                 </h4>
                 <a
                   href="/terms"
-                  className="flex items-center gap-2 text-sm transition-colors duration-200 hover:text-white"
-                  style={{ color: "rgba(148,163,184,0.7)" }}
+                  className="text-[13px] text-white/60 hover:text-[#06b6d4] transition-colors"
+                  style={{ fontFamily: "'Inter', sans-serif" }}
                 >
-                  <FileText size={14} />
                   Terms
                 </a>
                 <a
                   href="/privacy"
-                  className="text-sm transition-colors duration-200 hover:text-white"
-                  style={{ color: "rgba(148,163,184,0.7)" }}
+                  className="text-[13px] text-white/60 hover:text-[#06b6d4] transition-colors"
+                  style={{ fontFamily: "'Inter', sans-serif" }}
                 >
                   Privacy Policy
-                </a>
-                <a
-                  href="mailto:nazai8832@gmail.com"
-                  className="flex items-center gap-2 text-sm transition-colors duration-200 hover:text-white mt-1"
-                  style={{ color: "rgba(148,163,184,0.55)" }}
-                >
-                  <Mail size={14} />
-                  nazai8832@gmail.com
                 </a>
               </div>
             </div>
 
             {/* Bottom bar */}
             <div
-              className="mt-8 pt-4 flex items-center justify-between text-[10px] font-mono tracking-[0.25em] uppercase"
-              style={{ borderTop: "1px solid rgba(255,255,255,0.05)", color: "rgba(148,163,184,0.5)" }}
+              className="pt-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-[10px] tracking-[0.25em] uppercase"
+              style={{
+                borderTop: "1px solid rgba(255,255,255,0.05)",
+                color: "rgba(148,163,184,0.5)",
+                fontFamily: "'JetBrains Mono', monospace",
+              }}
             >
-              <span>© {new Date().getFullYear()} NazAI Systems · Autonomous Logic Deployment</span>
+              <span>© {new Date().getFullYear()} NazAI Systems</span>
               <span className="flex items-center gap-2">
-                <Globe size={12} className="text-[#00A3FF]/60" />
-                <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: "#22c55e", boxShadow: "0 0 6px #22c55e" }} />
+                <span
+                  className="w-1.5 h-1.5 rounded-full animate-pulse"
+                  style={{ background: "#06b6d4", boxShadow: "0 0 6px #06b6d4" }}
+                />
                 System Operational
               </span>
             </div>
