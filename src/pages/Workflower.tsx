@@ -348,7 +348,7 @@ const Workflower = () => {
         </div>
 
         {/* DOMAIN MASTER — 6 expandable glass cards */}
-        <section className="relative py-24 px-6 border-t border-white/5">
+        <section id="domain-master" className="relative py-24 px-6 border-t border-white/5 scroll-mt-20">
           <div className="max-w-6xl mx-auto">
             <div className="text-center mb-16">
               <span className="text-[10px] tracking-[0.5em] text-[#22c55e] font-black uppercase block mb-4">
@@ -427,7 +427,7 @@ const Workflower = () => {
 
 
         {/* FEATURES SECTION */}
-        <section className="py-12 md:py-24 px-4 md:px-8 relative">
+        <section id="features" className="py-12 md:py-24 px-4 md:px-8 relative scroll-mt-20">
           <div className="max-w-6xl mx-auto flex flex-col items-center">
             <div className="flex flex-col items-center mb-0 z-20 w-full">
               <h2 className="text-white text-3xl md:text-6xl font-black uppercase tracking-[0.2em] md:tracking-[0.4em] mb-4 drop-shadow-[0_0_20px_rgba(255,255,255,0.3)] text-center">
@@ -467,29 +467,159 @@ const Workflower = () => {
           </div>
         </section>
 
-        {/* LOGIC ORCHESTRATION */}
-        <section className="py-28 px-8 bg-black/60 border-y border-white/5">
-          <div className="max-w-6xl mx-auto text-center">
-            <h2 className="text-[11px] font-black uppercase tracking-[0.6em] text-[#00A3FF] mb-16 drop-shadow-[0_0_10px_rgba(0,163,255,0.4)]">
-              LOGIC_ORCHESTRATION_CORE
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-10">
-              {NODES.map((node, i) => (
-                <div key={i} className="group p-8 border border-white/5 bg-[#0A192F]/40 hover:border-[#00A3FF]/40 transition-all text-left">
-                  <h3 className="text-xs font-black text-[#00A3FF] uppercase mb-6 tracking-widest border-l-2 border-[#39FF14] pl-3">
-                    0{i + 1}_{node.label}
-                  </h3>
-                  <p className="text-[12px] text-white font-medium uppercase leading-relaxed tracking-wider">
-                    {node.desc}
-                  </p>
-                </div>
-              ))}
+        {/* NAZAI OPERATIONS — Mission Execution Blueprint Timeline */}
+        <section id="operations" className="py-24 md:py-28 px-6 md:px-8 bg-black/40 border-y border-white/5 scroll-mt-20">
+          <div className="max-w-6xl mx-auto">
+            <div className="text-center mb-16">
+              <span
+                className="text-[10px] tracking-[0.5em] text-[#06b6d4] font-black uppercase block mb-4"
+                style={{ fontFamily: "'JetBrains Mono', monospace", textShadow: "0 0 12px rgba(6,182,212,0.4)" }}
+              >
+                NazAI Operations
+              </span>
+              <h2
+                className="text-3xl md:text-5xl font-black tracking-tighter text-white mb-4"
+                style={{ fontFamily: "'Inter', sans-serif" }}
+              >
+                The Mission Execution Blueprint.
+              </h2>
+              <p className="text-sm text-white/50 max-w-2xl mx-auto leading-relaxed" style={{ fontFamily: "'Inter', sans-serif" }}>
+                Four orchestrated stages that transform a single directive into a synchronized, vault-archived business asset.
+              </p>
+            </div>
+
+            {/* Timeline */}
+            <div className="relative">
+              {/* Vertical connector (mobile) */}
+              <div className="absolute left-6 top-2 bottom-2 w-px bg-gradient-to-b from-transparent via-[#06b6d4]/40 to-transparent md:hidden" />
+              {/* Horizontal connector (desktop) */}
+              <div className="hidden md:block absolute top-7 left-[8%] right-[8%] h-px bg-gradient-to-r from-transparent via-[#06b6d4]/30 to-transparent" />
+
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6 md:gap-4 relative">
+                {[
+                  { stage: "01", title: "Neural Intake", desc: "Directly captures your vision through high-fidelity neural processing of text and assets." },
+                  { stage: "02", title: "Domain Calibration", desc: "AI agents calibrate the mission against market-leading billion-dollar strategies." },
+                  { stage: "03", title: "Asset Synthesis", desc: "Real-time generation of websites, branding, and codebases within the Brand-Snap Canvas." },
+                  { stage: "04", title: "Vault Synchronization", desc: "Automatic archival of every version and mission into your private Dashboard Vault." },
+                ].map((item, i) => (
+                  <motion.div
+                    key={item.stage}
+                    initial={{ opacity: 0, y: 20 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true, margin: "-50px" }}
+                    transition={{ duration: 0.5, delay: i * 0.08 }}
+                    className="relative pl-16 md:pl-0 md:text-center"
+                  >
+                    {/* Stage marker */}
+                    <div className="absolute left-0 md:left-1/2 md:-translate-x-1/2 top-0 md:relative md:mx-auto md:mb-5 w-12 h-12 md:w-14 md:h-14 rounded-full border border-[#06b6d4]/40 bg-[#020617] flex items-center justify-center shadow-[0_0_24px_rgba(6,182,212,0.25)] z-10">
+                      <span
+                        className="text-[10px] md:text-[11px] font-black text-[#06b6d4] tracking-tight"
+                        style={{ fontFamily: "'JetBrains Mono', monospace" }}
+                      >
+                        {item.stage}
+                      </span>
+                    </div>
+
+                    <div className="rounded-xl border border-white/5 bg-white/[0.02] p-5 md:p-6 hover:border-[#06b6d4]/30 hover:bg-white/[0.04] transition-all backdrop-blur-sm">
+                      <h3
+                        className="text-base md:text-lg font-bold text-white mb-2 tracking-tight"
+                        style={{ fontFamily: "'Inter', sans-serif" }}
+                      >
+                        {item.title}
+                      </h3>
+                      <p
+                        className="text-[12px] md:text-[13px] text-white/55 leading-relaxed"
+                        style={{ fontFamily: "'Inter', sans-serif" }}
+                      >
+                        {item.desc}
+                      </p>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
             </div>
           </div>
         </section>
 
         {/* DESIGN GUARDIAN — Brand-Snap Canvas */}
-        <GuardianCanvas />
+        <div id="brand-snap" className="scroll-mt-20">
+          <GuardianCanvas />
+        </div>
+
+        {/* SYSTEM PULSE — Latest Updates */}
+        <section className="py-20 md:py-24 px-6 md:px-8 border-t border-white/5">
+          <div className="max-w-5xl mx-auto">
+            <div className="flex items-center gap-3 mb-10">
+              <div className="w-2 h-2 rounded-full bg-[#06b6d4] shadow-[0_0_10px_#06b6d4] animate-pulse" />
+              <span
+                className="text-[10px] tracking-[0.5em] text-[#06b6d4] font-black uppercase"
+                style={{ fontFamily: "'JetBrains Mono', monospace" }}
+              >
+                System Pulse
+              </span>
+              <div className="flex-1 h-px bg-gradient-to-r from-[#06b6d4]/30 to-transparent" />
+            </div>
+
+            <h3
+              className="text-2xl md:text-3xl font-black tracking-tight text-white mb-8"
+              style={{ fontFamily: "'Inter', sans-serif" }}
+            >
+              Latest Updates
+            </h3>
+
+            <div className="space-y-3">
+              {[
+                { version: "v2.5", title: "Titan Deployment", desc: "Mobile Z-Index and UI Shift resolved." },
+                { version: "v2.4", title: "Neural Calibration", desc: "Enhanced Brand-Snap accuracy for canvas drops." },
+                { version: "v2.3", title: "Vault Protocol", desc: "Improved search indexing for archived missions." },
+              ].map((u, i) => (
+                <motion.div
+                  key={u.version}
+                  initial={{ opacity: 0, x: -10 }}
+                  whileInView={{ opacity: 1, x: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ duration: 0.4, delay: i * 0.06 }}
+                  className="group flex items-center gap-4 p-4 md:p-5 rounded-xl border border-white/5 bg-white/[0.02] hover:border-[#06b6d4]/30 hover:bg-white/[0.04] transition-all"
+                >
+                  {/* Active pulse dot */}
+                  <div className="relative shrink-0">
+                    <div className="w-2 h-2 rounded-full bg-[#06b6d4]" />
+                    <div className="absolute inset-0 w-2 h-2 rounded-full bg-[#06b6d4] animate-ping opacity-60" />
+                  </div>
+
+                  <span
+                    className="shrink-0 px-2 py-0.5 text-[10px] font-bold rounded border border-[#06b6d4]/30 bg-[#06b6d4]/10 text-[#06b6d4]"
+                    style={{ fontFamily: "'JetBrains Mono', monospace" }}
+                  >
+                    {u.version}
+                  </span>
+
+                  <div className="flex-1 min-w-0 flex flex-col md:flex-row md:items-baseline gap-1 md:gap-3">
+                    <span
+                      className="text-[13px] md:text-sm font-semibold text-white truncate"
+                      style={{ fontFamily: "'Inter', sans-serif" }}
+                    >
+                      {u.title}
+                    </span>
+                    <span
+                      className="text-[12px] text-white/50 truncate"
+                      style={{ fontFamily: "'Inter', sans-serif" }}
+                    >
+                      {u.desc}
+                    </span>
+                  </div>
+
+                  <span
+                    className="hidden md:inline-block text-[9px] tracking-[0.25em] uppercase text-[#22c55e]/70 font-black shrink-0"
+                    style={{ fontFamily: "'JetBrains Mono', monospace" }}
+                  >
+                    Active
+                  </span>
+                </motion.div>
+              ))}
+            </div>
+          </div>
+        </section>
 
 
         <section className="py-28 px-8">
