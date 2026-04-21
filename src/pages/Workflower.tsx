@@ -644,152 +644,151 @@ const Workflower = () => {
           </div>
         </section>
 
-        {/* FOOTER — Architect's Footer (4-column glassmorphism) */}
-        <footer className="py-20 px-8 bg-[#030303] border-t border-white/5 relative overflow-hidden">
-          {/* Ambient glows */}
-          <div className="absolute left-0 top-0 w-64 h-64 bg-[#00A3FF]/5 blur-[100px] -translate-x-1/2 -translate-y-1/2 pointer-events-none" />
-          <div className="absolute right-0 bottom-0 w-64 h-64 bg-[#22c55e]/5 blur-[100px] translate-x-1/2 translate-y-1/2 pointer-events-none" />
+        {/* FOOTER — Minimalist Obsidian */}
+        <footer
+          className="px-6 md:px-8 pt-16 pb-8 border-t border-white/5 relative overflow-hidden"
+          style={{ background: "#020617" }}
+        >
+          {/* Single ambient glow */}
+          <div className="absolute left-1/2 top-0 w-[400px] h-[200px] bg-[#06b6d4]/5 blur-[100px] -translate-x-1/2 -translate-y-1/2 pointer-events-none" />
 
           <div className="max-w-6xl mx-auto relative z-10">
-            {/* Brand row */}
-            <div className="flex items-center gap-4 mb-12">
-              <div className="relative">
-                <div className="absolute inset-0 bg-[#00A3FF]/20 blur-md rounded-full animate-pulse" />
-                <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" className="relative z-10 text-[#00A3FF] drop-shadow-[0_0_8px_rgba(0,163,255,0.8)]">
-                  <circle cx="20" cy="20" r="18" stroke="currentColor" strokeWidth="1" strokeDasharray="4 4" className="animate-[spin_20s_linear_infinite]" />
-                  <path d="M12 28V12L28 28V12" stroke="currentColor" strokeWidth="2.5" strokeLinecap="square" />
-                </svg>
+            <div className="grid grid-cols-1 md:grid-cols-[1.5fr_1fr_1fr_1fr] gap-10 md:gap-8 mb-12">
+              {/* Brand + tagline */}
+              <div className="flex flex-col gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg border border-[#06b6d4]/40 flex items-center justify-center bg-[#06b6d4]/10 shadow-[0_0_20px_rgba(6,182,212,0.25)]">
+                    <span
+                      className="text-[#06b6d4] font-black text-lg italic"
+                      style={{ fontFamily: "'JetBrains Mono', monospace" }}
+                    >
+                      N
+                    </span>
+                  </div>
+                  <h2
+                    className="text-lg font-black tracking-tight text-white"
+                    style={{ fontFamily: "'Inter', sans-serif" }}
+                  >
+                    Naz<span className="text-[#06b6d4]">AI</span>
+                  </h2>
+                </div>
+                <p
+                  className="text-[12px] text-white/50 leading-relaxed max-w-xs"
+                  style={{ fontFamily: "'Inter', sans-serif" }}
+                >
+                  Built for the Future.
+                </p>
+                <p
+                  className="text-[10px] tracking-[0.3em] uppercase text-[#06b6d4]/70 font-bold mt-1"
+                  style={{ fontFamily: "'JetBrains Mono', monospace" }}
+                >
+                  AI Business OS
+                </p>
               </div>
-              <h2
-                className="text-2xl font-extrabold italic tracking-tight"
-                style={{ fontFamily: "'JetBrains Mono', monospace", color: "#FFFFFF" }}
-              >
-                NAZ<span style={{ color: "#00A3FF", textShadow: "0 0 10px rgba(0,163,255,0.6)" }}>AI</span>
-              </h2>
-            </div>
 
-            {/* 4-column grid */}
-            <div
-              className="grid grid-cols-2 md:grid-cols-4 gap-10 p-8 rounded-2xl"
-              style={{
-                background: "linear-gradient(180deg, rgba(11,31,58,0.4) 0%, rgba(2,6,23,0.6) 100%)",
-                border: "1px solid rgba(255,255,255,0.05)",
-                backdropFilter: "blur(12px)",
-              }}
-            >
-              {/* FEATURES */}
+              {/* PRODUCT */}
               <div className="flex flex-col gap-3">
                 <h4
-                  className="text-[11px] font-mono font-bold tracking-[0.3em] uppercase mb-1"
-                  style={{ color: "#22c55e", textShadow: "0 0 8px rgba(34,197,94,0.4)" }}
+                  className="text-[10px] font-bold tracking-[0.3em] uppercase text-white/40 mb-1"
+                  style={{ fontFamily: "'JetBrains Mono', monospace" }}
                 >
-                  Features
+                  Product
                 </h4>
-                {["Neural Engine", "Market Logic", "Financial Gates", "Truth Vector"].map((label) => (
+                {[
+                  { label: "Domain Master", href: "#domain-master" },
+                  { label: "Our Features", href: "#features" },
+                  { label: "Brand-Snap Canvas", href: "#brand-snap" },
+                  { label: "Operations", href: "#operations" },
+                ].map((item) => (
                   <a
-                    key={label}
-                    href="#"
-                    className="text-sm transition-colors duration-200 hover:text-white"
-                    style={{ color: "rgba(148,163,184,0.7)" }}
+                    key={item.label}
+                    href={item.href}
+                    className="text-[13px] text-white/60 hover:text-[#06b6d4] transition-colors"
+                    style={{ fontFamily: "'Inter', sans-serif" }}
                   >
-                    {label}
+                    {item.label}
                   </a>
                 ))}
               </div>
 
-              {/* EXAMPLES */}
+              {/* COMPANY */}
               <div className="flex flex-col gap-3">
                 <h4
-                  className="text-[11px] font-mono font-bold tracking-[0.3em] uppercase mb-1"
-                  style={{ color: "#22c55e", textShadow: "0 0 8px rgba(34,197,94,0.4)" }}
+                  className="text-[10px] font-bold tracking-[0.3em] uppercase text-white/40 mb-1"
+                  style={{ fontFamily: "'JetBrains Mono', monospace" }}
                 >
-                  Examples
-                </h4>
-                {["SaaS Blueprint", "Retail Scaling", "Gym Architecture", "Agency Playbook"].map((label) => (
-                  <a
-                    key={label}
-                    href="#"
-                    className="text-sm transition-colors duration-200 hover:text-white"
-                    style={{ color: "rgba(148,163,184,0.7)" }}
-                  >
-                    {label}
-                  </a>
-                ))}
-              </div>
-
-              {/* RESOURCES */}
-              <div className="flex flex-col gap-3">
-                <h4
-                  className="text-[11px] font-mono font-bold tracking-[0.3em] uppercase mb-1"
-                  style={{ color: "#22c55e", textShadow: "0 0 8px rgba(34,197,94,0.4)" }}
-                >
-                  Resources
+                  Company
                 </h4>
                 <a
                   href="https://www.youtube.com/@NazAI-n8b"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-2 text-sm transition-colors duration-200 hover:text-white"
-                  style={{ color: "rgba(148,163,184,0.7)" }}
+                  className="flex items-center gap-2 text-[13px] text-white/60 hover:text-[#06b6d4] transition-colors"
+                  style={{ fontFamily: "'Inter', sans-serif" }}
                 >
-                  <Youtube size={14} />
+                  <Youtube size={13} />
                   YouTube
                 </a>
                 <a
                   href="https://www.tiktok.com/@nazai.ai.business"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-2 text-sm transition-colors duration-200 hover:text-white"
-                  style={{ color: "rgba(148,163,184,0.7)" }}
+                  className="flex items-center gap-2 text-[13px] text-white/60 hover:text-[#06b6d4] transition-colors"
+                  style={{ fontFamily: "'Inter', sans-serif" }}
                 >
-                  <Music2 size={14} />
+                  <Music2 size={13} />
                   TikTok
+                </a>
+                <a
+                  href="mailto:nazai8832@gmail.com"
+                  className="flex items-center gap-2 text-[13px] text-white/60 hover:text-[#06b6d4] transition-colors"
+                  style={{ fontFamily: "'Inter', sans-serif" }}
+                >
+                  <Mail size={13} />
+                  Contact
                 </a>
               </div>
 
-              {/* LEGAL + CONTACT */}
+              {/* LEGAL */}
               <div className="flex flex-col gap-3">
                 <h4
-                  className="text-[11px] font-mono font-bold tracking-[0.3em] uppercase mb-1"
-                  style={{ color: "#22c55e", textShadow: "0 0 8px rgba(34,197,94,0.4)" }}
+                  className="text-[10px] font-bold tracking-[0.3em] uppercase text-white/40 mb-1"
+                  style={{ fontFamily: "'JetBrains Mono', monospace" }}
                 >
                   Legal
                 </h4>
                 <a
                   href="/terms"
-                  className="flex items-center gap-2 text-sm transition-colors duration-200 hover:text-white"
-                  style={{ color: "rgba(148,163,184,0.7)" }}
+                  className="text-[13px] text-white/60 hover:text-[#06b6d4] transition-colors"
+                  style={{ fontFamily: "'Inter', sans-serif" }}
                 >
-                  <FileText size={14} />
                   Terms
                 </a>
                 <a
                   href="/privacy"
-                  className="text-sm transition-colors duration-200 hover:text-white"
-                  style={{ color: "rgba(148,163,184,0.7)" }}
+                  className="text-[13px] text-white/60 hover:text-[#06b6d4] transition-colors"
+                  style={{ fontFamily: "'Inter', sans-serif" }}
                 >
                   Privacy Policy
-                </a>
-                <a
-                  href="mailto:nazai8832@gmail.com"
-                  className="flex items-center gap-2 text-sm transition-colors duration-200 hover:text-white mt-1"
-                  style={{ color: "rgba(148,163,184,0.55)" }}
-                >
-                  <Mail size={14} />
-                  nazai8832@gmail.com
                 </a>
               </div>
             </div>
 
             {/* Bottom bar */}
             <div
-              className="mt-8 pt-4 flex items-center justify-between text-[10px] font-mono tracking-[0.25em] uppercase"
-              style={{ borderTop: "1px solid rgba(255,255,255,0.05)", color: "rgba(148,163,184,0.5)" }}
+              className="pt-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-[10px] tracking-[0.25em] uppercase"
+              style={{
+                borderTop: "1px solid rgba(255,255,255,0.05)",
+                color: "rgba(148,163,184,0.5)",
+                fontFamily: "'JetBrains Mono', monospace",
+              }}
             >
-              <span>© {new Date().getFullYear()} NazAI Systems · Autonomous Logic Deployment</span>
+              <span>© {new Date().getFullYear()} NazAI Systems</span>
               <span className="flex items-center gap-2">
-                <Globe size={12} className="text-[#00A3FF]/60" />
-                <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: "#22c55e", boxShadow: "0 0 6px #22c55e" }} />
+                <span
+                  className="w-1.5 h-1.5 rounded-full animate-pulse"
+                  style={{ background: "#06b6d4", boxShadow: "0 0 6px #06b6d4" }}
+                />
                 System Operational
               </span>
             </div>
