@@ -1300,6 +1300,9 @@ const HomeView = ({
             transition: "border-color 180ms ease, box-shadow 220ms ease",
           }}
         >
+          {/* Live Canvas: scanning beam on drop + celebratory snap */}
+          <DropScanOverlay count={userMissionAssets.length} color={auraProfile.glowPrimary} />
+
           <textarea
             ref={textareaRef}
             defaultValue=""
