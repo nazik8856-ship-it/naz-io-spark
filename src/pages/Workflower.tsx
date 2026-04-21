@@ -402,7 +402,7 @@ const Workflower = () => {
         </div>
 
         {/* DOMAIN MASTER — 6 expandable glass cards */}
-        <section id="domain-master" className="relative py-24 px-6 border-t border-white/5 scroll-mt-20">
+        <section id="domain-master" data-cursor-trail className="relative py-24 px-6 border-t border-white/5 scroll-mt-20">
           <div className="max-w-6xl mx-auto">
             <div className="text-center mb-16">
               <span className="text-[10px] tracking-[0.5em] text-[#22c55e] font-black uppercase block mb-4">
@@ -834,6 +834,9 @@ const Workflower = () => {
 
       {/* Inline workspace (for when opened from within the page) */}
       <MissionWorkspace open={missionOpen} onClose={() => setMissionOpen(false)} initialSector={activeSector} />
+
+      {/* Cursor trail — only activates over zones marked data-cursor-trail */}
+      <CursorTrail />
     </motion.div>
   );
 };
