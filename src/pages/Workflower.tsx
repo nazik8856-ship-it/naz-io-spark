@@ -205,7 +205,6 @@ const Workflower = () => {
               {[
                 { label: "Home", href: "#top" },
                 { label: "Domain Master", href: "#domain-master" },
-                { label: "Our Features", href: "#features" },
                 { label: "Brand-Snap Canvas", href: "#brand-snap" },
               ].map((item) => (
                 <a
@@ -421,48 +420,6 @@ const Workflower = () => {
                   </button>
                 );
               })}
-            </div>
-          </div>
-        </section>
-
-
-        {/* FEATURES SECTION */}
-        <section id="features" className="py-12 md:py-24 px-4 md:px-8 relative scroll-mt-20">
-          <div className="max-w-6xl mx-auto flex flex-col items-center">
-            <div className="flex flex-col items-center mb-0 z-20 w-full">
-              <h2 className="text-white text-3xl md:text-6xl font-black uppercase tracking-[0.2em] md:tracking-[0.4em] mb-4 drop-shadow-[0_0_20px_rgba(255,255,255,0.3)] text-center">
-                Our Features
-              </h2>
-              <div className="h-1 md:h-1.5 w-24 md:w-32 bg-[#00A3FF] rounded-full shadow-[0_0_15px_#00A3FF]" />
-            </div>
-
-            <div className="w-full -mt-8 md:-mt-12 min-h-[450px] md:h-[450px] rounded-3xl border border-white/10 bg-black/40 relative overflow-hidden backdrop-blur-lg shadow-2xl z-10 p-6 md:p-0">
-              <svg className="absolute inset-0 w-full h-full hidden md:block">
-                {[0, 1, 2].map((i) => (
-                  <g key={i}>
-                    <line x1={`${28 + i * 24}%`} y1="50%" x2={`${48 + i * 24}%`} y2="50%" stroke="#00A3FF" strokeWidth="1" strokeDasharray="5 5" opacity="0.2" />
-                    <circle r="4" fill="#00A3FF" filter="drop-shadow(0 0 5px #00A3FF)">
-                      <animateMotion dur="2s" repeatCount="indefinite" path={`M ${260 + i * 240} 225 L ${460 + i * 240} 225`} />
-                    </circle>
-                  </g>
-                ))}
-              </svg>
-
-              <div className="relative md:absolute md:inset-0 flex flex-col md:flex-row items-center justify-around gap-6 md:gap-0 px-4 md:px-10 pt-16 md:pt-8 pb-8 md:pb-0">
-                {NODES.map((node, i) => (
-                  <div
-                    key={i}
-                    className="w-full md:w-auto flex flex-col items-center gap-4 md:gap-6 p-6 md:p-8 rounded-2xl border border-[#00A3FF]/20 bg-[#0A192F]/80 shadow-[0_0_40px_rgba(0,0,0,0.5)] transition-all hover:border-[#00A3FF]/60 group cursor-pointer"
-                  >
-                    <div className="w-12 h-12 md:w-14 md:h-14 rounded-full border border-[#00A3FF]/40 flex items-center justify-center bg-[#00A3FF]/10 group-hover:bg-[#00A3FF]/20 transition-colors">
-                      <node.icon size={24} className="text-[#00A3FF]" />
-                    </div>
-                    <span className="text-[9px] md:text-[10px] font-black text-[#00A3FF] tracking-[0.2em] md:tracking-[0.3em] uppercase text-center">
-                      {node.label}
-                    </span>
-                  </div>
-                ))}
-              </div>
             </div>
           </div>
         </section>
@@ -696,7 +653,6 @@ const Workflower = () => {
                 </h4>
                 {[
                   { label: "Domain Master", href: "#domain-master" },
-                  { label: "Our Features", href: "#features" },
                   { label: "Brand-Snap Canvas", href: "#brand-snap" },
                   { label: "Operations", href: "#operations" },
                 ].map((item) => (
