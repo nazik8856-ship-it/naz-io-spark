@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { motion, AnimatePresence } from "framer-motion";
+import DropScanOverlay from "@/components/interactions/DropScanOverlay";
+import MagneticButton from "@/components/interactions/MagneticButton";
 import { useNavigate } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
 import {
@@ -1298,6 +1300,9 @@ const HomeView = ({
             transition: "border-color 180ms ease, box-shadow 220ms ease",
           }}
         >
+          {/* Live Canvas: scanning beam on drop + celebratory snap */}
+          <DropScanOverlay count={userMissionAssets.length} color={auraProfile.glowPrimary} />
+
           <textarea
             ref={textareaRef}
             defaultValue=""
@@ -2562,73 +2567,98 @@ export default function Dashboard() {
   );
 
   // ─── Main Render ────────────────────────────────────────────────────────────────
-  
-  // Render content based on activeNav
+
+  // Render content based on activeNav, with a Directional Slide-Fade transition
   const renderContent = () => {
+    let view: React.ReactNode = null;
     switch(activeNav) {
       case 'trash':
-        return <TrashView 
-          missions={missions}
-          onRestore={handleRestoreMission}
-          onPermanentDelete={handleDeleteMissionPermanently}
-        />;
+        view = (
+          <TrashView
+            missions={missions}
+            onRestore={handleRestoreMission}
+            onPermanentDelete={handleDeleteMissionPermanently}
+          />
+        );
+        break;
       case 'archives':
-        return <ArchivesView 
-          missions={missions}
-          onRestore={handleRestoreMission}
-        />;
+        view = (
+          <ArchivesView
+            missions={missions}
+            onRestore={handleRestoreMission}
+          />
+        );
+        break;
       case 'settings':
-        return <SettingsView 
-          customPalette={customPalette}
-          setCustomPalette={setCustomPalette}
-          auraProfile={auraProfile}
-          updateAuraProfile={updateAuraProfile}
-          resetAuraToDefault={resetAuraToDefault}
-          toggleLightMode={toggleLightMode}
-          userContext={userContext}
-          setUserContext={setUserContext}
-        />;
+        view = (
+          <SettingsView
+            customPalette={customPalette}
+            setCustomPalette={setCustomPalette}
+            auraProfile={auraProfile}
+            updateAuraProfile={updateAuraProfile}
+            resetAuraToDefault={resetAuraToDefault}
+            toggleLightMode={toggleLightMode}
+            userContext={userContext}
+            setUserContext={setUserContext}
+          />
+        );
+        break;
       case 'home':
       default:
-        return <HomeView 
-          errorMessage={errorMessage}
-          messages={messages}
-          activeTool={activeTool}
-          initialCards={initialCards}
-          auraProfile={auraProfile}
-          currentTheme={currentTheme}
-          isPending={isPending}
-          handleSendMessage={handleSendMessage}
-          handleKeyDown={handleKeyDown}
-          handleTextareaFocus={handleTextareaFocus}
-          handleTextareaBlur={handleTextareaBlur}
-          handleSendPointerDown={handleSendPointerDown}
-          setSelectedModel={setSelectedModel}
-          setPlusMenuOpen={setPlusMenuOpen}
-          setDrawerOpen={setDrawerOpen}
-          textareaRef={textareaRef}
-          inputContainerRef={inputContainerRef}
-          messagesEndRef={messagesEndRef}
-          formatAIResponse={formatAIResponse}
-          getRgbFromHex={getRgbFromHex}
-          laserShineAnimation={laserShineAnimation}
-          userMissionAssets={userMissionAssets}
-          setUserMissionAssets={setUserMissionAssets}
-          activeAssetIndex={activeAssetIndex}
-          setActiveAssetIndex={setActiveAssetIndex}
-          isDragOver={isDragOver}
-          setIsDragOver={setIsDragOver}
-          revertDropdownOpen={revertDropdownOpen}
-          setRevertDropdownOpen={setRevertDropdownOpen}
-          openRevertModal={openRevertModal}
-          handleCopyMessage={handleCopyMessage}
-          handleRegenerateMessage={handleRegenerateMessage}
-          handleShareMessage={handleShareMessage}
-          confirmRevert={confirmRevert}
-          revertModalOpen={revertModalOpen}
-          setRevertModalOpen={setRevertModalOpen}
-        />;
+        view = (
+          <HomeView
+            errorMessage={errorMessage}
+            messages={messages}
+            activeTool={activeTool}
+            initialCards={initialCards}
+            auraProfile={auraProfile}
+            currentTheme={currentTheme}
+            isPending={isPending}
+            handleSendMessage={handleSendMessage}
+            handleKeyDown={handleKeyDown}
+            handleTextareaFocus={handleTextareaFocus}
+            handleTextareaBlur={handleTextareaBlur}
+            handleSendPointerDown={handleSendPointerDown}
+            setSelectedModel={setSelectedModel}
+            setPlusMenuOpen={setPlusMenuOpen}
+            setDrawerOpen={setDrawerOpen}
+            textareaRef={textareaRef}
+            inputContainerRef={inputContainerRef}
+            messagesEndRef={messagesEndRef}
+            formatAIResponse={formatAIResponse}
+            getRgbFromHex={getRgbFromHex}
+            laserShineAnimation={laserShineAnimation}
+            userMissionAssets={userMissionAssets}
+            setUserMissionAssets={setUserMissionAssets}
+            activeAssetIndex={activeAssetIndex}
+            setActiveAssetIndex={setActiveAssetIndex}
+            isDragOver={isDragOver}
+            setIsDragOver={setIsDragOver}
+            revertDropdownOpen={revertDropdownOpen}
+            setRevertDropdownOpen={setRevertDropdownOpen}
+            openRevertModal={openRevertModal}
+            handleCopyMessage={handleCopyMessage}
+            handleRegenerateMessage={handleRegenerateMessage}
+            handleShareMessage={handleShareMessage}
+            confirmRevert={confirmRevert}
+            revertModalOpen={revertModalOpen}
+            setRevertModalOpen={setRevertModalOpen}
+          />
+        );
     }
+
+    return (
+      <motion.div
+        key={activeNav}
+        initial={{ opacity: 0, x: 24 }}
+        animate={{ opacity: 1, x: 0 }}
+        exit={{ opacity: 0, x: -24 }}
+        transition={{ type: "spring", stiffness: 320, damping: 30, mass: 0.7 }}
+        className="absolute inset-0 flex flex-col"
+      >
+        {view}
+      </motion.div>
+    );
   };
 
   return (

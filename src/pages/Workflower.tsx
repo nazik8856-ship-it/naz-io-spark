@@ -1,5 +1,9 @@
 import React, { useState, useEffect, useRef } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
+import MagneticButton from "@/components/interactions/MagneticButton";
+import SmoothScrollLink from "@/components/interactions/SmoothScrollLink";
+import CursorTrail from "@/components/interactions/CursorTrail";
+import NeuralFeedback from "@/components/interactions/NeuralFeedback";
 import {
   Activity,
   Cpu,
@@ -206,23 +210,26 @@ const Workflower = () => {
                 { label: "Home", href: "#top" },
                 { label: "Domain Master", href: "#domain-master" },
                 { label: "Brand-Snap Canvas", href: "#brand-snap" },
+                { label: "Feedback", href: "#neural-feedback" },
               ].map((item) => (
-                <a
+                <SmoothScrollLink
                   key={item.label}
                   href={item.href}
                   className="px-3 py-2 text-[12px] font-medium tracking-wide text-white/60 hover:text-white transition-colors rounded-lg hover:bg-white/[0.04]"
                   style={{ fontFamily: "'Inter', sans-serif" }}
                 >
                   {item.label}
-                </a>
+                </SmoothScrollLink>
               ))}
-              <button
-                onClick={() => (user ? navigate("/dashboard") : setAuthModalOpen(true))}
-                className="ml-2 px-4 py-2 text-[12px] font-bold tracking-wide rounded-lg border border-[#06b6d4]/40 bg-[#06b6d4]/10 text-[#06b6d4] hover:bg-[#06b6d4]/20 hover:border-[#06b6d4]/60 transition-all"
-                style={{ fontFamily: "'Inter', sans-serif", boxShadow: "0 0 20px rgba(6,182,212,0.15)" }}
-              >
-                Dashboard
-              </button>
+              <MagneticButton radius={90} strength={0.3} className="ml-2">
+                <button
+                  onClick={() => (user ? navigate("/dashboard") : setAuthModalOpen(true))}
+                  className="px-4 py-2 text-[12px] font-bold tracking-wide rounded-lg border border-[#06b6d4]/40 bg-[#06b6d4]/10 text-[#06b6d4] hover:bg-[#06b6d4]/20 hover:border-[#06b6d4]/60 transition-colors"
+                  style={{ fontFamily: "'Inter', sans-serif", boxShadow: "0 0 20px rgba(6,182,212,0.15)" }}
+                >
+                  Go to Dashboard
+                </button>
+              </MagneticButton>
             </nav>
 
             {/* Mobile dashboard button */}
@@ -247,17 +254,43 @@ const Workflower = () => {
             }}
           />
 
-          <div className="relative max-w-5xl mx-auto text-center">
+          <motion.div
+            className="relative max-w-5xl mx-auto text-center"
+            initial="hidden"
+            animate="visible"
+            variants={{
+              hidden: { opacity: 1 },
+              visible: { opacity: 1, transition: { staggerChildren: 0.1, delayChildren: 0.05 } },
+            }}
+          >
+            {(() => {
+              const item = {
+                hidden: { opacity: 0, y: 20 },
+                visible: { opacity: 1, y: 0, transition: { duration: 0.6, ease: [0.22, 1, 0.36, 1] as const } },
+              };
+              return null;
+            })()}
+
             {/* Eyebrow */}
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 mb-8 rounded-full border border-[#22c55e]/30 bg-[#22c55e]/5">
+            <motion.div
+              variants={{
+                hidden: { opacity: 0, y: 20 },
+                visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] } },
+              }}
+              className="inline-flex items-center gap-2 px-3 py-1.5 mb-8 rounded-full border border-[#22c55e]/30 bg-[#22c55e]/5"
+            >
               <div className="w-1.5 h-1.5 rounded-full bg-[#22c55e] animate-pulse shadow-[0_0_8px_#22c55e]" />
               <span className="text-[9px] tracking-[0.4em] text-[#22c55e] font-black uppercase">
                 AI Business Operating System
               </span>
-            </div>
+            </motion.div>
 
             {/* TITAN HEADLINE — heavy bold italic mono */}
-            <h1
+            <motion.h1
+              variants={{
+                hidden: { opacity: 0, y: 20 },
+                visible: { opacity: 1, y: 0, transition: { duration: 0.6, ease: [0.22, 1, 0.36, 1] } },
+              }}
               className="font-mono italic font-black tracking-tighter leading-[0.95] text-white text-4xl md:text-6xl lg:text-7xl mb-6"
               style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}
             >
@@ -273,16 +306,28 @@ const Workflower = () => {
                 <br />
                 with <span className="text-[#22c55e] drop-shadow-[0_0_18px_rgba(34,197,94,0.6)]">One Prompt.</span>
               </span>
-            </h1>
+            </motion.h1>
 
             {/* SUBHEADLINE */}
-            <p className="max-w-3xl mx-auto text-sm md:text-base text-white/60 leading-relaxed mb-10 font-medium">
+            <motion.p
+              variants={{
+                hidden: { opacity: 0, y: 20 },
+                visible: { opacity: 1, y: 0, transition: { duration: 0.55, ease: [0.22, 1, 0.36, 1] } },
+              }}
+              className="max-w-3xl mx-auto text-sm md:text-base text-white/60 leading-relaxed mb-10 font-medium"
+            >
               From idea validation and financial modeling to full operations, AI agents, automation, strategy,
               and execution — <span className="text-white">NazAI orchestrates any business function end-to-end.</span>
-            </p>
+            </motion.p>
 
             {/* COMMAND CONSOLE */}
-            <div className="relative max-w-3xl mx-auto mb-8">
+            <motion.div
+              variants={{
+                hidden: { opacity: 0, y: 20 },
+                visible: { opacity: 1, y: 0, transition: { duration: 0.6, ease: [0.22, 1, 0.36, 1] } },
+              }}
+              className="relative max-w-3xl mx-auto mb-8"
+            >
               <div
                 className="absolute -inset-px rounded-2xl pointer-events-none"
                 style={{
@@ -322,32 +367,42 @@ const Workflower = () => {
                   <span className="inline-block w-[8px] h-[18px] bg-[#22c55e] align-middle ml-0.5 animate-pulse shadow-[0_0_8px_#22c55e]" />
                 </div>
               </div>
-            </div>
+            </motion.div>
 
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-              <button
-                onClick={() => launchMission("home")}
-                className="group relative px-8 md:px-10 py-4 bg-[#22c55e] text-black font-black uppercase text-xs md:text-[13px] tracking-wider rounded-lg overflow-hidden transition-all hover:scale-[1.02] hover:shadow-[0_0_60px_rgba(34,197,94,0.7)]"
-                style={{ boxShadow: "0 0 40px rgba(34,197,94,0.5), inset 0 -2px 0 rgba(0,0,0,0.3)" }}
-              >
-                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent -translate-x-full group-hover:animate-[shimmer_1s_infinite]" />
-                <span className="relative flex items-center gap-2">
-                  <Send size={14} />
-                  Start Free Mission — Describe Any Business Task
-                </span>
-              </button>
-              <button
-                onClick={() => launchMission("archives")}
-                className="px-8 py-4 border border-white/15 text-white/70 font-bold uppercase text-[11px] tracking-[0.2em] hover:bg-white/5 hover:text-white hover:border-[#22c55e]/40 transition-all rounded-lg"
-              >
-                View Plans
-              </button>
-            </div>
-          </div>
+            <motion.div
+              variants={{
+                hidden: { opacity: 0, y: 20 },
+                visible: { opacity: 1, y: 0, transition: { duration: 0.55, ease: [0.22, 1, 0.36, 1] } },
+              }}
+              className="flex flex-col sm:flex-row items-center justify-center gap-4"
+            >
+              <MagneticButton radius={110} strength={0.32}>
+                <button
+                  onClick={() => launchMission("home")}
+                  className="group relative px-8 md:px-10 py-4 bg-[#22c55e] text-black font-black uppercase text-xs md:text-[13px] tracking-wider rounded-lg overflow-hidden transition-shadow hover:shadow-[0_0_60px_rgba(34,197,94,0.7)]"
+                  style={{ boxShadow: "0 0 40px rgba(34,197,94,0.5), inset 0 -2px 0 rgba(0,0,0,0.3)" }}
+                >
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent -translate-x-full group-hover:animate-[shimmer_1s_infinite]" />
+                  <span className="relative flex items-center gap-2">
+                    <Send size={14} />
+                    Start Free Mission — Describe Any Business Task
+                  </span>
+                </button>
+              </MagneticButton>
+              <MagneticButton radius={90} strength={0.25}>
+                <button
+                  onClick={() => launchMission("archives")}
+                  className="px-8 py-4 border border-white/15 text-white/70 font-bold uppercase text-[11px] tracking-[0.2em] hover:bg-white/5 hover:text-white hover:border-[#22c55e]/40 transition-colors rounded-lg"
+                >
+                  View Plans
+                </button>
+              </MagneticButton>
+            </motion.div>
+          </motion.div>
         </div>
 
         {/* DOMAIN MASTER — 6 expandable glass cards */}
-        <section id="domain-master" className="relative py-24 px-6 border-t border-white/5 scroll-mt-20">
+        <section id="domain-master" data-cursor-trail className="relative py-24 px-6 border-t border-white/5 scroll-mt-20">
           <div className="max-w-6xl mx-auto">
             <div className="text-center mb-16">
               <span className="text-[10px] tracking-[0.5em] text-[#22c55e] font-black uppercase block mb-4">
@@ -536,12 +591,27 @@ const Workflower = () => {
                   whileInView={{ opacity: 1, x: 0 }}
                   viewport={{ once: true }}
                   transition={{ duration: 0.4, delay: i * 0.06 }}
-                  className="group flex items-center gap-4 p-4 md:p-5 rounded-xl border border-white/5 bg-white/[0.02] hover:border-[#06b6d4]/30 hover:bg-white/[0.04] transition-all"
+                  className="group relative flex items-center gap-4 p-4 md:p-5 rounded-xl border border-white/5 bg-white/[0.02] hover:border-[#06b6d4]/30 hover:bg-white/[0.04] transition-all"
                 >
-                  {/* Active pulse dot */}
-                  <div className="relative shrink-0">
-                    <div className="w-2 h-2 rounded-full bg-[#06b6d4]" />
+                  {/* Active pulse dot — ripple + tooltip on hover */}
+                  <div className="relative shrink-0 group/dot">
+                    <div className="w-2 h-2 rounded-full bg-[#06b6d4] shadow-[0_0_8px_#06b6d4]" />
                     <div className="absolute inset-0 w-2 h-2 rounded-full bg-[#06b6d4] animate-ping opacity-60" />
+                    {/* Hover ripple */}
+                    <motion.div
+                      aria-hidden
+                      className="absolute -inset-3 rounded-full pointer-events-none opacity-0 group-hover/dot:opacity-100"
+                      animate={{ scale: [1, 1.6, 1] }}
+                      transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
+                      style={{ border: "1px solid rgba(6,182,212,0.45)" }}
+                    />
+                    {/* Tooltip */}
+                    <div
+                      className="pointer-events-none absolute left-1/2 -translate-x-1/2 -top-9 px-2 py-1 rounded-md border border-[#06b6d4]/40 bg-[#020617] text-[#06b6d4] text-[9px] font-bold tracking-[0.2em] uppercase whitespace-nowrap opacity-0 translate-y-1 group-hover/dot:opacity-100 group-hover/dot:translate-y-0 transition-all duration-200"
+                      style={{ fontFamily: "'JetBrains Mono', monospace", boxShadow: "0 0 14px rgba(6,182,212,0.25)" }}
+                    >
+                      View Details
+                    </div>
                   </div>
 
                   <span
@@ -577,6 +647,9 @@ const Workflower = () => {
             </div>
           </div>
         </section>
+
+        {/* NEURAL FEEDBACK — verified mission marquee */}
+        <NeuralFeedback />
 
 
         <section className="py-28 px-8">
@@ -761,6 +834,9 @@ const Workflower = () => {
 
       {/* Inline workspace (for when opened from within the page) */}
       <MissionWorkspace open={missionOpen} onClose={() => setMissionOpen(false)} initialSector={activeSector} />
+
+      {/* Cursor trail — only activates over zones marked data-cursor-trail */}
+      <CursorTrail />
     </motion.div>
   );
 };
