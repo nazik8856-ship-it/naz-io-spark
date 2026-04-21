@@ -210,23 +210,26 @@ const Workflower = () => {
                 { label: "Home", href: "#top" },
                 { label: "Domain Master", href: "#domain-master" },
                 { label: "Brand-Snap Canvas", href: "#brand-snap" },
+                { label: "Feedback", href: "#neural-feedback" },
               ].map((item) => (
-                <a
+                <SmoothScrollLink
                   key={item.label}
                   href={item.href}
                   className="px-3 py-2 text-[12px] font-medium tracking-wide text-white/60 hover:text-white transition-colors rounded-lg hover:bg-white/[0.04]"
                   style={{ fontFamily: "'Inter', sans-serif" }}
                 >
                   {item.label}
-                </a>
+                </SmoothScrollLink>
               ))}
-              <button
-                onClick={() => (user ? navigate("/dashboard") : setAuthModalOpen(true))}
-                className="ml-2 px-4 py-2 text-[12px] font-bold tracking-wide rounded-lg border border-[#06b6d4]/40 bg-[#06b6d4]/10 text-[#06b6d4] hover:bg-[#06b6d4]/20 hover:border-[#06b6d4]/60 transition-all"
-                style={{ fontFamily: "'Inter', sans-serif", boxShadow: "0 0 20px rgba(6,182,212,0.15)" }}
-              >
-                Dashboard
-              </button>
+              <MagneticButton radius={90} strength={0.3} className="ml-2">
+                <button
+                  onClick={() => (user ? navigate("/dashboard") : setAuthModalOpen(true))}
+                  className="px-4 py-2 text-[12px] font-bold tracking-wide rounded-lg border border-[#06b6d4]/40 bg-[#06b6d4]/10 text-[#06b6d4] hover:bg-[#06b6d4]/20 hover:border-[#06b6d4]/60 transition-colors"
+                  style={{ fontFamily: "'Inter', sans-serif", boxShadow: "0 0 20px rgba(6,182,212,0.15)" }}
+                >
+                  Go to Dashboard
+                </button>
+              </MagneticButton>
             </nav>
 
             {/* Mobile dashboard button */}
