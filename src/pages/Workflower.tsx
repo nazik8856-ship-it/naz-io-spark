@@ -1,5 +1,9 @@
 import React, { useState, useEffect, useRef } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
+import MagneticButton from "@/components/interactions/MagneticButton";
+import SmoothScrollLink from "@/components/interactions/SmoothScrollLink";
+import CursorTrail from "@/components/interactions/CursorTrail";
+import NeuralFeedback from "@/components/interactions/NeuralFeedback";
 import {
   Activity,
   Cpu,
