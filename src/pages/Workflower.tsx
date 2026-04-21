@@ -591,12 +591,27 @@ const Workflower = () => {
                   whileInView={{ opacity: 1, x: 0 }}
                   viewport={{ once: true }}
                   transition={{ duration: 0.4, delay: i * 0.06 }}
-                  className="group flex items-center gap-4 p-4 md:p-5 rounded-xl border border-white/5 bg-white/[0.02] hover:border-[#06b6d4]/30 hover:bg-white/[0.04] transition-all"
+                  className="group relative flex items-center gap-4 p-4 md:p-5 rounded-xl border border-white/5 bg-white/[0.02] hover:border-[#06b6d4]/30 hover:bg-white/[0.04] transition-all"
                 >
-                  {/* Active pulse dot */}
-                  <div className="relative shrink-0">
-                    <div className="w-2 h-2 rounded-full bg-[#06b6d4]" />
+                  {/* Active pulse dot — ripple + tooltip on hover */}
+                  <div className="relative shrink-0 group/dot">
+                    <div className="w-2 h-2 rounded-full bg-[#06b6d4] shadow-[0_0_8px_#06b6d4]" />
                     <div className="absolute inset-0 w-2 h-2 rounded-full bg-[#06b6d4] animate-ping opacity-60" />
+                    {/* Hover ripple */}
+                    <motion.div
+                      aria-hidden
+                      className="absolute -inset-3 rounded-full pointer-events-none opacity-0 group-hover/dot:opacity-100"
+                      animate={{ scale: [1, 1.6, 1] }}
+                      transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
+                      style={{ border: "1px solid rgba(6,182,212,0.45)" }}
+                    />
+                    {/* Tooltip */}
+                    <div
+                      className="pointer-events-none absolute left-1/2 -translate-x-1/2 -top-9 px-2 py-1 rounded-md border border-[#06b6d4]/40 bg-[#020617] text-[#06b6d4] text-[9px] font-bold tracking-[0.2em] uppercase whitespace-nowrap opacity-0 translate-y-1 group-hover/dot:opacity-100 group-hover/dot:translate-y-0 transition-all duration-200"
+                      style={{ fontFamily: "'JetBrains Mono', monospace", boxShadow: "0 0 14px rgba(6,182,212,0.25)" }}
+                    >
+                      View Details
+                    </div>
                   </div>
 
                   <span
@@ -632,6 +647,9 @@ const Workflower = () => {
             </div>
           </div>
         </section>
+
+        {/* NEURAL FEEDBACK — verified mission marquee */}
+        <NeuralFeedback />
 
 
         <section className="py-28 px-8">
