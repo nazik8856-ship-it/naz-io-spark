@@ -254,17 +254,43 @@ const Workflower = () => {
             }}
           />
 
-          <div className="relative max-w-5xl mx-auto text-center">
+          <motion.div
+            className="relative max-w-5xl mx-auto text-center"
+            initial="hidden"
+            animate="visible"
+            variants={{
+              hidden: { opacity: 1 },
+              visible: { opacity: 1, transition: { staggerChildren: 0.1, delayChildren: 0.05 } },
+            }}
+          >
+            {(() => {
+              const item = {
+                hidden: { opacity: 0, y: 20 },
+                visible: { opacity: 1, y: 0, transition: { duration: 0.6, ease: [0.22, 1, 0.36, 1] as const } },
+              };
+              return null;
+            })()}
+
             {/* Eyebrow */}
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 mb-8 rounded-full border border-[#22c55e]/30 bg-[#22c55e]/5">
+            <motion.div
+              variants={{
+                hidden: { opacity: 0, y: 20 },
+                visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] } },
+              }}
+              className="inline-flex items-center gap-2 px-3 py-1.5 mb-8 rounded-full border border-[#22c55e]/30 bg-[#22c55e]/5"
+            >
               <div className="w-1.5 h-1.5 rounded-full bg-[#22c55e] animate-pulse shadow-[0_0_8px_#22c55e]" />
               <span className="text-[9px] tracking-[0.4em] text-[#22c55e] font-black uppercase">
                 AI Business Operating System
               </span>
-            </div>
+            </motion.div>
 
             {/* TITAN HEADLINE — heavy bold italic mono */}
-            <h1
+            <motion.h1
+              variants={{
+                hidden: { opacity: 0, y: 20 },
+                visible: { opacity: 1, y: 0, transition: { duration: 0.6, ease: [0.22, 1, 0.36, 1] } },
+              }}
               className="font-mono italic font-black tracking-tighter leading-[0.95] text-white text-4xl md:text-6xl lg:text-7xl mb-6"
               style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}
             >
@@ -280,16 +306,28 @@ const Workflower = () => {
                 <br />
                 with <span className="text-[#22c55e] drop-shadow-[0_0_18px_rgba(34,197,94,0.6)]">One Prompt.</span>
               </span>
-            </h1>
+            </motion.h1>
 
             {/* SUBHEADLINE */}
-            <p className="max-w-3xl mx-auto text-sm md:text-base text-white/60 leading-relaxed mb-10 font-medium">
+            <motion.p
+              variants={{
+                hidden: { opacity: 0, y: 20 },
+                visible: { opacity: 1, y: 0, transition: { duration: 0.55, ease: [0.22, 1, 0.36, 1] } },
+              }}
+              className="max-w-3xl mx-auto text-sm md:text-base text-white/60 leading-relaxed mb-10 font-medium"
+            >
               From idea validation and financial modeling to full operations, AI agents, automation, strategy,
               and execution — <span className="text-white">NazAI orchestrates any business function end-to-end.</span>
-            </p>
+            </motion.p>
 
             {/* COMMAND CONSOLE */}
-            <div className="relative max-w-3xl mx-auto mb-8">
+            <motion.div
+              variants={{
+                hidden: { opacity: 0, y: 20 },
+                visible: { opacity: 1, y: 0, transition: { duration: 0.6, ease: [0.22, 1, 0.36, 1] } },
+              }}
+              className="relative max-w-3xl mx-auto mb-8"
+            >
               <div
                 className="absolute -inset-px rounded-2xl pointer-events-none"
                 style={{
@@ -329,28 +367,38 @@ const Workflower = () => {
                   <span className="inline-block w-[8px] h-[18px] bg-[#22c55e] align-middle ml-0.5 animate-pulse shadow-[0_0_8px_#22c55e]" />
                 </div>
               </div>
-            </div>
+            </motion.div>
 
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-              <button
-                onClick={() => launchMission("home")}
-                className="group relative px-8 md:px-10 py-4 bg-[#22c55e] text-black font-black uppercase text-xs md:text-[13px] tracking-wider rounded-lg overflow-hidden transition-all hover:scale-[1.02] hover:shadow-[0_0_60px_rgba(34,197,94,0.7)]"
-                style={{ boxShadow: "0 0 40px rgba(34,197,94,0.5), inset 0 -2px 0 rgba(0,0,0,0.3)" }}
-              >
-                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent -translate-x-full group-hover:animate-[shimmer_1s_infinite]" />
-                <span className="relative flex items-center gap-2">
-                  <Send size={14} />
-                  Start Free Mission — Describe Any Business Task
-                </span>
-              </button>
-              <button
-                onClick={() => launchMission("archives")}
-                className="px-8 py-4 border border-white/15 text-white/70 font-bold uppercase text-[11px] tracking-[0.2em] hover:bg-white/5 hover:text-white hover:border-[#22c55e]/40 transition-all rounded-lg"
-              >
-                View Plans
-              </button>
-            </div>
-          </div>
+            <motion.div
+              variants={{
+                hidden: { opacity: 0, y: 20 },
+                visible: { opacity: 1, y: 0, transition: { duration: 0.55, ease: [0.22, 1, 0.36, 1] } },
+              }}
+              className="flex flex-col sm:flex-row items-center justify-center gap-4"
+            >
+              <MagneticButton radius={110} strength={0.32}>
+                <button
+                  onClick={() => launchMission("home")}
+                  className="group relative px-8 md:px-10 py-4 bg-[#22c55e] text-black font-black uppercase text-xs md:text-[13px] tracking-wider rounded-lg overflow-hidden transition-shadow hover:shadow-[0_0_60px_rgba(34,197,94,0.7)]"
+                  style={{ boxShadow: "0 0 40px rgba(34,197,94,0.5), inset 0 -2px 0 rgba(0,0,0,0.3)" }}
+                >
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent -translate-x-full group-hover:animate-[shimmer_1s_infinite]" />
+                  <span className="relative flex items-center gap-2">
+                    <Send size={14} />
+                    Start Free Mission — Describe Any Business Task
+                  </span>
+                </button>
+              </MagneticButton>
+              <MagneticButton radius={90} strength={0.25}>
+                <button
+                  onClick={() => launchMission("archives")}
+                  className="px-8 py-4 border border-white/15 text-white/70 font-bold uppercase text-[11px] tracking-[0.2em] hover:bg-white/5 hover:text-white hover:border-[#22c55e]/40 transition-colors rounded-lg"
+                >
+                  View Plans
+                </button>
+              </MagneticButton>
+            </motion.div>
+          </motion.div>
         </div>
 
         {/* DOMAIN MASTER — 6 expandable glass cards */}
