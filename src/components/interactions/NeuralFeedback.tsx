@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence, useMotionValue, useTransform, animate } from "framer-motion";
-import { Heart, ShieldCheck, Sparkles, X } from "lucide-react";
+import { Heart, ShieldCheck, Sparkles, X, ExternalLink, TrendingUp } from "lucide-react";
 
 type Testimonial = {
   id: string;
@@ -239,30 +239,65 @@ const Card: React.FC<{ t: Testimonial; onOpen: () => void }> = ({ t, onOpen }) =
         <MatchCounter target={t.match} active={hover} />
       </div>
 
+      {/* Quote */}
       <p
-        className="relative text-[13px] leading-relaxed text-white/85 mb-5"
+        className="relative text-[13px] leading-relaxed text-white/85 mb-4"
         style={{ fontFamily: "'Inter', sans-serif" }}
       >
         "{t.quote}"
       </p>
 
-      <div className="relative flex items-end justify-between">
-        <div>
-          <p
-            className="text-[12px] font-semibold text-white"
+      {/* Metric badge */}
+      <div
+        className="relative inline-flex items-center gap-1.5 mb-5 px-2.5 py-1 rounded-md border border-[#22c55e]/30 bg-[#22c55e]/5"
+        style={{ fontFamily: "'Inter', sans-serif" }}
+      >
+        <TrendingUp size={11} className="text-[#22c55e]" />
+        <span className="text-[11px] font-semibold text-[#22c55e]">{t.metric}</span>
+      </div>
+
+      {/* Author row */}
+      <div className="relative flex items-end justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          {/* Avatar — abstract gradient with initials */}
+          <div
+            className={`shrink-0 w-10 h-10 rounded-full bg-gradient-to-br ${t.accent} flex items-center justify-center text-white text-[11px] font-bold shadow-[0_0_16px_rgba(6,182,212,0.25)]`}
             style={{ fontFamily: "'Inter', sans-serif" }}
+            aria-hidden
           >
-            {t.name}
-          </p>
-          <p
-            className="text-[11px] text-white/45"
-            style={{ fontFamily: "'Inter', sans-serif" }}
-          >
-            {t.role}
-          </p>
+            {t.initials}
+          </div>
+          <div className="min-w-0">
+            <p
+              className="text-[12px] font-semibold text-white truncate"
+              style={{ fontFamily: "'Inter', sans-serif" }}
+            >
+              {t.name}
+            </p>
+            <p
+              className="text-[11px] text-white/45 truncate flex items-center gap-1"
+              style={{ fontFamily: "'Inter', sans-serif" }}
+            >
+              <span>{t.role} ·</span>
+              {t.companyUrl ? (
+                <a
+                  href={t.companyUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="inline-flex items-center gap-0.5 text-[#06b6d4]/80 hover:text-[#06b6d4] transition-colors"
+                >
+                  {t.company}
+                  <ExternalLink size={9} />
+                </a>
+              ) : (
+                <span>{t.company}</span>
+              )}
+            </p>
+          </div>
         </div>
 
-        <div className="relative">
+        <div className="relative shrink-0">
           <ConfettiBurst trigger={burstTrigger} />
           <button
             onClick={onLike}
