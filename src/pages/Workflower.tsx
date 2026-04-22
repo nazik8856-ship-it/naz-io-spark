@@ -391,7 +391,7 @@ const Workflower = () => {
               </MagneticButton>
               <MagneticButton radius={90} strength={0.25}>
                 <button
-                  onClick={() => launchMission("archives")}
+                  onClick={() => navigate("/pricing")}
                   className="px-8 py-4 border border-white/15 text-white/70 font-bold uppercase text-[11px] tracking-[0.2em] hover:bg-white/5 hover:text-white hover:border-[#22c55e]/40 transition-colors rounded-lg"
                 >
                   View Plans
