@@ -1,11 +1,17 @@
 import React, { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence, useMotionValue, useTransform, animate } from "framer-motion";
-import { Heart, ShieldCheck, Sparkles, X } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Heart, ShieldCheck, Sparkles, X, ExternalLink, TrendingUp } from "lucide-react";
 
 type Testimonial = {
   id: string;
   name: string;
   role: string;
+  company: string;
+  companyUrl?: string;
+  initials: string;
+  accent: string; // avatar gradient base
+  metric: string; // headline business metric
   match: number; // Neural Match %
   quote: string;
   prompt: string;
@@ -14,65 +20,93 @@ type Testimonial = {
 const TESTIMONIALS: Testimonial[] = [
   {
     id: "t1",
-    name: "Maya R.",
-    role: "Founder, LedgerLoop",
+    name: "Maya Rodriguez",
+    role: "Founder",
+    company: "LedgerLoop",
+    companyUrl: "https://ledgerloop.com",
+    initials: "MR",
+    accent: "from-[#06b6d4] to-[#0891b2]",
+    metric: "Saved 22 hrs/week on ops",
     match: 99.2,
-    quote: "Spun up our entire ops dashboard, brand kit and pricing page in one prompt. Zero handoff.",
+    quote: "Spun up our entire ops dashboard, brand kit and pricing page in one prompt. Zero handoff to designers or devs.",
     prompt: "Launch a fintech SaaS for small-business invoicing with a free tier and Stripe billing.",
   },
   {
     id: "t2",
-    name: "Devon K.",
-    role: "Solo builder",
+    name: "Devon Keller",
+    role: "Solo Builder",
+    company: "Keller Studio",
+    initials: "DK",
+    accent: "from-[#22c55e] to-[#15803d]",
+    metric: "Shipped MVP in 3 days",
     match: 96.8,
     quote: "The Brand-Snap canvas auto-corrected three layout traps I would've shipped. Felt like a senior designer pairing with me.",
     prompt: "Generate a portfolio site for a motion designer with case studies and a contact funnel.",
   },
   {
     id: "t3",
-    name: "Priya S.",
-    role: "Ops lead, NorthBeam",
+    name: "Priya Sharma",
+    role: "Ops Lead",
+    company: "NorthBeam",
+    companyUrl: "https://northbeam.io",
+    initials: "PS",
+    accent: "from-[#f5c451] to-[#d4a017]",
+    metric: "Cut planning time 87%",
     match: 98.4,
     quote: "Our 12-month cash-flow model and hiring plan landed in the Vault before our standup ended.",
     prompt: "Build a 12-month cash flow model and hiring plan for a 14-person consultancy.",
   },
   {
     id: "t4",
-    name: "Alex N.",
-    role: "Indie dev",
+    name: "Alex Nguyen",
+    role: "Indie Developer",
+    company: "Pixelmint",
+    initials: "AN",
+    accent: "from-[#a855f7] to-[#7c3aed]",
+    metric: "Saved 18 hrs/week",
     match: 94.1,
-    quote: "Asset Synthesis nailed our palette on the first pass. Every iteration archived to the Vault.",
+    quote: "Asset Synthesis nailed our palette on the first pass. Every iteration archived to the Vault — replayable any time.",
     prompt: "Create a marketing site for an indie iOS app, dark mode, with App Store deeplinks.",
   },
   {
     id: "t5",
-    name: "Jordan T.",
-    role: "Growth, Helio",
+    name: "Jordan Tate",
+    role: "Head of Growth",
+    company: "Helio",
+    companyUrl: "https://helio.app",
+    initials: "JT",
+    accent: "from-[#ec4899] to-[#be185d]",
+    metric: "200 SEO pages in one afternoon",
     match: 97.5,
-    quote: "Mission Briefs are a cheat code — I can replay any successful generation with one click.",
+    quote: "Mission Briefs are a cheat code — I can replay any successful generation with one click and tweak the prompt.",
     prompt: "Draft a programmatic SEO plan for 200 city-pages plus the landing template to host them.",
   },
   {
     id: "t6",
-    name: "Sana M.",
-    role: "PM, Quartzlab",
+    name: "Sana Malik",
+    role: "Product Manager",
+    company: "Quartzlab",
+    companyUrl: "https://quartzlab.co",
+    initials: "SM",
+    accent: "from-[#06b6d4] to-[#22c55e]",
+    metric: "GTM memo used verbatim",
     match: 99.7,
-    quote: "Calibration against billion-dollar playbooks isn't marketing fluff — the strategy memo was usable verbatim.",
+    quote: "Calibration against billion-dollar playbooks isn't marketing fluff — the strategy memo was usable as written.",
     prompt: "Produce a go-to-market memo for a vertical AI agent in legal-ops with a 90-day rollout.",
   },
 ];
 
 // ── Animated Neural Match counter ──────────────────────────────────────────────
+// Defaults to the target value so cards never look broken; re-animates from 0 on hover.
 const MatchCounter: React.FC<{ target: number; active: boolean }> = ({ target, active }) => {
-  const v = useMotionValue(0);
+  const v = useMotionValue(target);
   const display = useTransform(v, (n) => `${n.toFixed(1)}% Match`);
 
   useEffect(() => {
     if (active) {
+      v.set(0);
       const controls = animate(v, target, { duration: 1.2, ease: [0.22, 1, 0.36, 1] });
       return controls.stop;
-    } else {
-      v.set(0);
     }
   }, [active, target, v]);
 
@@ -206,30 +240,65 @@ const Card: React.FC<{ t: Testimonial; onOpen: () => void }> = ({ t, onOpen }) =
         <MatchCounter target={t.match} active={hover} />
       </div>
 
+      {/* Quote */}
       <p
-        className="relative text-[13px] leading-relaxed text-white/85 mb-5"
+        className="relative text-[13px] leading-relaxed text-white/85 mb-4"
         style={{ fontFamily: "'Inter', sans-serif" }}
       >
         "{t.quote}"
       </p>
 
-      <div className="relative flex items-end justify-between">
-        <div>
-          <p
-            className="text-[12px] font-semibold text-white"
+      {/* Metric badge */}
+      <div
+        className="relative inline-flex items-center gap-1.5 mb-5 px-2.5 py-1 rounded-md border border-[#22c55e]/30 bg-[#22c55e]/5"
+        style={{ fontFamily: "'Inter', sans-serif" }}
+      >
+        <TrendingUp size={11} className="text-[#22c55e]" />
+        <span className="text-[11px] font-semibold text-[#22c55e]">{t.metric}</span>
+      </div>
+
+      {/* Author row */}
+      <div className="relative flex items-end justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          {/* Avatar — abstract gradient with initials */}
+          <div
+            className={`shrink-0 w-10 h-10 rounded-full bg-gradient-to-br ${t.accent} flex items-center justify-center text-white text-[11px] font-bold shadow-[0_0_16px_rgba(6,182,212,0.25)]`}
             style={{ fontFamily: "'Inter', sans-serif" }}
+            aria-hidden
           >
-            {t.name}
-          </p>
-          <p
-            className="text-[11px] text-white/45"
-            style={{ fontFamily: "'Inter', sans-serif" }}
-          >
-            {t.role}
-          </p>
+            {t.initials}
+          </div>
+          <div className="min-w-0">
+            <p
+              className="text-[12px] font-semibold text-white truncate"
+              style={{ fontFamily: "'Inter', sans-serif" }}
+            >
+              {t.name}
+            </p>
+            <p
+              className="text-[11px] text-white/45 truncate flex items-center gap-1"
+              style={{ fontFamily: "'Inter', sans-serif" }}
+            >
+              <span>{t.role} ·</span>
+              {t.companyUrl ? (
+                <a
+                  href={t.companyUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="inline-flex items-center gap-0.5 text-[#06b6d4]/80 hover:text-[#06b6d4] transition-colors"
+                >
+                  {t.company}
+                  <ExternalLink size={9} />
+                </a>
+              ) : (
+                <span>{t.company}</span>
+              )}
+            </p>
+          </div>
         </div>
 
-        <div className="relative">
+        <div className="relative shrink-0">
           <ConfettiBurst trigger={burstTrigger} />
           <button
             onClick={onLike}
@@ -252,6 +321,7 @@ const Card: React.FC<{ t: Testimonial; onOpen: () => void }> = ({ t, onOpen }) =
 
 // ── Marquee with pause on hover ────────────────────────────────────────────────
 const NeuralFeedback: React.FC = () => {
+  const navigate = useNavigate();
   const [paused, setPaused] = useState(false);
   const [open, setOpen] = useState<Testimonial | null>(null);
 
@@ -353,18 +423,48 @@ const NeuralFeedback: React.FC = () => {
                 </span>
               </div>
 
-              <h4
-                className="text-xl font-black text-white tracking-tight"
-                style={{ fontFamily: "'Inter', sans-serif" }}
-              >
-                {open.name} · {open.match.toFixed(1)}% Match
-              </h4>
-              <p
-                className="text-[12px] text-white/50 mb-5"
-                style={{ fontFamily: "'Inter', sans-serif" }}
-              >
-                {open.role}
-              </p>
+              <div className="flex items-center gap-3 mb-2">
+                <div
+                  className={`shrink-0 w-12 h-12 rounded-full bg-gradient-to-br ${open.accent} flex items-center justify-center text-white text-sm font-bold shadow-[0_0_20px_rgba(6,182,212,0.3)]`}
+                  style={{ fontFamily: "'Inter', sans-serif" }}
+                >
+                  {open.initials}
+                </div>
+                <div>
+                  <h4
+                    className="text-xl font-black text-white tracking-tight leading-tight"
+                    style={{ fontFamily: "'Inter', sans-serif" }}
+                  >
+                    {open.name}
+                  </h4>
+                  <p
+                    className="text-[12px] text-white/50 flex items-center gap-1"
+                    style={{ fontFamily: "'Inter', sans-serif" }}
+                  >
+                    {open.role} · {open.companyUrl ? (
+                      <a
+                        href={open.companyUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-0.5 text-[#06b6d4]/80 hover:text-[#06b6d4] transition-colors"
+                      >
+                        {open.company}
+                        <ExternalLink size={9} />
+                      </a>
+                    ) : open.company}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 mb-5">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-[#22c55e]/30 bg-[#22c55e]/5 text-[11px] font-semibold text-[#22c55e]">
+                  <TrendingUp size={11} />
+                  {open.metric}
+                </span>
+                <span className="inline-flex items-center px-2.5 py-1 rounded-md border border-[#06b6d4]/30 bg-[#06b6d4]/5 text-[11px] font-bold text-[#06b6d4]" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                  {open.match.toFixed(1)}% Match
+                </span>
+              </div>
 
               <div
                 className="rounded-lg border border-white/10 bg-black/40 p-4 mb-4"
@@ -382,6 +482,13 @@ const NeuralFeedback: React.FC = () => {
               >
                 "{open.quote}"
               </p>
+
+              <button
+                onClick={() => navigate("/workspace")}
+                className="mt-5 w-full py-3 rounded-lg bg-gradient-to-r from-[#06b6d4] to-[#0891b2] text-[#020617] font-black uppercase text-[11px] tracking-[0.2em] hover:shadow-[0_0_30px_rgba(6,182,212,0.5)] transition-shadow"
+              >
+                Replay this mission
+              </button>
             </motion.div>
           </motion.div>
         )}
