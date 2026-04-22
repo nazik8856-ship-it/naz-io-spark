@@ -6,6 +6,11 @@ type Testimonial = {
   id: string;
   name: string;
   role: string;
+  company: string;
+  companyUrl?: string;
+  initials: string;
+  accent: string; // avatar gradient base
+  metric: string; // headline business metric
   match: number; // Neural Match %
   quote: string;
   prompt: string;
@@ -14,65 +19,93 @@ type Testimonial = {
 const TESTIMONIALS: Testimonial[] = [
   {
     id: "t1",
-    name: "Maya R.",
-    role: "Founder, LedgerLoop",
+    name: "Maya Rodriguez",
+    role: "Founder",
+    company: "LedgerLoop",
+    companyUrl: "https://ledgerloop.com",
+    initials: "MR",
+    accent: "from-[#06b6d4] to-[#0891b2]",
+    metric: "Saved 22 hrs/week on ops",
     match: 99.2,
-    quote: "Spun up our entire ops dashboard, brand kit and pricing page in one prompt. Zero handoff.",
+    quote: "Spun up our entire ops dashboard, brand kit and pricing page in one prompt. Zero handoff to designers or devs.",
     prompt: "Launch a fintech SaaS for small-business invoicing with a free tier and Stripe billing.",
   },
   {
     id: "t2",
-    name: "Devon K.",
-    role: "Solo builder",
+    name: "Devon Keller",
+    role: "Solo Builder",
+    company: "Keller Studio",
+    initials: "DK",
+    accent: "from-[#22c55e] to-[#15803d]",
+    metric: "Shipped MVP in 3 days",
     match: 96.8,
     quote: "The Brand-Snap canvas auto-corrected three layout traps I would've shipped. Felt like a senior designer pairing with me.",
     prompt: "Generate a portfolio site for a motion designer with case studies and a contact funnel.",
   },
   {
     id: "t3",
-    name: "Priya S.",
-    role: "Ops lead, NorthBeam",
+    name: "Priya Sharma",
+    role: "Ops Lead",
+    company: "NorthBeam",
+    companyUrl: "https://northbeam.io",
+    initials: "PS",
+    accent: "from-[#f5c451] to-[#d4a017]",
+    metric: "Cut planning time 87%",
     match: 98.4,
     quote: "Our 12-month cash-flow model and hiring plan landed in the Vault before our standup ended.",
     prompt: "Build a 12-month cash flow model and hiring plan for a 14-person consultancy.",
   },
   {
     id: "t4",
-    name: "Alex N.",
-    role: "Indie dev",
+    name: "Alex Nguyen",
+    role: "Indie Developer",
+    company: "Pixelmint",
+    initials: "AN",
+    accent: "from-[#a855f7] to-[#7c3aed]",
+    metric: "Saved 18 hrs/week",
     match: 94.1,
-    quote: "Asset Synthesis nailed our palette on the first pass. Every iteration archived to the Vault.",
+    quote: "Asset Synthesis nailed our palette on the first pass. Every iteration archived to the Vault — replayable any time.",
     prompt: "Create a marketing site for an indie iOS app, dark mode, with App Store deeplinks.",
   },
   {
     id: "t5",
-    name: "Jordan T.",
-    role: "Growth, Helio",
+    name: "Jordan Tate",
+    role: "Head of Growth",
+    company: "Helio",
+    companyUrl: "https://helio.app",
+    initials: "JT",
+    accent: "from-[#ec4899] to-[#be185d]",
+    metric: "200 SEO pages in one afternoon",
     match: 97.5,
-    quote: "Mission Briefs are a cheat code — I can replay any successful generation with one click.",
+    quote: "Mission Briefs are a cheat code — I can replay any successful generation with one click and tweak the prompt.",
     prompt: "Draft a programmatic SEO plan for 200 city-pages plus the landing template to host them.",
   },
   {
     id: "t6",
-    name: "Sana M.",
-    role: "PM, Quartzlab",
+    name: "Sana Malik",
+    role: "Product Manager",
+    company: "Quartzlab",
+    companyUrl: "https://quartzlab.co",
+    initials: "SM",
+    accent: "from-[#06b6d4] to-[#22c55e]",
+    metric: "GTM memo used verbatim",
     match: 99.7,
-    quote: "Calibration against billion-dollar playbooks isn't marketing fluff — the strategy memo was usable verbatim.",
+    quote: "Calibration against billion-dollar playbooks isn't marketing fluff — the strategy memo was usable as written.",
     prompt: "Produce a go-to-market memo for a vertical AI agent in legal-ops with a 90-day rollout.",
   },
 ];
 
 // ── Animated Neural Match counter ──────────────────────────────────────────────
+// Defaults to the target value so cards never look broken; re-animates from 0 on hover.
 const MatchCounter: React.FC<{ target: number; active: boolean }> = ({ target, active }) => {
-  const v = useMotionValue(0);
+  const v = useMotionValue(target);
   const display = useTransform(v, (n) => `${n.toFixed(1)}% Match`);
 
   useEffect(() => {
     if (active) {
+      v.set(0);
       const controls = animate(v, target, { duration: 1.2, ease: [0.22, 1, 0.36, 1] });
       return controls.stop;
-    } else {
-      v.set(0);
     }
   }, [active, target, v]);
 
