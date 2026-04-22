@@ -321,6 +321,7 @@ const Card: React.FC<{ t: Testimonial; onOpen: () => void }> = ({ t, onOpen }) =
 
 // ── Marquee with pause on hover ────────────────────────────────────────────────
 const NeuralFeedback: React.FC = () => {
+  const navigate = useNavigate();
   const [paused, setPaused] = useState(false);
   const [open, setOpen] = useState<Testimonial | null>(null);
 
