@@ -421,18 +421,48 @@ const NeuralFeedback: React.FC = () => {
                 </span>
               </div>
 
-              <h4
-                className="text-xl font-black text-white tracking-tight"
-                style={{ fontFamily: "'Inter', sans-serif" }}
-              >
-                {open.name} · {open.match.toFixed(1)}% Match
-              </h4>
-              <p
-                className="text-[12px] text-white/50 mb-5"
-                style={{ fontFamily: "'Inter', sans-serif" }}
-              >
-                {open.role}
-              </p>
+              <div className="flex items-center gap-3 mb-2">
+                <div
+                  className={`shrink-0 w-12 h-12 rounded-full bg-gradient-to-br ${open.accent} flex items-center justify-center text-white text-sm font-bold shadow-[0_0_20px_rgba(6,182,212,0.3)]`}
+                  style={{ fontFamily: "'Inter', sans-serif" }}
+                >
+                  {open.initials}
+                </div>
+                <div>
+                  <h4
+                    className="text-xl font-black text-white tracking-tight leading-tight"
+                    style={{ fontFamily: "'Inter', sans-serif" }}
+                  >
+                    {open.name}
+                  </h4>
+                  <p
+                    className="text-[12px] text-white/50 flex items-center gap-1"
+                    style={{ fontFamily: "'Inter', sans-serif" }}
+                  >
+                    {open.role} · {open.companyUrl ? (
+                      <a
+                        href={open.companyUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-0.5 text-[#06b6d4]/80 hover:text-[#06b6d4] transition-colors"
+                      >
+                        {open.company}
+                        <ExternalLink size={9} />
+                      </a>
+                    ) : open.company}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 mb-5">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-[#22c55e]/30 bg-[#22c55e]/5 text-[11px] font-semibold text-[#22c55e]">
+                  <TrendingUp size={11} />
+                  {open.metric}
+                </span>
+                <span className="inline-flex items-center px-2.5 py-1 rounded-md border border-[#06b6d4]/30 bg-[#06b6d4]/5 text-[11px] font-bold text-[#06b6d4]" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                  {open.match.toFixed(1)}% Match
+                </span>
+              </div>
 
               <div
                 className="rounded-lg border border-white/10 bg-black/40 p-4 mb-4"
@@ -450,6 +480,13 @@ const NeuralFeedback: React.FC = () => {
               >
                 "{open.quote}"
               </p>
+
+              <button
+                onClick={() => navigate("/workspace")}
+                className="mt-5 w-full py-3 rounded-lg bg-gradient-to-r from-[#06b6d4] to-[#0891b2] text-[#020617] font-black uppercase text-[11px] tracking-[0.2em] hover:shadow-[0_0_30px_rgba(6,182,212,0.5)] transition-shadow"
+              >
+                Replay this mission
+              </button>
             </motion.div>
           </motion.div>
         )}
