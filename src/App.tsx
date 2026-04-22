@@ -13,6 +13,7 @@ const AuthCallback = lazy(() => import("./pages/AuthCallback"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Generator = lazy(() => import("./pages/Generator"));
 const Generating = lazy(() => import("./pages/Generating"));
+const Pricing = lazy(() => import("./pages/Pricing"));
 
 const queryClient = new QueryClient();
 
@@ -47,6 +48,7 @@ const App = () => (
 
                 {/* Mission Generator & Dashboard */}
                 <Route path="/generate" element={<Generator />} />
+                <Route path="/pricing" element={<Pricing />} />
 
                 {/* Nested Dashboard Routes */}
                 <Route path="/dashboard/*" element={<Dashboard />} />
