@@ -184,61 +184,99 @@ const Workflower = () => {
         <header
           className="sticky top-0 z-50 border-b border-white/5"
           style={{
-            background: "rgba(2,6,23,0.65)",
+            background: "rgba(2,6,23,0.72)",
             backdropFilter: "blur(20px) saturate(180%)",
             WebkitBackdropFilter: "blur(20px) saturate(180%)",
           }}
         >
-          <div className="max-w-7xl mx-auto flex items-center justify-between px-6 md:px-8 py-4 gap-4">
-            <a href="/" className="flex items-center gap-3 shrink-0">
+          <div className="max-w-7xl mx-auto flex items-center justify-between px-4 md:px-8 py-3 gap-4">
+            {/* Logo */}
+            <a href="/" className="flex items-center gap-2.5 shrink-0">
               <div className="w-9 h-9 rounded-lg border border-[#06b6d4]/40 flex items-center justify-center bg-[#06b6d4]/10 shadow-[0_0_20px_rgba(6,182,212,0.25)]">
                 <span className="text-[#06b6d4] font-black text-lg italic" style={{ fontFamily: "'JetBrains Mono', monospace" }}>N</span>
               </div>
               <div className="leading-none">
-                <h1 className="text-base font-black uppercase tracking-tighter italic text-white" style={{ fontFamily: "'Inter', sans-serif" }}>
+                <h1 className="text-[15px] font-black tracking-tight italic text-white" style={{ fontFamily: "'Inter', sans-serif" }}>
                   Naz<span className="text-[#06b6d4]">AI</span>
                 </h1>
-                <p className="text-[7px] text-white/40 tracking-[0.4em] uppercase font-bold mt-0.5" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
-                  Global Systems
+                <p className="text-[8px] text-white/40 tracking-[0.3em] uppercase font-bold mt-0.5" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                  Neural OS
                 </p>
               </div>
             </a>
 
-            {/* Desktop nav */}
-            <nav className="hidden md:flex items-center gap-1">
+            {/* Desktop nav links */}
+            <nav className="hidden lg:flex items-center gap-0.5">
               {[
-                { label: "Home", href: "#top" },
-                { label: "Domain Master", href: "#domain-master" },
-                { label: "Brand-Snap Canvas", href: "#brand-snap" },
-                { label: "Feedback", href: "#neural-feedback" },
-              ].map((item) => (
-                <SmoothScrollLink
-                  key={item.label}
-                  href={item.href}
-                  className="px-3 py-2 text-[12px] font-medium tracking-wide text-white/60 hover:text-white transition-colors rounded-lg hover:bg-white/[0.04]"
-                  style={{ fontFamily: "'Inter', sans-serif" }}
-                >
-                  {item.label}
-                </SmoothScrollLink>
-              ))}
-              <MagneticButton radius={90} strength={0.3} className="ml-2">
-                <button
-                  onClick={() => (user ? navigate("/dashboard") : setAuthModalOpen(true))}
-                  className="px-4 py-2 text-[12px] font-bold tracking-wide rounded-lg border border-[#06b6d4]/40 bg-[#06b6d4]/10 text-[#06b6d4] hover:bg-[#06b6d4]/20 hover:border-[#06b6d4]/60 transition-colors"
-                  style={{ fontFamily: "'Inter', sans-serif", boxShadow: "0 0 20px rgba(6,182,212,0.15)" }}
-                >
-                  Go to Dashboard
-                </button>
-              </MagneticButton>
+                { label: "Home", href: "#top", smooth: true },
+                { label: "Features", href: "#domain-master", smooth: true },
+                { label: "How It Works", href: "#operations", smooth: true },
+                { label: "Examples", href: "#neural-feedback", smooth: true },
+                { label: "Dashboard", href: "/dashboard", smooth: false, gated: true },
+                { label: "Pricing", href: "/pricing", smooth: false },
+                { label: "Blog", href: "/blog", smooth: false },
+              ].map((item) =>
+                item.smooth ? (
+                  <SmoothScrollLink
+                    key={item.label}
+                    href={item.href}
+                    className="px-3 py-2 text-[12.5px] font-medium text-white/65 hover:text-white transition-colors rounded-md hover:bg-white/[0.04]"
+                    style={{ fontFamily: "'Inter', sans-serif" }}
+                  >
+                    {item.label}
+                  </SmoothScrollLink>
+                ) : (
+                  <button
+                    key={item.label}
+                    onClick={() => {
+                      if (item.gated && !user) {
+                        setAuthModalOpen(true);
+                      } else {
+                        navigate(item.href);
+                      }
+                    }}
+                    className="px-3 py-2 text-[12.5px] font-medium text-white/65 hover:text-white transition-colors rounded-md hover:bg-white/[0.04]"
+                    style={{ fontFamily: "'Inter', sans-serif" }}
+                  >
+                    {item.label}
+                  </button>
+                )
+              )}
             </nav>
 
-            {/* Mobile dashboard button */}
-            <button
-              onClick={() => (user ? navigate("/dashboard") : setAuthModalOpen(true))}
-              className="md:hidden px-3 py-1.5 text-[10px] font-bold rounded-lg border border-[#06b6d4]/40 bg-[#06b6d4]/10 text-[#06b6d4]"
-            >
-              Dashboard
-            </button>
+            {/* Right-side auth CTAs */}
+            <div className="flex items-center gap-2 shrink-0">
+              {user ? (
+                <MagneticButton radius={80} strength={0.25}>
+                  <button
+                    onClick={() => navigate("/dashboard")}
+                    className="px-3.5 md:px-4 py-2 text-[12px] font-bold rounded-lg border border-[#06b6d4]/40 bg-[#06b6d4]/10 text-[#06b6d4] hover:bg-[#06b6d4]/20 hover:border-[#06b6d4]/60 transition-colors"
+                    style={{ fontFamily: "'Inter', sans-serif", boxShadow: "0 0 18px rgba(6,182,212,0.18)" }}
+                  >
+                    Dashboard
+                  </button>
+                </MagneticButton>
+              ) : (
+                <>
+                  <button
+                    onClick={() => setAuthModalOpen(true)}
+                    className="hidden sm:inline-flex px-3.5 py-2 text-[12px] font-semibold text-white/75 hover:text-white transition-colors rounded-md hover:bg-white/[0.04]"
+                    style={{ fontFamily: "'Inter', sans-serif" }}
+                  >
+                    Sign In
+                  </button>
+                  <MagneticButton radius={90} strength={0.28}>
+                    <button
+                      onClick={() => launchMission("home")}
+                      className="px-3.5 md:px-5 py-2 text-[12px] font-black uppercase tracking-wider rounded-lg bg-[#22c55e] text-black hover:shadow-[0_0_30px_rgba(34,197,94,0.6)] transition-shadow whitespace-nowrap"
+                      style={{ fontFamily: "'Inter', sans-serif", boxShadow: "0 0 22px rgba(34,197,94,0.4)" }}
+                    >
+                      Start Free Mission
+                    </button>
+                  </MagneticButton>
+                </>
+              )}
+            </div>
           </div>
         </header>
 
@@ -652,27 +690,7 @@ const Workflower = () => {
         <NeuralFeedback />
 
 
-        <section className="py-28 px-8">
-          <div className="max-w-2xl mx-auto border border-[#00A3FF]/30 bg-black/80 p-12 rounded-3xl shadow-2xl backdrop-blur-xl">
-            <div className="flex items-center gap-3 mb-10 border-b border-white/5 pb-6">
-              <MessageSquare size={22} className="text-[#39FF14]" />
-              <h2 className="text-sm font-black uppercase tracking-[0.5em] text-[#39FF14]">Diagnostics</h2>
-            </div>
-            <form className="space-y-8" onSubmit={(e) => e.preventDefault()}>
-              <input type="text" placeholder="OPERATOR_CALLSIGN" className="w-full bg-white/5 border border-white/10 p-5 text-[11px] text-white placeholder:text-white font-medium focus:border-[#39FF14] outline-none transition-all" />
-              <div className="relative">
-                <textarea rows={5} placeholder="TRANSMIT_SYSTEM_ANOMALY..." className="w-full bg-white/5 border border-white/10 p-5 text-[11px] text-white placeholder:text-white font-medium focus:border-[#39FF14] outline-none transition-all resize-none" />
-                <div className="absolute bottom-4 right-4 flex items-center gap-2 px-3 py-1.5 rounded bg-[#FF0055]/10 border border-[#FF0055]/30">
-                  <AlertTriangle size={14} className="text-[#FF0055]" />
-                  <span className="text-[8px] text-[#FF0055] uppercase font-black tracking-tighter">Anomaly!</span>
-                </div>
-              </div>
-              <button className="w-full py-5 bg-[#39FF14]/10 border border-[#39FF14]/40 text-[#39FF14] font-black uppercase text-[11px] tracking-[0.4em] hover:bg-[#39FF14] hover:text-black transition-all">
-                TRANSMIT_TO_CORE
-              </button>
-            </form>
-          </div>
-        </section>
+        {/* (Diagnostics terminal removed — felt like a prototype. Replaced with calm CTA.) */}
 
         {/* FOOTER — Minimalist Obsidian */}
         <footer
