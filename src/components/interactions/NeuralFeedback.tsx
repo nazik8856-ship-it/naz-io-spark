@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence, useMotionValue, useTransform, animate } from "framer-motion";
+import { useNavigate } from "react-router-dom";
 import { Heart, ShieldCheck, Sparkles, X, ExternalLink, TrendingUp } from "lucide-react";
 
 type Testimonial = {
