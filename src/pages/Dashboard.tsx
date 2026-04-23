@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { motion, AnimatePresence } from "framer-motion";
 import DropScanOverlay from "@/components/interactions/DropScanOverlay";
 import MagneticButton from "@/components/interactions/MagneticButton";
+import CommandCenterChecklist from "@/components/dashboard/CommandCenterChecklist";
 import { useNavigate } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
 import {
@@ -1060,9 +1061,9 @@ const HomeView = ({
     </AnimatePresence>
 
     {/* Scrollable Messages Area */}
-    <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto py-6 space-y-4 px-4 pb-[140px]">
+    <div className="flex-1 w-full max-w-3xl mx-auto overflow-y-auto py-6 space-y-4 px-4 pb-[140px]">
       {messages.length === 0 && (
-        <div className="flex flex-col items-center justify-center h-full gap-6 text-center">
+        <div className="flex flex-col items-center justify-start min-h-full gap-6 text-center pt-8">
           <div className="relative">
             <div
               className="absolute inset-0 rounded-full animate-pulse"
@@ -1095,6 +1096,11 @@ const HomeView = ({
             <p className="text-[10px] font-mono text-cyan-400/60 tracking-wider">
               High-precision business blueprinting engine
             </p>
+          </div>
+
+          {/* Command Center checklist (Phase 1: onboarding + agent feed + blurred activity) */}
+          <div className="w-full mt-4">
+            <CommandCenterChecklist />
           </div>
         </div>
       )}
