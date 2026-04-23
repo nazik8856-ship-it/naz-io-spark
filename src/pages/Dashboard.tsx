@@ -1431,6 +1431,26 @@ const HomeView = ({
             </div>
             
             <motion.button
+              type="button"
+              onClick={() => {
+                const currentText = textareaRef.current?.value || "";
+                if (currentText.trim()) onOpenThinkTank?.(currentText.trim());
+              }}
+              disabled={isPending}
+              className="w-8 h-8 rounded-xl flex items-center justify-center transition-all"
+              style={{
+                background: "rgba(6,182,212,0.08)",
+                border: "1px solid rgba(6,182,212,0.3)",
+              }}
+              whileHover={{ scale: 1.08, filter: "brightness(1.15)" }}
+              whileTap={{ scale: 0.92 }}
+              title="Run 4-agent Think Tank on this directive"
+              aria-label="Run Think Tank"
+            >
+              <Brain size={13} style={{ color: "#06b6d4" }} />
+            </motion.button>
+
+            <motion.button
               onPointerDown={handleSendPointerDown}
               disabled={isPending}
               className="w-8 h-8 rounded-xl flex items-center justify-center transition-all shadow-lg"
