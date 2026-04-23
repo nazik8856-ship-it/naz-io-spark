@@ -1097,6 +1097,11 @@ const HomeView = ({
               High-precision business blueprinting engine
             </p>
           </div>
+
+          {/* Command Center checklist (Phase 1: onboarding + agent feed + blurred activity) */}
+          <div className="w-full mt-4">
+            <CommandCenterChecklist />
+          </div>
         </div>
       )}
       {messages.map((msg: any, i: number) => (
