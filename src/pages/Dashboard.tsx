@@ -1088,7 +1088,7 @@ const ModeInfoModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => vo
   </AnimatePresence>
 );
 
-// ─── HOME VIEW WITH ADAPTIVE WORKBENCH ─────────────────────────────────────────────
+// ─── HOME VIEW WITH REFINED PROMPT CARDS BEHAVIOR ─────────────────────────────────
 const HomeView = ({ 
   errorMessage, messages, activeTool, initialCards, auraProfile, currentTheme, isPending,
   handleSendMessage, handleKeyDown, handleTextareaFocus, handleTextareaBlur, handleSendPointerDown,
@@ -1147,16 +1147,9 @@ const HomeView = ({
   // Info modal state
   const [infoModalOpen, setInfoModalOpen] = useState(false);
 
-  // Determine if expanded (Extractor or Blueprint mode)
+  // Determine if expanded (Extractor or Blueprint mode) - cards only show in sandbox
   const isExpandedMode = promptMode === "extractor" || promptMode === "blueprint";
-
-  // Calculate container height for animation
-  const getContainerHeight = () => {
-    if (promptMode === "sandbox") return "auto";
-    if (promptMode === "extractor") return "auto";
-    if (promptMode === "blueprint" && selectedTemplate) return "auto";
-    return "auto";
-  };
+  const showPromptCards = messages.length === 0 && promptMode === "sandbox";
 
   return (
     <div className="relative flex flex-col w-full h-full">
@@ -1297,30 +1290,25 @@ const HomeView = ({
         </div>
       )}
 
-      {/* ─── PROMPT CARDS - SHRINK WHEN EXPANDED ─── */}
-      <motion.div 
+      {/* ─── PROMPT CARDS - DYNAMIC DISAPPEARANCE WITH AnimatePresence ─── */}
+      <div 
         className="absolute left-1/2 z-40 w-full max-w-2xl"
         style={{ 
           bottom: "140px",
           pointerEvents: "none",
           transform: "translateX(calc(-50% - 24px))",
         }}
-        animate={{
-          scale: isExpandedMode ? 0.75 : 1,
-          opacity: isExpandedMode ? 0.4 : 1,
-          y: isExpandedMode ? -30 : 0,
-        }}
-        transition={{ duration: 0.3, ease: "easeOut" }}
       >
         <div className="w-full px-4">
           <AnimatePresence mode="wait">
-            {messages.length === 0 && (
+            {showPromptCards && (
               <motion.div
-                key="initial-cards"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 20 }}
-                transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
+                key="prompt-cards"
+                initial={{ opacity: 1, scale: 1, y: 0 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
+                className="origin-bottom"
               >
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {initialCards.slice(0, 2).map((card: string, idx: number) => (
@@ -1371,7 +1359,7 @@ const HomeView = ({
             )}
           </AnimatePresence>
         </div>
-      </motion.div>
+      </div>
 
       {/* ─── ADAPTIVE WORKBENCH INPUT CONTAINER WITH HEIGHT ANIMATION ─── */}
       <div
