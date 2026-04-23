@@ -4,6 +4,7 @@ import MagneticButton from "@/components/interactions/MagneticButton";
 import SmoothScrollLink from "@/components/interactions/SmoothScrollLink";
 import CursorTrail from "@/components/interactions/CursorTrail";
 import NeuralFeedback from "@/components/interactions/NeuralFeedback";
+import SubscriptionVacuum from "@/components/interactions/SubscriptionVacuum";
 import {
   Activity,
   Cpu,
@@ -689,6 +690,9 @@ const Workflower = () => {
 
         {/* NEURAL FEEDBACK — verified mission marquee */}
         <NeuralFeedback />
+
+        {/* SUBSCRIPTION VACUUM — centripetal consolidation demo */}
+        <SubscriptionVacuum />
 
         {/* PRICING ENGINE — high-end neo-brutalist */}
         <PricingEngine />
