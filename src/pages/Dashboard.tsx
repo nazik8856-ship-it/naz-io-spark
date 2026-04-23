@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import DropScanOverlay from "@/components/interactions/DropScanOverlay";
 import MagneticButton from "@/components/interactions/MagneticButton";
 import CommandCenterChecklist from "@/components/dashboard/CommandCenterChecklist";
+import AgentThinkTank from "@/components/dashboard/AgentThinkTank";
 import { useNavigate } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
 import {
@@ -1041,7 +1042,8 @@ const HomeView = ({
   setSelectedModel, setPlusMenuOpen, setDrawerOpen, textareaRef, inputContainerRef, messagesEndRef,
   formatAIResponse, getRgbFromHex, laserShineAnimation, userMissionAssets, setUserMissionAssets,
   activeAssetIndex, setActiveAssetIndex, isDragOver, setIsDragOver, revertDropdownOpen, setRevertDropdownOpen,
-  openRevertModal, handleCopyMessage, handleRegenerateMessage, handleShareMessage, confirmRevert, revertModalOpen, setRevertModalOpen
+  openRevertModal, handleCopyMessage, handleRegenerateMessage, handleShareMessage, confirmRevert, revertModalOpen, setRevertModalOpen,
+  onOpenThinkTank,
 }: any) => (
   <div className="relative flex flex-col w-full h-full">
     {/* Error Toast */}
