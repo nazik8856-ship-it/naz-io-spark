@@ -1875,6 +1875,10 @@ export default function Dashboard() {
   const inputContainerRef = useRef<HTMLDivElement>(null);
   const focusSnapIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Think Tank (4-agent chain) — additive, does not affect mission flow
+  const [thinkTankOpen, setThinkTankOpen] = useState(false);
+  const [thinkTankDirective, setThinkTankDirective] = useState("");
+
   // ── Apply CSS Variables to Document ────────────────────────────────────────────
   useEffect(() => {
     const root = document.documentElement;
