@@ -1061,9 +1061,9 @@ const HomeView = ({
     </AnimatePresence>
 
     {/* Scrollable Messages Area */}
-    <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto py-6 space-y-4 px-4 pb-[140px]">
+    <div className="flex-1 w-full max-w-3xl mx-auto overflow-y-auto py-6 space-y-4 px-4 pb-[140px]">
       {messages.length === 0 && (
-        <div className="flex flex-col items-center justify-center h-full gap-6 text-center">
+        <div className="flex flex-col items-center justify-start min-h-full gap-6 text-center pt-8">
           <div className="relative">
             <div
               className="absolute inset-0 rounded-full animate-pulse"
