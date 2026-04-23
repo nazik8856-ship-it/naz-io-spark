@@ -3337,6 +3337,13 @@ export default function Dashboard() {
           background: rgba(255,255,255,0.2);
         }
       `}</style>
+
+      {/* Think Tank — opt-in 4-agent chain (Architect+Pixel → Syntax → Echo) */}
+      <AgentThinkTank
+        open={thinkTankOpen}
+        directive={thinkTankDirective}
+        onClose={() => setThinkTankOpen(false)}
+      />
     </div>
   );
 }
