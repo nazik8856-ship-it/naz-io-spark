@@ -3,12 +3,13 @@ import { motion, useInView, useMotionValue, animate, AnimatePresence, PanInfo, u
 import { Sparkles, Zap, TrendingUp } from "lucide-react";
 
 /**
- * SubscriptionVacuum - Interactive Edition (FIXED)
+ * SubscriptionVacuum - Interactive Edition with Infinite Orbit
  * 
  * Features:
- * - Smooth draggable cards with momentum
- * - Automatic spring return to orbit position
- * - No animation conflicts during drag
+ * - Infinite 360° orbit rotation with linear transition
+ * - Draggable cards with high dragElastic for free movement
+ * - High-stiffness spring snap-back to orbital position on release
+ * - Counter-rotation on cards to keep labels horizontally level
  */
 
 type Cost = {
@@ -31,7 +32,7 @@ const FINAL_PRICE = 25;
 const TOTAL_OLD = COSTS.reduce((s, c) => s + c.price, 0);
 const SAVINGS = TOTAL_OLD - FINAL_PRICE;
 
-// Counter component
+// Counter component with spring animation
 const Counter: React.FC<{ from: number; to: number; play: boolean; prefix?: string }> = ({
   from,
   to,
@@ -54,7 +55,7 @@ const Counter: React.FC<{ from: number; to: number; play: boolean; prefix?: stri
   return <span>{prefix}{display.toLocaleString()}</span>;
 };
 
-// Individual draggable card - NO CONFLICTING ANIMATIONS
+// Individual draggable card with counter-rotation for level text
 interface DraggableCardProps {
   cost: Cost;
   index: number;
@@ -77,13 +78,15 @@ const DraggableCard: React.FC<DraggableCardProps> = ({
   onDragEnd,
 }) => {
   const [isDragging, setIsDragging] = useState(false);
-  const controls = useMotionValue({ x: 0, y: 0 });
   
   // Calculate current orbital position based on rotation
   const currentAngle = (cost.baseAngle + orbitRotation) % 360;
   const rad = (currentAngle * Math.PI) / 180;
   const targetOrbitX = Math.cos(rad) * orbitRadius;
   const targetOrbitY = Math.sin(rad) * orbitRadius;
+
+  // Counter-rotation to keep text level (inverse of orbit rotation)
+  const counterRotation = -orbitRotation;
 
   // Handle drag events
   const handleDragStart = () => {
@@ -96,16 +99,16 @@ const DraggableCard: React.FC<DraggableCardProps> = ({
     onDragEnd(index);
   };
 
-  // Determine visual state
+  // Vacuum phase - cards get pulled to center
   if (phase === "pulling") {
     return (
       <motion.div
-        initial={{ x: targetOrbitX, y: targetOrbitY, opacity: 1, scale: 1 }}
+        initial={{ x: targetOrbitX, y: targetOrbitY, opacity: 1, scale: 1, rotate: 0 }}
         animate={{ x: 0, y: 0, opacity: 0, scale: 0.2, rotate: 180 }}
         transition={{ type: "spring", stiffness: 300, damping: 25, delay: index * 0.04 }}
         className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
       >
-        <CardContent cost={cost} />
+        <CardContent cost={cost} rotation={counterRotation} />
       </motion.div>
     );
   }
@@ -114,36 +117,42 @@ const DraggableCard: React.FC<DraggableCardProps> = ({
     return null;
   }
 
-  // IDLE phase - draggable with spring return
+  // IDLE phase - draggable with high elastic and spring snap-back
   return (
     <motion.div
       drag
       dragMomentum={true}
-      dragElastic={0.15}
-      dragTransition={{ bounceStiffness: 400, bounceDamping: 25 }}
+      dragElastic={0.5}
+      dragTransition={{ bounceStiffness: 300, bounceDamping: 15 }}
       dragConstraints={containerRef}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
-      animate={{ x: targetOrbitX, y: targetOrbitY }}
+      animate={{ x: targetOrbitX, y: targetOrbitY, rotate: counterRotation }}
       transition={{
         type: "spring",
-        stiffness: isDragging ? 0 : 250,
-        damping: 22,
-        mass: 1,
+        stiffness: isDragging ? 0 : 400,
+        damping: 28,
+        mass: 0.8,
       }}
       whileTap={{ scale: 0.96 }}
       className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing z-10"
       style={{ touchAction: "none" }}
     >
-      <CardContent cost={cost} isDragging={isDragging} />
+      <CardContent cost={cost} rotation={counterRotation} isDragging={isDragging} />
     </motion.div>
   );
 };
 
-// Pure card content component
-const CardContent: React.FC<{ cost: Cost; isDragging?: boolean }> = ({ cost, isDragging = false }) => (
-  <div
-    className="px-3 py-2 md:px-4 md:py-2.5 rounded-xl backdrop-blur-md transition-all duration-150"
+// Card content with counter-rotation to keep text level
+const CardContent: React.FC<{ cost: Cost; rotation: number; isDragging?: boolean }> = ({ 
+  cost, 
+  rotation, 
+  isDragging = false 
+}) => (
+  <motion.div
+    animate={{ rotate: rotation }}
+    transition={{ type: "tween", duration: 0, ease: "linear" }}
+    className="px-3 py-2 md:px-4 md:py-2.5 rounded-xl backdrop-blur-md"
     style={{
       background: `linear-gradient(135deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02))`,
       border: `1px solid ${cost.hue}44`,
@@ -151,6 +160,7 @@ const CardContent: React.FC<{ cost: Cost; isDragging?: boolean }> = ({ cost, isD
         ? `0 20px 40px -12px rgba(0,0,0,0.5), 0 0 0 2px ${cost.hue}88`
         : `0 0 20px ${cost.hue}1a, inset 0 1px 0 rgba(255,255,255,0.04)`,
       minWidth: 96,
+      willChange: "transform",
     }}
   >
     <div className="text-[9px] md:text-[10px] font-mono tracking-[0.18em] uppercase text-white/50">
@@ -160,7 +170,7 @@ const CardContent: React.FC<{ cost: Cost; isDragging?: boolean }> = ({ cost, isD
       ${cost.price}
       <span className="text-[10px] md:text-xs text-white/40 font-normal">/mo</span>
     </div>
-  </div>
+  </motion.div>
 );
 
 const SubscriptionVacuum: React.FC = () => {
@@ -173,6 +183,29 @@ const SubscriptionVacuum: React.FC = () => {
   const [orbitRotation, setOrbitRotation] = useState(0);
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
 
+  // Infinite orbit rotation - continuous 360° spin
+  useEffect(() => {
+    if (phase !== "idle") return;
+
+    let animationId: number;
+    let lastTimestamp = 0;
+    let currentRotation = orbitRotation;
+    const ROTATION_SPEED = 0.12; // degrees per frame at 60fps
+
+    const animateRotation = (timestamp: number) => {
+      if (lastTimestamp) {
+        const delta = Math.min(16, timestamp - lastTimestamp);
+        currentRotation = (currentRotation + ROTATION_SPEED * (delta / 16)) % 360;
+        setOrbitRotation(currentRotation);
+      }
+      lastTimestamp = timestamp;
+      animationId = requestAnimationFrame(animateRotation);
+    };
+
+    animationId = requestAnimationFrame(animateRotation);
+    return () => cancelAnimationFrame(animationId);
+  }, [phase, orbitRotation]);
+
   // Responsive orbit radius
   useEffect(() => {
     const handleResize = () => {
@@ -182,29 +215,6 @@ const SubscriptionVacuum: React.FC = () => {
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
-
-  // Slow orbit rotation only when idle and not dragging
-  useEffect(() => {
-    if (phase !== "idle" || draggingIndex !== null) return;
-
-    let animationId: number;
-    let lastTime = 0;
-    let rotation = orbitRotation;
-    const SPEED = 0.08; // degrees per frame
-
-    const animate = (time: number) => {
-      if (lastTime) {
-        const delta = Math.min(16, time - lastTime);
-        rotation = (rotation + SPEED * (delta / 16)) % 360;
-        setOrbitRotation(rotation);
-      }
-      lastTime = time;
-      animationId = requestAnimationFrame(animate);
-    };
-
-    animationId = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(animationId);
-  }, [phase, draggingIndex, orbitRotation]);
 
   // Trigger vacuum effect when scrolled into view
   useEffect(() => {
@@ -251,6 +261,12 @@ const SubscriptionVacuum: React.FC = () => {
             background: "radial-gradient(circle, rgba(6,182,212,0.12) 0%, rgba(139,92,246,0.06) 40%, transparent 70%)",
           }}
         />
+        <div
+          className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full opacity-20"
+          style={{
+            background: "radial-gradient(circle, rgba(139,92,246,0.08) 0%, transparent 60%)",
+          }}
+        />
       </div>
 
       <div className="relative max-w-6xl mx-auto">
@@ -286,7 +302,7 @@ const SubscriptionVacuum: React.FC = () => {
             className="font-serif text-base md:text-lg text-white/70 max-w-2xl mx-auto leading-relaxed"
             style={{ fontFamily: "'Georgia', 'Times New Roman', serif" }}
           >
-            Six tools. Six bills. One platform. Drag the cards around — they'll snap back into orbit.
+            Six tools. Six bills. One platform. Drag the cards anywhere — they'll snap back into the infinite orbit.
           </motion.p>
         </div>
 
@@ -312,9 +328,10 @@ const SubscriptionVacuum: React.FC = () => {
               ${TOTAL_OLD}
               <div className="absolute inset-x-0 top-1/2 h-0.5 bg-gradient-to-r from-transparent via-red-500 to-transparent -translate-y-1/2" />
             </div>
+            <div className="text-xs text-red-400/40 mt-1">+ hidden fees</div>
           </div>
 
-          <div className="text-white/30 text-sm font-mono">→</div>
+          <div className="text-white/30 text-sm font-mono tracking-wider">→</div>
 
           {/* New Price - Hero Glow */}
           <motion.div
@@ -342,19 +359,29 @@ const SubscriptionVacuum: React.FC = () => {
               <TrendingUp size={12} />
               Save ${SAVINGS}/month
             </div>
+            <div className="absolute -inset-px rounded-2xl pointer-events-none animate-pulse-glow" />
           </motion.div>
         </motion.div>
 
         {/* Animation Stage */}
         <div ref={containerRef} className="relative mx-auto h-[420px] md:h-[560px] w-full max-w-[680px]">
-          {/* Orbit guide rings */}
+          {/* Orbit guide rings - also rotate with infinite orbit */}
           {phase === "idle" && (
-            <div className="absolute inset-0 pointer-events-none">
-              <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[440px] h-[440px] md:w-[560px] md:h-[560px] rounded-full border border-white/[0.04]" />
-            </div>
+            <>
+              <motion.div
+                animate={{ rotate: orbitRotation }}
+                transition={{ type: "tween", duration: 0, ease: "linear" }}
+                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[440px] h-[440px] md:w-[560px] md:h-[560px] rounded-full border border-white/[0.04]"
+              />
+              <motion.div
+                animate={{ rotate: -orbitRotation }}
+                transition={{ type: "tween", duration: 0, ease: "linear" }}
+                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] md:w-[380px] md:h-[380px] rounded-full border border-white/[0.02] border-dashed"
+              />
+            </>
           )}
 
-          {/* Draggable Cards */}
+          {/* Draggable Cards with infinite orbit positioning */}
           <AnimatePresence>
             {phase !== "merged" && COSTS.map((cost, i) => (
               <DraggableCard
@@ -394,6 +421,11 @@ const SubscriptionVacuum: React.FC = () => {
                     boxShadow: "0 0 60px rgba(6,182,212,0.4)",
                   }}
                 >
+                  <motion.div
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 8, repeat: Infinity, ease: "linear" }}
+                    className="absolute inset-2 rounded-full border border-dashed border-cyan-400/30"
+                  />
                   <Zap size={36} className="hidden md:block" style={{ color: "#06b6d4", filter: "drop-shadow(0 0 12px #06b6d4)" }} />
                   <Zap size={28} className="md:hidden" style={{ color: "#06b6d4", filter: "drop-shadow(0 0 12px #06b6d4)" }} />
                 </motion.div>
@@ -413,7 +445,7 @@ const SubscriptionVacuum: React.FC = () => {
                 >
                   <div className="px-5 py-2.5 flex items-center justify-between" style={{ borderBottom: "1px solid rgba(6,182,212,0.25)" }}>
                     <div className="flex items-center gap-2">
-                      <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: "#06b6d4" }} />
+                      <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: "#06b6d4", boxShadow: "0 0 8px #06b6d4" }} />
                       <span className="text-[10px] font-mono tracking-[0.22em] uppercase text-cyan-300/90">NazAI · Growth Plan</span>
                     </div>
                     <span className="text-[9px] font-mono text-white/40 bg-white/5 px-2 py-0.5 rounded-full">ACTIVE</span>
@@ -425,7 +457,9 @@ const SubscriptionVacuum: React.FC = () => {
                       </div>
                       <div className="text-sm text-white/50">/ month</div>
                     </div>
-                    <div className="text-xs text-white/50 mb-5 font-serif">Replaces every tool above. One bill, one login.</div>
+                    <div className="text-xs text-white/50 mb-5 font-serif leading-relaxed">
+                      Replaces every tool above. One bill, one login, one team.
+                    </div>
                     <div className="rounded-xl px-4 py-3 flex items-center justify-between" style={{ background: "rgba(6,182,212,0.06)", border: "1px dashed rgba(6,182,212,0.35)" }}>
                       <div>
                         <div className="text-[9px] font-mono tracking-[0.2em] uppercase text-white/50">Savings tracker</div>
@@ -466,11 +500,24 @@ const SubscriptionVacuum: React.FC = () => {
               </motion.button>
             )}
           </AnimatePresence>
-          <p className="text-[10px] font-mono tracking-[0.2em] uppercase text-white/30">
-            <span className="line-through text-red-400/40">${TOTAL_OLD}/mo</span> → <span className="text-cyan-400">${FINAL_PRICE}/mo</span>
+          <p className="text-[10px] font-mono tracking-[0.2em] uppercase text-white/30 flex items-center gap-3">
+            <span className="line-through text-red-400/40">${TOTAL_OLD}/mo</span>
+            <span className="text-white/30">→</span>
+            <span className="text-cyan-400">${FINAL_PRICE}/mo</span>
           </p>
         </div>
       </div>
+
+      {/* Custom keyframe animations */}
+      <style>{`
+        @keyframes pulseGlow {
+          0%, 100% { box-shadow: 0 0 20px rgba(6,182,212,0.3); }
+          50% { box-shadow: 0 0 50px rgba(139,92,246,0.4); }
+        }
+        .animate-pulse-glow {
+          animation: pulseGlow 2s ease-in-out infinite;
+        }
+      `}</style>
     </section>
   );
 };
