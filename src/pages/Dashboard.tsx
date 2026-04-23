@@ -62,6 +62,11 @@ import {
   Wand2,
   User,
   Menu,
+  Info,
+  Maximize2,
+  Minimize2,
+  FileCode,
+  Terminal,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 
@@ -1035,7 +1040,55 @@ const RevertModal = ({ revertModalOpen, setRevertModalOpen, confirmRevert }: {
   </AnimatePresence>
 );
 
-// ─── HOME VIEW WITH 3-TIER NAZAI PROMPTER ─────────────────────────────────────────
+// ============================================================
+// MODE INFO MODAL COMPONENT
+// ============================================================
+const ModeInfoModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) => (
+  <AnimatePresence>
+    {isOpen && (
+      <div
+        className="fixed inset-0 z-[2000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xl"
+        onClick={onClose}
+      >
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.95 }}
+          transition={springTransition}
+          onClick={(e) => e.stopPropagation()}
+          className="max-w-md w-full rounded-xl p-6"
+          style={{
+            background: "var(--nazai-card-bg)",
+            border: "1px solid rgba(6,182,212,0.3)",
+          }}
+        >
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-bold font-mono text-cyan-400">PROMPTING MODES</h3>
+            <button onClick={onClose} className="text-white/40 hover:text-white/80">
+              <X size={14} />
+            </button>
+          </div>
+          <div className="space-y-4 text-xs font-mono text-white/70">
+            <div className="border-l-2 border-cyan-400 pl-3">
+              <span className="text-cyan-400 font-bold">SANDBOX</span>
+              <p className="text-[10px] mt-1">General purpose prompting. Your input is wrapped in a Founder Persona context for strategic business blueprinting.</p>
+            </div>
+            <div className="border-l-2 border-purple-400 pl-3">
+              <span className="text-purple-400 font-bold">EXTRACTOR</span>
+              <p className="text-[10px] mt-1">Structured input mode. Fill in Industry, Audience, Budget, and Vibe to generate a comprehensive business blueprint with market analysis, financial roadmap, and growth strategy.</p>
+            </div>
+            <div className="border-l-2 border-emerald-400 pl-3">
+              <span className="text-emerald-400 font-bold">BLUEPRINT</span>
+              <p className="text-[10px] mt-1">Template-based mode. Select a template (SaaS, Agency, E‑com), then edit the generated prompt in the code editor before launching. Perfect for reusable strategies.</p>
+            </div>
+          </div>
+        </motion.div>
+      </div>
+    )}
+  </AnimatePresence>
+);
+
+// ─── HOME VIEW WITH ADAPTIVE WORKBENCH ─────────────────────────────────────────────
 const HomeView = ({ 
   errorMessage, messages, activeTool, initialCards, auraProfile, currentTheme, isPending,
   handleSendMessage, handleKeyDown, handleTextareaFocus, handleTextareaBlur, handleSendPointerDown,
@@ -1047,20 +1100,63 @@ const HomeView = ({
   promptMode, setPromptMode,
   sandboxText, setSandboxText,
   extractorData, setExtractorData,
+  editablePrompt, setEditablePrompt,
   selectedTemplate, setSelectedTemplate,
   fileInputRef,
   cameraInputRef,
 }: any) => {
-  // Template cards for Blueprint mode
-  const TEMPLATE_CARDS = [
-    { id: "saas", title: "SaaS Launcher", prompt: "Build a complete SaaS launch blueprint for [INDUSTRY]. Target audience: [AUDIENCE]. Budget: [BUDGET]. Vibe: [VIBE]. Include: pricing strategy, feature roadmap, customer acquisition plan, and 12-month financial projection." },
-    { id: "agency", title: "Agency Builder", prompt: "Create a service agency blueprint for [INDUSTRY]. Target clients: [AUDIENCE]. Budget: [BUDGET]. Brand vibe: [VIBE]. Include: service packages, team structure, lead generation system, and monthly revenue targets." },
-    { id: "ecom", title: "E‑com Engine", prompt: "Develop an e‑commerce launch plan for [INDUSTRY]. Target shoppers: [AUDIENCE]. Budget: [BUDGET]. Brand vibe: [VIBE]. Include: platform selection, supply chain setup, marketing funnel, and cash flow projections." },
-  ];
+  // Template definitions (master templates - never mutated)
+  const TEMPLATE_MASTERS = {
+    saas: "Build a complete SaaS launch blueprint for [INDUSTRY]. Target audience: [AUDIENCE]. Budget: [BUDGET]. Vibe: [VIBE].\n\nRequired deliverables:\n• Pricing strategy with tier breakdown\n• Feature roadmap (MVP → v2 → v3)\n• Customer acquisition plan\n• 12-month financial projection\n• Team structure recommendations",
+    agency: "Create a service agency blueprint for [INDUSTRY]. Target clients: [AUDIENCE]. Budget: [BUDGET]. Brand vibe: [VIBE].\n\nRequired deliverables:\n• Service package definitions\n• Team structure & hiring plan\n• Lead generation system\n• Monthly revenue targets\n• Operational workflows",
+    ecom: "Develop an e‑commerce launch plan for [INDUSTRY]. Target shoppers: [AUDIENCE]. Budget: [BUDGET]. Brand vibe: [VIBE].\n\nRequired deliverables:\n• Platform selection criteria\n• Supply chain setup\n• Marketing funnel strategy\n• Cash flow projections\n• Inventory management system",
+  };
+
+  // Helper to fill template with current extractor data
+  const fillTemplate = (templateId: string) => {
+    const template = TEMPLATE_MASTERS[templateId as keyof typeof TEMPLATE_MASTERS];
+    if (!template) return "";
+    let filled = template;
+    filled = filled.replace(/\[INDUSTRY\]/g, extractorData.industry || "[Industry]");
+    filled = filled.replace(/\[AUDIENCE\]/g, extractorData.audience || "[Audience]");
+    filled = filled.replace(/\[BUDGET\]/g, extractorData.budget || "[Budget]");
+    filled = filled.replace(/\[VIBE\]/g, extractorData.vibe);
+    return filled;
+  };
+
+  // Handle template selection - populates editablePrompt (does NOT send)
+  const handleTemplateSelect = (templateId: string) => {
+    setSelectedTemplate(templateId);
+    const filledContent = fillTemplate(templateId);
+    setEditablePrompt(filledContent);
+  };
+
+  // Update extractor data and refresh blueprint preview if a template is selected
+  const updateExtractorData = (field: string, value: string) => {
+    setExtractorData((prev: any) => ({ ...prev, [field]: value }));
+    if (selectedTemplate) {
+      const refreshed = fillTemplate(selectedTemplate);
+      setEditablePrompt(refreshed);
+    }
+  };
 
   // Prompt strength for extractor
   const completedFields = [extractorData.industry, extractorData.audience, extractorData.budget].filter(Boolean).length;
   const strength = Math.floor((completedFields / 3) * 100);
+  
+  // Info modal state
+  const [infoModalOpen, setInfoModalOpen] = useState(false);
+
+  // Determine if expanded (Extractor or Blueprint mode)
+  const isExpandedMode = promptMode === "extractor" || promptMode === "blueprint";
+
+  // Calculate container height for animation
+  const getContainerHeight = () => {
+    if (promptMode === "sandbox") return "auto";
+    if (promptMode === "extractor") return "auto";
+    if (promptMode === "blueprint" && selectedTemplate) return "auto";
+    return "auto";
+  };
 
   return (
     <div className="relative flex flex-col w-full h-full">
@@ -1201,14 +1297,20 @@ const HomeView = ({
         </div>
       )}
 
-      {/* ─── PROMPT CARDS - RESPONSIVE STACK ON MOBILE ─── */}
-      <div 
+      {/* ─── PROMPT CARDS - SHRINK WHEN EXPANDED ─── */}
+      <motion.div 
         className="absolute left-1/2 z-40 w-full max-w-2xl"
         style={{ 
           bottom: "140px",
           pointerEvents: "none",
           transform: "translateX(calc(-50% - 24px))",
         }}
+        animate={{
+          scale: isExpandedMode ? 0.75 : 1,
+          opacity: isExpandedMode ? 0.4 : 1,
+          y: isExpandedMode ? -30 : 0,
+        }}
+        transition={{ duration: 0.3, ease: "easeOut" }}
       >
         <div className="w-full px-4">
           <AnimatePresence mode="wait">
@@ -1244,7 +1346,6 @@ const HomeView = ({
                       whileTap={{ scale: 0.98 }}
                     >
                       <div className="absolute inset-0 bg-gradient-to-br from-transparent via-transparent to-white/[0.02] pointer-events-none" />
-                      
                       <div className="relative z-10">
                         <div className="flex items-center gap-2 mb-2">
                           <div 
@@ -1255,11 +1356,9 @@ const HomeView = ({
                             INITIATE MISSION
                           </p>
                         </div>
-                        
                         <p className="text-[14px] font-bold leading-tight text-white/90 group-hover:text-white transition-colors line-clamp-2">
                           {card}
                         </p>
-                        
                         <div className="flex items-center gap-1 mt-3 text-[8px] font-mono font-bold text-white/30 group-hover:text-white/60 transition-all">
                           <span>DEPLOY MODULE</span>
                           <ChevronRight size={10} style={{ color: auraProfile.glowPrimary }} />
@@ -1272,9 +1371,9 @@ const HomeView = ({
             )}
           </AnimatePresence>
         </div>
-      </div>
+      </motion.div>
 
-      {/* ─── FIXED INPUT PILL WITH 3-TIER MODE SWITCHER ─── */}
+      {/* ─── ADAPTIVE WORKBENCH INPUT CONTAINER WITH HEIGHT ANIMATION ─── */}
       <div
         ref={inputContainerRef}
         className="fixed bottom-4 left-1/2 z-40 w-[94%] sm:w-full sm:max-w-2xl -translate-x-1/2"
@@ -1286,7 +1385,11 @@ const HomeView = ({
         <div className="w-full px-0 sm:px-4">
           <motion.div
             className="relative rounded-2xl flex flex-col overflow-hidden shadow-2xl"
-            animate={laserShineAnimation}
+            animate={{
+              ...laserShineAnimation,
+              minHeight: isExpandedMode ? "280px" : "auto",
+            }}
+            transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
             onDragOver={(e) => {
               e.preventDefault();
               if (e.dataTransfer.types.includes("Files")) setIsDragOver(true);
@@ -1322,13 +1425,13 @@ const HomeView = ({
                 : undefined,
               background: "rgba(10, 14, 23, 0.95)",
               backdropFilter: "blur(20px)",
-              transition: "border-color 180ms ease, box-shadow 220ms ease",
+              transition: "border-color 180ms ease, box-shadow 220ms ease, min-height 350ms cubic-bezier(0.4, 0, 0.2, 1)",
             }}
           >
             <DropScanOverlay count={userMissionAssets.length} color={auraProfile.glowPrimary} />
 
-            {/* Mode Switcher - Segmented Control with Cyan Sliding Pill */}
-            <div className="flex justify-center pt-4 px-4">
+            {/* Mode Switcher with Icon Toggle & Info Button */}
+            <div className="flex justify-between items-center pt-4 px-4">
               <div className="relative flex bg-black/40 backdrop-blur-md rounded-full p-1 border border-white/10">
                 <motion.div
                   className="absolute top-1 bottom-1 rounded-full bg-cyan-500/20"
@@ -1339,27 +1442,40 @@ const HomeView = ({
                 {["sandbox", "extractor", "blueprint"].map((mode) => (
                   <button
                     key={mode}
-                    onClick={() => { setPromptMode(mode); if (mode !== "blueprint") setSelectedTemplate(null); }}
-                    className={`relative z-10 px-4 py-1.5 text-[10px] font-mono font-bold tracking-wider rounded-full transition-colors ${
+                    onClick={() => { 
+                      setPromptMode(mode); 
+                      if (mode !== "blueprint") setSelectedTemplate(null);
+                    }}
+                    className={`relative z-10 px-4 py-1.5 text-[10px] font-mono font-bold tracking-wider rounded-full transition-colors flex items-center gap-1.5 ${
                       promptMode === mode ? "text-cyan-400" : "text-white/50 hover:text-white/80"
                     }`}
                   >
+                    {mode === "sandbox" && <Terminal size={10} />}
+                    {mode === "extractor" && <Layers size={10} />}
+                    {mode === "blueprint" && <FileCode size={10} />}
                     {mode === "sandbox" ? "SANDBOX" : mode === "extractor" ? "EXTRACTOR" : "BLUEPRINT"}
                   </button>
                 ))}
               </div>
+              <button
+                onClick={() => setInfoModalOpen(true)}
+                className="text-white/30 hover:text-cyan-400 transition-colors p-1 rounded-lg hover:bg-white/5"
+                title="Info about prompting modes"
+              >
+                <Info size={14} />
+              </button>
             </div>
 
-            {/* Dynamic Content based on selected mode */}
+            {/* Dynamic Content with Height Animation */}
             <AnimatePresence mode="wait">
               {promptMode === "sandbox" && (
                 <motion.div
                   key="sandbox"
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  transition={{ duration: 0.2 }}
-                  className="px-4 pt-3 pb-2"
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.25 }}
+                  className="px-4 pt-3 pb-2 overflow-hidden"
                 >
                   <textarea
                     ref={textareaRef}
@@ -1380,37 +1496,37 @@ const HomeView = ({
               {promptMode === "extractor" && (
                 <motion.div
                   key="extractor"
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  transition={{ duration: 0.2 }}
-                  className="px-4 pt-3 pb-2 space-y-3"
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.25 }}
+                  className="px-4 pt-3 pb-2 space-y-3 overflow-hidden"
                 >
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <input
                       type="text"
                       placeholder="Industry / Sector"
                       value={extractorData.industry}
-                      onChange={(e) => setExtractorData((prev: any) => ({ ...prev, industry: e.target.value }))}
+                      onChange={(e) => updateExtractorData("industry", e.target.value)}
                       className="bg-black/30 backdrop-blur-sm rounded-lg border border-white/10 px-3 py-2 text-sm outline-none focus:border-cyan-500/50"
                     />
                     <input
                       type="text"
                       placeholder="Target Audience"
                       value={extractorData.audience}
-                      onChange={(e) => setExtractorData((prev: any) => ({ ...prev, audience: e.target.value }))}
+                      onChange={(e) => updateExtractorData("audience", e.target.value)}
                       className="bg-black/30 backdrop-blur-sm rounded-lg border border-white/10 px-3 py-2 text-sm outline-none focus:border-cyan-500/50"
                     />
                     <input
                       type="text"
                       placeholder="Estimated Budget (USD)"
                       value={extractorData.budget}
-                      onChange={(e) => setExtractorData((prev: any) => ({ ...prev, budget: e.target.value }))}
+                      onChange={(e) => updateExtractorData("budget", e.target.value)}
                       className="bg-black/30 backdrop-blur-sm rounded-lg border border-white/10 px-3 py-2 text-sm outline-none focus:border-cyan-500/50"
                     />
                     <select
                       value={extractorData.vibe}
-                      onChange={(e) => setExtractorData((prev: any) => ({ ...prev, vibe: e.target.value }))}
+                      onChange={(e) => updateExtractorData("vibe", e.target.value)}
                       className="bg-black/30 backdrop-blur-sm rounded-lg border border-white/10 px-3 py-2 text-sm outline-none focus:border-cyan-500/50"
                     >
                       <option value="Formal">Formal / Corporate</option>
@@ -1439,49 +1555,55 @@ const HomeView = ({
               {promptMode === "blueprint" && (
                 <motion.div
                   key="blueprint"
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  transition={{ duration: 0.2 }}
-                  className="px-4 pt-3 pb-2 space-y-3"
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.25 }}
+                  className="px-4 pt-3 pb-2 space-y-3 overflow-hidden"
                 >
                   <div className="flex gap-3 overflow-x-auto pb-2">
-                    {TEMPLATE_CARDS.map((card) => (
+                    {Object.entries(TEMPLATE_MASTERS).map(([id, _]) => (
                       <button
-                        key={card.id}
-                        onClick={() => setSelectedTemplate(card.id)}
+                        key={id}
+                        onClick={() => handleTemplateSelect(id)}
                         className={`shrink-0 px-4 py-2 rounded-xl border transition-all ${
-                          selectedTemplate === card.id
+                          selectedTemplate === id
                             ? "border-cyan-400 bg-cyan-500/10 shadow-lg shadow-cyan-500/20"
                             : "border-white/10 bg-black/30 hover:border-cyan-400/50"
                         }`}
                       >
-                        <div className="text-sm font-mono font-bold">{card.title}</div>
+                        <div className="text-sm font-mono font-bold">{id === "saas" ? "SaaS Launcher" : id === "agency" ? "Agency Builder" : "E‑com Engine"}</div>
                         <div className="text-[9px] font-mono text-white/40 mt-0.5">Master Blueprint</div>
                       </button>
                     ))}
                   </div>
-                  {selectedTemplate && (
-                    <div className="bg-black/30 backdrop-blur-sm rounded-xl border border-white/10 p-3">
-                      <div className="text-[9px] font-mono text-cyan-400 mb-1 flex items-center gap-2">
-                        <span>PREVIEW</span>
-                        <span className="text-white/20">━</span>
-                        <span className="text-white/30">Dynamic placeholders will use your Extractor data</span>
-                      </div>
-                      <pre className="text-[10px] font-mono text-white/70 whitespace-pre-wrap break-words">
-                        {(() => {
-                          const tmpl = TEMPLATE_CARDS.find(t => t.id === selectedTemplate);
-                          if (!tmpl) return "";
-                          let preview = tmpl.prompt;
-                          preview = preview.replace(/\[INDUSTRY\]/g, extractorData.industry || "[Industry]");
-                          preview = preview.replace(/\[AUDIENCE\]/g, extractorData.audience || "[Audience]");
-                          preview = preview.replace(/\[BUDGET\]/g, extractorData.budget || "[Budget]");
-                          preview = preview.replace(/\[VIBE\]/g, extractorData.vibe);
-                          return preview;
-                        })()}
-                      </pre>
+                  
+                  {/* Editable Blueprint Editor - Code Style with Cyan Glow */}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+                      <span className="text-[9px] font-mono text-cyan-400">EDITABLE MASTER BLUEPRINT</span>
+                      <span className="text-[8px] font-mono text-white/30 ml-auto">✎ Elite Mode — Full edit capability</span>
                     </div>
-                  )}
+                    <textarea
+                      value={editablePrompt}
+                      onChange={(e) => setEditablePrompt(e.target.value)}
+                      placeholder="Select a template above to start editing your custom blueprint..."
+                      rows={8}
+                      className="w-full bg-black/50 backdrop-blur-sm rounded-xl border-2 border-cyan-500/40 focus:border-cyan-400 outline-none p-4 text-xs font-mono resize-y transition-all duration-200"
+                      style={{ 
+                        color: "#a5f3c3",
+                        caretColor: "#06b6d4",
+                        fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+                        lineHeight: "1.6",
+                        boxShadow: "0 0 20px rgba(6,182,212,0.1)",
+                      }}
+                    />
+                    <div className="text-[8px] font-mono text-white/30 text-right flex items-center justify-end gap-2">
+                      <span className="inline-block w-2 h-4 bg-cyan-400 animate-pulse rounded-sm" />
+                      <span>terminal ready — edit freely • changes stay local</span>
+                    </div>
+                  </div>
                 </motion.div>
               )}
             </AnimatePresence>
@@ -1586,7 +1708,7 @@ const HomeView = ({
                     let currentText = "";
                     if (promptMode === "sandbox") currentText = sandboxText;
                     else if (promptMode === "extractor") currentText = `${extractorData.industry} ${extractorData.audience} ${extractorData.budget}`;
-                    else if (promptMode === "blueprint") currentText = selectedTemplate || "";
+                    else if (promptMode === "blueprint") currentText = editablePrompt || selectedTemplate || "";
                     if (currentText.trim()) onOpenThinkTank?.(currentText.trim());
                   }}
                   disabled={isPending}
@@ -1609,7 +1731,9 @@ const HomeView = ({
           </motion.div>
         </div>
       </div>
+      
       <RevertModal revertModalOpen={revertModalOpen} setRevertModalOpen={setRevertModalOpen} confirmRevert={confirmRevert} />
+      <ModeInfoModal isOpen={infoModalOpen} onClose={() => setInfoModalOpen(false)} />
     </div>
   );
 };
@@ -1962,7 +2086,7 @@ export default function Dashboard() {
   // ─── Identity & Neural Context Logic ────────────────────────────────────────
   const [userContext, setUserContext] = useState<UserContext>(DEFAULT_USER_CONTEXT);
 
-  // ─── 3-TIER NAZAI PROMPTER STATES ───────────────────────────────────────────
+  // ─── ADAPTIVE WORKBENCH STATES ───────────────────────────────────────────────
   const [promptMode, setPromptMode] = useState<"sandbox" | "extractor" | "blueprint">("sandbox");
   const [sandboxText, setSandboxText] = useState("");
   const [extractorData, setExtractorData] = useState({
@@ -1972,6 +2096,7 @@ export default function Dashboard() {
     vibe: "Formal",
   });
   const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
+  const [editablePrompt, setEditablePrompt] = useState("");
 
   // ─── Dynamic CSS Variable Injection ──────────────────────────────────────────
   useEffect(() => {
@@ -2387,7 +2512,7 @@ export default function Dashboard() {
     }
   }, [revertTargetIndex]);
 
-  // ─── MASTER PROMPT COMPILER (3-MODE) ──────────────────────────────────────────
+  // ─── MASTER PROMPT COMPILER (USES EDITABLE PROMPT IN BLUEPRINT MODE) ────────────
   const compileMasterPrompt = useCallback(() => {
     const contextPrefix = `[SYSTEM_DIRECTIVE: You are interacting with ${userContext.identity}. Project: ${userContext.goals}. Style: ${userContext.style}. Provide right and perspective responses only. Say "You're completely wrong" if I'm wrong.]\n\n`;
     
@@ -2424,25 +2549,16 @@ export default function Dashboard() {
       return contextPrefix + base;
     }
     
-    if (promptMode === "blueprint" && selectedTemplate) {
-      const TEMPLATES: Record<string, string> = {
-        saas: "Build a complete SaaS launch blueprint for [INDUSTRY]. Target audience: [AUDIENCE]. Budget: [BUDGET]. Vibe: [VIBE]. Include: pricing strategy, feature roadmap, customer acquisition plan, and 12-month financial projection.",
-        agency: "Create a service agency blueprint for [INDUSTRY]. Target clients: [AUDIENCE]. Budget: [BUDGET]. Brand vibe: [VIBE]. Include: service packages, team structure, lead generation system, and monthly revenue targets.",
-        ecom: "Develop an e‑commerce launch plan for [INDUSTRY]. Target shoppers: [AUDIENCE]. Budget: [BUDGET]. Brand vibe: [VIBE]. Include: platform selection, supply chain setup, marketing funnel, and cash flow projections.",
-      };
-      let compiled = TEMPLATES[selectedTemplate] || "";
-      compiled = compiled.replace(/\[INDUSTRY\]/g, extractorData.industry || "[Industry]");
-      compiled = compiled.replace(/\[AUDIENCE\]/g, extractorData.audience || "[Audience]");
-      compiled = compiled.replace(/\[BUDGET\]/g, extractorData.budget || "[Budget]");
-      compiled = compiled.replace(/\[VIBE\]/g, extractorData.vibe);
-      compiled += `\n\nGenerate a comprehensive, actionable blueprint with specific recommendations, timelines, and measurable KPIs.`;
-      return contextPrefix + compiled;
+    if (promptMode === "blueprint") {
+      // Use the editable prompt content (user can edit freely)
+      const blueprintContent = editablePrompt.trim() || "Generate a professional business blueprint.";
+      return contextPrefix + blueprintContent;
     }
     
     return contextPrefix + "Generate a professional business blueprint.";
-  }, [promptMode, sandboxText, extractorData, selectedTemplate, userContext]);
+  }, [promptMode, sandboxText, extractorData, editablePrompt, userContext]);
 
-  // ─── THE TITAN UNIFIED MESSAGE HANDLER (UPDATED FOR 3-MODE) ──────────────────────
+  // ─── THE TITAN UNIFIED MESSAGE HANDLER ──────────────────────────────────────
   const handleSendMessage = useCallback(async () => {
     const masterPrompt = compileMasterPrompt();
     const trimmed = masterPrompt.trim();
@@ -2880,6 +2996,8 @@ export default function Dashboard() {
             setSandboxText={setSandboxText}
             extractorData={extractorData}
             setExtractorData={setExtractorData}
+            editablePrompt={editablePrompt}
+            setEditablePrompt={setEditablePrompt}
             selectedTemplate={selectedTemplate}
             setSelectedTemplate={setSelectedTemplate}
             fileInputRef={fileInputRef}
