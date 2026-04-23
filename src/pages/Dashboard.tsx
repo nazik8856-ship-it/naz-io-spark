@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import DropScanOverlay from "@/components/interactions/DropScanOverlay";
 import MagneticButton from "@/components/interactions/MagneticButton";
 import CommandCenterChecklist from "@/components/dashboard/CommandCenterChecklist";
+import AgentThinkTank from "@/components/dashboard/AgentThinkTank";
 import { useNavigate } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
 import {
@@ -1041,7 +1042,8 @@ const HomeView = ({
   setSelectedModel, setPlusMenuOpen, setDrawerOpen, textareaRef, inputContainerRef, messagesEndRef,
   formatAIResponse, getRgbFromHex, laserShineAnimation, userMissionAssets, setUserMissionAssets,
   activeAssetIndex, setActiveAssetIndex, isDragOver, setIsDragOver, revertDropdownOpen, setRevertDropdownOpen,
-  openRevertModal, handleCopyMessage, handleRegenerateMessage, handleShareMessage, confirmRevert, revertModalOpen, setRevertModalOpen
+  openRevertModal, handleCopyMessage, handleRegenerateMessage, handleShareMessage, confirmRevert, revertModalOpen, setRevertModalOpen,
+  onOpenThinkTank,
 }: any) => (
   <div className="relative flex flex-col w-full h-full">
     {/* Error Toast */}
@@ -1430,6 +1432,26 @@ const HomeView = ({
               </button>
             </div>
             
+            <motion.button
+              type="button"
+              onClick={() => {
+                const currentText = textareaRef.current?.value || "";
+                if (currentText.trim()) onOpenThinkTank?.(currentText.trim());
+              }}
+              disabled={isPending}
+              className="w-8 h-8 rounded-xl flex items-center justify-center transition-all"
+              style={{
+                background: "rgba(6,182,212,0.08)",
+                border: "1px solid rgba(6,182,212,0.3)",
+              }}
+              whileHover={{ scale: 1.08, filter: "brightness(1.15)" }}
+              whileTap={{ scale: 0.92 }}
+              title="Run 4-agent Think Tank on this directive"
+              aria-label="Run Think Tank"
+            >
+              <Brain size={13} style={{ color: "#06b6d4" }} />
+            </motion.button>
+
             <motion.button
               onPointerDown={handleSendPointerDown}
               disabled={isPending}
@@ -1852,6 +1874,10 @@ export default function Dashboard() {
   const currentAbortControllerRef = useRef<AbortController | null>(null);
   const inputContainerRef = useRef<HTMLDivElement>(null);
   const focusSnapIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Think Tank (4-agent chain) — additive, does not affect mission flow
+  const [thinkTankOpen, setThinkTankOpen] = useState(false);
+  const [thinkTankDirective, setThinkTankDirective] = useState("");
 
   // ── Apply CSS Variables to Document ────────────────────────────────────────────
   useEffect(() => {
@@ -2649,6 +2675,7 @@ export default function Dashboard() {
             confirmRevert={confirmRevert}
             revertModalOpen={revertModalOpen}
             setRevertModalOpen={setRevertModalOpen}
+            onOpenThinkTank={(text: string) => { setThinkTankDirective(text); setThinkTankOpen(true); }}
           />
         );
     }
@@ -3310,6 +3337,13 @@ export default function Dashboard() {
           background: rgba(255,255,255,0.2);
         }
       `}</style>
+
+      {/* Think Tank — opt-in 4-agent chain (Architect+Pixel → Syntax → Echo) */}
+      <AgentThinkTank
+        open={thinkTankOpen}
+        directive={thinkTankDirective}
+        onClose={() => setThinkTankOpen(false)}
+      />
     </div>
   );
 }
