@@ -2671,6 +2671,7 @@ export default function Dashboard() {
             confirmRevert={confirmRevert}
             revertModalOpen={revertModalOpen}
             setRevertModalOpen={setRevertModalOpen}
+            onOpenThinkTank={(text: string) => { setThinkTankDirective(text); setThinkTankOpen(true); }}
           />
         );
     }
