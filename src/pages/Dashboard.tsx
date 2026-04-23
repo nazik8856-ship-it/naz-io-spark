@@ -1035,7 +1035,7 @@ const RevertModal = ({ revertModalOpen, setRevertModalOpen, confirmRevert }: {
   </AnimatePresence>
 );
 
-// Home View with Intelligent Cards - Fixed Absolute Positioning Above Input
+// ─── HOME VIEW WITH 3-TIER NAZAI PROMPTER ─────────────────────────────────────────
 const HomeView = ({ 
   errorMessage, messages, activeTool, initialCards, auraProfile, currentTheme, isPending,
   handleSendMessage, handleKeyDown, handleTextareaFocus, handleTextareaBlur, handleSendPointerDown,
@@ -1044,431 +1044,575 @@ const HomeView = ({
   activeAssetIndex, setActiveAssetIndex, isDragOver, setIsDragOver, revertDropdownOpen, setRevertDropdownOpen,
   openRevertModal, handleCopyMessage, handleRegenerateMessage, handleShareMessage, confirmRevert, revertModalOpen, setRevertModalOpen,
   onOpenThinkTank,
-}: any) => (
-  <div className="relative flex flex-col w-full h-full">
-    {/* Error Toast */}
-    <AnimatePresence>
-      {errorMessage && (
-        <motion.div
-          initial={{ opacity: 0, y: -50 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -50 }}
-          className="fixed top-4 left-1/2 -translate-x-1/2 z-[10000] px-4 py-2 rounded-lg flex items-center gap-2 text-xs font-mono"
-          style={{ background: "rgba(239,68,68,0.9)", border: "1px solid rgba(239,68,68,0.5)", color: "white" }}
-        >
-          <AlertCircle size={12} />
-          {errorMessage}
-        </motion.div>
-      )}
-    </AnimatePresence>
+  promptMode, setPromptMode,
+  sandboxText, setSandboxText,
+  extractorData, setExtractorData,
+  selectedTemplate, setSelectedTemplate,
+  fileInputRef,
+  cameraInputRef,
+}: any) => {
+  // Template cards for Blueprint mode
+  const TEMPLATE_CARDS = [
+    { id: "saas", title: "SaaS Launcher", prompt: "Build a complete SaaS launch blueprint for [INDUSTRY]. Target audience: [AUDIENCE]. Budget: [BUDGET]. Vibe: [VIBE]. Include: pricing strategy, feature roadmap, customer acquisition plan, and 12-month financial projection." },
+    { id: "agency", title: "Agency Builder", prompt: "Create a service agency blueprint for [INDUSTRY]. Target clients: [AUDIENCE]. Budget: [BUDGET]. Brand vibe: [VIBE]. Include: service packages, team structure, lead generation system, and monthly revenue targets." },
+    { id: "ecom", title: "E‑com Engine", prompt: "Develop an e‑commerce launch plan for [INDUSTRY]. Target shoppers: [AUDIENCE]. Budget: [BUDGET]. Brand vibe: [VIBE]. Include: platform selection, supply chain setup, marketing funnel, and cash flow projections." },
+  ];
 
-    {/* Scrollable Messages Area */}
-    <div className="flex-1 w-full max-w-3xl mx-auto overflow-y-auto py-6 space-y-4 px-4 pb-[140px]">
-      {messages.length === 0 && (
-        <div className="flex flex-col items-center justify-start min-h-full gap-6 text-center pt-8">
-          <div className="relative">
-            <div
-              className="absolute inset-0 rounded-full animate-pulse"
-              style={{
-                boxShadow: `0 0 30px rgba(6, 182, 212, 0.6)`,
-                background: "radial-gradient(circle, rgba(6,182,212,0.2) 0%, transparent 70%)",
-              }}
-            />
-            <div className="w-16 h-16 rounded-full border-2 border-cyan-500/50 flex items-center justify-center relative bg-cyan-500/5">
+  // Prompt strength for extractor
+  const completedFields = [extractorData.industry, extractorData.audience, extractorData.budget].filter(Boolean).length;
+  const strength = Math.floor((completedFields / 3) * 100);
+
+  return (
+    <div className="relative flex flex-col w-full h-full">
+      {/* Error Toast */}
+      <AnimatePresence>
+        {errorMessage && (
+          <motion.div
+            initial={{ opacity: 0, y: -50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -50 }}
+            className="fixed top-4 left-1/2 -translate-x-1/2 z-[10000] px-4 py-2 rounded-lg flex items-center gap-2 text-xs font-mono"
+            style={{ background: "rgba(239,68,68,0.9)", border: "1px solid rgba(239,68,68,0.5)", color: "white" }}
+          >
+            <AlertCircle size={12} />
+            {errorMessage}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Scrollable Messages Area */}
+      <div className="flex-1 w-full max-w-3xl mx-auto overflow-y-auto py-6 space-y-4 px-4 pb-[140px]">
+        {messages.length === 0 && (
+          <div className="flex flex-col items-center justify-start min-h-full gap-6 text-center pt-8">
+            <div className="relative">
               <div
-                className="absolute inset-0 rounded-full animate-ping opacity-75"
-                style={{ background: "rgba(6, 182, 212, 0.3)" }}
+                className="absolute inset-0 rounded-full animate-pulse"
+                style={{
+                  boxShadow: `0 0 30px rgba(6, 182, 212, 0.6)`,
+                  background: "radial-gradient(circle, rgba(6,182,212,0.2) 0%, transparent 70%)",
+                }}
               />
-              <div
-                className="w-3 h-3 rounded-full bg-cyan-500 animate-pulse"
-                style={{ boxShadow: "0 0 10px #06b6d4" }}
-              />
+              <div className="w-16 h-16 rounded-full border-2 border-cyan-500/50 flex items-center justify-center relative bg-cyan-500/5">
+                <div
+                  className="absolute inset-0 rounded-full animate-ping opacity-75"
+                  style={{ background: "rgba(6, 182, 212, 0.3)" }}
+                />
+                <div
+                  className="w-3 h-3 rounded-full bg-cyan-500 animate-pulse"
+                  style={{ boxShadow: "0 0 10px #06b6d4" }}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <p
+                className="text-sm font-mono tracking-wide text-white font-bold"
+                style={{
+                  textShadow: "0 0 15px rgba(6, 182, 212, 0.8)",
+                  color: "#e2e8f0",
+                }}
+              >
+                THE NEURAL ARCHITECT
+              </p>
+              <p className="text-[10px] font-mono text-cyan-400/60 tracking-wider">
+                High-precision business blueprinting engine
+              </p>
+            </div>
+
+            {/* Command Center checklist */}
+            <div className="w-full mt-4">
+              <CommandCenterChecklist />
             </div>
           </div>
-          <div className="space-y-2">
-            <p
-              className="text-sm font-mono tracking-wide text-white font-bold"
-              style={{
-                textShadow: "0 0 15px rgba(6, 182, 212, 0.8)",
-                color: "#e2e8f0",
-              }}
-            >
-              THE NEURAL ARCHITECT
-            </p>
-            <p className="text-[10px] font-mono text-cyan-400/60 tracking-wider">
-              High-precision business blueprinting engine
-            </p>
-          </div>
+        )}
+        {messages.map((msg: any, i: number) => (
+          <motion.div
+            key={i}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"} group`}
+          >
+            {msg.role === "user" ? (
+              <div
+                className="max-w-[78%] px-3 py-2 text-xs font-mono"
+                style={{
+                  borderRadius: "12px 12px 2px 12px",
+                  background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.05)`,
+                  border: `1px solid var(--nazai-border-light)`,
+                  color: "var(--nazai-text-color)",
+                }}
+              >
+                {msg.text}
+              </div>
+            ) : (
+              <>
+                <div
+                  className="max-w-[85%] rounded-xl overflow-hidden"
+                  style={{ background: "#0B1F3A", border: "1px solid rgba(255,255,255,0.1)" }}
+                >
+                  <div
+                    className="flex items-center gap-2 px-3 py-2"
+                    style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", background: "rgba(6,182,212,0.03)" }}
+                  >
+                    <Brain size={12} style={{ color: "#06b6d4" }} />
+                    <span
+                      className="text-[9px] font-mono font-bold tracking-wider"
+                      style={{ color: "#06b6d4", textShadow: "0 0 6px rgba(6,182,212,0.4)" }}
+                    >
+                      NEURAL ARCHITECT // MISSION_RESULT.LOG
+                    </span>
+                  </div>
+                  <div className="px-3 py-2.5">{formatAIResponse(msg.text)}</div>
+                </div>
+                <MessageActionBar 
+                  message={msg} 
+                  index={i} 
+                  handleCopyMessage={handleCopyMessage}
+                  handleRegenerateMessage={handleRegenerateMessage}
+                  handleShareMessage={handleShareMessage}
+                  openRevertModal={openRevertModal}
+                  revertDropdownOpen={revertDropdownOpen}
+                  setRevertDropdownOpen={setRevertDropdownOpen}
+                />
+              </>
+            )}
+          </motion.div>
+        ))}
+        <div ref={messagesEndRef} />
+      </div>
 
-          {/* Command Center checklist (Phase 1: onboarding + agent feed + blurred activity) */}
-          <div className="w-full mt-4">
-            <CommandCenterChecklist />
-          </div>
+      {/* Selected Engine Badge */}
+      {activeTool && (
+        <div className="w-full max-w-2xl mx-auto mb-2 flex justify-end px-4 relative z-[101]">
+          <span
+            className="text-[9px] px-2 py-1 rounded-full flex items-center gap-1 font-mono"
+            style={{
+              background: `rgba(${activeTool.category.glowRgba},0.1)`,
+              border: `1px solid rgba(${activeTool.category.glowRgba},0.2)`,
+              color: activeTool.category.color,
+            }}
+          >
+            {activeTool.tool.name}{" "}
+            <X
+              size={10}
+              className="cursor-pointer hover:opacity-70 transition-opacity"
+              onClick={() => setSelectedModel(null)}
+            />
+          </span>
         </div>
       )}
-      {messages.map((msg: any, i: number) => (
-        <motion.div
-          key={i}
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"} group`}
-        >
-          {msg.role === "user" ? (
-            <div
-              className="max-w-[78%] px-3 py-2 text-xs font-mono"
-              style={{
-                borderRadius: "12px 12px 2px 12px",
-                background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.05)`,
-                border: `1px solid var(--nazai-border-light)`,
-                color: "var(--nazai-text-color)",
-              }}
-            >
-              {msg.text}
-            </div>
-          ) : (
-            <>
-              <div
-                className="max-w-[85%] rounded-xl overflow-hidden"
-                style={{ background: "#0B1F3A", border: "1px solid rgba(255,255,255,0.1)" }}
-              >
-                <div
-                  className="flex items-center gap-2 px-3 py-2"
-                  style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", background: "rgba(6,182,212,0.03)" }}
-                >
-                  <Brain size={12} style={{ color: "#06b6d4" }} />
-                  <span
-                    className="text-[9px] font-mono font-bold tracking-wider"
-                    style={{ color: "#06b6d4", textShadow: "0 0 6px rgba(6,182,212,0.4)" }}
-                  >
-                    NEURAL ARCHITECT // MISSION_RESULT.LOG
-                  </span>
-                </div>
-                <div className="px-3 py-2.5">{formatAIResponse(msg.text)}</div>
-              </div>
-              <MessageActionBar 
-                message={msg} 
-                index={i} 
-                handleCopyMessage={handleCopyMessage}
-                handleRegenerateMessage={handleRegenerateMessage}
-                handleShareMessage={handleShareMessage}
-                openRevertModal={openRevertModal}
-                revertDropdownOpen={revertDropdownOpen}
-                setRevertDropdownOpen={setRevertDropdownOpen}
-              />
-            </>
-          )}
-        </motion.div>
-      ))}
-      <div ref={messagesEndRef} />
-    </div>
 
-    {/* Selected Engine Badge */}
-    {activeTool && (
-      <div className="w-full max-w-2xl mx-auto mb-2 flex justify-end px-4 relative z-[101]">
-        <span
-          className="text-[9px] px-2 py-1 rounded-full flex items-center gap-1 font-mono"
-          style={{
-            background: `rgba(${activeTool.category.glowRgba},0.1)`,
-            border: `1px solid rgba(${activeTool.category.glowRgba},0.2)`,
-            color: activeTool.category.color,
-          }}
-        >
-          {activeTool.tool.name}{" "}
-          <X
-            size={10}
-            className="cursor-pointer hover:opacity-70 transition-opacity"
-            onClick={() => setSelectedModel(null)}
-          />
-        </span>
-      </div>
-    )}
-
-    {/* ─── PROMPT CARDS - RESPONSIVE STACK ON MOBILE ─── */}
-    <div 
-      className="absolute left-1/2 z-40 w-full max-w-2xl"
-      style={{ 
-        bottom: "140px",
-        pointerEvents: "none",
-        transform: "translateX(calc(-50% - 24px))",
-      }}
-    >
-      <div className="w-full px-4">
-        <AnimatePresence mode="wait">
-          {messages.length === 0 && (
-            <motion.div
-              key="initial-cards"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 20 }}
-              transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
-            >
-              {/* Responsive grid: 1 column on mobile, 2 columns on larger screens */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {initialCards.slice(0, 2).map((card: string, idx: number) => (
-                  <motion.button
-                    key={idx}
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ delay: 0.1 + idx * 0.08 }}
-                    onClick={() => handleSendMessage(card)}
-                    className="group relative p-5 rounded-2xl text-left transition-all duration-300 overflow-hidden cursor-pointer"
-                    style={{
-                      background: "rgba(255,255,255,0.03)",
-                      border: "1px solid rgba(255,255,255,0.1)",
-                      backdropFilter: "blur(16px)",
-                      pointerEvents: "auto",
-                    }}
-                    whileHover={{ 
-                      y: -4,
-                      backgroundColor: "rgba(255,255,255,0.06)",
-                      borderColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.5)`,
-                      boxShadow: `0 8px 30px -8px rgba(0,0,0,0.4)`
-                    }}
-                    whileTap={{ scale: 0.98 }}
-                  >
-                    <div className="absolute inset-0 bg-gradient-to-br from-transparent via-transparent to-white/[0.02] pointer-events-none" />
-                    
-                    <div className="relative z-10">
-                      <div className="flex items-center gap-2 mb-2">
-                        <div 
-                          className="w-1.5 h-1.5 rounded-full animate-pulse" 
-                          style={{ backgroundColor: auraProfile.glowPrimary }} 
-                        />
-                        <p className="text-[9px] font-mono font-black uppercase tracking-[0.2em]" style={{ color: auraProfile.glowPrimary }}>
-                          INITIATE MISSION
-                        </p>
-                      </div>
-                      
-                      <p className="text-[14px] font-bold leading-tight text-white/90 group-hover:text-white transition-colors line-clamp-2">
-                        {card}
-                      </p>
-                      
-                      <div className="flex items-center gap-1 mt-3 text-[8px] font-mono font-bold text-white/30 group-hover:text-white/60 transition-all">
-                        <span>DEPLOY MODULE</span>
-                        <ChevronRight size={10} style={{ color: auraProfile.glowPrimary }} />
-                      </div>
-                    </div>
-                  </motion.button>
-                ))}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-    </div>
-
-    {/* ─── FIXED INPUT PILL - PERFECTLY CENTERED ON MOBILE ─── */}
-    <div
-      ref={inputContainerRef}
-      className="fixed bottom-4 left-1/2 z-40 w-[94%] sm:w-full sm:max-w-2xl -translate-x-1/2"
-      style={{
-        pointerEvents: "auto",
-        isolation: "isolate",
-      }}
-    >
-      <div className="w-full px-0 sm:px-4">
-        <motion.div
-          className="relative rounded-2xl flex flex-col overflow-hidden shadow-2xl"
-          animate={laserShineAnimation}
-          onDragOver={(e) => {
-            e.preventDefault();
-            if (e.dataTransfer.types.includes("Files")) setIsDragOver(true);
-          }}
-          onDragLeave={(e) => {
-            e.preventDefault();
-            setIsDragOver(false);
-          }}
-          onDrop={(e) => {
-            e.preventDefault();
-            setIsDragOver(false);
-            const files = Array.from(e.dataTransfer.files);
-            if (files.length === 0) return;
-            const newAssets = files.map((file) => ({
-              id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-              url: URL.createObjectURL(file),
-              name: file.name,
-            }));
-            setUserMissionAssets((prev: any[]) => {
-              const next = [...prev, ...newAssets];
-              setActiveAssetIndex(next.length - newAssets.length);
-              return next;
-            });
-          }}
-          style={{
-            border: `1px solid ${
-              isDragOver
-                ? auraProfile.glowPrimary
-                : `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.25)`
-            }`,
-            boxShadow: isDragOver
-              ? `0 0 24px ${auraProfile.glowPrimary}55, inset 0 0 24px ${auraProfile.glowPrimary}22`
-              : undefined,
-            background: "rgba(10, 14, 23, 0.95)",
-            backdropFilter: "blur(20px)",
-            transition: "border-color 180ms ease, box-shadow 220ms ease",
-          }}
-        >
-          {/* Live Canvas: scanning beam on drop + celebratory snap */}
-          <DropScanOverlay count={userMissionAssets.length} color={auraProfile.glowPrimary} />
-
-          <textarea
-            ref={textareaRef}
-            defaultValue=""
-            onKeyDown={handleKeyDown}
-            onFocus={handleTextareaFocus}
-            onBlur={handleTextareaBlur}
-            placeholder={
-              activeTool ? `Mission for ${activeTool.tool.name}...` : "Architect a high-performance gym business..."
-            }
-            rows={1}
-            className="w-full bg-transparent border-none outline-none resize-none font-mono text-base p-4 pt-5"
-            autoComplete="off"
-            autoCorrect="off"
-            spellCheck={false}
-            style={{
-              color: "var(--nazai-text-color)",
-              fontSize: "16px",
-              height: "60px",
-              minHeight: "60px",
-              maxHeight: "60px",
-              zIndex: 10,
-              position: "relative",
-            }}
-          />
-          <AnimatePresence>
-            {userMissionAssets.length > 0 && (
+      {/* ─── PROMPT CARDS - RESPONSIVE STACK ON MOBILE ─── */}
+      <div 
+        className="absolute left-1/2 z-40 w-full max-w-2xl"
+        style={{ 
+          bottom: "140px",
+          pointerEvents: "none",
+          transform: "translateX(calc(-50% - 24px))",
+        }}
+      >
+        <div className="w-full px-4">
+          <AnimatePresence mode="wait">
+            {messages.length === 0 && (
               <motion.div
-                key="guardian-strip"
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={springTransition}
-                className="px-3 pt-2 pb-1 flex items-center gap-2 overflow-x-auto"
-                style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}
+                key="initial-cards"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 20 }}
+                transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
               >
-                {userMissionAssets.map((asset: any, i: number) => {
-                  const isActive = i === activeAssetIndex;
-                  return (
-                    <motion.div
-                      key={asset.id}
-                      initial={{ scale: 0.4, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
-                      exit={{ scale: 0.4, opacity: 0 }}
-                      transition={{ ...springTransition, stiffness: 500 }}
-                      className="relative shrink-0 rounded-lg overflow-hidden group"
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {initialCards.slice(0, 2).map((card: string, idx: number) => (
+                    <motion.button
+                      key={idx}
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ delay: 0.1 + idx * 0.08 }}
+                      onClick={() => handleSendMessage(card)}
+                      className="group relative p-5 rounded-2xl text-left transition-all duration-300 overflow-hidden cursor-pointer"
                       style={{
-                        width: 44,
-                        height: 44,
-                        border: `1px solid ${
-                          isActive
-                            ? auraProfile.glowPrimary
-                            : "rgba(255,255,255,0.08)"
-                        }`,
-                        boxShadow: isActive
-                          ? `0 0 10px ${auraProfile.glowPrimary}66`
-                          : undefined,
+                        background: "rgba(255,255,255,0.03)",
+                        border: "1px solid rgba(255,255,255,0.1)",
+                        backdropFilter: "blur(16px)",
+                        pointerEvents: "auto",
                       }}
+                      whileHover={{ 
+                        y: -4,
+                        backgroundColor: "rgba(255,255,255,0.06)",
+                        borderColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.5)`,
+                        boxShadow: `0 8px 30px -8px rgba(0,0,0,0.4)`
+                      }}
+                      whileTap={{ scale: 0.98 }}
                     >
-                      <img
-                        src={asset.url}
-                        alt={asset.name}
-                        className="w-full h-full object-cover"
-                        style={{ filter: "grayscale(0.5) contrast(1.1)" }}
-                      />
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setActiveAssetIndex(
-                            (i + 1) % userMissionAssets.length,
-                          )
-                        }
-                        title="Cycle vibe-matched asset"
-                        className="absolute inset-0 flex items-center justify-center bg-black/55 opacity-0 group-hover:opacity-100 transition-opacity"
-                      >
-                        <Wand2
-                          size={14}
-                          style={{ color: auraProfile.glowPrimary }}
-                        />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setUserMissionAssets((prev: any[]) =>
-                            prev.filter((a: any) => a.id !== asset.id),
-                          );
-                          setActiveAssetIndex(0);
-                        }}
-                        className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-black/80 border border-white/20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                      >
-                        <X size={8} className="text-white/70" />
-                      </button>
-                    </motion.div>
-                  );
-                })}
+                      <div className="absolute inset-0 bg-gradient-to-br from-transparent via-transparent to-white/[0.02] pointer-events-none" />
+                      
+                      <div className="relative z-10">
+                        <div className="flex items-center gap-2 mb-2">
+                          <div 
+                            className="w-1.5 h-1.5 rounded-full animate-pulse" 
+                            style={{ backgroundColor: auraProfile.glowPrimary }} 
+                          />
+                          <p className="text-[9px] font-mono font-black uppercase tracking-[0.2em]" style={{ color: auraProfile.glowPrimary }}>
+                            INITIATE MISSION
+                          </p>
+                        </div>
+                        
+                        <p className="text-[14px] font-bold leading-tight text-white/90 group-hover:text-white transition-colors line-clamp-2">
+                          {card}
+                        </p>
+                        
+                        <div className="flex items-center gap-1 mt-3 text-[8px] font-mono font-bold text-white/30 group-hover:text-white/60 transition-all">
+                          <span>DEPLOY MODULE</span>
+                          <ChevronRight size={10} style={{ color: auraProfile.glowPrimary }} />
+                        </div>
+                      </div>
+                    </motion.button>
+                  ))}
+                </div>
               </motion.div>
             )}
           </AnimatePresence>
-          <div className="flex items-center justify-between px-4 py-2.5 border-t border-white/5 bg-black/30">
-            <div className="flex gap-2">
-              <motion.button
-                onClick={() => setPlusMenuOpen(true)}
-                className="w-8 h-8 rounded-xl flex items-center justify-center relative z-10 transition-all border border-white/10"
-                style={{ background: "rgba(255,255,255,0.05)" }}
-                whileHover={{ scale: 1.1, background: "rgba(255,255,255,0.1)" }}
-                whileTap={{ scale: 0.9 }}
-              >
-                <Plus size={14} className="text-white/70" />
-              </motion.button>
-              <button
-                onClick={() => {
-                  setDrawerOpen(true);
-                  setPlusMenuOpen(false);
-                }}
-                className="text-[10px] px-3 py-1.5 rounded-lg font-mono font-bold tracking-tight transition-all hover:bg-white/10 flex items-center gap-2 border border-white/10"
-                style={{ background: "rgba(255,255,255,0.03)", color: auraProfile.glowPrimary }}
-              >
-                <Brain size={12} />
-                {activeTool ? activeTool.tool.name.toUpperCase() : "SELECT ENGINE"}
-              </button>
-            </div>
-            
-            <motion.button
-              type="button"
-              onClick={() => {
-                const currentText = textareaRef.current?.value || "";
-                if (currentText.trim()) onOpenThinkTank?.(currentText.trim());
-              }}
-              disabled={isPending}
-              className="w-8 h-8 rounded-xl flex items-center justify-center transition-all"
-              style={{
-                background: "rgba(6,182,212,0.08)",
-                border: "1px solid rgba(6,182,212,0.3)",
-              }}
-              whileHover={{ scale: 1.08, filter: "brightness(1.15)" }}
-              whileTap={{ scale: 0.92 }}
-              title="Run 4-agent Think Tank on this directive"
-              aria-label="Run Think Tank"
-            >
-              <Brain size={13} style={{ color: "#06b6d4" }} />
-            </motion.button>
-
-            <motion.button
-              onPointerDown={handleSendPointerDown}
-              disabled={isPending}
-              className="w-8 h-8 rounded-xl flex items-center justify-center transition-all shadow-lg"
-              style={{ background: currentTheme.color }}
-              whileHover={{ scale: 1.1, filter: "brightness(1.15)" }}
-              whileTap={{ scale: 0.9 }}
-            >
-              <Send size={13} style={{ color: "#020617" }} />
-            </motion.button>
-          </div>
-        </motion.div>
+        </div>
       </div>
+
+      {/* ─── FIXED INPUT PILL WITH 3-TIER MODE SWITCHER ─── */}
+      <div
+        ref={inputContainerRef}
+        className="fixed bottom-4 left-1/2 z-40 w-[94%] sm:w-full sm:max-w-2xl -translate-x-1/2"
+        style={{
+          pointerEvents: "auto",
+          isolation: "isolate",
+        }}
+      >
+        <div className="w-full px-0 sm:px-4">
+          <motion.div
+            className="relative rounded-2xl flex flex-col overflow-hidden shadow-2xl"
+            animate={laserShineAnimation}
+            onDragOver={(e) => {
+              e.preventDefault();
+              if (e.dataTransfer.types.includes("Files")) setIsDragOver(true);
+            }}
+            onDragLeave={(e) => {
+              e.preventDefault();
+              setIsDragOver(false);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              setIsDragOver(false);
+              const files = Array.from(e.dataTransfer.files);
+              if (files.length === 0) return;
+              const newAssets = files.map((file) => ({
+                id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                url: URL.createObjectURL(file),
+                name: file.name,
+              }));
+              setUserMissionAssets((prev: any[]) => {
+                const next = [...prev, ...newAssets];
+                setActiveAssetIndex(next.length - newAssets.length);
+                return next;
+              });
+            }}
+            style={{
+              border: `1px solid ${
+                isDragOver
+                  ? auraProfile.glowPrimary
+                  : `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.25)`
+              }`,
+              boxShadow: isDragOver
+                ? `0 0 24px ${auraProfile.glowPrimary}55, inset 0 0 24px ${auraProfile.glowPrimary}22`
+                : undefined,
+              background: "rgba(10, 14, 23, 0.95)",
+              backdropFilter: "blur(20px)",
+              transition: "border-color 180ms ease, box-shadow 220ms ease",
+            }}
+          >
+            <DropScanOverlay count={userMissionAssets.length} color={auraProfile.glowPrimary} />
+
+            {/* Mode Switcher - Segmented Control with Cyan Sliding Pill */}
+            <div className="flex justify-center pt-4 px-4">
+              <div className="relative flex bg-black/40 backdrop-blur-md rounded-full p-1 border border-white/10">
+                <motion.div
+                  className="absolute top-1 bottom-1 rounded-full bg-cyan-500/20"
+                  layout
+                  transition={{ type: "spring", stiffness: 500, damping: 35 }}
+                  style={{ width: `${100 / 3}%`, left: promptMode === "sandbox" ? "0%" : promptMode === "extractor" ? "33.33%" : "66.66%" }}
+                />
+                {["sandbox", "extractor", "blueprint"].map((mode) => (
+                  <button
+                    key={mode}
+                    onClick={() => { setPromptMode(mode); if (mode !== "blueprint") setSelectedTemplate(null); }}
+                    className={`relative z-10 px-4 py-1.5 text-[10px] font-mono font-bold tracking-wider rounded-full transition-colors ${
+                      promptMode === mode ? "text-cyan-400" : "text-white/50 hover:text-white/80"
+                    }`}
+                  >
+                    {mode === "sandbox" ? "SANDBOX" : mode === "extractor" ? "EXTRACTOR" : "BLUEPRINT"}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Dynamic Content based on selected mode */}
+            <AnimatePresence mode="wait">
+              {promptMode === "sandbox" && (
+                <motion.div
+                  key="sandbox"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.2 }}
+                  className="px-4 pt-3 pb-2"
+                >
+                  <textarea
+                    ref={textareaRef}
+                    value={sandboxText}
+                    onChange={(e) => setSandboxText(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    onFocus={handleTextareaFocus}
+                    onBlur={handleTextareaBlur}
+                    placeholder="Describe your business vision, challenge, or opportunity..."
+                    rows={3}
+                    className="w-full bg-black/30 backdrop-blur-sm rounded-xl border border-white/10 focus:border-cyan-500/50 outline-none p-3 text-sm font-mono resize-none"
+                    style={{ color: "var(--nazai-text-color)" }}
+                  />
+                  <div className="text-[9px] font-mono text-white/30 text-right mt-1">Founder Persona context will be applied automatically</div>
+                </motion.div>
+              )}
+
+              {promptMode === "extractor" && (
+                <motion.div
+                  key="extractor"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.2 }}
+                  className="px-4 pt-3 pb-2 space-y-3"
+                >
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <input
+                      type="text"
+                      placeholder="Industry / Sector"
+                      value={extractorData.industry}
+                      onChange={(e) => setExtractorData((prev: any) => ({ ...prev, industry: e.target.value }))}
+                      className="bg-black/30 backdrop-blur-sm rounded-lg border border-white/10 px-3 py-2 text-sm outline-none focus:border-cyan-500/50"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Target Audience"
+                      value={extractorData.audience}
+                      onChange={(e) => setExtractorData((prev: any) => ({ ...prev, audience: e.target.value }))}
+                      className="bg-black/30 backdrop-blur-sm rounded-lg border border-white/10 px-3 py-2 text-sm outline-none focus:border-cyan-500/50"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Estimated Budget (USD)"
+                      value={extractorData.budget}
+                      onChange={(e) => setExtractorData((prev: any) => ({ ...prev, budget: e.target.value }))}
+                      className="bg-black/30 backdrop-blur-sm rounded-lg border border-white/10 px-3 py-2 text-sm outline-none focus:border-cyan-500/50"
+                    />
+                    <select
+                      value={extractorData.vibe}
+                      onChange={(e) => setExtractorData((prev: any) => ({ ...prev, vibe: e.target.value }))}
+                      className="bg-black/30 backdrop-blur-sm rounded-lg border border-white/10 px-3 py-2 text-sm outline-none focus:border-cyan-500/50"
+                    >
+                      <option value="Formal">Formal / Corporate</option>
+                      <option value="Cyberpunk">Cyberpunk / Edgy</option>
+                      <option value="Minimalist">Minimalist / Clean</option>
+                      <option value="Bold">Bold / Disruptive</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="h-1.5 w-full bg-white/10 rounded-full overflow-hidden">
+                      <motion.div
+                        className="h-full bg-cyan-400"
+                        initial={{ width: 0 }}
+                        animate={{ width: `${strength}%` }}
+                        transition={{ duration: 0.3 }}
+                      />
+                    </div>
+                    <div className="flex justify-between text-[9px] font-mono text-white/40">
+                      <span>Blueprint Strength</span>
+                      <span>{strength}% complete</span>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+
+              {promptMode === "blueprint" && (
+                <motion.div
+                  key="blueprint"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.2 }}
+                  className="px-4 pt-3 pb-2 space-y-3"
+                >
+                  <div className="flex gap-3 overflow-x-auto pb-2">
+                    {TEMPLATE_CARDS.map((card) => (
+                      <button
+                        key={card.id}
+                        onClick={() => setSelectedTemplate(card.id)}
+                        className={`shrink-0 px-4 py-2 rounded-xl border transition-all ${
+                          selectedTemplate === card.id
+                            ? "border-cyan-400 bg-cyan-500/10 shadow-lg shadow-cyan-500/20"
+                            : "border-white/10 bg-black/30 hover:border-cyan-400/50"
+                        }`}
+                      >
+                        <div className="text-sm font-mono font-bold">{card.title}</div>
+                        <div className="text-[9px] font-mono text-white/40 mt-0.5">Master Blueprint</div>
+                      </button>
+                    ))}
+                  </div>
+                  {selectedTemplate && (
+                    <div className="bg-black/30 backdrop-blur-sm rounded-xl border border-white/10 p-3">
+                      <div className="text-[9px] font-mono text-cyan-400 mb-1 flex items-center gap-2">
+                        <span>PREVIEW</span>
+                        <span className="text-white/20">━</span>
+                        <span className="text-white/30">Dynamic placeholders will use your Extractor data</span>
+                      </div>
+                      <pre className="text-[10px] font-mono text-white/70 whitespace-pre-wrap break-words">
+                        {(() => {
+                          const tmpl = TEMPLATE_CARDS.find(t => t.id === selectedTemplate);
+                          if (!tmpl) return "";
+                          let preview = tmpl.prompt;
+                          preview = preview.replace(/\[INDUSTRY\]/g, extractorData.industry || "[Industry]");
+                          preview = preview.replace(/\[AUDIENCE\]/g, extractorData.audience || "[Audience]");
+                          preview = preview.replace(/\[BUDGET\]/g, extractorData.budget || "[Budget]");
+                          preview = preview.replace(/\[VIBE\]/g, extractorData.vibe);
+                          return preview;
+                        })()}
+                      </pre>
+                    </div>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Asset strip (drag & drop files) */}
+            <AnimatePresence>
+              {userMissionAssets.length > 0 && (
+                <motion.div
+                  key="guardian-strip"
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={springTransition}
+                  className="px-3 pt-2 pb-1 flex items-center gap-2 overflow-x-auto"
+                  style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}
+                >
+                  {userMissionAssets.map((asset: any, i: number) => {
+                    const isActive = i === activeAssetIndex;
+                    return (
+                      <motion.div
+                        key={asset.id}
+                        initial={{ scale: 0.4, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        exit={{ scale: 0.4, opacity: 0 }}
+                        transition={{ ...springTransition, stiffness: 500 }}
+                        className="relative shrink-0 rounded-lg overflow-hidden group"
+                        style={{
+                          width: 44,
+                          height: 44,
+                          border: `1px solid ${
+                            isActive
+                              ? auraProfile.glowPrimary
+                              : "rgba(255,255,255,0.08)"
+                          }`,
+                          boxShadow: isActive
+                            ? `0 0 10px ${auraProfile.glowPrimary}66`
+                            : undefined,
+                        }}
+                      >
+                        <img
+                          src={asset.url}
+                          alt={asset.name}
+                          className="w-full h-full object-cover"
+                          style={{ filter: "grayscale(0.5) contrast(1.1)" }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setActiveAssetIndex(
+                              (i + 1) % userMissionAssets.length,
+                            )
+                          }
+                          title="Cycle vibe-matched asset"
+                          className="absolute inset-0 flex items-center justify-center bg-black/55 opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <Wand2
+                            size={14}
+                            style={{ color: auraProfile.glowPrimary }}
+                          />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setUserMissionAssets((prev: any[]) =>
+                              prev.filter((a: any) => a.id !== asset.id),
+                            );
+                            setActiveAssetIndex(0);
+                          }}
+                          className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-black/80 border border-white/20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <X size={8} className="text-white/70" />
+                        </button>
+                      </motion.div>
+                    );
+                  })}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Bottom action bar */}
+            <div className="flex items-center justify-between px-4 py-2.5 border-t border-white/5 bg-black/30">
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setPlusMenuOpen(true)}
+                  className="w-8 h-8 rounded-xl flex items-center justify-center bg-white/5 border border-white/10 hover:bg-white/10 transition-all"
+                >
+                  <Plus size={14} className="text-white/70" />
+                </button>
+                <button
+                  onClick={() => setDrawerOpen(true)}
+                  className="text-[10px] px-3 py-1.5 rounded-lg font-mono font-bold tracking-tight transition-all hover:bg-white/10 flex items-center gap-2 border border-white/10 bg-white/5"
+                  style={{ color: auraProfile.glowPrimary }}
+                >
+                  <Brain size={12} />
+                  {activeTool ? activeTool.tool.name.toUpperCase() : "SELECT ENGINE"}
+                </button>
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    let currentText = "";
+                    if (promptMode === "sandbox") currentText = sandboxText;
+                    else if (promptMode === "extractor") currentText = `${extractorData.industry} ${extractorData.audience} ${extractorData.budget}`;
+                    else if (promptMode === "blueprint") currentText = selectedTemplate || "";
+                    if (currentText.trim()) onOpenThinkTank?.(currentText.trim());
+                  }}
+                  disabled={isPending}
+                  className="w-8 h-8 rounded-xl flex items-center justify-center transition-all bg-cyan-500/10 border border-cyan-500/30 hover:scale-105"
+                  title="Run 4-Agent Think Tank"
+                >
+                  <Brain size={13} className="text-cyan-400" />
+                </button>
+
+                <button
+                  onPointerDown={handleSendPointerDown}
+                  disabled={isPending}
+                  className="w-8 h-8 rounded-xl flex items-center justify-center transition-all shadow-lg"
+                  style={{ background: currentTheme.color }}
+                >
+                  <Send size={13} style={{ color: "#020617" }} />
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      </div>
+      <RevertModal revertModalOpen={revertModalOpen} setRevertModalOpen={setRevertModalOpen} confirmRevert={confirmRevert} />
     </div>
-    <RevertModal revertModalOpen={revertModalOpen} setRevertModalOpen={setRevertModalOpen} confirmRevert={confirmRevert} />
-  </div>
-);
+  );
+};
 
 // Sidebar Content Component (DRY - used for both mobile and desktop)
 function SidebarContent({ 
@@ -1691,7 +1835,7 @@ function SidebarContent({
   );
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────────
+// ─── MAIN DASHBOARD COMPONENT ────────────────────────────────────────────────────
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -1817,6 +1961,17 @@ export default function Dashboard() {
   
   // ─── Identity & Neural Context Logic ────────────────────────────────────────
   const [userContext, setUserContext] = useState<UserContext>(DEFAULT_USER_CONTEXT);
+
+  // ─── 3-TIER NAZAI PROMPTER STATES ───────────────────────────────────────────
+  const [promptMode, setPromptMode] = useState<"sandbox" | "extractor" | "blueprint">("sandbox");
+  const [sandboxText, setSandboxText] = useState("");
+  const [extractorData, setExtractorData] = useState({
+    industry: "",
+    audience: "",
+    budget: "",
+    vibe: "Formal",
+  });
+  const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
 
   // ─── Dynamic CSS Variable Injection ──────────────────────────────────────────
   useEffect(() => {
@@ -2232,16 +2387,67 @@ export default function Dashboard() {
     }
   }, [revertTargetIndex]);
 
-  // ─── THE TITAN UNIFIED MESSAGE HANDLER ──────────────────────────────────────
-  const handleSendMessage = useCallback(async (customMessage?: string) => {
-    const currentText = customMessage ?? (textareaRef.current?.value || "");
-    const trimmed = currentText.trim();
+  // ─── MASTER PROMPT COMPILER (3-MODE) ──────────────────────────────────────────
+  const compileMasterPrompt = useCallback(() => {
+    const contextPrefix = `[SYSTEM_DIRECTIVE: You are interacting with ${userContext.identity}. Project: ${userContext.goals}. Style: ${userContext.style}. Provide right and perspective responses only. Say "You're completely wrong" if I'm wrong.]\n\n`;
+    
+    if (promptMode === "sandbox") {
+      const wrapped = `[Founder Persona Context]\nUser Input: ${sandboxText || "No specific input provided."}\n\nGenerate a strategic business blueprint based on this founder perspective. Include market analysis, operational framework, financial architecture, and growth strategy.`;
+      return contextPrefix + wrapped;
+    }
+    
+    if (promptMode === "extractor") {
+      const { industry, audience, budget, vibe } = extractorData;
+      const missing = [];
+      if (!industry) missing.push("Industry");
+      if (!audience) missing.push("Target Audience");
+      if (!budget) missing.push("Budget");
+      
+      let base = `BUSINESS BLUEPRINT REQUEST\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+      base += `INDUSTRY: ${industry || "Not specified"}\n`;
+      base += `TARGET AUDIENCE: ${audience || "Not specified"}\n`;
+      base += `BUDGET: ${budget || "Not specified"}\n`;
+      base += `BRAND VIBE: ${vibe}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+      
+      if (missing.length) {
+        base += `[NOTE: Missing fields: ${missing.join(", ")} – please assume reasonable industry standards and provide best-practice recommendations.]\n\n`;
+      }
+      
+      base += `Generate a complete professional business blueprint covering:\n`;
+      base += `1. Market Analysis & Opportunity Assessment\n`;
+      base += `2. Operational Structure & Resource Planning\n`;
+      base += `3. Financial Roadmap & Budget Allocation\n`;
+      base += `4. Growth Strategy & Scaling Milestones\n`;
+      base += `5. Risk Assessment & Mitigation Tactics\n\n`;
+      base += `Provide actionable, specific recommendations tailored to the ${vibe} brand aesthetic.`;
+      
+      return contextPrefix + base;
+    }
+    
+    if (promptMode === "blueprint" && selectedTemplate) {
+      const TEMPLATES: Record<string, string> = {
+        saas: "Build a complete SaaS launch blueprint for [INDUSTRY]. Target audience: [AUDIENCE]. Budget: [BUDGET]. Vibe: [VIBE]. Include: pricing strategy, feature roadmap, customer acquisition plan, and 12-month financial projection.",
+        agency: "Create a service agency blueprint for [INDUSTRY]. Target clients: [AUDIENCE]. Budget: [BUDGET]. Brand vibe: [VIBE]. Include: service packages, team structure, lead generation system, and monthly revenue targets.",
+        ecom: "Develop an e‑commerce launch plan for [INDUSTRY]. Target shoppers: [AUDIENCE]. Budget: [BUDGET]. Brand vibe: [VIBE]. Include: platform selection, supply chain setup, marketing funnel, and cash flow projections.",
+      };
+      let compiled = TEMPLATES[selectedTemplate] || "";
+      compiled = compiled.replace(/\[INDUSTRY\]/g, extractorData.industry || "[Industry]");
+      compiled = compiled.replace(/\[AUDIENCE\]/g, extractorData.audience || "[Audience]");
+      compiled = compiled.replace(/\[BUDGET\]/g, extractorData.budget || "[Budget]");
+      compiled = compiled.replace(/\[VIBE\]/g, extractorData.vibe);
+      compiled += `\n\nGenerate a comprehensive, actionable blueprint with specific recommendations, timelines, and measurable KPIs.`;
+      return contextPrefix + compiled;
+    }
+    
+    return contextPrefix + "Generate a professional business blueprint.";
+  }, [promptMode, sandboxText, extractorData, selectedTemplate, userContext]);
+
+  // ─── THE TITAN UNIFIED MESSAGE HANDLER (UPDATED FOR 3-MODE) ──────────────────────
+  const handleSendMessage = useCallback(async () => {
+    const masterPrompt = compileMasterPrompt();
+    const trimmed = masterPrompt.trim();
 
     if (isPending || trimmed.length === 0) {
-      if (trimmed.length === 0 && textareaRef.current) {
-        textareaRef.current.classList.add("animate-shake");
-        setTimeout(() => textareaRef.current?.classList.remove("animate-shake"), 500);
-      }
       return;
     }
 
@@ -2262,15 +2468,11 @@ export default function Dashboard() {
     const userMessage = trimmed;
     const aiMsgIndex = messages.length + 1;
 
-    if (textareaRef.current && !customMessage) textareaRef.current.value = "";
     setErrorMessage(null);
-    
-    // Build context-aware system prompt with user context
-    const contextPrompt = `[SYSTEM_DIRECTIVE: You are interacting with ${userContext.identity}. Project: ${userContext.goals}. Style: ${userContext.style}. Provide right and perspective responses only. Say "You're completely wrong" if I'm wrong.]\n\nUser Query: ${userMessage}`;
     
     setMessages((prev) => [
       ...prev,
-      { role: "user", text: contextPrompt },
+      { role: "user", text: userMessage },
       { role: "ai", text: "Neural Architect: Processing blueprint..." },
     ]);
 
@@ -2329,7 +2531,7 @@ export default function Dashboard() {
       const result = (await Promise.race([
         supabase.functions.invoke("generate-business-plan", {
           body: {
-            prompt: contextPrompt,
+            prompt: userMessage,
             model: selectedModel,
             style: activeStyle,
             webSearch: webSearchActive,
@@ -2342,7 +2544,7 @@ export default function Dashboard() {
 
       if (result.error) throw new Error(result.error.message || "Link Failed");
 
-      const outputText = result.data?.plan || result.data?.response || `Blueprint ready for: "${userMessage}"`;
+      const outputText = result.data?.plan || result.data?.response || `Blueprint ready.`;
       finalResponseText = outputText;
 
       setMessages((prev) => {
@@ -2353,7 +2555,6 @@ export default function Dashboard() {
         return updated;
       });
 
-      // CRITICAL FIX: Mark mission as completed (response text not persisted - schema only stores directive)
       if (missionToUpdateId) {
         await supabase
           .from("missions")
@@ -2389,7 +2590,7 @@ export default function Dashboard() {
         window.scrollTo(0, document.body.scrollHeight);
       }, 250);
     }
-  }, [isPending, messages.length, selectedModel, userId, activeStyle, webSearchActive, activeMissionId, fetchMissions, userContext]);
+  }, [isPending, messages.length, selectedModel, userId, activeStyle, webSearchActive, activeMissionId, fetchMissions, compileMasterPrompt]);
 
   // ─── INPUT TRIGGERS ────────────────────────────────────────────────────────
   const handleKeyDown = useCallback(
@@ -2405,12 +2606,9 @@ export default function Dashboard() {
   const handleSendPointerDown = useCallback(
     (e: React.PointerEvent<HTMLButtonElement>) => {
       e.preventDefault();
-      const currentText = textareaRef.current?.value || "";
-      if (currentText.trim() && !isPending) {
-        handleSendMessage();
-      }
+      handleSendMessage();
     },
-    [isPending, handleSendMessage],
+    [handleSendMessage],
   );
 
   // ─── THE MANUAL SIDEBAR LIFECYCLE ───────────────────────────────────────────
@@ -2676,6 +2874,16 @@ export default function Dashboard() {
             revertModalOpen={revertModalOpen}
             setRevertModalOpen={setRevertModalOpen}
             onOpenThinkTank={(text: string) => { setThinkTankDirective(text); setThinkTankOpen(true); }}
+            promptMode={promptMode}
+            setPromptMode={setPromptMode}
+            sandboxText={sandboxText}
+            setSandboxText={setSandboxText}
+            extractorData={extractorData}
+            setExtractorData={setExtractorData}
+            selectedTemplate={selectedTemplate}
+            setSelectedTemplate={setSelectedTemplate}
+            fileInputRef={fileInputRef}
+            cameraInputRef={cameraInputRef}
           />
         );
     }
