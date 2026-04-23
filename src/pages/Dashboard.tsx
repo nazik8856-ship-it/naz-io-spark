@@ -1088,7 +1088,7 @@ const ModeInfoModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => vo
   </AnimatePresence>
 );
 
-// ─── HOME VIEW WITH REFINED PROMPT CARDS BEHAVIOR ─────────────────────────────────
+// ─── HOME VIEW WITH ENHANCED PROMPT CARDS (SANDBOX ONLY) ──────────────────────────
 const HomeView = ({ 
   errorMessage, messages, activeTool, initialCards, auraProfile, currentTheme, isPending,
   handleSendMessage, handleKeyDown, handleTextareaFocus, handleTextareaBlur, handleSendPointerDown,
@@ -1147,9 +1147,9 @@ const HomeView = ({
   // Info modal state
   const [infoModalOpen, setInfoModalOpen] = useState(false);
 
-  // Determine if expanded (Extractor or Blueprint mode) - cards only show in sandbox
-  const isExpandedMode = promptMode === "extractor" || promptMode === "blueprint";
+  // Determine if cards should be visible (only in sandbox mode AND no messages)
   const showPromptCards = messages.length === 0 && promptMode === "sandbox";
+  const isExpandedMode = promptMode === "extractor" || promptMode === "blueprint";
 
   return (
     <div className="relative flex flex-col w-full h-full">
@@ -1290,7 +1290,8 @@ const HomeView = ({
         </div>
       )}
 
-      {/* ─── PROMPT CARDS - DYNAMIC DISAPPEARANCE WITH AnimatePresence ─── */}
+      {/* ─── ENHANCED PROMPT CARDS - ONLY VISIBLE IN SANDBOX MODE ─── */}
+      {/* Cards float 20px higher with cyan glow, disappear smoothly when switching modes */}
       <div 
         className="absolute left-1/2 z-40 w-full max-w-2xl"
         style={{ 
@@ -1304,9 +1305,13 @@ const HomeView = ({
             {showPromptCards && (
               <motion.div
                 key="prompt-cards"
-                initial={{ opacity: 1, scale: 1, y: 0 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                initial={{ opacity: 1, y: 0, scale: 1 }}
+                animate={{ 
+                  opacity: 1, 
+                  y: -20,  // Shift 20px higher so they don't look "sunk" into the input box
+                  scale: 1,
+                }}
+                exit={{ opacity: 0, y: 10, scale: 0.9 }}
                 transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
                 className="origin-bottom"
               >
@@ -1324,12 +1329,13 @@ const HomeView = ({
                         border: "1px solid rgba(255,255,255,0.1)",
                         backdropFilter: "blur(16px)",
                         pointerEvents: "auto",
+                        boxShadow: "0 0 15px rgba(6,182,212,0.2)",  // Subtle cyan glow
                       }}
                       whileHover={{ 
                         y: -4,
                         backgroundColor: "rgba(255,255,255,0.06)",
                         borderColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.5)`,
-                        boxShadow: `0 8px 30px -8px rgba(0,0,0,0.4)`
+                        boxShadow: `0 0 25px rgba(6,182,212,0.3)`
                       }}
                       whileTap={{ scale: 0.98 }}
                     >
