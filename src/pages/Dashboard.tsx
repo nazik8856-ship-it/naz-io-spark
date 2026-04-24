@@ -2393,6 +2393,12 @@ export default function Dashboard() {
   // Pencil-edit pulse: highlights the input pill for ~2s when triggered
   const [editPulse, setEditPulse] = useState(false);
 
+  // Live-Edit Sandbox Bridge: snapshot of the most recently generated website
+  // output (raw response text or extracted code). When the user types in
+  // SANDBOX mode after a build, this is fed back to the AI as `[CurrentCode]`
+  // so it performs surgical edits instead of regenerating an unrelated site.
+  const [activeWebsiteCode, setActiveWebsiteCode] = useState<string>("");
+
   const handleEditTrigger = useCallback(() => {
     // 1. Force sandbox mode for free-form iteration commands
     setPromptMode("sandbox");
