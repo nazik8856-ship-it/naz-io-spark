@@ -1384,6 +1384,7 @@ const HomeView = ({
               isWebsiteComplete={isWebsiteComplete}
               directive={lastWebsitePrompt}
               onRefine={handleRefine}
+              onEditTrigger={onEditTrigger}
             />
             {/* Close handle so the user can return to the standard chat view */}
             <button
