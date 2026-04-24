@@ -2754,6 +2754,15 @@ export default function Dashboard() {
       { role: "ai", text: "Neural Architect: Processing blueprint..." },
     ]);
 
+    // Secondary haptic pulse — confirms the agent processing phase is engaged
+    try {
+      window.navigator?.vibrate?.([15, 8, 15, 8, 25]);
+    } catch {
+      /* noop */
+    }
+    setHapticStatus("Synchronizing agent telemetry with wearable interface...");
+    setTimeout(() => setHapticStatus(null), 2200);
+
     let missionToUpdateId = activeMissionId;
     let finalResponseText = "";
 
