@@ -281,9 +281,10 @@ const OrchestrationCinema: React.FC<OrchestrationCinemaProps> = ({ active }) => 
                   rotate: [c.rotate * 2, c.rotate, 0],
                 }}
                 transition={{
-                  duration: 2.4,
+                  duration: 4.6,
                   delay: c.delay,
-                  times: [0, 0.45, 0.85, 1],
+                  // Hold the converged state, then shatter (opacity→0, scale→0.3) at ~5s
+                  times: [0, 0.45, 0.9, 1],
                   ease: [0.22, 1, 0.36, 1],
                 }}
                 className="absolute left-1/2 top-1/2"
