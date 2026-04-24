@@ -1181,6 +1181,8 @@ const HomeView = ({
   isIterationMode,
   onEditTrigger,
   editPulse,
+  isPreviewActive,
+  setIsPreviewActive,
 }: any) => {
   // Template definitions (master templates - never mutated)
   const TEMPLATE_MASTERS = {
