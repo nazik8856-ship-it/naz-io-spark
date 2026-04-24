@@ -10,7 +10,14 @@ import {
   Code2,
   Wand2,
   Loader2,
+  Pencil,
 } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import CommandCenterChecklist from "@/components/dashboard/CommandCenterChecklist";
 import OrchestrationCinema from "@/components/dashboard/OrchestrationCinema";
 import LaunchpadDeploymentBar from "@/components/dashboard/LaunchpadDeploymentBar";
