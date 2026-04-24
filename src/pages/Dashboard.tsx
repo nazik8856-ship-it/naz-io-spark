@@ -2740,8 +2740,10 @@ export default function Dashboard() {
   }, [promptMode, sandboxText, extractorData, editablePrompt, userContext]);
 
   // ─── THE TITAN UNIFIED MESSAGE HANDLER ──────────────────────────────────────
-  const handleSendMessage = useCallback(async () => {
-    let masterPrompt = compileMasterPrompt();
+  const handleSendMessage = useCallback(async (overridePrompt?: string) => {
+    let masterPrompt = typeof overridePrompt === "string" && overridePrompt.trim().length > 0
+      ? overridePrompt
+      : compileMasterPrompt();
     const trimmed = masterPrompt.trim();
 
     if (isPending || trimmed.length === 0) {
