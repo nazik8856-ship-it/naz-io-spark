@@ -350,9 +350,13 @@ const WebsiteRevealPane: React.FC<WebsiteRevealPaneProps> = ({
           initial={{ x: 32, opacity: 0 }}
           animate={{ x: 0, opacity: 1 }}
           transition={{ type: "spring", stiffness: 220, damping: 28, delay: 0.05 }}
-          className="overflow-y-auto"
+          className="relative overflow-y-auto"
           style={{ background: "#09090b" }}
         >
+          {/* Orchestration Cinema — fast (≤3s) hyperspace transition while the
+              skeleton stages are still locking in. Auto-fades when stage hits 4. */}
+          <OrchestrationCinema active={stage < 4} />
+
           <div className="p-4 sm:p-6 flex flex-col items-center gap-4">
             <div
               className={`mx-auto rounded-xl overflow-hidden transition-all duration-500 ${
@@ -409,19 +413,20 @@ const WebsiteRevealPane: React.FC<WebsiteRevealPaneProps> = ({
                   : "Live preview"}
             </p>
 
-            {/* ─── Command Center, directly below the generated website ──── */}
+            {/* ─── Command Center + Launchpad, directly below the website ──── */}
             {isWebsiteComplete && (
               <motion.div
                 initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.5, delay: 0.2 }}
-                className="w-full"
+                className="w-full space-y-4"
               >
                 <div
                   className="my-4 h-px w-full"
                   style={{ background: "linear-gradient(90deg, transparent, #27272a, transparent)" }}
                 />
                 <CommandCenterChecklist />
+                <LaunchpadDeploymentBar directive={directive} />
               </motion.div>
             )}
           </div>
