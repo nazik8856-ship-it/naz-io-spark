@@ -63,6 +63,8 @@ interface WebsiteRevealPaneProps {
   directive: string;
   /** Refine callback — receives selected text + new instruction; sends a follow-up. */
   onRefine?: (selected: string, instruction: string) => void;
+  /** Pencil-edit callback — scrolls to input, forces sandbox, pulses input. */
+  onEditTrigger?: () => void;
 }
 
 // ─── Strategy parser ────────────────────────────────────────────────────────────
