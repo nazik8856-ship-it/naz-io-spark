@@ -135,11 +135,12 @@ const OrchestrationCinema: React.FC<OrchestrationCinemaProps> = ({ active }) => 
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.25 }}
-          className="pointer-events-none absolute inset-0 z-40 overflow-hidden"
+          className="pointer-events-none absolute inset-0 z-50 overflow-hidden flex items-center justify-center"
           style={{
             background:
-              "radial-gradient(ellipse at center, rgba(6,182,212,0.12) 0%, rgba(9,9,11,0.88) 55%, rgba(9,9,11,0.97) 100%)",
-            backdropFilter: "blur(8px)",
+              "radial-gradient(ellipse at center, rgba(6,182,212,0.18) 0%, rgba(9,9,11,0.92) 55%, rgba(9,9,11,0.99) 100%)",
+            backdropFilter: "blur(40px)",
+            WebkitBackdropFilter: "blur(40px)",
           }}
           aria-hidden
         >
