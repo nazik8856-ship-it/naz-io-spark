@@ -1178,6 +1178,7 @@ const HomeView = ({
   isWebsiteIntent,
   setIsWebsiteIntent,
   lastWebsitePrompt,
+  isIterationMode,
 }: any) => {
   // Template definitions (master templates - never mutated)
   const TEMPLATE_MASTERS = {
@@ -3285,6 +3286,7 @@ export default function Dashboard() {
             isWebsiteIntent={isWebsiteIntent}
             setIsWebsiteIntent={setIsWebsiteIntent}
             lastWebsitePrompt={lastWebsitePrompt}
+            isIterationMode={isIterationMode}
           />
         );
     }
