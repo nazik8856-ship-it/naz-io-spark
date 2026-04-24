@@ -336,59 +336,49 @@ const AgentThinkTank: React.FC<AgentThinkTankProps> = ({ open, directive, onClos
               )}
             </AnimatePresence>
 
-            {/* Terminal log */}
-            <div
-              ref={logRef}
-              className="flex-1 overflow-y-auto p-5 font-mono text-[11px] leading-relaxed"
-              style={{ background: "#020617" }}
-            >
+            {/* Cloaked: terminal log replaced with a single calm result/error block */}
+            <div className="px-6 pb-6 pt-2">
               {error && (
-                <div className="text-red-400 flex items-center gap-2 mb-3">
+                <div
+                  className="rounded-lg px-4 py-3 text-xs flex items-center gap-2"
+                  style={{
+                    background: "rgba(239,68,68,0.06)",
+                    border: "1px solid rgba(239,68,68,0.25)",
+                    color: "#fca5a5",
+                  }}
+                >
                   <AlertOctagon size={12} />
                   {error}
                 </div>
               )}
 
-              {initFrame && (
-                <div className="text-white/50 mb-3">
-                  <span className="text-cyan-400">[{formatTs(initFrame.ts)}]</span>{" "}
-                  <span className="text-white/40">init</span> → directive accepted ·
-                  chain: <span className="text-white/70">{initFrame.chain.join(" → ")}</span>
-                  {!!initFrame.trash_signals.length && (
-                    <span className="text-amber-400/80">
-                      {" · "}heuristic flags: {initFrame.trash_signals.join(", ")}
-                    </span>
-                  )}
-                </div>
+              {!error && !final && (
+                <p className="text-[11px] text-white/40 font-mono text-center">
+                  NazAI is coordinating the full launch — strategy, design, build, and review.
+                </p>
               )}
 
-              {frames.map((f, i) => (
-                <FrameLine key={i} frame={f} />
-              ))}
-
-              {final && (
-                <div
-                  className="mt-4 p-3 rounded-md"
+              {final && !final.intercept && final.echo?.headline && (
+                <motion.div
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="rounded-lg px-4 py-3"
                   style={{
                     background: "rgba(6,182,212,0.05)",
                     border: "1px solid rgba(6,182,212,0.2)",
                   }}
                 >
-                  <div className="text-cyan-300 mb-2">
-                    [{formatTs(final.total_ms)}] FINAL · chain complete
-                  </div>
-                  {!final.intercept && final.echo?.headline && (
-                    <div className="text-white/90 text-sm font-sans">
-                      <span className="font-semibold">{final.echo.headline}</span>
-                      <span className="text-white/50"> — {final.echo.subhead}</span>
-                    </div>
-                  )}
-                </div>
+                  <div className="text-white text-sm font-semibold">{final.echo.headline}</div>
+                  <div className="text-white/60 text-xs mt-1">{final.echo.subhead}</div>
+                </motion.div>
               )}
 
-              {!frames.length && !error && (
-                <div className="text-white/30 italic">Awaiting first frame…</div>
-              )}
+              {/* Hidden frames (kept mounted for logic; UI cloaked) */}
+              <div ref={logRef} aria-hidden className="hidden">
+                {frames.map((f, i) => (
+                  <FrameLine key={i} frame={f} />
+                ))}
+              </div>
             </div>
           </motion.div>
         </>
