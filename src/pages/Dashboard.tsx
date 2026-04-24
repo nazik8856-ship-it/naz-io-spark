@@ -1179,6 +1179,8 @@ const HomeView = ({
   setIsWebsiteIntent,
   lastWebsitePrompt,
   isIterationMode,
+  onEditTrigger,
+  editPulse,
 }: any) => {
   // Template definitions (master templates - never mutated)
   const TEMPLATE_MASTERS = {
@@ -1384,6 +1386,7 @@ const HomeView = ({
               isWebsiteComplete={isWebsiteComplete}
               directive={lastWebsitePrompt}
               onRefine={handleRefine}
+              onEditTrigger={onEditTrigger}
             />
             {/* Close handle so the user can return to the standard chat view */}
             <button
@@ -1538,13 +1541,26 @@ const HomeView = ({
       </AnimatePresence>
 
       {/* ─── ADAPTIVE WORKBENCH INPUT CONTAINER WITH HEIGHT ANIMATION ─── */}
-      <div
+      <motion.div
         ref={inputContainerRef}
-        className="fixed bottom-4 left-1/2 z-40 w-[94%] sm:w-full sm:max-w-2xl -translate-x-1/2"
+        className="fixed bottom-4 left-1/2 z-40 w-[94%] sm:w-full sm:max-w-2xl -translate-x-1/2 rounded-3xl"
         style={{
           pointerEvents: "auto",
           isolation: "isolate",
         }}
+        animate={
+          editPulse
+            ? {
+                boxShadow: [
+                  "0 0 0 0px rgba(6,182,212,0)",
+                  "0 0 0 4px rgba(6,182,212,0.45), 0 0 48px rgba(6,182,212,0.65)",
+                  "0 0 0 2px rgba(6,182,212,0.25), 0 0 24px rgba(6,182,212,0.35)",
+                  "0 0 0 0px rgba(6,182,212,0)",
+                ],
+              }
+            : { boxShadow: "0 0 0 0px rgba(6,182,212,0)" }
+        }
+        transition={{ duration: 2, ease: "easeOut" }}
       >
         {isMinimized ? (
           // ── Sleek 48px chat bar — focuses center of screen on AI output ──
@@ -1921,7 +1937,7 @@ const HomeView = ({
           </motion.div>
         </div>
         )}
-      </div>
+      </motion.div>
       
       <RevertModal revertModalOpen={revertModalOpen} setRevertModalOpen={setRevertModalOpen} confirmRevert={confirmRevert} />
       <ModeInfoModal isOpen={infoModalOpen} onClose={() => setInfoModalOpen(false)} />
@@ -2374,6 +2390,28 @@ export default function Dashboard() {
   // Haptic Sync transient status message
   const [hapticStatus, setHapticStatus] = useState<string | null>(null);
 
+  // Pencil-edit pulse: highlights the input pill for ~2s when triggered
+  const [editPulse, setEditPulse] = useState(false);
+
+  const handleEditTrigger = useCallback(() => {
+    // 1. Force sandbox mode for free-form iteration commands
+    setPromptMode("sandbox");
+    // 2. Pulse the input pill (cyan glow) for ~2s
+    setEditPulse(true);
+    setTimeout(() => setEditPulse(false), 2200);
+    // 3. Scroll the input into view
+    requestAnimationFrame(() => {
+      inputContainerRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      textareaRef.current?.focus();
+    });
+    // 4. Soft haptic confirmation
+    try {
+      window.navigator?.vibrate?.([12, 6, 12]);
+    } catch {
+      /* noop */
+    }
+  }, []);
+
   // ── Live-Edit Sandbox Bridge: once the website is live, auto-switch the
   //    prompt mode to SANDBOX so the user can issue iteration commands inline.
   useEffect(() => {
@@ -2823,7 +2861,28 @@ export default function Dashboard() {
       `orchestration based on the user's specific input. Route reasoning to the ` +
       `strongest model, delegate creative or media tasks to specialized agents, ` +
       `and parallelize independent steps. Do not ask the user which engine to use.\n\n`;
-    masterPrompt = ORCHESTRATION_DIRECTIVE + masterPrompt;
+
+    // ── Anti-Repetition: force high-entropy, bespoke architectural responses.
+    //    The AI must NEVER fall back on a static template — every output must
+    //    be derived from this user's specific industry, vibe, and constraints.
+    const { industry: extIndustry, audience: extAudience, budget: extBudget, vibe: extVibe } = extractorData || {} as any;
+    const ANTI_REPETITION_DIRECTIVE =
+      `[SYSTEM_ENTROPY: HIGH]\n` +
+      `Generate a unique, bespoke architectural response based strictly on the ` +
+      `user's industry, vibe, and specific constraints. Do not reuse previous ` +
+      `layouts or generic structures. Every section, headline, component name, ` +
+      `and color palette MUST be freshly derived from the variables below. ` +
+      `Reject any template-style output.\n` +
+      `EXTRACTOR_VARIABLES:\n` +
+      `  • industry=${extIndustry || "(infer from prompt)"}\n` +
+      `  • audience=${extAudience || "(infer from prompt)"}\n` +
+      `  • budget=${extBudget || "(infer from prompt)"}\n` +
+      `  • vibe=${extVibe || "(infer from prompt)"}\n` +
+      `  • identity=${userContext?.identity || "(unspecified)"}\n` +
+      `  • goals=${userContext?.goals || "(unspecified)"}\n` +
+      `  • style=${userContext?.style || "(unspecified)"}\n\n`;
+
+    masterPrompt = ORCHESTRATION_DIRECTIVE + ANTI_REPETITION_DIRECTIVE + masterPrompt;
 
     // ── Intent detection ──────────────────────────────────────────────────────
     //  • If a website is already live in the preview pane → treat any new
@@ -3012,7 +3071,7 @@ export default function Dashboard() {
         window.scrollTo(0, document.body.scrollHeight);
       }, 250);
     }
-  }, [isPending, messages.length, selectedModel, userId, activeStyle, webSearchActive, activeMissionId, fetchMissions, compileMasterPrompt]);
+  }, [isPending, messages.length, selectedModel, userId, activeStyle, webSearchActive, activeMissionId, fetchMissions, compileMasterPrompt, extractorData, userContext, isWebsiteComplete, isWebsiteIntent, lastWebsitePrompt]);
 
   // ─── INPUT TRIGGERS ────────────────────────────────────────────────────────
   const handleKeyDown = useCallback(
@@ -3316,6 +3375,8 @@ export default function Dashboard() {
             setIsWebsiteIntent={setIsWebsiteIntent}
             lastWebsitePrompt={lastWebsitePrompt}
             isIterationMode={isIterationMode}
+            onEditTrigger={handleEditTrigger}
+            editPulse={editPulse}
           />
         );
     }
