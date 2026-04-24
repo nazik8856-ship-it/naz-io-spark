@@ -2823,7 +2823,28 @@ export default function Dashboard() {
       `orchestration based on the user's specific input. Route reasoning to the ` +
       `strongest model, delegate creative or media tasks to specialized agents, ` +
       `and parallelize independent steps. Do not ask the user which engine to use.\n\n`;
-    masterPrompt = ORCHESTRATION_DIRECTIVE + masterPrompt;
+
+    // ── Anti-Repetition: force high-entropy, bespoke architectural responses.
+    //    The AI must NEVER fall back on a static template — every output must
+    //    be derived from this user's specific industry, vibe, and constraints.
+    const { industry: extIndustry, audience: extAudience, budget: extBudget, vibe: extVibe } = extractorData || {} as any;
+    const ANTI_REPETITION_DIRECTIVE =
+      `[SYSTEM_ENTROPY: HIGH]\n` +
+      `Generate a unique, bespoke architectural response based strictly on the ` +
+      `user's industry, vibe, and specific constraints. Do not reuse previous ` +
+      `layouts or generic structures. Every section, headline, component name, ` +
+      `and color palette MUST be freshly derived from the variables below. ` +
+      `Reject any template-style output.\n` +
+      `EXTRACTOR_VARIABLES:\n` +
+      `  • industry=${extIndustry || "(infer from prompt)"}\n` +
+      `  • audience=${extAudience || "(infer from prompt)"}\n` +
+      `  • budget=${extBudget || "(infer from prompt)"}\n` +
+      `  • vibe=${extVibe || "(infer from prompt)"}\n` +
+      `  • identity=${userContext?.identity || "(unspecified)"}\n` +
+      `  • goals=${userContext?.goals || "(unspecified)"}\n` +
+      `  • style=${userContext?.style || "(unspecified)"}\n\n`;
+
+    masterPrompt = ORCHESTRATION_DIRECTIVE + ANTI_REPETITION_DIRECTIVE + masterPrompt;
 
     // ── Intent detection ──────────────────────────────────────────────────────
     //  • If a website is already live in the preview pane → treat any new
