@@ -133,6 +133,7 @@ const WebsiteRevealPane: React.FC<WebsiteRevealPaneProps> = ({
   isWebsiteComplete,
   directive,
   onRefine,
+  onEditTrigger,
 }) => {
   const [device, setDevice] = useState<DeviceMode>("desktop");
   const [stage, setStage] = useState<number>(0); // 0 = nothing, 1 = hero, 2 = features, 3 = contact, 4 = done
