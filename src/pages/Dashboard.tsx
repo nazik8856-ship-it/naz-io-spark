@@ -1101,6 +1101,7 @@ const HomeView = ({
   sandboxText, setSandboxText,
   extractorData, setExtractorData,
   editablePrompt, setEditablePrompt,
+  isWebsiteComplete,
   selectedTemplate, setSelectedTemplate,
   fileInputRef,
   cameraInputRef,
@@ -1294,12 +1295,11 @@ const HomeView = ({
       )}
 
       {/* ─── ENHANCED PROMPT CARDS - ONLY VISIBLE IN SANDBOX MODE ─── */}
-      {/* Cards float 20px higher with cyan glow, disappear smoothly when switching modes */}
+      {/* Cards float well above the input box so they aren't visually overlapping it */}
       <div 
-        className="absolute left-1/2 z-40 w-full max-w-2xl"
+        className="absolute left-1/2 z-40 w-full max-w-2xl pointer-events-none"
         style={{ 
-          bottom: "140px",
-          pointerEvents: "none",
+          bottom: "240px",
           transform: "translateX(calc(-50% - 24px))",
         }}
       >
