@@ -1937,7 +1937,7 @@ const HomeView = ({
           </motion.div>
         </div>
         )}
-      </div>
+      </motion.div>
       
       <RevertModal revertModalOpen={revertModalOpen} setRevertModalOpen={setRevertModalOpen} confirmRevert={confirmRevert} />
       <ModeInfoModal isOpen={infoModalOpen} onClose={() => setInfoModalOpen(false)} />
