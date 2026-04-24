@@ -5,6 +5,7 @@ import DropScanOverlay from "@/components/interactions/DropScanOverlay";
 import MagneticButton from "@/components/interactions/MagneticButton";
 import CommandCenterChecklist from "@/components/dashboard/CommandCenterChecklist";
 import AgentThinkTank from "@/components/dashboard/AgentThinkTank";
+import WebsiteRevealPane from "@/components/dashboard/WebsiteRevealPane";
 import { useNavigate } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
 import {
@@ -1174,6 +1175,9 @@ const HomeView = ({
   selectedTemplate, setSelectedTemplate,
   fileInputRef,
   cameraInputRef,
+  isWebsiteIntent,
+  setIsWebsiteIntent,
+  lastWebsitePrompt,
 }: any) => {
   // Template definitions (master templates - never mutated)
   const TEMPLATE_MASTERS = {
@@ -1220,6 +1224,26 @@ const HomeView = ({
   // Determine if cards should be visible (only in sandbox mode AND no messages)
   const showPromptCards = messages.length === 0 && promptMode === "sandbox";
   const isExpandedMode = promptMode === "extractor" || promptMode === "blueprint";
+
+  // Latest AI response text — fed to the WebsiteRevealPane strategy column.
+  const latestAiText: string = (() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i]?.role === "ai") return messages[i].text || "";
+    }
+    return "";
+  })();
+
+  // Refine handler: forwards a "rewrite this snippet with this instruction"
+  // follow-up directive into the existing send pipeline.
+  const handleRefine = (selected: string, instruction: string) => {
+    const refinePrompt =
+      `[REFINE_DIRECTIVE: EXECUTIONER]\n` +
+      `Rewrite the following snippet according to the instruction. ` +
+      `Return only the improved version.\n\n` +
+      `INSTRUCTION: ${instruction}\n\n` +
+      `SNIPPET:\n"""\n${selected}\n"""`;
+    handleSendMessage(refinePrompt);
+  };
 
   return (
     <div className="relative flex flex-col w-full h-full">
@@ -1341,6 +1365,42 @@ const HomeView = ({
         ))}
         <div ref={messagesEndRef} />
       </div>
+
+      {/* ─── WEBSITE REVEAL SPLIT-PANE — only for website-build directives ─── */}
+      <AnimatePresence>
+        {isWebsiteIntent && (
+          <motion.div
+            key="website-reveal"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="absolute inset-0 z-30 pb-[88px]"
+          >
+            <WebsiteRevealPane
+              responseText={latestAiText}
+              isPending={isPending}
+              isWebsiteComplete={isWebsiteComplete}
+              directive={lastWebsitePrompt}
+              onRefine={handleRefine}
+            />
+            {/* Close handle so the user can return to the standard chat view */}
+            <button
+              type="button"
+              onClick={() => setIsWebsiteIntent(false)}
+              className="absolute top-2 right-3 z-50 px-2 py-1 rounded text-[10px] font-mono uppercase tracking-wider transition-colors"
+              style={{
+                background: "rgba(9,9,11,0.9)",
+                border: "1px solid #27272a",
+                color: "#a1a1aa",
+              }}
+              aria-label="Exit website preview"
+            >
+              Exit preview
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Selected Engine Badge removed — orchestration is now automatic */}
 
@@ -2270,6 +2330,10 @@ export default function Dashboard() {
   // Reward gate: Command Center checklist only appears once a website has been generated
   const [isWebsiteComplete, setIsWebsiteComplete] = useState(false);
 
+  // Website Reveal split-pane: activates when the user issues a website-build directive.
+  const [isWebsiteIntent, setIsWebsiteIntent] = useState(false);
+  const [lastWebsitePrompt, setLastWebsitePrompt] = useState("");
+
   // Sent-state minimization (shrinks the prompt pill into a 48px chat bar so the AI output owns the screen)
   const [isMinimized, setIsMinimized] = useState(false);
 
@@ -2676,8 +2740,10 @@ export default function Dashboard() {
   }, [promptMode, sandboxText, extractorData, editablePrompt, userContext]);
 
   // ─── THE TITAN UNIFIED MESSAGE HANDLER ──────────────────────────────────────
-  const handleSendMessage = useCallback(async () => {
-    let masterPrompt = compileMasterPrompt();
+  const handleSendMessage = useCallback(async (overridePrompt?: string) => {
+    let masterPrompt = typeof overridePrompt === "string" && overridePrompt.trim().length > 0
+      ? overridePrompt
+      : compileMasterPrompt();
     const trimmed = masterPrompt.trim();
 
     if (isPending || trimmed.length === 0) {
@@ -2725,6 +2791,8 @@ export default function Dashboard() {
         lowerPrompt,
       );
     if (websiteIntent) {
+      setIsWebsiteIntent(true);
+      setLastWebsitePrompt(trimmed);
       masterPrompt =
         `[PRIORITY_DIRECTIVE: WEBSITE_BUILD]\n` +
         `The user is requesting a real, production-ready website. ` +
@@ -3186,6 +3254,9 @@ export default function Dashboard() {
             isMinimized={isMinimized}
             setIsMinimized={setIsMinimized}
             hapticStatus={hapticStatus}
+            isWebsiteIntent={isWebsiteIntent}
+            setIsWebsiteIntent={setIsWebsiteIntent}
+            lastWebsitePrompt={lastWebsitePrompt}
           />
         );
     }
