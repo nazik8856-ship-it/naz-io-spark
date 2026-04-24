@@ -363,9 +363,9 @@ const OrchestrationCinema: React.FC<OrchestrationCinemaProps> = ({ active }) => 
                   scale: [0.6, 1, 1, 0.4],
                 }}
                 transition={{
-                  duration: 2.5,
+                  duration: 4.6,
                   delay: 0.5 + i * 0.08,
-                  times: [0, 0.4, 0.8, 1],
+                  times: [0, 0.4, 0.88, 1],
                   ease: [0.22, 1, 0.36, 1],
                 }}
                 className="absolute left-1/2 top-1/2"
