@@ -2399,6 +2399,16 @@ export default function Dashboard() {
   // so it performs surgical edits instead of regenerating an unrelated site.
   const [activeWebsiteCode, setActiveWebsiteCode] = useState<string>("");
 
+  // ── "Return to Preview" safety net ──────────────────────────────────────────
+  // Keeps the website preview pane alive when the user temporarily leaves it.
+  // When false, a floating glass "Return to Preview" button appears.
+  const [isPreviewActive, setIsPreviewActive] = useState(true);
+
+  // Whenever a new website-build directive fires, re-arm the preview.
+  useEffect(() => {
+    if (isWebsiteIntent) setIsPreviewActive(true);
+  }, [isWebsiteIntent]);
+
   const handleEditTrigger = useCallback(() => {
     // 1. Force sandbox mode for free-form iteration commands
     setPromptMode("sandbox");
