@@ -902,14 +902,26 @@ const SettingsView = ({ customPalette, setCustomPalette, auraProfile, updateAura
                 <select
                   value={userContext.style}
                   onChange={(e) => setUserContext({ ...userContext, style: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg text-xs bg-white/5 border border-white/10 font-mono"
-                  style={{ color: "var(--nazai-text-color)" }}
+                  className="w-full px-3 py-2 rounded-lg text-xs font-mono outline-none focus:ring-1 focus:ring-cyan-400/40 transition-colors appearance-none"
+                  style={{
+                    background: "rgba(255,255,255,0.05)",
+                    backdropFilter: "blur(12px)",
+                    WebkitBackdropFilter: "blur(12px)",
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    color: "rgba(255,255,255,0.9)",
+                    backgroundImage:
+                      "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='rgba(255,255,255,0.5)' stroke-width='2'><polyline points='6 9 12 15 18 9'/></svg>\")",
+                    backgroundRepeat: "no-repeat",
+                    backgroundPosition: "right 0.6rem center",
+                    paddingRight: "1.75rem",
+                  }}
                 >
-                  <option value="">— Select interaction style —</option>
-                  <option value="Perspective, accurate, direct Yes-man/No-man">Yes-man/No-man (Balanced)</option>
-                  <option value="Direct, concise, technical">Direct & Technical</option>
-                  <option value="Supportive, encouraging, constructive">Supportive & Constructive</option>
-                  <option value="Challenging, critical, stress-testing">Challenging & Critical</option>
+                  {/* Dark, semi-transparent option styling so they remain visible against the dashboard theme */}
+                  <option value="" style={{ background: "#0b1220", color: "rgba(255,255,255,0.9)" }}>— Select interaction style —</option>
+                  <option value="Perspective, accurate, direct Yes-man/No-man" style={{ background: "#0b1220", color: "rgba(255,255,255,0.9)" }}>Yes-man/No-man (Balanced)</option>
+                  <option value="Direct, concise, technical" style={{ background: "#0b1220", color: "rgba(255,255,255,0.9)" }}>Direct & Technical</option>
+                  <option value="Supportive, encouraging, constructive" style={{ background: "#0b1220", color: "rgba(255,255,255,0.9)" }}>Supportive & Constructive</option>
+                  <option value="Challenging, critical, stress-testing" style={{ background: "#0b1220", color: "rgba(255,255,255,0.9)" }}>Challenging & Critical</option>
                 </select>
               </div>
 
@@ -1157,6 +1169,8 @@ const HomeView = ({
   extractorData, setExtractorData,
   editablePrompt, setEditablePrompt,
   isWebsiteComplete,
+  isMinimized, setIsMinimized,
+  hapticStatus,
   selectedTemplate, setSelectedTemplate,
   fileInputRef,
   cameraInputRef,
@@ -1328,26 +1342,7 @@ const HomeView = ({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Selected Engine Badge */}
-      {activeTool && (
-        <div className="w-full max-w-2xl mx-auto mb-2 flex justify-end px-4 relative z-[101]">
-          <span
-            className="text-[9px] px-2 py-1 rounded-full flex items-center gap-1 font-mono"
-            style={{
-              background: `rgba(${activeTool.category.glowRgba},0.1)`,
-              border: `1px solid rgba(${activeTool.category.glowRgba},0.2)`,
-              color: activeTool.category.color,
-            }}
-          >
-            {activeTool.tool.name}{" "}
-            <X
-              size={10}
-              className="cursor-pointer hover:opacity-70 transition-opacity"
-              onClick={() => setSelectedModel(null)}
-            />
-          </span>
-        </div>
-      )}
+      {/* Selected Engine Badge removed — orchestration is now automatic */}
 
       {/* ─── ENHANCED PROMPT CARDS - ONLY VISIBLE IN SANDBOX MODE ─── */}
       {/* Cards float well above the input box so they aren't visually overlapping it */}
@@ -1425,6 +1420,33 @@ const HomeView = ({
         </div>
       </div>
 
+      {/* ─── HAPTIC SYNC STATUS BANNER (Kinetic UI) ─── */}
+      <AnimatePresence>
+        {hapticStatus && (
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 12 }}
+            transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+            className="fixed bottom-[80px] left-1/2 -translate-x-1/2 z-[60] px-3.5 py-1.5 rounded-full flex items-center gap-2 text-[10px] font-mono tracking-wider"
+            style={{
+              background: "rgba(6,182,212,0.08)",
+              border: "1px solid rgba(6,182,212,0.35)",
+              color: "#06b6d4",
+              boxShadow: "0 0 18px rgba(6,182,212,0.25)",
+              backdropFilter: "blur(12px)",
+            }}
+          >
+            <motion.span
+              className="w-1.5 h-1.5 rounded-full bg-cyan-400"
+              animate={{ opacity: [0.3, 1, 0.3] }}
+              transition={{ duration: 0.9, repeat: Infinity }}
+            />
+            HAPTIC SYNC // {hapticStatus}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* ─── ADAPTIVE WORKBENCH INPUT CONTAINER WITH HEIGHT ANIMATION ─── */}
       <div
         ref={inputContainerRef}
@@ -1434,6 +1456,39 @@ const HomeView = ({
           isolation: "isolate",
         }}
       >
+        {isMinimized ? (
+          // ── Sleek 48px chat bar — focuses center of screen on AI output ──
+          <motion.button
+            type="button"
+            onClick={() => setIsMinimized(false)}
+            initial={{ opacity: 0, y: 20, height: 0 }}
+            animate={{ opacity: 1, y: 0, height: 48 }}
+            exit={{ opacity: 0, y: 20, height: 0 }}
+            transition={{ type: "spring", stiffness: 320, damping: 28 }}
+            whileHover={{ scale: 1.005 }}
+            className="w-full px-4 sm:px-5 flex items-center gap-3 rounded-2xl shadow-2xl text-left"
+            style={{
+              height: 48,
+              background: "rgba(10, 14, 23, 0.95)",
+              border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.35)`,
+              backdropFilter: "blur(20px)",
+              color: "var(--nazai-text-color)",
+            }}
+            title="Continue mission — click to expand"
+          >
+            <motion.span
+              className="w-2 h-2 rounded-full shrink-0"
+              style={{ background: auraProfile.glowPrimary, boxShadow: `0 0 8px ${auraProfile.glowPrimary}` }}
+              animate={isPending ? { opacity: [0.3, 1, 0.3] } : { opacity: 1 }}
+              transition={{ duration: 1.1, repeat: isPending ? Infinity : 0 }}
+            />
+            <span className="text-[11px] font-mono tracking-wider text-white/70 flex-1 truncate">
+              {isPending ? "Neural Architect orchestrating…" : "Continue mission"}
+            </span>
+            <span className="text-[9px] font-mono text-white/40 hidden sm:inline">CLICK TO EXPAND</span>
+            <ChevronRight size={14} className="text-white/40 rotate-[-90deg]" />
+          </motion.button>
+        ) : (
         <div className="w-full px-0 sm:px-4">
           <motion.div
             className="relative rounded-2xl flex flex-col overflow-hidden shadow-2xl"
@@ -1744,14 +1799,7 @@ const HomeView = ({
                 >
                   <Plus size={14} className="text-white/70" />
                 </button>
-                <button
-                  onClick={() => setDrawerOpen(true)}
-                  className="text-[10px] px-3 py-1.5 rounded-lg font-mono font-bold tracking-tight transition-all hover:bg-white/10 flex items-center gap-2 border border-white/10 bg-white/5"
-                  style={{ color: auraProfile.glowPrimary }}
-                >
-                  <Brain size={12} />
-                  {activeTool ? activeTool.tool.name.toUpperCase() : "SELECT ENGINE"}
-                </button>
+                {/* Engine Switcher removed — orchestration is now automatic (handleSendMessage injects SYSTEM_ORCHESTRATION directive) */}
               </div>
 
               <div className="flex gap-2">
@@ -1782,6 +1830,7 @@ const HomeView = ({
             </div>
           </motion.div>
         </div>
+        )}
       </div>
       
       <RevertModal revertModalOpen={revertModalOpen} setRevertModalOpen={setRevertModalOpen} confirmRevert={confirmRevert} />
@@ -2221,6 +2270,12 @@ export default function Dashboard() {
   // Reward gate: Command Center checklist only appears once a website has been generated
   const [isWebsiteComplete, setIsWebsiteComplete] = useState(false);
 
+  // Sent-state minimization (shrinks the prompt pill into a 48px chat bar so the AI output owns the screen)
+  const [isMinimized, setIsMinimized] = useState(false);
+
+  // Haptic Sync transient status message
+  const [hapticStatus, setHapticStatus] = useState<string | null>(null);
+
   // ── Apply CSS Variables to Document ────────────────────────────────────────────
   useEffect(() => {
     const root = document.documentElement;
@@ -2635,6 +2690,33 @@ export default function Dashboard() {
       return;
     }
 
+    // ── Kinetic UI: Haptic Feedback ───────────────────────────────────────────
+    // Pulse-pattern vibration on supported devices/wearables, plus a transient
+    // "Haptic Sync" status banner so the user feels the asset's weight & texture
+    // being processed before the visual result appears.
+    try {
+      if (typeof window !== "undefined" && window.navigator && typeof window.navigator.vibrate === "function") {
+        window.navigator.vibrate([20, 10, 20]);
+      }
+    } catch {
+      /* vibration unsupported — silent fallback */
+    }
+    setHapticStatus("Transmitting physical data to wearable interface...");
+    setTimeout(() => setHapticStatus(null), 1800);
+
+    // ── Sent animation: collapse prompt pill into a sleek 48px chat bar ───────
+    setIsMinimized(true);
+
+    // ── Auto-Orchestration: hidden system instruction telling the AI to pick
+    //    the fastest + most accurate multi-agent toolchain for this directive.
+    const ORCHESTRATION_DIRECTIVE =
+      `[SYSTEM_ORCHESTRATION: AUTO]\n` +
+      `Select the fastest and most accurate tools available via multi-agent ` +
+      `orchestration based on the user's specific input. Route reasoning to the ` +
+      `strongest model, delegate creative or media tasks to specialized agents, ` +
+      `and parallelize independent steps. Do not ask the user which engine to use.\n\n`;
+    masterPrompt = ORCHESTRATION_DIRECTIVE + masterPrompt;
+
     // ── Intent detection: prioritize code/UI generation when the user asks for a
     //    website / landing page / site. Inject a high-priority system directive.
     const lowerPrompt = trimmed.toLowerCase();
@@ -2671,6 +2753,15 @@ export default function Dashboard() {
       { role: "user", text: userMessage },
       { role: "ai", text: "Neural Architect: Processing blueprint..." },
     ]);
+
+    // Secondary haptic pulse — confirms the agent processing phase is engaged
+    try {
+      window.navigator?.vibrate?.([15, 8, 15, 8, 25]);
+    } catch {
+      /* noop */
+    }
+    setHapticStatus("Synchronizing agent telemetry with wearable interface...");
+    setTimeout(() => setHapticStatus(null), 2200);
 
     let missionToUpdateId = activeMissionId;
     let finalResponseText = "";
@@ -3092,6 +3183,9 @@ export default function Dashboard() {
             fileInputRef={fileInputRef}
             cameraInputRef={cameraInputRef}
             isWebsiteComplete={isWebsiteComplete}
+            isMinimized={isMinimized}
+            setIsMinimized={setIsMinimized}
+            hapticStatus={hapticStatus}
           />
         );
     }
