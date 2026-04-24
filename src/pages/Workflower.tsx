@@ -32,6 +32,7 @@ import { useAuth } from "@/hooks/useAuth";
 import AuthModal from "@/components/AuthModal";
 import MissionWorkspace from "@/components/mission/MissionWorkspace";
 import GuardianCanvas from "@/components/workflower/GuardianCanvas";
+import PricingEngine from "@/components/PricingEngine";
 
 const NODES = [
   {
@@ -214,7 +215,7 @@ const Workflower = () => {
                 { label: "How It Works", href: "#operations", smooth: true },
                 { label: "Examples", href: "#neural-feedback", smooth: true },
                 { label: "Dashboard", href: "/dashboard", smooth: false, gated: true },
-                { label: "Pricing", href: "/pricing", smooth: false },
+                { label: "Pricing", href: "#pricing", smooth: true },
                 { label: "Blog", href: "/blog", smooth: false },
               ].map((item) =>
                 item.smooth ? (
@@ -693,6 +694,9 @@ const Workflower = () => {
         {/* SUBSCRIPTION VACUUM — centripetal consolidation demo */}
         <SubscriptionVacuum />
 
+        {/* PRICING ENGINE — high-end neo-brutalist */}
+        <PricingEngine />
+
         {/* (Diagnostics terminal removed — felt like a prototype. Replaced with calm CTA.) */}
 
         {/* FOOTER — Minimalist Obsidian */}
@@ -824,9 +828,157 @@ const Workflower = () => {
               </div>
             </div>
 
+            {/* ─── Cinematic Zone (below all links) ─────────────────────── */}
+            <div className="mt-12 pt-8 border-t border-white/5 relative">
+              {/* Ambient wave */}
+              <svg
+                aria-hidden
+                viewBox="0 0 1200 80"
+                preserveAspectRatio="none"
+                className="absolute inset-x-0 top-4 w-full h-10 opacity-50 pointer-events-none"
+              >
+                <defs>
+                  <linearGradient id="nazWaveGrad" x1="0" x2="1">
+                    <stop offset="0%" stopColor="#06b6d4" stopOpacity="0" />
+                    <stop offset="50%" stopColor="#06b6d4" stopOpacity="0.9" />
+                    <stop offset="100%" stopColor="#06b6d4" stopOpacity="0" />
+                  </linearGradient>
+                </defs>
+                <motion.path
+                  d="M0 40 Q 150 0 300 40 T 600 40 T 900 40 T 1200 40"
+                  fill="none"
+                  stroke="url(#nazWaveGrad)"
+                  strokeWidth="1.5"
+                  initial={{ pathLength: 0, opacity: 0 }}
+                  whileInView={{ pathLength: 1, opacity: 1 }}
+                  viewport={{ once: true }}
+                  transition={{ duration: 2.2, ease: "easeOut" }}
+                />
+                <motion.circle
+                  cx="0"
+                  cy="40"
+                  r="2"
+                  fill="#06b6d4"
+                  animate={{
+                    cx: [0, 300, 600, 900, 1200],
+                    cy: [40, 8, 40, 8, 40],
+                  }}
+                  transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
+                  style={{ filter: "drop-shadow(0 0 6px #06b6d4)" }}
+                />
+              </svg>
+
+              {/* Rotating mantras */}
+              <div className="relative flex flex-col items-center gap-5 pt-6">
+                <div
+                  className="text-[10px] tracking-[0.6em] uppercase font-black"
+                  style={{
+                    color: "#06b6d4",
+                    fontFamily: "'JetBrains Mono', monospace",
+                    textShadow: "0 0 14px rgba(6,182,212,0.35)",
+                  }}
+                >
+                  // END · OF · TRANSMISSION
+                </div>
+                <AnimatePresence mode="wait">
+                  <motion.p
+                    key={Math.floor(scrollY / 600) % 4}
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -6 }}
+                    transition={{ duration: 0.45 }}
+                    className="text-center text-white/80 text-lg md:text-2xl font-black italic max-w-xl leading-snug"
+                    style={{ fontFamily: "'Inter', sans-serif" }}
+                  >
+                    {
+                      [
+                        "Built in a bedroom. Deployed to the world.",
+                        "You weren't lazy — you were under-equipped.",
+                        "Every founder deserves a co-pilot, not a gatekeeper.",
+                        "The mission doesn't sleep. Neither does the engine.",
+                      ][Math.floor(scrollY / 600) % 4]
+                    }
+                  </motion.p>
+                </AnimatePresence>
+
+                {/* Marquee of love-notes */}
+                <div
+                  className="relative w-full overflow-hidden border-y border-white/5 py-2"
+                  style={{ maskImage: "linear-gradient(90deg, transparent, black 12%, black 88%, transparent)" }}
+                >
+                  <motion.div
+                    className="flex gap-10 whitespace-nowrap text-[11px] uppercase tracking-[0.35em] text-white/40 font-bold"
+                    style={{ fontFamily: "'JetBrains Mono', monospace" }}
+                    animate={{ x: ["0%", "-50%"] }}
+                    transition={{ duration: 28, repeat: Infinity, ease: "linear" }}
+                  >
+                    {[
+                      "◆ no cold emails",
+                      "◆ no dashboards to learn",
+                      "◆ no boilerplate",
+                      "◆ just missions",
+                      "◆ built with 4am energy",
+                      "◆ shipped before doubt",
+                      "◆ edge deployed · vercel",
+                      "◆ agents never sleep",
+                      "◆ seo self-heals at 03:14",
+                      "◆ the future is yours to launch",
+                    ]
+                      .concat([
+                        "◆ no cold emails",
+                        "◆ no dashboards to learn",
+                        "◆ no boilerplate",
+                        "◆ just missions",
+                        "◆ built with 4am energy",
+                        "◆ shipped before doubt",
+                        "◆ edge deployed · vercel",
+                        "◆ agents never sleep",
+                        "◆ seo self-heals at 03:14",
+                        "◆ the future is yours to launch",
+                      ])
+                      .map((t, i) => (
+                        <span key={i} className="hover:text-[#06b6d4] transition-colors">
+                          {t}
+                        </span>
+                      ))}
+                  </motion.div>
+                </div>
+
+                {/* Keyboard shortcut hint + credit row */}
+                <div
+                  className="w-full flex flex-col md:flex-row items-center justify-between gap-4 text-[10px] tracking-[0.25em] uppercase"
+                  style={{
+                    color: "rgba(148,163,184,0.55)",
+                    fontFamily: "'JetBrains Mono', monospace",
+                  }}
+                >
+                  <span className="flex items-center gap-2">
+                    Press
+                    <kbd
+                      className="px-1.5 py-0.5 border border-white/15 rounded-sm text-white/80 not-italic"
+                      style={{ boxShadow: "inset 0 -2px 0 rgba(255,255,255,0.06)" }}
+                    >
+                      /
+                    </kbd>
+                    anywhere to launch mission
+                  </span>
+                  <span className="flex items-center gap-2 text-white/40">
+                    crafted in the dark · fueled by disbelief
+                  </span>
+                  <span className="flex items-center gap-2">
+                    <span className="relative flex h-2 w-2">
+                      <span className="absolute inset-0 rounded-full bg-[#22c55e] opacity-60 animate-ping" />
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-[#22c55e]" />
+                    </span>
+                    42 missions launching now
+                  </span>
+                </div>
+              </div>
+            </div>
+
             {/* Bottom bar */}
             <div
-              className="pt-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-[10px] tracking-[0.25em] uppercase"
+              className="mt-10 pt-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-[10px] tracking-[0.25em] uppercase"
               style={{
                 borderTop: "1px solid rgba(255,255,255,0.05)",
                 color: "rgba(148,163,184,0.5)",
@@ -834,6 +986,12 @@ const Workflower = () => {
               }}
             >
               <span>© {new Date().getFullYear()} NazAI Systems</span>
+              <span
+                className="text-[9px] tracking-[0.4em] text-white/30"
+                aria-hidden
+              >
+                ░▒▓█ nazai.edge · v1.1 · signal locked █▓▒░
+              </span>
               <span className="flex items-center gap-2">
                 <span
                   className="w-1.5 h-1.5 rounded-full animate-pulse"
