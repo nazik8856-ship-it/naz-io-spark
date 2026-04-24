@@ -902,14 +902,26 @@ const SettingsView = ({ customPalette, setCustomPalette, auraProfile, updateAura
                 <select
                   value={userContext.style}
                   onChange={(e) => setUserContext({ ...userContext, style: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg text-xs bg-white/5 border border-white/10 font-mono"
-                  style={{ color: "var(--nazai-text-color)" }}
+                  className="w-full px-3 py-2 rounded-lg text-xs font-mono outline-none focus:ring-1 focus:ring-cyan-400/40 transition-colors appearance-none"
+                  style={{
+                    background: "rgba(255,255,255,0.05)",
+                    backdropFilter: "blur(12px)",
+                    WebkitBackdropFilter: "blur(12px)",
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    color: "rgba(255,255,255,0.9)",
+                    backgroundImage:
+                      "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='rgba(255,255,255,0.5)' stroke-width='2'><polyline points='6 9 12 15 18 9'/></svg>\")",
+                    backgroundRepeat: "no-repeat",
+                    backgroundPosition: "right 0.6rem center",
+                    paddingRight: "1.75rem",
+                  }}
                 >
-                  <option value="">— Select interaction style —</option>
-                  <option value="Perspective, accurate, direct Yes-man/No-man">Yes-man/No-man (Balanced)</option>
-                  <option value="Direct, concise, technical">Direct & Technical</option>
-                  <option value="Supportive, encouraging, constructive">Supportive & Constructive</option>
-                  <option value="Challenging, critical, stress-testing">Challenging & Critical</option>
+                  {/* Dark, semi-transparent option styling so they remain visible against the dashboard theme */}
+                  <option value="" style={{ background: "#0b1220", color: "rgba(255,255,255,0.9)" }}>— Select interaction style —</option>
+                  <option value="Perspective, accurate, direct Yes-man/No-man" style={{ background: "#0b1220", color: "rgba(255,255,255,0.9)" }}>Yes-man/No-man (Balanced)</option>
+                  <option value="Direct, concise, technical" style={{ background: "#0b1220", color: "rgba(255,255,255,0.9)" }}>Direct & Technical</option>
+                  <option value="Supportive, encouraging, constructive" style={{ background: "#0b1220", color: "rgba(255,255,255,0.9)" }}>Supportive & Constructive</option>
+                  <option value="Challenging, critical, stress-testing" style={{ background: "#0b1220", color: "rgba(255,255,255,0.9)" }}>Challenging & Critical</option>
                 </select>
               </div>
 
