@@ -1225,6 +1225,26 @@ const HomeView = ({
   const showPromptCards = messages.length === 0 && promptMode === "sandbox";
   const isExpandedMode = promptMode === "extractor" || promptMode === "blueprint";
 
+  // Latest AI response text — fed to the WebsiteRevealPane strategy column.
+  const latestAiText: string = (() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i]?.role === "ai") return messages[i].text || "";
+    }
+    return "";
+  })();
+
+  // Refine handler: forwards a "rewrite this snippet with this instruction"
+  // follow-up directive into the existing send pipeline.
+  const handleRefine = (selected: string, instruction: string) => {
+    const refinePrompt =
+      `[REFINE_DIRECTIVE: EXECUTIONER]\n` +
+      `Rewrite the following snippet according to the instruction. ` +
+      `Return only the improved version.\n\n` +
+      `INSTRUCTION: ${instruction}\n\n` +
+      `SNIPPET:\n"""\n${selected}\n"""`;
+    handleSendMessage(refinePrompt);
+  };
+
   return (
     <div className="relative flex flex-col w-full h-full">
       {/* Error Toast */}
