@@ -1,127 +1,130 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Code2, Layout, Sparkles, Rocket, ShieldCheck, Zap, Search } from "lucide-react";
+import { Sparkles, Rocket, ShieldCheck, Zap, Search, TrendingUp } from "lucide-react";
 
 /**
- * OrchestrationCinema
+ * OrchestrationCinema — "Hyper-Space" website-build transition.
  *
- * A fast (≤3s) "Hyper-Space" transition that plays inside the
- * WebsiteRevealPane preview area while NazAI is generating a website.
+ * Inspired by Durable.co's generation reveal: floating mini website preview
+ * "thumbnails" drift in from the four edges of the pane and converge toward
+ * a central browser-chromed frame. As they reach the center they pulse with
+ * a cyan glow, then SHATTER into particles. A final cyan flash reveals the
+ * generated website locking into place beneath the overlay.
  *
- * Visual: code snippets, UI wireframe blocks, and positive-feedback chips
- * fly in from all four edges, pulse with a cyan glow, then shatter / drop
- * into the final website layout. The overlay fades out as the staged
- * skeleton-to-live reveal takes over.
- *
- * Constraints (per design brief):
- *  • Total runtime ≤ 3s — must never block the user.
- *  • Purely presentational — drives off the `active` prop.
- *  • No global side effects.
+ * Total runtime ≤ 3s (per design brief — "Flash of Genius, not a movie").
  */
 
 interface OrchestrationCinemaProps {
-  /** Show/hide the cinematic overlay. Parent should flip this off after the build settles. */
+  /** Show/hide the cinematic overlay. */
   active: boolean;
 }
 
-type FlyerKind = "code" | "wireframe" | "chip";
-type Flyer = {
+type ThumbCard = {
   id: string;
-  kind: FlyerKind;
-  label: string;
-  Icon?: React.ElementType;
-  // origin edge: -1..1 from center on each axis (one axis is ±1)
+  /** origin edge unit: one of x or y is ±1.1 */
   fromX: number;
   fromY: number;
+  rotate: number;
   delay: number;
+  hue: string; // accent color of the floating card
+  title: string;
+  blocks: { w: number; h: number }[];
+  hasImage: boolean;
 };
 
-const CODE_SNIPPETS = [
-  "<Hero />",
-  "useState()",
-  "/* tailwind */",
-  "export default",
-  "<section>",
-  "fetch('/api')",
-  "z-index: 50",
-  "supabase.from()",
+const FEEDBACK_CHIPS: { label: string; Icon: React.ElementType; color: string }[] = [
+  { label: "SEO Optimized", Icon: Search, color: "#06b6d4" },
+  { label: "Conversion-Ready", Icon: TrendingUp, color: "#22c55e" },
+  { label: "Edge Cached", Icon: Zap, color: "#06b6d4" },
+  { label: "A11y Verified", Icon: ShieldCheck, color: "#a78bfa" },
+  { label: "Lighthouse 98", Icon: Rocket, color: "#f59e0b" },
+  { label: "Pixel Perfect", Icon: Sparkles, color: "#06b6d4" },
 ];
 
-const WIREFRAME_LABELS = [
-  "Header",
-  "Hero",
-  "Features",
-  "Pricing",
-  "CTA",
-  "Footer",
+const CARD_PRESETS: Omit<ThumbCard, "id" | "fromX" | "fromY" | "delay">[] = [
+  {
+    rotate: -6,
+    hue: "#b45309",
+    title: "Atelier",
+    blocks: [{ w: 70, h: 6 }, { w: 50, h: 4 }],
+    hasImage: true,
+  },
+  {
+    rotate: 5,
+    hue: "#065f46",
+    title: "Bloom Studio",
+    blocks: [{ w: 60, h: 6 }, { w: 80, h: 4 }],
+    hasImage: true,
+  },
+  {
+    rotate: -4,
+    hue: "#1e3a8a",
+    title: "Northwind",
+    blocks: [{ w: 50, h: 6 }, { w: 70, h: 4 }],
+    hasImage: false,
+  },
+  {
+    rotate: 8,
+    hue: "#7c2d12",
+    title: "Forge & Co.",
+    blocks: [{ w: 80, h: 6 }, { w: 40, h: 4 }],
+    hasImage: true,
+  },
+  {
+    rotate: -3,
+    hue: "#581c87",
+    title: "Lumen Labs",
+    blocks: [{ w: 60, h: 6 }, { w: 60, h: 4 }],
+    hasImage: false,
+  },
+  {
+    rotate: 6,
+    hue: "#0f766e",
+    title: "Tidehouse",
+    blocks: [{ w: 70, h: 6 }, { w: 50, h: 4 }],
+    hasImage: true,
+  },
 ];
 
-const FEEDBACK_CHIPS: { label: string; Icon: React.ElementType }[] = [
-  { label: "SEO Optimized", Icon: Search },
-  { label: "High Conversion UI", Icon: Sparkles },
-  { label: "Edge Cached", Icon: Zap },
-  { label: "A11y Verified", Icon: ShieldCheck },
-  { label: "Lighthouse 98", Icon: Rocket },
-];
-
-const buildFlyers = (): Flyer[] => {
-  const flyers: Flyer[] = [];
-  const rand = (min: number, max: number) => Math.random() * (max - min) + min;
-  const edge = () => {
-    // pick one of 4 edges
-    const e = Math.floor(Math.random() * 4);
-    if (e === 0) return { fromX: -1.1, fromY: rand(-0.6, 0.6) }; // left
-    if (e === 1) return { fromX: 1.1, fromY: rand(-0.6, 0.6) }; // right
-    if (e === 2) return { fromX: rand(-0.6, 0.6), fromY: -1.1 }; // top
-    return { fromX: rand(-0.6, 0.6), fromY: 1.1 }; // bottom
-  };
-
-  CODE_SNIPPETS.forEach((label, i) => {
-    const o = edge();
-    flyers.push({
-      id: `c-${i}`,
-      kind: "code",
-      label,
-      Icon: Code2,
-      fromX: o.fromX,
-      fromY: o.fromY,
-      delay: 0.05 + i * 0.05,
-    });
-  });
-  WIREFRAME_LABELS.forEach((label, i) => {
-    const o = edge();
-    flyers.push({
-      id: `w-${i}`,
-      kind: "wireframe",
-      label,
-      Icon: Layout,
-      fromX: o.fromX,
-      fromY: o.fromY,
-      delay: 0.2 + i * 0.06,
-    });
-  });
-  FEEDBACK_CHIPS.forEach(({ label, Icon }, i) => {
-    const o = edge();
-    flyers.push({
-      id: `f-${i}`,
-      kind: "chip",
-      label,
-      Icon,
-      fromX: o.fromX,
-      fromY: o.fromY,
-      delay: 0.4 + i * 0.07,
-    });
-  });
-  return flyers;
+const buildCards = (): ThumbCard[] => {
+  // 6 cards — 2 per side (left, right, top split between top-left & top-right corners)
+  const positions = [
+    { fromX: -1.15, fromY: -0.55 }, // top-left
+    { fromX: 1.15, fromY: -0.5 },   // top-right
+    { fromX: -1.2, fromY: 0.55 },    // bottom-left
+    { fromX: 1.2, fromY: 0.6 },      // bottom-right
+    { fromX: -1.05, fromY: 0.05 },   // mid-left
+    { fromX: 1.05, fromY: -0.05 },   // mid-right
+  ];
+  return CARD_PRESETS.map((preset, i) => ({
+    ...preset,
+    id: `card-${i}`,
+    fromX: positions[i].fromX,
+    fromY: positions[i].fromY,
+    delay: 0.05 + i * 0.08,
+  }));
 };
+
+const PARTICLE_COUNT = 28;
 
 const OrchestrationCinema: React.FC<OrchestrationCinemaProps> = ({ active }) => {
-  // Re-seed on each activation so the entrance feels fresh
   const [seed, setSeed] = useState(0);
   useEffect(() => {
     if (active) setSeed((s) => s + 1);
   }, [active]);
-  const flyers = useMemo(() => buildFlyers(), [seed]);
+  const cards = useMemo(() => buildCards(), [seed]);
+
+  const particles = useMemo(
+    () =>
+      Array.from({ length: PARTICLE_COUNT }).map((_, i) => ({
+        id: `p-${i}`,
+        angle: (i / PARTICLE_COUNT) * Math.PI * 2 + Math.random() * 0.4,
+        distance: 140 + Math.random() * 180,
+        size: 2 + Math.random() * 3,
+        delay: 2.0 + Math.random() * 0.15,
+      })),
+    [seed]
+  );
 
   return (
     <AnimatePresence>
@@ -135,112 +138,276 @@ const OrchestrationCinema: React.FC<OrchestrationCinemaProps> = ({ active }) => 
           className="pointer-events-none absolute inset-0 z-40 overflow-hidden"
           style={{
             background:
-              "radial-gradient(ellipse at center, rgba(6,182,212,0.10) 0%, rgba(9,9,11,0.85) 55%, rgba(9,9,11,0.96) 100%)",
-            backdropFilter: "blur(6px)",
+              "radial-gradient(ellipse at center, rgba(6,182,212,0.12) 0%, rgba(9,9,11,0.88) 55%, rgba(9,9,11,0.97) 100%)",
+            backdropFilter: "blur(8px)",
           }}
           aria-hidden
         >
-          {/* Hyperspace streak grid */}
+          {/* Hyperspace grid */}
           <div
-            className="absolute inset-0 opacity-30"
+            className="absolute inset-0 opacity-25"
             style={{
               backgroundImage:
-                "linear-gradient(rgba(6,182,212,0.18) 1px, transparent 1px), linear-gradient(90deg, rgba(6,182,212,0.18) 1px, transparent 1px)",
-              backgroundSize: "40px 40px",
-              maskImage:
-                "radial-gradient(ellipse at center, black 30%, transparent 75%)",
+                "linear-gradient(rgba(6,182,212,0.22) 1px, transparent 1px), linear-gradient(90deg, rgba(6,182,212,0.22) 1px, transparent 1px)",
+              backgroundSize: "44px 44px",
+              maskImage: "radial-gradient(ellipse at center, black 30%, transparent 75%)",
             }}
           />
 
-          {/* Center pulse */}
+          {/* Radial speed-lines emanating from center */}
           <motion.div
-            initial={{ scale: 0.6, opacity: 0 }}
-            animate={{ scale: [0.6, 1.05, 0.95], opacity: [0, 0.9, 0.7] }}
-            transition={{ duration: 1.4, ease: "easeOut", repeat: Infinity, repeatType: "mirror" }}
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: [0, 0.6, 0.3], scale: [0.9, 1.05, 1] }}
+            transition={{ duration: 2.6, ease: "easeOut" }}
+            className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[140%] h-[140%]"
+            style={{
+              background:
+                "repeating-conic-gradient(from 0deg, rgba(6,182,212,0.0) 0deg, rgba(6,182,212,0.18) 2deg, rgba(6,182,212,0.0) 6deg)",
+              maskImage:
+                "radial-gradient(circle at center, transparent 80px, black 200px, transparent 70%)",
+            }}
+          />
+
+          {/* Center browser frame target — cyan glowing wireframe */}
+          <motion.div
+            initial={{ scale: 0.8, opacity: 0 }}
+            animate={{ scale: [0.8, 1, 1.02], opacity: [0, 1, 1] }}
+            transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
             className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
+            style={{ width: "min(56%, 380px)" }}
           >
             <div
-              className="w-24 h-24 rounded-full"
+              className="rounded-xl overflow-hidden border"
               style={{
-                background:
-                  "radial-gradient(circle, rgba(6,182,212,0.55) 0%, rgba(6,182,212,0.05) 60%, transparent 80%)",
-                boxShadow: "0 0 60px rgba(6,182,212,0.55)",
+                borderColor: "rgba(6,182,212,0.55)",
+                background: "rgba(255,255,255,0.97)",
+                boxShadow:
+                  "0 0 0 1px rgba(6,182,212,0.35), 0 0 60px rgba(6,182,212,0.45), 0 20px 80px rgba(6,182,212,0.25)",
               }}
-            />
+            >
+              {/* Browser chrome */}
+              <div className="flex items-center gap-2 px-3 py-2 border-b border-zinc-200">
+                <div className="flex gap-1.5">
+                  <div className="w-2.5 h-2.5 rounded-full bg-red-400" />
+                  <div className="w-2.5 h-2.5 rounded-full bg-yellow-400" />
+                  <div className="w-2.5 h-2.5 rounded-full bg-green-400" />
+                </div>
+                <div className="flex-1 mx-2 px-2.5 py-1 rounded-full bg-zinc-100 text-[10px] font-mono text-zinc-400">
+                  yourwebsite.com
+                </div>
+                <motion.div
+                  animate={{ opacity: [0.6, 1, 0.6] }}
+                  transition={{ duration: 1.1, repeat: Infinity }}
+                  className="px-2 py-1 rounded-full border border-zinc-200 text-[9px] font-mono text-zinc-500"
+                >
+                  Generating
+                </motion.div>
+              </div>
+              {/* Skeleton body */}
+              <div className="p-4 space-y-2.5 min-h-[180px]">
+                <motion.div
+                  initial={{ width: "30%" }}
+                  animate={{ width: ["30%", "65%", "55%"] }}
+                  transition={{ duration: 2.4, ease: "easeOut" }}
+                  className="h-3 rounded bg-zinc-200"
+                />
+                <motion.div
+                  initial={{ width: "20%" }}
+                  animate={{ width: ["20%", "85%", "78%"] }}
+                  transition={{ duration: 2.4, delay: 0.15, ease: "easeOut" }}
+                  className="h-3 rounded bg-zinc-200"
+                />
+                <div className="h-2" />
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: [0, 0.6, 0.9] }}
+                  transition={{ duration: 2, delay: 0.3 }}
+                  className="h-16 rounded bg-gradient-to-br from-zinc-100 to-zinc-200"
+                />
+                <div className="grid grid-cols-3 gap-1.5">
+                  {[0, 1, 2].map((i) => (
+                    <motion.div
+                      key={i}
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.4, delay: 0.6 + i * 0.1 }}
+                      className="h-8 rounded bg-zinc-100"
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
           </motion.div>
 
-          {/* Status caption */}
-          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10 text-center">
-            <div className="text-[10px] font-mono tracking-[0.32em] uppercase text-cyan-300 mb-1">
-              NazAI · Hyper-Space
-            </div>
-            <div className="text-[11px] font-mono text-zinc-300">
-              Fusing components into final layout
-            </div>
-          </div>
-
-          {/* Flyers */}
-          {flyers.map((f) => {
-            const Icon = f.Icon;
-            const isCode = f.kind === "code";
-            const isChip = f.kind === "chip";
-            const accent = isChip ? "#22c55e" : isCode ? "#06b6d4" : "#a78bfa";
-
-            // travel distance roughly half the pane on whichever axis dominates
-            const travelX = f.fromX * 360;
-            const travelY = f.fromY * 220;
-
+          {/* Floating mini website preview cards drifting in from edges */}
+          {cards.map((c) => {
+            const travelX = c.fromX * 360;
+            const travelY = c.fromY * 240;
             return (
               <motion.div
-                key={f.id}
-                initial={{
-                  x: travelX,
-                  y: travelY,
-                  opacity: 0,
-                  scale: 0.6,
-                  rotate: isCode ? -8 : 0,
-                }}
+                key={c.id}
+                initial={{ x: travelX, y: travelY, opacity: 0, scale: 0.5, rotate: c.rotate * 2 }}
                 animate={{
-                  x: [travelX, 0, 0],
-                  y: [travelY, 0, 60],
-                  opacity: [0, 1, 0],
-                  scale: [0.6, 1, 0.4],
-                  rotate: [isCode ? -8 : 0, 0, isCode ? 6 : 0],
+                  x: [travelX, travelX * 0.4, 0],
+                  y: [travelY, travelY * 0.4, 0],
+                  opacity: [0, 1, 1, 0],
+                  scale: [0.5, 0.85, 0.55, 0.3],
+                  rotate: [c.rotate * 2, c.rotate, 0],
                 }}
                 transition={{
-                  duration: 2.2,
-                  delay: f.delay,
-                  times: [0, 0.55, 1],
+                  duration: 2.4,
+                  delay: c.delay,
+                  times: [0, 0.45, 0.85, 1],
                   ease: [0.22, 1, 0.36, 1],
                 }}
                 className="absolute left-1/2 top-1/2"
                 style={{ translateX: "-50%", translateY: "-50%" }}
               >
                 <div
-                  className={`px-2.5 py-1 rounded-md flex items-center gap-1.5 font-mono text-[10px] tracking-wide whitespace-nowrap ${
-                    isCode ? "uppercase" : ""
-                  }`}
+                  className="rounded-lg overflow-hidden bg-white"
                   style={{
-                    background: `${accent}14`,
-                    border: `1px solid ${accent}55`,
-                    color: accent,
-                    boxShadow: `0 0 18px ${accent}55`,
+                    width: 150,
+                    boxShadow:
+                      "0 0 0 1px rgba(6,182,212,0.4), 0 0 28px rgba(6,182,212,0.55), 0 12px 30px rgba(0,0,0,0.4)",
                   }}
                 >
-                  {Icon && <Icon size={10} />}
-                  {f.label}
+                  {c.hasImage && (
+                    <div
+                      className="h-14 w-full"
+                      style={{
+                        background: `linear-gradient(135deg, ${c.hue} 0%, ${c.hue}aa 100%)`,
+                      }}
+                    >
+                      <div className="h-full w-full flex items-end p-1.5">
+                        <div
+                          className="text-[8px] font-bold text-white/90 leading-tight"
+                          style={{ textShadow: "0 1px 2px rgba(0,0,0,0.35)" }}
+                        >
+                          {c.title}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  <div className="p-2 space-y-1">
+                    {!c.hasImage && (
+                      <div
+                        className="text-[8px] font-bold leading-tight mb-1"
+                        style={{ color: c.hue }}
+                      >
+                        {c.title}
+                      </div>
+                    )}
+                    {c.blocks.map((b, i) => (
+                      <div
+                        key={i}
+                        className="rounded-sm bg-zinc-200"
+                        style={{ width: `${b.w}%`, height: b.h }}
+                      />
+                    ))}
+                    <div
+                      className="mt-1 inline-block rounded-sm px-1 py-[1px] text-[6px] font-bold text-white"
+                      style={{ background: c.hue }}
+                    >
+                      Visit
+                    </div>
+                  </div>
                 </div>
               </motion.div>
             );
           })}
 
-          {/* Final "lock-in" flash — fires near the end */}
+          {/* Feedback chips orbiting in */}
+          {FEEDBACK_CHIPS.map((chip, i) => {
+            const angle = (i / FEEDBACK_CHIPS.length) * Math.PI * 2;
+            const r = 220;
+            const startX = Math.cos(angle) * r * 1.6;
+            const startY = Math.sin(angle) * r * 1.6;
+            const restX = Math.cos(angle) * r * 0.95;
+            const restY = Math.sin(angle) * r * 0.55;
+            const Icon = chip.Icon;
+            return (
+              <motion.div
+                key={chip.label}
+                initial={{ x: startX, y: startY, opacity: 0, scale: 0.6 }}
+                animate={{
+                  x: [startX, restX, restX, 0],
+                  y: [startY, restY, restY, 0],
+                  opacity: [0, 1, 1, 0],
+                  scale: [0.6, 1, 1, 0.4],
+                }}
+                transition={{
+                  duration: 2.5,
+                  delay: 0.5 + i * 0.08,
+                  times: [0, 0.4, 0.8, 1],
+                  ease: [0.22, 1, 0.36, 1],
+                }}
+                className="absolute left-1/2 top-1/2"
+                style={{ translateX: "-50%", translateY: "-50%" }}
+              >
+                <div
+                  className="px-2.5 py-1 rounded-full flex items-center gap-1.5 font-mono text-[10px] font-medium whitespace-nowrap backdrop-blur-sm"
+                  style={{
+                    background: `${chip.color}1f`,
+                    border: `1px solid ${chip.color}66`,
+                    color: chip.color,
+                    boxShadow: `0 0 18px ${chip.color}55`,
+                  }}
+                >
+                  <Icon size={10} />
+                  {chip.label}
+                </div>
+              </motion.div>
+            );
+          })}
+
+          {/* SHATTER particles — burst from center near the end */}
+          {particles.map((p) => (
+            <motion.div
+              key={p.id}
+              initial={{ x: 0, y: 0, opacity: 0, scale: 0 }}
+              animate={{
+                x: Math.cos(p.angle) * p.distance,
+                y: Math.sin(p.angle) * p.distance,
+                opacity: [0, 1, 0],
+                scale: [0, 1, 0.2],
+              }}
+              transition={{
+                duration: 0.8,
+                delay: p.delay,
+                ease: [0.22, 1, 0.36, 1],
+              }}
+              className="absolute left-1/2 top-1/2 rounded-full"
+              style={{
+                width: p.size,
+                height: p.size,
+                background: "#06b6d4",
+                boxShadow: "0 0 8px #06b6d4, 0 0 16px rgba(6,182,212,0.6)",
+              }}
+            />
+          ))}
+
+          {/* Status caption — bottom */}
+          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 text-center pointer-events-none">
+            <div className="text-[10px] font-mono tracking-[0.32em] uppercase text-cyan-300 mb-1">
+              NazAI · Hyper-Space
+            </div>
+            <motion.div
+              key={seed}
+              animate={{ opacity: [0.4, 1, 0.4] }}
+              transition={{ duration: 1.4, repeat: Infinity }}
+              className="text-[11px] font-mono text-zinc-300"
+            >
+              Fusing components into final layout
+            </motion.div>
+          </div>
+
+          {/* Final "lock-in" cyan flash — fires near the end */}
           <motion.div
             initial={{ opacity: 0 }}
-            animate={{ opacity: [0, 0.9, 0] }}
-            transition={{ duration: 0.6, delay: 2.4, times: [0, 0.4, 1] }}
+            animate={{ opacity: [0, 0, 0.95, 0] }}
+            transition={{ duration: 0.9, delay: 2.2, times: [0, 0.3, 0.55, 1] }}
             className="absolute inset-0"
-            style={{ background: "rgba(6,182,212,0.18)" }}
+            style={{ background: "rgba(6,182,212,0.28)" }}
           />
         </motion.div>
       )}
