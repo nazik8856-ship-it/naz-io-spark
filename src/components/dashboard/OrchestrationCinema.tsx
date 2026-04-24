@@ -151,9 +151,9 @@ const OrchestrationCinema: React.FC<OrchestrationCinemaProps> = ({ active }) => 
             initial={{ opacity: 0, scale: 0.6, rotate: 0 }}
             animate={{ opacity: [0, 0.55, 0.35], scale: [0.6, 1.1, 1], rotate: 360 }}
             transition={{
-              opacity: { duration: 2.6, ease: "easeOut" },
-              scale: { duration: 2.6, ease: "easeOut" },
-              rotate: { duration: 6, repeat: Infinity, ease: "linear" },
+              opacity: { duration: 5.2, ease: "easeOut" },
+              scale: { duration: 5.2, ease: "easeOut" },
+              rotate: { duration: 8, repeat: Infinity, ease: "linear" },
             }}
             className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full"
             style={{
