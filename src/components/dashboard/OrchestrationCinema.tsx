@@ -432,7 +432,7 @@ const OrchestrationCinema: React.FC<OrchestrationCinemaProps> = ({ active }) => 
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: [0, 0, 0.95, 0] }}
-            transition={{ duration: 0.9, delay: 2.2, times: [0, 0.3, 0.55, 1] }}
+            transition={{ duration: 1.1, delay: 4.7, times: [0, 0.25, 0.5, 1] }}
             className="absolute inset-0"
             style={{ background: "rgba(6,182,212,0.28)" }}
           />
