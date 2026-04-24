@@ -2374,6 +2374,28 @@ export default function Dashboard() {
   // Haptic Sync transient status message
   const [hapticStatus, setHapticStatus] = useState<string | null>(null);
 
+  // Pencil-edit pulse: highlights the input pill for ~2s when triggered
+  const [editPulse, setEditPulse] = useState(false);
+
+  const handleEditTrigger = useCallback(() => {
+    // 1. Force sandbox mode for free-form iteration commands
+    setPromptMode("sandbox");
+    // 2. Pulse the input pill (cyan glow) for ~2s
+    setEditPulse(true);
+    setTimeout(() => setEditPulse(false), 2200);
+    // 3. Scroll the input into view
+    requestAnimationFrame(() => {
+      inputContainerRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      textareaRef.current?.focus();
+    });
+    // 4. Soft haptic confirmation
+    try {
+      window.navigator?.vibrate?.([12, 6, 12]);
+    } catch {
+      /* noop */
+    }
+  }, []);
+
   // ── Live-Edit Sandbox Bridge: once the website is live, auto-switch the
   //    prompt mode to SANDBOX so the user can issue iteration commands inline.
   useEffect(() => {
