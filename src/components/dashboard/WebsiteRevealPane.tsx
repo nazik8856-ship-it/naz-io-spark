@@ -12,6 +12,8 @@ import {
   Loader2,
 } from "lucide-react";
 import CommandCenterChecklist from "@/components/dashboard/CommandCenterChecklist";
+import OrchestrationCinema from "@/components/dashboard/OrchestrationCinema";
+import LaunchpadDeploymentBar from "@/components/dashboard/LaunchpadDeploymentBar";
 
 /**
  * WebsiteRevealPane
