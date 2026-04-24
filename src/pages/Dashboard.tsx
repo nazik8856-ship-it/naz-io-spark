@@ -1157,6 +1157,8 @@ const HomeView = ({
   extractorData, setExtractorData,
   editablePrompt, setEditablePrompt,
   isWebsiteComplete,
+  isMinimized, setIsMinimized,
+  hapticStatus,
   selectedTemplate, setSelectedTemplate,
   fileInputRef,
   cameraInputRef,
@@ -3125,6 +3127,9 @@ export default function Dashboard() {
             fileInputRef={fileInputRef}
             cameraInputRef={cameraInputRef}
             isWebsiteComplete={isWebsiteComplete}
+            isMinimized={isMinimized}
+            setIsMinimized={setIsMinimized}
+            hapticStatus={hapticStatus}
           />
         );
     }
