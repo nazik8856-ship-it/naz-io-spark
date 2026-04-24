@@ -2641,6 +2641,33 @@ export default function Dashboard() {
       return;
     }
 
+    // ── Kinetic UI: Haptic Feedback ───────────────────────────────────────────
+    // Pulse-pattern vibration on supported devices/wearables, plus a transient
+    // "Haptic Sync" status banner so the user feels the asset's weight & texture
+    // being processed before the visual result appears.
+    try {
+      if (typeof window !== "undefined" && window.navigator && typeof window.navigator.vibrate === "function") {
+        window.navigator.vibrate([20, 10, 20]);
+      }
+    } catch {
+      /* vibration unsupported — silent fallback */
+    }
+    setHapticStatus("Transmitting physical data to wearable interface...");
+    setTimeout(() => setHapticStatus(null), 1800);
+
+    // ── Sent animation: collapse prompt pill into a sleek 48px chat bar ───────
+    setIsMinimized(true);
+
+    // ── Auto-Orchestration: hidden system instruction telling the AI to pick
+    //    the fastest + most accurate multi-agent toolchain for this directive.
+    const ORCHESTRATION_DIRECTIVE =
+      `[SYSTEM_ORCHESTRATION: AUTO]\n` +
+      `Select the fastest and most accurate tools available via multi-agent ` +
+      `orchestration based on the user's specific input. Route reasoning to the ` +
+      `strongest model, delegate creative or media tasks to specialized agents, ` +
+      `and parallelize independent steps. Do not ask the user which engine to use.\n\n`;
+    masterPrompt = ORCHESTRATION_DIRECTIVE + masterPrompt;
+
     // ── Intent detection: prioritize code/UI generation when the user asks for a
     //    website / landing page / site. Inject a high-priority system directive.
     const lowerPrompt = trimmed.toLowerCase();
@@ -2659,7 +2686,6 @@ export default function Dashboard() {
         masterPrompt;
     }
 
-    setIsPending(true);
 
     if (currentAbortControllerRef.current) {
       currentAbortControllerRef.current.abort();
