@@ -2334,6 +2334,10 @@ export default function Dashboard() {
   const [isWebsiteIntent, setIsWebsiteIntent] = useState(false);
   const [lastWebsitePrompt, setLastWebsitePrompt] = useState("");
 
+  // Live-Edit Sandbox Bridge: derived flag — true once a website is rendered in
+  // the preview pane. New sandbox prompts are then treated as iteration commands.
+  const isIterationMode = isWebsiteIntent && isWebsiteComplete;
+
   // Sent-state minimization (shrinks the prompt pill into a 48px chat bar so the AI output owns the screen)
   const [isMinimized, setIsMinimized] = useState(false);
 
