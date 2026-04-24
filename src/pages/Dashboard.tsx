@@ -1806,14 +1806,7 @@ const HomeView = ({
                 >
                   <Plus size={14} className="text-white/70" />
                 </button>
-                <button
-                  onClick={() => setDrawerOpen(true)}
-                  className="text-[10px] px-3 py-1.5 rounded-lg font-mono font-bold tracking-tight transition-all hover:bg-white/10 flex items-center gap-2 border border-white/10 bg-white/5"
-                  style={{ color: auraProfile.glowPrimary }}
-                >
-                  <Brain size={12} />
-                  {activeTool ? activeTool.tool.name.toUpperCase() : "SELECT ENGINE"}
-                </button>
+                {/* Engine Switcher removed — orchestration is now automatic (handleSendMessage injects SYSTEM_ORCHESTRATION directive) */}
               </div>
 
               <div className="flex gap-2">
