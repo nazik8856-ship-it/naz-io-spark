@@ -1178,6 +1178,7 @@ const HomeView = ({
   isWebsiteIntent,
   setIsWebsiteIntent,
   lastWebsitePrompt,
+  isIterationMode,
 }: any) => {
   // Template definitions (master templates - never mutated)
   const TEMPLATE_MASTERS = {
@@ -1503,6 +1504,35 @@ const HomeView = ({
               transition={{ duration: 0.9, repeat: Infinity }}
             />
             HAPTIC SYNC // {hapticStatus}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ─── ITERATION MODE BADGE — floats above the input pill once a website is live ── */}
+      <AnimatePresence>
+        {isIterationMode && (
+          <motion.div
+            key="iteration-badge"
+            initial={{ opacity: 0, y: 8, scale: 0.92 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 8, scale: 0.92 }}
+            transition={{ type: "spring", stiffness: 320, damping: 26 }}
+            className="fixed left-1/2 -translate-x-1/2 z-[60] flex items-center gap-2 px-3.5 py-1.5 rounded-full text-[10px] font-mono uppercase tracking-[0.22em] pointer-events-none"
+            style={{
+              bottom: isMinimized ? 70 : 240,
+              background: "rgba(6,182,212,0.08)",
+              border: "1px solid rgba(6,182,212,0.45)",
+              color: "#06b6d4",
+              boxShadow: "0 0 22px rgba(6,182,212,0.35)",
+              backdropFilter: "blur(12px)",
+            }}
+          >
+            <motion.span
+              className="w-1.5 h-1.5 rounded-full bg-cyan-400"
+              animate={{ opacity: [0.4, 1, 0.4] }}
+              transition={{ duration: 1.2, repeat: Infinity }}
+            />
+            Iteration Mode Active
           </motion.div>
         )}
       </AnimatePresence>
@@ -2334,11 +2364,23 @@ export default function Dashboard() {
   const [isWebsiteIntent, setIsWebsiteIntent] = useState(false);
   const [lastWebsitePrompt, setLastWebsitePrompt] = useState("");
 
+  // Live-Edit Sandbox Bridge: derived flag — true once a website is rendered in
+  // the preview pane. New sandbox prompts are then treated as iteration commands.
+  const isIterationMode = isWebsiteIntent && isWebsiteComplete;
+
   // Sent-state minimization (shrinks the prompt pill into a 48px chat bar so the AI output owns the screen)
   const [isMinimized, setIsMinimized] = useState(false);
 
   // Haptic Sync transient status message
   const [hapticStatus, setHapticStatus] = useState<string | null>(null);
+
+  // ── Live-Edit Sandbox Bridge: once the website is live, auto-switch the
+  //    prompt mode to SANDBOX so the user can issue iteration commands inline.
+  useEffect(() => {
+    if (isIterationMode) {
+      setPromptMode("sandbox");
+    }
+  }, [isIterationMode]);
 
   // ── Apply CSS Variables to Document ────────────────────────────────────────────
   useEffect(() => {
@@ -2783,14 +2825,30 @@ export default function Dashboard() {
       `and parallelize independent steps. Do not ask the user which engine to use.\n\n`;
     masterPrompt = ORCHESTRATION_DIRECTIVE + masterPrompt;
 
-    // ── Intent detection: prioritize code/UI generation when the user asks for a
-    //    website / landing page / site. Inject a high-priority system directive.
+    // ── Intent detection ──────────────────────────────────────────────────────
+    //  • If a website is already live in the preview pane → treat any new
+    //    sandbox prompt as an Iteration Command (e.g. "make the header red").
+    //  • Otherwise, if the user asks for a website / landing page / site,
+    //    inject the high-priority website-build directive.
     const lowerPrompt = trimmed.toLowerCase();
+    const isRefine = trimmed.startsWith("[REFINE_DIRECTIVE");
     const websiteIntent =
       /\b(website|web\s*site|landing\s*page|landing|site|webpage|web\s*page|homepage|micro[-\s]?site)\b/.test(
         lowerPrompt,
       );
-    if (websiteIntent) {
+
+    if (isWebsiteComplete && isWebsiteIntent && !isRefine) {
+      // ── Iteration Command: edit the existing live preview in place ─────────
+      masterPrompt =
+        `[ITERATION_DIRECTIVE: LIVE_EDIT]\n` +
+        `A website is already live in the user's preview pane. Treat the ` +
+        `following request as a focused edit to the EXISTING site (e.g. ` +
+        `"make the header red", "add a contact form"). Return only the ` +
+        `targeted code/section diffs needed — do not rebuild the site from ` +
+        `scratch.\n\n` +
+        `LAST_BUILD_DIRECTIVE: ${lastWebsitePrompt}\n\n` +
+        masterPrompt;
+    } else if (websiteIntent) {
       setIsWebsiteIntent(true);
       setLastWebsitePrompt(trimmed);
       masterPrompt =
@@ -3257,6 +3315,7 @@ export default function Dashboard() {
             isWebsiteIntent={isWebsiteIntent}
             setIsWebsiteIntent={setIsWebsiteIntent}
             lastWebsitePrompt={lastWebsitePrompt}
+            isIterationMode={isIterationMode}
           />
         );
     }
