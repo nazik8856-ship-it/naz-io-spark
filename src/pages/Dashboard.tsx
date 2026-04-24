@@ -1508,6 +1508,35 @@ const HomeView = ({
         )}
       </AnimatePresence>
 
+      {/* ─── ITERATION MODE BADGE — floats above the input pill once a website is live ── */}
+      <AnimatePresence>
+        {isIterationMode && (
+          <motion.div
+            key="iteration-badge"
+            initial={{ opacity: 0, y: 8, scale: 0.92 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 8, scale: 0.92 }}
+            transition={{ type: "spring", stiffness: 320, damping: 26 }}
+            className="fixed left-1/2 -translate-x-1/2 z-[60] flex items-center gap-2 px-3.5 py-1.5 rounded-full text-[10px] font-mono uppercase tracking-[0.22em] pointer-events-none"
+            style={{
+              bottom: isMinimized ? 70 : 240,
+              background: "rgba(6,182,212,0.08)",
+              border: "1px solid rgba(6,182,212,0.45)",
+              color: "#06b6d4",
+              boxShadow: "0 0 22px rgba(6,182,212,0.35)",
+              backdropFilter: "blur(12px)",
+            }}
+          >
+            <motion.span
+              className="w-1.5 h-1.5 rounded-full bg-cyan-400"
+              animate={{ opacity: [0.4, 1, 0.4] }}
+              transition={{ duration: 1.2, repeat: Infinity }}
+            />
+            Iteration Mode Active
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* ─── ADAPTIVE WORKBENCH INPUT CONTAINER WITH HEIGHT ANIMATION ─── */}
       <div
         ref={inputContainerRef}
