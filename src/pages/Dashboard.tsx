@@ -2270,6 +2270,10 @@ export default function Dashboard() {
   // Reward gate: Command Center checklist only appears once a website has been generated
   const [isWebsiteComplete, setIsWebsiteComplete] = useState(false);
 
+  // Website Reveal split-pane: activates when the user issues a website-build directive.
+  const [isWebsiteIntent, setIsWebsiteIntent] = useState(false);
+  const [lastWebsitePrompt, setLastWebsitePrompt] = useState("");
+
   // Sent-state minimization (shrinks the prompt pill into a 48px chat bar so the AI output owns the screen)
   const [isMinimized, setIsMinimized] = useState(false);
 
