@@ -1541,13 +1541,26 @@ const HomeView = ({
       </AnimatePresence>
 
       {/* ─── ADAPTIVE WORKBENCH INPUT CONTAINER WITH HEIGHT ANIMATION ─── */}
-      <div
+      <motion.div
         ref={inputContainerRef}
-        className="fixed bottom-4 left-1/2 z-40 w-[94%] sm:w-full sm:max-w-2xl -translate-x-1/2"
+        className="fixed bottom-4 left-1/2 z-40 w-[94%] sm:w-full sm:max-w-2xl -translate-x-1/2 rounded-3xl"
         style={{
           pointerEvents: "auto",
           isolation: "isolate",
         }}
+        animate={
+          editPulse
+            ? {
+                boxShadow: [
+                  "0 0 0 0px rgba(6,182,212,0)",
+                  "0 0 0 4px rgba(6,182,212,0.45), 0 0 48px rgba(6,182,212,0.65)",
+                  "0 0 0 2px rgba(6,182,212,0.25), 0 0 24px rgba(6,182,212,0.35)",
+                  "0 0 0 0px rgba(6,182,212,0)",
+                ],
+              }
+            : { boxShadow: "0 0 0 0px rgba(6,182,212,0)" }
+        }
+        transition={{ duration: 2, ease: "easeOut" }}
       >
         {isMinimized ? (
           // ── Sleek 48px chat bar — focuses center of screen on AI output ──
