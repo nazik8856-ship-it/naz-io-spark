@@ -2136,7 +2136,14 @@ export default function Dashboard() {
   const [proposedApps, setProposedApps] = useState<any[]>([]);
   
   // ─── Identity & Neural Context Logic ────────────────────────────────────────
-  const [userContext, setUserContext] = useState<UserContext>(DEFAULT_USER_CONTEXT);
+  const [userContext, setUserContext] = useState<UserContext>(() => {
+    if (typeof window === "undefined") return DEFAULT_USER_CONTEXT;
+    try {
+      const raw = localStorage.getItem("nazai-user-context");
+      if (raw) return { ...DEFAULT_USER_CONTEXT, ...JSON.parse(raw) };
+    } catch { /* ignore */ }
+    return DEFAULT_USER_CONTEXT;
+  });
 
   // ─── ADAPTIVE WORKBENCH STATES ───────────────────────────────────────────────
   const [promptMode, setPromptMode] = useState<"sandbox" | "extractor" | "blueprint">("sandbox");
