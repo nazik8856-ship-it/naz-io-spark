@@ -1179,6 +1179,8 @@ const HomeView = ({
   setIsWebsiteIntent,
   lastWebsitePrompt,
   isIterationMode,
+  onEditTrigger,
+  editPulse,
 }: any) => {
   // Template definitions (master templates - never mutated)
   const TEMPLATE_MASTERS = {
