@@ -1330,26 +1330,7 @@ const HomeView = ({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Selected Engine Badge */}
-      {activeTool && (
-        <div className="w-full max-w-2xl mx-auto mb-2 flex justify-end px-4 relative z-[101]">
-          <span
-            className="text-[9px] px-2 py-1 rounded-full flex items-center gap-1 font-mono"
-            style={{
-              background: `rgba(${activeTool.category.glowRgba},0.1)`,
-              border: `1px solid rgba(${activeTool.category.glowRgba},0.2)`,
-              color: activeTool.category.color,
-            }}
-          >
-            {activeTool.tool.name}{" "}
-            <X
-              size={10}
-              className="cursor-pointer hover:opacity-70 transition-opacity"
-              onClick={() => setSelectedModel(null)}
-            />
-          </span>
-        </div>
-      )}
+      {/* Selected Engine Badge removed — orchestration is now automatic */}
 
       {/* ─── ENHANCED PROMPT CARDS - ONLY VISIBLE IN SANDBOX MODE ─── */}
       {/* Cards float well above the input box so they aren't visually overlapping it */}
