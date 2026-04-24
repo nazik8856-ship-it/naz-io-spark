@@ -2686,6 +2686,7 @@ export default function Dashboard() {
         masterPrompt;
     }
 
+    setIsPending(true);
 
     if (currentAbortControllerRef.current) {
       currentAbortControllerRef.current.abort();
