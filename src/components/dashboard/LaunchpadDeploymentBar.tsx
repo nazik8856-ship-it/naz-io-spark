@@ -77,7 +77,7 @@ const LaunchpadDeploymentBar: React.FC<LaunchpadDeploymentBarProps> = ({
       const next = STAGES.findIndex((s) => pct < s.pct);
       const idx = next === -1 ? STAGES.length - 1 : Math.max(0, next);
       setStageIdx(idx);
-      if (pct >= 60 && phase === "building") setPhase("deploying");
+      if (pct >= 60) setPhase((p) => (p === "building" ? "deploying" : p));
       if (pct < 100) {
         timeouts.current.push(window.setTimeout(tick, 70));
       } else {
