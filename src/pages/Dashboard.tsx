@@ -3362,6 +3362,8 @@ export default function Dashboard() {
             setIsWebsiteIntent={setIsWebsiteIntent}
             lastWebsitePrompt={lastWebsitePrompt}
             isIterationMode={isIterationMode}
+            onEditTrigger={handleEditTrigger}
+            editPulse={editPulse}
           />
         );
     }
