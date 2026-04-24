@@ -5,13 +5,14 @@ import { Sparkles, Rocket, ShieldCheck, Zap, Search, TrendingUp } from "lucide-r
 /**
  * OrchestrationCinema — "Hyper-Space" website-build transition.
  *
- * Inspired by Durable.co's generation reveal: floating mini website preview
- * "thumbnails" drift in from the four edges of the pane and converge toward
- * a central browser-chromed frame. As they reach the center they pulse with
- * a cyan glow, then SHATTER into particles. A final cyan flash reveals the
- * generated website locking into place beneath the overlay.
+ * Floating mini-website preview thumbnails drift in from the four edges of
+ * the pane and converge on a central browser-chromed frame. As they reach
+ * the center they pulse with a cyan glow and SHATTER into particles. A
+ * final cyan flash reveals the generated website locking into place.
  *
- * Total runtime ≤ 3s (per design brief — "Flash of Genius, not a movie").
+ * Timing: the visual climax (shatter + lock-in flash) is tuned to peak at
+ * the 5-second mark of the generation process, matching the average AI
+ * response latency for a website build.
  */
 
 interface OrchestrationCinemaProps {
