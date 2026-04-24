@@ -1427,6 +1427,33 @@ const HomeView = ({
         </div>
       </div>
 
+      {/* ─── HAPTIC SYNC STATUS BANNER (Kinetic UI) ─── */}
+      <AnimatePresence>
+        {hapticStatus && (
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 12 }}
+            transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+            className="fixed bottom-[80px] left-1/2 -translate-x-1/2 z-[60] px-3.5 py-1.5 rounded-full flex items-center gap-2 text-[10px] font-mono tracking-wider"
+            style={{
+              background: "rgba(6,182,212,0.08)",
+              border: "1px solid rgba(6,182,212,0.35)",
+              color: "#06b6d4",
+              boxShadow: "0 0 18px rgba(6,182,212,0.25)",
+              backdropFilter: "blur(12px)",
+            }}
+          >
+            <motion.span
+              className="w-1.5 h-1.5 rounded-full bg-cyan-400"
+              animate={{ opacity: [0.3, 1, 0.3] }}
+              transition={{ duration: 0.9, repeat: Infinity }}
+            />
+            HAPTIC SYNC // {hapticStatus}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* ─── ADAPTIVE WORKBENCH INPUT CONTAINER WITH HEIGHT ANIMATION ─── */}
       <div
         ref={inputContainerRef}
@@ -1436,6 +1463,39 @@ const HomeView = ({
           isolation: "isolate",
         }}
       >
+        {isMinimized ? (
+          // ── Sleek 48px chat bar — focuses center of screen on AI output ──
+          <motion.button
+            type="button"
+            onClick={() => setIsMinimized(false)}
+            initial={{ opacity: 0, y: 20, height: 0 }}
+            animate={{ opacity: 1, y: 0, height: 48 }}
+            exit={{ opacity: 0, y: 20, height: 0 }}
+            transition={{ type: "spring", stiffness: 320, damping: 28 }}
+            whileHover={{ scale: 1.005 }}
+            className="w-full px-4 sm:px-5 flex items-center gap-3 rounded-2xl shadow-2xl text-left"
+            style={{
+              height: 48,
+              background: "rgba(10, 14, 23, 0.95)",
+              border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.35)`,
+              backdropFilter: "blur(20px)",
+              color: "var(--nazai-text-color)",
+            }}
+            title="Continue mission — click to expand"
+          >
+            <motion.span
+              className="w-2 h-2 rounded-full shrink-0"
+              style={{ background: auraProfile.glowPrimary, boxShadow: `0 0 8px ${auraProfile.glowPrimary}` }}
+              animate={isPending ? { opacity: [0.3, 1, 0.3] } : { opacity: 1 }}
+              transition={{ duration: 1.1, repeat: isPending ? Infinity : 0 }}
+            />
+            <span className="text-[11px] font-mono tracking-wider text-white/70 flex-1 truncate">
+              {isPending ? "Neural Architect orchestrating…" : "Continue mission"}
+            </span>
+            <span className="text-[9px] font-mono text-white/40 hidden sm:inline">CLICK TO EXPAND</span>
+            <ChevronRight size={14} className="text-white/40 rotate-[-90deg]" />
+          </motion.button>
+        ) : (
         <div className="w-full px-0 sm:px-4">
           <motion.div
             className="relative rounded-2xl flex flex-col overflow-hidden shadow-2xl"
