@@ -2787,14 +2787,30 @@ export default function Dashboard() {
       `and parallelize independent steps. Do not ask the user which engine to use.\n\n`;
     masterPrompt = ORCHESTRATION_DIRECTIVE + masterPrompt;
 
-    // ── Intent detection: prioritize code/UI generation when the user asks for a
-    //    website / landing page / site. Inject a high-priority system directive.
+    // ── Intent detection ──────────────────────────────────────────────────────
+    //  • If a website is already live in the preview pane → treat any new
+    //    sandbox prompt as an Iteration Command (e.g. "make the header red").
+    //  • Otherwise, if the user asks for a website / landing page / site,
+    //    inject the high-priority website-build directive.
     const lowerPrompt = trimmed.toLowerCase();
+    const isRefine = trimmed.startsWith("[REFINE_DIRECTIVE");
     const websiteIntent =
       /\b(website|web\s*site|landing\s*page|landing|site|webpage|web\s*page|homepage|micro[-\s]?site)\b/.test(
         lowerPrompt,
       );
-    if (websiteIntent) {
+
+    if (isWebsiteComplete && isWebsiteIntent && !isRefine) {
+      // ── Iteration Command: edit the existing live preview in place ─────────
+      masterPrompt =
+        `[ITERATION_DIRECTIVE: LIVE_EDIT]\n` +
+        `A website is already live in the user's preview pane. Treat the ` +
+        `following request as a focused edit to the EXISTING site (e.g. ` +
+        `"make the header red", "add a contact form"). Return only the ` +
+        `targeted code/section diffs needed — do not rebuild the site from ` +
+        `scratch.\n\n` +
+        `LAST_BUILD_DIRECTIVE: ${lastWebsitePrompt}\n\n` +
+        masterPrompt;
+    } else if (websiteIntent) {
       setIsWebsiteIntent(true);
       setLastWebsitePrompt(trimmed);
       masterPrompt =
