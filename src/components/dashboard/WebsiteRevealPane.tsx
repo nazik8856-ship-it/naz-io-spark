@@ -369,7 +369,7 @@ const WebsiteRevealPane: React.FC<WebsiteRevealPaneProps> = ({
 
           <div className="p-4 sm:p-6 flex flex-col items-center gap-4">
             <div
-              className={`mx-auto rounded-xl overflow-hidden transition-all duration-500 ${
+              className={`relative mx-auto rounded-xl overflow-visible transition-all duration-500 ${
                 device === "mobile" ? "w-[360px] max-w-full" : "w-full max-w-[920px]"
               }`}
               style={{
@@ -378,6 +378,50 @@ const WebsiteRevealPane: React.FC<WebsiteRevealPaneProps> = ({
                 boxShadow: "0 30px 80px -30px rgba(6,182,212,0.18)",
               }}
             >
+              {/* ── Pencil edit trigger (top-right corner of preview) ───── */}
+              {onEditTrigger && (
+                <TooltipProvider delayDuration={150}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <motion.button
+                        type="button"
+                        onClick={onEditTrigger}
+                        initial={{ opacity: 0, scale: 0.6 }}
+                        animate={{
+                          opacity: 1,
+                          scale: 1,
+                          boxShadow: [
+                            "0 0 0 1px rgba(6,182,212,0.55), 0 0 12px rgba(6,182,212,0.45)",
+                            "0 0 0 1px rgba(6,182,212,0.85), 0 0 26px rgba(6,182,212,0.85)",
+                            "0 0 0 1px rgba(6,182,212,0.55), 0 0 12px rgba(6,182,212,0.45)",
+                          ],
+                        }}
+                        transition={{
+                          opacity: { duration: 0.3, delay: 0.2 },
+                          scale: { duration: 0.3, delay: 0.2 },
+                          boxShadow: { duration: 2, repeat: Infinity, ease: "easeInOut" },
+                        }}
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.92 }}
+                        aria-label="Edit this output with NazAI"
+                        className="absolute -top-3 -right-3 z-50 w-9 h-9 rounded-full flex items-center justify-center"
+                        style={{
+                          background: "rgba(9,9,11,0.95)",
+                          border: "1px solid rgba(6,182,212,0.6)",
+                          color: "#06b6d4",
+                          backdropFilter: "blur(8px)",
+                        }}
+                      >
+                        <Pencil size={14} />
+                      </motion.button>
+                    </TooltipTrigger>
+                    <TooltipContent side="left" className="font-mono text-[10px] tracking-wider">
+                      Edit this output with NazAI
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+
               {/* Browser chrome */}
               <div
                 className="flex items-center gap-1.5 px-3 py-2"
