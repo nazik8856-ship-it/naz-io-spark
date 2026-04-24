@@ -1366,6 +1366,42 @@ const HomeView = ({
         <div ref={messagesEndRef} />
       </div>
 
+      {/* ─── WEBSITE REVEAL SPLIT-PANE — only for website-build directives ─── */}
+      <AnimatePresence>
+        {isWebsiteIntent && (
+          <motion.div
+            key="website-reveal"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="absolute inset-0 z-30 pb-[88px]"
+          >
+            <WebsiteRevealPane
+              responseText={latestAiText}
+              isPending={isPending}
+              isWebsiteComplete={isWebsiteComplete}
+              directive={lastWebsitePrompt}
+              onRefine={handleRefine}
+            />
+            {/* Close handle so the user can return to the standard chat view */}
+            <button
+              type="button"
+              onClick={() => setIsWebsiteIntent(false)}
+              className="absolute top-2 right-3 z-50 px-2 py-1 rounded text-[10px] font-mono uppercase tracking-wider transition-colors"
+              style={{
+                background: "rgba(9,9,11,0.9)",
+                border: "1px solid #27272a",
+                color: "#a1a1aa",
+              }}
+              aria-label="Exit website preview"
+            >
+              Exit preview
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Selected Engine Badge removed — orchestration is now automatic */}
 
       {/* ─── ENHANCED PROMPT CARDS - ONLY VISIBLE IN SANDBOX MODE ─── */}
