@@ -5,13 +5,14 @@ import { Sparkles, Rocket, ShieldCheck, Zap, Search, TrendingUp } from "lucide-r
 /**
  * OrchestrationCinema — "Hyper-Space" website-build transition.
  *
- * Inspired by Durable.co's generation reveal: floating mini website preview
- * "thumbnails" drift in from the four edges of the pane and converge toward
- * a central browser-chromed frame. As they reach the center they pulse with
- * a cyan glow, then SHATTER into particles. A final cyan flash reveals the
- * generated website locking into place beneath the overlay.
+ * Floating mini-website preview thumbnails drift in from the four edges of
+ * the pane and converge on a central browser-chromed frame. As they reach
+ * the center they pulse with a cyan glow and SHATTER into particles. A
+ * final cyan flash reveals the generated website locking into place.
  *
- * Total runtime ≤ 3s (per design brief — "Flash of Genius, not a movie").
+ * Timing: the visual climax (shatter + lock-in flash) is tuned to peak at
+ * the 5-second mark of the generation process, matching the average AI
+ * response latency for a website build.
  */
 
 interface OrchestrationCinemaProps {
@@ -121,7 +122,8 @@ const OrchestrationCinema: React.FC<OrchestrationCinemaProps> = ({ active }) => 
         angle: (i / PARTICLE_COUNT) * Math.PI * 2 + Math.random() * 0.4,
         distance: 140 + Math.random() * 180,
         size: 2 + Math.random() * 3,
-        delay: 2.0 + Math.random() * 0.15,
+        // Shatter burst peaks at the 5-second mark.
+        delay: 4.7 + Math.random() * 0.2,
       })),
     [seed]
   );
@@ -149,9 +151,9 @@ const OrchestrationCinema: React.FC<OrchestrationCinemaProps> = ({ active }) => 
             initial={{ opacity: 0, scale: 0.6, rotate: 0 }}
             animate={{ opacity: [0, 0.55, 0.35], scale: [0.6, 1.1, 1], rotate: 360 }}
             transition={{
-              opacity: { duration: 2.6, ease: "easeOut" },
-              scale: { duration: 2.6, ease: "easeOut" },
-              rotate: { duration: 6, repeat: Infinity, ease: "linear" },
+              opacity: { duration: 5.2, ease: "easeOut" },
+              scale: { duration: 5.2, ease: "easeOut" },
+              rotate: { duration: 8, repeat: Infinity, ease: "linear" },
             }}
             className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full"
             style={{
@@ -182,7 +184,7 @@ const OrchestrationCinema: React.FC<OrchestrationCinemaProps> = ({ active }) => 
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: [0, 0.6, 0.3], scale: [0.9, 1.05, 1] }}
-            transition={{ duration: 2.6, ease: "easeOut" }}
+            transition={{ duration: 5, ease: "easeOut" }}
             className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[140%] h-[140%]"
             style={{
               background:
@@ -279,9 +281,10 @@ const OrchestrationCinema: React.FC<OrchestrationCinemaProps> = ({ active }) => 
                   rotate: [c.rotate * 2, c.rotate, 0],
                 }}
                 transition={{
-                  duration: 2.4,
+                  duration: 4.6,
                   delay: c.delay,
-                  times: [0, 0.45, 0.85, 1],
+                  // Hold the converged state, then shatter (opacity→0, scale→0.3) at ~5s
+                  times: [0, 0.45, 0.9, 1],
                   ease: [0.22, 1, 0.36, 1],
                 }}
                 className="absolute left-1/2 top-1/2"
@@ -360,9 +363,9 @@ const OrchestrationCinema: React.FC<OrchestrationCinemaProps> = ({ active }) => 
                   scale: [0.6, 1, 1, 0.4],
                 }}
                 transition={{
-                  duration: 2.5,
+                  duration: 4.6,
                   delay: 0.5 + i * 0.08,
-                  times: [0, 0.4, 0.8, 1],
+                  times: [0, 0.4, 0.88, 1],
                   ease: [0.22, 1, 0.36, 1],
                 }}
                 className="absolute left-1/2 top-1/2"
@@ -429,7 +432,7 @@ const OrchestrationCinema: React.FC<OrchestrationCinemaProps> = ({ active }) => 
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: [0, 0, 0.95, 0] }}
-            transition={{ duration: 0.9, delay: 2.2, times: [0, 0.3, 0.55, 1] }}
+            transition={{ duration: 1.1, delay: 4.7, times: [0, 0.25, 0.5, 1] }}
             className="absolute inset-0"
             style={{ background: "rgba(6,182,212,0.28)" }}
           />

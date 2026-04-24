@@ -1181,6 +1181,8 @@ const HomeView = ({
   isIterationMode,
   onEditTrigger,
   editPulse,
+  isPreviewActive,
+  setIsPreviewActive,
 }: any) => {
   // Template definitions (master templates - never mutated)
   const TEMPLATE_MASTERS = {
@@ -1371,13 +1373,13 @@ const HomeView = ({
 
       {/* ─── WEBSITE REVEAL SPLIT-PANE — only for website-build directives ─── */}
       <AnimatePresence>
-        {isWebsiteIntent && (
+        {isWebsiteIntent && isPreviewActive && (
           <motion.div
             key="website-reveal"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.3 }}
+            initial={{ opacity: 0, x: 40 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 40 }}
+            transition={{ type: "spring", stiffness: 260, damping: 30 }}
             className="absolute inset-0 z-30 pb-[88px]"
           >
             <WebsiteRevealPane
@@ -1388,21 +1390,64 @@ const HomeView = ({
               onRefine={handleRefine}
               onEditTrigger={onEditTrigger}
             />
-            {/* Close handle so the user can return to the standard chat view */}
+            {/* Leave Preview — keeps the build alive, just hides the pane */}
             <button
               type="button"
-              onClick={() => setIsWebsiteIntent(false)}
-              className="absolute top-2 right-3 z-50 px-2 py-1 rounded text-[10px] font-mono uppercase tracking-wider transition-colors"
+              onClick={() => setIsPreviewActive(false)}
+              className="absolute top-2 right-3 z-50 px-2 py-1 rounded text-[10px] font-mono uppercase tracking-wider transition-colors hover:bg-white/5"
               style={{
                 background: "rgba(9,9,11,0.9)",
                 border: "1px solid #27272a",
                 color: "#a1a1aa",
               }}
-              aria-label="Exit website preview"
+              aria-label="Leave preview"
             >
-              Exit preview
+              Leave Preview
             </button>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ─── Floating "Return to Preview" safety-net button ─────────────────── */}
+      <AnimatePresence>
+        {isWebsiteIntent && !isPreviewActive && (
+          <motion.button
+            key="return-to-preview"
+            type="button"
+            onClick={() => setIsPreviewActive(true)}
+            initial={{ opacity: 0, y: 24, scale: 0.9 }}
+            animate={{
+              opacity: 1,
+              y: 0,
+              scale: 1,
+              boxShadow: [
+                "0 0 0 1px rgba(6,182,212,0.55), 0 0 18px rgba(6,182,212,0.35)",
+                "0 0 0 1px rgba(6,182,212,0.85), 0 0 32px rgba(6,182,212,0.7)",
+                "0 0 0 1px rgba(6,182,212,0.55), 0 0 18px rgba(6,182,212,0.35)",
+              ],
+            }}
+            exit={{ opacity: 0, y: 24, scale: 0.9 }}
+            transition={{
+              opacity: { duration: 0.25 },
+              y: { type: "spring", stiffness: 320, damping: 26 },
+              scale: { type: "spring", stiffness: 320, damping: 26 },
+              boxShadow: { duration: 2.4, repeat: Infinity, ease: "easeInOut" },
+            }}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.96 }}
+            className="absolute bottom-[110px] right-6 z-40 flex items-center gap-2 px-4 py-2.5 rounded-full font-mono text-[11px] tracking-wider uppercase"
+            style={{
+              background: "rgba(255,255,255,0.08)",
+              backdropFilter: "blur(14px) saturate(140%)",
+              WebkitBackdropFilter: "blur(14px) saturate(140%)",
+              border: "1px solid rgba(6,182,212,0.6)",
+              color: "#06b6d4",
+            }}
+            aria-label="Return to website preview"
+          >
+            <Maximize2 size={13} />
+            Return to Preview
+          </motion.button>
         )}
       </AnimatePresence>
 
@@ -2399,6 +2444,16 @@ export default function Dashboard() {
   // so it performs surgical edits instead of regenerating an unrelated site.
   const [activeWebsiteCode, setActiveWebsiteCode] = useState<string>("");
 
+  // ── "Return to Preview" safety net ──────────────────────────────────────────
+  // Keeps the website preview pane alive when the user temporarily leaves it.
+  // When false, a floating glass "Return to Preview" button appears.
+  const [isPreviewActive, setIsPreviewActive] = useState(true);
+
+  // Whenever a new website-build directive fires, re-arm the preview.
+  useEffect(() => {
+    if (isWebsiteIntent) setIsPreviewActive(true);
+  }, [isWebsiteIntent]);
+
   const handleEditTrigger = useCallback(() => {
     // 1. Force sandbox mode for free-form iteration commands
     setPromptMode("sandbox");
@@ -2909,21 +2964,27 @@ export default function Dashboard() {
         lowerPrompt,
       );
 
-    if (isWebsiteComplete && isWebsiteIntent && !isRefine) {
+    // ── Context Bridge: when in SANDBOX after a generated site, treat any
+    //    new prompt as a surgical edit on the active code, regardless of
+    //    whether the new prompt re-mentions "website".
+    const inSandboxEditMode =
+      isWebsiteComplete && promptMode === "sandbox" && !isRefine;
+
+    if ((isWebsiteComplete && isWebsiteIntent && !isRefine) || inSandboxEditMode) {
       // ── Iteration Command: edit the existing live preview in place ─────────
       //    Inject the current website code so the AI performs surgical edits
       //    rather than regenerating an unrelated site.
       const currentCodeSnapshot = (activeWebsiteCode || "").slice(0, 12000);
       masterPrompt =
+        `[SYSTEM INSTRUCTION]\n` +
+        `The user is currently viewing the following code: [INSERT_ACTIVE_WEBSITE_CODE]. ` +
+        `Your task is to MODIFY this existing code based on the user's request. ` +
+        `Do not regenerate a new site from scratch. Return only the updated code block.\n\n` +
         `[ITERATION_DIRECTIVE: LIVE_EDIT]\n` +
-        `The user is looking at the following code: [CurrentCode].\n` +
-        `Based on their new prompt, modify ONLY the necessary parts of this ` +
-        `code to achieve their goal. Do not regenerate a whole new unrelated ` +
-        `site. Return targeted code/section diffs only.\n\n` +
         `LAST_BUILD_DIRECTIVE: ${lastWebsitePrompt}\n\n` +
         (currentCodeSnapshot
-          ? `[CurrentCode]\n\`\`\`\n${currentCodeSnapshot}\n\`\`\`\n\n`
-          : ``) +
+          ? `[INSERT_ACTIVE_WEBSITE_CODE]\n\`\`\`\n${currentCodeSnapshot}\n\`\`\`\n\n`
+          : `[INSERT_ACTIVE_WEBSITE_CODE]\n(no snapshot available — infer from last directive)\n\n`) +
         masterPrompt;
     } else if (websiteIntent) {
       setIsWebsiteIntent(true);
@@ -3094,7 +3155,7 @@ export default function Dashboard() {
         window.scrollTo(0, document.body.scrollHeight);
       }, 250);
     }
-  }, [isPending, messages.length, selectedModel, userId, activeStyle, webSearchActive, activeMissionId, fetchMissions, compileMasterPrompt, extractorData, userContext, isWebsiteComplete, isWebsiteIntent, lastWebsitePrompt, activeWebsiteCode]);
+  }, [isPending, messages.length, selectedModel, userId, activeStyle, webSearchActive, activeMissionId, fetchMissions, compileMasterPrompt, extractorData, userContext, isWebsiteComplete, isWebsiteIntent, lastWebsitePrompt, activeWebsiteCode, promptMode]);
 
   // ─── INPUT TRIGGERS ────────────────────────────────────────────────────────
   const handleKeyDown = useCallback(
@@ -3400,6 +3461,8 @@ export default function Dashboard() {
             isIterationMode={isIterationMode}
             onEditTrigger={handleEditTrigger}
             editPulse={editPulse}
+            isPreviewActive={isPreviewActive}
+            setIsPreviewActive={setIsPreviewActive}
           />
         );
     }
