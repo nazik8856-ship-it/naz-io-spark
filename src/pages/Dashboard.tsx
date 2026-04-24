@@ -2344,6 +2344,14 @@ export default function Dashboard() {
   // Haptic Sync transient status message
   const [hapticStatus, setHapticStatus] = useState<string | null>(null);
 
+  // ── Live-Edit Sandbox Bridge: once the website is live, auto-switch the
+  //    prompt mode to SANDBOX so the user can issue iteration commands inline.
+  useEffect(() => {
+    if (isIterationMode) {
+      setPromptMode("sandbox");
+    }
+  }, [isIterationMode]);
+
   // ── Apply CSS Variables to Document ────────────────────────────────────────────
   useEffect(() => {
     const root = document.documentElement;
