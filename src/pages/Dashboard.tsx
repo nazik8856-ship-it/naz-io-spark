@@ -2909,21 +2909,27 @@ export default function Dashboard() {
         lowerPrompt,
       );
 
-    if (isWebsiteComplete && isWebsiteIntent && !isRefine) {
+    // ── Context Bridge: when in SANDBOX after a generated site, treat any
+    //    new prompt as a surgical edit on the active code, regardless of
+    //    whether the new prompt re-mentions "website".
+    const inSandboxEditMode =
+      isWebsiteComplete && promptMode === "sandbox" && !isRefine;
+
+    if ((isWebsiteComplete && isWebsiteIntent && !isRefine) || inSandboxEditMode) {
       // ── Iteration Command: edit the existing live preview in place ─────────
       //    Inject the current website code so the AI performs surgical edits
       //    rather than regenerating an unrelated site.
       const currentCodeSnapshot = (activeWebsiteCode || "").slice(0, 12000);
       masterPrompt =
+        `[SYSTEM INSTRUCTION]\n` +
+        `The user is currently viewing the following code: [INSERT_ACTIVE_WEBSITE_CODE]. ` +
+        `Your task is to MODIFY this existing code based on the user's request. ` +
+        `Do not regenerate a new site from scratch. Return only the updated code block.\n\n` +
         `[ITERATION_DIRECTIVE: LIVE_EDIT]\n` +
-        `The user is looking at the following code: [CurrentCode].\n` +
-        `Based on their new prompt, modify ONLY the necessary parts of this ` +
-        `code to achieve their goal. Do not regenerate a whole new unrelated ` +
-        `site. Return targeted code/section diffs only.\n\n` +
         `LAST_BUILD_DIRECTIVE: ${lastWebsitePrompt}\n\n` +
         (currentCodeSnapshot
-          ? `[CurrentCode]\n\`\`\`\n${currentCodeSnapshot}\n\`\`\`\n\n`
-          : ``) +
+          ? `[INSERT_ACTIVE_WEBSITE_CODE]\n\`\`\`\n${currentCodeSnapshot}\n\`\`\`\n\n`
+          : `[INSERT_ACTIVE_WEBSITE_CODE]\n(no snapshot available — infer from last directive)\n\n`) +
         masterPrompt;
     } else if (websiteIntent) {
       setIsWebsiteIntent(true);
