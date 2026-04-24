@@ -2729,6 +2729,8 @@ export default function Dashboard() {
         lowerPrompt,
       );
     if (websiteIntent) {
+      setIsWebsiteIntent(true);
+      setLastWebsitePrompt(trimmed);
       masterPrompt =
         `[PRIORITY_DIRECTIVE: WEBSITE_BUILD]\n` +
         `The user is requesting a real, production-ready website. ` +
