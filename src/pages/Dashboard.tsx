@@ -2911,14 +2911,19 @@ export default function Dashboard() {
 
     if (isWebsiteComplete && isWebsiteIntent && !isRefine) {
       // ── Iteration Command: edit the existing live preview in place ─────────
+      //    Inject the current website code so the AI performs surgical edits
+      //    rather than regenerating an unrelated site.
+      const currentCodeSnapshot = (activeWebsiteCode || "").slice(0, 12000);
       masterPrompt =
         `[ITERATION_DIRECTIVE: LIVE_EDIT]\n` +
-        `A website is already live in the user's preview pane. Treat the ` +
-        `following request as a focused edit to the EXISTING site (e.g. ` +
-        `"make the header red", "add a contact form"). Return only the ` +
-        `targeted code/section diffs needed — do not rebuild the site from ` +
-        `scratch.\n\n` +
+        `The user is looking at the following code: [CurrentCode].\n` +
+        `Based on their new prompt, modify ONLY the necessary parts of this ` +
+        `code to achieve their goal. Do not regenerate a whole new unrelated ` +
+        `site. Return targeted code/section diffs only.\n\n` +
         `LAST_BUILD_DIRECTIVE: ${lastWebsitePrompt}\n\n` +
+        (currentCodeSnapshot
+          ? `[CurrentCode]\n\`\`\`\n${currentCodeSnapshot}\n\`\`\`\n\n`
+          : ``) +
         masterPrompt;
     } else if (websiteIntent) {
       setIsWebsiteIntent(true);
