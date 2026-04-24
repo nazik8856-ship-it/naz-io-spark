@@ -2221,6 +2221,12 @@ export default function Dashboard() {
   // Reward gate: Command Center checklist only appears once a website has been generated
   const [isWebsiteComplete, setIsWebsiteComplete] = useState(false);
 
+  // Sent-state minimization (shrinks the prompt pill into a 48px chat bar so the AI output owns the screen)
+  const [isMinimized, setIsMinimized] = useState(false);
+
+  // Haptic Sync transient status message
+  const [hapticStatus, setHapticStatus] = useState<string | null>(null);
+
   // ── Apply CSS Variables to Document ────────────────────────────────────────────
   useEffect(() => {
     const root = document.documentElement;
