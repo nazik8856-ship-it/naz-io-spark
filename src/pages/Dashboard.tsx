@@ -227,11 +227,11 @@ const DEFAULT_CUSTOM_PALETTE: CustomPalette = {
   bgImage: '',
 };
 
-// Default User Context
+// Default User Context — fields start empty; Supabase data (when present) overrides
 const DEFAULT_USER_CONTEXT: UserContext = {
-  identity: '14-year-old Software Architect from Sumy, Ukraine',
-  goals: 'NazAI AI-powered business launcher',
-  style: 'Perspective, accurate, direct Yes-man/No-man',
+  identity: '',
+  goals: '',
+  style: '',
 };
 
 // Professional placeholder texts for typing animation
@@ -1207,10 +1207,13 @@ const HomeView = ({
               </p>
             </div>
 
-            {/* Command Center checklist */}
-            <div className="w-full mt-4">
-              <CommandCenterChecklist />
-            </div>
+
+            {/* Command Center checklist — only after the website is generated */}
+            {isWebsiteComplete && (
+              <div className="w-full mt-4">
+                <CommandCenterChecklist />
+              </div>
+            )}
           </div>
         )}
         {messages.map((msg: any, i: number) => (
