@@ -148,13 +148,15 @@ const WebsiteRevealPane: React.FC<WebsiteRevealPaneProps> = ({
 
   const agents = useMemo(() => buildAgentCards(responseText), [responseText]);
 
-  // ── Staged reveal: snappy 3.2s sequence (skeleton → live per section) ────────
+  // ── Staged reveal: 5s sequence so the Orchestration Cinema climax (cards
+  //    shattering + cyan lock-in flash) lands at the 5-second peak. The
+  //    skeleton-to-live sequence then completes immediately after.
   useEffect(() => {
     setStage(0);
-    const t1 = setTimeout(() => setStage(1), 700);
-    const t2 = setTimeout(() => setStage(2), 1700);
-    const t3 = setTimeout(() => setStage(3), 2700);
-    const t4 = setTimeout(() => setStage(4), 3400);
+    const t1 = setTimeout(() => setStage(1), 1100);
+    const t2 = setTimeout(() => setStage(2), 2400);
+    const t3 = setTimeout(() => setStage(3), 3800);
+    const t4 = setTimeout(() => setStage(4), 5200);
     return () => {
       clearTimeout(t1);
       clearTimeout(t2);
