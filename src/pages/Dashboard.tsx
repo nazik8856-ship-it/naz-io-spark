@@ -905,12 +905,47 @@ const SettingsView = ({ customPalette, setCustomPalette, auraProfile, updateAura
                   className="w-full px-3 py-2 rounded-lg text-xs bg-white/5 border border-white/10 font-mono"
                   style={{ color: "var(--nazai-text-color)" }}
                 >
+                  <option value="">— Select interaction style —</option>
                   <option value="Perspective, accurate, direct Yes-man/No-man">Yes-man/No-man (Balanced)</option>
                   <option value="Direct, concise, technical">Direct & Technical</option>
                   <option value="Supportive, encouraging, constructive">Supportive & Constructive</option>
                   <option value="Challenging, critical, stress-testing">Challenging & Critical</option>
                 </select>
               </div>
+
+              {/* Animated Save button — hidden until the user edits any field */}
+              <AnimatePresence>
+                {isDirty && (
+                  <motion.button
+                    type="button"
+                    onClick={handleSaveContext}
+                    disabled={saving}
+                    initial={{ opacity: 0, y: 8, scale: 0.96 }}
+                    animate={{
+                      opacity: 1,
+                      y: 0,
+                      scale: 1,
+                      boxShadow: [
+                        "0 0 0px rgba(6,182,212,0.0)",
+                        "0 0 18px rgba(6,182,212,0.55)",
+                        "0 0 8px rgba(6,182,212,0.35)",
+                      ],
+                    }}
+                    exit={{ opacity: 0, y: 8, scale: 0.96 }}
+                    transition={{ type: "spring", stiffness: 320, damping: 22 }}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    className="self-end px-4 py-2 rounded-lg text-xs font-mono font-bold tracking-wider uppercase flex items-center gap-2"
+                    style={{
+                      background: "rgba(6,182,212,0.12)",
+                      border: "1px solid rgba(6,182,212,0.45)",
+                      color: "#06b6d4",
+                    }}
+                  >
+                    {saving ? "Saving…" : justSaved ? "✓ Saved" : "Save Context"}
+                  </motion.button>
+                )}
+              </AnimatePresence>
             </div>
           </motion.div>
 
