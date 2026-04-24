@@ -2689,6 +2689,15 @@ export default function Dashboard() {
         return updated;
       });
 
+      // Reward gate: if AI confirms a website was generated, unlock Command Center
+      const out = (outputText || "").toLowerCase();
+      const websiteGenerated =
+        /\b(website|landing\s*page|site|webpage|homepage)\b/.test(out) &&
+        /\b(generated|built|created|deployed|ready|live|published|done|complete)\b/.test(out);
+      if (websiteGenerated) {
+        setIsWebsiteComplete(true);
+      }
+
       if (missionToUpdateId) {
         await supabase
           .from("missions")
