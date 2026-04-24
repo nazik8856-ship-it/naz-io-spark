@@ -2871,13 +2871,20 @@ export default function Dashboard() {
     // ── Anti-Repetition: force high-entropy, bespoke architectural responses.
     //    The AI must NEVER fall back on a static template — every output must
     //    be derived from this user's specific industry, vibe, and constraints.
+    //    A unique seed (timestamp + random) is injected to break any caching
+    //    or template-matching heuristics on the model side.
     const { industry: extIndustry, audience: extAudience, budget: extBudget, vibe: extVibe } = extractorData || {} as any;
+    const VARIANCE_SEED = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
     const ANTI_REPETITION_DIRECTIVE =
-      `[SYSTEM_ENTROPY: HIGH]\n` +
-      `Generate a unique, bespoke architectural response based strictly on the ` +
-      `user's industry, vibe, and specific constraints. Do not reuse previous ` +
-      `layouts or generic structures. Every section, headline, component name, ` +
-      `and color palette MUST be freshly derived from the variables below. ` +
+      `[SYSTEM_ENTROPY: HIGH | SEED: ${VARIANCE_SEED}]\n` +
+      `You are an Elite Web Architect. Do NOT use generic templates. ` +
+      `Analyze the user's specific Industry, Vibe, and Audience. Create a ` +
+      `bespoke, one-of-a-kind React component structure for every request. ` +
+      `If the user is a "Gym Owner in [city]", the layout must look ` +
+      `different than a "Crypto Startup in London" — different sections, ` +
+      `different hierarchy, different color palette, different copy tone. ` +
+      `Use Tailwind CSS utility classes and Lucide React icons exclusively ` +
+      `to keep the output high-class, modern, and production-ready. ` +
       `Reject any template-style output.\n` +
       `EXTRACTOR_VARIABLES:\n` +
       `  • industry=${extIndustry || "(infer from prompt)"}\n` +
