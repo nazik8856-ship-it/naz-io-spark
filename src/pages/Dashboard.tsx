@@ -3192,6 +3192,9 @@ export default function Dashboard() {
             isMinimized={isMinimized}
             setIsMinimized={setIsMinimized}
             hapticStatus={hapticStatus}
+            isWebsiteIntent={isWebsiteIntent}
+            setIsWebsiteIntent={setIsWebsiteIntent}
+            lastWebsitePrompt={lastWebsitePrompt}
           />
         );
     }
