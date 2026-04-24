@@ -202,43 +202,43 @@ const AgentThinkTank: React.FC<AgentThinkTankProps> = ({ open, directive, onClos
             style={{ background: "rgba(2,6,23,0.7)", backdropFilter: "blur(8px)" }}
           />
 
-          {/* Panel */}
+          {/* Panel — Cloaked: only NazAI brand + unified progress is visible */}
           <motion.div
             initial={{ opacity: 0, y: 40, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 40, scale: 0.98 }}
             transition={{ type: "spring", stiffness: 280, damping: 26 }}
-            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[9001] w-[min(960px,94vw)] max-h-[88vh] flex flex-col rounded-2xl overflow-hidden"
+            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[9001] w-[min(560px,94vw)] flex flex-col rounded-2xl overflow-hidden"
             style={{
               background: "linear-gradient(180deg, #050b1c 0%, #020617 100%)",
               border: "1px solid rgba(6,182,212,0.25)",
               boxShadow: "0 60px 120px -30px rgba(6,182,212,0.4), 0 0 60px rgba(6,182,212,0.08)",
             }}
           >
-            {/* Header */}
+            {/* Cloaked Header — only NazAI brand visible */}
             <div
-              className="flex items-center justify-between px-5 py-3 shrink-0"
-              style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", background: "rgba(6,182,212,0.04)" }}
+              className="flex items-center justify-between px-6 py-5 shrink-0"
+              style={{ background: "rgba(6,182,212,0.03)" }}
             >
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div
-                  className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
-                  style={{ background: "rgba(6,182,212,0.12)", border: "1px solid rgba(6,182,212,0.3)" }}
+              <div className="flex items-center gap-3 min-w-0">
+                <motion.div
+                  animate={{
+                    boxShadow: running
+                      ? ["0 0 0px rgba(6,182,212,0.0)", "0 0 24px rgba(6,182,212,0.6)", "0 0 0px rgba(6,182,212,0.0)"]
+                      : "0 0 0px rgba(6,182,212,0.0)",
+                  }}
+                  transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                  className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+                  style={{ background: "rgba(6,182,212,0.12)", border: "1px solid rgba(6,182,212,0.4)" }}
                 >
-                  <Brain size={14} style={{ color: "#06b6d4" }} />
-                </div>
+                  <Brain size={18} style={{ color: "#06b6d4" }} />
+                </motion.div>
                 <div className="min-w-0">
-                  <div className="text-xs font-mono tracking-[0.22em] uppercase text-cyan-300/90 flex items-center gap-2">
-                    Think Tank
-                    {running && (
-                      <span className="flex items-center gap-1 text-[9px] text-white/50">
-                        <Loader2 size={9} className="animate-spin" />
-                        STREAMING
-                      </span>
-                    )}
+                  <div className="text-sm font-bold tracking-tight text-white">
+                    NazAI
                   </div>
-                  <div className="text-[10px] text-white/40 truncate font-mono">
-                    Architect · Pixel · Syntax · Echo
+                  <div className="text-[11px] text-white/60 font-mono">
+                    {running ? "Orchestrating Business…" : final ? "Orchestration complete" : "Initializing…"}
                   </div>
                 </div>
               </div>
@@ -251,51 +251,46 @@ const AgentThinkTank: React.FC<AgentThinkTankProps> = ({ open, directive, onClos
               </button>
             </div>
 
-            {/* Agent status row */}
-            <div
-              className="grid grid-cols-2 md:grid-cols-4 gap-2 px-5 py-3 shrink-0"
-              style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}
-            >
-              {(Object.keys(AGENT_META) as AgentId[]).map((id) => {
-                const meta = AGENT_META[id];
-                const state = agentStates[id];
-                const Icon = meta.Icon;
-                return (
-                  <div
-                    key={id}
-                    className="rounded-lg px-3 py-2 flex items-center gap-2"
+            {/* Unified NazAI progress bar (replaces per-agent indicators) */}
+            <div className="px-6 pb-5 shrink-0">
+              <div
+                className="relative h-1.5 w-full rounded-full overflow-hidden"
+                style={{ background: "rgba(255,255,255,0.05)" }}
+              >
+                <motion.div
+                  animate={{
+                    width: `${
+                      Math.round(
+                        (Object.values(agentStates).filter((s) => s === "done").length / 4) * 100,
+                      ) || (running ? 8 : 0)
+                    }%`,
+                  }}
+                  transition={{ type: "spring", stiffness: 80, damping: 20 }}
+                  className="absolute inset-y-0 left-0 rounded-full"
+                  style={{
+                    background: "linear-gradient(90deg, #06b6d4, #8b5cf6)",
+                    boxShadow: "0 0 12px rgba(6,182,212,0.5)",
+                  }}
+                />
+                {running && (
+                  <motion.div
+                    animate={{ x: ["-30%", "130%"] }}
+                    transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
+                    className="absolute inset-y-0 w-1/3"
                     style={{
-                      background: state === "running" ? `${meta.color}10` : "rgba(255,255,255,0.02)",
-                      border: `1px solid ${state === "running" ? `${meta.color}40` : "rgba(255,255,255,0.05)"}`,
-                      transition: "all 0.3s ease",
+                      background:
+                        "linear-gradient(90deg, transparent, rgba(255,255,255,0.25), transparent)",
                     }}
-                  >
-                    <div
-                      className="w-6 h-6 rounded-md flex items-center justify-center shrink-0 relative"
-                      style={{ background: `${meta.color}18`, border: `1px solid ${meta.color}33` }}
-                    >
-                      <Icon size={11} style={{ color: meta.color }} />
-                      {state === "running" && (
-                        <span
-                          className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full animate-pulse"
-                          style={{ background: meta.color, boxShadow: `0 0 6px ${meta.color}` }}
-                        />
-                      )}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-[10px] font-mono tracking-[0.18em] uppercase text-white/80 truncate">
-                        {id}
-                      </div>
-                      <div className="text-[9px] font-mono text-white/40 truncate flex items-center gap-1">
-                        {state === "done" && <CheckCircle2 size={9} style={{ color: "#06b6d4" }} />}
-                        {state === "running" && <Loader2 size={9} className="animate-spin" />}
-                        {state === "error" && <AlertOctagon size={9} className="text-red-400" />}
-                        {state === "idle" ? "queued" : state === "running" ? "thinking" : state}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+                  />
+                )}
+              </div>
+            </div>
+
+            {/* Hidden: 4-agent details retained in DOM for logic continuity but visually cloaked */}
+            <div aria-hidden className="hidden">
+              {(Object.keys(AGENT_META) as AgentId[]).map((id) => (
+                <span key={id}>{`${id}:${agentStates[id]}`}</span>
+              ))}
             </div>
 
             {/* Authority intercept banner */}
