@@ -184,7 +184,7 @@ const OrchestrationCinema: React.FC<OrchestrationCinemaProps> = ({ active }) => 
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: [0, 0.6, 0.3], scale: [0.9, 1.05, 1] }}
-            transition={{ duration: 2.6, ease: "easeOut" }}
+            transition={{ duration: 5, ease: "easeOut" }}
             className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[140%] h-[140%]"
             style={{
               background:
