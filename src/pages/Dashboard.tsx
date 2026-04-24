@@ -2156,6 +2156,9 @@ export default function Dashboard() {
   const [thinkTankOpen, setThinkTankOpen] = useState(false);
   const [thinkTankDirective, setThinkTankDirective] = useState("");
 
+  // Reward gate: Command Center checklist only appears once a website has been generated
+  const [isWebsiteComplete, setIsWebsiteComplete] = useState(false);
+
   // ── Apply CSS Variables to Document ────────────────────────────────────────────
   useEffect(() => {
     const root = document.documentElement;
@@ -2999,6 +3002,7 @@ export default function Dashboard() {
             setSelectedTemplate={setSelectedTemplate}
             fileInputRef={fileInputRef}
             cameraInputRef={cameraInputRef}
+            isWebsiteComplete={isWebsiteComplete}
           />
         );
     }
