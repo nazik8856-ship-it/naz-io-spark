@@ -227,11 +227,11 @@ const DEFAULT_CUSTOM_PALETTE: CustomPalette = {
   bgImage: '',
 };
 
-// Default User Context
+// Default User Context — fields start empty; Supabase data (when present) overrides
 const DEFAULT_USER_CONTEXT: UserContext = {
-  identity: '14-year-old Software Architect from Sumy, Ukraine',
-  goals: 'NazAI AI-powered business launcher',
-  style: 'Perspective, accurate, direct Yes-man/No-man',
+  identity: '',
+  goals: '',
+  style: '',
 };
 
 // Professional placeholder texts for typing animation
@@ -555,6 +555,26 @@ const SettingsView = ({ customPalette, setCustomPalette, auraProfile, updateAura
   setUserContext: (context: UserContext) => void;
 }) => {
   const [neuralCustomActive, setNeuralCustomActive] = useState(false);
+  // Track snapshot of last saved context — Save button only appears once user edits a field
+  const [savedSnapshot, setSavedSnapshot] = useState<UserContext>(userContext);
+  const [saving, setSaving] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
+  const isDirty =
+    userContext.identity !== savedSnapshot.identity ||
+    userContext.goals !== savedSnapshot.goals ||
+    userContext.style !== savedSnapshot.style;
+  const handleSaveContext = async () => {
+    setSaving(true);
+    try {
+      // Persist locally; backend table is optional
+      try { localStorage.setItem("nazai-user-context", JSON.stringify(userContext)); } catch {}
+      setSavedSnapshot(userContext);
+      setJustSaved(true);
+      setTimeout(() => setJustSaved(false), 1600);
+    } finally {
+      setSaving(false);
+    }
+  };
   
   return (
     <motion.div
@@ -885,12 +905,47 @@ const SettingsView = ({ customPalette, setCustomPalette, auraProfile, updateAura
                   className="w-full px-3 py-2 rounded-lg text-xs bg-white/5 border border-white/10 font-mono"
                   style={{ color: "var(--nazai-text-color)" }}
                 >
+                  <option value="">— Select interaction style —</option>
                   <option value="Perspective, accurate, direct Yes-man/No-man">Yes-man/No-man (Balanced)</option>
                   <option value="Direct, concise, technical">Direct & Technical</option>
                   <option value="Supportive, encouraging, constructive">Supportive & Constructive</option>
                   <option value="Challenging, critical, stress-testing">Challenging & Critical</option>
                 </select>
               </div>
+
+              {/* Animated Save button — hidden until the user edits any field */}
+              <AnimatePresence>
+                {isDirty && (
+                  <motion.button
+                    type="button"
+                    onClick={handleSaveContext}
+                    disabled={saving}
+                    initial={{ opacity: 0, y: 8, scale: 0.96 }}
+                    animate={{
+                      opacity: 1,
+                      y: 0,
+                      scale: 1,
+                      boxShadow: [
+                        "0 0 0px rgba(6,182,212,0.0)",
+                        "0 0 18px rgba(6,182,212,0.55)",
+                        "0 0 8px rgba(6,182,212,0.35)",
+                      ],
+                    }}
+                    exit={{ opacity: 0, y: 8, scale: 0.96 }}
+                    transition={{ type: "spring", stiffness: 320, damping: 22 }}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    className="self-end px-4 py-2 rounded-lg text-xs font-mono font-bold tracking-wider uppercase flex items-center gap-2"
+                    style={{
+                      background: "rgba(6,182,212,0.12)",
+                      border: "1px solid rgba(6,182,212,0.45)",
+                      color: "#06b6d4",
+                    }}
+                  >
+                    {saving ? "Saving…" : justSaved ? "✓ Saved" : "Save Context"}
+                  </motion.button>
+                )}
+              </AnimatePresence>
             </div>
           </motion.div>
 
@@ -1101,6 +1156,7 @@ const HomeView = ({
   sandboxText, setSandboxText,
   extractorData, setExtractorData,
   editablePrompt, setEditablePrompt,
+  isWebsiteComplete,
   selectedTemplate, setSelectedTemplate,
   fileInputRef,
   cameraInputRef,
@@ -1207,10 +1263,13 @@ const HomeView = ({
               </p>
             </div>
 
-            {/* Command Center checklist */}
-            <div className="w-full mt-4">
-              <CommandCenterChecklist />
-            </div>
+
+            {/* Command Center checklist — only after the website is generated */}
+            {isWebsiteComplete && (
+              <div className="w-full mt-4">
+                <CommandCenterChecklist />
+              </div>
+            )}
           </div>
         )}
         {messages.map((msg: any, i: number) => (
@@ -1291,12 +1350,11 @@ const HomeView = ({
       )}
 
       {/* ─── ENHANCED PROMPT CARDS - ONLY VISIBLE IN SANDBOX MODE ─── */}
-      {/* Cards float 20px higher with cyan glow, disappear smoothly when switching modes */}
+      {/* Cards float well above the input box so they aren't visually overlapping it */}
       <div 
-        className="absolute left-1/2 z-40 w-full max-w-2xl"
+        className="absolute left-1/2 z-40 w-full max-w-2xl pointer-events-none"
         style={{ 
-          bottom: "140px",
-          pointerEvents: "none",
+          bottom: "240px",
           transform: "translateX(calc(-50% - 24px))",
         }}
       >
@@ -2078,7 +2136,14 @@ export default function Dashboard() {
   const [proposedApps, setProposedApps] = useState<any[]>([]);
   
   // ─── Identity & Neural Context Logic ────────────────────────────────────────
-  const [userContext, setUserContext] = useState<UserContext>(DEFAULT_USER_CONTEXT);
+  const [userContext, setUserContext] = useState<UserContext>(() => {
+    if (typeof window === "undefined") return DEFAULT_USER_CONTEXT;
+    try {
+      const raw = localStorage.getItem("nazai-user-context");
+      if (raw) return { ...DEFAULT_USER_CONTEXT, ...JSON.parse(raw) };
+    } catch { /* ignore */ }
+    return DEFAULT_USER_CONTEXT;
+  });
 
   // ─── ADAPTIVE WORKBENCH STATES ───────────────────────────────────────────────
   const [promptMode, setPromptMode] = useState<"sandbox" | "extractor" | "blueprint">("sandbox");
@@ -2152,6 +2217,9 @@ export default function Dashboard() {
   // Think Tank (4-agent chain) — additive, does not affect mission flow
   const [thinkTankOpen, setThinkTankOpen] = useState(false);
   const [thinkTankDirective, setThinkTankDirective] = useState("");
+
+  // Reward gate: Command Center checklist only appears once a website has been generated
+  const [isWebsiteComplete, setIsWebsiteComplete] = useState(false);
 
   // ── Apply CSS Variables to Document ────────────────────────────────────────────
   useEffect(() => {
@@ -2554,7 +2622,7 @@ export default function Dashboard() {
 
   // ─── THE TITAN UNIFIED MESSAGE HANDLER ──────────────────────────────────────
   const handleSendMessage = useCallback(async () => {
-    const masterPrompt = compileMasterPrompt();
+    let masterPrompt = compileMasterPrompt();
     const trimmed = masterPrompt.trim();
 
     if (isPending || trimmed.length === 0) {
@@ -2567,6 +2635,24 @@ export default function Dashboard() {
       return;
     }
 
+    // ── Intent detection: prioritize code/UI generation when the user asks for a
+    //    website / landing page / site. Inject a high-priority system directive.
+    const lowerPrompt = trimmed.toLowerCase();
+    const websiteIntent =
+      /\b(website|web\s*site|landing\s*page|landing|site|webpage|web\s*page|homepage|micro[-\s]?site)\b/.test(
+        lowerPrompt,
+      );
+    if (websiteIntent) {
+      masterPrompt =
+        `[PRIORITY_DIRECTIVE: WEBSITE_BUILD]\n` +
+        `The user is requesting a real, production-ready website. ` +
+        `Prioritize functional code generation and UI structure FIRST. ` +
+        `Output: (1) a clear page/section structure, (2) component breakdown, ` +
+        `(3) key React + Tailwind code blocks, (4) Supabase schema if data is needed. ` +
+        `Skip generic business fluff unless it clarifies the build.\n\n` +
+        masterPrompt;
+    }
+
     setIsPending(true);
 
     if (currentAbortControllerRef.current) {
@@ -2575,7 +2661,7 @@ export default function Dashboard() {
     const controller = new AbortController();
     currentAbortControllerRef.current = controller;
 
-    const userMessage = trimmed;
+    const userMessage = masterPrompt.trim();
     const aiMsgIndex = messages.length + 1;
 
     setErrorMessage(null);
@@ -2664,6 +2750,15 @@ export default function Dashboard() {
         }
         return updated;
       });
+
+      // Reward gate: if AI confirms a website was generated, unlock Command Center
+      const out = (outputText || "").toLowerCase();
+      const websiteGenerated =
+        /\b(website|landing\s*page|site|webpage|homepage)\b/.test(out) &&
+        /\b(generated|built|created|deployed|ready|live|published|done|complete)\b/.test(out);
+      if (websiteGenerated) {
+        setIsWebsiteComplete(true);
+      }
 
       if (missionToUpdateId) {
         await supabase
@@ -2996,6 +3091,7 @@ export default function Dashboard() {
             setSelectedTemplate={setSelectedTemplate}
             fileInputRef={fileInputRef}
             cameraInputRef={cameraInputRef}
+            isWebsiteComplete={isWebsiteComplete}
           />
         );
     }
