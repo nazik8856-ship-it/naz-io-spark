@@ -2393,6 +2393,12 @@ export default function Dashboard() {
   // Pencil-edit pulse: highlights the input pill for ~2s when triggered
   const [editPulse, setEditPulse] = useState(false);
 
+  // Live-Edit Sandbox Bridge: snapshot of the most recently generated website
+  // output (raw response text or extracted code). When the user types in
+  // SANDBOX mode after a build, this is fed back to the AI as `[CurrentCode]`
+  // so it performs surgical edits instead of regenerating an unrelated site.
+  const [activeWebsiteCode, setActiveWebsiteCode] = useState<string>("");
+
   const handleEditTrigger = useCallback(() => {
     // 1. Force sandbox mode for free-form iteration commands
     setPromptMode("sandbox");
@@ -2865,13 +2871,20 @@ export default function Dashboard() {
     // ── Anti-Repetition: force high-entropy, bespoke architectural responses.
     //    The AI must NEVER fall back on a static template — every output must
     //    be derived from this user's specific industry, vibe, and constraints.
+    //    A unique seed (timestamp + random) is injected to break any caching
+    //    or template-matching heuristics on the model side.
     const { industry: extIndustry, audience: extAudience, budget: extBudget, vibe: extVibe } = extractorData || {} as any;
+    const VARIANCE_SEED = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
     const ANTI_REPETITION_DIRECTIVE =
-      `[SYSTEM_ENTROPY: HIGH]\n` +
-      `Generate a unique, bespoke architectural response based strictly on the ` +
-      `user's industry, vibe, and specific constraints. Do not reuse previous ` +
-      `layouts or generic structures. Every section, headline, component name, ` +
-      `and color palette MUST be freshly derived from the variables below. ` +
+      `[SYSTEM_ENTROPY: HIGH | SEED: ${VARIANCE_SEED}]\n` +
+      `You are an Elite Web Architect. Do NOT use generic templates. ` +
+      `Analyze the user's specific Industry, Vibe, and Audience. Create a ` +
+      `bespoke, one-of-a-kind React component structure for every request. ` +
+      `If the user is a "Gym Owner in [city]", the layout must look ` +
+      `different than a "Crypto Startup in London" — different sections, ` +
+      `different hierarchy, different color palette, different copy tone. ` +
+      `Use Tailwind CSS utility classes and Lucide React icons exclusively ` +
+      `to keep the output high-class, modern, and production-ready. ` +
       `Reject any template-style output.\n` +
       `EXTRACTOR_VARIABLES:\n` +
       `  • industry=${extIndustry || "(infer from prompt)"}\n` +
@@ -2898,14 +2911,19 @@ export default function Dashboard() {
 
     if (isWebsiteComplete && isWebsiteIntent && !isRefine) {
       // ── Iteration Command: edit the existing live preview in place ─────────
+      //    Inject the current website code so the AI performs surgical edits
+      //    rather than regenerating an unrelated site.
+      const currentCodeSnapshot = (activeWebsiteCode || "").slice(0, 12000);
       masterPrompt =
         `[ITERATION_DIRECTIVE: LIVE_EDIT]\n` +
-        `A website is already live in the user's preview pane. Treat the ` +
-        `following request as a focused edit to the EXISTING site (e.g. ` +
-        `"make the header red", "add a contact form"). Return only the ` +
-        `targeted code/section diffs needed — do not rebuild the site from ` +
-        `scratch.\n\n` +
+        `The user is looking at the following code: [CurrentCode].\n` +
+        `Based on their new prompt, modify ONLY the necessary parts of this ` +
+        `code to achieve their goal. Do not regenerate a whole new unrelated ` +
+        `site. Return targeted code/section diffs only.\n\n` +
         `LAST_BUILD_DIRECTIVE: ${lastWebsitePrompt}\n\n` +
+        (currentCodeSnapshot
+          ? `[CurrentCode]\n\`\`\`\n${currentCodeSnapshot}\n\`\`\`\n\n`
+          : ``) +
         masterPrompt;
     } else if (websiteIntent) {
       setIsWebsiteIntent(true);
@@ -3035,6 +3053,11 @@ export default function Dashboard() {
       if (websiteGenerated) {
         setIsWebsiteComplete(true);
       }
+      // Snapshot the generated output so SANDBOX iteration prompts can feed
+      // it back to the AI as `[CurrentCode]` for surgical edits.
+      if (isWebsiteIntent || websiteGenerated) {
+        setActiveWebsiteCode(outputText || "");
+      }
 
       if (missionToUpdateId) {
         await supabase
@@ -3071,7 +3094,7 @@ export default function Dashboard() {
         window.scrollTo(0, document.body.scrollHeight);
       }, 250);
     }
-  }, [isPending, messages.length, selectedModel, userId, activeStyle, webSearchActive, activeMissionId, fetchMissions, compileMasterPrompt, extractorData, userContext, isWebsiteComplete, isWebsiteIntent, lastWebsitePrompt]);
+  }, [isPending, messages.length, selectedModel, userId, activeStyle, webSearchActive, activeMissionId, fetchMissions, compileMasterPrompt, extractorData, userContext, isWebsiteComplete, isWebsiteIntent, lastWebsitePrompt, activeWebsiteCode]);
 
   // ─── INPUT TRIGGERS ────────────────────────────────────────────────────────
   const handleKeyDown = useCallback(

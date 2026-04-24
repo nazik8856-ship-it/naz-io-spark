@@ -138,12 +138,34 @@ const OrchestrationCinema: React.FC<OrchestrationCinemaProps> = ({ active }) => 
           className="pointer-events-none absolute inset-0 z-50 overflow-hidden flex items-center justify-center"
           style={{
             background:
-              "radial-gradient(ellipse at center, rgba(6,182,212,0.18) 0%, rgba(9,9,11,0.92) 55%, rgba(9,9,11,0.99) 100%)",
-            backdropFilter: "blur(40px)",
-            WebkitBackdropFilter: "blur(40px)",
+              "radial-gradient(circle at center, rgba(6,182,212,0.22) 0%, rgba(2,6,23,0.96) 42%, rgba(2,6,23,1) 78%)",
+            backdropFilter: "blur(48px) saturate(140%)",
+            WebkitBackdropFilter: "blur(48px) saturate(140%)",
           }}
           aria-hidden
         >
+          {/* Black-hole accretion ring — perfectly centered, slowly rotating */}
+          <motion.div
+            initial={{ opacity: 0, scale: 0.6, rotate: 0 }}
+            animate={{ opacity: [0, 0.55, 0.35], scale: [0.6, 1.1, 1], rotate: 360 }}
+            transition={{
+              opacity: { duration: 2.6, ease: "easeOut" },
+              scale: { duration: 2.6, ease: "easeOut" },
+              rotate: { duration: 6, repeat: Infinity, ease: "linear" },
+            }}
+            className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full"
+            style={{
+              width: "min(72%, 520px)",
+              aspectRatio: "1 / 1",
+              background:
+                "conic-gradient(from 0deg, rgba(6,182,212,0) 0deg, rgba(6,182,212,0.55) 90deg, rgba(139,92,246,0.45) 180deg, rgba(6,182,212,0.55) 270deg, rgba(6,182,212,0) 360deg)",
+              maskImage:
+                "radial-gradient(circle at center, transparent 38%, black 46%, black 58%, transparent 66%)",
+              WebkitMaskImage:
+                "radial-gradient(circle at center, transparent 38%, black 46%, black 58%, transparent 66%)",
+            }}
+          />
+
           {/* Hyperspace grid */}
           <div
             className="absolute inset-0 opacity-25"
@@ -152,6 +174,7 @@ const OrchestrationCinema: React.FC<OrchestrationCinemaProps> = ({ active }) => 
                 "linear-gradient(rgba(6,182,212,0.22) 1px, transparent 1px), linear-gradient(90deg, rgba(6,182,212,0.22) 1px, transparent 1px)",
               backgroundSize: "44px 44px",
               maskImage: "radial-gradient(ellipse at center, black 30%, transparent 75%)",
+              WebkitMaskImage: "radial-gradient(ellipse at center, black 30%, transparent 75%)",
             }}
           />
 
