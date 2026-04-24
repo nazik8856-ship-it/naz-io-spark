@@ -3416,6 +3416,8 @@ export default function Dashboard() {
             isIterationMode={isIterationMode}
             onEditTrigger={handleEditTrigger}
             editPulse={editPulse}
+            isPreviewActive={isPreviewActive}
+            setIsPreviewActive={setIsPreviewActive}
           />
         );
     }
