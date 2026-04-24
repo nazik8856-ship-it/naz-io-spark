@@ -3053,6 +3053,11 @@ export default function Dashboard() {
       if (websiteGenerated) {
         setIsWebsiteComplete(true);
       }
+      // Snapshot the generated output so SANDBOX iteration prompts can feed
+      // it back to the AI as `[CurrentCode]` for surgical edits.
+      if (isWebsiteIntent || websiteGenerated) {
+        setActiveWebsiteCode(outputText || "");
+      }
 
       if (missionToUpdateId) {
         await supabase
