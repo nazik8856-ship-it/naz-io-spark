@@ -3094,7 +3094,7 @@ export default function Dashboard() {
         window.scrollTo(0, document.body.scrollHeight);
       }, 250);
     }
-  }, [isPending, messages.length, selectedModel, userId, activeStyle, webSearchActive, activeMissionId, fetchMissions, compileMasterPrompt, extractorData, userContext, isWebsiteComplete, isWebsiteIntent, lastWebsitePrompt]);
+  }, [isPending, messages.length, selectedModel, userId, activeStyle, webSearchActive, activeMissionId, fetchMissions, compileMasterPrompt, extractorData, userContext, isWebsiteComplete, isWebsiteIntent, lastWebsitePrompt, activeWebsiteCode]);
 
   // ─── INPUT TRIGGERS ────────────────────────────────────────────────────────
   const handleKeyDown = useCallback(
