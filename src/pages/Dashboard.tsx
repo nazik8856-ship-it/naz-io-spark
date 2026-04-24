@@ -1844,6 +1844,7 @@ const HomeView = ({
             </div>
           </motion.div>
         </div>
+        )}
       </div>
       
       <RevertModal revertModalOpen={revertModalOpen} setRevertModalOpen={setRevertModalOpen} confirmRevert={confirmRevert} />
