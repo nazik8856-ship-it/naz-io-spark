@@ -555,6 +555,26 @@ const SettingsView = ({ customPalette, setCustomPalette, auraProfile, updateAura
   setUserContext: (context: UserContext) => void;
 }) => {
   const [neuralCustomActive, setNeuralCustomActive] = useState(false);
+  // Track snapshot of last saved context — Save button only appears once user edits a field
+  const [savedSnapshot, setSavedSnapshot] = useState<UserContext>(userContext);
+  const [saving, setSaving] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
+  const isDirty =
+    userContext.identity !== savedSnapshot.identity ||
+    userContext.goals !== savedSnapshot.goals ||
+    userContext.style !== savedSnapshot.style;
+  const handleSaveContext = async () => {
+    setSaving(true);
+    try {
+      // Persist locally; backend table is optional
+      try { localStorage.setItem("nazai-user-context", JSON.stringify(userContext)); } catch {}
+      setSavedSnapshot(userContext);
+      setJustSaved(true);
+      setTimeout(() => setJustSaved(false), 1600);
+    } finally {
+      setSaving(false);
+    }
+  };
   
   return (
     <motion.div
