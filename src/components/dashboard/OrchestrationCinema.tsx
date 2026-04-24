@@ -122,7 +122,8 @@ const OrchestrationCinema: React.FC<OrchestrationCinemaProps> = ({ active }) => 
         angle: (i / PARTICLE_COUNT) * Math.PI * 2 + Math.random() * 0.4,
         distance: 140 + Math.random() * 180,
         size: 2 + Math.random() * 3,
-        delay: 2.0 + Math.random() * 0.15,
+        // Shatter burst peaks at the 5-second mark.
+        delay: 4.7 + Math.random() * 0.2,
       })),
     [seed]
   );
