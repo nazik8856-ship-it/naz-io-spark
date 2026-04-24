@@ -2560,7 +2560,7 @@ export default function Dashboard() {
 
   // ─── THE TITAN UNIFIED MESSAGE HANDLER ──────────────────────────────────────
   const handleSendMessage = useCallback(async () => {
-    const masterPrompt = compileMasterPrompt();
+    let masterPrompt = compileMasterPrompt();
     const trimmed = masterPrompt.trim();
 
     if (isPending || trimmed.length === 0) {
@@ -2573,6 +2573,24 @@ export default function Dashboard() {
       return;
     }
 
+    // ── Intent detection: prioritize code/UI generation when the user asks for a
+    //    website / landing page / site. Inject a high-priority system directive.
+    const lowerPrompt = trimmed.toLowerCase();
+    const websiteIntent =
+      /\b(website|web\s*site|landing\s*page|landing|site|webpage|web\s*page|homepage|micro[-\s]?site)\b/.test(
+        lowerPrompt,
+      );
+    if (websiteIntent) {
+      masterPrompt =
+        `[PRIORITY_DIRECTIVE: WEBSITE_BUILD]\n` +
+        `The user is requesting a real, production-ready website. ` +
+        `Prioritize functional code generation and UI structure FIRST. ` +
+        `Output: (1) a clear page/section structure, (2) component breakdown, ` +
+        `(3) key React + Tailwind code blocks, (4) Supabase schema if data is needed. ` +
+        `Skip generic business fluff unless it clarifies the build.\n\n` +
+        masterPrompt;
+    }
+
     setIsPending(true);
 
     if (currentAbortControllerRef.current) {
@@ -2581,7 +2599,7 @@ export default function Dashboard() {
     const controller = new AbortController();
     currentAbortControllerRef.current = controller;
 
-    const userMessage = trimmed;
+    const userMessage = masterPrompt.trim();
     const aiMsgIndex = messages.length + 1;
 
     setErrorMessage(null);
