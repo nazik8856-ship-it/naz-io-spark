@@ -22,6 +22,10 @@ import {
   Loader2,
   X,
   UploadCloud,
+  Eye,
+  EyeOff,
+  Trash2,
+  Pencil,
 } from "lucide-react";
 import {
   Dialog,
@@ -48,8 +52,8 @@ const MEMORY_KEY = "nazai.commandCenter.memory.v1";
 type StepId = "domain" | "customer" | "invoice" | "brand" | "apis" | "setup";
 
 type StepAction =
-  | { kind: "modal"; modal: "domain" | "crm" | "invoice" | "brand" }
-  | { kind: "inline" } // handled by the card itself (API key)
+  | { kind: "modal"; modal: "domain" | "crm" | "invoice" | "brand" | "apis" }
+  | { kind: "inline" } // handled by the card itself
   | { kind: "directive"; directive: string };
 
 type Step = {
@@ -100,7 +104,7 @@ const STEPS: Step[] = [
     desc: "Find and integrate external APIs instantly.",
     icon: KeyRound,
     cta: "Search APIs",
-    action: { kind: "inline" },
+    action: { kind: "modal", modal: "apis" },
   },
   {
     id: "setup",
@@ -153,9 +157,18 @@ const DEFAULT_PROGRESS: ProgressMap = {
   setup: false,
 };
 
+type SavedApiKey = {
+  id: string;
+  name: string;
+  value: string;
+  createdAt: number;
+};
+
 type Memory = {
+  /** @deprecated kept for backwards-compat; migrated into apiKeys on load */
   apiKey?: string;
   domain?: string;
+  apiKeys?: SavedApiKey[];
 };
 
 const loadProgress = (): ProgressMap => {
@@ -174,16 +187,30 @@ const loadMemory = (): Memory => {
   if (typeof window === "undefined") return {};
   try {
     const raw = localStorage.getItem(MEMORY_KEY);
-    return raw ? JSON.parse(raw) : {};
+    const parsed: Memory = raw ? JSON.parse(raw) : {};
+    // Migrate legacy single-key shape into the new apiKeys list
+    if (parsed.apiKey && (!parsed.apiKeys || parsed.apiKeys.length === 0)) {
+      parsed.apiKeys = [
+        {
+          id: `legacy-${Date.now()}`,
+          name: "Default API",
+          value: parsed.apiKey,
+          createdAt: Date.now(),
+        },
+      ];
+      delete parsed.apiKey;
+    }
+    if (!parsed.apiKeys) parsed.apiKeys = [];
+    return parsed;
   } catch {
-    return {};
+    return { apiKeys: [] };
   }
 };
 
 const CommandCenterChecklist: React.FC = () => {
   const [progress, setProgress] = useState<ProgressMap>(DEFAULT_PROGRESS);
   const [memory, setMemory] = useState<Memory>({});
-  const [openModal, setOpenModal] = useState<null | "domain" | "crm" | "invoice" | "brand">(null);
+  const [openModal, setOpenModal] = useState<null | "domain" | "crm" | "invoice" | "brand" | "apis">(null);
 
   useEffect(() => {
     setProgress(loadProgress());
@@ -345,7 +372,7 @@ const CommandCenterChecklist: React.FC = () => {
                     >
                       {step.title}
                     </span>
-                    {isApiCard && memory.apiKey && (
+                    {isApiCard && (memory.apiKeys?.length ?? 0) > 0 && (
                       <span
                         className="text-[9px] font-mono tracking-[0.18em] uppercase px-1.5 py-0.5 rounded"
                         style={{
@@ -354,34 +381,21 @@ const CommandCenterChecklist: React.FC = () => {
                           color: "#22c55e",
                         }}
                       >
-                        Connected
+                        {memory.apiKeys!.length} saved
                       </span>
                     )}
                   </div>
                   <p className="text-xs text-white/50 mt-1 leading-relaxed">{step.desc}</p>
 
-                  {isApiCard ? (
-                    <ApiKeyInline
-                      currentKey={memory.apiKey}
-                      onSave={(key) => {
-                        setMemory((m) => ({ ...m, apiKey: key }));
-                        markDone("apis");
-                      }}
-                      onClear={() => {
-                        setMemory((m) => ({ ...m, apiKey: undefined }));
-                      }}
-                    />
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => runAction(step)}
-                      className="mt-3 inline-flex items-center gap-1.5 text-[10px] font-mono tracking-[0.18em] uppercase opacity-70 hover:opacity-100 transition-opacity cursor-pointer"
-                      style={{ color: done ? "#06b6d4" : "rgba(255,255,255,0.6)" }}
-                    >
-                      {step.cta}
-                      <ArrowRight size={10} />
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => runAction(step)}
+                    className="mt-3 inline-flex items-center gap-1.5 text-[10px] font-mono tracking-[0.18em] uppercase opacity-70 hover:opacity-100 transition-opacity cursor-pointer"
+                    style={{ color: done ? "#06b6d4" : "rgba(255,255,255,0.6)" }}
+                  >
+                    {isApiCard && (memory.apiKeys?.length ?? 0) > 0 ? "Manage API keys" : step.cta}
+                    <ArrowRight size={10} />
+                  </button>
                 </div>
                 <button
                   type="button"
@@ -514,104 +528,283 @@ const CommandCenterChecklist: React.FC = () => {
           }
         }}
       />
+      <ApiKeysModal
+        open={openModal === "apis"}
+        onOpenChange={(o) => setOpenModal(o ? "apis" : null)}
+        keys={memory.apiKeys ?? []}
+        onChange={(next) => {
+          setMemory((m) => ({ ...m, apiKeys: next }));
+          if (next.length > 0) markDone("apis");
+        }}
+      />
     </div>
   );
 };
 
-/* ----------------------------- Inline API Key ---------------------------- */
+/* ----------------------------- API Keys Modal ---------------------------- */
 
-const ApiKeyInline: React.FC<{
-  currentKey?: string;
-  onSave: (key: string) => void;
-  onClear: () => void;
-}> = ({ currentKey, onSave, onClear }) => {
-  const [val, setVal] = useState("");
+const ApiKeysModal: React.FC<{
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  keys: SavedApiKey[];
+  onChange: (next: SavedApiKey[]) => void;
+}> = ({ open, onOpenChange, keys, onChange }) => {
+  const [name, setName] = useState("");
+  const [value, setValue] = useState("");
+  const [showValue, setShowValue] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [revealedId, setRevealedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [savedFlash, setSavedFlash] = useState(false);
+  const [savedFlash, setSavedFlash] = useState<string | null>(null);
   const { toast } = useToast();
 
+  useEffect(() => {
+    if (open) {
+      setName("");
+      setValue("");
+      setShowValue(false);
+      setEditingId(null);
+      setRevealedId(null);
+      setError(null);
+    }
+  }, [open]);
+
+  const resetForm = () => {
+    setName("");
+    setValue("");
+    setShowValue(false);
+    setEditingId(null);
+    setError(null);
+  };
+
   const handleSave = () => {
-    const trimmed = val.trim();
-    if (!trimmed) {
-      setError("Please enter an API key.");
+    const trimmedName = name.trim();
+    const trimmedValue = value.trim();
+    if (!trimmedName) {
+      setError("Please enter the API / service name.");
       return;
     }
-    if (trimmed.length < 8) {
-      setError("Key looks too short — please check and try again.");
+    if (!trimmedValue) {
+      setError("Key cannot be empty.");
+      return;
+    }
+    if (trimmedValue.length < 8) {
+      setError("Key looks too short — please double-check it.");
       return;
     }
     setError(null);
-    onSave(trimmed);
-    setVal("");
-    setSavedFlash(true);
-    toast({ title: "API Key saved successfully", description: "Stored in project memory." });
-    setTimeout(() => setSavedFlash(false), 2000);
+
+    let next: SavedApiKey[];
+    if (editingId) {
+      next = keys.map((k) =>
+        k.id === editingId ? { ...k, name: trimmedName, value: trimmedValue } : k,
+      );
+    } else {
+      // Avoid duplicate names — overwrite if same name
+      const existingIdx = keys.findIndex(
+        (k) => k.name.toLowerCase() === trimmedName.toLowerCase(),
+      );
+      const entry: SavedApiKey = {
+        id: existingIdx >= 0 ? keys[existingIdx].id : `k-${Date.now()}`,
+        name: trimmedName,
+        value: trimmedValue,
+        createdAt: existingIdx >= 0 ? keys[existingIdx].createdAt : Date.now(),
+      };
+      next =
+        existingIdx >= 0
+          ? keys.map((k, i) => (i === existingIdx ? entry : k))
+          : [...keys, entry];
+    }
+    onChange(next);
+    toast({
+      title: `API Key for ${trimmedName} saved successfully ✓`,
+      description: "Securely stored in project memory for integrations.",
+    });
+    setSavedFlash(trimmedName);
+    setTimeout(() => setSavedFlash(null), 1800);
+    resetForm();
   };
 
-  if (currentKey) {
-    const masked = `${currentKey.slice(0, 4)}••••${currentKey.slice(-4)}`;
-    return (
-      <div className="mt-3 space-y-2">
-        <div
-          className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-md font-mono text-[11px]"
-          style={{
-            background: "rgba(34,197,94,0.06)",
-            border: "1px solid rgba(34,197,94,0.25)",
-            color: "rgba(255,255,255,0.85)",
-          }}
-        >
-          <div className="flex items-center gap-2 min-w-0">
-            <CheckCircle2 size={12} style={{ color: "#22c55e" }} />
-            <span className="truncate">{masked}</span>
-          </div>
-          <button
-            type="button"
-            onClick={onClear}
-            className="text-white/40 hover:text-white/80 transition-colors shrink-0"
-            aria-label="Remove saved API key"
-          >
-            <X size={12} />
-          </button>
-        </div>
-      </div>
-    );
-  }
+  const handleEdit = (entry: SavedApiKey) => {
+    setEditingId(entry.id);
+    setName(entry.name);
+    setValue(entry.value);
+    setShowValue(true);
+    setError(null);
+  };
+
+  const handleRemove = (id: string) => {
+    onChange(keys.filter((k) => k.id !== id));
+    if (editingId === id) resetForm();
+  };
+
+  const mask = (v: string) =>
+    v.length <= 8 ? "•".repeat(v.length) : `${v.slice(0, 4)}••••${v.slice(-4)}`;
 
   return (
-    <div className="mt-3 space-y-1.5">
-      <div className="flex items-center gap-1.5">
-        <Input
-          type="password"
-          value={val}
-          onChange={(e) => {
-            setVal(e.target.value);
-            if (error) setError(null);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") handleSave();
-          }}
-          placeholder="Enter your API key here..."
-          className="h-8 text-[11px] font-mono bg-white/5 border-white/10 text-white placeholder:text-white/30 focus-visible:ring-cyan-400/40"
-        />
-        <button
-          type="button"
-          onClick={handleSave}
-          className="shrink-0 h-8 px-3 rounded-md text-[10px] font-mono tracking-[0.18em] uppercase transition-all"
-          style={{
-            background: savedFlash
-              ? "rgba(34,197,94,0.18)"
-              : "linear-gradient(135deg, rgba(6,182,212,0.18), rgba(139,92,246,0.14))",
-            border: `1px solid ${savedFlash ? "rgba(34,197,94,0.5)" : "rgba(6,182,212,0.4)"}`,
-            color: savedFlash ? "#22c55e" : "#06b6d4",
-          }}
-        >
-          {savedFlash ? "Saved ✓" : "Save Key"}
-        </button>
+    <ModalShell
+      open={open}
+      onOpenChange={onOpenChange}
+      title="API Keys"
+      description="Save credentials for any external service. Keys are stored locally in project memory and used by NazAI integrations."
+    >
+      <div className="space-y-5">
+        {/* Form */}
+        <div className="space-y-3">
+          <div>
+            <label className="text-[10px] font-mono tracking-[0.2em] uppercase text-white/50 block mb-1.5">
+              API / Service name
+            </label>
+            <Input
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                if (error) setError(null);
+              }}
+              placeholder="e.g. OpenAI, Stripe, Google Analytics"
+              className="h-10 text-sm bg-white/5 border-white/10 text-white placeholder:text-white/30 focus-visible:ring-cyan-400/40"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] font-mono tracking-[0.2em] uppercase text-white/50 block mb-1.5">
+              API Key / Value
+            </label>
+            <div className="relative">
+              <Input
+                type={showValue ? "text" : "password"}
+                value={value}
+                onChange={(e) => {
+                  setValue(e.target.value);
+                  if (error) setError(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleSave();
+                }}
+                placeholder="Paste the API key / value here..."
+                className="h-10 pr-10 text-sm font-mono bg-white/5 border-white/10 text-white placeholder:text-white/30 focus-visible:ring-cyan-400/40"
+              />
+              <button
+                type="button"
+                onClick={() => setShowValue((s) => !s)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/80 transition-colors p-1"
+                aria-label={showValue ? "Hide key" : "Show key"}
+              >
+                {showValue ? <EyeOff size={14} /> : <Eye size={14} />}
+              </button>
+            </div>
+            <p className="text-[10px] font-mono text-white/35 mt-1.5">
+              This will be securely stored for integrations.
+            </p>
+          </div>
+          {error && (
+            <p className="text-[11px] font-mono text-red-400/90">{error}</p>
+          )}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleSave}
+              className="h-10 px-4 rounded-md text-[11px] font-mono tracking-[0.18em] uppercase transition-all"
+              style={{
+                background: savedFlash
+                  ? "rgba(34,197,94,0.18)"
+                  : "linear-gradient(135deg, rgba(6,182,212,0.22), rgba(139,92,246,0.18))",
+                border: `1px solid ${
+                  savedFlash ? "rgba(34,197,94,0.5)" : "rgba(6,182,212,0.4)"
+                }`,
+                color: savedFlash ? "#22c55e" : "#06b6d4",
+              }}
+            >
+              {savedFlash
+                ? `Saved ${savedFlash} ✓`
+                : editingId
+                ? "Update API Key"
+                : "Save API Key"}
+            </button>
+            {editingId && (
+              <button
+                type="button"
+                onClick={resetForm}
+                className="h-10 px-3 rounded-md text-[11px] font-mono tracking-[0.18em] uppercase text-white/60 hover:text-white/90 border border-white/10 hover:border-white/20 transition-all"
+              >
+                Cancel
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Saved keys list */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[10px] font-mono tracking-[0.22em] uppercase text-white/40">
+              Saved keys
+            </span>
+            <span className="text-[10px] font-mono text-white/40">
+              {keys.length} stored
+            </span>
+          </div>
+          {keys.length === 0 ? (
+            <div
+              className="rounded-md px-3 py-4 text-center text-[11px] font-mono text-white/40"
+              style={{
+                background: "rgba(255,255,255,0.02)",
+                border: "1px dashed rgba(255,255,255,0.08)",
+              }}
+            >
+              No API keys saved yet.
+            </div>
+          ) : (
+            <ul className="space-y-1.5">
+              {keys.map((k) => {
+                const revealed = revealedId === k.id;
+                return (
+                  <li
+                    key={k.id}
+                    className="flex items-center gap-2 px-3 py-2 rounded-md"
+                    style={{
+                      background: "rgba(255,255,255,0.025)",
+                      border: "1px solid rgba(255,255,255,0.06)",
+                    }}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[12px] text-white/90 font-semibold truncate">
+                        {k.name}
+                      </div>
+                      <div className="text-[11px] font-mono text-white/50 truncate">
+                        {revealed ? k.value : mask(k.value)}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setRevealedId(revealed ? null : k.id)}
+                      className="p-1.5 rounded text-white/40 hover:text-white/90 hover:bg-white/5 transition-all"
+                      aria-label={revealed ? "Hide key" : "Reveal key"}
+                    >
+                      {revealed ? <EyeOff size={13} /> : <Eye size={13} />}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleEdit(k)}
+                      className="p-1.5 rounded text-white/40 hover:text-cyan-400 hover:bg-cyan-400/10 transition-all"
+                      aria-label="Edit key"
+                    >
+                      <Pencil size={13} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleRemove(k.id)}
+                      className="p-1.5 rounded text-white/40 hover:text-red-400 hover:bg-red-400/10 transition-all"
+                      aria-label="Remove key"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
       </div>
-      {error && (
-        <p className="text-[10px] font-mono text-red-400/90">{error}</p>
-      )}
-    </div>
+    </ModalShell>
   );
 };
 
