@@ -975,6 +975,65 @@ type BrandAttachment = {
   dataUrl: string;
 };
 
+// Simple k-cluster-ish dominant color extraction from a data URL.
+// Quantizes pixels into 4-bit buckets, returns the top N hexes.
+async function extractPaletteFromDataUrl(dataUrl: string, count = 5): Promise<string[]> {
+  return new Promise((resolve) => {
+    const img = new window.Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      try {
+        const size = 64;
+        const canvas = document.createElement("canvas");
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return resolve([]);
+        ctx.drawImage(img, 0, 0, size, size);
+        const { data } = ctx.getImageData(0, 0, size, size);
+        const buckets = new Map<string, { r: number; g: number; b: number; n: number }>();
+        for (let i = 0; i < data.length; i += 4) {
+          const a = data[i + 3];
+          if (a < 200) continue;
+          const r = data[i] & 0xf0;
+          const g = data[i + 1] & 0xf0;
+          const b = data[i + 2] & 0xf0;
+          const key = `${r},${g},${b}`;
+          const cur = buckets.get(key);
+          if (cur) {
+            cur.r += data[i]; cur.g += data[i + 1]; cur.b += data[i + 2]; cur.n += 1;
+          } else {
+            buckets.set(key, { r: data[i], g: data[i + 1], b: data[i + 2], n: 1 });
+          }
+        }
+        const top = Array.from(buckets.values())
+          .sort((a, b) => b.n - a.n)
+          .slice(0, count * 3); // grab extra so we can dedupe by perceived similarity
+        const toHex = (v: number) =>
+          Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, "0");
+        const hexes: string[] = [];
+        for (const c of top) {
+          const hex = `#${toHex(c.r / c.n)}${toHex(c.g / c.n)}${toHex(c.b / c.n)}`;
+          // dedupe near-duplicates
+          const dup = hexes.some((h) => {
+            const dr = parseInt(h.slice(1, 3), 16) - parseInt(hex.slice(1, 3), 16);
+            const dg = parseInt(h.slice(3, 5), 16) - parseInt(hex.slice(3, 5), 16);
+            const db = parseInt(h.slice(5, 7), 16) - parseInt(hex.slice(5, 7), 16);
+            return Math.sqrt(dr * dr + dg * dg + db * db) < 28;
+          });
+          if (!dup) hexes.push(hex);
+          if (hexes.length >= count) break;
+        }
+        resolve(hexes);
+      } catch {
+        resolve([]);
+      }
+    };
+    img.onerror = () => resolve([]);
+    img.src = dataUrl;
+  });
+}
+
 const BrandAssetsModal: React.FC<{
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -984,6 +1043,8 @@ const BrandAssetsModal: React.FC<{
   const [brandName, setBrandName] = useState("");
   const [vibe, setVibe] = useState("");
   const [attachment, setAttachment] = useState<BrandAttachment | null>(null);
+  const [palette, setPalette] = useState<string[]>([]);
+  const [extracting, setExtracting] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [done, setDone] = useState(false);
@@ -993,7 +1054,7 @@ const BrandAssetsModal: React.FC<{
 
   useEffect(() => {
     if (open) {
-      setBrandName(""); setVibe(""); setAttachment(null);
+      setBrandName(""); setVibe(""); setAttachment(null); setPalette([]); setExtracting(false);
       setGenerating(false); setDone(false); setError(null); setDragActive(false);
     }
   }, [open]);
@@ -1011,14 +1072,24 @@ const BrandAssetsModal: React.FC<{
       return;
     }
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       setError(null);
+      const dataUrl = typeof reader.result === "string" ? reader.result : "";
       setAttachment({
         name: file.name,
         type: file.type || "image/*",
         size: file.size,
-        dataUrl: typeof reader.result === "string" ? reader.result : "",
+        dataUrl,
       });
+      if (dataUrl && file.type !== "image/svg+xml") {
+        setExtracting(true);
+        setPalette([]);
+        const hexes = await extractPaletteFromDataUrl(dataUrl, 5);
+        setPalette(hexes);
+        setExtracting(false);
+      } else {
+        setPalette([]);
+      }
     };
     reader.onerror = () => setError("Could not read that file. Try another.");
     reader.readAsDataURL(file);
@@ -1054,7 +1125,10 @@ const BrandAssetsModal: React.FC<{
       attachment
         ? `Use the uploaded reference image "${attachment.name}" as the primary visual reference for the logo direction, palette extraction, and overall aesthetic.`
         : "",
-      "Produce: logo concept, color palette (with hex codes), typography pairing, and a social kit.",
+      palette.length
+        ? `Auto-extracted palette from reference (use as authoritative brand colors and adapt the website to match): ${palette.join(", ")}.`
+        : "",
+      "Produce: logo concept, color palette (with hex codes), typography pairing, and a social kit. Suggest matching website accent colors derived from the reference.",
     ]
       .filter(Boolean)
       .join(" ");
@@ -1189,12 +1263,62 @@ const BrandAssetsModal: React.FC<{
                 </div>
                 <button
                   type="button"
-                  onClick={() => setAttachment(null)}
+                  onClick={() => { setAttachment(null); setPalette([]); }}
                   className="shrink-0 w-7 h-7 rounded-md flex items-center justify-center text-white/50 hover:text-white hover:bg-white/10 transition-colors"
                   aria-label="Remove file"
                 >
                   <X size={13} />
                 </button>
+              </div>
+            )}
+
+            {/* Auto-extracted palette suggestion */}
+            {(extracting || palette.length > 0) && (
+              <div
+                className="mt-2 rounded-lg p-2.5"
+                style={{
+                  background: "rgba(139,92,246,0.05)",
+                  border: "1px solid rgba(139,92,246,0.25)",
+                }}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[9px] font-mono tracking-[0.2em] uppercase text-violet-300/80">
+                    {extracting ? "Extracting palette…" : "Suggested palette · auto-extracted"}
+                  </span>
+                  {!extracting && palette.length > 0 && (
+                    <span className="text-[9px] font-mono text-white/40">
+                      Will guide brand + website colors
+                    </span>
+                  )}
+                </div>
+                {extracting ? (
+                  <div className="flex gap-1.5">
+                    {[0, 1, 2, 3, 4].map((i) => (
+                      <div
+                        key={i}
+                        className="h-6 flex-1 rounded animate-pulse"
+                        style={{ background: "rgba(255,255,255,0.06)" }}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex gap-1.5">
+                    {palette.map((hex) => (
+                      <div key={hex} className="flex-1 group relative" title={hex}>
+                        <div
+                          className="h-6 rounded transition-transform group-hover:scale-105"
+                          style={{
+                            background: hex,
+                            boxShadow: `0 0 0 1px rgba(255,255,255,0.06)`,
+                          }}
+                        />
+                        <div className="text-[8px] font-mono text-white/40 text-center mt-0.5 truncate">
+                          {hex.toUpperCase()}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </Field>
