@@ -2706,11 +2706,22 @@ export default function Dashboard() {
   }, [promptMode, sandboxText, extractorData, editablePrompt, userContext]);
 
   // ─── THE TITAN UNIFIED MESSAGE HANDLER ──────────────────────────────────────
-  const handleSendMessage = useCallback(async (overridePrompt?: string) => {
+  const handleSendMessage = useCallback(async (
+    overridePrompt?: string,
+    options?: { source?: "iteration" },
+  ) => {
     let masterPrompt = typeof overridePrompt === "string" && overridePrompt.trim().length > 0
       ? overridePrompt
       : compileMasterPrompt();
     const trimmed = masterPrompt.trim();
+    const visiblePrompt =
+      typeof overridePrompt === "string" && overridePrompt.trim().length > 0
+        ? overridePrompt.trim()
+        : promptMode === "sandbox"
+          ? sandboxText.trim() || "Generate a strategic business blueprint."
+          : promptMode === "extractor"
+            ? `Business blueprint: ${extractorData.industry || "industry TBD"}`
+            : editablePrompt.trim() || "Generate a professional business blueprint.";
 
     if (isPending || trimmed.length === 0) {
       return;
@@ -2793,7 +2804,7 @@ export default function Dashboard() {
     //    new prompt as a surgical edit on the active code, regardless of
     //    whether the new prompt re-mentions "website".
     const inSandboxEditMode =
-      isWebsiteComplete && promptMode === "sandbox" && !isRefine;
+      options?.source === "iteration" || (isWebsiteComplete && promptMode === "sandbox" && !isRefine);
 
     if ((isWebsiteComplete && isWebsiteIntent && !isRefine) || inSandboxEditMode) {
       // ── Iteration Command: edit the existing live preview in place ─────────
@@ -2801,15 +2812,16 @@ export default function Dashboard() {
       //    rather than regenerating an unrelated site.
       const currentCodeSnapshot = (activeWebsiteCode || "").slice(0, 12000);
       masterPrompt =
-        `[SYSTEM INSTRUCTION]\n` +
-        `The user is currently viewing the following code: [INSERT_ACTIVE_WEBSITE_CODE]. ` +
-        `Your task is to MODIFY this existing code based on the user's request. ` +
-        `Do not regenerate a new site from scratch. Return only the updated code block.\n\n` +
+        `SYSTEM: The user is requesting a change to the code currently in the preview pane. ` +
+        `READ the following code and APPLY the requested change ONLY. ` +
+        `Return a full React component using Tailwind CSS and Lucide React icons. ` +
+        `Code: [activeWebsiteCode]\n\n` +
         `[ITERATION_DIRECTIVE: LIVE_EDIT]\n` +
+        `REQUESTED_CHANGE: ${visiblePrompt}\n` +
         `LAST_BUILD_DIRECTIVE: ${lastWebsitePrompt}\n\n` +
         (currentCodeSnapshot
-          ? `[INSERT_ACTIVE_WEBSITE_CODE]\n\`\`\`\n${currentCodeSnapshot}\n\`\`\`\n\n`
-          : `[INSERT_ACTIVE_WEBSITE_CODE]\n(no snapshot available — infer from last directive)\n\n`) +
+          ? `[activeWebsiteCode]\n\`\`\`tsx\n${currentCodeSnapshot}\n\`\`\`\n\n`
+          : `[activeWebsiteCode]\n(no snapshot available — infer from last directive)\n\n`) +
         masterPrompt;
     } else if (websiteIntent) {
       setIsWebsiteIntent(true);
@@ -2839,7 +2851,7 @@ export default function Dashboard() {
     
     setMessages((prev) => [
       ...prev,
-      { role: "user", text: userMessage },
+      { role: "user", text: visiblePrompt },
       { role: "ai", text: "Neural Architect: Processing blueprint..." },
     ]);
 
@@ -2861,7 +2873,7 @@ export default function Dashboard() {
         await supabase
           .from("missions")
           .update({
-            directive: userMessage,
+            directive: visiblePrompt,
             updated_at: new Date().toISOString(),
           })
           .eq("id", missionToUpdateId)
@@ -2872,7 +2884,7 @@ export default function Dashboard() {
           .from("missions")
           .insert({
             user_id: userId,
-            directive: userMessage,
+            directive: visiblePrompt,
             status: "recently",
           })
           .select()
@@ -2885,7 +2897,7 @@ export default function Dashboard() {
           const newMission: Mission = {
             id: savedMission.id,
             user_id: savedMission.user_id,
-            prompt: savedMission.directive ?? userMessage,
+            prompt: savedMission.directive ?? visiblePrompt,
             status: (savedMission.status ?? "recently") as MissionStatus,
             created_at: savedMission.created_at,
             updated_at: savedMission.updated_at,
