@@ -1873,10 +1873,13 @@ const HomeView = ({
           //    inSandboxEditMode branch (promptMode is forced to sandbox).
           <FixPromptBlank
             isPending={isPending}
-            onSend={(text: string) => {
+            onSend={(text: string, opts) => {
               if (promptMode !== "sandbox") setPromptMode("sandbox");
               setSandboxText(text);
-              handleSendMessage(text, { source: "iteration" });
+              handleSendMessage(text, {
+                source: "iteration",
+                referenceImages: opts?.referenceImages,
+              });
             }}
           />
         ) : (
