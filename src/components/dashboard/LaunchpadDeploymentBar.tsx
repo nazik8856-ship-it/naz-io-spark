@@ -107,6 +107,38 @@ const LaunchpadDeploymentBar: React.FC<LaunchpadDeploymentBarProps> = ({
     }
   };
 
+  // ── Push to Vercel / Production — streams a fake build log line-by-line ──
+  const handlePushToVercel = () => {
+    if (vercelPhase === "running") return;
+    const slug = slugify(directive || "site");
+    const lines = [
+      "$ vercel deploy --prod",
+      "▲ Vercel CLI 32.4.1",
+      "🔍 Inspecting project · linking to nazai/" + slug,
+      "📦 Bundling React · esbuild target=es2022",
+      "🧪 Running production checks · 0 errors",
+      "🌍 Uploading 142 files (1.8 MB)…",
+      "🛰  Distributing to 18 edge regions",
+      "🔐 Issuing SSL certificate via Let's Encrypt",
+      "✅ Build completed in 23.4s",
+      `🚀 Production: https://${slug}.vercel.app`,
+    ];
+    setVercelPhase("running");
+    setVercelLog([]);
+    setVercelUrl("");
+    lines.forEach((line, i) => {
+      vercelTimeouts.current.push(
+        window.setTimeout(() => {
+          setVercelLog((prev) => [...prev, line]);
+          if (i === lines.length - 1) {
+            setVercelUrl(`https://${slug}.vercel.app`);
+            setVercelPhase("live");
+          }
+        }, 320 + i * 380),
+      );
+    });
+  };
+
   const isBusy = phase === "building" || phase === "deploying";
   const isLive = phase === "live";
 
