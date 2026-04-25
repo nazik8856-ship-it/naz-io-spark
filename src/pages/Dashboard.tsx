@@ -1216,7 +1216,7 @@ const FixPromptBlank = ({
             }
           }}
           disabled={isPending}
-          placeholder="Describe a change to the live preview — e.g. “make the hero darker”"
+          placeholder="Tell NazAI what to fix..."
           className="flex-1 bg-transparent outline-none text-sm font-mono text-white placeholder:text-white/30 disabled:opacity-50"
           autoFocus
         />
