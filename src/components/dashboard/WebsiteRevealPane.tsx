@@ -115,7 +115,14 @@ const WebsiteRevealPane: React.FC<WebsiteRevealPaneProps> = ({
   // ── Staged reveal: 5s sequence so the Orchestration Cinema climax (cards
   //    shattering + cyan lock-in flash) lands at the 5-second peak. The
   //    skeleton-to-live sequence then completes immediately after.
+  //    For iteration edits (site already complete), we SKIP the cinema and
+  //    keep stage at 4 so the live preview remains visible/undimmed while
+  //    the AI applies surgical changes.
   useEffect(() => {
+    if (isWebsiteComplete) {
+      setStage(4);
+      return;
+    }
     setStage(0);
     const t1 = setTimeout(() => setStage(1), 1100);
     const t2 = setTimeout(() => setStage(2), 2400);
@@ -127,13 +134,40 @@ const WebsiteRevealPane: React.FC<WebsiteRevealPaneProps> = ({
       clearTimeout(t3);
       clearTimeout(t4);
     };
-  }, [directive, generationRunId]);
+  }, [directive, generationRunId, isWebsiteComplete]);
 
+  // ── Real-time preview sync: any change in activeWebsiteCode is mirrored
+  //    immediately into visibleWebsiteCode so the iframe re-renders on every
+  //    iteration edit. We do NOT gate on stage here — the iframe key changes
+  //    below (full content hash) force a clean remount per change.
   useEffect(() => {
     if (activeWebsiteCode.trim()) {
       setVisibleWebsiteCode(activeWebsiteCode);
     }
   }, [activeWebsiteCode]);
+
+  // ── "Applying edit..." → "Preview updated" status indicator for iteration
+  //    edits. Shows transparently during the AI roundtrip, then flashes a
+  //    success state for 1.6s once the new code lands.
+  const [editStatus, setEditStatus] = useState<"idle" | "applying" | "updated">("idle");
+  const prevCodeRef = useRef(activeWebsiteCode);
+  useEffect(() => {
+    if (isPending && isWebsiteComplete) {
+      setEditStatus("applying");
+    }
+  }, [isPending, isWebsiteComplete]);
+  useEffect(() => {
+    if (!isWebsiteComplete) return;
+    if (activeWebsiteCode && activeWebsiteCode !== prevCodeRef.current) {
+      prevCodeRef.current = activeWebsiteCode;
+      setEditStatus("updated");
+      const t = setTimeout(() => setEditStatus("idle"), 1600);
+      return () => clearTimeout(t);
+    }
+    if (!isPending && editStatus === "applying") {
+      setEditStatus("idle");
+    }
+  }, [activeWebsiteCode, isPending, isWebsiteComplete, editStatus]);
 
   // ── Highlight-to-Refine tooltip in the Strategy pane ─────────────────────────
   useEffect(() => {
@@ -522,8 +556,43 @@ const WebsiteRevealPane: React.FC<WebsiteRevealPaneProps> = ({
                   headline={headline}
                   device={device}
                   stage={stage}
-                  dimmed={isPending && Boolean(visibleWebsiteCode.trim())}
+                  dimmed={isPending && !isWebsiteComplete && Boolean(visibleWebsiteCode.trim())}
                 />
+                {/* Iteration status badge: transparent, top-right of preview */}
+                <AnimatePresence>
+                  {editStatus !== "idle" && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -6 }}
+                      transition={{ duration: 0.18 }}
+                      className="pointer-events-none absolute right-5 top-5 flex items-center gap-2 rounded-md px-2.5 py-1.5 backdrop-blur-md"
+                      style={{
+                        background: editStatus === "updated" ? "rgba(34,197,94,0.14)" : "rgba(15,23,42,0.7)",
+                        border: editStatus === "updated"
+                          ? "1px solid rgba(34,197,94,0.45)"
+                          : "1px solid rgba(0,163,255,0.35)",
+                        boxShadow: editStatus === "updated"
+                          ? "0 0 18px rgba(34,197,94,0.25)"
+                          : "0 0 18px rgba(0,163,255,0.22)",
+                      }}
+                    >
+                      <span
+                        className="h-1.5 w-1.5 rounded-full"
+                        style={{
+                          background: editStatus === "updated" ? "#22c55e" : "#00A3FF",
+                          boxShadow: editStatus === "updated"
+                            ? "0 0 8px #22c55e"
+                            : "0 0 8px #00A3FF",
+                          animation: editStatus === "applying" ? "pulse 1.2s ease-in-out infinite" : "none",
+                        }}
+                      />
+                      <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-white/85">
+                        {editStatus === "updated" ? "Preview updated" : "Applying edit…"}
+                      </span>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             </div>
 
@@ -681,10 +750,17 @@ const GeneratedWebsitePreview: React.FC<{
   dimmed: boolean;
 }> = ({ code, headline, device, stage, dimmed }) => {
   const canRenderHtml = /<\s*(html|body|main|section|div|header|nav|article|footer)[\s>]/i.test(code);
+  // Force iframe remount on EVERY code change so iteration edits never get
+  // stuck on a stale srcDoc. Hash uses both length and a sampled fingerprint
+  // so even small in-body edits (e.g. a single CSS variable swap) trigger a
+  // fresh mount instead of being deduped by React's reconciler.
+  const codeKey = canRenderHtml
+    ? `${code.length}:${code.slice(0, 40)}:${code.slice(Math.floor(code.length / 2), Math.floor(code.length / 2) + 40)}:${code.slice(-40)}`
+    : "skeleton";
   if (canRenderHtml) {
     return (
       <iframe
-        key={code.slice(0, 80)}
+        key={codeKey}
         srcDoc={code}
         title="Generated website preview"
         sandbox="allow-scripts"
