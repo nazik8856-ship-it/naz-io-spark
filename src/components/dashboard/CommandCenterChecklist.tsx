@@ -372,7 +372,7 @@ const CommandCenterChecklist: React.FC = () => {
                     >
                       {step.title}
                     </span>
-                    {isApiCard && memory.apiKey && (
+                    {isApiCard && (memory.apiKeys?.length ?? 0) > 0 && (
                       <span
                         className="text-[9px] font-mono tracking-[0.18em] uppercase px-1.5 py-0.5 rounded"
                         style={{
@@ -381,34 +381,21 @@ const CommandCenterChecklist: React.FC = () => {
                           color: "#22c55e",
                         }}
                       >
-                        Connected
+                        {memory.apiKeys!.length} saved
                       </span>
                     )}
                   </div>
                   <p className="text-xs text-white/50 mt-1 leading-relaxed">{step.desc}</p>
 
-                  {isApiCard ? (
-                    <ApiKeyInline
-                      currentKey={memory.apiKey}
-                      onSave={(key) => {
-                        setMemory((m) => ({ ...m, apiKey: key }));
-                        markDone("apis");
-                      }}
-                      onClear={() => {
-                        setMemory((m) => ({ ...m, apiKey: undefined }));
-                      }}
-                    />
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => runAction(step)}
-                      className="mt-3 inline-flex items-center gap-1.5 text-[10px] font-mono tracking-[0.18em] uppercase opacity-70 hover:opacity-100 transition-opacity cursor-pointer"
-                      style={{ color: done ? "#06b6d4" : "rgba(255,255,255,0.6)" }}
-                    >
-                      {step.cta}
-                      <ArrowRight size={10} />
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => runAction(step)}
+                    className="mt-3 inline-flex items-center gap-1.5 text-[10px] font-mono tracking-[0.18em] uppercase opacity-70 hover:opacity-100 transition-opacity cursor-pointer"
+                    style={{ color: done ? "#06b6d4" : "rgba(255,255,255,0.6)" }}
+                  >
+                    {isApiCard && (memory.apiKeys?.length ?? 0) > 0 ? "Manage API keys" : step.cta}
+                    <ArrowRight size={10} />
+                  </button>
                 </div>
                 <button
                   type="button"
