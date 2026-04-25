@@ -3077,11 +3077,7 @@ export default function Dashboard() {
     }
 
     setIsPending(true);
-    // Only restart the cinematic reveal for FRESH website builds. Iteration
-    // edits (inSandboxEditMode) keep the existing live preview visible while
-    // the AI applies surgical changes — restarting cinema would dim/hide the
-    // preview that the user is actively editing.
-    if (shouldActivateWebsitePreview) {
+    if (shouldActivateWebsitePreview || isWebsiteIntent || inSandboxEditMode) {
       setGenerationRunId((run) => run + 1);
     }
 
