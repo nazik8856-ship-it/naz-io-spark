@@ -269,11 +269,11 @@ const CommandCenterChecklist: React.FC = () => {
         })}
       </div>
 
-      {/* Agent Intelligence Feed */}
+      {/* Reliability Guardrails */}
       <div>
         <div className="flex items-center gap-2 mb-3">
           <span className="text-[10px] font-mono tracking-[0.22em] uppercase text-white/40">
-            Agent Intelligence Feed
+            Reliability Guardrails
           </span>
           <div className="flex-1 h-px bg-white/5" />
           <span
@@ -287,12 +287,12 @@ const CommandCenterChecklist: React.FC = () => {
             LIVE
           </span>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {AGENTS.map((agent, i) => {
-            const Icon = agent.icon;
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+          {GUARDRAILS.map((guardrail, i) => {
+            const Icon = guardrail.icon;
             return (
               <motion.div
-                key={agent.label}
+                key={guardrail.label}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.4, delay: 0.1 + i * 0.08 }}
@@ -306,15 +306,15 @@ const CommandCenterChecklist: React.FC = () => {
                   <div
                     className="w-7 h-7 rounded-md flex items-center justify-center"
                     style={{
-                      background: `${agent.accent}14`,
-                      border: `1px solid ${agent.accent}33`,
+                      background: `${guardrail.accent}14`,
+                      border: `1px solid ${guardrail.accent}33`,
                     }}
                   >
-                    <Icon size={13} style={{ color: agent.accent }} />
+                    <Icon size={13} style={{ color: guardrail.accent }} />
                   </div>
-                  <span className="text-xs font-semibold text-white/90">{agent.label}</span>
+                  <span className="text-xs font-semibold text-white/90">{guardrail.label}</span>
                 </div>
-                <p className="text-[11px] text-white/50 leading-relaxed">{agent.desc}</p>
+                <p className="text-[11px] text-white/50 leading-relaxed">{guardrail.desc}</p>
               </motion.div>
             );
           })}
