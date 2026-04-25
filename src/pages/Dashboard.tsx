@@ -1943,6 +1943,96 @@ const HomeView = ({
   );
 };
 
+// ─── PROJECT MEMORY PANEL ────────────────────────────────────────────────────
+// Shows outputs the user has explicitly "Approved" as ground truth via the
+// AIResponseExtras component. Persisted in localStorage; updates live via
+// the custom 'nazai-ground-truth-changed' event dispatched on save.
+function ProjectMemoryPanel() {
+  const [entries, setEntries] = useState<GroundTruthEntry[]>(() => readGroundTruth());
+  const [open, setOpen] = useState(true);
+
+  useEffect(() => {
+    const refresh = () => setEntries(readGroundTruth());
+    window.addEventListener("nazai-ground-truth-changed", refresh);
+    window.addEventListener("storage", refresh);
+    return () => {
+      window.removeEventListener("nazai-ground-truth-changed", refresh);
+      window.removeEventListener("storage", refresh);
+    };
+  }, []);
+
+  return (
+    <div
+      className="px-2 pt-2 pb-1 shrink-0"
+      style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
+    >
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center justify-between w-full px-2 py-1.5 rounded hover:bg-white/[0.03] transition-colors"
+      >
+        <div className="flex items-center gap-1.5">
+          <Shield size={11} className="text-emerald-400/80" />
+          <span className="text-[9px] font-mono font-bold tracking-[0.22em] uppercase text-white/45">
+            Project Memory
+          </span>
+          {entries.length > 0 && (
+            <span
+              className="text-[8px] font-mono px-1.5 py-0.5 rounded"
+              style={{
+                background: "rgba(34,197,94,0.12)",
+                border: "1px solid rgba(34,197,94,0.35)",
+                color: "#86efac",
+              }}
+            >
+              {entries.length}
+            </span>
+          )}
+        </div>
+        <ChevronDown
+          size={11}
+          className="text-white/30 transition-transform"
+          style={{ transform: open ? "rotate(0deg)" : "rotate(-90deg)" }}
+        />
+      </button>
+
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <div className="px-1 pt-1 pb-1 space-y-1 max-h-[160px] overflow-y-auto">
+              {entries.length === 0 ? (
+                <p className="text-[9px] font-mono text-white/25 px-2 py-2 leading-relaxed">
+                  Approve any AI output to lock it in as ground truth for future runs.
+                </p>
+              ) : (
+                entries.map((e) => (
+                  <div
+                    key={e.id}
+                    className="px-2 py-1.5 rounded text-[10px] font-mono"
+                    style={{
+                      background: "rgba(34,197,94,0.04)",
+                      border: "1px solid rgba(34,197,94,0.18)",
+                    }}
+                    title={e.excerpt}
+                  >
+                    <div className="text-white/80 truncate">{e.prompt}</div>
+                    <div className="text-white/40 text-[9px] truncate mt-0.5">{e.excerpt}</div>
+                  </div>
+                ))
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 // Sidebar Content Component (DRY - used for both mobile and desktop)
 function SidebarContent({ 
   borderColor, activeNav, showSettings, activeMissionId, handleNavClick, 
