@@ -187,9 +187,23 @@ const loadMemory = (): Memory => {
   if (typeof window === "undefined") return {};
   try {
     const raw = localStorage.getItem(MEMORY_KEY);
-    return raw ? JSON.parse(raw) : {};
+    const parsed: Memory = raw ? JSON.parse(raw) : {};
+    // Migrate legacy single-key shape into the new apiKeys list
+    if (parsed.apiKey && (!parsed.apiKeys || parsed.apiKeys.length === 0)) {
+      parsed.apiKeys = [
+        {
+          id: `legacy-${Date.now()}`,
+          name: "Default API",
+          value: parsed.apiKey,
+          createdAt: Date.now(),
+        },
+      ];
+      delete parsed.apiKey;
+    }
+    if (!parsed.apiKeys) parsed.apiKeys = [];
+    return parsed;
   } catch {
-    return {};
+    return { apiKeys: [] };
   }
 };
 
