@@ -414,6 +414,11 @@ const generateFallbackOutline = (prompt: string): string => {
   return `[Neural Architect: Connection Delayed]\n\nBased on: "${words}...", the blueprint is being generated. Please check your connection or try again.\n\nPreliminary Structure:\n• Market Analysis\n• Operational Framework\n• Financial Architecture\n• Growth Strategy\n\nReconnect to receive the complete AI-powered strategic plan.`;
 };
 
+const extractGeneratedCode = (text: string): string => {
+  const fenced = text.match(/```(?:tsx|jsx|ts|js|html)?\s*([\s\S]*?)```/i);
+  return (fenced?.[1] ?? text).trim();
+};
+
 // ─── Folder View Components (Trash & Archives) ────────────────────────────────────
 
 // TrashView Component - Shows deleted items with permanent wipe and restore
@@ -1134,6 +1139,8 @@ const HomeView = ({
   editPulse,
   isPreviewActive,
   setIsPreviewActive,
+  activeWebsiteCode,
+  generationRunId,
 }: any) => {
   // Template definitions (master templates - never mutated)
   const TEMPLATE_MASTERS = {
@@ -1284,7 +1291,7 @@ const HomeView = ({
               <>
                 <div className="max-w-[85%] rounded-xl overflow-hidden border border-border bg-card/80">
                   <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-secondary/20">
-                    <MessageSquare size={12} className="text-primary" />
+                    <Brain size={12} className="text-primary" />
                     <span className="text-[9px] font-mono font-bold tracking-wider text-primary">
                       NazAI
                     </span>
@@ -1314,6 +1321,8 @@ const HomeView = ({
               isPending={isPending}
               isWebsiteComplete={isWebsiteComplete}
               directive={lastWebsitePrompt}
+              activeWebsiteCode={activeWebsiteCode}
+              generationRunId={generationRunId}
               onRefine={handleRefine}
               onEditTrigger={onEditTrigger}
             />
@@ -1552,7 +1561,7 @@ const HomeView = ({
               backdropFilter: "blur(20px)",
               color: "var(--nazai-text-color)",
             }}
-            title="Continue mission — click to expand"
+            title="Continue mission"
           >
             <motion.span
               className="w-2 h-2 rounded-full shrink-0"
@@ -1563,7 +1572,7 @@ const HomeView = ({
             <span className="text-[11px] font-mono tracking-wider text-white/70 flex-1 truncate">
               {isPending ? "Neural Architect orchestrating…" : "Continue mission"}
             </span>
-            <span className="text-[9px] font-mono text-white/40 hidden sm:inline">CLICK TO EXPAND</span>
+            <span className="text-[9px] font-mono text-white/40 hidden sm:inline">OPEN FIX BAR</span>
             <ChevronRight size={14} className="text-white/40 rotate-[-90deg]" />
           </motion.button>
         ) : isWebsiteComplete ? (
@@ -2362,6 +2371,7 @@ export default function Dashboard() {
   // SANDBOX mode after a build, this is fed back to the AI as `[CurrentCode]`
   // so it performs surgical edits instead of regenerating an unrelated site.
   const [activeWebsiteCode, setActiveWebsiteCode] = useState<string>("");
+  const [generationRunId, setGenerationRunId] = useState(0);
 
   // ── "Return to Preview" safety net ──────────────────────────────────────────
   // Keeps the website preview pane alive when the user temporarily leaves it.
@@ -2812,12 +2822,13 @@ export default function Dashboard() {
       // ── Iteration Command: edit the existing live preview in place ─────────
       //    Inject the current website code so the AI performs surgical edits
       //    rather than regenerating an unrelated site.
-      const currentCodeSnapshot = (activeWebsiteCode || "").slice(0, 12000);
+      const currentCodeSnapshot = (activeWebsiteCode || "").slice(0, 18000);
       masterPrompt =
+        `You are an expert editor. You are currently viewing this React/Tailwind code: [Insert activeWebsiteCode]. ` +
+        `Modify this code based on the user's request. Return ONLY the updated, complete code block. ` +
+        `Do not talk, just code.\n\n` +
         `SYSTEM: The user is requesting a change to the code currently in the preview pane. ` +
-        `READ the following code and APPLY the requested change ONLY. Code: [activeWebsiteCode]\n` +
-        `Return a full React component using Tailwind CSS and Lucide React icons. ` +
-        `Update only the requested sections and preserve the rest of the structure.\n\n` +
+        `READ the following code and APPLY the requested change ONLY. Code: [activeWebsiteCode]\n\n` +
         `[ITERATION_DIRECTIVE: LIVE_EDIT]\n` +
         `REQUESTED_CHANGE: ${visiblePrompt}\n` +
         `LAST_BUILD_DIRECTIVE: ${lastWebsitePrompt}\n\n` +
@@ -2840,6 +2851,9 @@ export default function Dashboard() {
     }
 
     setIsPending(true);
+    if (shouldActivateWebsitePreview || isWebsiteIntent || inSandboxEditMode) {
+      setGenerationRunId((run) => run + 1);
+    }
 
     if (currentAbortControllerRef.current) {
       currentAbortControllerRef.current.abort();
@@ -2935,7 +2949,8 @@ export default function Dashboard() {
 
       if (result.error) throw new Error(result.error.message || "Link Failed");
 
-      const outputText = result.data?.plan || result.data?.response || `Blueprint ready.`;
+      const outputText = result.data?.plan || result.data?.response || result.data?.text || result.data?.content || `Blueprint ready.`;
+      const generatedCode = extractGeneratedCode(outputText);
       finalResponseText = outputText;
 
       setMessages((prev) => {
@@ -2957,7 +2972,7 @@ export default function Dashboard() {
       // Snapshot the generated output so SANDBOX iteration prompts can feed
       // it back to the AI as `[CurrentCode]` for surgical edits.
       if (shouldActivateWebsitePreview || isWebsiteIntent || websiteGenerated || inSandboxEditMode) {
-        setActiveWebsiteCode(outputText || "");
+        setActiveWebsiteCode(generatedCode || outputText || "");
       }
 
       if (missionToUpdateId) {
@@ -3293,6 +3308,8 @@ export default function Dashboard() {
             editPulse={editPulse}
             isPreviewActive={isPreviewActive}
             setIsPreviewActive={setIsPreviewActive}
+            activeWebsiteCode={activeWebsiteCode}
+            generationRunId={generationRunId}
           />
         );
     }

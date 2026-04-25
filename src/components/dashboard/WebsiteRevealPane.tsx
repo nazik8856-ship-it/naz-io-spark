@@ -55,6 +55,10 @@ type AgentCard = {
 interface WebsiteRevealPaneProps {
   /** Latest AI response text for the active website mission. */
   responseText: string;
+  /** Latest complete generated code for the active website preview. */
+  activeWebsiteCode?: string;
+  /** Increments per generation request so cinematic stages restart reliably. */
+  generationRunId?: number;
   /** True while the agent chain is running. Drives staged-reveal animation. */
   isPending: boolean;
   /** True once a website has been confirmed generated (unlocks the checklist). */
@@ -129,6 +133,8 @@ const SECTION_ORDER: SectionId[] = ["hero", "features", "contact"];
 
 const WebsiteRevealPane: React.FC<WebsiteRevealPaneProps> = ({
   responseText,
+  activeWebsiteCode = "",
+  generationRunId = 0,
   isPending,
   isWebsiteComplete,
   directive,
@@ -144,6 +150,7 @@ const WebsiteRevealPane: React.FC<WebsiteRevealPaneProps> = ({
   } | null>(null);
   const [refineOpen, setRefineOpen] = useState(false);
   const [refineInstruction, setRefineInstruction] = useState("");
+  const [visibleWebsiteCode, setVisibleWebsiteCode] = useState(activeWebsiteCode);
   const strategyRef = useRef<HTMLDivElement>(null);
 
   const agents = useMemo(() => buildAgentCards(responseText), [responseText]);
@@ -163,7 +170,13 @@ const WebsiteRevealPane: React.FC<WebsiteRevealPaneProps> = ({
       clearTimeout(t3);
       clearTimeout(t4);
     };
-  }, [directive]);
+  }, [directive, generationRunId]);
+
+  useEffect(() => {
+    if (!isPending && activeWebsiteCode.trim()) {
+      setVisibleWebsiteCode(activeWebsiteCode);
+    }
+  }, [activeWebsiteCode, isPending]);
 
   // ── Highlight-to-Refine tooltip in the Strategy pane ─────────────────────────
   useEffect(() => {
@@ -367,7 +380,7 @@ const WebsiteRevealPane: React.FC<WebsiteRevealPaneProps> = ({
         >
           {/* Orchestration Cinema — fast (≤3s) hyperspace transition while the
               skeleton stages are still locking in. Auto-fades when stage hits 4. */}
-          <OrchestrationCinema active={stage < 4} />
+          <OrchestrationCinema active={stage < 4} ghosted={Boolean(visibleWebsiteCode.trim())} />
 
           <div className="p-4 sm:p-6 flex flex-col items-center gap-4">
             <div
@@ -443,20 +456,14 @@ const WebsiteRevealPane: React.FC<WebsiteRevealPaneProps> = ({
                 </div>
               </div>
 
-              {/* Sections */}
-              <div className="p-3 sm:p-4 space-y-3">
-                {SECTION_ORDER.map((id, idx) => {
-                  const live = stage > idx; // staged unlock
-                  return (
-                    <RevealSection
-                      key={id}
-                      id={id}
-                      live={live}
-                      device={device}
-                      headline={headline}
-                    />
-                  );
-                })}
+              <div className="relative p-3 sm:p-4">
+                <GeneratedWebsitePreview
+                  code={visibleWebsiteCode}
+                  headline={headline}
+                  device={device}
+                  stage={stage}
+                  dimmed={isPending && Boolean(visibleWebsiteCode.trim())}
+                />
               </div>
             </div>
 
@@ -606,6 +613,50 @@ const WebsiteRevealPane: React.FC<WebsiteRevealPaneProps> = ({
 };
 
 // ─── Reveal section: skeleton → live ───────────────────────────────────────────
+const GeneratedWebsitePreview: React.FC<{
+  code: string;
+  headline: string;
+  device: DeviceMode;
+  stage: number;
+  dimmed: boolean;
+}> = ({ code, headline, device, stage, dimmed }) => {
+  const canRenderHtml = /<\s*(html|body|main|section|div|header|nav|article|footer)[\s>]/i.test(code);
+  if (canRenderHtml) {
+    return (
+      <iframe
+        key={code.slice(0, 80)}
+        srcDoc={code}
+        title="Generated website preview"
+        sandbox="allow-scripts"
+        className="w-full rounded-lg bg-background transition-opacity duration-500"
+        style={{
+          minHeight: device === "mobile" ? 640 : 560,
+          border: "1px solid hsl(var(--border))",
+          opacity: dimmed ? 0.3 : 1,
+        }}
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-3 transition-opacity duration-500" style={{ opacity: dimmed ? 0.3 : 1 }}>
+      {SECTION_ORDER.map((id, idx) => (
+        <RevealSection key={id} id={id} live={stage > idx} device={device} headline={headline} />
+      ))}
+      {code.trim() && (
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="mb-2 text-[10px] font-mono uppercase tracking-[0.22em] text-primary">
+            Updated React/Tailwind source
+          </div>
+          <pre className="max-h-44 overflow-auto whitespace-pre-wrap text-[10px] leading-relaxed text-muted-foreground">
+            {code}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const RevealSection: React.FC<{
   id: SectionId;
   live: boolean;
