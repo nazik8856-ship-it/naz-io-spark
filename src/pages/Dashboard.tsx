@@ -49,6 +49,7 @@ import {
   RotateCcw,
   Sliders,
   AlertCircle,
+  MoreHorizontal,
   Camera,
   Youtube,
   Music2,
