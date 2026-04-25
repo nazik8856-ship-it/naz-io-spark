@@ -190,6 +190,30 @@ const CommandCenterChecklist: React.FC = () => {
   const toggle = (id: StepId) =>
     setProgress((p) => ({ ...p, [id]: !p[id] }));
 
+  // Fire the step's primary action (open URL or dispatch a chat directive)
+  // and mark the step as completed automatically.
+  const runAction = (step: Step) => {
+    const action = step.action;
+    if (action.kind === "external") {
+      if (typeof window !== "undefined") {
+        window.open(action.url, "_blank", "noopener,noreferrer");
+      }
+    } else if (action.kind === "directive") {
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("nazai:run-directive", {
+            detail: { directive: action.directive, source: `checklist:${step.id}` },
+          }),
+        );
+      }
+    } else if (action.kind === "event") {
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent(action.event));
+      }
+    }
+    setProgress((p) => ({ ...p, [step.id]: true }));
+  };
+
   // Activity unlocks: 2 steps unlocks invoices, 3 steps unlocks customers
   const invoicesUnlocked = completedCount >= 2;
   const customersUnlocked = completedCount >= 3;
