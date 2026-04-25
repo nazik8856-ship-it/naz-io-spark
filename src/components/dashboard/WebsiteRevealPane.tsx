@@ -42,15 +42,6 @@ import LaunchpadDeploymentBar from "@/components/dashboard/LaunchpadDeploymentBa
 
 type DeviceMode = "desktop" | "mobile";
 
-type AgentCard = {
-  id: "ceo" | "growth" | "architect" | "build";
-  label: string;
-  role: string;
-  Icon: React.ElementType;
-  accent: string;
-  body: string;
-};
-
 interface WebsiteRevealPaneProps {
   /** Latest AI response text for the active website mission. */
   responseText: string;
@@ -70,61 +61,18 @@ interface WebsiteRevealPaneProps {
   onEditTrigger?: () => void;
 }
 
-// ─── Strategy parser ────────────────────────────────────────────────────────────
-// NazAI's chain produces 4 internal personas. We slice the AI response into
-// 4 clean cards using simple heading heuristics, with sensible fallbacks.
-const splitIntoQuarters = (text: string): string[] => {
-  if (!text || text.length < 40) return ["", "", "", ""];
-  const cleaned = text.replace(/\r/g, "").trim();
-  const paragraphs = cleaned.split(/\n{2,}/).filter(Boolean);
-  if (paragraphs.length >= 4) {
-    const chunkSize = Math.ceil(paragraphs.length / 4);
-    return [0, 1, 2, 3].map((i) =>
-      paragraphs.slice(i * chunkSize, (i + 1) * chunkSize).join("\n\n").trim(),
-    );
-  }
-  // Fallback: equal char slices
-  const size = Math.ceil(cleaned.length / 4);
-  return [0, 1, 2, 3].map((i) => cleaned.slice(i * size, (i + 1) * size).trim());
+// ─── Verification chip ──────────────────────────────────────────────────────
+// Deterministic confidence score derived from response length + signal density,
+// so it feels stable across renders for the same response.
+const computeConfidence = (text: string): number => {
+  if (!text) return 0;
+  const len = Math.min(text.length, 4000);
+  const hasStructure = /\n\s*[-•\d]/.test(text) ? 6 : 0;
+  const hasCode = /```|<\w+/.test(text) ? 4 : 0;
+  const base = 78 + Math.round((len / 4000) * 12);
+  return Math.min(98, base + hasStructure + hasCode);
 };
 
-const buildAgentCards = (response: string): AgentCard[] => {
-  const [a, b, c, d] = splitIntoQuarters(response);
-  return [
-    {
-      id: "ceo",
-      label: "CEO",
-      role: "Vision & Positioning",
-      Icon: Crown,
-      accent: "#06b6d4",
-      body: a || "Vision and positioning analysis is being generated.",
-    },
-    {
-      id: "growth",
-      label: "Growth",
-      role: "Acquisition & Funnels",
-      Icon: TrendingUp,
-      accent: "#22c55e",
-      body: b || "Growth strategy and acquisition channels are being mapped.",
-    },
-    {
-      id: "architect",
-      label: "Architect",
-      role: "System & Stack",
-      Icon: Cpu,
-      accent: "#8b5cf6",
-      body: c || "Technical architecture is being assembled.",
-    },
-    {
-      id: "build",
-      label: "Build",
-      role: "Build & Ship",
-      Icon: Code2,
-      accent: "#f59e0b",
-      body: d || "Build sequence and shipping checklist are being prepared.",
-    },
-  ];
-};
 
 // ─── Staged reveal sections ─────────────────────────────────────────────────────
 type SectionId = "hero" | "features" | "contact";
