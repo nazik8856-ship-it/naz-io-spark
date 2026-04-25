@@ -1072,14 +1072,24 @@ const BrandAssetsModal: React.FC<{
       return;
     }
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       setError(null);
+      const dataUrl = typeof reader.result === "string" ? reader.result : "";
       setAttachment({
         name: file.name,
         type: file.type || "image/*",
         size: file.size,
-        dataUrl: typeof reader.result === "string" ? reader.result : "",
+        dataUrl,
       });
+      if (dataUrl && file.type !== "image/svg+xml") {
+        setExtracting(true);
+        setPalette([]);
+        const hexes = await extractPaletteFromDataUrl(dataUrl, 5);
+        setPalette(hexes);
+        setExtracting(false);
+      } else {
+        setPalette([]);
+      }
     };
     reader.onerror = () => setError("Could not read that file. Try another.");
     reader.readAsDataURL(file);
