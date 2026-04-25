@@ -1117,7 +1117,6 @@ const HomeView = ({
   formatAIResponse, getRgbFromHex, laserShineAnimation, userMissionAssets, setUserMissionAssets,
   activeAssetIndex, setActiveAssetIndex, isDragOver, setIsDragOver, revertDropdownOpen, setRevertDropdownOpen,
   openRevertModal, handleCopyMessage, handleRegenerateMessage, handleShareMessage, confirmRevert, revertModalOpen, setRevertModalOpen,
-  onOpenThinkTank,
   promptMode, setPromptMode,
   sandboxText, setSandboxText,
   extractorData, setExtractorData,
@@ -1284,34 +1283,15 @@ const HomeView = ({
               </div>
             ) : (
               <>
-                <div
-                  className="max-w-[85%] rounded-xl overflow-hidden"
-                  style={{ background: "#0B1F3A", border: "1px solid rgba(255,255,255,0.1)" }}
-                >
-                  <div
-                    className="flex items-center gap-2 px-3 py-2"
-                    style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", background: "rgba(6,182,212,0.03)" }}
-                  >
-                    <Brain size={12} style={{ color: "#06b6d4" }} />
-                    <span
-                      className="text-[9px] font-mono font-bold tracking-wider"
-                      style={{ color: "#06b6d4", textShadow: "0 0 6px rgba(6,182,212,0.4)" }}
-                    >
-                      NEURAL ARCHITECT // MISSION_RESULT.LOG
+                <div className="max-w-[85%] rounded-xl overflow-hidden border border-border bg-card/80">
+                  <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-secondary/20">
+                    <MessageSquare size={12} className="text-primary" />
+                    <span className="text-[9px] font-mono font-bold tracking-wider text-primary">
+                      NazAI
                     </span>
                   </div>
                   <div className="px-3 py-2.5">{formatAIResponse(msg.text)}</div>
                 </div>
-                <MessageActionBar 
-                  message={msg} 
-                  index={i} 
-                  handleCopyMessage={handleCopyMessage}
-                  handleRegenerateMessage={handleRegenerateMessage}
-                  handleShareMessage={handleShareMessage}
-                  openRevertModal={openRevertModal}
-                  revertDropdownOpen={revertDropdownOpen}
-                  setRevertDropdownOpen={setRevertDropdownOpen}
-                />
               </>
             )}
           </motion.div>
@@ -1598,8 +1578,7 @@ const HomeView = ({
             onSend={(text: string) => {
               if (promptMode !== "sandbox") setPromptMode("sandbox");
               setSandboxText(text);
-              // Defer one tick so compileMasterPrompt picks up sandboxText.
-              setTimeout(() => handleSendMessage(text), 0);
+              handleSendMessage(text, { source: "iteration" });
             }}
           />
         ) : (
@@ -1935,7 +1914,6 @@ const HomeView = ({
         )}
       </motion.div>
       
-      <RevertModal revertModalOpen={revertModalOpen} setRevertModalOpen={setRevertModalOpen} confirmRevert={confirmRevert} />
       <ModeInfoModal isOpen={infoModalOpen} onClose={() => setInfoModalOpen(false)} />
     </div>
   );
