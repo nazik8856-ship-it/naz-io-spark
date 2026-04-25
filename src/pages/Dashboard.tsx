@@ -2113,6 +2113,9 @@ function SidebarContent({
         )}
       </AnimatePresence>
 
+      {/* ── Project Memory · Approved Ground Truth ─────────────────────── */}
+      <ProjectMemoryPanel />
+
       {/* Bottom Admin Stack: Archives / Trash / Settings + Sign Out */}
       <div
         className="px-2 pt-2 pb-3 shrink-0 space-y-0.5"
