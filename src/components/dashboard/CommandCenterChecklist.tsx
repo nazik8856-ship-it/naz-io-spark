@@ -157,9 +157,18 @@ const DEFAULT_PROGRESS: ProgressMap = {
   setup: false,
 };
 
+type SavedApiKey = {
+  id: string;
+  name: string;
+  value: string;
+  createdAt: number;
+};
+
 type Memory = {
+  /** @deprecated kept for backwards-compat; migrated into apiKeys on load */
   apiKey?: string;
   domain?: string;
+  apiKeys?: SavedApiKey[];
 };
 
 const loadProgress = (): ProgressMap => {
