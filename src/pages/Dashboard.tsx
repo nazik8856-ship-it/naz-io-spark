@@ -1305,13 +1305,8 @@ const HomeView = ({
               </p>
             </div>
 
-
-            {/* Command Center checklist — only after the website is generated */}
-            {isWebsiteComplete && (
-              <div className="w-full mt-4">
-                <CommandCenterChecklist />
-              </div>
-            )}
+            {/* Command Center is now anchored beneath the website preview
+                inside WebsiteRevealPane — no duplicate render here. */}
           </div>
         )}
         {messages.map((msg: any, i: number) => (
@@ -4124,12 +4119,8 @@ export default function Dashboard() {
         }
       `}</style>
 
-      {/* Think Tank — opt-in 4-agent chain (Architect+Pixel → Syntax → Echo) */}
-      <AgentThinkTank
-        open={thinkTankOpen}
-        directive={thinkTankDirective}
-        onClose={() => setThinkTankOpen(false)}
-      />
+      {/* AgentThinkTank removed — chat surface now shows clean dialogue history only.
+          Iteration is driven by the secondary "Fix" prompt rendered in HomeView. */}
     </div>
   );
 }
