@@ -294,7 +294,7 @@ const CommandCenterChecklist: React.FC = () => {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.4, delay: i * 0.06 }}
               whileHover={{ y: -2 }}
-              className="group relative text-left rounded-xl p-4 transition-all"
+              className="group relative text-left rounded-xl p-4 transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-cyan-400/40"
               style={{
                 background: done
                   ? "linear-gradient(135deg, rgba(6,182,212,0.08), rgba(139,92,246,0.04))"
