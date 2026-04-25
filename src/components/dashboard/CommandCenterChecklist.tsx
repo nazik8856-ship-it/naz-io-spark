@@ -148,6 +148,8 @@ const DEFAULT_PROGRESS: ProgressMap = {
   customer: false,
   invoice: false,
   brand: false,
+  apis: false,
+  setup: false,
 };
 
 const loadProgress = (): ProgressMap => {
