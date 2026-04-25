@@ -3575,14 +3575,22 @@ export default function Dashboard() {
   );
 
   const handleLoadMission = useCallback((mission: Mission) => {
+    // ── PROJECT CHAT CONTINUITY ──────────────────────────────────────────────
+    // Re-entering an existing project thread: pin `activeMissionId` so every
+    // subsequent Iteration Bar message is appended to THIS thread instead of
+    // spawning a new mission row. Hydrate the original directive as the first
+    // message so the conversation visibly starts from the original prompt.
     setActiveMissionId(mission.id);
     setActiveNav("home");
     setShowSettings(false);
     setIsSidebarOpen(false);
-    setMessages([{ role: "user", text: mission.prompt || "" }]);
+    const hydrated: { role: "user" | "ai"; text: string }[] = [
+      { role: "user", text: mission.prompt || "" },
+    ];
     if (mission.response) {
-      setMessages(prev => [...prev, { role: "ai", text: mission.response || "" }]);
+      hydrated.push({ role: "ai", text: mission.response });
     }
+    setMessages(hydrated);
     if (textareaRef.current) textareaRef.current.value = "";
     setTimeout(() => textareaRef.current?.focus(), 50);
   }, []);
