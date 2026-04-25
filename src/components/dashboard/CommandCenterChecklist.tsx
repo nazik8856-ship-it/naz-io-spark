@@ -504,6 +504,15 @@ const CommandCenterChecklist: React.FC = () => {
         open={openModal === "brand"}
         onOpenChange={(o) => setOpenModal(o ? "brand" : null)}
         onSave={() => markDone("brand")}
+        onDispatch={(directive, attachment) => {
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(
+              new CustomEvent("nazai:run-directive", {
+                detail: { directive, source: "checklist:brand", attachment },
+              }),
+            );
+          }
+        }}
       />
     </div>
   );
