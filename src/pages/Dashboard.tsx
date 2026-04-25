@@ -4,7 +4,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import DropScanOverlay from "@/components/interactions/DropScanOverlay";
 import MagneticButton from "@/components/interactions/MagneticButton";
 import CommandCenterChecklist from "@/components/dashboard/CommandCenterChecklist";
-import AgentThinkTank from "@/components/dashboard/AgentThinkTank";
 import WebsiteRevealPane from "@/components/dashboard/WebsiteRevealPane";
 import { useNavigate } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
@@ -1156,6 +1155,93 @@ const ModeInfoModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => vo
   </AnimatePresence>
 );
 
+
+// ─── FIX PROMPT BLANK — secondary single-line iteration input ────────────────
+//   Rendered in HomeView once a website has been generated. Replaces the
+//   three-mode switcher with a clean, focused "Fix" line. When submitted,
+//   it forces SANDBOX mode and routes through handleSendMessage, which
+//   detects inSandboxEditMode and prefixes the active code as
+//   [INSERT_ACTIVE_WEBSITE_CODE] for surgical edits.
+const FixPromptBlank = ({
+  isPending,
+  onSend,
+}: {
+  isPending: boolean;
+  onSend: (text: string) => void;
+}) => {
+  const [text, setText] = useState("");
+  const submit = () => {
+    const t = text.trim();
+    if (!t || isPending) return;
+    onSend(t);
+    setText("");
+  };
+  return (
+    <div className="w-full px-0 sm:px-4">
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{
+          opacity: 1,
+          y: 0,
+          boxShadow: [
+            "0 0 0 1px rgba(6,182,212,0.45), 0 0 18px rgba(6,182,212,0.25)",
+            "0 0 0 1px rgba(6,182,212,0.7), 0 0 32px rgba(6,182,212,0.55)",
+            "0 0 0 1px rgba(6,182,212,0.45), 0 0 18px rgba(6,182,212,0.25)",
+          ],
+        }}
+        transition={{
+          opacity: { duration: 0.3 },
+          y: { duration: 0.3 },
+          boxShadow: { duration: 2.6, repeat: Infinity, ease: "easeInOut" },
+        }}
+        className="flex items-center gap-2 px-4 py-2.5 rounded-2xl"
+        style={{
+          background: "rgba(10,14,23,0.95)",
+          border: "1px solid rgba(6,182,212,0.55)",
+          backdropFilter: "blur(20px)",
+        }}
+      >
+        <Wand2 size={14} className="text-cyan-400 shrink-0" />
+        <span className="text-[9px] font-mono tracking-[0.22em] uppercase text-cyan-400/70 hidden sm:inline">
+          Fix
+        </span>
+        <input
+          type="text"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              submit();
+            }
+          }}
+          disabled={isPending}
+          placeholder="Describe a change to the live preview — e.g. “make the hero darker”"
+          className="flex-1 bg-transparent outline-none text-sm font-mono text-white placeholder:text-white/30 disabled:opacity-50"
+          autoFocus
+        />
+        <button
+          type="button"
+          onClick={submit}
+          disabled={isPending || !text.trim()}
+          className="w-8 h-8 rounded-xl flex items-center justify-center transition-all disabled:opacity-40"
+          style={{
+            background: "#06b6d4",
+            color: "#020617",
+            boxShadow: "0 0 14px rgba(6,182,212,0.6)",
+          }}
+          aria-label="Apply fix"
+        >
+          <Send size={13} />
+        </button>
+      </motion.div>
+      <div className="text-[9px] font-mono text-white/30 mt-1 px-2">
+        Iteration mode · your input edits the live preview in place
+      </div>
+    </div>
+  );
+};
+
 // ─── HOME VIEW WITH ENHANCED PROMPT CARDS (SANDBOX ONLY) ──────────────────────────
 const HomeView = ({ 
   errorMessage, messages, activeTool, initialCards, auraProfile, currentTheme, isPending,
@@ -1306,13 +1392,8 @@ const HomeView = ({
               </p>
             </div>
 
-
-            {/* Command Center checklist — only after the website is generated */}
-            {isWebsiteComplete && (
-              <div className="w-full mt-4">
-                <CommandCenterChecklist />
-              </div>
-            )}
+            {/* Command Center is now anchored beneath the website preview
+                inside WebsiteRevealPane — no duplicate render here. */}
           </div>
         )}
         {messages.map((msg: any, i: number) => (
@@ -1639,6 +1720,21 @@ const HomeView = ({
             <span className="text-[9px] font-mono text-white/40 hidden sm:inline">CLICK TO EXPAND</span>
             <ChevronRight size={14} className="text-white/40 rotate-[-90deg]" />
           </motion.button>
+        ) : isWebsiteComplete ? (
+          // ── Iteration mode: single-line "Fix" prompt with cyan glow ──────
+          //    The three-mode switcher is intentionally hidden once a site
+          //    has been generated. Any text typed here is treated as an
+          //    edit on the active code via handleSendMessage's
+          //    inSandboxEditMode branch (promptMode is forced to sandbox).
+          <FixPromptBlank
+            isPending={isPending}
+            onSend={(text: string) => {
+              if (promptMode !== "sandbox") setPromptMode("sandbox");
+              setSandboxText(text);
+              // Defer one tick so compileMasterPrompt picks up sandboxText.
+              setTimeout(() => handleSendMessage(text), 0);
+            }}
+          />
         ) : (
         <div className="w-full px-0 sm:px-4">
           <motion.div
@@ -1954,20 +2050,8 @@ const HomeView = ({
               </div>
 
               <div className="flex gap-2">
-                <button
-                  onClick={() => {
-                    let currentText = "";
-                    if (promptMode === "sandbox") currentText = sandboxText;
-                    else if (promptMode === "extractor") currentText = `${extractorData.industry} ${extractorData.audience} ${extractorData.budget}`;
-                    else if (promptMode === "blueprint") currentText = editablePrompt || selectedTemplate || "";
-                    if (currentText.trim()) onOpenThinkTank?.(currentText.trim());
-                  }}
-                  disabled={isPending}
-                  className="w-8 h-8 rounded-xl flex items-center justify-center transition-all bg-cyan-500/10 border border-cyan-500/30 hover:scale-105"
-                  title="Run 4-Agent Think Tank"
-                >
-                  <Brain size={13} className="text-cyan-400" />
-                </button>
+                {/* Think Tank button removed — agent orchestration runs silently
+                    via SYSTEM_ORCHESTRATION; chat surface stays focused on dialogue. */}
 
                 <button
                   onPointerDown={handleSendPointerDown}
@@ -4125,12 +4209,8 @@ export default function Dashboard() {
         }
       `}</style>
 
-      {/* Think Tank — opt-in 4-agent chain (Architect+Pixel → Syntax → Echo) */}
-      <AgentThinkTank
-        open={thinkTankOpen}
-        directive={thinkTankDirective}
-        onClose={() => setThinkTankOpen(false)}
-      />
+      {/* AgentThinkTank removed — chat surface now shows clean dialogue history only.
+          Iteration is driven by the secondary "Fix" prompt rendered in HomeView. */}
     </div>
   );
 }
