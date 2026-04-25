@@ -556,8 +556,43 @@ const WebsiteRevealPane: React.FC<WebsiteRevealPaneProps> = ({
                   headline={headline}
                   device={device}
                   stage={stage}
-                  dimmed={isPending && Boolean(visibleWebsiteCode.trim())}
+                  dimmed={isPending && !isWebsiteComplete && Boolean(visibleWebsiteCode.trim())}
                 />
+                {/* Iteration status badge: transparent, top-right of preview */}
+                <AnimatePresence>
+                  {editStatus !== "idle" && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -6 }}
+                      transition={{ duration: 0.18 }}
+                      className="pointer-events-none absolute right-5 top-5 flex items-center gap-2 rounded-md px-2.5 py-1.5 backdrop-blur-md"
+                      style={{
+                        background: editStatus === "updated" ? "rgba(34,197,94,0.14)" : "rgba(15,23,42,0.7)",
+                        border: editStatus === "updated"
+                          ? "1px solid rgba(34,197,94,0.45)"
+                          : "1px solid rgba(0,163,255,0.35)",
+                        boxShadow: editStatus === "updated"
+                          ? "0 0 18px rgba(34,197,94,0.25)"
+                          : "0 0 18px rgba(0,163,255,0.22)",
+                      }}
+                    >
+                      <span
+                        className="h-1.5 w-1.5 rounded-full"
+                        style={{
+                          background: editStatus === "updated" ? "#22c55e" : "#00A3FF",
+                          boxShadow: editStatus === "updated"
+                            ? "0 0 8px #22c55e"
+                            : "0 0 8px #00A3FF",
+                          animation: editStatus === "applying" ? "pulse 1.2s ease-in-out infinite" : "none",
+                        }}
+                      />
+                      <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-white/85">
+                        {editStatus === "updated" ? "Preview updated" : "Applying edit…"}
+                      </span>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             </div>
 
