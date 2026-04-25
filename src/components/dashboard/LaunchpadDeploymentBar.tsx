@@ -298,6 +298,123 @@ const LaunchpadDeploymentBar: React.FC<LaunchpadDeploymentBarProps> = ({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* ── Push to Vercel / Production CTA + Deployment Log Terminal ────── */}
+      <div
+        className="mt-4 pt-4"
+        style={{ borderTop: "1px dashed rgba(255,255,255,0.08)" }}
+      >
+        <div className="flex items-center gap-2 mb-2">
+          <Triangle size={10} className="text-white/80" style={{ fill: "#ffffff" }} />
+          <span className="text-[10px] font-mono uppercase tracking-[0.22em] text-zinc-400">
+            Production · Vercel
+          </span>
+          <span className="text-[9px] font-mono uppercase tracking-[0.22em] text-zinc-600 ml-auto">
+            {vercelPhase === "live" ? "Deployed" : vercelPhase === "running" ? "Streaming log" : "Connect & ship"}
+          </span>
+        </div>
+
+        <motion.button
+          type="button"
+          onClick={handlePushToVercel}
+          disabled={vercelPhase === "running"}
+          whileHover={{ scale: vercelPhase === "running" ? 1 : 1.01 }}
+          whileTap={{ scale: 0.985 }}
+          animate={
+            vercelPhase === "idle"
+              ? {
+                  boxShadow: [
+                    "0 0 0 1px rgba(255,255,255,0.2), 0 0 22px rgba(255,255,255,0.18)",
+                    "0 0 0 1px rgba(255,255,255,0.5), 0 0 36px rgba(255,255,255,0.45)",
+                    "0 0 0 1px rgba(255,255,255,0.2), 0 0 22px rgba(255,255,255,0.18)",
+                  ],
+                }
+              : {}
+          }
+          transition={{ duration: 2.6, repeat: Infinity, ease: "easeInOut" }}
+          className="w-full relative overflow-hidden rounded-lg px-5 py-3 flex items-center justify-center gap-2 text-[11px] font-mono font-bold tracking-[0.2em] uppercase disabled:opacity-80"
+          style={{
+            background:
+              vercelPhase === "live"
+                ? "linear-gradient(135deg, #052e1a 0%, #064e3b 100%)"
+                : "linear-gradient(135deg, #0a0a0a 0%, #1c1c1f 100%)",
+            color: vercelPhase === "live" ? "#86efac" : "#fafafa",
+            border:
+              vercelPhase === "live"
+                ? "1px solid rgba(34,197,94,0.55)"
+                : "1px solid rgba(255,255,255,0.18)",
+          }}
+        >
+          {vercelPhase === "running" ? (
+            <Loader2 size={13} className="animate-spin" />
+          ) : vercelPhase === "live" ? (
+            <CheckCircle2 size={13} />
+          ) : (
+            <Triangle size={11} style={{ fill: "currentColor" }} />
+          )}
+          {vercelPhase === "running"
+            ? "Pushing to production…"
+            : vercelPhase === "live"
+              ? "Live on Vercel"
+              : "Push to Vercel / Production"}
+        </motion.button>
+
+        <AnimatePresence initial={false}>
+          {(vercelPhase === "running" || vercelPhase === "live") && (
+            <motion.div
+              key="vercel-log"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.25 }}
+              className="mt-3 overflow-hidden"
+            >
+              <div
+                className="rounded-lg p-3 font-mono text-[10px] leading-relaxed max-h-[180px] overflow-y-auto"
+                style={{
+                  background: "#020617",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  color: "#86efac",
+                  boxShadow: "inset 0 0 24px rgba(34,197,94,0.08)",
+                }}
+              >
+                <div className="flex items-center gap-1.5 text-zinc-500 mb-1.5">
+                  <Terminal size={10} />
+                  <span className="uppercase tracking-[0.2em] text-[9px]">deploy.log</span>
+                </div>
+                {vercelLog.map((line, i) => (
+                  <div
+                    key={i}
+                    className={
+                      line.startsWith("$")
+                        ? "text-cyan-300"
+                        : line.startsWith("🚀") || line.startsWith("✅")
+                          ? "text-emerald-300"
+                          : "text-zinc-300"
+                    }
+                  >
+                    {line}
+                  </div>
+                ))}
+                {vercelPhase === "running" && (
+                  <span className="inline-block w-2 h-3 align-middle bg-emerald-400 animate-pulse ml-1" />
+                )}
+              </div>
+              {vercelPhase === "live" && vercelUrl && (
+                <a
+                  href={vercelUrl}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="mt-2 flex items-center gap-2 text-[10px] font-mono text-emerald-300 hover:text-emerald-200 transition-colors"
+                >
+                  <Globe2 size={11} />
+                  Open production · {vercelUrl}
+                </a>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
     </div>
   );
 };
