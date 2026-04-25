@@ -3308,6 +3308,8 @@ export default function Dashboard() {
             editPulse={editPulse}
             isPreviewActive={isPreviewActive}
             setIsPreviewActive={setIsPreviewActive}
+            activeWebsiteCode={activeWebsiteCode}
+            generationRunId={generationRunId}
           />
         );
     }
