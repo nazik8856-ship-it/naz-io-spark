@@ -67,6 +67,9 @@ import {
   Minimize2,
   FileCode,
   Terminal,
+  RefreshCw,
+  Sparkles,
+  ShieldCheck,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 
