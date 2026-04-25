@@ -115,7 +115,14 @@ const WebsiteRevealPane: React.FC<WebsiteRevealPaneProps> = ({
   // ── Staged reveal: 5s sequence so the Orchestration Cinema climax (cards
   //    shattering + cyan lock-in flash) lands at the 5-second peak. The
   //    skeleton-to-live sequence then completes immediately after.
+  //    For iteration edits (site already complete), we SKIP the cinema and
+  //    keep stage at 4 so the live preview remains visible/undimmed while
+  //    the AI applies surgical changes.
   useEffect(() => {
+    if (isWebsiteComplete) {
+      setStage(4);
+      return;
+    }
     setStage(0);
     const t1 = setTimeout(() => setStage(1), 1100);
     const t2 = setTimeout(() => setStage(2), 2400);
@@ -127,13 +134,40 @@ const WebsiteRevealPane: React.FC<WebsiteRevealPaneProps> = ({
       clearTimeout(t3);
       clearTimeout(t4);
     };
-  }, [directive, generationRunId]);
+  }, [directive, generationRunId, isWebsiteComplete]);
 
+  // ── Real-time preview sync: any change in activeWebsiteCode is mirrored
+  //    immediately into visibleWebsiteCode so the iframe re-renders on every
+  //    iteration edit. We do NOT gate on stage here — the iframe key changes
+  //    below (full content hash) force a clean remount per change.
   useEffect(() => {
     if (activeWebsiteCode.trim()) {
       setVisibleWebsiteCode(activeWebsiteCode);
     }
   }, [activeWebsiteCode]);
+
+  // ── "Applying edit..." → "Preview updated" status indicator for iteration
+  //    edits. Shows transparently during the AI roundtrip, then flashes a
+  //    success state for 1.6s once the new code lands.
+  const [editStatus, setEditStatus] = useState<"idle" | "applying" | "updated">("idle");
+  const prevCodeRef = useRef(activeWebsiteCode);
+  useEffect(() => {
+    if (isPending && isWebsiteComplete) {
+      setEditStatus("applying");
+    }
+  }, [isPending, isWebsiteComplete]);
+  useEffect(() => {
+    if (!isWebsiteComplete) return;
+    if (activeWebsiteCode && activeWebsiteCode !== prevCodeRef.current) {
+      prevCodeRef.current = activeWebsiteCode;
+      setEditStatus("updated");
+      const t = setTimeout(() => setEditStatus("idle"), 1600);
+      return () => clearTimeout(t);
+    }
+    if (!isPending && editStatus === "applying") {
+      setEditStatus("idle");
+    }
+  }, [activeWebsiteCode, isPending, isWebsiteComplete, editStatus]);
 
   // ── Highlight-to-Refine tooltip in the Strategy pane ─────────────────────────
   useEffect(() => {
