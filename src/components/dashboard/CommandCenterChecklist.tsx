@@ -590,7 +590,7 @@ const ApiKeyInline: React.FC<{
           onKeyDown={(e) => {
             if (e.key === "Enter") handleSave();
           }}
-          placeholder="Paste your API key here"
+          placeholder="Enter your API key here..."
           className="h-8 text-[11px] font-mono bg-white/5 border-white/10 text-white placeholder:text-white/30 focus-visible:ring-cyan-400/40"
         />
         <button
