@@ -528,6 +528,15 @@ const CommandCenterChecklist: React.FC = () => {
           }
         }}
       />
+      <ApiKeysModal
+        open={openModal === "apis"}
+        onOpenChange={(o) => setOpenModal(o ? "apis" : null)}
+        keys={memory.apiKeys ?? []}
+        onChange={(next) => {
+          setMemory((m) => ({ ...m, apiKeys: next }));
+          if (next.length > 0) markDone("apis");
+        }}
+      />
     </div>
   );
 };
