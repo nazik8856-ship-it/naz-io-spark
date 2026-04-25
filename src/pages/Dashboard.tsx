@@ -2233,11 +2233,6 @@ export default function Dashboard() {
     github: false,
   });
   
-  // Checkpoint revert modal state
-  const [revertModalOpen, setRevertModalOpen] = useState(false);
-  const [revertTargetIndex, setRevertTargetIndex] = useState<number | null>(null);
-  const [revertDropdownOpen, setRevertDropdownOpen] = useState<number | null>(null);
-
   // Aura Design System State
   const [auraProfile, setAuraProfile] = useState<AuraProfile>(loadAuraProfile);
   const [showSettings, setShowSettings] = useState(false);
@@ -2341,10 +2336,6 @@ export default function Dashboard() {
   const currentAbortControllerRef = useRef<AbortController | null>(null);
   const inputContainerRef = useRef<HTMLDivElement>(null);
   const focusSnapIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  // Think Tank (4-agent chain) — additive, does not affect mission flow
-  const [thinkTankOpen, setThinkTankOpen] = useState(false);
-  const [thinkTankDirective, setThinkTankDirective] = useState("");
 
   // Reward gate: Command Center checklist only appears once a website has been generated
   const [isWebsiteComplete, setIsWebsiteComplete] = useState(false);
