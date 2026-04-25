@@ -44,7 +44,7 @@ import LaunchpadDeploymentBar from "@/components/dashboard/LaunchpadDeploymentBa
 type DeviceMode = "desktop" | "mobile";
 
 type AgentCard = {
-  id: "ceo" | "growth" | "architect" | "executioner";
+  id: "ceo" | "growth" | "architect" | "build";
   label: string;
   role: string;
   Icon: React.ElementType;
