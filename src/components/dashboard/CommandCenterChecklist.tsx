@@ -238,7 +238,7 @@ const CommandCenterChecklist: React.FC = () => {
             Get your business operating
           </h2>
           <p className="text-sm text-white/50 mt-1">
-            Four moves to a fully live operation. NazAI handles the heavy lifting.
+            Six moves to a fully live operation. NazAI handles the heavy lifting.
           </p>
         </div>
 
@@ -274,15 +274,22 @@ const CommandCenterChecklist: React.FC = () => {
       </div>
 
       {/* Checklist grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
         {STEPS.map((step, i) => {
           const done = progress[step.id];
           const Icon = step.icon;
           return (
-            <motion.button
+            <motion.div
               key={step.id}
-              type="button"
-              onClick={() => toggle(step.id)}
+              onClick={() => runAction(step)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  runAction(step);
+                }
+              }}
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.4, delay: i * 0.06 }}
