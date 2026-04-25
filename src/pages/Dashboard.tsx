@@ -1139,6 +1139,8 @@ const HomeView = ({
   editPulse,
   isPreviewActive,
   setIsPreviewActive,
+  activeWebsiteCode,
+  generationRunId,
 }: any) => {
   // Template definitions (master templates - never mutated)
   const TEMPLATE_MASTERS = {
@@ -1320,6 +1322,7 @@ const HomeView = ({
               isWebsiteComplete={isWebsiteComplete}
               directive={lastWebsitePrompt}
               activeWebsiteCode={activeWebsiteCode}
+              generationRunId={generationRunId}
               onRefine={handleRefine}
               onEditTrigger={onEditTrigger}
             />
@@ -1558,7 +1561,7 @@ const HomeView = ({
               backdropFilter: "blur(20px)",
               color: "var(--nazai-text-color)",
             }}
-            title="Continue mission — click to expand"
+            title="Continue mission"
           >
             <motion.span
               className="w-2 h-2 rounded-full shrink-0"
@@ -1569,7 +1572,7 @@ const HomeView = ({
             <span className="text-[11px] font-mono tracking-wider text-white/70 flex-1 truncate">
               {isPending ? "Neural Architect orchestrating…" : "Continue mission"}
             </span>
-            <span className="text-[9px] font-mono text-white/40 hidden sm:inline">CLICK TO EXPAND</span>
+            <span className="text-[9px] font-mono text-white/40 hidden sm:inline">OPEN FIX BAR</span>
             <ChevronRight size={14} className="text-white/40 rotate-[-90deg]" />
           </motion.button>
         ) : isWebsiteComplete ? (
