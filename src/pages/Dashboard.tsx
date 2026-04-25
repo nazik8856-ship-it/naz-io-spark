@@ -3186,7 +3186,7 @@ export default function Dashboard() {
         | undefined;
       const directive = detail?.directive?.trim();
       if (!directive) return;
-      handleSendMessage(directive, { source: detail?.source ?? "external" });
+      handleSendMessage(directive);
     };
     window.addEventListener("nazai:run-directive", handler as EventListener);
     return () =>
