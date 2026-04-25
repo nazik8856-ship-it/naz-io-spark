@@ -2371,6 +2371,7 @@ export default function Dashboard() {
   // SANDBOX mode after a build, this is fed back to the AI as `[CurrentCode]`
   // so it performs surgical edits instead of regenerating an unrelated site.
   const [activeWebsiteCode, setActiveWebsiteCode] = useState<string>("");
+  const [generationRunId, setGenerationRunId] = useState(0);
 
   // ── "Return to Preview" safety net ──────────────────────────────────────────
   // Keeps the website preview pane alive when the user temporarily leaves it.
@@ -2821,12 +2822,13 @@ export default function Dashboard() {
       // ── Iteration Command: edit the existing live preview in place ─────────
       //    Inject the current website code so the AI performs surgical edits
       //    rather than regenerating an unrelated site.
-      const currentCodeSnapshot = (activeWebsiteCode || "").slice(0, 12000);
+      const currentCodeSnapshot = (activeWebsiteCode || "").slice(0, 18000);
       masterPrompt =
+        `You are an expert editor. You are currently viewing this React/Tailwind code: [Insert activeWebsiteCode]. ` +
+        `Modify this code based on the user's request. Return ONLY the updated, complete code block. ` +
+        `Do not talk, just code.\n\n` +
         `SYSTEM: The user is requesting a change to the code currently in the preview pane. ` +
-        `READ the following code and APPLY the requested change ONLY. Code: [activeWebsiteCode]\n` +
-        `Return a full React component using Tailwind CSS and Lucide React icons. ` +
-        `Update only the requested sections and preserve the rest of the structure.\n\n` +
+        `READ the following code and APPLY the requested change ONLY. Code: [activeWebsiteCode]\n\n` +
         `[ITERATION_DIRECTIVE: LIVE_EDIT]\n` +
         `REQUESTED_CHANGE: ${visiblePrompt}\n` +
         `LAST_BUILD_DIRECTIVE: ${lastWebsitePrompt}\n\n` +
@@ -2849,6 +2851,9 @@ export default function Dashboard() {
     }
 
     setIsPending(true);
+    if (shouldActivateWebsitePreview || isWebsiteIntent || inSandboxEditMode) {
+      setGenerationRunId((run) => run + 1);
+    }
 
     if (currentAbortControllerRef.current) {
       currentAbortControllerRef.current.abort();
@@ -2944,7 +2949,8 @@ export default function Dashboard() {
 
       if (result.error) throw new Error(result.error.message || "Link Failed");
 
-      const outputText = result.data?.plan || result.data?.response || `Blueprint ready.`;
+      const outputText = result.data?.plan || result.data?.response || result.data?.text || result.data?.content || `Blueprint ready.`;
+      const generatedCode = extractGeneratedCode(outputText);
       finalResponseText = outputText;
 
       setMessages((prev) => {
@@ -2966,7 +2972,7 @@ export default function Dashboard() {
       // Snapshot the generated output so SANDBOX iteration prompts can feed
       // it back to the AI as `[CurrentCode]` for surgical edits.
       if (shouldActivateWebsitePreview || isWebsiteIntent || websiteGenerated || inSandboxEditMode) {
-        setActiveWebsiteCode(outputText || "");
+        setActiveWebsiteCode(generatedCode || outputText || "");
       }
 
       if (missionToUpdateId) {
