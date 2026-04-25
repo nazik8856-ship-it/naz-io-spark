@@ -1137,44 +1137,170 @@ const ITERATION_QUICK_ACTIONS: { label: string; directive: string; icon: any; re
   },
 ];
 
+type ReferenceImage = { id: string; name: string; dataUrl: string; size: number };
+
 const FixPromptBlank = ({
   isPending,
   onSend,
 }: {
   isPending: boolean;
-  onSend: (text: string) => void;
+  onSend: (text: string, opts?: { referenceImages?: ReferenceImage[] }) => void;
 }) => {
   const [text, setText] = useState("");
-  const submit = (override?: string) => {
+  const [refs, setRefs] = useState<ReferenceImage[]>([]);
+  const [useAsStyleRef, setUseAsStyleRef] = useState(true);
+  const refInputRef = useRef<HTMLInputElement | null>(null);
+  const MAX_REFS = 4;
+  const MAX_BYTES = 8 * 1024 * 1024;
+
+  const addFiles = (fileList: FileList | File[]) => {
+    const files = Array.from(fileList).filter((f) => f.type.startsWith("image/"));
+    if (!files.length) return;
+    const slots = Math.max(0, MAX_REFS - refs.length);
+    files.slice(0, slots).forEach((file) => {
+      if (file.size > MAX_BYTES) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = typeof reader.result === "string" ? reader.result : "";
+        if (!dataUrl) return;
+        setRefs((prev) => [
+          ...prev,
+          { id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, name: file.name, dataUrl, size: file.size },
+        ]);
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const removeRef = (id: string) => setRefs((prev) => prev.filter((r) => r.id !== id));
+
+  const submit = (override?: string, opts?: { requiresReference?: boolean }) => {
     const t = (override ?? text).trim();
     if (!t || isPending) return;
-    onSend(t);
+    if (opts?.requiresReference && refs.length === 0) {
+      // Trigger upload picker if user clicked Match Reference without a ref
+      refInputRef.current?.click();
+      return;
+    }
+    const referenceImages = useAsStyleRef && refs.length ? refs : undefined;
+    onSend(t, { referenceImages });
     if (!override) setText("");
   };
+
   return (
     <div className="w-full px-0 sm:px-4 space-y-2">
+      <input
+        ref={refInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/jpg,image/webp,image/svg+xml"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          if (e.target.files) addFiles(e.target.files);
+          if (refInputRef.current) refInputRef.current.value = "";
+        }}
+      />
+
       {/* ── Quick action chips — always visible above the Iteration Bar ── */}
       <div className="flex flex-wrap gap-1.5 px-1">
-        {ITERATION_QUICK_ACTIONS.map((action) => (
-          <button
-            key={action.label}
-            type="button"
-            disabled={isPending}
-            onClick={() => submit(action.directive)}
-            className="group flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-mono uppercase tracking-[0.18em] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-            style={{
-              background: "rgba(6,182,212,0.06)",
-              border: "1px solid rgba(6,182,212,0.28)",
-              color: "#67e8f9",
-              backdropFilter: "blur(12px)",
-            }}
-            title={action.directive}
-          >
-            <action.icon size={10} className="shrink-0 transition-transform group-hover:scale-110" />
-            {action.label}
-          </button>
-        ))}
+        {ITERATION_QUICK_ACTIONS.map((action) => {
+          const disabled = isPending || (action.requiresReference ? false : false);
+          const armed = action.requiresReference && refs.length > 0;
+          return (
+            <button
+              key={action.label}
+              type="button"
+              disabled={disabled}
+              onClick={() => submit(action.directive, { requiresReference: action.requiresReference })}
+              className="group flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-mono uppercase tracking-[0.18em] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              style={{
+                background: armed
+                  ? "linear-gradient(135deg, rgba(139,92,246,0.18), rgba(6,182,212,0.14))"
+                  : "rgba(6,182,212,0.06)",
+                border: `1px solid ${armed ? "rgba(139,92,246,0.55)" : "rgba(6,182,212,0.28)"}`,
+                color: armed ? "#c4b5fd" : "#67e8f9",
+                backdropFilter: "blur(12px)",
+              }}
+              title={action.requiresReference && refs.length === 0
+                ? "Click to upload a reference image first"
+                : action.directive}
+            >
+              <action.icon size={10} className="shrink-0 transition-transform group-hover:scale-110" />
+              {action.label}
+              {action.requiresReference && refs.length > 0 && (
+                <span className="ml-0.5 text-[9px] opacity-80">·{refs.length}</span>
+              )}
+            </button>
+          );
+        })}
       </div>
+
+      {/* ── Reference thumbnails strip ───────────────────────────────────── */}
+      <AnimatePresence>
+        {refs.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="overflow-hidden"
+          >
+            <div
+              className="flex items-center gap-2 px-2 py-2 rounded-xl"
+              style={{
+                background: "rgba(10,14,23,0.7)",
+                border: "1px solid rgba(139,92,246,0.28)",
+                backdropFilter: "blur(12px)",
+              }}
+            >
+              <div className="flex items-center gap-1.5 shrink-0 pl-1 pr-2 border-r border-white/5">
+                <ImageIcon size={11} className="text-violet-300/80" />
+                <span className="text-[9px] font-mono tracking-[0.18em] uppercase text-violet-300/80">
+                  Refs · {refs.length}/{MAX_REFS}
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5 flex-1 overflow-x-auto">
+                {refs.map((r) => (
+                  <div key={r.id} className="relative group shrink-0">
+                    <img
+                      src={r.dataUrl}
+                      alt={r.name}
+                      className="w-10 h-10 rounded-md object-cover border border-white/10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeRef(r.id)}
+                      className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-black/80 border border-white/20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                      aria-label={`Remove ${r.name}`}
+                    >
+                      <X size={8} className="text-white" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <label className="flex items-center gap-1.5 shrink-0 cursor-pointer select-none">
+                <span className="text-[9px] font-mono tracking-[0.18em] uppercase text-white/50">
+                  Use as style ref
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setUseAsStyleRef((v) => !v)}
+                  className="relative w-7 h-3.5 rounded-full transition-colors"
+                  style={{
+                    background: useAsStyleRef ? "rgba(139,92,246,0.6)" : "rgba(255,255,255,0.12)",
+                  }}
+                  aria-pressed={useAsStyleRef}
+                  aria-label="Toggle use as style reference"
+                >
+                  <span
+                    className="absolute top-0.5 w-2.5 h-2.5 rounded-full bg-white transition-all"
+                    style={{ left: useAsStyleRef ? 14 : 2 }}
+                  />
+                </button>
+              </label>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <motion.div
         initial={{ opacity: 0, y: 8 }}
@@ -1198,6 +1324,15 @@ const FixPromptBlank = ({
           border: "1px solid rgba(6,182,212,0.55)",
           backdropFilter: "blur(20px)",
         }}
+        onDragOver={(e) => {
+          if (e.dataTransfer.types.includes("Files")) e.preventDefault();
+        }}
+        onDrop={(e) => {
+          if (e.dataTransfer.files?.length) {
+            e.preventDefault();
+            addFiles(e.dataTransfer.files);
+          }
+        }}
       >
         <Wand2 size={14} className="text-cyan-400 shrink-0" />
         <span className="text-[9px] font-mono tracking-[0.22em] uppercase text-cyan-400/70 hidden sm:inline">
@@ -1214,10 +1349,24 @@ const FixPromptBlank = ({
             }
           }}
           disabled={isPending}
-          placeholder="Tell NazAI what to fix or improve..."
+          placeholder={refs.length ? "Describe how to apply the reference style..." : "Tell NazAI what to fix or improve..."}
           className="flex-1 bg-transparent outline-none text-sm font-mono text-white placeholder:text-white/30 disabled:opacity-50"
           autoFocus
         />
+        <button
+          type="button"
+          onClick={() => refInputRef.current?.click()}
+          disabled={isPending || refs.length >= MAX_REFS}
+          className="w-8 h-8 rounded-xl flex items-center justify-center transition-all disabled:opacity-40 hover:bg-white/5"
+          style={{
+            border: "1px solid rgba(255,255,255,0.08)",
+            color: refs.length ? "#c4b5fd" : "rgba(255,255,255,0.65)",
+          }}
+          title={refs.length >= MAX_REFS ? "Maximum 4 reference images" : "Upload reference image(s)"}
+          aria-label="Upload reference image"
+        >
+          <Paperclip size={13} />
+        </button>
         <button
           type="button"
           onClick={() => submit()}
@@ -1234,11 +1383,14 @@ const FixPromptBlank = ({
         </button>
       </motion.div>
       <div className="text-[9px] font-mono text-white/30 px-2">
-        Iteration mode · your input edits the live preview in place with full code context
+        {refs.length
+          ? `Iteration mode · ${refs.length} style reference${refs.length > 1 ? "s" : ""} ${useAsStyleRef ? "active" : "paused"} — NazAI will match colors, type, spacing, and vibe`
+          : "Iteration mode · drop or attach reference image(s) to match a visual style"}
       </div>
     </div>
   );
 };
+
 
 // ─── HOME VIEW WITH ENHANCED PROMPT CARDS (SANDBOX ONLY) ──────────────────────────
 const HomeView = ({ 
