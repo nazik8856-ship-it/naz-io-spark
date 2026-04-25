@@ -3254,16 +3254,6 @@ export default function Dashboard() {
             setActiveAssetIndex={setActiveAssetIndex}
             isDragOver={isDragOver}
             setIsDragOver={setIsDragOver}
-            revertDropdownOpen={revertDropdownOpen}
-            setRevertDropdownOpen={setRevertDropdownOpen}
-            openRevertModal={openRevertModal}
-            handleCopyMessage={handleCopyMessage}
-            handleRegenerateMessage={handleRegenerateMessage}
-            handleShareMessage={handleShareMessage}
-            confirmRevert={confirmRevert}
-            revertModalOpen={revertModalOpen}
-            setRevertModalOpen={setRevertModalOpen}
-            onOpenThinkTank={(text: string) => { setThinkTankDirective(text); setThinkTankOpen(true); }}
             promptMode={promptMode}
             setPromptMode={setPromptMode}
             sandboxText={sandboxText}
