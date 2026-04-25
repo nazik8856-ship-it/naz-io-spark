@@ -2942,7 +2942,10 @@ export default function Dashboard() {
   // ─── THE TITAN UNIFIED MESSAGE HANDLER ──────────────────────────────────────
   const handleSendMessage = useCallback(async (
     overridePrompt?: string,
-    options?: { source?: "iteration" },
+    options?: {
+      source?: "iteration";
+      referenceImages?: { name: string; dataUrl: string }[];
+    },
   ) => {
     let masterPrompt = typeof overridePrompt === "string" && overridePrompt.trim().length > 0
       ? overridePrompt
