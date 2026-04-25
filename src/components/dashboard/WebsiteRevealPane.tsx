@@ -4,13 +4,12 @@ import {
   Monitor,
   Smartphone,
   Sparkles,
-  Crown,
-  TrendingUp,
-  Cpu,
-  Code2,
   Wand2,
   Loader2,
   Pencil,
+  ShieldCheck,
+  Search,
+  User,
 } from "lucide-react";
 import {
   Tooltip,
