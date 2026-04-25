@@ -1125,7 +1125,10 @@ const BrandAssetsModal: React.FC<{
       attachment
         ? `Use the uploaded reference image "${attachment.name}" as the primary visual reference for the logo direction, palette extraction, and overall aesthetic.`
         : "",
-      "Produce: logo concept, color palette (with hex codes), typography pairing, and a social kit.",
+      palette.length
+        ? `Auto-extracted palette from reference (use as authoritative brand colors and adapt the website to match): ${palette.join(", ")}.`
+        : "",
+      "Produce: logo concept, color palette (with hex codes), typography pairing, and a social kit. Suggest matching website accent colors derived from the reference.",
     ]
       .filter(Boolean)
       .join(" ");
