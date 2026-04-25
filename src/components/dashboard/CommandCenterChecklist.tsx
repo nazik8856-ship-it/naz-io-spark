@@ -21,6 +21,7 @@ import {
   Share2,
   Loader2,
   X,
+  UploadCloud,
 } from "lucide-react";
 import {
   Dialog,
@@ -503,6 +504,15 @@ const CommandCenterChecklist: React.FC = () => {
         open={openModal === "brand"}
         onOpenChange={(o) => setOpenModal(o ? "brand" : null)}
         onSave={() => markDone("brand")}
+        onDispatch={(directive, attachment) => {
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(
+              new CustomEvent("nazai:run-directive", {
+                detail: { directive, source: "checklist:brand", attachment },
+              }),
+            );
+          }
+        }}
       />
     </div>
   );
@@ -580,7 +590,7 @@ const ApiKeyInline: React.FC<{
           onKeyDown={(e) => {
             if (e.key === "Enter") handleSave();
           }}
-          placeholder="Paste your API key here"
+          placeholder="Enter your API key here..."
           className="h-8 text-[11px] font-mono bg-white/5 border-white/10 text-white placeholder:text-white/30 focus-visible:ring-cyan-400/40"
         />
         <button
@@ -958,23 +968,76 @@ const InvoiceModal: React.FC<{
   );
 };
 
+type BrandAttachment = {
+  name: string;
+  type: string;
+  size: number;
+  dataUrl: string;
+};
+
 const BrandAssetsModal: React.FC<{
   open: boolean;
   onOpenChange: (o: boolean) => void;
   onSave: () => void;
-}> = ({ open, onOpenChange, onSave }) => {
+  onDispatch?: (directive: string, attachment?: BrandAttachment) => void;
+}> = ({ open, onOpenChange, onSave, onDispatch }) => {
   const [brandName, setBrandName] = useState("");
   const [vibe, setVibe] = useState("");
+  const [attachment, setAttachment] = useState<BrandAttachment | null>(null);
+  const [dragActive, setDragActive] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
     if (open) {
-      setBrandName(""); setVibe(""); setGenerating(false); setDone(false); setError(null);
+      setBrandName(""); setVibe(""); setAttachment(null);
+      setGenerating(false); setDone(false); setError(null); setDragActive(false);
     }
   }, [open]);
+
+  const ACCEPTED = ["image/png", "image/jpeg", "image/jpg", "image/svg+xml", "image/webp"];
+  const MAX_BYTES = 8 * 1024 * 1024; // 8MB
+
+  const ingestFile = (file: File) => {
+    if (!ACCEPTED.includes(file.type) && !/\.(png|jpe?g|svg|webp)$/i.test(file.name)) {
+      setError("Unsupported file. Use PNG, JPG, SVG, or WEBP.");
+      return;
+    }
+    if (file.size > MAX_BYTES) {
+      setError("File too large. Max 8MB.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setError(null);
+      setAttachment({
+        name: file.name,
+        type: file.type || "image/*",
+        size: file.size,
+        dataUrl: typeof reader.result === "string" ? reader.result : "",
+      });
+    };
+    reader.onerror = () => setError("Could not read that file. Try another.");
+    reader.readAsDataURL(file);
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) ingestFile(file);
+    // reset so re-selecting the same file still triggers change
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) ingestFile(file);
+  };
 
   const handleGenerate = () => {
     if (!brandName.trim()) {
@@ -983,6 +1046,21 @@ const BrandAssetsModal: React.FC<{
     }
     setError(null);
     setGenerating(true);
+
+    // Forward to NazAI with the uploaded reference (if any) so it can be used during generation
+    const directive = [
+      `Generate a complete brand kit for "${brandName.trim()}".`,
+      vibe.trim() ? `Vibe: ${vibe.trim()}.` : "",
+      attachment
+        ? `Use the uploaded reference image "${attachment.name}" as the primary visual reference for the logo direction, palette extraction, and overall aesthetic.`
+        : "",
+      "Produce: logo concept, color palette (with hex codes), typography pairing, and a social kit.",
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    onDispatch?.(directive, attachment ?? undefined);
+
     setTimeout(() => {
       setGenerating(false);
       setDone(true);
@@ -994,12 +1072,18 @@ const BrandAssetsModal: React.FC<{
     }, 1400);
   };
 
+  const formatSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
   return (
     <ModalShell
       open={open}
       onOpenChange={onOpenChange}
       title="Generate Brand Assets"
-      description="Logo, palette, and social kit — produced in one pass."
+      description="Upload reference image (optional)"
     >
       {!done ? (
         <div className="space-y-3">
@@ -1019,6 +1103,102 @@ const BrandAssetsModal: React.FC<{
               className="h-10 bg-white/5 border-white/10 text-white placeholder:text-white/30 focus-visible:ring-cyan-400/40"
             />
           </Field>
+
+          {/* Reference image upload */}
+          <Field label="Reference image (optional)" icon={UploadCloud}>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/jpg,image/svg+xml,image/webp"
+              onChange={handleFileChange}
+              className="hidden"
+            />
+            {!attachment ? (
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => fileInputRef.current?.click()}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    fileInputRef.current?.click();
+                  }
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragActive(true);
+                }}
+                onDragLeave={() => setDragActive(false)}
+                onDrop={handleDrop}
+                className="group relative cursor-pointer rounded-lg px-4 py-5 flex flex-col items-center justify-center text-center transition-all"
+                style={{
+                  background: dragActive
+                    ? "linear-gradient(135deg, rgba(6,182,212,0.10), rgba(139,92,246,0.08))"
+                    : "rgba(255,255,255,0.02)",
+                  border: `1.5px dashed ${dragActive ? "rgba(6,182,212,0.6)" : "rgba(255,255,255,0.14)"}`,
+                  boxShadow: dragActive ? "0 0 24px rgba(6,182,212,0.18)" : "none",
+                  backdropFilter: "blur(6px)",
+                }}
+              >
+                <div
+                  className="w-9 h-9 rounded-lg flex items-center justify-center mb-2 transition-colors"
+                  style={{
+                    background: "rgba(6,182,212,0.10)",
+                    border: "1px solid rgba(6,182,212,0.28)",
+                  }}
+                >
+                  <UploadCloud size={16} style={{ color: "#06b6d4" }} />
+                </div>
+                <span className="text-xs text-white/80 font-medium">
+                  Drag &amp; drop reference image or click to upload
+                </span>
+                <span className="mt-0.5 text-[10px] font-mono tracking-[0.18em] uppercase text-white/40">
+                  PNG · JPG · SVG · WEBP — up to 8MB
+                </span>
+              </div>
+            ) : (
+              <div
+                className="rounded-lg p-2.5 flex items-center gap-3"
+                style={{
+                  background: "rgba(6,182,212,0.06)",
+                  border: "1px solid rgba(6,182,212,0.28)",
+                }}
+              >
+                <div
+                  className="w-12 h-12 rounded-md overflow-hidden shrink-0 flex items-center justify-center"
+                  style={{
+                    background: "rgba(255,255,255,0.04)",
+                    border: "1px solid rgba(255,255,255,0.06)",
+                  }}
+                >
+                  {attachment.type.startsWith("image/") && attachment.dataUrl ? (
+                    <img
+                      src={attachment.dataUrl}
+                      alt={attachment.name}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <ImageIcon size={16} className="text-white/50" />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs text-white truncate font-medium">{attachment.name}</div>
+                  <div className="text-[10px] font-mono text-white/40 mt-0.5">
+                    {formatSize(attachment.size)} · ready as reference
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAttachment(null)}
+                  className="shrink-0 w-7 h-7 rounded-md flex items-center justify-center text-white/50 hover:text-white hover:bg-white/10 transition-colors"
+                  aria-label="Remove file"
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            )}
+          </Field>
+
           {error && <p className="text-[11px] font-mono text-red-400/90">{error}</p>}
           <button
             type="button"
