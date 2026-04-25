@@ -67,24 +67,30 @@ const STEPS: Step[] = [
   },
 ];
 
-const AGENTS = [
+const GUARDRAILS = [
   {
-    icon: TrendingUp,
-    label: "Competitive Intelligence",
-    desc: "Live market sweep · 3 new signals today",
+    icon: BarChart3,
+    label: "92% confidence",
+    desc: "Score calibrated from prompt specificity and available assumptions.",
     accent: "#06b6d4",
   },
   {
-    icon: MessageSquare,
-    label: "Daily Social Post",
-    desc: "Auto-drafted, ready to schedule",
+    icon: CheckCircle2,
+    label: "Verified assumptions",
+    desc: "Flags uncertain market, finance, and compliance claims before use.",
     accent: "#8b5cf6",
   },
   {
-    icon: BarChart3,
-    label: "Weekly Business Recap",
-    desc: "Revenue, traffic, retention · refreshed",
+    icon: FileText,
+    label: "Fact-check ready",
+    desc: "Send any section through a source-backed verification pass.",
     accent: "#06b6d4",
+  },
+  {
+    icon: Lock,
+    label: "Approved memory",
+    desc: "Mark final decisions as approved for future iterations.",
+    accent: "#22c55e",
   },
 ];
 
