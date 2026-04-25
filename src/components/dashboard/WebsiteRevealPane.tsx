@@ -750,10 +750,17 @@ const GeneratedWebsitePreview: React.FC<{
   dimmed: boolean;
 }> = ({ code, headline, device, stage, dimmed }) => {
   const canRenderHtml = /<\s*(html|body|main|section|div|header|nav|article|footer)[\s>]/i.test(code);
+  // Force iframe remount on EVERY code change so iteration edits never get
+  // stuck on a stale srcDoc. Hash uses both length and a sampled fingerprint
+  // so even small in-body edits (e.g. a single CSS variable swap) trigger a
+  // fresh mount instead of being deduped by React's reconciler.
+  const codeKey = canRenderHtml
+    ? `${code.length}:${code.slice(0, 40)}:${code.slice(Math.floor(code.length / 2), Math.floor(code.length / 2) + 40)}:${code.slice(-40)}`
+    : "skeleton";
   if (canRenderHtml) {
     return (
       <iframe
-        key={code.slice(0, 80)}
+        key={codeKey}
         srcDoc={code}
         title="Generated website preview"
         sandbox="allow-scripts"
