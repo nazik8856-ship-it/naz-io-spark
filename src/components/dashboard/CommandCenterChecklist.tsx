@@ -104,7 +104,7 @@ const STEPS: Step[] = [
     desc: "Find and integrate external APIs instantly.",
     icon: KeyRound,
     cta: "Search APIs",
-    action: { kind: "modal", modal: "domain" }, // overridden — apis card opens its own modal via runAction
+    action: { kind: "modal", modal: "apis" },
   },
   {
     id: "setup",
