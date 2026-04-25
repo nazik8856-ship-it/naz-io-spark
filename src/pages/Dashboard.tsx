@@ -3334,11 +3334,15 @@ export default function Dashboard() {
 
     try {
       if (missionToUpdateId) {
-        console.log("TITAN: Updating existing mission:", missionToUpdateId);
+        // ── PROJECT CHAT CONTINUITY ──────────────────────────────────────────
+        // We are inside an existing project thread (initial generation already
+        // happened). DO NOT overwrite `directive` — that is the root prompt of
+        // the thread and must be preserved so the conversation stays unified.
+        // Only bump `updated_at` so the mission floats to the top of the feed.
+        console.log("TITAN: Continuing existing project thread:", missionToUpdateId);
         await supabase
           .from("missions")
           .update({
-            directive: visiblePrompt,
             updated_at: new Date().toISOString(),
           })
           .eq("id", missionToUpdateId)
