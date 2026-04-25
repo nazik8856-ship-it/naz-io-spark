@@ -210,7 +210,7 @@ const loadMemory = (): Memory => {
 const CommandCenterChecklist: React.FC = () => {
   const [progress, setProgress] = useState<ProgressMap>(DEFAULT_PROGRESS);
   const [memory, setMemory] = useState<Memory>({});
-  const [openModal, setOpenModal] = useState<null | "domain" | "crm" | "invoice" | "brand">(null);
+  const [openModal, setOpenModal] = useState<null | "domain" | "crm" | "invoice" | "brand" | "apis">(null);
 
   useEffect(() => {
     setProgress(loadProgress());
