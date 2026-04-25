@@ -422,8 +422,71 @@ const generateFallbackOutline = (prompt: string): string => {
 };
 
 const extractGeneratedCode = (text: string): string => {
-  const fenced = text.match(/```(?:tsx|jsx|ts|js|html)?\s*([\s\S]*?)```/i);
-  return (fenced?.[1] ?? text).trim();
+  const htmlFence = text.match(/```html\s*([\s\S]*?)```/i);
+  const anyFence = text.match(/```(?:tsx|jsx|ts|js|html)?\s*([\s\S]*?)```/i);
+  return (htmlFence?.[1] ?? anyFence?.[1] ?? text).trim();
+};
+
+const hasPreviewHtml = (code: string): boolean =>
+  /<\s*(html|body|main|section|div|header|nav|article|footer)[\s>]/i.test(code);
+
+const escapeHtml = (value: string): string =>
+  value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+const inferSiteName = (prompt: string): string => {
+  const match = prompt.match(/\b(?:for|called|named)\s+([A-Z][\w-]*(?:\s+[A-Z][\w-]*){0,2})/);
+  return (match?.[1] || "Gamma").replace(/\b(With|And|In|For|A|The)\b.*$/i, "").trim() || "Gamma";
+};
+
+const buildStarterWebsiteHtml = (prompt: string): string => {
+  const siteName = escapeHtml(inferSiteName(prompt));
+  const directive = escapeHtml(prompt || "modern cyber-futuristic SaaS");
+  const isFinance = /finance|fintech|invoice|payment|revenue/i.test(prompt);
+  const isAi = /ai|automation|agent|neural|model/i.test(prompt);
+  const featureOne = isAi ? "Autonomous workflow orchestration" : "Real-time business command center";
+  const featureTwo = isFinance ? "Revenue, pricing, and billing intelligence" : "Conversion-focused launch pages";
+  const featureThree = /crm|customer|sales/i.test(prompt) ? "Customer pipeline and CRM insights" : "Brand systems generated in minutes";
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${siteName} — AI SaaS</title>
+  <style>
+    :root { --bg: #030712; --panel: rgba(15,23,42,.72); --line: rgba(148,163,184,.18); --text: #f8fafc; --muted: #94a3b8; --accent: #22d3ee; --accent-2: #a855f7; }
+    * { box-sizing: border-box; } html { scroll-behavior: smooth; } body { margin: 0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--text); background: radial-gradient(circle at 20% 0%, rgba(34,211,238,.18), transparent 32%), radial-gradient(circle at 78% 12%, rgba(168,85,247,.22), transparent 30%), var(--bg); }
+    a { color: inherit; text-decoration: none; } .shell { min-height: 100vh; overflow: hidden; } .nav { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 18px clamp(18px, 5vw, 72px); background: rgba(3,7,18,.72); border-bottom: 1px solid var(--line); backdrop-filter: blur(18px); } .brand { display: flex; align-items: center; gap: 10px; font-weight: 900; letter-spacing: -.04em; } .mark { width: 28px; height: 28px; border-radius: 9px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); box-shadow: 0 0 30px color-mix(in srgb, var(--accent) 55%, transparent); } .links { display: flex; gap: 18px; color: var(--muted); font-size: 13px; } .cta { display: inline-flex; align-items: center; justify-content: center; min-height: 42px; padding: 0 18px; border-radius: 12px; border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 28%, transparent), color-mix(in srgb, var(--accent-2) 24%, transparent)); color: white; font-weight: 800; box-shadow: 0 0 34px color-mix(in srgb, var(--accent) 26%, transparent); } .hero { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(280px, .95fr); gap: clamp(28px, 5vw, 72px); padding: clamp(58px, 9vw, 118px) clamp(18px, 5vw, 72px) 52px; align-items: center; } .eyebrow { display: inline-flex; gap: 8px; align-items: center; padding: 8px 12px; border: 1px solid var(--line); border-radius: 999px; color: var(--accent); background: rgba(255,255,255,.04); font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .16em; } h1 { margin: 20px 0 18px; font-size: clamp(46px, 8vw, 92px); line-height: .88; letter-spacing: -.07em; } .lead { max-width: 680px; color: #cbd5e1; font-size: clamp(17px, 2.2vw, 22px); line-height: 1.55; } .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 30px; } .secondary { border-color: var(--line); background: rgba(255,255,255,.055); box-shadow: none; } .glass { border: 1px solid var(--line); background: var(--panel); box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 30px 80px rgba(0,0,0,.32); backdrop-filter: blur(22px); } .console { border-radius: 24px; padding: 18px; transform: rotate(1deg); } .bar { height: 38px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--line); margin: -18px -18px 18px; padding: 0 16px; } .dot { width: 9px; height: 9px; border-radius: 999px; background: #334155; } .metric { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 14px; margin-top: 10px; border-radius: 16px; background: rgba(255,255,255,.045); border: 1px solid rgba(255,255,255,.08); } .metric strong { font-size: 28px; } section { padding: 70px clamp(18px, 5vw, 72px); } .section-title { font-size: clamp(30px, 4.5vw, 54px); letter-spacing: -.05em; margin: 0 0 24px; } .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; } .card { border-radius: 22px; padding: 24px; min-height: 210px; } .card h3 { margin: 14px 0 10px; font-size: 20px; } .card p, .pricing p { color: var(--muted); line-height: 1.55; } .icon { width: 42px; height: 42px; border-radius: 14px; background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 24%, transparent), color-mix(in srgb, var(--accent-2) 22%, transparent)); display: grid; place-items: center; color: var(--accent); } .pricing { display: grid; grid-template-columns: .8fr 1.2fr; gap: 16px; align-items: stretch; } .price { border-radius: 26px; padding: 30px; } .amount { font-size: clamp(44px, 7vw, 78px); font-weight: 950; letter-spacing: -.08em; } footer { padding: 34px clamp(18px, 5vw, 72px); color: var(--muted); border-top: 1px solid var(--line); } @media (max-width: 760px) { .hero, .pricing { grid-template-columns: 1fr; } .links { display: none; } .grid { grid-template-columns: 1fr; } h1 { font-size: 52px; } }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <nav class="nav"><a class="brand" href="#home"><span class="mark"></span><span>${siteName}</span></a><div class="links"><a href="#home">Home</a><a href="#features">Features</a><a href="#pricing">Pricing</a></div><a class="cta" href="#pricing">Start free</a></nav>
+    <main id="home" class="hero"><div><span class="eyebrow">Cyber-futuristic SaaS</span><h1>${siteName} turns founder chaos into launch velocity.</h1><p class="lead">A premium dark-mode SaaS experience generated for: ${directive}. Strategy, execution, and trust signals are packaged into one glassmorphic command layer.</p><div class="actions"><a class="cta" href="#features">Explore features</a><a class="cta secondary" href="#pricing">View pricing</a></div></div><aside class="console glass"><div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div><div class="metric"><span>Launch readiness</span><strong>92%</strong></div><div class="metric"><span>Pipeline clarity</span><strong>3.4x</strong></div><div class="metric"><span>Manual work removed</span><strong>18h</strong></div></aside></main>
+    <section id="features"><h2 class="section-title">Built for execution, not slide decks.</h2><div class="grid"><article class="card glass"><div class="icon">✦</div><h3>${featureOne}</h3><p>Coordinate strategy, copy, launch assets, and next actions from a single high-trust workspace.</p></article><article class="card glass"><div class="icon">◆</div><h3>${featureTwo}</h3><p>Ship polished pages and business systems with premium positioning, sharp CTAs, and measurable outcomes.</p></article><article class="card glass"><div class="icon">●</div><h3>${featureThree}</h3><p>Generate investor-grade summaries, brand kits, and customer flows tailored to the exact prompt.</p></article></div></section>
+    <section id="pricing" class="pricing"><div><h2 class="section-title">Simple pricing for serious builders.</h2><p>Start with a launch sprint, then scale into a complete AI Business OS as the company grows.</p></div><div class="price glass"><span class="eyebrow">Founder OS</span><div class="amount">$49</div><p>per month · includes website generation, brand assets, business planning, and iteration tools.</p><div class="actions"><a class="cta" href="#home">Get started</a><a class="cta secondary" href="#features">Compare features</a></div></div></section>
+    <footer>© ${new Date().getFullYear()} ${siteName}. Built with NazAI.</footer>
+  </div>
+</body>
+</html>`;
+};
+
+const applyInstantWebsiteEdit = (code: string, change: string): string => {
+  if (!code.trim()) return code;
+  const lower = change.toLowerCase();
+  const palette = lower.includes("purple")
+    ? ["#c084fc", "#7c3aed"]
+    : lower.includes("red")
+      ? ["#fb7185", "#ef4444"]
+      : lower.includes("green")
+        ? ["#34d399", "#22c55e"]
+        : lower.includes("blue")
+          ? ["#60a5fa", "#2563eb"]
+          : null;
+  if (!palette || !/button|cta|accent|color|neon|glow/.test(lower)) return code;
+  return code
+    .replace(/--accent:\s*#[0-9a-fA-F]{3,8};/g, `--accent: ${palette[0]};`)
+    .replace(/--accent-2:\s*#[0-9a-fA-F]{3,8};/g, `--accent-2: ${palette[1]};`);
 };
 
 // ─── Folder View Components (Trash & Archives) ────────────────────────────────────
