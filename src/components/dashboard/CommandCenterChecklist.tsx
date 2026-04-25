@@ -17,7 +17,7 @@ import {
 
 /**
  * CommandCenterChecklist
- * Onboarding checklist + Agent Intelligence Feed + blurred activity skeletons
+ * Onboarding checklist + Reliability Guardrails + blurred activity skeletons
  * that progressively unlock as the user completes onboarding steps.
  *
  * State is persisted to localStorage so progress survives reloads.

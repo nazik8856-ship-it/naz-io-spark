@@ -4001,7 +4001,7 @@ export default function Dashboard() {
         }
       `}</style>
 
-      {/* AgentThinkTank removed — chat surface now shows clean dialogue history only.
+      {/* Chat surface shows clean dialogue history only.
           Iteration is driven by the secondary "Fix" prompt rendered in HomeView. */}
     </div>
   );
