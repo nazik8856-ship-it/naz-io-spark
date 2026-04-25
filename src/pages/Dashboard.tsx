@@ -4,7 +4,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import DropScanOverlay from "@/components/interactions/DropScanOverlay";
 import MagneticButton from "@/components/interactions/MagneticButton";
 import CommandCenterChecklist from "@/components/dashboard/CommandCenterChecklist";
-import AgentThinkTank from "@/components/dashboard/AgentThinkTank";
 import WebsiteRevealPane from "@/components/dashboard/WebsiteRevealPane";
 import { useNavigate } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
