@@ -3334,11 +3334,15 @@ export default function Dashboard() {
 
     try {
       if (missionToUpdateId) {
-        console.log("TITAN: Updating existing mission:", missionToUpdateId);
+        // ── PROJECT CHAT CONTINUITY ──────────────────────────────────────────
+        // We are inside an existing project thread (initial generation already
+        // happened). DO NOT overwrite `directive` — that is the root prompt of
+        // the thread and must be preserved so the conversation stays unified.
+        // Only bump `updated_at` so the mission floats to the top of the feed.
+        console.log("TITAN: Continuing existing project thread:", missionToUpdateId);
         await supabase
           .from("missions")
           .update({
-            directive: visiblePrompt,
             updated_at: new Date().toISOString(),
           })
           .eq("id", missionToUpdateId)
@@ -3571,14 +3575,22 @@ export default function Dashboard() {
   );
 
   const handleLoadMission = useCallback((mission: Mission) => {
+    // ── PROJECT CHAT CONTINUITY ──────────────────────────────────────────────
+    // Re-entering an existing project thread: pin `activeMissionId` so every
+    // subsequent Iteration Bar message is appended to THIS thread instead of
+    // spawning a new mission row. Hydrate the original directive as the first
+    // message so the conversation visibly starts from the original prompt.
     setActiveMissionId(mission.id);
     setActiveNav("home");
     setShowSettings(false);
     setIsSidebarOpen(false);
-    setMessages([{ role: "user", text: mission.prompt || "" }]);
+    const hydrated: { role: "user" | "ai"; text: string }[] = [
+      { role: "user", text: mission.prompt || "" },
+    ];
     if (mission.response) {
-      setMessages(prev => [...prev, { role: "ai", text: mission.response || "" }]);
+      hydrated.push({ role: "ai", text: mission.response });
     }
+    setMessages(hydrated);
     if (textareaRef.current) textareaRef.current.value = "";
     setTimeout(() => textareaRef.current?.focus(), 50);
   }, []);
