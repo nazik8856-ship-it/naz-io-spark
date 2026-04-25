@@ -167,7 +167,7 @@ const AI_CATEGORIES: Record<string, Category> = {
         id: "google/gemini-3-flash-image",
         name: "Nano Banana 2.0",
         subtitle: "The Designer",
-        icon: Image,
+        icon: ImageIcon,
         isMedia: true,
       },
       { id: "google/veo-3", name: "Google Veo 3", subtitle: "The Cinematographer", icon: Video, isMedia: true },
