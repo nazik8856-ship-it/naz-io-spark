@@ -3054,8 +3054,10 @@ export default function Dashboard() {
         setIsWebsiteComplete(true);
       }
       masterPrompt =
-        `SYSTEM: You are given the complete latest source code of the live preview. Use it precisely to make edits. Never guess or regenerate from scratch unless asked.\n` +
-        `Return ONLY one complete, standalone HTML document with inline CSS/JS that can render inside iframe srcDoc. Do not return markdown, explanations, TSX imports, or partial snippets.\n\n` +
+        `SYSTEM (HARD RULE — CODE OUTPUT MODE):\n` +
+        `When the user asks to generate, build, modify, or edit a website or any visual component, ALWAYS output complete, valid, runnable code that can be applied directly to the live preview. Never respond with only text descriptions, summaries, strategies, or explanations unless the user explicitly asks for non-code content.\n` +
+        `You are given the COMPLETE latest source code of the live preview below. First analyze the existing code carefully. Then make precise, targeted edits ONLY to the requested parts. Preserve everything else exactly. Never regenerate the entire site from scratch unless the user says "regenerate full site".\n` +
+        `Return ONLY ONE complete, standalone HTML document inside a single \`\`\`html fenced block. Inline CSS/JS. No markdown prose, no TSX imports, no partial snippets, no explanations before or after.\n\n` +
         `[ITERATION_DIRECTIVE: LIVE_EDIT]\n` +
         `REQUESTED_CHANGE: ${visiblePrompt}\n` +
         `LAST_BUILD_DIRECTIVE: ${lastWebsitePrompt}\n\n` +
@@ -3069,9 +3071,9 @@ export default function Dashboard() {
       setActiveWebsiteCode(buildStarterWebsiteHtml(trimmed));
       masterPrompt =
         `[PRIORITY_DIRECTIVE: WEBSITE_BUILD]\n` +
-        `The user is requesting a real, production-ready website. ` +
-        `Return ONLY one complete, standalone HTML document with inline CSS/JS that renders in iframe srcDoc. ` +
-        `Use the user's exact prompt to create a bespoke modern dark cyber-futuristic SaaS website with working anchor nav links for Home, Features, and Pricing. ` +
+        `SYSTEM (HARD RULE — CODE OUTPUT MODE): Always output complete runnable code, never text-only explanations.\n` +
+        `Return ONLY ONE complete, standalone HTML document inside a single \`\`\`html fenced block, with inline CSS/JS that renders in iframe srcDoc. No prose before or after the fence.\n` +
+        `Use the user's exact prompt to create a bespoke modern dark cyber-futuristic SaaS website with glassmorphism, neon accents, a hero with CTA, a feature grid, working anchor nav links (Home, Features, Pricing), and rich content. ` +
         `Do not use the same template for every user; adapt sections, copy, visual emphasis, and palette accents to the prompt.\n\n` +
         masterPrompt;
     }
@@ -3197,13 +3199,27 @@ export default function Dashboard() {
       }
       // Snapshot the generated output so SANDBOX iteration prompts can feed
       // it back to the AI as `[CurrentCode]` for surgical edits.
+      // CRITICAL: during an iteration, NEVER overwrite the live preview with a
+      // fresh starter — if the AI returned prose-only, keep the previous code.
       if (shouldActivateWebsitePreview || isWebsiteIntent || websiteGenerated || inSandboxEditMode) {
+        let appliedCodeChange = false;
         setActiveWebsiteCode((prev) => {
           const candidate = (generatedCode || outputText || "").trim();
-          if (hasPreviewHtml(candidate)) return candidate;
-          if (hasPreviewHtml(prev)) return prev;
+          if (hasPreviewHtml(candidate)) {
+            appliedCodeChange = candidate !== prev;
+            return candidate;
+          }
+          if (hasPreviewHtml(prev)) return prev; // preserve live preview
+          // First build with no usable HTML yet → fall back to bespoke starter
           return buildStarterWebsiteHtml(lastWebsitePrompt || visiblePrompt);
         });
+        if (appliedCodeChange && inSandboxEditMode) {
+          // Lightweight inline confirmation — no extra deps, dismisses itself.
+          try {
+            const { toast } = await import("sonner");
+            toast.success("Preview updated ✓", { duration: 1800 });
+          } catch { /* noop */ }
+        }
       }
 
       if (missionToUpdateId) {
