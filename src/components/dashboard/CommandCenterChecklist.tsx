@@ -975,6 +975,65 @@ type BrandAttachment = {
   dataUrl: string;
 };
 
+// Simple k-cluster-ish dominant color extraction from a data URL.
+// Quantizes pixels into 4-bit buckets, returns the top N hexes.
+async function extractPaletteFromDataUrl(dataUrl: string, count = 5): Promise<string[]> {
+  return new Promise((resolve) => {
+    const img = new window.Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      try {
+        const size = 64;
+        const canvas = document.createElement("canvas");
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return resolve([]);
+        ctx.drawImage(img, 0, 0, size, size);
+        const { data } = ctx.getImageData(0, 0, size, size);
+        const buckets = new Map<string, { r: number; g: number; b: number; n: number }>();
+        for (let i = 0; i < data.length; i += 4) {
+          const a = data[i + 3];
+          if (a < 200) continue;
+          const r = data[i] & 0xf0;
+          const g = data[i + 1] & 0xf0;
+          const b = data[i + 2] & 0xf0;
+          const key = `${r},${g},${b}`;
+          const cur = buckets.get(key);
+          if (cur) {
+            cur.r += data[i]; cur.g += data[i + 1]; cur.b += data[i + 2]; cur.n += 1;
+          } else {
+            buckets.set(key, { r: data[i], g: data[i + 1], b: data[i + 2], n: 1 });
+          }
+        }
+        const top = Array.from(buckets.values())
+          .sort((a, b) => b.n - a.n)
+          .slice(0, count * 3); // grab extra so we can dedupe by perceived similarity
+        const toHex = (v: number) =>
+          Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, "0");
+        const hexes: string[] = [];
+        for (const c of top) {
+          const hex = `#${toHex(c.r / c.n)}${toHex(c.g / c.n)}${toHex(c.b / c.n)}`;
+          // dedupe near-duplicates
+          const dup = hexes.some((h) => {
+            const dr = parseInt(h.slice(1, 3), 16) - parseInt(hex.slice(1, 3), 16);
+            const dg = parseInt(h.slice(3, 5), 16) - parseInt(hex.slice(3, 5), 16);
+            const db = parseInt(h.slice(5, 7), 16) - parseInt(hex.slice(5, 7), 16);
+            return Math.sqrt(dr * dr + dg * dg + db * db) < 28;
+          });
+          if (!dup) hexes.push(hex);
+          if (hexes.length >= count) break;
+        }
+        resolve(hexes);
+      } catch {
+        resolve([]);
+      }
+    };
+    img.onerror = () => resolve([]);
+    img.src = dataUrl;
+  });
+}
+
 const BrandAssetsModal: React.FC<{
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -984,6 +1043,8 @@ const BrandAssetsModal: React.FC<{
   const [brandName, setBrandName] = useState("");
   const [vibe, setVibe] = useState("");
   const [attachment, setAttachment] = useState<BrandAttachment | null>(null);
+  const [palette, setPalette] = useState<string[]>([]);
+  const [extracting, setExtracting] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [done, setDone] = useState(false);
@@ -993,7 +1054,7 @@ const BrandAssetsModal: React.FC<{
 
   useEffect(() => {
     if (open) {
-      setBrandName(""); setVibe(""); setAttachment(null);
+      setBrandName(""); setVibe(""); setAttachment(null); setPalette([]); setExtracting(false);
       setGenerating(false); setDone(false); setError(null); setDragActive(false);
     }
   }, [open]);
