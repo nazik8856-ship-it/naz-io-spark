@@ -1115,8 +1115,7 @@ const HomeView = ({
   handleSendMessage, handleKeyDown, handleTextareaFocus, handleTextareaBlur, handleSendPointerDown,
   setSelectedModel, setPlusMenuOpen, setDrawerOpen, textareaRef, inputContainerRef, messagesEndRef,
   formatAIResponse, getRgbFromHex, laserShineAnimation, userMissionAssets, setUserMissionAssets,
-  activeAssetIndex, setActiveAssetIndex, isDragOver, setIsDragOver, revertDropdownOpen, setRevertDropdownOpen,
-  openRevertModal, handleCopyMessage, handleRegenerateMessage, handleShareMessage, confirmRevert, revertModalOpen, setRevertModalOpen,
+  activeAssetIndex, setActiveAssetIndex, isDragOver, setIsDragOver,
   promptMode, setPromptMode,
   sandboxText, setSandboxText,
   extractorData, setExtractorData,
@@ -1180,7 +1179,7 @@ const HomeView = ({
 
   // Determine if cards should be visible (only in sandbox mode AND no messages)
   const showPromptCards = messages.length === 0 && promptMode === "sandbox";
-  const isExpandedMode = promptMode === "extractor" || promptMode === "blueprint";
+  const isExpandedMode = !isWebsiteComplete && (promptMode === "extractor" || promptMode === "blueprint");
 
   // Latest AI response text — fed to the WebsiteRevealPane strategy column.
   const latestAiText: string = (() => {
