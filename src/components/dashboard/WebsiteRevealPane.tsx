@@ -380,7 +380,7 @@ const WebsiteRevealPane: React.FC<WebsiteRevealPaneProps> = ({
         >
           {/* Orchestration Cinema — fast (≤3s) hyperspace transition while the
               skeleton stages are still locking in. Auto-fades when stage hits 4. */}
-          <OrchestrationCinema active={stage < 4} />
+          <OrchestrationCinema active={stage < 4} ghosted={Boolean(visibleWebsiteCode.trim())} />
 
           <div className="p-4 sm:p-6 flex flex-col items-center gap-4">
             <div
