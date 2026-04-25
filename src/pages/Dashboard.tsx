@@ -67,6 +67,9 @@ import {
   Minimize2,
   FileCode,
   Terminal,
+  RefreshCw,
+  Sparkles,
+  ShieldCheck,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 
@@ -1038,6 +1041,32 @@ const ModeInfoModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => vo
 //   it forces SANDBOX mode and routes through handleSendMessage, which
 //   detects inSandboxEditMode and prefixes the active code as
 //   [INSERT_ACTIVE_WEBSITE_CODE] for surgical edits.
+// Quick-action chips surfaced above the Iteration Bar. Each chip dispatches a
+// pre-baked iteration directive that the contextual memory bridge in
+// handleSendMessage will rewrite against the live `activeWebsiteCode` snapshot.
+const ITERATION_QUICK_ACTIONS: { label: string; directive: string; icon: any }[] = [
+  {
+    label: "Regenerate",
+    directive: "Regenerate the current preview from scratch — keep the same intent and brand vibe but improve layout, hierarchy, copy and visual polish.",
+    icon: RefreshCw,
+  },
+  {
+    label: "Improve Assets",
+    directive: "Upgrade every visual asset (icons, illustrations, hero imagery, gradients) to a premium, production-ready level. Keep the structure intact.",
+    icon: Sparkles,
+  },
+  {
+    label: "Verify",
+    directive: "Audit the current code for accessibility, responsive breakpoints, broken refs, and Tailwind class hygiene. Return the cleaned, fully-fixed code.",
+    icon: ShieldCheck,
+  },
+  {
+    label: "Asset Studio",
+    directive: "Open Asset Studio mode: produce a coherent UI kit (buttons, cards, badges, hero, footer) using the existing brand palette. Return the full updated component.",
+    icon: Palette,
+  },
+];
+
 const FixPromptBlank = ({
   isPending,
   onSend,
@@ -1046,14 +1075,37 @@ const FixPromptBlank = ({
   onSend: (text: string) => void;
 }) => {
   const [text, setText] = useState("");
-  const submit = () => {
-    const t = text.trim();
+  const submit = (override?: string) => {
+    const t = (override ?? text).trim();
     if (!t || isPending) return;
     onSend(t);
-    setText("");
+    if (!override) setText("");
   };
   return (
-    <div className="w-full px-0 sm:px-4">
+    <div className="w-full px-0 sm:px-4 space-y-2">
+      {/* ── Quick action chips — always visible above the Iteration Bar ── */}
+      <div className="flex flex-wrap gap-1.5 px-1">
+        {ITERATION_QUICK_ACTIONS.map((action) => (
+          <button
+            key={action.label}
+            type="button"
+            disabled={isPending}
+            onClick={() => submit(action.directive)}
+            className="group flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-mono uppercase tracking-[0.18em] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            style={{
+              background: "rgba(6,182,212,0.06)",
+              border: "1px solid rgba(6,182,212,0.28)",
+              color: "#67e8f9",
+              backdropFilter: "blur(12px)",
+            }}
+            title={action.directive}
+          >
+            <action.icon size={10} className="shrink-0 transition-transform group-hover:scale-110" />
+            {action.label}
+          </button>
+        ))}
+      </div>
+
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{
@@ -1092,13 +1144,13 @@ const FixPromptBlank = ({
             }
           }}
           disabled={isPending}
-          placeholder="Tell NazAI what to fix..."
+          placeholder="Tell NazAI what to fix or improve..."
           className="flex-1 bg-transparent outline-none text-sm font-mono text-white placeholder:text-white/30 disabled:opacity-50"
           autoFocus
         />
         <button
           type="button"
-          onClick={submit}
+          onClick={() => submit()}
           disabled={isPending || !text.trim()}
           className="w-8 h-8 rounded-xl flex items-center justify-center transition-all disabled:opacity-40"
           style={{
@@ -1111,8 +1163,8 @@ const FixPromptBlank = ({
           <Send size={13} />
         </button>
       </motion.div>
-      <div className="text-[9px] font-mono text-white/30 mt-1 px-2">
-        Iteration mode · your input edits the live preview in place
+      <div className="text-[9px] font-mono text-white/30 px-2">
+        Iteration mode · your input edits the live preview in place with full code context
       </div>
     </div>
   );
