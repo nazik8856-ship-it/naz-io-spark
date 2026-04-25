@@ -2806,6 +2806,8 @@ export default function Dashboard() {
     const inSandboxEditMode =
       options?.source === "iteration" || (isWebsiteComplete && promptMode === "sandbox" && !isRefine);
 
+    let shouldActivateWebsitePreview = false;
+
     if ((isWebsiteComplete && isWebsiteIntent && !isRefine) || inSandboxEditMode) {
       // ── Iteration Command: edit the existing live preview in place ─────────
       //    Inject the current website code so the AI performs surgical edits
@@ -2813,9 +2815,9 @@ export default function Dashboard() {
       const currentCodeSnapshot = (activeWebsiteCode || "").slice(0, 12000);
       masterPrompt =
         `SYSTEM: The user is requesting a change to the code currently in the preview pane. ` +
-        `READ the following code and APPLY the requested change ONLY. ` +
+        `READ the following code and APPLY the requested change ONLY. Code: [activeWebsiteCode]\n` +
         `Return a full React component using Tailwind CSS and Lucide React icons. ` +
-        `Code: [activeWebsiteCode]\n\n` +
+        `Update only the requested sections and preserve the rest of the structure.\n\n` +
         `[ITERATION_DIRECTIVE: LIVE_EDIT]\n` +
         `REQUESTED_CHANGE: ${visiblePrompt}\n` +
         `LAST_BUILD_DIRECTIVE: ${lastWebsitePrompt}\n\n` +
@@ -2824,6 +2826,7 @@ export default function Dashboard() {
           : `[activeWebsiteCode]\n(no snapshot available — infer from last directive)\n\n`) +
         masterPrompt;
     } else if (websiteIntent) {
+      shouldActivateWebsitePreview = true;
       setIsWebsiteIntent(true);
       setLastWebsitePrompt(trimmed);
       masterPrompt =
@@ -2948,12 +2951,12 @@ export default function Dashboard() {
       const websiteGenerated =
         /\b(website|landing\s*page|site|webpage|homepage)\b/.test(out) &&
         /\b(generated|built|created|deployed|ready|live|published|done|complete)\b/.test(out);
-      if (websiteGenerated) {
+      if (websiteGenerated || shouldActivateWebsitePreview || inSandboxEditMode) {
         setIsWebsiteComplete(true);
       }
       // Snapshot the generated output so SANDBOX iteration prompts can feed
       // it back to the AI as `[CurrentCode]` for surgical edits.
-      if (isWebsiteIntent || websiteGenerated || inSandboxEditMode) {
+      if (shouldActivateWebsitePreview || isWebsiteIntent || websiteGenerated || inSandboxEditMode) {
         setActiveWebsiteCode(outputText || "");
       }
 
