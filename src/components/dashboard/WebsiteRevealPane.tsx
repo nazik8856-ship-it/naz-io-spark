@@ -470,12 +470,12 @@ const WebsiteRevealPane: React.FC<WebsiteRevealPaneProps> = ({
             </p>
 
             {/* ─── Command Center + Launchpad, directly below the website ──── */}
-            {isWebsiteComplete && (
+            {isWebsiteComplete && stage >= 4 && (
               <motion.div
                 initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.5, delay: 0.2 }}
-                className="w-full space-y-4"
+                className={`w-full space-y-4 ${device === "mobile" ? "max-w-[360px]" : "max-w-[920px]"}`}
               >
                 <div
                   className="my-4 h-px w-full"

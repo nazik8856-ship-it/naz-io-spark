@@ -3,7 +3,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { motion, AnimatePresence } from "framer-motion";
 import DropScanOverlay from "@/components/interactions/DropScanOverlay";
 import MagneticButton from "@/components/interactions/MagneticButton";
-import CommandCenterChecklist from "@/components/dashboard/CommandCenterChecklist";
 import WebsiteRevealPane from "@/components/dashboard/WebsiteRevealPane";
 import { useNavigate } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
@@ -51,9 +50,6 @@ import {
   Sliders,
   AlertCircle,
   MoreHorizontal,
-  Copy,
-  Share2,
-  RotateCw,
   Camera,
   Youtube,
   Music2,
@@ -978,135 +974,6 @@ const SettingsView = ({ customPalette, setCustomPalette, auraProfile, updateAura
   );
 };
 
-// Message Action Bar Component
-const MessageActionBar = ({ message, index, handleCopyMessage, handleRegenerateMessage, handleShareMessage, openRevertModal, revertDropdownOpen, setRevertDropdownOpen }: { 
-  message: { role: string; text: string }; 
-  index: number;
-  handleCopyMessage: (text: string) => void;
-  handleRegenerateMessage: (index: number) => void;
-  handleShareMessage: (text: string) => void;
-  openRevertModal: (index: number) => void;
-  revertDropdownOpen: number | null;
-  setRevertDropdownOpen: (index: number | null) => void;
-}) => {
-  if (message.role !== "ai") return null;
-  
-  return (
-    <div className="flex items-center gap-1 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
-      <button
-        onClick={() => handleCopyMessage(message.text)}
-        className="p-1.5 rounded-md hover:bg-white/10 transition-all"
-        title="Copy"
-      >
-        <Copy size={12} className="text-white/40" />
-      </button>
-      <button
-        onClick={() => handleRegenerateMessage(index)}
-        className="p-1.5 rounded-md hover:bg-white/10 transition-all"
-        title="Regenerate"
-      >
-        <RotateCw size={12} className="text-white/40" />
-      </button>
-      <button
-        onClick={() => handleShareMessage(message.text)}
-        className="p-1.5 rounded-md hover:bg-white/10 transition-all"
-        title="Share"
-      >
-        <Share2 size={12} className="text-white/40" />
-      </button>
-      <div className="relative">
-        <button
-          onClick={() => setRevertDropdownOpen(revertDropdownOpen === index ? null : index)}
-          className="p-1.5 rounded-md hover:bg-white/10 transition-all"
-          title="More options"
-        >
-          <MoreHorizontal size={12} className="text-white/40" />
-        </button>
-        <AnimatePresence>
-          {revertDropdownOpen === index && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className="absolute bottom-full left-0 mb-1 w-44 rounded-lg overflow-hidden z-50"
-              style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
-            >
-              <button
-                onClick={() => openRevertModal(index)}
-                className="w-full px-3 py-2 text-left text-xs hover:bg-white/5 transition-all flex items-center gap-2"
-              >
-                <RotateCcw size={12} /> Revert to checkpoint
-              </button>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-    </div>
-  );
-};
-
-// Revert Checkpoint Modal with backdrop-blur-xl
-const RevertModal = ({ revertModalOpen, setRevertModalOpen, confirmRevert }: {
-  revertModalOpen: boolean;
-  setRevertModalOpen: (open: boolean) => void;
-  confirmRevert: () => void;
-}) => (
-  <AnimatePresence>
-    {revertModalOpen && (
-      <div
-        className="fixed inset-0 z-[2000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xl"
-        onClick={() => setRevertModalOpen(false)}
-      >
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          exit={{ opacity: 0, scale: 0.95 }}
-          transition={springTransition}
-          onClick={(e) => e.stopPropagation()}
-          className="max-w-sm w-full rounded-xl p-6 text-center"
-          style={{
-            background: "var(--nazai-card-bg)",
-            border: `1px solid rgba(34,197,94,0.2)`,
-          }}
-        >
-          <div className="mb-4">
-            <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3"
-              style={{ background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.2)" }}
-            >
-              <RotateCcw size={20} style={{ color: "#22c55e" }} />
-            </div>
-            <h3 className="text-sm font-bold font-mono mb-2" style={{ color: "var(--nazai-text-color)" }}>
-              Revert to Checkpoint?
-            </h3>
-            <p className="text-[11px] text-white/50">
-              All subsequent progress after this point will be lost. This action cannot be undone.
-            </p>
-          </div>
-          <div className="flex gap-3">
-            <button
-              onClick={() => setRevertModalOpen(false)}
-              className="flex-1 py-2 rounded-lg text-xs font-mono bg-white/5 border border-white/10 hover:bg-white/10 transition-all"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={confirmRevert}
-              className="flex-1 py-2 rounded-lg text-xs font-mono font-bold transition-all"
-              style={{
-                background: "rgba(34,197,94,0.15)",
-                border: "1px solid rgba(34,197,94,0.4)",
-                color: "#22c55e",
-              }}
-            >
-              OK
-            </button>
-          </div>
-        </motion.div>
-      </div>
-    )}
-  </AnimatePresence>
-);
-
 // ============================================================
 // MODE INFO MODAL COMPONENT
 // ============================================================
@@ -1248,9 +1115,7 @@ const HomeView = ({
   handleSendMessage, handleKeyDown, handleTextareaFocus, handleTextareaBlur, handleSendPointerDown,
   setSelectedModel, setPlusMenuOpen, setDrawerOpen, textareaRef, inputContainerRef, messagesEndRef,
   formatAIResponse, getRgbFromHex, laserShineAnimation, userMissionAssets, setUserMissionAssets,
-  activeAssetIndex, setActiveAssetIndex, isDragOver, setIsDragOver, revertDropdownOpen, setRevertDropdownOpen,
-  openRevertModal, handleCopyMessage, handleRegenerateMessage, handleShareMessage, confirmRevert, revertModalOpen, setRevertModalOpen,
-  onOpenThinkTank,
+  activeAssetIndex, setActiveAssetIndex, isDragOver, setIsDragOver,
   promptMode, setPromptMode,
   sandboxText, setSandboxText,
   extractorData, setExtractorData,
@@ -1314,7 +1179,7 @@ const HomeView = ({
 
   // Determine if cards should be visible (only in sandbox mode AND no messages)
   const showPromptCards = messages.length === 0 && promptMode === "sandbox";
-  const isExpandedMode = promptMode === "extractor" || promptMode === "blueprint";
+  const isExpandedMode = !isWebsiteComplete && (promptMode === "extractor" || promptMode === "blueprint");
 
   // Latest AI response text — fed to the WebsiteRevealPane strategy column.
   const latestAiText: string = (() => {
@@ -1417,34 +1282,15 @@ const HomeView = ({
               </div>
             ) : (
               <>
-                <div
-                  className="max-w-[85%] rounded-xl overflow-hidden"
-                  style={{ background: "#0B1F3A", border: "1px solid rgba(255,255,255,0.1)" }}
-                >
-                  <div
-                    className="flex items-center gap-2 px-3 py-2"
-                    style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", background: "rgba(6,182,212,0.03)" }}
-                  >
-                    <Brain size={12} style={{ color: "#06b6d4" }} />
-                    <span
-                      className="text-[9px] font-mono font-bold tracking-wider"
-                      style={{ color: "#06b6d4", textShadow: "0 0 6px rgba(6,182,212,0.4)" }}
-                    >
-                      NEURAL ARCHITECT // MISSION_RESULT.LOG
+                <div className="max-w-[85%] rounded-xl overflow-hidden border border-border bg-card/80">
+                  <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-secondary/20">
+                    <MessageSquare size={12} className="text-primary" />
+                    <span className="text-[9px] font-mono font-bold tracking-wider text-primary">
+                      NazAI
                     </span>
                   </div>
                   <div className="px-3 py-2.5">{formatAIResponse(msg.text)}</div>
                 </div>
-                <MessageActionBar 
-                  message={msg} 
-                  index={i} 
-                  handleCopyMessage={handleCopyMessage}
-                  handleRegenerateMessage={handleRegenerateMessage}
-                  handleShareMessage={handleShareMessage}
-                  openRevertModal={openRevertModal}
-                  revertDropdownOpen={revertDropdownOpen}
-                  setRevertDropdownOpen={setRevertDropdownOpen}
-                />
               </>
             )}
           </motion.div>
@@ -1731,8 +1577,7 @@ const HomeView = ({
             onSend={(text: string) => {
               if (promptMode !== "sandbox") setPromptMode("sandbox");
               setSandboxText(text);
-              // Defer one tick so compileMasterPrompt picks up sandboxText.
-              setTimeout(() => handleSendMessage(text), 0);
+              handleSendMessage(text, { source: "iteration" });
             }}
           />
         ) : (
@@ -2068,7 +1913,6 @@ const HomeView = ({
         )}
       </motion.div>
       
-      <RevertModal revertModalOpen={revertModalOpen} setRevertModalOpen={setRevertModalOpen} confirmRevert={confirmRevert} />
       <ModeInfoModal isOpen={infoModalOpen} onClose={() => setInfoModalOpen(false)} />
     </div>
   );
@@ -2389,11 +2233,6 @@ export default function Dashboard() {
     github: false,
   });
   
-  // Checkpoint revert modal state
-  const [revertModalOpen, setRevertModalOpen] = useState(false);
-  const [revertTargetIndex, setRevertTargetIndex] = useState<number | null>(null);
-  const [revertDropdownOpen, setRevertDropdownOpen] = useState<number | null>(null);
-
   // Aura Design System State
   const [auraProfile, setAuraProfile] = useState<AuraProfile>(loadAuraProfile);
   const [showSettings, setShowSettings] = useState(false);
@@ -2497,10 +2336,6 @@ export default function Dashboard() {
   const currentAbortControllerRef = useRef<AbortController | null>(null);
   const inputContainerRef = useRef<HTMLDivElement>(null);
   const focusSnapIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  // Think Tank (4-agent chain) — additive, does not affect mission flow
-  const [thinkTankOpen, setThinkTankOpen] = useState(false);
-  const [thinkTankDirective, setThinkTankDirective] = useState("");
 
   // Reward gate: Command Center checklist only appears once a website has been generated
   const [isWebsiteComplete, setIsWebsiteComplete] = useState(false);
@@ -2824,100 +2659,6 @@ export default function Dashboard() {
     });
   }, [navigate]);
 
-  // Copy message to clipboard
-  const handleCopyMessage = useCallback((text: string) => {
-    navigator.clipboard.writeText(text);
-    const toastEl = document.createElement("div");
-    toastEl.textContent = "✓ Copied to clipboard";
-    toastEl.style.cssText = "position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:10000;padding:8px 20px;border-radius:8px;font-size:12px;font-family:monospace;font-weight:bold;color:#020617;background:#50C878;box-shadow:0 0 20px rgba(80,200,120,0.5);";
-    document.body.appendChild(toastEl);
-    setTimeout(() => toastEl.remove(), 2000);
-  }, []);
-
-  // Regenerate message
-  const handleRegenerateMessage = useCallback(async (index: number) => {
-    const userMessageIndex = index - 1;
-    if (userMessageIndex >= 0 && messages[userMessageIndex]?.role === "user") {
-      const userPrompt = messages[userMessageIndex].text;
-      setMessages(prev => {
-        const newMessages = prev.slice(0, index);
-        newMessages.push({ role: "ai", text: "Neural Architect: Regenerating blueprint..." });
-        return newMessages;
-      });
-      
-      const controller = new AbortController();
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error("Connection timeout after 12s")), 12000);
-      });
-      
-      try {
-        // Build context-aware system prompt with user context
-        const contextPrompt = `[SYSTEM_DIRECTIVE: You are interacting with ${userContext.identity}. Project: ${userContext.goals}. Style: ${userContext.style}. Provide right and perspective responses only. Say "You're completely wrong" if I'm wrong.]\n\nUser Query: ${userPrompt}`;
-        
-        const result = await Promise.race([
-          supabase.functions.invoke("generate-business-plan", {
-            body: {
-              prompt: contextPrompt,
-              model: selectedModel,
-              style: activeStyle,
-              webSearch: webSearchActive,
-              systemPrompt: SYSTEM_PROMPT,
-            },
-            signal: controller.signal,
-          }),
-          timeoutPromise,
-        ]) as { data: any; error: any };
-        
-        if (result.error) throw new Error(result.error.message || "Link Failed");
-        const outputText = result.data?.plan || result.data?.response || `Blueprint ready for: "${userPrompt}"`;
-        
-        setMessages(prev => {
-          const updated = [...prev];
-          if (updated[index]) {
-            updated[index] = { ...updated[index], text: outputText };
-          }
-          return updated;
-        });
-      } catch (error) {
-        console.error("Regeneration error:", error);
-        setMessages(prev => {
-          const updated = [...prev];
-          if (updated[index]) {
-            updated[index] = { ...updated[index], text: "SYSTEM ERROR: Regeneration failed.", isSimulation: true };
-          }
-          return updated;
-        });
-      }
-    }
-  }, [messages, selectedModel, activeStyle, webSearchActive, userContext]);
-
-  // Share message
-  const handleShareMessage = useCallback((text: string) => {
-    if (navigator.share) {
-      navigator.share({
-        title: "Neural Architect Blueprint",
-        text: text,
-      }).catch(console.error);
-    } else {
-      handleCopyMessage(text);
-    }
-  }, [handleCopyMessage]);
-
-  // Revert to checkpoint
-  const openRevertModal = useCallback((index: number) => {
-    setRevertTargetIndex(index);
-    setRevertModalOpen(true);
-    setRevertDropdownOpen(null);
-  }, []);
-
-  const confirmRevert = useCallback(() => {
-    if (revertTargetIndex !== null) {
-      setMessages(prev => prev.slice(0, revertTargetIndex));
-      setRevertModalOpen(false);
-      setRevertTargetIndex(null);
-    }
-  }, [revertTargetIndex]);
-
   // ─── MASTER PROMPT COMPILER (USES EDITABLE PROMPT IN BLUEPRINT MODE) ────────────
   const compileMasterPrompt = useCallback(() => {
     const contextPrefix = `[SYSTEM_DIRECTIVE: You are interacting with ${userContext.identity}. Project: ${userContext.goals}. Style: ${userContext.style}. Provide right and perspective responses only. Say "You're completely wrong" if I'm wrong.]\n\n`;
@@ -2965,11 +2706,22 @@ export default function Dashboard() {
   }, [promptMode, sandboxText, extractorData, editablePrompt, userContext]);
 
   // ─── THE TITAN UNIFIED MESSAGE HANDLER ──────────────────────────────────────
-  const handleSendMessage = useCallback(async (overridePrompt?: string) => {
+  const handleSendMessage = useCallback(async (
+    overridePrompt?: string,
+    options?: { source?: "iteration" },
+  ) => {
     let masterPrompt = typeof overridePrompt === "string" && overridePrompt.trim().length > 0
       ? overridePrompt
       : compileMasterPrompt();
     const trimmed = masterPrompt.trim();
+    const visiblePrompt =
+      typeof overridePrompt === "string" && overridePrompt.trim().length > 0
+        ? overridePrompt.trim()
+        : promptMode === "sandbox"
+          ? sandboxText.trim() || "Generate a strategic business blueprint."
+          : promptMode === "extractor"
+            ? `Business blueprint: ${extractorData.industry || "industry TBD"}`
+            : editablePrompt.trim() || "Generate a professional business blueprint.";
 
     if (isPending || trimmed.length === 0) {
       return;
@@ -3052,7 +2804,9 @@ export default function Dashboard() {
     //    new prompt as a surgical edit on the active code, regardless of
     //    whether the new prompt re-mentions "website".
     const inSandboxEditMode =
-      isWebsiteComplete && promptMode === "sandbox" && !isRefine;
+      options?.source === "iteration" || (isWebsiteComplete && promptMode === "sandbox" && !isRefine);
+
+    let shouldActivateWebsitePreview = false;
 
     if ((isWebsiteComplete && isWebsiteIntent && !isRefine) || inSandboxEditMode) {
       // ── Iteration Command: edit the existing live preview in place ─────────
@@ -3060,17 +2814,19 @@ export default function Dashboard() {
       //    rather than regenerating an unrelated site.
       const currentCodeSnapshot = (activeWebsiteCode || "").slice(0, 12000);
       masterPrompt =
-        `[SYSTEM INSTRUCTION]\n` +
-        `The user is currently viewing the following code: [INSERT_ACTIVE_WEBSITE_CODE]. ` +
-        `Your task is to MODIFY this existing code based on the user's request. ` +
-        `Do not regenerate a new site from scratch. Return only the updated code block.\n\n` +
+        `SYSTEM: The user is requesting a change to the code currently in the preview pane. ` +
+        `READ the following code and APPLY the requested change ONLY. Code: [activeWebsiteCode]\n` +
+        `Return a full React component using Tailwind CSS and Lucide React icons. ` +
+        `Update only the requested sections and preserve the rest of the structure.\n\n` +
         `[ITERATION_DIRECTIVE: LIVE_EDIT]\n` +
+        `REQUESTED_CHANGE: ${visiblePrompt}\n` +
         `LAST_BUILD_DIRECTIVE: ${lastWebsitePrompt}\n\n` +
         (currentCodeSnapshot
-          ? `[INSERT_ACTIVE_WEBSITE_CODE]\n\`\`\`\n${currentCodeSnapshot}\n\`\`\`\n\n`
-          : `[INSERT_ACTIVE_WEBSITE_CODE]\n(no snapshot available — infer from last directive)\n\n`) +
+          ? `[activeWebsiteCode]\n\`\`\`tsx\n${currentCodeSnapshot}\n\`\`\`\n\n`
+          : `[activeWebsiteCode]\n(no snapshot available — infer from last directive)\n\n`) +
         masterPrompt;
     } else if (websiteIntent) {
+      shouldActivateWebsitePreview = true;
       setIsWebsiteIntent(true);
       setLastWebsitePrompt(trimmed);
       masterPrompt =
@@ -3098,7 +2854,7 @@ export default function Dashboard() {
     
     setMessages((prev) => [
       ...prev,
-      { role: "user", text: userMessage },
+      { role: "user", text: visiblePrompt },
       { role: "ai", text: "Neural Architect: Processing blueprint..." },
     ]);
 
@@ -3120,7 +2876,7 @@ export default function Dashboard() {
         await supabase
           .from("missions")
           .update({
-            directive: userMessage,
+            directive: visiblePrompt,
             updated_at: new Date().toISOString(),
           })
           .eq("id", missionToUpdateId)
@@ -3131,7 +2887,7 @@ export default function Dashboard() {
           .from("missions")
           .insert({
             user_id: userId,
-            directive: userMessage,
+            directive: visiblePrompt,
             status: "recently",
           })
           .select()
@@ -3144,7 +2900,7 @@ export default function Dashboard() {
           const newMission: Mission = {
             id: savedMission.id,
             user_id: savedMission.user_id,
-            prompt: savedMission.directive ?? userMessage,
+            prompt: savedMission.directive ?? visiblePrompt,
             status: (savedMission.status ?? "recently") as MissionStatus,
             created_at: savedMission.created_at,
             updated_at: savedMission.updated_at,
@@ -3195,12 +2951,12 @@ export default function Dashboard() {
       const websiteGenerated =
         /\b(website|landing\s*page|site|webpage|homepage)\b/.test(out) &&
         /\b(generated|built|created|deployed|ready|live|published|done|complete)\b/.test(out);
-      if (websiteGenerated) {
+      if (websiteGenerated || shouldActivateWebsitePreview || inSandboxEditMode) {
         setIsWebsiteComplete(true);
       }
       // Snapshot the generated output so SANDBOX iteration prompts can feed
       // it back to the AI as `[CurrentCode]` for surgical edits.
-      if (isWebsiteIntent || websiteGenerated) {
+      if (shouldActivateWebsitePreview || isWebsiteIntent || websiteGenerated || inSandboxEditMode) {
         setActiveWebsiteCode(outputText || "");
       }
 
@@ -3239,7 +2995,7 @@ export default function Dashboard() {
         window.scrollTo(0, document.body.scrollHeight);
       }, 250);
     }
-  }, [isPending, messages.length, selectedModel, userId, activeStyle, webSearchActive, activeMissionId, fetchMissions, compileMasterPrompt, extractorData, userContext, isWebsiteComplete, isWebsiteIntent, lastWebsitePrompt, activeWebsiteCode, promptMode]);
+  }, [isPending, messages.length, selectedModel, userId, activeStyle, webSearchActive, activeMissionId, fetchMissions, compileMasterPrompt, extractorData, userContext, isWebsiteComplete, isWebsiteIntent, lastWebsitePrompt, activeWebsiteCode, promptMode, sandboxText, editablePrompt]);
 
   // ─── INPUT TRIGGERS ────────────────────────────────────────────────────────
   const handleKeyDown = useCallback(
@@ -3513,16 +3269,6 @@ export default function Dashboard() {
             setActiveAssetIndex={setActiveAssetIndex}
             isDragOver={isDragOver}
             setIsDragOver={setIsDragOver}
-            revertDropdownOpen={revertDropdownOpen}
-            setRevertDropdownOpen={setRevertDropdownOpen}
-            openRevertModal={openRevertModal}
-            handleCopyMessage={handleCopyMessage}
-            handleRegenerateMessage={handleRegenerateMessage}
-            handleShareMessage={handleShareMessage}
-            confirmRevert={confirmRevert}
-            revertModalOpen={revertModalOpen}
-            setRevertModalOpen={setRevertModalOpen}
-            onOpenThinkTank={(text: string) => { setThinkTankDirective(text); setThinkTankOpen(true); }}
             promptMode={promptMode}
             setPromptMode={setPromptMode}
             sandboxText={sandboxText}
@@ -3784,6 +3530,52 @@ export default function Dashboard() {
             <span>AI:READY</span>
           </div>
         </footer>
+
+        <AnimatePresence>
+          {isWebsiteIntent && activeNav !== "home" && (
+            <motion.button
+              key="global-return-to-preview"
+              type="button"
+              onClick={() => {
+                setActiveNav("home");
+                setShowSettings(false);
+                setIsPreviewActive(true);
+              }}
+              initial={{ opacity: 0, y: 24, scale: 0.92 }}
+              animate={{
+                opacity: 1,
+                y: 0,
+                scale: 1,
+                boxShadow: [
+                  "0 0 0 1px rgba(6,182,212,0.55), 0 0 18px rgba(6,182,212,0.35)",
+                  "0 0 0 1px rgba(6,182,212,0.85), 0 0 32px rgba(6,182,212,0.7)",
+                  "0 0 0 1px rgba(6,182,212,0.55), 0 0 18px rgba(6,182,212,0.35)",
+                ],
+              }}
+              exit={{ opacity: 0, y: 24, scale: 0.92 }}
+              transition={{
+                opacity: { duration: 0.2 },
+                y: { type: "spring", stiffness: 320, damping: 26 },
+                scale: { type: "spring", stiffness: 320, damping: 26 },
+                boxShadow: { duration: 2.4, repeat: Infinity, ease: "easeInOut" },
+              }}
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.96 }}
+              className="fixed bottom-10 right-6 z-[70] flex items-center gap-2 px-4 py-2.5 rounded-full font-mono text-[11px] tracking-wider uppercase"
+              style={{
+                background: "rgba(255,255,255,0.08)",
+                backdropFilter: "blur(14px) saturate(140%)",
+                WebkitBackdropFilter: "blur(14px) saturate(140%)",
+                border: "1px solid rgba(6,182,212,0.6)",
+                color: "#06b6d4",
+              }}
+              aria-label="Return to website preview"
+            >
+              <Maximize2 size={13} />
+              Return to Preview
+            </motion.button>
+          )}
+        </AnimatePresence>
       </main>
 
       {/* PLUS MENU MODAL */}
@@ -4209,7 +4001,7 @@ export default function Dashboard() {
         }
       `}</style>
 
-      {/* AgentThinkTank removed — chat surface now shows clean dialogue history only.
+      {/* Chat surface shows clean dialogue history only.
           Iteration is driven by the secondary "Fix" prompt rendered in HomeView. */}
     </div>
   );

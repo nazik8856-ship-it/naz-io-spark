@@ -17,7 +17,7 @@ import {
 
 /**
  * CommandCenterChecklist
- * Onboarding checklist + Agent Intelligence Feed + blurred activity skeletons
+ * Onboarding checklist + Reliability Guardrails + blurred activity skeletons
  * that progressively unlock as the user completes onboarding steps.
  *
  * State is persisted to localStorage so progress survives reloads.
@@ -67,24 +67,30 @@ const STEPS: Step[] = [
   },
 ];
 
-const AGENTS = [
+const GUARDRAILS = [
   {
-    icon: TrendingUp,
-    label: "Competitive Intelligence",
-    desc: "Live market sweep · 3 new signals today",
+    icon: BarChart3,
+    label: "92% confidence",
+    desc: "Score calibrated from prompt specificity and available assumptions.",
     accent: "#06b6d4",
   },
   {
-    icon: MessageSquare,
-    label: "Daily Social Post",
-    desc: "Auto-drafted, ready to schedule",
+    icon: CheckCircle2,
+    label: "Verified assumptions",
+    desc: "Flags uncertain market, finance, and compliance claims before use.",
     accent: "#8b5cf6",
   },
   {
-    icon: BarChart3,
-    label: "Weekly Business Recap",
-    desc: "Revenue, traffic, retention · refreshed",
+    icon: FileText,
+    label: "Fact-check ready",
+    desc: "Send any section through a source-backed verification pass.",
     accent: "#06b6d4",
+  },
+  {
+    icon: Lock,
+    label: "Approved memory",
+    desc: "Mark final decisions as approved for future iterations.",
+    accent: "#22c55e",
   },
 ];
 
@@ -263,11 +269,11 @@ const CommandCenterChecklist: React.FC = () => {
         })}
       </div>
 
-      {/* Agent Intelligence Feed */}
+      {/* Reliability Guardrails */}
       <div>
         <div className="flex items-center gap-2 mb-3">
           <span className="text-[10px] font-mono tracking-[0.22em] uppercase text-white/40">
-            Agent Intelligence Feed
+            Reliability Guardrails
           </span>
           <div className="flex-1 h-px bg-white/5" />
           <span
@@ -281,12 +287,12 @@ const CommandCenterChecklist: React.FC = () => {
             LIVE
           </span>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {AGENTS.map((agent, i) => {
-            const Icon = agent.icon;
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+          {GUARDRAILS.map((guardrail, i) => {
+            const Icon = guardrail.icon;
             return (
               <motion.div
-                key={agent.label}
+                key={guardrail.label}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.4, delay: 0.1 + i * 0.08 }}
@@ -300,15 +306,15 @@ const CommandCenterChecklist: React.FC = () => {
                   <div
                     className="w-7 h-7 rounded-md flex items-center justify-center"
                     style={{
-                      background: `${agent.accent}14`,
-                      border: `1px solid ${agent.accent}33`,
+                      background: `${guardrail.accent}14`,
+                      border: `1px solid ${guardrail.accent}33`,
                     }}
                   >
-                    <Icon size={13} style={{ color: agent.accent }} />
+                    <Icon size={13} style={{ color: guardrail.accent }} />
                   </div>
-                  <span className="text-xs font-semibold text-white/90">{agent.label}</span>
+                  <span className="text-xs font-semibold text-white/90">{guardrail.label}</span>
                 </div>
-                <p className="text-[11px] text-white/50 leading-relaxed">{agent.desc}</p>
+                <p className="text-[11px] text-white/50 leading-relaxed">{guardrail.desc}</p>
               </motion.div>
             );
           })}
