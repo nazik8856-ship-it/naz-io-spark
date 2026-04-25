@@ -1948,20 +1948,8 @@ const HomeView = ({
               </div>
 
               <div className="flex gap-2">
-                <button
-                  onClick={() => {
-                    let currentText = "";
-                    if (promptMode === "sandbox") currentText = sandboxText;
-                    else if (promptMode === "extractor") currentText = `${extractorData.industry} ${extractorData.audience} ${extractorData.budget}`;
-                    else if (promptMode === "blueprint") currentText = editablePrompt || selectedTemplate || "";
-                    if (currentText.trim()) onOpenThinkTank?.(currentText.trim());
-                  }}
-                  disabled={isPending}
-                  className="w-8 h-8 rounded-xl flex items-center justify-center transition-all bg-cyan-500/10 border border-cyan-500/30 hover:scale-105"
-                  title="Run 4-Agent Think Tank"
-                >
-                  <Brain size={13} className="text-cyan-400" />
-                </button>
+                {/* Think Tank button removed — agent orchestration runs silently
+                    via SYSTEM_ORCHESTRATION; chat surface stays focused on dialogue. */}
 
                 <button
                   onPointerDown={handleSendPointerDown}
