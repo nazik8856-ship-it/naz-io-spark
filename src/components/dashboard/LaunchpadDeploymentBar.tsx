@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Rocket, Loader2, CheckCircle2, Copy, Check, Globe2 } from "lucide-react";
+import { Rocket, Loader2, CheckCircle2, Copy, Check, Globe2, Terminal, Triangle } from "lucide-react";
 
 /**
  * LaunchpadDeploymentBar
