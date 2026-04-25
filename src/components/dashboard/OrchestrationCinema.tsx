@@ -18,6 +18,8 @@ import { Sparkles, Rocket, ShieldCheck, Zap, Search, TrendingUp } from "lucide-r
 interface OrchestrationCinemaProps {
   /** Show/hide the cinematic overlay. */
   active: boolean;
+  /** When true, let the previous preview remain visible behind the transition. */
+  ghosted?: boolean;
 }
 
 type ThumbCard = {
@@ -108,7 +110,7 @@ const buildCards = (): ThumbCard[] => {
 
 const PARTICLE_COUNT = 28;
 
-const OrchestrationCinema: React.FC<OrchestrationCinemaProps> = ({ active }) => {
+const OrchestrationCinema: React.FC<OrchestrationCinemaProps> = ({ active, ghosted = false }) => {
   const [seed, setSeed] = useState(0);
   useEffect(() => {
     if (active) setSeed((s) => s + 1);
@@ -140,9 +142,11 @@ const OrchestrationCinema: React.FC<OrchestrationCinemaProps> = ({ active }) => 
           className="pointer-events-none absolute inset-0 z-50 overflow-hidden flex items-center justify-center"
           style={{
             background:
-              "radial-gradient(circle at center, rgba(6,182,212,0.22) 0%, rgba(2,6,23,0.96) 42%, rgba(2,6,23,1) 78%)",
-            backdropFilter: "blur(48px) saturate(140%)",
-            WebkitBackdropFilter: "blur(48px) saturate(140%)",
+              ghosted
+                ? "radial-gradient(circle at center, rgba(6,182,212,0.28) 0%, rgba(2,6,23,0.70) 42%, rgba(2,6,23,0.88) 78%)"
+                : "radial-gradient(circle at center, rgba(6,182,212,0.22) 0%, rgba(2,6,23,0.96) 42%, rgba(2,6,23,1) 78%)",
+            backdropFilter: ghosted ? "blur(22px) saturate(140%)" : "blur(48px) saturate(140%)",
+            WebkitBackdropFilter: ghosted ? "blur(22px) saturate(140%)" : "blur(48px) saturate(140%)",
           }}
           aria-hidden
         >
