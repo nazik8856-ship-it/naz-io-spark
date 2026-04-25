@@ -28,7 +28,12 @@ import {
 
 const STORAGE_KEY = "nazai.commandCenter.checklist.v1";
 
-type StepId = "domain" | "customer" | "invoice" | "brand";
+type StepId = "domain" | "customer" | "invoice" | "brand" | "apis" | "setup";
+
+type StepAction =
+  | { kind: "external"; url: string }
+  | { kind: "directive"; directive: string }
+  | { kind: "event"; event: string };
 
 type Step = {
   id: StepId;
@@ -36,6 +41,7 @@ type Step = {
   desc: string;
   icon: React.ElementType;
   cta: string;
+  action: StepAction;
 };
 
 const STEPS: Step[] = [
@@ -45,6 +51,7 @@ const STEPS: Step[] = [
     desc: "Claim a branded domain so customers find you instantly.",
     icon: Globe,
     cta: "Browse domains",
+    action: { kind: "external", url: "https://www.namecheap.com/domains/" },
   },
   {
     id: "customer",
@@ -52,6 +59,11 @@ const STEPS: Step[] = [
     desc: "Drop a contact into the CRM to activate revenue tracking.",
     icon: UserPlus,
     cta: "Open CRM",
+    action: {
+      kind: "directive",
+      directive:
+        "Open the CRM workspace and walk me through adding my first customer with name, email, and revenue tracking enabled.",
+    },
   },
   {
     id: "invoice",
@@ -59,13 +71,47 @@ const STEPS: Step[] = [
     desc: "Send your first invoice and turn on payment receiving.",
     icon: FileText,
     cta: "New invoice",
+    action: {
+      kind: "directive",
+      directive:
+        "Generate a clean, branded invoice template I can send to my first customer and enable payment receiving.",
+    },
   },
   {
     id: "brand",
     title: "Generate brand assets",
-    desc: "Logo, palette, and social kit — produced by the AI image agent.",
+    desc: "Logo, palette, and social kit — produced in one pass.",
     icon: ImageIcon,
-    cta: "Run brand agent",
+    cta: "Generate Brand Assets",
+    action: {
+      kind: "directive",
+      directive:
+        "Open Asset Studio and generate a complete brand kit: logo, color palette, typography pairing, and a social media kit. Make it premium and cohesive.",
+    },
+  },
+  {
+    id: "apis",
+    title: "API Key Search",
+    desc: "Find and integrate external APIs instantly.",
+    icon: KeyRound,
+    cta: "Search APIs",
+    action: {
+      kind: "directive",
+      directive:
+        "Search for the most useful external APIs for my project and show me how to integrate them with secure key handling.",
+    },
+  },
+  {
+    id: "setup",
+    title: "Guide & Setup",
+    desc: "Step-by-step onboarding and configuration wizard.",
+    icon: Compass,
+    cta: "Start Setup",
+    action: {
+      kind: "directive",
+      directive:
+        "Start the guided setup wizard and walk me through configuring my project end-to-end with best-practice defaults.",
+    },
   },
 ];
 
