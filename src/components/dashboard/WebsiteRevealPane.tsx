@@ -456,20 +456,14 @@ const WebsiteRevealPane: React.FC<WebsiteRevealPaneProps> = ({
                 </div>
               </div>
 
-              {/* Sections */}
-              <div className="p-3 sm:p-4 space-y-3">
-                {SECTION_ORDER.map((id, idx) => {
-                  const live = stage > idx; // staged unlock
-                  return (
-                    <RevealSection
-                      key={id}
-                      id={id}
-                      live={live}
-                      device={device}
-                      headline={headline}
-                    />
-                  );
-                })}
+              <div className="relative p-3 sm:p-4">
+                <GeneratedWebsitePreview
+                  code={visibleWebsiteCode}
+                  headline={headline}
+                  device={device}
+                  stage={stage}
+                  dimmed={isPending && Boolean(visibleWebsiteCode.trim())}
+                />
               </div>
             </div>
 
