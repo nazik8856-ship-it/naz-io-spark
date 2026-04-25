@@ -100,7 +100,17 @@ const WebsiteRevealPane: React.FC<WebsiteRevealPaneProps> = ({
   const [visibleWebsiteCode, setVisibleWebsiteCode] = useState(activeWebsiteCode);
   const strategyRef = useRef<HTMLDivElement>(null);
 
-  const agents = useMemo(() => buildAgentCards(responseText), [responseText]);
+  const [factCheckOpen, setFactCheckOpen] = useState(false);
+  const [factChecking, setFactChecking] = useState(false);
+  const confidence = useMemo(() => computeConfidence(responseText), [responseText]);
+  const confidenceTier =
+    confidence >= 90 ? "High" : confidence >= 78 ? "Solid" : "Drafting";
+
+  const triggerFactCheck = () => {
+    setFactCheckOpen(true);
+    setFactChecking(true);
+    window.setTimeout(() => setFactChecking(false), 1400);
+  };
 
   // ── Staged reveal: 5s sequence so the Orchestration Cinema climax (cards
   //    shattering + cyan lock-in flash) lands at the 5-second peak. The
