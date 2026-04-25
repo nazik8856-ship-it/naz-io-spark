@@ -3235,6 +3235,7 @@ export default function Dashboard() {
         `When the user asks to generate, build, modify, or edit a website or any visual component, ALWAYS output complete, valid, runnable code that can be applied directly to the live preview. Never respond with only text descriptions, summaries, strategies, or explanations unless the user explicitly asks for non-code content.\n` +
         `You are given the COMPLETE latest source code of the live preview below. First analyze the existing code carefully. Then make precise, targeted edits ONLY to the requested parts. Preserve everything else exactly. Never regenerate the entire site from scratch unless the user says "regenerate full site".\n` +
         `Return ONLY ONE complete, standalone HTML document inside a single \`\`\`html fenced block. Inline CSS/JS. No markdown prose, no TSX imports, no partial snippets, no explanations before or after.\n\n` +
+        PREMIUM_WEBSITE_QUALITY_GUIDELINES +
         styleReferenceBlock +
         `[ITERATION_DIRECTIVE: LIVE_EDIT]\n` +
         `REQUESTED_CHANGE: ${visiblePrompt}\n` +
@@ -3251,8 +3252,8 @@ export default function Dashboard() {
         `[PRIORITY_DIRECTIVE: WEBSITE_BUILD]\n` +
         `SYSTEM (HARD RULE — CODE OUTPUT MODE): Always output complete runnable code, never text-only explanations.\n` +
         `Return ONLY ONE complete, standalone HTML document inside a single \`\`\`html fenced block, with inline CSS/JS that renders in iframe srcDoc. No prose before or after the fence.\n` +
-        `Use the user's exact prompt to create a bespoke modern dark cyber-futuristic SaaS website with glassmorphism, neon accents, a hero with CTA, a feature grid, working anchor nav links (Home, Features, Pricing), and rich content. ` +
-        `Do not use the same template for every user; adapt sections, copy, visual emphasis, and palette accents to the prompt.\n\n` +
+        `Use the user's exact prompt to create a bespoke premium website tailored to that business. Adapt sections, copy, visual emphasis, palette, typography, and imagery to the prompt — never reuse the same template across users.\n\n` +
+        PREMIUM_WEBSITE_QUALITY_GUIDELINES +
         masterPrompt;
     }
 
