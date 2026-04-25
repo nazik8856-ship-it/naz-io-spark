@@ -414,6 +414,11 @@ const generateFallbackOutline = (prompt: string): string => {
   return `[Neural Architect: Connection Delayed]\n\nBased on: "${words}...", the blueprint is being generated. Please check your connection or try again.\n\nPreliminary Structure:\n• Market Analysis\n• Operational Framework\n• Financial Architecture\n• Growth Strategy\n\nReconnect to receive the complete AI-powered strategic plan.`;
 };
 
+const extractGeneratedCode = (text: string): string => {
+  const fenced = text.match(/```(?:tsx|jsx|ts|js|html)?\s*([\s\S]*?)```/i);
+  return (fenced?.[1] ?? text).trim();
+};
+
 // ─── Folder View Components (Trash & Archives) ────────────────────────────────────
 
 // TrashView Component - Shows deleted items with permanent wipe and restore
@@ -1284,7 +1289,7 @@ const HomeView = ({
               <>
                 <div className="max-w-[85%] rounded-xl overflow-hidden border border-border bg-card/80">
                   <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-secondary/20">
-                    <MessageSquare size={12} className="text-primary" />
+                    <Brain size={12} className="text-primary" />
                     <span className="text-[9px] font-mono font-bold tracking-wider text-primary">
                       NazAI
                     </span>
@@ -1314,6 +1319,7 @@ const HomeView = ({
               isPending={isPending}
               isWebsiteComplete={isWebsiteComplete}
               directive={lastWebsitePrompt}
+              activeWebsiteCode={activeWebsiteCode}
               onRefine={handleRefine}
               onEditTrigger={onEditTrigger}
             />
