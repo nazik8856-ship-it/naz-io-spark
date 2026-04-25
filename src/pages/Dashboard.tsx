@@ -3198,7 +3198,12 @@ export default function Dashboard() {
       // Snapshot the generated output so SANDBOX iteration prompts can feed
       // it back to the AI as `[CurrentCode]` for surgical edits.
       if (shouldActivateWebsitePreview || isWebsiteIntent || websiteGenerated || inSandboxEditMode) {
-        setActiveWebsiteCode(generatedCode || outputText || "");
+        setActiveWebsiteCode((prev) => {
+          const candidate = (generatedCode || outputText || "").trim();
+          if (hasPreviewHtml(candidate)) return candidate;
+          if (hasPreviewHtml(prev)) return prev;
+          return buildStarterWebsiteHtml(lastWebsitePrompt || visiblePrompt);
+        });
       }
 
       if (missionToUpdateId) {
