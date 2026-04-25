@@ -337,15 +337,23 @@ const CommandCenterChecklist: React.FC = () => {
                     <ArrowRight size={10} />
                   </div>
                 </div>
-                <div className="shrink-0">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggle(step.id);
+                  }}
+                  className="shrink-0 cursor-pointer hover:opacity-100 opacity-80 transition-opacity"
+                  aria-label={done ? "Mark as incomplete" : "Mark as complete"}
+                >
                   {done ? (
                     <CheckCircle2 size={18} style={{ color: "#06b6d4" }} />
                   ) : (
                     <Circle size={18} className="text-white/25" />
                   )}
-                </div>
+                </button>
               </div>
-            </motion.button>
+            </motion.div>
           );
         })}
       </div>
