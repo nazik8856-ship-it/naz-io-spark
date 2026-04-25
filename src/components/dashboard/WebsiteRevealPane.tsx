@@ -55,6 +55,10 @@ type AgentCard = {
 interface WebsiteRevealPaneProps {
   /** Latest AI response text for the active website mission. */
   responseText: string;
+  /** Latest complete generated code for the active website preview. */
+  activeWebsiteCode?: string;
+  /** Increments per generation request so cinematic stages restart reliably. */
+  generationRunId?: number;
   /** True while the agent chain is running. Drives staged-reveal animation. */
   isPending: boolean;
   /** True once a website has been confirmed generated (unlocks the checklist). */
@@ -129,6 +133,8 @@ const SECTION_ORDER: SectionId[] = ["hero", "features", "contact"];
 
 const WebsiteRevealPane: React.FC<WebsiteRevealPaneProps> = ({
   responseText,
+  activeWebsiteCode = "",
+  generationRunId = 0,
   isPending,
   isWebsiteComplete,
   directive,
@@ -144,6 +150,7 @@ const WebsiteRevealPane: React.FC<WebsiteRevealPaneProps> = ({
   } | null>(null);
   const [refineOpen, setRefineOpen] = useState(false);
   const [refineInstruction, setRefineInstruction] = useState("");
+  const [visibleWebsiteCode, setVisibleWebsiteCode] = useState(activeWebsiteCode);
   const strategyRef = useRef<HTMLDivElement>(null);
 
   const agents = useMemo(() => buildAgentCards(responseText), [responseText]);
@@ -163,7 +170,13 @@ const WebsiteRevealPane: React.FC<WebsiteRevealPaneProps> = ({
       clearTimeout(t3);
       clearTimeout(t4);
     };
-  }, [directive]);
+  }, [directive, generationRunId]);
+
+  useEffect(() => {
+    if (!isPending && activeWebsiteCode.trim()) {
+      setVisibleWebsiteCode(activeWebsiteCode);
+    }
+  }, [activeWebsiteCode, isPending]);
 
   // ── Highlight-to-Refine tooltip in the Strategy pane ─────────────────────────
   useEffect(() => {
