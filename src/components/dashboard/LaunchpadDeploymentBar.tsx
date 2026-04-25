@@ -55,9 +55,16 @@ const LaunchpadDeploymentBar: React.FC<LaunchpadDeploymentBarProps> = ({
   const [copied, setCopied] = useState(false);
   const timeouts = useRef<number[]>([]);
 
+  // ── Vercel / Production deploy log ─────────────────────────────────────────
+  const [vercelPhase, setVercelPhase] = useState<"idle" | "running" | "live">("idle");
+  const [vercelLog, setVercelLog] = useState<string[]>([]);
+  const [vercelUrl, setVercelUrl] = useState<string>("");
+  const vercelTimeouts = useRef<number[]>([]);
+
   useEffect(() => {
     return () => {
       timeouts.current.forEach((t) => window.clearTimeout(t));
+      vercelTimeouts.current.forEach((t) => window.clearTimeout(t));
     };
   }, []);
 
