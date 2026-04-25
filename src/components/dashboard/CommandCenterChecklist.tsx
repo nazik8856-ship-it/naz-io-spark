@@ -13,6 +13,8 @@ import {
   MessageSquare,
   BarChart3,
   ArrowRight,
+  KeyRound,
+  Compass,
 } from "lucide-react";
 
 /**
