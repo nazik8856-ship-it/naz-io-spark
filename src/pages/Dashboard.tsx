@@ -3199,13 +3199,27 @@ export default function Dashboard() {
       }
       // Snapshot the generated output so SANDBOX iteration prompts can feed
       // it back to the AI as `[CurrentCode]` for surgical edits.
+      // CRITICAL: during an iteration, NEVER overwrite the live preview with a
+      // fresh starter — if the AI returned prose-only, keep the previous code.
       if (shouldActivateWebsitePreview || isWebsiteIntent || websiteGenerated || inSandboxEditMode) {
+        let appliedCodeChange = false;
         setActiveWebsiteCode((prev) => {
           const candidate = (generatedCode || outputText || "").trim();
-          if (hasPreviewHtml(candidate)) return candidate;
-          if (hasPreviewHtml(prev)) return prev;
+          if (hasPreviewHtml(candidate)) {
+            appliedCodeChange = candidate !== prev;
+            return candidate;
+          }
+          if (hasPreviewHtml(prev)) return prev; // preserve live preview
+          // First build with no usable HTML yet → fall back to bespoke starter
           return buildStarterWebsiteHtml(lastWebsitePrompt || visiblePrompt);
         });
+        if (appliedCodeChange && inSandboxEditMode) {
+          // Lightweight inline confirmation — no extra deps, dismisses itself.
+          try {
+            const { toast } = await import("sonner");
+            toast.success("Preview updated ✓", { duration: 1800 });
+          } catch { /* noop */ }
+        }
       }
 
       if (missionToUpdateId) {
