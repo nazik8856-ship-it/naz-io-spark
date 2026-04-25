@@ -3,7 +3,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { motion, AnimatePresence } from "framer-motion";
 import DropScanOverlay from "@/components/interactions/DropScanOverlay";
 import MagneticButton from "@/components/interactions/MagneticButton";
-import CommandCenterChecklist from "@/components/dashboard/CommandCenterChecklist";
 import WebsiteRevealPane from "@/components/dashboard/WebsiteRevealPane";
 import { useNavigate } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
@@ -50,10 +49,6 @@ import {
   RotateCcw,
   Sliders,
   AlertCircle,
-  MoreHorizontal,
-  Copy,
-  Share2,
-  RotateCw,
   Camera,
   Youtube,
   Music2,
