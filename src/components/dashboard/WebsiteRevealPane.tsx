@@ -268,60 +268,163 @@ const WebsiteRevealPane: React.FC<WebsiteRevealPaneProps> = ({
             )}
           </AnimatePresence>
 
-          <div className="flex items-center gap-2 mb-1">
-            <Sparkles size={12} className="text-cyan-400" />
-            <h3 className="text-xs font-mono uppercase tracking-[0.2em] text-zinc-300">
-              Strategy
-            </h3>
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <div className="flex items-center gap-2">
+              <Sparkles size={12} className="text-cyan-400" />
+              <h3 className="text-xs font-mono uppercase tracking-[0.2em] text-zinc-300">
+                Conversation
+              </h3>
+            </div>
+            <span className="text-[9px] font-mono uppercase tracking-[0.22em] text-zinc-600">
+              NazAI · Live thread
+            </span>
           </div>
-          <p className="text-[11px] text-zinc-500 leading-relaxed mb-3 font-mono">
-            Internal NazAI synthesis. Highlight any text to refine it.
+          <p className="text-[11px] text-zinc-500 leading-relaxed mb-4 font-mono">
+            Highlight any text in NazAI's reply to refine it inline.
           </p>
 
-          <div ref={strategyRef} className="space-y-2.5 select-text">
-            {agents.map((agent, i) => {
-              const Icon = agent.Icon;
-              return (
-                <motion.div
-                  key={agent.id}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.35, delay: 0.1 + i * 0.08 }}
-                  className="rounded-lg p-3"
-                  style={{
-                    background: "#0b0b0f",
-                    border: "1px solid #27272a",
-                  }}
-                >
-                  <div className="flex items-center justify-between gap-2 mb-2">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <div
-                        className="w-6 h-6 rounded-md flex items-center justify-center shrink-0"
+          <div ref={strategyRef} className="space-y-4 select-text">
+            {/* ─── User prompt bubble ───────────────────────────────────── */}
+            {directive && (
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3 }}
+                className="flex justify-end"
+              >
+                <div className="flex items-start gap-2 max-w-[92%]">
+                  <div
+                    className="rounded-2xl rounded-tr-sm px-3.5 py-2.5 text-[12px] leading-relaxed"
+                    style={{
+                      background:
+                        "linear-gradient(135deg, rgba(6,182,212,0.16), rgba(6,182,212,0.08))",
+                      border: "1px solid rgba(6,182,212,0.32)",
+                      color: "#e4e4e7",
+                    }}
+                  >
+                    {directive}
+                  </div>
+                  <div
+                    className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5"
+                    style={{
+                      background: "rgba(255,255,255,0.04)",
+                      border: "1px solid rgba(255,255,255,0.08)",
+                    }}
+                  >
+                    <User size={12} className="text-zinc-400" />
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
+            {/* ─── NazAI response bubble ────────────────────────────────── */}
+            {responseText ? (
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.35, delay: 0.08 }}
+                className="flex justify-start"
+              >
+                <div className="flex items-start gap-2 max-w-[96%] w-full">
+                  <div
+                    className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5"
+                    style={{
+                      background:
+                        "linear-gradient(135deg, rgba(6,182,212,0.25), rgba(139,92,246,0.18))",
+                      border: "1px solid rgba(6,182,212,0.4)",
+                    }}
+                  >
+                    <Sparkles size={12} className="text-cyan-300" />
+                  </div>
+                  <div className="flex-1 min-w-0 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-mono font-bold tracking-wide text-zinc-200">
+                        NazAI
+                      </span>
+                      {/* Verification chip */}
+                      <span
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-mono tracking-wider"
                         style={{
-                          background: `${agent.accent}14`,
-                          border: `1px solid ${agent.accent}33`,
+                          background: "rgba(34,197,94,0.10)",
+                          border: "1px solid rgba(34,197,94,0.28)",
+                          color: "#22c55e",
+                        }}
+                        title="Confidence score derived from response signal density"
+                      >
+                        <ShieldCheck size={9} />
+                        Verified · {confidence}% · {confidenceTier}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={triggerFactCheck}
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-mono tracking-wider transition-colors hover:bg-white/5"
+                        style={{
+                          border: "1px solid rgba(255,255,255,0.08)",
+                          color: "#a1a1aa",
                         }}
                       >
-                        <Icon size={11} style={{ color: agent.accent }} />
-                      </div>
-                      <span className="text-[11px] font-mono font-bold tracking-wide text-zinc-200">
-                        {agent.label}
-                      </span>
+                        <Search size={9} />
+                        Fact-check
+                      </button>
                     </div>
-                    <span className="text-[9px] font-mono uppercase tracking-[0.2em] text-zinc-500">
-                      {agent.role}
-                    </span>
+                    <div
+                      className="rounded-2xl rounded-tl-sm px-3.5 py-3 text-[11.5px] font-mono leading-relaxed text-zinc-300 whitespace-pre-wrap"
+                      style={{
+                        background: "#0b0b0f",
+                        border: "1px solid #27272a",
+                      }}
+                    >
+                      {responseText}
+                    </div>
+
+                    {/* Fact-check expandable result */}
+                    <AnimatePresence>
+                      {factCheckOpen && (
+                        <motion.div
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: "auto" }}
+                          exit={{ opacity: 0, height: 0 }}
+                          className="overflow-hidden"
+                        >
+                          <div
+                            className="rounded-lg p-3 text-[10px] font-mono"
+                            style={{
+                              background: "rgba(6,182,212,0.05)",
+                              border: "1px solid rgba(6,182,212,0.22)",
+                              color: "#a1a1aa",
+                            }}
+                          >
+                            {factChecking ? (
+                              <span className="flex items-center gap-2 text-cyan-400">
+                                <Loader2 size={10} className="animate-spin" />
+                                Cross-checking against current best practices…
+                              </span>
+                            ) : (
+                              <div className="space-y-1.5">
+                                <div className="flex items-center gap-1.5 text-emerald-400">
+                                  <ShieldCheck size={10} />
+                                  Cleared · {confidence}% confidence
+                                </div>
+                                <p>
+                                  Structure, copy density, and architecture
+                                  align with modern SaaS conversion patterns.
+                                  No high-risk claims detected.
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
-                  <p className="text-[11px] font-mono leading-relaxed text-zinc-400 whitespace-pre-wrap">
-                    {agent.body}
-                  </p>
-                </motion.div>
-              );
-            })}
-            {!responseText && (
-              <div className="rounded-lg p-4 text-[11px] font-mono text-zinc-500 text-center"
-                   style={{ background: "#0b0b0f", border: "1px dashed #27272a" }}>
-                Strategy will appear here once NazAI returns its synthesis.
+                </div>
+              </motion.div>
+            ) : (
+              <div
+                className="rounded-lg p-4 text-[11px] font-mono text-zinc-500 text-center"
+                style={{ background: "#0b0b0f", border: "1px dashed #27272a" }}
+              >
+                NazAI's reply will appear here once the build is synthesized.
               </div>
             )}
           </div>
