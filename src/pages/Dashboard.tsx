@@ -2953,7 +2953,7 @@ export default function Dashboard() {
       }
       // Snapshot the generated output so SANDBOX iteration prompts can feed
       // it back to the AI as `[CurrentCode]` for surgical edits.
-      if (isWebsiteIntent || websiteGenerated) {
+      if (isWebsiteIntent || websiteGenerated || inSandboxEditMode) {
         setActiveWebsiteCode(outputText || "");
       }
 
@@ -2992,7 +2992,7 @@ export default function Dashboard() {
         window.scrollTo(0, document.body.scrollHeight);
       }, 250);
     }
-  }, [isPending, messages.length, selectedModel, userId, activeStyle, webSearchActive, activeMissionId, fetchMissions, compileMasterPrompt, extractorData, userContext, isWebsiteComplete, isWebsiteIntent, lastWebsitePrompt, activeWebsiteCode, promptMode]);
+  }, [isPending, messages.length, selectedModel, userId, activeStyle, webSearchActive, activeMissionId, fetchMissions, compileMasterPrompt, extractorData, userContext, isWebsiteComplete, isWebsiteIntent, lastWebsitePrompt, activeWebsiteCode, promptMode, sandboxText, editablePrompt]);
 
   // ─── INPUT TRIGGERS ────────────────────────────────────────────────────────
   const handleKeyDown = useCallback(
