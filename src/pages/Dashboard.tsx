@@ -1633,6 +1633,21 @@ const HomeView = ({
             <span className="text-[9px] font-mono text-white/40 hidden sm:inline">CLICK TO EXPAND</span>
             <ChevronRight size={14} className="text-white/40 rotate-[-90deg]" />
           </motion.button>
+        ) : isWebsiteComplete ? (
+          // ── Iteration mode: single-line "Fix" prompt with cyan glow ──────
+          //    The three-mode switcher is intentionally hidden once a site
+          //    has been generated. Any text typed here is treated as an
+          //    edit on the active code via handleSendMessage's
+          //    inSandboxEditMode branch (promptMode is forced to sandbox).
+          <FixPromptBlank
+            isPending={isPending}
+            onSend={(text: string) => {
+              if (promptMode !== "sandbox") setPromptMode("sandbox");
+              setSandboxText(text);
+              // Defer one tick so compileMasterPrompt picks up sandboxText.
+              setTimeout(() => handleSendMessage(text), 0);
+            }}
+          />
         ) : (
         <div className="w-full px-0 sm:px-4">
           <motion.div
