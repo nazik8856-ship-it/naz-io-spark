@@ -3056,11 +3056,24 @@ export default function Dashboard() {
         setIsWebsiteIntent(true);
         setIsWebsiteComplete(true);
       }
+      const refs = options?.referenceImages ?? [];
+      const styleReferenceBlock = refs.length
+        ? `[STYLE_REFERENCE_IMAGES: ${refs.length} attached]\n` +
+          `INSTRUCTION: Analyze the reference image(s) below for colors, typography, spacing, glassmorphism level, accent style, and overall vibe. Adapt the current website to closely match the reference while preserving functionality and content structure. Treat the references as authoritative for visual style.\n` +
+          refs
+            .map(
+              (r, i) =>
+                `REFERENCE_${i + 1} (${r.name}): ${r.dataUrl.slice(0, 120)}…[truncated dataURL — full image attached to the multimodal payload]`,
+            )
+            .join("\n") +
+          `\n\n`
+        : "";
       masterPrompt =
         `SYSTEM (HARD RULE — CODE OUTPUT MODE):\n` +
         `When the user asks to generate, build, modify, or edit a website or any visual component, ALWAYS output complete, valid, runnable code that can be applied directly to the live preview. Never respond with only text descriptions, summaries, strategies, or explanations unless the user explicitly asks for non-code content.\n` +
         `You are given the COMPLETE latest source code of the live preview below. First analyze the existing code carefully. Then make precise, targeted edits ONLY to the requested parts. Preserve everything else exactly. Never regenerate the entire site from scratch unless the user says "regenerate full site".\n` +
         `Return ONLY ONE complete, standalone HTML document inside a single \`\`\`html fenced block. Inline CSS/JS. No markdown prose, no TSX imports, no partial snippets, no explanations before or after.\n\n` +
+        styleReferenceBlock +
         `[ITERATION_DIRECTIVE: LIVE_EDIT]\n` +
         `REQUESTED_CHANGE: ${visiblePrompt}\n` +
         `LAST_BUILD_DIRECTIVE: ${lastWebsitePrompt}\n\n` +
