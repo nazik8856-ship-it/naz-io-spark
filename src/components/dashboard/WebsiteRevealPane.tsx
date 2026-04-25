@@ -613,6 +613,50 @@ const WebsiteRevealPane: React.FC<WebsiteRevealPaneProps> = ({
 };
 
 // ─── Reveal section: skeleton → live ───────────────────────────────────────────
+const GeneratedWebsitePreview: React.FC<{
+  code: string;
+  headline: string;
+  device: DeviceMode;
+  stage: number;
+  dimmed: boolean;
+}> = ({ code, headline, device, stage, dimmed }) => {
+  const canRenderHtml = /<\s*(html|body|main|section|div|header|nav|article|footer)[\s>]/i.test(code);
+  if (canRenderHtml) {
+    return (
+      <iframe
+        key={code.slice(0, 80)}
+        srcDoc={code}
+        title="Generated website preview"
+        sandbox="allow-scripts"
+        className="w-full rounded-lg bg-background transition-opacity duration-500"
+        style={{
+          minHeight: device === "mobile" ? 640 : 560,
+          border: "1px solid hsl(var(--border))",
+          opacity: dimmed ? 0.3 : 1,
+        }}
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-3 transition-opacity duration-500" style={{ opacity: dimmed ? 0.3 : 1 }}>
+      {SECTION_ORDER.map((id, idx) => (
+        <RevealSection key={id} id={id} live={stage > idx} device={device} headline={headline} />
+      ))}
+      {code.trim() && (
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="mb-2 text-[10px] font-mono uppercase tracking-[0.22em] text-primary">
+            Updated React/Tailwind source
+          </div>
+          <pre className="max-h-44 overflow-auto whitespace-pre-wrap text-[10px] leading-relaxed text-muted-foreground">
+            {code}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const RevealSection: React.FC<{
   id: SectionId;
   live: boolean;
