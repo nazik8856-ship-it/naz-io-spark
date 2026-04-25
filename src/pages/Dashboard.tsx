@@ -3527,6 +3527,52 @@ export default function Dashboard() {
             <span>AI:READY</span>
           </div>
         </footer>
+
+        <AnimatePresence>
+          {isWebsiteIntent && activeNav !== "home" && (
+            <motion.button
+              key="global-return-to-preview"
+              type="button"
+              onClick={() => {
+                setActiveNav("home");
+                setShowSettings(false);
+                setIsPreviewActive(true);
+              }}
+              initial={{ opacity: 0, y: 24, scale: 0.92 }}
+              animate={{
+                opacity: 1,
+                y: 0,
+                scale: 1,
+                boxShadow: [
+                  "0 0 0 1px rgba(6,182,212,0.55), 0 0 18px rgba(6,182,212,0.35)",
+                  "0 0 0 1px rgba(6,182,212,0.85), 0 0 32px rgba(6,182,212,0.7)",
+                  "0 0 0 1px rgba(6,182,212,0.55), 0 0 18px rgba(6,182,212,0.35)",
+                ],
+              }}
+              exit={{ opacity: 0, y: 24, scale: 0.92 }}
+              transition={{
+                opacity: { duration: 0.2 },
+                y: { type: "spring", stiffness: 320, damping: 26 },
+                scale: { type: "spring", stiffness: 320, damping: 26 },
+                boxShadow: { duration: 2.4, repeat: Infinity, ease: "easeInOut" },
+              }}
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.96 }}
+              className="fixed bottom-10 right-6 z-[70] flex items-center gap-2 px-4 py-2.5 rounded-full font-mono text-[11px] tracking-wider uppercase"
+              style={{
+                background: "rgba(255,255,255,0.08)",
+                backdropFilter: "blur(14px) saturate(140%)",
+                WebkitBackdropFilter: "blur(14px) saturate(140%)",
+                border: "1px solid rgba(6,182,212,0.6)",
+                color: "#06b6d4",
+              }}
+              aria-label="Return to website preview"
+            >
+              <Maximize2 size={13} />
+              Return to Preview
+            </motion.button>
+          )}
+        </AnimatePresence>
       </main>
 
       {/* PLUS MENU MODAL */}
