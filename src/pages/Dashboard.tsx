@@ -3173,6 +3173,26 @@ export default function Dashboard() {
     }
   }, [isPending, messages.length, selectedModel, userId, activeStyle, webSearchActive, activeMissionId, fetchMissions, compileMasterPrompt, extractorData, userContext, isWebsiteComplete, isWebsiteIntent, lastWebsitePrompt, activeWebsiteCode, promptMode, sandboxText, editablePrompt]);
 
+  // ─── Listen for checklist / external action directives ────────────────────
+  // The CommandCenterChecklist (and any other Dashboard widget) can dispatch
+  // a `nazai:run-directive` CustomEvent to push a prompt straight into the
+  // chat pipeline as if the user typed it. This keeps onboarding cards
+  // functional without prop-drilling a callback through WebsiteRevealPane.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as
+        | { directive?: string; source?: string }
+        | undefined;
+      const directive = detail?.directive?.trim();
+      if (!directive) return;
+      handleSendMessage(directive);
+    };
+    window.addEventListener("nazai:run-directive", handler as EventListener);
+    return () =>
+      window.removeEventListener("nazai:run-directive", handler as EventListener);
+  }, [handleSendMessage]);
+
   // ─── INPUT TRIGGERS ────────────────────────────────────────────────────────
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {

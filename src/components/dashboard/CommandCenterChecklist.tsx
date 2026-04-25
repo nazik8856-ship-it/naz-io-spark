@@ -13,6 +13,8 @@ import {
   MessageSquare,
   BarChart3,
   ArrowRight,
+  KeyRound,
+  Compass,
 } from "lucide-react";
 
 /**
@@ -26,7 +28,12 @@ import {
 
 const STORAGE_KEY = "nazai.commandCenter.checklist.v1";
 
-type StepId = "domain" | "customer" | "invoice" | "brand";
+type StepId = "domain" | "customer" | "invoice" | "brand" | "apis" | "setup";
+
+type StepAction =
+  | { kind: "external"; url: string }
+  | { kind: "directive"; directive: string }
+  | { kind: "event"; event: string };
 
 type Step = {
   id: StepId;
@@ -34,6 +41,7 @@ type Step = {
   desc: string;
   icon: React.ElementType;
   cta: string;
+  action: StepAction;
 };
 
 const STEPS: Step[] = [
@@ -43,6 +51,7 @@ const STEPS: Step[] = [
     desc: "Claim a branded domain so customers find you instantly.",
     icon: Globe,
     cta: "Browse domains",
+    action: { kind: "external", url: "https://www.namecheap.com/domains/" },
   },
   {
     id: "customer",
@@ -50,6 +59,11 @@ const STEPS: Step[] = [
     desc: "Drop a contact into the CRM to activate revenue tracking.",
     icon: UserPlus,
     cta: "Open CRM",
+    action: {
+      kind: "directive",
+      directive:
+        "Open the CRM workspace and walk me through adding my first customer with name, email, and revenue tracking enabled.",
+    },
   },
   {
     id: "invoice",
@@ -57,13 +71,47 @@ const STEPS: Step[] = [
     desc: "Send your first invoice and turn on payment receiving.",
     icon: FileText,
     cta: "New invoice",
+    action: {
+      kind: "directive",
+      directive:
+        "Generate a clean, branded invoice template I can send to my first customer and enable payment receiving.",
+    },
   },
   {
     id: "brand",
     title: "Generate brand assets",
-    desc: "Logo, palette, and social kit — produced by the AI image agent.",
+    desc: "Logo, palette, and social kit — produced in one pass.",
     icon: ImageIcon,
-    cta: "Run brand agent",
+    cta: "Generate Brand Assets",
+    action: {
+      kind: "directive",
+      directive:
+        "Open Asset Studio and generate a complete brand kit: logo, color palette, typography pairing, and a social media kit. Make it premium and cohesive.",
+    },
+  },
+  {
+    id: "apis",
+    title: "API Key Search",
+    desc: "Find and integrate external APIs instantly.",
+    icon: KeyRound,
+    cta: "Search APIs",
+    action: {
+      kind: "directive",
+      directive:
+        "Search for the most useful external APIs for my project and show me how to integrate them with secure key handling.",
+    },
+  },
+  {
+    id: "setup",
+    title: "Guide & Setup",
+    desc: "Step-by-step onboarding and configuration wizard.",
+    icon: Compass,
+    cta: "Start Setup",
+    action: {
+      kind: "directive",
+      directive:
+        "Start the guided setup wizard and walk me through configuring my project end-to-end with best-practice defaults.",
+    },
   },
 ];
 
@@ -100,6 +148,8 @@ const DEFAULT_PROGRESS: ProgressMap = {
   customer: false,
   invoice: false,
   brand: false,
+  apis: false,
+  setup: false,
 };
 
 const loadProgress = (): ProgressMap => {
@@ -140,6 +190,30 @@ const CommandCenterChecklist: React.FC = () => {
   const toggle = (id: StepId) =>
     setProgress((p) => ({ ...p, [id]: !p[id] }));
 
+  // Fire the step's primary action (open URL or dispatch a chat directive)
+  // and mark the step as completed automatically.
+  const runAction = (step: Step) => {
+    const action = step.action;
+    if (action.kind === "external") {
+      if (typeof window !== "undefined") {
+        window.open(action.url, "_blank", "noopener,noreferrer");
+      }
+    } else if (action.kind === "directive") {
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("nazai:run-directive", {
+            detail: { directive: action.directive, source: `checklist:${step.id}` },
+          }),
+        );
+      }
+    } else if (action.kind === "event") {
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent(action.event));
+      }
+    }
+    setProgress((p) => ({ ...p, [step.id]: true }));
+  };
+
   // Activity unlocks: 2 steps unlocks invoices, 3 steps unlocks customers
   const invoicesUnlocked = completedCount >= 2;
   const customersUnlocked = completedCount >= 3;
@@ -164,7 +238,7 @@ const CommandCenterChecklist: React.FC = () => {
             Get your business operating
           </h2>
           <p className="text-sm text-white/50 mt-1">
-            Four moves to a fully live operation. NazAI handles the heavy lifting.
+            Six moves to a fully live operation. NazAI handles the heavy lifting.
           </p>
         </div>
 
@@ -200,20 +274,27 @@ const CommandCenterChecklist: React.FC = () => {
       </div>
 
       {/* Checklist grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
         {STEPS.map((step, i) => {
           const done = progress[step.id];
           const Icon = step.icon;
           return (
-            <motion.button
+            <motion.div
               key={step.id}
-              type="button"
-              onClick={() => toggle(step.id)}
+              onClick={() => runAction(step)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  runAction(step);
+                }
+              }}
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.4, delay: i * 0.06 }}
               whileHover={{ y: -2 }}
-              className="group relative text-left rounded-xl p-4 transition-all"
+              className="group relative text-left rounded-xl p-4 transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-cyan-400/40"
               style={{
                 background: done
                   ? "linear-gradient(135deg, rgba(6,182,212,0.08), rgba(139,92,246,0.04))"
@@ -256,15 +337,23 @@ const CommandCenterChecklist: React.FC = () => {
                     <ArrowRight size={10} />
                   </div>
                 </div>
-                <div className="shrink-0">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggle(step.id);
+                  }}
+                  className="shrink-0 cursor-pointer hover:opacity-100 opacity-80 transition-opacity"
+                  aria-label={done ? "Mark as incomplete" : "Mark as complete"}
+                >
                   {done ? (
                     <CheckCircle2 size={18} style={{ color: "#06b6d4" }} />
                   ) : (
                     <Circle size={18} className="text-white/25" />
                   )}
-                </div>
+                </button>
               </div>
-            </motion.button>
+            </motion.div>
           );
         })}
       </div>

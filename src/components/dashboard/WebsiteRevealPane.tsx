@@ -44,7 +44,7 @@ import LaunchpadDeploymentBar from "@/components/dashboard/LaunchpadDeploymentBa
 type DeviceMode = "desktop" | "mobile";
 
 type AgentCard = {
-  id: "ceo" | "growth" | "architect" | "executioner";
+  id: "ceo" | "growth" | "architect" | "build";
   label: string;
   role: string;
   Icon: React.ElementType;
@@ -117,8 +117,8 @@ const buildAgentCards = (response: string): AgentCard[] => {
       body: c || "Technical architecture is being assembled.",
     },
     {
-      id: "executioner",
-      label: "Executioner",
+      id: "build",
+      label: "Build",
       role: "Build & Ship",
       Icon: Code2,
       accent: "#f59e0b",
@@ -601,7 +601,7 @@ const WebsiteRevealPane: React.FC<WebsiteRevealPaneProps> = ({
                     boxShadow: "0 0 18px rgba(6,182,212,0.4)",
                   }}
                 >
-                  Send to Executioner
+                  Apply Refinement
                 </button>
               </div>
             </motion.div>
