@@ -22,6 +22,10 @@ import {
   Loader2,
   X,
   UploadCloud,
+  Eye,
+  EyeOff,
+  Trash2,
+  Pencil,
 } from "lucide-react";
 import {
   Dialog,
