@@ -1263,12 +1263,62 @@ const BrandAssetsModal: React.FC<{
                 </div>
                 <button
                   type="button"
-                  onClick={() => setAttachment(null)}
+                  onClick={() => { setAttachment(null); setPalette([]); }}
                   className="shrink-0 w-7 h-7 rounded-md flex items-center justify-center text-white/50 hover:text-white hover:bg-white/10 transition-colors"
                   aria-label="Remove file"
                 >
                   <X size={13} />
                 </button>
+              </div>
+            )}
+
+            {/* Auto-extracted palette suggestion */}
+            {(extracting || palette.length > 0) && (
+              <div
+                className="mt-2 rounded-lg p-2.5"
+                style={{
+                  background: "rgba(139,92,246,0.05)",
+                  border: "1px solid rgba(139,92,246,0.25)",
+                }}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[9px] font-mono tracking-[0.2em] uppercase text-violet-300/80">
+                    {extracting ? "Extracting palette…" : "Suggested palette · auto-extracted"}
+                  </span>
+                  {!extracting && palette.length > 0 && (
+                    <span className="text-[9px] font-mono text-white/40">
+                      Will guide brand + website colors
+                    </span>
+                  )}
+                </div>
+                {extracting ? (
+                  <div className="flex gap-1.5">
+                    {[0, 1, 2, 3, 4].map((i) => (
+                      <div
+                        key={i}
+                        className="h-6 flex-1 rounded animate-pulse"
+                        style={{ background: "rgba(255,255,255,0.06)" }}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex gap-1.5">
+                    {palette.map((hex) => (
+                      <div key={hex} className="flex-1 group relative" title={hex}>
+                        <div
+                          className="h-6 rounded transition-transform group-hover:scale-105"
+                          style={{
+                            background: hex,
+                            boxShadow: `0 0 0 1px rgba(255,255,255,0.06)`,
+                          }}
+                        />
+                        <div className="text-[8px] font-mono text-white/40 text-center mt-0.5 truncate">
+                          {hex.toUpperCase()}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </Field>
