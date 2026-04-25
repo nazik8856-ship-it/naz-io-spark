@@ -1107,7 +1107,14 @@ const ModeInfoModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => vo
 // Quick-action chips surfaced above the Iteration Bar. Each chip dispatches a
 // pre-baked iteration directive that the contextual memory bridge in
 // handleSendMessage will rewrite against the live `activeWebsiteCode` snapshot.
-const ITERATION_QUICK_ACTIONS: { label: string; directive: string; icon: any }[] = [
+const ITERATION_QUICK_ACTIONS: { label: string; directive: string; icon: any; requiresReference?: boolean }[] = [
+  {
+    label: "Match Reference",
+    directive:
+      "Adapt the current website to closely match the attached style reference image(s). Mirror the colors, typography, spacing rhythm, glassmorphism level, accent style, and overall vibe — while preserving all existing functionality, copy, and content structure.",
+    icon: ImageIcon,
+    requiresReference: true,
+  },
   {
     label: "Regenerate",
     directive: "Regenerate the current preview from scratch — keep the same intent and brand vibe but improve layout, hierarchy, copy and visual polish.",
