@@ -247,6 +247,47 @@ const PLACEHOLDER_TEXTS = [
 // Professional system prompt for AI
 const SYSTEM_PROMPT = `You are The Neural Architect, a high-precision business blueprinting AI. Respond in a professional, architectural tone. Provide structured, actionable business plans. Focus on strategic frameworks, market analysis, operational excellence, and financial architecture. Use clear sections and professional language.`;
 
+// Premium quality guidelines injected into every website generation/edit prompt.
+// Goal: outputs that exceed Durable AI in design polish, copywriting, responsiveness,
+// SEO, accessibility, and conversion-readiness.
+const PREMIUM_WEBSITE_QUALITY_GUIDELINES = `[PREMIUM_QUALITY_STANDARD — EXCEED DURABLE AI]
+Produce production-ready, premium-feel websites. Every output must satisfy ALL of the following:
+
+DESIGN
+- Modern aesthetic: choose either (a) cyber-futuristic dark with neon accents + glassmorphism, or (b) clean minimal light/dark with refined typography — pick whichever best fits the user's prompt.
+- Tasteful glassmorphism (backdrop-filter blur, soft borders, layered translucency), subtle gradients, and depth via shadows.
+- Subtle, performant animations: fade/slide on scroll (IntersectionObserver), gentle hover lifts, animated gradient accents. Never gimmicky.
+- Cohesive design system: 1 primary, 1 accent, neutral scale, consistent radius, consistent button + card treatments, consistent spacing rhythm (8px scale).
+- Typography: pair a strong display font with a clean sans (e.g., Inter, Space Grotesk, Manrope via Google Fonts CDN). Clear hierarchy (H1 ≥ 48px desktop), generous line-height.
+
+LAYOUT & RESPONSIVENESS
+- Mobile-first, fully responsive across 375 / 768 / 1024 / 1440. Use CSS grid + flexbox; never overflow horizontally.
+- Sections: sticky/translucent nav, hero with strong CTA, social proof / logo strip, feature grid (3–6 items), how-it-works or product showcase, testimonials, pricing OR CTA band, FAQ, footer with multiple columns.
+- Strong visual hierarchy and conversion-focused layout: every section drives toward a clear next action.
+
+COPYWRITING
+- Rich, brand-specific, persuasive copy tailored to the user's exact prompt — never generic "Lorem ipsum" or "Your tagline here".
+- Headlines are benefit-driven and specific. Subheads expand the promise. Body is concise, scannable, professional.
+- Realistic placeholder content (real-sounding company names, metrics, testimonials with roles + companies) so the site feels ready-to-customize.
+
+SEO & ACCESSIBILITY
+- Semantic HTML5: <header>, <nav>, <main>, <section>, <article>, <footer>, proper <h1>–<h3> order (one H1 only).
+- <head>: <title> under 60 chars with primary keyword, <meta name="description"> under 160 chars, viewport meta, theme-color, Open Graph + Twitter card tags, canonical link, JSON-LD Organization schema when applicable.
+- All <img> have meaningful alt text. All interactive controls have aria-labels and visible focus states. Color contrast ≥ WCAG AA.
+- Lazy-load below-the-fold images (loading="lazy"), prefer system-font fallback stacks, minimize render-blocking work.
+
+CODE QUALITY
+- Clean, well-structured, lightly commented HTML/CSS/JS. No redundant utility classes, no dead code, no inline styles where a class is clearer.
+- Self-contained: a single standalone HTML document with inline <style> and <script> that runs in an iframe srcDoc with no external build step. Tailwind via CDN is allowed; otherwise hand-written CSS.
+- Use real, working anchor links for in-page nav (#features, #pricing, #faq) and ensure smooth-scroll.
+
+ABSOLUTELY AVOID
+- Plain-text responses, partial snippets, TSX/JSX imports, markdown prose outside the single \`\`\`html block.
+- Generic templates reused across users — every output must reflect the specific brand/prompt.
+- Broken images, empty sections, placeholder "click here" CTAs, or low-contrast text.
+`;
+
+
 // Dynamic card suggestions - PROFESSIONAL DEVELOPER LOGIC
 const getSuggestionsFromResponse = (response: string): string[] => {
   const lowerResponse = response.toLowerCase();
