@@ -3046,31 +3046,33 @@ export default function Dashboard() {
       // ── Iteration Command: edit the existing live preview in place ─────────
       //    Inject the current website code so the AI performs surgical edits
       //    rather than regenerating an unrelated site.
-      const currentCodeSnapshot = (activeWebsiteCode || "").slice(0, 18000);
+      const currentCodeSnapshot = (activeWebsiteCode || "").trim() || buildStarterWebsiteHtml(lastWebsitePrompt || visiblePrompt);
+      const instantCode = applyInstantWebsiteEdit(currentCodeSnapshot, visiblePrompt);
+      if (instantCode !== activeWebsiteCode) {
+        setActiveWebsiteCode(instantCode);
+        setIsWebsiteIntent(true);
+        setIsWebsiteComplete(true);
+      }
       masterPrompt =
-        `You are an expert editor. You are currently viewing this React/Tailwind code: [Insert activeWebsiteCode]. ` +
-        `Modify this code based on the user's request. Return ONLY the updated, complete code block. ` +
-        `Do not talk, just code.\n\n` +
-        `SYSTEM: The user is requesting a change to the code currently in the preview pane. ` +
-        `READ the following code and APPLY the requested change ONLY. Code: [activeWebsiteCode]\n\n` +
+        `SYSTEM: You are given the complete latest source code of the live preview. Use it precisely to make edits. Never guess or regenerate from scratch unless asked.\n` +
+        `Return ONLY one complete, standalone HTML document with inline CSS/JS that can render inside iframe srcDoc. Do not return markdown, explanations, TSX imports, or partial snippets.\n\n` +
         `[ITERATION_DIRECTIVE: LIVE_EDIT]\n` +
         `REQUESTED_CHANGE: ${visiblePrompt}\n` +
         `LAST_BUILD_DIRECTIVE: ${lastWebsitePrompt}\n\n` +
-        (currentCodeSnapshot
-          ? `[activeWebsiteCode]\n\`\`\`tsx\n${currentCodeSnapshot}\n\`\`\`\n\n`
-          : `[activeWebsiteCode]\n(no snapshot available — infer from last directive)\n\n`) +
+        `[COMPLETE_LATEST_LIVE_PREVIEW_SOURCE]\n\`\`\`html\n${instantCode}\n\`\`\`\n\n` +
+        `[COMPLETE_PREVIEW_COMPONENT_TREE]\nWebsiteRevealPane > GeneratedWebsitePreview iframe[srcDoc] > activeWebsiteCode. The code above is the full rendered preview source.\n\n` +
         masterPrompt;
     } else if (websiteIntent) {
       shouldActivateWebsitePreview = true;
       setIsWebsiteIntent(true);
       setLastWebsitePrompt(trimmed);
+      setActiveWebsiteCode(buildStarterWebsiteHtml(trimmed));
       masterPrompt =
         `[PRIORITY_DIRECTIVE: WEBSITE_BUILD]\n` +
         `The user is requesting a real, production-ready website. ` +
-        `Prioritize functional code generation and UI structure FIRST. ` +
-        `Output: (1) a clear page/section structure, (2) component breakdown, ` +
-        `(3) key React + Tailwind code blocks, (4) Supabase schema if data is needed. ` +
-        `Skip generic business fluff unless it clarifies the build.\n\n` +
+        `Return ONLY one complete, standalone HTML document with inline CSS/JS that renders in iframe srcDoc. ` +
+        `Use the user's exact prompt to create a bespoke modern dark cyber-futuristic SaaS website with working anchor nav links for Home, Features, and Pricing. ` +
+        `Do not use the same template for every user; adapt sections, copy, visual emphasis, and palette accents to the prompt.\n\n` +
         masterPrompt;
     }
 
