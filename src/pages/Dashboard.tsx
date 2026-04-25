@@ -1301,6 +1301,18 @@ const HomeView = ({
                     </span>
                   </div>
                   <div className="px-3 py-2.5">{formatAIResponse(msg.text)}</div>
+                  {/* Verification chip · Reasoning trace · Approve as ground truth */}
+                  <AIResponseExtras
+                    text={msg.text}
+                    messageId={`msg-${i}-${(msg.text || "").slice(0, 40)}`}
+                    prompt={
+                      // Prefer the immediately preceding user prompt as context
+                      messages
+                        .slice(0, i)
+                        .reverse()
+                        .find((m: any) => m.role === "user")?.text ?? ""
+                    }
+                  />
                 </div>
               </>
             )}
