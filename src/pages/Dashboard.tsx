@@ -17,7 +17,7 @@ import {
   Brain,
   Building2,
   Briefcase,
-  Image,
+  Image as ImageIcon,
   Video,
   Mic,
   BookOpen,
