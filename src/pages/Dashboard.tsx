@@ -4,6 +4,10 @@ import { motion, AnimatePresence } from "framer-motion";
 import DropScanOverlay from "@/components/interactions/DropScanOverlay";
 import MagneticButton from "@/components/interactions/MagneticButton";
 import WebsiteRevealPane from "@/components/dashboard/WebsiteRevealPane";
+import AIResponseExtras, {
+  readGroundTruth,
+  type GroundTruthEntry,
+} from "@/components/dashboard/AIResponseExtras";
 import { useNavigate } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
 import {
