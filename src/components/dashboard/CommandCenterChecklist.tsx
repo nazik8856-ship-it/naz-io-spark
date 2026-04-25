@@ -52,8 +52,8 @@ const MEMORY_KEY = "nazai.commandCenter.memory.v1";
 type StepId = "domain" | "customer" | "invoice" | "brand" | "apis" | "setup";
 
 type StepAction =
-  | { kind: "modal"; modal: "domain" | "crm" | "invoice" | "brand" }
-  | { kind: "inline" } // handled by the card itself (API key)
+  | { kind: "modal"; modal: "domain" | "crm" | "invoice" | "brand" | "apis" }
+  | { kind: "inline" } // handled by the card itself
   | { kind: "directive"; directive: string };
 
 type Step = {
