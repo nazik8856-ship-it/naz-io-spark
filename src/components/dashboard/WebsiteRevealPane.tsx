@@ -130,10 +130,10 @@ const WebsiteRevealPane: React.FC<WebsiteRevealPaneProps> = ({
   }, [directive, generationRunId]);
 
   useEffect(() => {
-    if (!isPending && activeWebsiteCode.trim()) {
+    if (activeWebsiteCode.trim()) {
       setVisibleWebsiteCode(activeWebsiteCode);
     }
-  }, [activeWebsiteCode, isPending]);
+  }, [activeWebsiteCode]);
 
   // ── Highlight-to-Refine tooltip in the Strategy pane ─────────────────────────
   useEffect(() => {
