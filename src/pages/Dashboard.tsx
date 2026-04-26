@@ -4558,6 +4558,7 @@ export default function Dashboard() {
             isPreviewActive={isPreviewActive}
             setIsPreviewActive={setIsPreviewActive}
             activeWebsiteCode={activeWebsiteCode}
+            previewThemeRevision={previewThemeRevision}
             generationRunId={generationRunId}
           />
         );
