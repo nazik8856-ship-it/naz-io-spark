@@ -4775,6 +4775,7 @@ export default function Dashboard() {
         }}
       />
 
+      <style>{`
         /* FORCE EVERYTHING TO BE CLICKABLE */
         * {
           pointer-events: auto !important;
