@@ -3614,15 +3614,27 @@ export default function Dashboard() {
   const [welcomeOpen, setWelcomeOpen] = useState(false);
   const [settingsFocus, setSettingsFocus] = useState<"brand-snap" | "comfort-designs" | null>(null);
 
+  // ─── NazAI Visual Theme (App Appearance) ────────────────────────────────────
+  // Persisted choice for how the NazAI app itself looks. Restores on every load.
+  const [nazaiThemeId, setNazaiThemeId] = useState<string>(() => loadNazaiThemeId());
+
+  // Apply the NazAI visual theme to :root whenever it changes (instant restyle).
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const seen = localStorage.getItem("nazai-welcome-template-seen");
-    if (!seen && !designPreferences.templateId) {
-      const t = setTimeout(() => setWelcomeOpen(true), 600);
-      return () => clearTimeout(t);
+    applyNazaiTheme(nazaiThemeId);
+    saveNazaiThemeId(nazaiThemeId);
+    const theme = NAZAI_THEMES.find((t) => t.id === nazaiThemeId);
+    if (theme) {
+      setAuraProfile((prev) => ({
+        ...prev,
+        glowPrimary: theme.aura.glowPrimary,
+        glowSecondary: theme.aura.glowSecondary,
+        isLightMode: theme.aura.isLightMode,
+      }));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [nazaiThemeId]);
+
+  // No auto-popup on login. Welcome modal is opened only via explicit user action
+  // (e.g. a Settings button). This prevents unwanted modals after sign-up/login.
 
   const closeWelcome = useCallback(() => {
     setWelcomeOpen(false);
