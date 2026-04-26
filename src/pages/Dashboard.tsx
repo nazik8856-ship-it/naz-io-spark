@@ -1211,6 +1211,75 @@ const SettingsView = ({
             </div>
           </motion.div>
 
+          {/* ─── COMFORT DESIGNS (Template Gallery) ────────────────────────── */}
+          <motion.div
+            id="comfort-designs"
+            variants={itemVariants}
+            className="md:col-span-2 p-5 rounded-xl"
+            style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-sm font-semibold flex items-center gap-2 font-mono" style={{ color: "var(--nazai-text-color)" }}>
+                  <LayoutTemplate size={16} className="text-cyan-400" /> COMFORT DESIGNS
+                </h3>
+                <p className="text-[10px] font-mono text-white/40 mt-1">
+                  Pick a visual template — NazAI will use it as the ground truth for every new website and edit.
+                </p>
+              </div>
+              {designPreferences.templateId && (
+                <button
+                  onClick={() => {
+                    const next = { ...designPreferences, templateId: null, savedAt: new Date().toISOString() };
+                    setDesignPreferences(next);
+                    saveDesignPreferences(next);
+                    toast.success("Template cleared");
+                  }}
+                  className="text-[10px] font-mono text-white/40 hover:text-white/70 underline underline-offset-2"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+            <TemplateGallery
+              selectedId={designPreferences.templateId}
+              onSelect={(id) => {
+                const next = { ...designPreferences, templateId: id, savedAt: new Date().toISOString() };
+                setDesignPreferences(next);
+                saveDesignPreferences(next);
+                const tpl = COMFORT_TEMPLATES.find((t) => t.id === id);
+                toast.success(`Design saved · ${tpl?.name ?? "Template"}`, {
+                  description: "Applied automatically to all future generations and edits in this project.",
+                });
+              }}
+            />
+            {designPreferences.savedAt && (
+              <p className="text-[9px] font-mono text-emerald-400/70 mt-3 flex items-center gap-1.5">
+                <CheckCircle2 size={10} /> Saved · {new Date(designPreferences.savedAt).toLocaleString()}
+              </p>
+            )}
+          </motion.div>
+
+          {/* ─── BRAND-SNAP CANVAS (relocated from landing page) ─────────────── */}
+          <motion.div
+            id="brand-snap"
+            variants={itemVariants}
+            className="md:col-span-2 p-5 rounded-xl"
+            style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
+          >
+            <div className="mb-4">
+              <h3 className="text-sm font-semibold flex items-center gap-2 font-mono" style={{ color: "var(--nazai-text-color)" }}>
+                <Wand2 size={16} className="text-cyan-400" /> BRAND-SNAP CANVAS
+              </h3>
+              <p className="text-[10px] font-mono text-white/40 mt-1">
+                Drop logos, palettes, or screenshots — the AI Guardian auto-checks contrast, palette, and grid.
+              </p>
+            </div>
+            <div className="rounded-xl overflow-hidden border border-white/5 bg-black/20">
+              <GuardianCanvas />
+            </div>
+          </motion.div>
+
           <motion.div variants={itemVariants} className="md:col-span-2">
             <motion.button
               onClick={resetAuraToDefault}
@@ -1227,6 +1296,140 @@ const SettingsView = ({
     </motion.div>
   );
 };
+
+// ============================================================
+// COMFORT DESIGNS — TEMPLATE GALLERY (reused in Settings + Welcome modal)
+// ============================================================
+const TemplateGallery: React.FC<{
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  compact?: boolean;
+}> = ({ selectedId, onSelect, compact = false }) => {
+  return (
+    <div className={`grid gap-3 ${compact ? "grid-cols-2 md:grid-cols-3" : "grid-cols-1 sm:grid-cols-2 md:grid-cols-3"}`}>
+      {COMFORT_TEMPLATES.map((tpl) => {
+        const Icon = tpl.icon;
+        const isActive = selectedId === tpl.id;
+        return (
+          <motion.button
+            key={tpl.id}
+            type="button"
+            onClick={() => onSelect(tpl.id)}
+            whileHover={{ y: -2 }}
+            whileTap={{ scale: 0.98 }}
+            className={`group relative text-left rounded-xl overflow-hidden border transition-all ${
+              isActive
+                ? "border-cyan-400/70 shadow-[0_0_24px_rgba(6,182,212,0.35)]"
+                : "border-white/10 hover:border-white/25"
+            }`}
+            style={{ background: "rgba(255,255,255,0.02)" }}
+            aria-pressed={isActive}
+            aria-label={`Use template ${tpl.name}`}
+          >
+            {/* Thumbnail (gradient + icon) */}
+            <div
+              className="relative w-full"
+              style={{ aspectRatio: "16 / 9", background: tpl.gradient }}
+            >
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div
+                  className="w-12 h-12 rounded-2xl flex items-center justify-center backdrop-blur-md"
+                  style={{ background: "rgba(0,0,0,0.25)", border: "1px solid rgba(255,255,255,0.25)" }}
+                >
+                  <Icon size={22} className="text-white drop-shadow" />
+                </div>
+              </div>
+              {isActive && (
+                <div className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-cyan-400 text-[#020617] text-[9px] font-bold tracking-wider flex items-center gap-1">
+                  <CheckCircle2 size={10} /> ACTIVE
+                </div>
+              )}
+            </div>
+            {/* Footer */}
+            <div className="p-3">
+              <div className="text-[12px] font-semibold text-white/90 leading-tight">{tpl.name}</div>
+              <div className="text-[10px] font-mono text-white/40 mt-1 leading-snug">{tpl.tagline}</div>
+              <div
+                className={`mt-2.5 text-[10px] font-bold tracking-wider uppercase font-mono px-2.5 py-1 rounded-md inline-flex items-center gap-1 transition-all ${
+                  isActive
+                    ? "bg-cyan-400/15 text-cyan-300 border border-cyan-400/40"
+                    : "bg-white/5 text-white/60 border border-white/10 group-hover:bg-white/10"
+                }`}
+              >
+                {isActive ? "Selected" : "Use this template"}
+              </div>
+            </div>
+          </motion.button>
+        );
+      })}
+    </div>
+  );
+};
+
+// ============================================================
+// WELCOME TEMPLATE MODAL — first-visit Comfort Designs picker
+// ============================================================
+const WelcomeTemplateModal: React.FC<{
+  open: boolean;
+  onClose: () => void;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+}> = ({ open, onClose, selectedId, onSelect }) => (
+  <AnimatePresence>
+    {open && (
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 z-[3000] flex items-center justify-center p-4 bg-black/70 backdrop-blur-xl"
+        onClick={onClose}
+      >
+        <motion.div
+          initial={{ opacity: 0, scale: 0.96, y: 12 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.96, y: 12 }}
+          transition={{ type: "spring", damping: 24, stiffness: 320 }}
+          onClick={(e) => e.stopPropagation()}
+          className="relative w-full max-w-3xl rounded-2xl border border-white/10 overflow-hidden"
+          style={{ background: "linear-gradient(180deg, #0b1220 0%, #020617 100%)" }}
+          role="dialog"
+          aria-labelledby="welcome-template-title"
+        >
+          <div className="flex items-start justify-between px-6 pt-6 pb-3">
+            <div>
+              <div className="text-[10px] font-mono tracking-[0.3em] text-cyan-400 uppercase mb-1">
+                Welcome · Comfort Designs
+              </div>
+              <h2 id="welcome-template-title" className="text-xl font-bold text-white tracking-tight">
+                What design would you choose for a more comfortable usage?
+              </h2>
+              <p className="text-[12px] text-white/50 mt-1">
+                Pick a starting style — you can always change it later in Settings.
+              </p>
+            </div>
+            <button
+              onClick={onClose}
+              className="w-8 h-8 rounded-lg border border-white/10 hover:border-white/30 flex items-center justify-center text-white/50 hover:text-white transition-all"
+              aria-label="Close"
+            >
+              <X size={14} />
+            </button>
+          </div>
+          <div className="px-6 pb-6 max-h-[70vh] overflow-y-auto">
+            <TemplateGallery selectedId={selectedId} onSelect={onSelect} />
+            <button
+              onClick={onClose}
+              className="mt-5 text-[11px] font-mono text-white/40 hover:text-white/70 underline underline-offset-2"
+            >
+              Skip for now
+            </button>
+          </div>
+        </motion.div>
+      </motion.div>
+    )}
+  </AnimatePresence>
+);
+
 
 // ============================================================
 // MODE INFO MODAL COMPONENT
