@@ -3045,6 +3045,35 @@ export default function Dashboard() {
     return DEFAULT_USER_CONTEXT;
   });
 
+  // ─── Comfort Designs (Ground Truth) ─────────────────────────────────────────
+  const [designPreferences, setDesignPreferences] = useState<DesignPreferences>(loadDesignPreferences);
+  const [welcomeOpen, setWelcomeOpen] = useState(false);
+  const [settingsFocus, setSettingsFocus] = useState<"brand-snap" | "comfort-designs" | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const seen = localStorage.getItem("nazai-welcome-template-seen");
+    if (!seen && !designPreferences.templateId) {
+      const t = setTimeout(() => setWelcomeOpen(true), 600);
+      return () => clearTimeout(t);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const closeWelcome = useCallback(() => {
+    setWelcomeOpen(false);
+    try { localStorage.setItem("nazai-welcome-template-seen", "1"); } catch { /* noop */ }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const target = params.get("settings");
+    if (target === "brand-snap" || target === "comfort-designs") {
+      setSettingsFocus(target as "brand-snap" | "comfort-designs");
+    }
+  }, []);
+
   // ─── ADAPTIVE WORKBENCH STATES ───────────────────────────────────────────────
   const [promptMode, setPromptMode] = useState<"sandbox" | "extractor" | "blueprint">("sandbox");
   const [sandboxText, setSandboxText] = useState("");
