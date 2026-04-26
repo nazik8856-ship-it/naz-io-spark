@@ -201,6 +201,81 @@
   }
 }
 
+/* ─── NAZAI LIGHT MODE — high-contrast pure-black text everywhere ─── */
+:root[data-nazai-light="true"] body {
+  background-color: #f8fafc !important;
+  background-image:
+    radial-gradient(circle at 50% 50%, rgba(37, 99, 235, 0.04) 0%, transparent 50%),
+    linear-gradient(180deg, #ffffff 0%, #f1f5f9 100%) !important;
+  color: #000000 !important;
+}
+
+:root[data-nazai-light="true"] body::before {
+  opacity: 0 !important;
+}
+
+:root[data-nazai-light="true"] {
+  color: #000000;
+}
+
+/* Force dark/black text on common low-contrast Tailwind utility classes when light theme is active */
+:root[data-nazai-light="true"] .text-white,
+:root[data-nazai-light="true"] .text-white\/90,
+:root[data-nazai-light="true"] .text-white\/80,
+:root[data-nazai-light="true"] .text-white\/70,
+:root[data-nazai-light="true"] .text-white\/60,
+:root[data-nazai-light="true"] .text-white\/50,
+:root[data-nazai-light="true"] .text-white\/40,
+:root[data-nazai-light="true"] .text-white\/30,
+:root[data-nazai-light="true"] .text-slate-200,
+:root[data-nazai-light="true"] .text-slate-300,
+:root[data-nazai-light="true"] .text-slate-400,
+:root[data-nazai-light="true"] .text-zinc-200,
+:root[data-nazai-light="true"] .text-zinc-300,
+:root[data-nazai-light="true"] .text-zinc-400,
+:root[data-nazai-light="true"] .text-gray-200,
+:root[data-nazai-light="true"] .text-gray-300,
+:root[data-nazai-light="true"] .text-gray-400 {
+  color: #000000 !important;
+}
+
+:root[data-nazai-light="true"] .text-white\/20,
+:root[data-nazai-light="true"] .text-white\/15,
+:root[data-nazai-light="true"] .text-white\/10 {
+  color: #1f2937 !important;
+}
+
+/* Soften glassmorphism in light mode for legibility */
+:root[data-nazai-light="true"] .hud-glass {
+  background: rgba(255, 255, 255, 0.85) !important;
+  backdrop-filter: blur(8px) saturate(120%) !important;
+  -webkit-backdrop-filter: blur(8px) saturate(120%) !important;
+  border: 1px solid rgba(15, 23, 42, 0.12) !important;
+  box-shadow: 0 4px 18px -8px rgba(15, 23, 42, 0.15) !important;
+  color: #000000;
+}
+
+/* Borders & dividers — bump contrast */
+:root[data-nazai-light="true"] .border-white\/5,
+:root[data-nazai-light="true"] .border-white\/10,
+:root[data-nazai-light="true"] .border-white\/15,
+:root[data-nazai-light="true"] .border-white\/20 {
+  border-color: rgba(15, 23, 42, 0.18) !important;
+}
+
+/* Inputs in light mode — readable text on white */
+:root[data-nazai-light="true"] input,
+:root[data-nazai-light="true"] textarea,
+:root[data-nazai-light="true"] [role="textbox"] {
+  color: #000000 !important;
+  background-color: #ffffff !important;
+}
+
+:root[data-nazai-light="true"] input::placeholder,
+:root[data-nazai-light="true"] textarea::placeholder {
+  color: rgba(15, 23, 42, 0.45) !important;
+}
+
 /* Scrollbar Customization */
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }

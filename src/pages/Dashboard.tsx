@@ -855,17 +855,17 @@ const NAZAI_THEMES: readonly NazaiTheme[] = [
   {
     id: "minimal-clean",
     name: "Minimal Clean",
-    tagline: "Soft grays with calm blue accents.",
-    preview: "linear-gradient(135deg, #f8fafc 0%, #e2e8f0 60%, #3b82f622 100%)",
+    tagline: "Crisp whites, pure-black text, calm blue accents.",
+    preview: "linear-gradient(135deg, #ffffff 0%, #f1f5f9 60%, #2563eb22 100%)",
     vars: {
-      "--nazai-bg-base": "#f1f5f9",
-      "--nazai-card-bg": "rgba(255,255,255,0.92)",
-      "--nazai-border-light": "rgba(15,23,42,0.08)",
-      "--nazai-text-color": "#0f172a",
-      "--glow-primary": "#3b82f6",
-      "--glow-secondary": "#64748b",
+      "--nazai-bg-base": "#f8fafc",
+      "--nazai-card-bg": "#ffffff",
+      "--nazai-border-light": "rgba(15,23,42,0.14)",
+      "--nazai-text-color": "#000000",
+      "--glow-primary": "#2563eb",
+      "--glow-secondary": "#475569",
     },
-    aura: { glowPrimary: "#3b82f6", glowSecondary: "#64748b", isLightMode: true },
+    aura: { glowPrimary: "#2563eb", glowSecondary: "#475569", isLightMode: true },
   },
   {
     id: "warm-gradient",
@@ -1674,42 +1674,8 @@ const SettingsView = ({
             <NazaiThemeGallery selectedId={nazaiThemeId} onSelect={onNazaiThemeSelect} />
           </motion.div>
 
-          {/* ─── COMFORT DESIGNS (Template Gallery) ────────────────────────── */}
-          <motion.div
-            id="comfort-designs"
-            variants={itemVariants}
-            className="md:col-span-2 p-5 rounded-xl"
-            style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
-          >
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="text-sm font-semibold flex items-center gap-2 font-mono" style={{ color: "var(--nazai-text-color)" }}>
-                  <LayoutTemplate size={16} className="text-cyan-400" /> COMFORT DESIGNS
-                </h3>
-                <p className="text-[10px] font-mono text-white/40 mt-1">
-                  Pick a visual template — NazAI will use it as the ground truth for every new website and edit.
-                </p>
-              </div>
-              {designPreferences.templateId && (
-                <button
-                  onClick={() => onTemplateSelect(null)}
-                  className="text-[10px] font-mono text-white/40 hover:text-white/70 underline underline-offset-2"
-                >
-                  Clear
-                </button>
-              )}
-            </div>
-            <TemplateGallery
-              selectedId={designPreferences.templateId}
-              onSelect={(id) => onTemplateSelect(id)}
-            />
-            {designPreferences.savedAt && (
-              <p className="text-[9px] font-mono text-emerald-400/70 mt-3 flex items-center gap-1.5">
-                <CheckCircle2 size={10} /> Saved · {new Date(designPreferences.savedAt).toLocaleString()}
-              </p>
-            )}
-          </motion.div>
-
+          {/* COMFORT DESIGNS removed from Settings — now strictly scoped to the
+              active project's editing tab (above the Command Center). */}
           {/* ─── BRAND-SNAP CANVAS (relocated from landing page) ─────────────── */}
           <motion.div
             id="brand-snap"
@@ -3657,6 +3623,24 @@ export default function Dashboard() {
     }
   }, [nazaiThemeId]);
 
+  // ─── Auto-save safety net ─────────────────────────────────────────────────
+  // Persist all user preferences on tab close / navigation as a final guarantee
+  // that nothing is lost between sessions, in addition to the per-change saves.
+  useEffect(() => {
+    const flush = () => {
+      try {
+        saveNazaiThemeId(nazaiThemeId);
+        saveDesignPreferences(designPreferences, activeMissionId);
+      } catch { /* noop */ }
+    };
+    window.addEventListener("beforeunload", flush);
+    window.addEventListener("pagehide", flush);
+    return () => {
+      window.removeEventListener("beforeunload", flush);
+      window.removeEventListener("pagehide", flush);
+    };
+  }, [nazaiThemeId, designPreferences, activeMissionId]);
+
   // No auto-popup on login. Welcome modal is opened only via explicit user action
   // (e.g. a Settings button). This prevents unwanted modals after sign-up/login.
 
@@ -3906,12 +3890,16 @@ export default function Dashboard() {
     root.style.setProperty("--glass-blur", `${auraProfile.glassBlur}px`);
 
     if (auraProfile.isLightMode) {
-      root.style.setProperty("--nazai-text-color", "#0f172a");
-      root.style.setProperty("--nazai-bg-base", "#f1f5f9");
-      root.style.setProperty("--nazai-border-light", "rgba(0,0,0,0.06)");
-      root.style.setProperty("--nazai-card-bg", "rgba(255,255,255,0.9)");
+      root.setAttribute("data-nazai-light", "true");
+      root.style.setProperty("--nazai-text-color", "#000000");
+      root.style.setProperty("--nazai-text-muted", "#1f2937");
+      root.style.setProperty("--nazai-bg-base", "#f8fafc");
+      root.style.setProperty("--nazai-border-light", "rgba(15,23,42,0.14)");
+      root.style.setProperty("--nazai-card-bg", "#ffffff");
     } else {
+      root.removeAttribute("data-nazai-light");
       root.style.setProperty("--nazai-text-color", "#e2e8f0");
+      root.style.setProperty("--nazai-text-muted", "rgba(226,232,240,0.65)");
       root.style.setProperty("--nazai-bg-base", "#020617");
       root.style.setProperty("--nazai-border-light", "rgba(255,255,255,0.05)");
       root.style.setProperty("--nazai-card-bg", "#0f172a");
