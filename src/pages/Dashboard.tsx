@@ -2279,18 +2279,9 @@ const HomeView = ({
               </p>
             </div>
 
-            {/* Comfort Designs gallery — visible at the start of every new project
-                so non-technical users can pick a visual ground truth before prompting. */}
-            {onTemplateSelect && (
-              <div className="w-full max-w-2xl">
-                <ComfortDesignsBlock
-                  selectedId={designPreferences?.templateId ?? null}
-                  onSelect={onTemplateSelect}
-                  variant="home"
-                  compact
-                />
-              </div>
-            )}
+            {/* Comfort Designs is intentionally NOT shown on the Home empty state.
+                It lives only on the website-build pane (above CommandCenterChecklist)
+                and inside Settings → Comfort Designs, to avoid surprising users on login. */}
 
             {/* Command Center is now anchored beneath the website preview
                 inside WebsiteRevealPane — no duplicate render here. */}
