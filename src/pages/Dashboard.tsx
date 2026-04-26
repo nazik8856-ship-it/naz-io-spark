@@ -2154,6 +2154,8 @@ const HomeView = ({
   activeWebsiteCode,
   previewThemeRevision,
   generationRunId,
+  designPreferences,
+  onTemplateSelect,
 }: any) => {
   // Template definitions (master templates - never mutated)
   const TEMPLATE_MASTERS = {
