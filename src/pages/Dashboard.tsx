@@ -366,6 +366,176 @@ const buildDesignPreferenceDirective = (p: DesignPreferences): string => {
   return parts.join("\n") + "\n\n";
 };
 
+// ─── Instant Theme Application ──────────────────────────────────────────────
+// Builds a CSS override sheet for a Comfort Design template and injects it
+// into an existing standalone HTML document so the iframe preview re-themes
+// in milliseconds — no AI roundtrip required. Future generations/edits still
+// receive the full directive via buildDesignPreferenceDirective().
+const COMFORT_THEME_STYLE_ID = "nazai-comfort-theme";
+
+const buildComfortThemeCss = (templateId: string | null): string => {
+  if (!templateId) return "";
+  const tpl = COMFORT_TEMPLATES.find((t) => t.id === templateId);
+  if (!tpl) return "";
+
+  // Per-template theme tokens. Kept compact + targets generic primitives so
+  // it cleanly overlays on any AI-generated standalone HTML document.
+  const themes: Record<string, {
+    bg: string; fg: string; surface: string; surfaceBorder: string;
+    accent: string; accent2: string; font: string; radius: string;
+    glass: string; extra?: string;
+  }> = {
+    "cyber-saas": {
+      bg: "radial-gradient(ellipse at top, #0b1530 0%, #020617 60%, #000 100%)",
+      fg: "#e2e8f0",
+      surface: "rgba(15,23,42,0.55)",
+      surfaceBorder: "rgba(6,182,212,0.25)",
+      accent: "#06b6d4",
+      accent2: "#a855f7",
+      font: "'Inter', system-ui, sans-serif",
+      radius: "14px",
+      glass: "blur(18px) saturate(140%)",
+      extra: `h1,h2,h3{letter-spacing:-0.02em;}a{color:#06b6d4;}`,
+    },
+    "minimal-premium": {
+      bg: "#fafaf9",
+      fg: "#0f172a",
+      surface: "#ffffff",
+      surfaceBorder: "rgba(15,23,42,0.08)",
+      accent: "#0f172a",
+      accent2: "#475569",
+      font: "'Inter', 'Helvetica Neue', sans-serif",
+      radius: "10px",
+      glass: "none",
+      extra: `h1,h2{letter-spacing:-0.035em;font-weight:700;}body{color:#0f172a;}`,
+    },
+    "bold-gradient": {
+      bg: "linear-gradient(135deg,#1a0820 0%,#2a0a3a 50%,#1a0820 100%)",
+      fg: "#fdf4ff",
+      surface: "rgba(244,63,94,0.08)",
+      surfaceBorder: "rgba(244,63,94,0.35)",
+      accent: "#f43f5e",
+      accent2: "#f59e0b",
+      font: "'Space Grotesk', 'Inter', sans-serif",
+      radius: "18px",
+      glass: "blur(14px)",
+      extra: `h1{background:linear-gradient(135deg,#f43f5e,#f59e0b,#a855f7);-webkit-background-clip:text;background-clip:text;color:transparent;font-weight:800;}`,
+    },
+    "analytics-dashboard": {
+      bg: "#0a0f1a",
+      fg: "#cbd5e1",
+      surface: "rgba(16,185,129,0.06)",
+      surfaceBorder: "rgba(16,185,129,0.25)",
+      accent: "#10b981",
+      accent2: "#06b6d4",
+      font: "'Inter', sans-serif",
+      radius: "8px",
+      glass: "blur(10px)",
+      extra: `code,pre,.metric,.kpi{font-family:'JetBrains Mono',ui-monospace,monospace;color:#10b981;}`,
+    },
+    "agency": {
+      bg: "#0c1119",
+      fg: "#e5e7eb",
+      surface: "rgba(255,255,255,0.04)",
+      surfaceBorder: "rgba(14,165,233,0.25)",
+      accent: "#0ea5e9",
+      accent2: "#94a3b8",
+      font: "'Inter', Georgia, serif",
+      radius: "6px",
+      glass: "blur(8px)",
+      extra: `h1,h2{font-weight:600;letter-spacing:-0.02em;}`,
+    },
+    "ecommerce": {
+      bg: "linear-gradient(180deg,#fdf2f8 0%,#faf5ff 100%)",
+      fg: "#1e1b4b",
+      surface: "#ffffff",
+      surfaceBorder: "rgba(236,72,153,0.2)",
+      accent: "#ec4899",
+      accent2: "#a855f7",
+      font: "'Inter', sans-serif",
+      radius: "16px",
+      glass: "blur(8px)",
+      extra: `button,.btn,.cta{background:linear-gradient(135deg,#ec4899,#a855f7)!important;color:#fff!important;border:none!important;}`,
+    },
+  };
+
+  const t = themes[templateId];
+  if (!t) return "";
+
+  return `
+/* === NazAI Comfort Design: ${tpl.name} === */
+:root{
+  --nazai-comfort-accent:${t.accent};
+  --nazai-comfort-accent-2:${t.accent2};
+  --nazai-comfort-fg:${t.fg};
+  --nazai-comfort-radius:${t.radius};
+}
+html,body{
+  background:${t.bg}!important;
+  color:${t.fg}!important;
+  font-family:${t.font}!important;
+  transition:background 320ms ease, color 320ms ease;
+}
+*,*::before,*::after{
+  border-color:${t.surfaceBorder};
+  transition:background-color 280ms ease, border-color 280ms ease, color 280ms ease;
+}
+section,header,footer,nav,article,aside,.card,.panel,.glass,[class*="card"],[class*="panel"]{
+  background:${t.surface}!important;
+  border-color:${t.surfaceBorder}!important;
+  border-radius:${t.radius};
+  ${t.glass !== "none" ? `backdrop-filter:${t.glass};-webkit-backdrop-filter:${t.glass};` : ""}
+}
+a,.accent,[class*="accent"]{color:${t.accent};}
+button,.btn,[class*="btn"],[type="button"],[type="submit"]{
+  border-radius:${t.radius};
+  border:1px solid ${t.surfaceBorder};
+}
+button.primary,.btn-primary,[class*="primary"]{
+  background:${t.accent}!important;
+  color:#fff!important;
+  border:none!important;
+}
+input,textarea,select{
+  background:${t.surface}!important;
+  color:${t.fg}!important;
+  border:1px solid ${t.surfaceBorder}!important;
+  border-radius:${t.radius};
+}
+${t.extra ?? ""}
+`.trim();
+};
+
+/**
+ * Applies a Comfort Design template to an existing standalone HTML document
+ * by injecting/replacing a single <style id="nazai-comfort-theme"> block in
+ * the document <head>. Pure function — returns the new HTML string. Pass
+ * templateId=null to strip the override and return to the original styling.
+ */
+const applyTemplateThemeToHtml = (html: string, templateId: string | null): string => {
+  if (!html) return html;
+  const styleTagRegex = new RegExp(
+    `<style[^>]*id=["']${COMFORT_THEME_STYLE_ID}["'][^>]*>[\\s\\S]*?<\\/style>`,
+    "i"
+  );
+  // Strip any existing comfort theme block first.
+  const stripped = html.replace(styleTagRegex, "");
+  if (!templateId) return stripped;
+
+  const css = buildComfortThemeCss(templateId);
+  if (!css) return stripped;
+  const block = `<style id="${COMFORT_THEME_STYLE_ID}">${css}</style>`;
+
+  // Inject just before </head>; fall back to prepending if no </head>.
+  if (/<\/head>/i.test(stripped)) {
+    return stripped.replace(/<\/head>/i, `${block}</head>`);
+  }
+  if (/<head[^>]*>/i.test(stripped)) {
+    return stripped.replace(/<head[^>]*>/i, (m) => `${m}${block}`);
+  }
+  return block + stripped;
+};
+
 
 const PLACEHOLDER_TEXTS = [
   "Architect a high-performance gym business...",
@@ -790,6 +960,7 @@ const SettingsView = ({
   auraProfile, updateAuraProfile, resetAuraToDefault, toggleLightMode,
   userContext, setUserContext,
   designPreferences, setDesignPreferences,
+  onTemplateSelect,
   initialFocus,
 }: {
   customPalette: CustomPalette;
@@ -802,6 +973,7 @@ const SettingsView = ({
   setUserContext: (context: UserContext) => void;
   designPreferences: DesignPreferences;
   setDesignPreferences: (p: DesignPreferences) => void;
+  onTemplateSelect: (id: string | null) => void;
   initialFocus?: "brand-snap" | "comfort-designs" | null;
 }) => {
   const [neuralCustomActive, setNeuralCustomActive] = useState(false);
@@ -1229,12 +1401,7 @@ const SettingsView = ({
               </div>
               {designPreferences.templateId && (
                 <button
-                  onClick={() => {
-                    const next = { ...designPreferences, templateId: null, savedAt: new Date().toISOString() };
-                    setDesignPreferences(next);
-                    saveDesignPreferences(next);
-                    toast.success("Template cleared");
-                  }}
+                  onClick={() => onTemplateSelect(null)}
                   className="text-[10px] font-mono text-white/40 hover:text-white/70 underline underline-offset-2"
                 >
                   Clear
@@ -1243,15 +1410,7 @@ const SettingsView = ({
             </div>
             <TemplateGallery
               selectedId={designPreferences.templateId}
-              onSelect={(id) => {
-                const next = { ...designPreferences, templateId: id, savedAt: new Date().toISOString() };
-                setDesignPreferences(next);
-                saveDesignPreferences(next);
-                const tpl = COMFORT_TEMPLATES.find((t) => t.id === id);
-                toast.success(`Design saved · ${tpl?.name ?? "Template"}`, {
-                  description: "Applied automatically to all future generations and edits in this project.",
-                });
-              }}
+              onSelect={(id) => onTemplateSelect(id)}
             />
             {designPreferences.savedAt && (
               <p className="text-[9px] font-mono text-emerald-400/70 mt-3 flex items-center gap-1.5">
@@ -1356,7 +1515,11 @@ const TemplateGallery: React.FC<{
                     : "bg-white/5 text-white/60 border border-white/10 group-hover:bg-white/10"
                 }`}
               >
-                {isActive ? "Selected" : "Use this template"}
+                {isActive ? (
+                  <><CheckCircle2 size={10} /> Current template</>
+                ) : (
+                  "Use this template"
+                )}
               </div>
             </div>
           </motion.button>
@@ -3170,6 +3333,36 @@ export default function Dashboard() {
   const [activeWebsiteCode, setActiveWebsiteCode] = useState<string>("");
   const [generationRunId, setGenerationRunId] = useState(0);
 
+  // ─── Comfort Designs: instant template apply ────────────────────────────────
+  // Updates persisted preferences AND restyles the live preview iframe in
+  // milliseconds by injecting a CSS override block. No AI roundtrip.
+  const applyComfortTemplate = useCallback((id: string | null) => {
+    const next: DesignPreferences = {
+      ...designPreferences,
+      templateId: id,
+      savedAt: new Date().toISOString(),
+    };
+    setDesignPreferences(next);
+    saveDesignPreferences(next);
+
+    // Re-theme the existing preview instantly (if a website is loaded).
+    setActiveWebsiteCode((prev) => (prev ? applyTemplateThemeToHtml(prev, id) : prev));
+
+    if (id) {
+      const tpl = COMFORT_TEMPLATES.find((t) => t.id === id);
+      toast.success(`Applying template · ${tpl?.name ?? "Template"}`, {
+        description: "Live preview restyled. Future edits will follow this design.",
+        duration: 1800,
+      });
+    } else {
+      toast.success("Template cleared", {
+        description: "Preview restored to default styling.",
+        duration: 1500,
+      });
+    }
+  }, [designPreferences]);
+
+
   // ── "Return to Preview" safety net ──────────────────────────────────────────
   // Keeps the website preview pane alive when the user temporarily leaves it.
   // When false, a floating glass "Return to Preview" button appears.
@@ -4138,6 +4331,7 @@ export default function Dashboard() {
             setUserContext={setUserContext}
             designPreferences={designPreferences}
             setDesignPreferences={setDesignPreferences}
+            onTemplateSelect={applyComfortTemplate}
             initialFocus={settingsFocus}
           />
         );
@@ -4768,13 +4962,7 @@ export default function Dashboard() {
         onClose={closeWelcome}
         selectedId={designPreferences.templateId}
         onSelect={(id) => {
-          const next = { ...designPreferences, templateId: id, savedAt: new Date().toISOString() };
-          setDesignPreferences(next);
-          saveDesignPreferences(next);
-          const tpl = COMFORT_TEMPLATES.find((t) => t.id === id);
-          toast.success(`Comfort design saved · ${tpl?.name ?? "Template"}`, {
-            description: "It will guide every website you generate. Change anytime in Settings.",
-          });
+          applyComfortTemplate(id);
           closeWelcome();
         }}
       />
