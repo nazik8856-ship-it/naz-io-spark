@@ -4198,12 +4198,13 @@ export default function Dashboard() {
         setActiveWebsiteCode((prev) => {
           const candidate = (generatedCode || outputText || "").trim();
           if (hasPreviewHtml(candidate)) {
-            appliedCodeChange = candidate !== prev;
-            return candidate;
+            const themedCandidate = applyTemplateThemeToHtml(candidate, designPreferences.templateId);
+            appliedCodeChange = themedCandidate !== prev;
+            return themedCandidate;
           }
           if (hasPreviewHtml(prev)) return prev; // preserve live preview
           // First build with no usable HTML yet → fall back to bespoke starter
-          return buildStarterWebsiteHtml(lastWebsitePrompt || visiblePrompt);
+          return applyTemplateThemeToHtml(buildStarterWebsiteHtml(lastWebsitePrompt || visiblePrompt), designPreferences.templateId);
         });
         if (appliedCodeChange && inSandboxEditMode) {
           // Lightweight inline confirmation — no extra deps, dismisses itself.
