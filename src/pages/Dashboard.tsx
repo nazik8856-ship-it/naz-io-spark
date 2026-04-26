@@ -378,133 +378,233 @@ const buildComfortThemeCss = (templateId: string | null): string => {
   const tpl = COMFORT_TEMPLATES.find((t) => t.id === templateId);
   if (!tpl) return "";
 
-  // Per-template theme tokens. Kept compact + targets generic primitives so
-  // it cleanly overlays on any AI-generated standalone HTML document.
-  const themes: Record<string, {
-    bg: string; fg: string; surface: string; surfaceBorder: string;
-    accent: string; accent2: string; font: string; radius: string;
-    glass: string; extra?: string;
-  }> = {
+  // Per-template, opinionated theme. Each preset is a complete visual
+  // identity — background, glass intensity, typography, button shape,
+  // accent glows, hero headline treatment — so switching feels dramatic.
+  type Theme = {
+    googleFont: string;        // e.g. "Inter:wght@400;600;800"
+    bodyFont: string;          // applied to html/body
+    headingFont: string;       // applied to h1-h6
+    bg: string;                // body background
+    fg: string;                // body text color
+    mutedFg: string;
+    surface: string;           // cards / sections
+    surfaceBorder: string;
+    accent: string;
+    accent2: string;
+    radius: string;
+    glass: string;             // backdrop-filter, or "none"
+    btnBg: string;             // primary CTA background
+    btnFg: string;
+    btnRadius: string;
+    btnShadow: string;
+    headingTreatment: string;  // h1 specific css
+    extra?: string;
+  };
+
+  const themes: Record<string, Theme> = {
+    // ─── 1. CYBER-FUTURISTIC SAAS ─────────────────────────────────────────────
     "cyber-saas": {
-      bg: "radial-gradient(ellipse at top, #0b1530 0%, #020617 60%, #000 100%)",
+      googleFont: "Inter:wght@400;600;800|JetBrains+Mono:wght@500",
+      bodyFont: "'Inter', system-ui, sans-serif",
+      headingFont: "'Inter', system-ui, sans-serif",
+      bg: "radial-gradient(ellipse 1200px 600px at 50% -10%, rgba(168,85,247,0.18), transparent 60%), radial-gradient(ellipse 900px 500px at 100% 100%, rgba(6,182,212,0.15), transparent 60%), #020617",
       fg: "#e2e8f0",
+      mutedFg: "rgba(226,232,240,0.6)",
       surface: "rgba(15,23,42,0.55)",
-      surfaceBorder: "rgba(6,182,212,0.25)",
+      surfaceBorder: "rgba(6,182,212,0.28)",
       accent: "#06b6d4",
       accent2: "#a855f7",
-      font: "'Inter', system-ui, sans-serif",
       radius: "14px",
-      glass: "blur(18px) saturate(140%)",
-      extra: `h1,h2,h3{letter-spacing:-0.02em;}a{color:#06b6d4;}`,
+      glass: "blur(20px) saturate(160%)",
+      btnBg: "linear-gradient(135deg,#06b6d4 0%,#a855f7 100%)",
+      btnFg: "#0a0a0f",
+      btnRadius: "10px",
+      btnShadow: "0 0 24px rgba(6,182,212,0.45), 0 0 48px rgba(168,85,247,0.25)",
+      headingTreatment: `background:linear-gradient(135deg,#67e8f9 0%,#a78bfa 100%);-webkit-background-clip:text;background-clip:text;color:transparent;font-weight:800;letter-spacing:-0.025em;`,
+      extra: `code,pre,.mono{font-family:'JetBrains Mono',ui-monospace,monospace;color:#67e8f9;} hr{border-color:rgba(6,182,212,0.2);} ::selection{background:rgba(6,182,212,0.35);color:#fff;}`,
     },
+
+    // ─── 2. MINIMAL PREMIUM (Linear / Vercel) ─────────────────────────────────
     "minimal-premium": {
-      bg: "#fafaf9",
-      fg: "#0f172a",
+      googleFont: "Inter:wght@400;500;700;800",
+      bodyFont: "'Inter', 'Helvetica Neue', sans-serif",
+      headingFont: "'Inter', 'Helvetica Neue', sans-serif",
+      bg: "#fafafa",
+      fg: "#0a0a0a",
+      mutedFg: "#525252",
       surface: "#ffffff",
-      surfaceBorder: "rgba(15,23,42,0.08)",
-      accent: "#0f172a",
-      accent2: "#475569",
-      font: "'Inter', 'Helvetica Neue', sans-serif",
+      surfaceBorder: "rgba(10,10,10,0.08)",
+      accent: "#0a0a0a",
+      accent2: "#525252",
       radius: "10px",
       glass: "none",
-      extra: `h1,h2{letter-spacing:-0.035em;font-weight:700;}body{color:#0f172a;}`,
+      btnBg: "#0a0a0a",
+      btnFg: "#ffffff",
+      btnRadius: "8px",
+      btnShadow: "0 1px 2px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)",
+      headingTreatment: `color:#0a0a0a;font-weight:700;letter-spacing:-0.04em;line-height:1.05;`,
+      extra: `p{color:#404040;line-height:1.65;} hr{border-color:rgba(0,0,0,0.06);} img{border-radius:10px;}`,
     },
+
+    // ─── 3. BOLD GRADIENT HERO (cinematic, vibrant) ───────────────────────────
     "bold-gradient": {
-      bg: "linear-gradient(135deg,#1a0820 0%,#2a0a3a 50%,#1a0820 100%)",
+      googleFont: "Space+Grotesk:wght@500;700;800|Inter:wght@400;500",
+      bodyFont: "'Inter', sans-serif",
+      headingFont: "'Space Grotesk', 'Inter', sans-serif",
+      bg: "linear-gradient(135deg,#1a0820 0%,#3a0f4f 35%,#5b1f6e 65%,#1a0820 100%)",
       fg: "#fdf4ff",
+      mutedFg: "rgba(253,244,255,0.7)",
       surface: "rgba(244,63,94,0.08)",
-      surfaceBorder: "rgba(244,63,94,0.35)",
+      surfaceBorder: "rgba(244,63,94,0.4)",
       accent: "#f43f5e",
       accent2: "#f59e0b",
-      font: "'Space Grotesk', 'Inter', sans-serif",
-      radius: "18px",
-      glass: "blur(14px)",
-      extra: `h1{background:linear-gradient(135deg,#f43f5e,#f59e0b,#a855f7);-webkit-background-clip:text;background-clip:text;color:transparent;font-weight:800;}`,
+      radius: "20px",
+      glass: "blur(16px) saturate(140%)",
+      btnBg: "linear-gradient(135deg,#f43f5e 0%,#f59e0b 50%,#a855f7 100%)",
+      btnFg: "#ffffff",
+      btnRadius: "999px",
+      btnShadow: "0 8px 32px rgba(244,63,94,0.45)",
+      headingTreatment: `background:linear-gradient(135deg,#fbbf24 0%,#f43f5e 50%,#a855f7 100%);-webkit-background-clip:text;background-clip:text;color:transparent;font-weight:800;letter-spacing:-0.03em;font-size:clamp(2.5rem,6vw,5rem);line-height:1;`,
+      extra: `::selection{background:rgba(244,63,94,0.4);color:#fff;}`,
     },
+
+    // ─── 4. ANALYTICS LANDING (data viz, KPI-driven) ──────────────────────────
     "analytics-dashboard": {
-      bg: "#0a0f1a",
-      fg: "#cbd5e1",
-      surface: "rgba(16,185,129,0.06)",
-      surfaceBorder: "rgba(16,185,129,0.25)",
+      googleFont: "Inter:wght@400;600;700|JetBrains+Mono:wght@500;700",
+      bodyFont: "'Inter', sans-serif",
+      headingFont: "'Inter', sans-serif",
+      bg: "linear-gradient(180deg,#0a0f1a 0%,#0d1422 100%)",
+      fg: "#e2e8f0",
+      mutedFg: "rgba(226,232,240,0.55)",
+      surface: "rgba(16,185,129,0.05)",
+      surfaceBorder: "rgba(16,185,129,0.22)",
       accent: "#10b981",
       accent2: "#06b6d4",
-      font: "'Inter', sans-serif",
       radius: "8px",
       glass: "blur(10px)",
-      extra: `code,pre,.metric,.kpi{font-family:'JetBrains Mono',ui-monospace,monospace;color:#10b981;}`,
+      btnBg: "#10b981",
+      btnFg: "#0a0f1a",
+      btnRadius: "6px",
+      btnShadow: "0 0 20px rgba(16,185,129,0.35)",
+      headingTreatment: `color:#f1f5f9;font-weight:700;letter-spacing:-0.02em;`,
+      extra: `code,pre,.metric,.kpi,.number,[class*="metric"],[class*="kpi"]{font-family:'JetBrains Mono',ui-monospace,monospace;color:#34d399;font-variant-numeric:tabular-nums;} table{border-color:rgba(16,185,129,0.2);} th{color:#10b981;text-transform:uppercase;font-size:0.75em;letter-spacing:0.1em;}`,
     },
+
+    // ─── 5. PROFESSIONAL AGENCY (editorial, trustworthy) ──────────────────────
     "agency": {
+      googleFont: "Playfair+Display:wght@600;700;800|Inter:wght@400;500;600",
+      bodyFont: "'Inter', sans-serif",
+      headingFont: "'Playfair Display', Georgia, serif",
       bg: "#0c1119",
       fg: "#e5e7eb",
-      surface: "rgba(255,255,255,0.04)",
-      surfaceBorder: "rgba(14,165,233,0.25)",
+      mutedFg: "rgba(229,231,235,0.6)",
+      surface: "rgba(255,255,255,0.03)",
+      surfaceBorder: "rgba(14,165,233,0.18)",
       accent: "#0ea5e9",
       accent2: "#94a3b8",
-      font: "'Inter', Georgia, serif",
-      radius: "6px",
+      radius: "4px",
       glass: "blur(8px)",
-      extra: `h1,h2{font-weight:600;letter-spacing:-0.02em;}`,
+      btnBg: "transparent",
+      btnFg: "#0ea5e9",
+      btnRadius: "2px",
+      btnShadow: "inset 0 0 0 1px #0ea5e9",
+      headingTreatment: `font-family:'Playfair Display',Georgia,serif;color:#f1f5f9;font-weight:700;letter-spacing:-0.015em;line-height:1.1;`,
+      extra: `blockquote{border-left:3px solid #0ea5e9;padding-left:1.5rem;font-style:italic;color:#cbd5e1;} a{color:#38bdf8;text-decoration:underline;text-decoration-color:rgba(56,189,248,0.3);text-underline-offset:3px;}`,
     },
+
+    // ─── 6. E-COMMERCE TEASER (CTA-driven, boutique) ──────────────────────────
     "ecommerce": {
-      bg: "linear-gradient(180deg,#fdf2f8 0%,#faf5ff 100%)",
+      googleFont: "Manrope:wght@400;600;700;800",
+      bodyFont: "'Manrope', sans-serif",
+      headingFont: "'Manrope', sans-serif",
+      bg: "linear-gradient(180deg,#fdf2f8 0%,#faf5ff 50%,#fef3c7 100%)",
       fg: "#1e1b4b",
+      mutedFg: "#6b7280",
       surface: "#ffffff",
-      surfaceBorder: "rgba(236,72,153,0.2)",
+      surfaceBorder: "rgba(236,72,153,0.18)",
       accent: "#ec4899",
       accent2: "#a855f7",
-      font: "'Inter', sans-serif",
       radius: "16px",
-      glass: "blur(8px)",
-      extra: `button,.btn,.cta{background:linear-gradient(135deg,#ec4899,#a855f7)!important;color:#fff!important;border:none!important;}`,
+      glass: "none",
+      btnBg: "linear-gradient(135deg,#ec4899 0%,#a855f7 100%)",
+      btnFg: "#ffffff",
+      btnRadius: "999px",
+      btnShadow: "0 10px 30px rgba(236,72,153,0.35)",
+      headingTreatment: `color:#1e1b4b;font-weight:800;letter-spacing:-0.025em;line-height:1.1;`,
+      extra: `img{border-radius:18px;box-shadow:0 20px 50px rgba(236,72,153,0.15);} .price,[class*="price"]{color:#ec4899;font-weight:700;} ::selection{background:rgba(236,72,153,0.25);}`,
     },
   };
 
   const t = themes[templateId];
   if (!t) return "";
 
+  const fontImport = `@import url('https://fonts.googleapis.com/css2?family=${t.googleFont.replace(/\|/g, "&family=")}&display=swap');`;
+
   return `
+${fontImport}
 /* === NazAI Comfort Design: ${tpl.name} === */
 :root{
   --nazai-comfort-accent:${t.accent};
   --nazai-comfort-accent-2:${t.accent2};
   --nazai-comfort-fg:${t.fg};
+  --nazai-comfort-muted:${t.mutedFg};
+  --nazai-comfort-surface:${t.surface};
+  --nazai-comfort-border:${t.surfaceBorder};
   --nazai-comfort-radius:${t.radius};
 }
 html,body{
   background:${t.bg}!important;
   color:${t.fg}!important;
-  font-family:${t.font}!important;
-  transition:background 320ms ease, color 320ms ease;
+  font-family:${t.bodyFont}!important;
+  transition:background 380ms ease, color 320ms ease;
 }
 *,*::before,*::after{
-  border-color:${t.surfaceBorder};
-  transition:background-color 280ms ease, border-color 280ms ease, color 280ms ease;
+  transition:background-color 280ms ease, border-color 280ms ease, color 280ms ease, box-shadow 280ms ease;
 }
-section,header,footer,nav,article,aside,.card,.panel,.glass,[class*="card"],[class*="panel"]{
+h1,h2,h3,h4,h5,h6{font-family:${t.headingFont}!important;}
+h1{${t.headingTreatment}}
+h2{color:${t.fg};font-weight:700;letter-spacing:-0.02em;}
+p,li,span:not([class*="badge"]):not([class*="chip"]){color:${t.fg};}
+.muted,small,[class*="muted"],[class*="subtle"]{color:${t.mutedFg}!important;}
+
+section,header,footer,nav,article,aside,
+.card,.panel,.glass,[class*="card"],[class*="panel"],[class*="feature"],[class*="pricing"]{
   background:${t.surface}!important;
-  border-color:${t.surfaceBorder}!important;
+  border:1px solid ${t.surfaceBorder}!important;
   border-radius:${t.radius};
   ${t.glass !== "none" ? `backdrop-filter:${t.glass};-webkit-backdrop-filter:${t.glass};` : ""}
 }
-a,.accent,[class*="accent"]{color:${t.accent};}
-button,.btn,[class*="btn"],[type="button"],[type="submit"]{
-  border-radius:${t.radius};
-  border:1px solid ${t.surfaceBorder};
-}
-button.primary,.btn-primary,[class*="primary"]{
-  background:${t.accent}!important;
-  color:#fff!important;
+nav,header{backdrop-filter:${t.glass !== "none" ? t.glass : "blur(8px)"};-webkit-backdrop-filter:${t.glass !== "none" ? t.glass : "blur(8px)"};}
+
+a{color:${t.accent};}
+a:hover{color:${t.accent2};}
+
+button,.btn,[class*="btn"],[type="button"],[type="submit"],a[class*="cta"],a[class*="button"]{
+  background:${t.btnBg}!important;
+  color:${t.btnFg}!important;
   border:none!important;
+  border-radius:${t.btnRadius}!important;
+  box-shadow:${t.btnShadow}!important;
+  font-weight:600;
+  padding:0.75rem 1.5rem;
+  cursor:pointer;
 }
+button:hover,.btn:hover,[class*="btn"]:hover{transform:translateY(-1px);filter:brightness(1.08);}
+
 input,textarea,select{
   background:${t.surface}!important;
   color:${t.fg}!important;
   border:1px solid ${t.surfaceBorder}!important;
   border-radius:${t.radius};
 }
+input:focus,textarea:focus,select:focus{outline:2px solid ${t.accent};outline-offset:2px;}
+
+hr{border-color:${t.surfaceBorder};}
 ${t.extra ?? ""}
 `.trim();
 };
+
 
 /**
  * Applies a Comfort Design template to an existing standalone HTML document
