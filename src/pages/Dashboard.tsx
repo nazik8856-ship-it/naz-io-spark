@@ -3340,6 +3340,36 @@ export default function Dashboard() {
   const [activeWebsiteCode, setActiveWebsiteCode] = useState<string>("");
   const [generationRunId, setGenerationRunId] = useState(0);
 
+  // ─── Comfort Designs: instant template apply ────────────────────────────────
+  // Updates persisted preferences AND restyles the live preview iframe in
+  // milliseconds by injecting a CSS override block. No AI roundtrip.
+  const applyComfortTemplate = useCallback((id: string | null) => {
+    const next: DesignPreferences = {
+      ...designPreferences,
+      templateId: id,
+      savedAt: new Date().toISOString(),
+    };
+    setDesignPreferences(next);
+    saveDesignPreferences(next);
+
+    // Re-theme the existing preview instantly (if a website is loaded).
+    setActiveWebsiteCode((prev) => (prev ? applyTemplateThemeToHtml(prev, id) : prev));
+
+    if (id) {
+      const tpl = COMFORT_TEMPLATES.find((t) => t.id === id);
+      toast.success(`Applying template · ${tpl?.name ?? "Template"}`, {
+        description: "Live preview restyled. Future edits will follow this design.",
+        duration: 1800,
+      });
+    } else {
+      toast.success("Template cleared", {
+        description: "Preview restored to default styling.",
+        duration: 1500,
+      });
+    }
+  }, [designPreferences]);
+
+
   // ── "Return to Preview" safety net ──────────────────────────────────────────
   // Keeps the website preview pane alive when the user temporarily leaves it.
   // When false, a floating glass "Return to Preview" button appears.
