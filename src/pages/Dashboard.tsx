@@ -4119,6 +4119,9 @@ export default function Dashboard() {
             toggleLightMode={toggleLightMode}
             userContext={userContext}
             setUserContext={setUserContext}
+            designPreferences={designPreferences}
+            setDesignPreferences={setDesignPreferences}
+            initialFocus={settingsFocus}
           />
         );
         break;
