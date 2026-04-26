@@ -83,6 +83,7 @@ const SECTION_ORDER: SectionId[] = ["hero", "features", "contact"];
 const WebsiteRevealPane: React.FC<WebsiteRevealPaneProps> = ({
   responseText,
   activeWebsiteCode = "",
+  previewRevision = 0,
   generationRunId = 0,
   isPending,
   isWebsiteComplete,
