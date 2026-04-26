@@ -3464,6 +3464,8 @@ export default function Dashboard() {
       setSettingsFocus(null);
     });
   }, [settingsFocus]);
+
+  const handleSelectTool = useCallback((id: string) => {
     setSelectedModel(id);
     setDrawerOpen(false);
   }, []);
