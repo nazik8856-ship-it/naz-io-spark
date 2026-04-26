@@ -1229,6 +1229,7 @@ const SettingsView = ({
   designPreferences, setDesignPreferences,
   onTemplateSelect,
   initialFocus,
+  nazaiThemeId, onNazaiThemeSelect,
 }: {
   customPalette: CustomPalette;
   setCustomPalette: (palette: CustomPalette) => void;
@@ -1242,6 +1243,8 @@ const SettingsView = ({
   setDesignPreferences: (p: DesignPreferences) => void;
   onTemplateSelect: (id: string | null) => void;
   initialFocus?: "brand-snap" | "comfort-designs" | null;
+  nazaiThemeId: string;
+  onNazaiThemeSelect: (id: string) => void;
 }) => {
   const [neuralCustomActive, setNeuralCustomActive] = useState(false);
   // Track snapshot of last saved context — Save button only appears once user edits a field
