@@ -337,9 +337,13 @@ const DEFAULT_DESIGN_PREFERENCES: DesignPreferences = {
   savedAt: null,
 };
 
-const loadDesignPreferences = (): DesignPreferences => {
+const DESIGN_PREFERENCES_STORAGE_KEY = "nazai-design-preferences";
+const projectDesignPreferencesKey = (projectId: string) => `${DESIGN_PREFERENCES_STORAGE_KEY}:${projectId}`;
+
+const loadDesignPreferences = (projectId?: string | null): DesignPreferences => {
   try {
-    const raw = localStorage.getItem("nazai-design-preferences");
+    const projectRaw = projectId ? localStorage.getItem(projectDesignPreferencesKey(projectId)) : null;
+    const raw = projectRaw || localStorage.getItem(DESIGN_PREFERENCES_STORAGE_KEY);
     if (!raw) return DEFAULT_DESIGN_PREFERENCES;
     return { ...DEFAULT_DESIGN_PREFERENCES, ...JSON.parse(raw) };
   } catch {
@@ -347,9 +351,10 @@ const loadDesignPreferences = (): DesignPreferences => {
   }
 };
 
-const saveDesignPreferences = (p: DesignPreferences) => {
+const saveDesignPreferences = (p: DesignPreferences, projectId?: string | null) => {
   try {
-    localStorage.setItem("nazai-design-preferences", JSON.stringify(p));
+    localStorage.setItem(DESIGN_PREFERENCES_STORAGE_KEY, JSON.stringify(p));
+    if (projectId) localStorage.setItem(projectDesignPreferencesKey(projectId), JSON.stringify(p));
   } catch {
     /* noop */
   }
