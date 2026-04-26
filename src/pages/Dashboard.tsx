@@ -3452,7 +3452,18 @@ export default function Dashboard() {
     setIsSidebarOpen(false);
   }, []);
 
-  const handleSelectTool = useCallback((id: string) => {
+  // Auto-open Settings + scroll to focused section when arriving via deep-link
+  useEffect(() => {
+    if (!settingsFocus) return;
+    setShowSettings(true);
+    setActiveNav("settings");
+    const anchor = settingsFocus;
+    requestAnimationFrame(() => {
+      const el = document.getElementById(anchor);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+      setSettingsFocus(null);
+    });
+  }, [settingsFocus]);
     setSelectedModel(id);
     setDrawerOpen(false);
   }, []);
