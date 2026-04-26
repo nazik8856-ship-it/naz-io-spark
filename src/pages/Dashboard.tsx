@@ -1661,6 +1661,64 @@ const TemplateGallery: React.FC<{
 };
 
 // ============================================================
+// COMFORT DESIGNS BLOCK — reusable card-wrapped gallery used in
+// WebsiteRevealPane (above CommandCenterChecklist) and HomeView
+// (above the prompt input on a fresh project).
+// ============================================================
+const ComfortDesignsBlock: React.FC<{
+  selectedId: string | null;
+  onSelect: (id: string | null) => void;
+  variant?: "preview" | "home";
+  compact?: boolean;
+}> = ({ selectedId, onSelect, variant = "preview", compact = false }) => {
+  const activeTpl = COMFORT_TEMPLATES.find((t) => t.id === selectedId) || null;
+  return (
+    <div
+      className="w-full rounded-xl p-4 sm:p-5"
+      style={{
+        background: variant === "home" ? "rgba(9,9,11,0.6)" : "rgba(11,11,15,0.78)",
+        border: "1px solid #27272a",
+        backdropFilter: "blur(10px)",
+      }}
+    >
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <LayoutTemplate size={14} className="text-cyan-400 shrink-0" />
+            <h3 className="text-[12px] font-mono font-bold tracking-[0.18em] uppercase text-zinc-100">
+              Comfort Designs
+            </h3>
+            {activeTpl && (
+              <span
+                className="ml-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold tracking-wider"
+                style={{ background: "rgba(6,182,212,0.15)", color: "#67e8f9", border: "1px solid rgba(6,182,212,0.4)" }}
+              >
+                <CheckCircle2 size={9} /> ACTIVE
+              </span>
+            )}
+          </div>
+          <p className="text-[10px] font-mono text-white/45 mt-1 leading-snug">
+            {activeTpl
+              ? `Current ground truth: ${activeTpl.name}. Click another to switch instantly.`
+              : "Pick a visual template — applied to the live preview in milliseconds and used as ground truth for every edit."}
+          </p>
+        </div>
+        {selectedId && (
+          <button
+            type="button"
+            onClick={() => onSelect(null)}
+            className="text-[10px] font-mono text-white/40 hover:text-white/80 underline underline-offset-2 shrink-0"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+      <TemplateGallery selectedId={selectedId} onSelect={(id) => onSelect(id)} compact={compact} />
+    </div>
+  );
+};
+
+// ============================================================
 // WELCOME TEMPLATE MODAL — first-visit Comfort Designs picker
 // ============================================================
 const WelcomeTemplateModal: React.FC<{
