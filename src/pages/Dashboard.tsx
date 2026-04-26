@@ -1674,42 +1674,8 @@ const SettingsView = ({
             <NazaiThemeGallery selectedId={nazaiThemeId} onSelect={onNazaiThemeSelect} />
           </motion.div>
 
-          {/* ─── COMFORT DESIGNS (Template Gallery) ────────────────────────── */}
-          <motion.div
-            id="comfort-designs"
-            variants={itemVariants}
-            className="md:col-span-2 p-5 rounded-xl"
-            style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
-          >
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="text-sm font-semibold flex items-center gap-2 font-mono" style={{ color: "var(--nazai-text-color)" }}>
-                  <LayoutTemplate size={16} className="text-cyan-400" /> COMFORT DESIGNS
-                </h3>
-                <p className="text-[10px] font-mono text-white/40 mt-1">
-                  Pick a visual template — NazAI will use it as the ground truth for every new website and edit.
-                </p>
-              </div>
-              {designPreferences.templateId && (
-                <button
-                  onClick={() => onTemplateSelect(null)}
-                  className="text-[10px] font-mono text-white/40 hover:text-white/70 underline underline-offset-2"
-                >
-                  Clear
-                </button>
-              )}
-            </div>
-            <TemplateGallery
-              selectedId={designPreferences.templateId}
-              onSelect={(id) => onTemplateSelect(id)}
-            />
-            {designPreferences.savedAt && (
-              <p className="text-[9px] font-mono text-emerald-400/70 mt-3 flex items-center gap-1.5">
-                <CheckCircle2 size={10} /> Saved · {new Date(designPreferences.savedAt).toLocaleString()}
-              </p>
-            )}
-          </motion.div>
-
+          {/* COMFORT DESIGNS removed from Settings — now strictly scoped to the
+              active project's editing tab (above the Command Center). */}
           {/* ─── BRAND-SNAP CANVAS (relocated from landing page) ─────────────── */}
           <motion.div
             id="brand-snap"
