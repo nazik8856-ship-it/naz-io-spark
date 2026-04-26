@@ -3478,6 +3478,7 @@ export default function Dashboard() {
     }
   }, [activeWebsiteCode]);
   const [generationRunId, setGenerationRunId] = useState(0);
+  const [previewThemeRevision, setPreviewThemeRevision] = useState(0);
 
   // ─── Comfort Designs: instant template apply ────────────────────────────────
   // Updates persisted preferences AND restyles the live preview iframe in
