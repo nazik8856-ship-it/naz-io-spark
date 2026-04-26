@@ -243,7 +243,130 @@ const DEFAULT_USER_CONTEXT: UserContext = {
   style: '',
 };
 
-// Professional placeholder texts for typing animation
+// ─── Comfort Designs (Template Gallery) ───────────────────────────────────────
+// Six premium NazAI-native visual templates. Selecting one is treated as a
+// "ground-truth" design preference: it pre-fills the generation prompt with a
+// concrete style directive AND is persisted so every future build/edit honors it.
+type ComfortTemplate = {
+  id: string;
+  name: string;
+  tagline: string;
+  icon: React.ElementType;
+  // Hybrid thumbnail = CSS gradient + icon + name (no image assets needed)
+  gradient: string;
+  accent: string;
+  // Style directive injected into the AI master prompt
+  styleDirective: string;
+};
+
+const COMFORT_TEMPLATES: ComfortTemplate[] = [
+  {
+    id: "cyber-saas",
+    name: "Cyber-Futuristic SaaS",
+    tagline: "Neon accents · glassmorphism · dark",
+    icon: Zap,
+    gradient: "linear-gradient(135deg, #06b6d4 0%, #3b82f6 50%, #a855f7 100%)",
+    accent: "#06b6d4",
+    styleDirective:
+      "Cyber-futuristic SaaS aesthetic: deep dark base (#020617–#0a0a0f), tasteful glassmorphism with backdrop-blur, neon cyan/violet accents, animated gradient halos, sharp geometric layout, JetBrains Mono micro-labels + Inter body, bold large hero headline.",
+  },
+  {
+    id: "minimal-premium",
+    name: "Minimal Premium",
+    tagline: "Linear-style whitespace · bold type",
+    icon: Feather,
+    gradient: "linear-gradient(135deg, #f8fafc 0%, #e2e8f0 50%, #94a3b8 100%)",
+    accent: "#0f172a",
+    styleDirective:
+      "Minimal premium aesthetic in the Linear/Vercel/Apple lineage: generous whitespace, very bold tight typography, neutral palette with one subtle accent, restrained micro-interactions, soft shadows, no gimmicks.",
+  },
+  {
+    id: "bold-gradient",
+    name: "Bold Gradient Hero",
+    tagline: "Story-driven · vibrant · cinematic",
+    icon: Sparkles,
+    gradient: "linear-gradient(135deg, #f43f5e 0%, #f59e0b 50%, #a855f7 100%)",
+    accent: "#f43f5e",
+    styleDirective:
+      "Bold gradient cinematic aesthetic: oversized expressive headline, vivid multi-stop gradient hero, scroll-triggered reveals, story sections with rhythm, large rounded CTA, premium feel without becoming chaotic.",
+  },
+  {
+    id: "analytics-dashboard",
+    name: "Analytics Landing",
+    tagline: "Data viz hero · charts · KPIs",
+    icon: BarChart3,
+    gradient: "linear-gradient(135deg, #10b981 0%, #06b6d4 50%, #3b82f6 100%)",
+    accent: "#10b981",
+    styleDirective:
+      "Analytics dashboard landing aesthetic: data-rich hero with mock chart/sparklines/KPI tiles, monospace numerals, clean grid, dark mode default, signal-green + electric-blue accents, trustworthy enterprise tone.",
+  },
+  {
+    id: "agency",
+    name: "Professional Agency",
+    tagline: "Confident · case studies · trust",
+    icon: Briefcase,
+    gradient: "linear-gradient(135deg, #1e293b 0%, #475569 50%, #0ea5e9 100%)",
+    accent: "#0ea5e9",
+    styleDirective:
+      "Professional service / agency aesthetic: confident editorial typography, case-study cards with results metrics, client logo strip, testimonial with role + company, calm neutral palette + one signature accent.",
+  },
+  {
+    id: "ecommerce",
+    name: "E-commerce Teaser",
+    tagline: "Product hero · CTA-driven",
+    icon: Store,
+    gradient: "linear-gradient(135deg, #ec4899 0%, #a855f7 50%, #6366f1 100%)",
+    accent: "#ec4899",
+    styleDirective:
+      "E-commerce teaser aesthetic: large product hero with lifestyle gradient, prominent buy CTA, social proof strip, FAQ + shipping reassurance, conversion-optimized layout, premium boutique feel.",
+  },
+];
+
+// ─── Design Preferences (Ground Truth) ────────────────────────────────────────
+type DesignPreferences = {
+  templateId: string | null;
+  paletteColors: string[]; // optional saved palette from Brand Assets
+  vibe: string; // free-form vibe note
+  savedAt: string | null;
+};
+
+const DEFAULT_DESIGN_PREFERENCES: DesignPreferences = {
+  templateId: null,
+  paletteColors: [],
+  vibe: "",
+  savedAt: null,
+};
+
+const loadDesignPreferences = (): DesignPreferences => {
+  try {
+    const raw = localStorage.getItem("nazai-design-preferences");
+    if (!raw) return DEFAULT_DESIGN_PREFERENCES;
+    return { ...DEFAULT_DESIGN_PREFERENCES, ...JSON.parse(raw) };
+  } catch {
+    return DEFAULT_DESIGN_PREFERENCES;
+  }
+};
+
+const saveDesignPreferences = (p: DesignPreferences) => {
+  try {
+    localStorage.setItem("nazai-design-preferences", JSON.stringify(p));
+  } catch {
+    /* noop */
+  }
+};
+
+const buildDesignPreferenceDirective = (p: DesignPreferences): string => {
+  const tpl = COMFORT_TEMPLATES.find((t) => t.id === p.templateId);
+  if (!tpl && !p.paletteColors.length && !p.vibe.trim()) return "";
+  const parts: string[] = ["[DESIGN_PREFERENCES — GROUND TRUTH, ALWAYS HONOR]"];
+  if (tpl) parts.push(`Chosen template: ${tpl.name}. ${tpl.styleDirective}`);
+  if (p.paletteColors.length) parts.push(`Brand palette (use as primary visual language): ${p.paletteColors.join(", ")}.`);
+  if (p.vibe.trim()) parts.push(`Vibe note: ${p.vibe.trim()}.`);
+  parts.push("Apply these preferences to every section, component, and edit unless the user explicitly overrides.");
+  return parts.join("\n") + "\n\n";
+};
+
+
 const PLACEHOLDER_TEXTS = [
   "Architect a high-performance gym business...",
   "Design a blueprint for an automated SaaS...",
