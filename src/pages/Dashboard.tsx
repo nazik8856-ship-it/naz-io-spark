@@ -1401,12 +1401,7 @@ const SettingsView = ({
               </div>
               {designPreferences.templateId && (
                 <button
-                  onClick={() => {
-                    const next = { ...designPreferences, templateId: null, savedAt: new Date().toISOString() };
-                    setDesignPreferences(next);
-                    saveDesignPreferences(next);
-                    toast.success("Template cleared");
-                  }}
+                  onClick={() => onTemplateSelect(null)}
                   className="text-[10px] font-mono text-white/40 hover:text-white/70 underline underline-offset-2"
                 >
                   Clear
@@ -1415,15 +1410,7 @@ const SettingsView = ({
             </div>
             <TemplateGallery
               selectedId={designPreferences.templateId}
-              onSelect={(id) => {
-                const next = { ...designPreferences, templateId: id, savedAt: new Date().toISOString() };
-                setDesignPreferences(next);
-                saveDesignPreferences(next);
-                const tpl = COMFORT_TEMPLATES.find((t) => t.id === id);
-                toast.success(`Design saved · ${tpl?.name ?? "Template"}`, {
-                  description: "Applied automatically to all future generations and edits in this project.",
-                });
-              }}
+              onSelect={(id) => onTemplateSelect(id)}
             />
             {designPreferences.savedAt && (
               <p className="text-[9px] font-mono text-emerald-400/70 mt-3 flex items-center gap-1.5">
