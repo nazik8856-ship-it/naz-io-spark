@@ -971,7 +971,24 @@ const laserShineAnimation = {
 };
 
 // Format AI response text with styled sections
+// Detects whether the AI text uses Markdown features (tables, fenced code,
+// headings, mermaid). When true we render via RichMarkdown for rich tables /
+// diagrams. Otherwise we keep the legacy bracket-styled renderer for the
+// classic [HEADER] / bullet aesthetic.
+const looksLikeMarkdown = (text: string): boolean => {
+  if (/```/.test(text)) return true;
+  if (/^\s*\|.+\|\s*$/m.test(text) && /^\s*\|[\s:-]+\|\s*$/m.test(text)) return true;
+  if (/^#{1,6}\s+\S/m.test(text)) return true;
+  if (/\*\*[^*\n]+\*\*/.test(text)) return true;
+  if (/\[[^\]]+\]\(https?:\/\/[^)]+\)/.test(text)) return true;
+  return false;
+};
+
 const formatAIResponse = (text: string) => {
+  if (looksLikeMarkdown(text)) {
+    return <RichMarkdown text={text} />;
+  }
+
   const lines = text.split("\n");
   return lines.map((line, i) => {
     const headerMatch = line.match(/^\[([A-Z_\s]+)\]/);
