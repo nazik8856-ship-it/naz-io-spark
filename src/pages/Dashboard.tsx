@@ -5428,14 +5428,15 @@ export default function Dashboard() {
         )}
       </AnimatePresence>
 
-      {/* First-visit Comfort Designs welcome modal */}
+      {/* NazAI Visual Themes modal — opened only via explicit user action (Settings).
+          No auto-popup on login. */}
       <WelcomeTemplateModal
         open={welcomeOpen}
         onClose={closeWelcome}
-        selectedId={designPreferences.templateId}
-        onSelect={(id) => {
-          applyComfortTemplate(id);
-          closeWelcome();
+        selectedThemeId={nazaiThemeId}
+        onSelectTheme={(id) => {
+          setNazaiThemeId(id);
+          toast({ title: "Theme applied ✓", description: NAZAI_THEMES.find(t => t.id === id)?.name ?? id });
         }}
       />
 
