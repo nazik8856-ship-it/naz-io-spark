@@ -3496,23 +3496,21 @@ export default function Dashboard() {
     });
 
     // Force-restyle the live preview, even on re-click of the active template.
-    // We strip any existing comfort-theme block first, then inject the fresh one
-    // — guaranteeing the iframe key (which fingerprints the theme block) changes
-    // and the iframe remounts with the new srcDoc.
+    // Strip any existing comfort-theme block first, then inject a fresh preset.
     setActiveWebsiteCode((prev) => {
-      if (!prev) return prev;
-      const restyled = applyTemplateThemeToHtml(prev, id);
-      // If, by coincidence, the output is byte-identical (e.g. user re-clicked
-      // the active template), append a tiny invisible marker so the iframe key
-      // still changes and the user gets visible feedback.
-      if (restyled === prev) {
-        const marker = `<!-- comfort-theme:${id ?? "none"}:${Date.now()} -->`;
-        return restyled.includes("</body>")
-          ? restyled.replace(/<\/body>/i, `${marker}</body>`)
-          : restyled + marker;
-      }
-      return restyled;
+      const base = prev || buildStarterWebsiteHtml(lastWebsitePrompt || "NazAI website preview");
+      const restyled = applyTemplateThemeToHtml(base, id);
+      // Always add a fresh invisible marker so the iframe remounts even when the
+      // same active template is re-clicked and the CSS output is byte-identical.
+      const marker = `<!-- comfort-theme:${id ?? "none"}:${Date.now()} -->`;
+      return restyled.includes("</body>")
+        ? restyled.replace(/<\/body>/i, `${marker}</body>`)
+        : restyled + marker;
     });
+    setPreviewThemeRevision((rev) => rev + 1);
+    setIsWebsiteIntent(true);
+    setIsWebsiteComplete(true);
+    setIsPreviewActive(true);
 
     if (id) {
       const tpl = COMFORT_TEMPLATES.find((t) => t.id === id);
