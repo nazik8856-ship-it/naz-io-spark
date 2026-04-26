@@ -3654,11 +3654,13 @@ export default function Dashboard() {
             .join("\n") +
           `\n\n`
         : "";
+      const designPrefDirective = buildDesignPreferenceDirective(designPreferences);
       masterPrompt =
         `SYSTEM (HARD RULE — CODE OUTPUT MODE):\n` +
         `When the user asks to generate, build, modify, or edit a website or any visual component, ALWAYS output complete, valid, runnable code that can be applied directly to the live preview. Never respond with only text descriptions, summaries, strategies, or explanations unless the user explicitly asks for non-code content.\n` +
         `You are given the COMPLETE latest source code of the live preview below. First analyze the existing code carefully. Then make precise, targeted edits ONLY to the requested parts. Preserve everything else exactly. Never regenerate the entire site from scratch unless the user says "regenerate full site".\n` +
         `Return ONLY ONE complete, standalone HTML document inside a single \`\`\`html fenced block. Inline CSS/JS. No markdown prose, no TSX imports, no partial snippets, no explanations before or after.\n\n` +
+        designPrefDirective +
         PREMIUM_WEBSITE_QUALITY_GUIDELINES +
         styleReferenceBlock +
         `[ITERATION_DIRECTIVE: LIVE_EDIT]\n` +
@@ -3672,11 +3674,13 @@ export default function Dashboard() {
       setIsWebsiteIntent(true);
       setLastWebsitePrompt(trimmed);
       setActiveWebsiteCode(buildStarterWebsiteHtml(trimmed));
+      const designPrefDirective = buildDesignPreferenceDirective(designPreferences);
       masterPrompt =
         `[PRIORITY_DIRECTIVE: WEBSITE_BUILD]\n` +
         `SYSTEM (HARD RULE — CODE OUTPUT MODE): Always output complete runnable code, never text-only explanations.\n` +
         `Return ONLY ONE complete, standalone HTML document inside a single \`\`\`html fenced block, with inline CSS/JS that renders in iframe srcDoc. No prose before or after the fence.\n` +
         `Use the user's exact prompt to create a bespoke premium website tailored to that business. Adapt sections, copy, visual emphasis, palette, typography, and imagery to the prompt — never reuse the same template across users.\n\n` +
+        designPrefDirective +
         PREMIUM_WEBSITE_QUALITY_GUIDELINES +
         masterPrompt;
     }
