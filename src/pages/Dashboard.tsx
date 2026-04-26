@@ -5436,7 +5436,7 @@ export default function Dashboard() {
         selectedThemeId={nazaiThemeId}
         onSelectTheme={(id) => {
           setNazaiThemeId(id);
-          toast({ title: "Theme applied ✓", description: NAZAI_THEMES.find(t => t.id === id)?.name ?? id });
+          toast.success(`Theme applied ✓ — ${NAZAI_THEMES.find(t => t.id === id)?.name ?? id}`);
         }}
       />
 
