@@ -784,8 +784,14 @@ const ArchivesView = ({ missions, onRestore }: {
   );
 };
 
-// SettingsView Component - Neural Custom Theme & Connected Apps
-const SettingsView = ({ customPalette, setCustomPalette, auraProfile, updateAuraProfile, resetAuraToDefault, toggleLightMode, userContext, setUserContext }: {
+// SettingsView Component - Neural Custom Theme & Connected Apps + Comfort Designs + Brand-Snap Canvas
+const SettingsView = ({
+  customPalette, setCustomPalette,
+  auraProfile, updateAuraProfile, resetAuraToDefault, toggleLightMode,
+  userContext, setUserContext,
+  designPreferences, setDesignPreferences,
+  initialFocus,
+}: {
   customPalette: CustomPalette;
   setCustomPalette: (palette: CustomPalette) => void;
   auraProfile: AuraProfile;
@@ -794,6 +800,9 @@ const SettingsView = ({ customPalette, setCustomPalette, auraProfile, updateAura
   toggleLightMode: () => void;
   userContext: UserContext;
   setUserContext: (context: UserContext) => void;
+  designPreferences: DesignPreferences;
+  setDesignPreferences: (p: DesignPreferences) => void;
+  initialFocus?: "brand-snap" | "comfort-designs" | null;
 }) => {
   const [neuralCustomActive, setNeuralCustomActive] = useState(false);
   // Track snapshot of last saved context — Save button only appears once user edits a field
