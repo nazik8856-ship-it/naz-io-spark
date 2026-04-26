@@ -960,6 +960,7 @@ const SettingsView = ({
   auraProfile, updateAuraProfile, resetAuraToDefault, toggleLightMode,
   userContext, setUserContext,
   designPreferences, setDesignPreferences,
+  onTemplateSelect,
   initialFocus,
 }: {
   customPalette: CustomPalette;
@@ -972,6 +973,7 @@ const SettingsView = ({
   setUserContext: (context: UserContext) => void;
   designPreferences: DesignPreferences;
   setDesignPreferences: (p: DesignPreferences) => void;
+  onTemplateSelect: (id: string | null) => void;
   initialFocus?: "brand-snap" | "comfort-designs" | null;
 }) => {
   const [neuralCustomActive, setNeuralCustomActive] = useState(false);
