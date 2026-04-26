@@ -522,6 +522,7 @@ const WebsiteRevealPane: React.FC<WebsiteRevealPaneProps> = ({
 
               <div className="relative p-3 sm:p-4">
                 <GeneratedWebsitePreview
+                  key={`preview-${previewRevision}`}
                   code={visibleWebsiteCode}
                   headline={headline}
                   device={device}
