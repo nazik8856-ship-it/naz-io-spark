@@ -3526,7 +3526,7 @@ export default function Dashboard() {
         duration: 1500,
       });
     }
-  }, []);
+  }, [lastWebsitePrompt]);
 
 
   // ── "Return to Preview" safety net ──────────────────────────────────────────
