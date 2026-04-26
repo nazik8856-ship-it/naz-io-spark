@@ -8,6 +8,7 @@ import AIResponseExtras, {
   readGroundTruth,
   type GroundTruthEntry,
 } from "@/components/dashboard/AIResponseExtras";
+import RichMarkdown from "@/components/chat/RichMarkdown";
 import { useNavigate } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
 import {
