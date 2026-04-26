@@ -3906,12 +3906,16 @@ export default function Dashboard() {
     root.style.setProperty("--glass-blur", `${auraProfile.glassBlur}px`);
 
     if (auraProfile.isLightMode) {
-      root.style.setProperty("--nazai-text-color", "#0f172a");
-      root.style.setProperty("--nazai-bg-base", "#f1f5f9");
-      root.style.setProperty("--nazai-border-light", "rgba(0,0,0,0.06)");
-      root.style.setProperty("--nazai-card-bg", "rgba(255,255,255,0.9)");
+      root.setAttribute("data-nazai-light", "true");
+      root.style.setProperty("--nazai-text-color", "#000000");
+      root.style.setProperty("--nazai-text-muted", "#1f2937");
+      root.style.setProperty("--nazai-bg-base", "#f8fafc");
+      root.style.setProperty("--nazai-border-light", "rgba(15,23,42,0.14)");
+      root.style.setProperty("--nazai-card-bg", "#ffffff");
     } else {
+      root.removeAttribute("data-nazai-light");
       root.style.setProperty("--nazai-text-color", "#e2e8f0");
+      root.style.setProperty("--nazai-text-muted", "rgba(226,232,240,0.65)");
       root.style.setProperty("--nazai-bg-base", "#020617");
       root.style.setProperty("--nazai-border-light", "rgba(255,255,255,0.05)");
       root.style.setProperty("--nazai-card-bg", "#0f172a");
