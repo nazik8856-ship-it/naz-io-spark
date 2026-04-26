@@ -4805,6 +4805,11 @@ export default function Dashboard() {
             setDesignPreferences={setDesignPreferences}
             onTemplateSelect={applyComfortTemplate}
             initialFocus={settingsFocus}
+            nazaiThemeId={nazaiThemeId}
+            onNazaiThemeSelect={(id) => {
+              setNazaiThemeId(id);
+              toast.success(`Theme applied ✓ — ${NAZAI_THEMES.find(t => t.id === id)?.name ?? id}`);
+            }}
           />
         );
         break;
