@@ -47,6 +47,8 @@ interface WebsiteRevealPaneProps {
   responseText: string;
   /** Latest complete generated code for the active website preview. */
   activeWebsiteCode?: string;
+  /** Increments when Comfort Design CSS is re-applied, including re-clicks. */
+  previewRevision?: number;
   /** Increments per generation request so cinematic stages restart reliably. */
   generationRunId?: number;
   /** True while the agent chain is running. Drives staged-reveal animation. */
