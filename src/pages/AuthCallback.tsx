@@ -31,7 +31,7 @@ const AuthCallback = () => {
     if (loading || hasRedirectedRef.current) return;
 
     hasRedirectedRef.current = true;
-    navigate(user ? "/dashboard/create" : "/signup", { replace: true });
+    navigate(user ? "/dashboard" : "/signup", { replace: true });
   }, [loading, user, navigate]);
 
   return (

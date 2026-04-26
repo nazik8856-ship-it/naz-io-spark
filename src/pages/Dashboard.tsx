@@ -798,6 +798,142 @@ const saveAuraProfile = (profile: AuraProfile) => {
   localStorage.setItem("nazai-aura-profile", JSON.stringify(profile));
 };
 
+// ─── NazAI Visual Themes (App Appearance) ────────────────────────────────────
+// These themes restyle NazAI itself (sidebar, cards, accents, background) by
+// swapping the global --nazai-* and --glow-* CSS variables. They are SEPARATE
+// from Comfort Designs (which restyle the GENERATED websites).
+type NazaiTheme = {
+  id: string;
+  name: string;
+  tagline: string;
+  // Card preview (used in the gallery thumbnail)
+  preview: string;
+  // CSS variables applied to :root when active
+  vars: {
+    "--nazai-bg-base": string;
+    "--nazai-card-bg": string;
+    "--nazai-border-light": string;
+    "--nazai-text-color": string;
+    "--glow-primary": string;
+    "--glow-secondary": string;
+  };
+  // Aura overrides so existing components that read auraProfile stay in sync
+  aura: { glowPrimary: string; glowSecondary: string; isLightMode: boolean };
+};
+
+const NAZAI_THEMES: readonly NazaiTheme[] = [
+  {
+    id: "default-dark",
+    name: "Default Dark",
+    tagline: "The signature obsidian premium look.",
+    preview: "linear-gradient(135deg, #020617 0%, #0f172a 60%, #22c55e22 100%)",
+    vars: {
+      "--nazai-bg-base": "#020617",
+      "--nazai-card-bg": "#0f172a",
+      "--nazai-border-light": "rgba(255,255,255,0.05)",
+      "--nazai-text-color": "#e2e8f0",
+      "--glow-primary": "#22c55e",
+      "--glow-secondary": "#a855f7",
+    },
+    aura: { glowPrimary: "#22c55e", glowSecondary: "#a855f7", isLightMode: false },
+  },
+  {
+    id: "cyber-neon",
+    name: "Cyber Neon",
+    tagline: "Electric purple + cyan circuitry.",
+    preview: "linear-gradient(135deg, #0a0014 0%, #1b0533 55%, #22d3ee33 100%)",
+    vars: {
+      "--nazai-bg-base": "#08020f",
+      "--nazai-card-bg": "#150726",
+      "--nazai-border-light": "rgba(168,85,247,0.18)",
+      "--nazai-text-color": "#f5f3ff",
+      "--glow-primary": "#a855f7",
+      "--glow-secondary": "#22d3ee",
+    },
+    aura: { glowPrimary: "#a855f7", glowSecondary: "#22d3ee", isLightMode: false },
+  },
+  {
+    id: "minimal-clean",
+    name: "Minimal Clean",
+    tagline: "Soft grays with calm blue accents.",
+    preview: "linear-gradient(135deg, #f8fafc 0%, #e2e8f0 60%, #3b82f622 100%)",
+    vars: {
+      "--nazai-bg-base": "#f1f5f9",
+      "--nazai-card-bg": "rgba(255,255,255,0.92)",
+      "--nazai-border-light": "rgba(15,23,42,0.08)",
+      "--nazai-text-color": "#0f172a",
+      "--glow-primary": "#3b82f6",
+      "--glow-secondary": "#64748b",
+    },
+    aura: { glowPrimary: "#3b82f6", glowSecondary: "#64748b", isLightMode: true },
+  },
+  {
+    id: "warm-gradient",
+    name: "Warm Gradient",
+    tagline: "Sunset orange & pink with soft glow.",
+    preview: "linear-gradient(135deg, #1a0a08 0%, #3a1414 55%, #f9731644 100%)",
+    vars: {
+      "--nazai-bg-base": "#150807",
+      "--nazai-card-bg": "#241010",
+      "--nazai-border-light": "rgba(249,115,22,0.18)",
+      "--nazai-text-color": "#fff7ed",
+      "--glow-primary": "#f97316",
+      "--glow-secondary": "#ec4899",
+    },
+    aura: { glowPrimary: "#f97316", glowSecondary: "#ec4899", isLightMode: false },
+  },
+  {
+    id: "ocean-teal",
+    name: "Ocean Teal",
+    tagline: "Fresh teal over deep abyssal blue.",
+    preview: "linear-gradient(135deg, #02111a 0%, #052b3a 55%, #14b8a644 100%)",
+    vars: {
+      "--nazai-bg-base": "#031622",
+      "--nazai-card-bg": "#072a3a",
+      "--nazai-border-light": "rgba(20,184,166,0.2)",
+      "--nazai-text-color": "#ecfeff",
+      "--glow-primary": "#14b8a6",
+      "--glow-secondary": "#0ea5e9",
+    },
+    aura: { glowPrimary: "#14b8a6", glowSecondary: "#0ea5e9", isLightMode: false },
+  },
+  {
+    id: "purple-eclipse",
+    name: "Purple Eclipse",
+    tagline: "Rich violet glassmorphism.",
+    preview: "linear-gradient(135deg, #100422 0%, #2a0d52 55%, #c084fc55 100%)",
+    vars: {
+      "--nazai-bg-base": "#0c0420",
+      "--nazai-card-bg": "#1d0a3a",
+      "--nazai-border-light": "rgba(192,132,252,0.22)",
+      "--nazai-text-color": "#f5f3ff",
+      "--glow-primary": "#c084fc",
+      "--glow-secondary": "#7c3aed",
+    },
+    aura: { glowPrimary: "#c084fc", glowSecondary: "#7c3aed", isLightMode: false },
+  },
+] as const;
+
+const NAZAI_THEME_STORAGE_KEY = "nazai-visual-theme";
+
+const loadNazaiThemeId = (): string => {
+  try {
+    return localStorage.getItem(NAZAI_THEME_STORAGE_KEY) || "default-dark";
+  } catch {
+    return "default-dark";
+  }
+};
+
+const saveNazaiThemeId = (id: string) => {
+  try { localStorage.setItem(NAZAI_THEME_STORAGE_KEY, id); } catch { /* noop */ }
+};
+
+const applyNazaiTheme = (id: string) => {
+  const theme = NAZAI_THEMES.find((t) => t.id === id) ?? NAZAI_THEMES[0];
+  const root = document.documentElement;
+  Object.entries(theme.vars).forEach(([k, v]) => root.style.setProperty(k, v));
+};
+
 // Generate geometric gradient avatar colors
 const getAvatarGradient = (email: string) => {
   const hash = email.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
@@ -1093,6 +1229,7 @@ const SettingsView = ({
   designPreferences, setDesignPreferences,
   onTemplateSelect,
   initialFocus,
+  nazaiThemeId, onNazaiThemeSelect,
 }: {
   customPalette: CustomPalette;
   setCustomPalette: (palette: CustomPalette) => void;
@@ -1106,6 +1243,8 @@ const SettingsView = ({
   setDesignPreferences: (p: DesignPreferences) => void;
   onTemplateSelect: (id: string | null) => void;
   initialFocus?: "brand-snap" | "comfort-designs" | null;
+  nazaiThemeId: string;
+  onNazaiThemeSelect: (id: string) => void;
 }) => {
   const [neuralCustomActive, setNeuralCustomActive] = useState(false);
   // Track snapshot of last saved context — Save button only appears once user edits a field
@@ -1514,6 +1653,27 @@ const SettingsView = ({
             </div>
           </motion.div>
 
+          {/* ─── NAZAI VISUAL THEMES (App Appearance) ─────────────────────── */}
+          <motion.div
+            id="nazai-visual-themes"
+            variants={itemVariants}
+            className="md:col-span-2 p-5 rounded-xl"
+            style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-sm font-semibold flex items-center gap-2 font-mono" style={{ color: "var(--nazai-text-color)" }}>
+                  <Palette size={16} className="text-fuchsia-400" /> NAZAI VISUAL THEMES
+                </h3>
+                <p className="text-[10px] font-mono text-white/40 mt-1">
+                  Restyles NazAI itself — sidebar, cards, accents, glow. Switching is instant and saved across sessions.
+                </p>
+              </div>
+              <span className="text-[9px] font-mono text-fuchsia-300/70 tracking-wider uppercase">App appearance</span>
+            </div>
+            <NazaiThemeGallery selectedId={nazaiThemeId} onSelect={onNazaiThemeSelect} />
+          </motion.div>
+
           {/* ─── COMFORT DESIGNS (Template Gallery) ────────────────────────── */}
           <motion.div
             id="comfort-designs"
@@ -1661,10 +1821,71 @@ const TemplateGallery: React.FC<{
 };
 
 // ============================================================
-// COMFORT DESIGNS BLOCK — reusable card-wrapped gallery used in
-// WebsiteRevealPane (above CommandCenterChecklist) and HomeView
-// (above the prompt input on a fresh project).
+// NAZAI VISUAL THEMES — APP APPEARANCE GALLERY
+// (Separate from Comfort Designs — these restyle NazAI itself)
 // ============================================================
+const NazaiThemeGallery: React.FC<{
+  selectedId: string;
+  onSelect: (id: string) => void;
+  compact?: boolean;
+}> = ({ selectedId, onSelect, compact = false }) => {
+  return (
+    <div className={`grid gap-3 ${compact ? "grid-cols-2 md:grid-cols-3" : "grid-cols-1 sm:grid-cols-2 md:grid-cols-3"}`}>
+      {NAZAI_THEMES.map((theme) => {
+        const isActive = selectedId === theme.id;
+        return (
+          <motion.button
+            key={theme.id}
+            type="button"
+            onClick={() => onSelect(theme.id)}
+            whileHover={{ y: -2 }}
+            whileTap={{ scale: 0.98 }}
+            className={`group relative text-left rounded-xl overflow-hidden border transition-all ${
+              isActive
+                ? "border-fuchsia-400/70 shadow-[0_0_24px_rgba(217,70,239,0.35)]"
+                : "border-white/10 hover:border-white/25"
+            }`}
+            style={{ background: "rgba(255,255,255,0.02)" }}
+            aria-pressed={isActive}
+            aria-label={`Apply NazAI theme ${theme.name}`}
+          >
+            {/* Theme preview thumbnail */}
+            <div className="relative w-full" style={{ aspectRatio: "16 / 9", background: theme.preview }}>
+              {/* Mini sidebar mock */}
+              <div
+                className="absolute left-2 top-2 bottom-2 w-3 rounded-md"
+                style={{ background: theme.vars["--nazai-card-bg"], border: `1px solid ${theme.vars["--nazai-border-light"]}` }}
+              />
+              {/* Mini accent dots */}
+              <div className="absolute bottom-2 right-2 flex gap-1">
+                <span className="w-2.5 h-2.5 rounded-full" style={{ background: theme.vars["--glow-primary"], boxShadow: `0 0 8px ${theme.vars["--glow-primary"]}` }} />
+                <span className="w-2.5 h-2.5 rounded-full" style={{ background: theme.vars["--glow-secondary"], boxShadow: `0 0 8px ${theme.vars["--glow-secondary"]}` }} />
+              </div>
+              {isActive && (
+                <div className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-fuchsia-400 text-[#0a0014] text-[9px] font-bold tracking-wider flex items-center gap-1">
+                  <CheckCircle2 size={10} /> ACTIVE
+                </div>
+              )}
+            </div>
+            <div className="p-3">
+              <div className="text-[12px] font-semibold text-white/90 leading-tight">{theme.name}</div>
+              <div className="text-[10px] font-mono text-white/40 mt-1 leading-snug">{theme.tagline}</div>
+              <div
+                className={`mt-2.5 text-[10px] font-bold tracking-wider uppercase font-mono px-2.5 py-1 rounded-md inline-flex items-center gap-1 transition-all ${
+                  isActive
+                    ? "bg-fuchsia-400/15 text-fuchsia-200 border border-fuchsia-400/40"
+                    : "bg-white/5 text-white/60 border border-white/10 group-hover:bg-white/10"
+                }`}
+              >
+                {isActive ? (<><CheckCircle2 size={10} /> Current theme</>) : "Apply theme"}
+              </div>
+            </div>
+          </motion.button>
+        );
+      })}
+    </div>
+  );
+};
 const ComfortDesignsBlock: React.FC<{
   selectedId: string | null;
   onSelect: (id: string | null) => void;
@@ -1724,9 +1945,9 @@ const ComfortDesignsBlock: React.FC<{
 const WelcomeTemplateModal: React.FC<{
   open: boolean;
   onClose: () => void;
-  selectedId: string | null;
-  onSelect: (id: string) => void;
-}> = ({ open, onClose, selectedId, onSelect }) => (
+  selectedThemeId: string;
+  onSelectTheme: (id: string) => void;
+}> = ({ open, onClose, selectedThemeId, onSelectTheme }) => (
   <AnimatePresence>
     {open && (
       <motion.div
@@ -1749,14 +1970,14 @@ const WelcomeTemplateModal: React.FC<{
         >
           <div className="flex items-start justify-between px-6 pt-6 pb-3">
             <div>
-              <div className="text-[10px] font-mono tracking-[0.3em] text-cyan-400 uppercase mb-1">
-                Welcome · Comfort Designs
+              <div className="text-[10px] font-mono tracking-[0.3em] text-fuchsia-300 uppercase mb-1">
+                NazAI · Visual Themes
               </div>
               <h2 id="welcome-template-title" className="text-xl font-bold text-white tracking-tight">
-                What design would you choose for a more comfortable usage?
+                Choose how NazAI looks for you
               </h2>
               <p className="text-[12px] text-white/50 mt-1">
-                Pick a starting style — you can always change it later in Settings.
+                Restyles the NazAI app itself (sidebar, cards, accents). You can change it anytime in Settings.
               </p>
             </div>
             <button
@@ -1768,12 +1989,12 @@ const WelcomeTemplateModal: React.FC<{
             </button>
           </div>
           <div className="px-6 pb-6 max-h-[70vh] overflow-y-auto">
-            <TemplateGallery selectedId={selectedId} onSelect={onSelect} />
+            <NazaiThemeGallery selectedId={selectedThemeId} onSelect={onSelectTheme} />
             <button
               onClick={onClose}
               className="mt-5 text-[11px] font-mono text-white/40 hover:text-white/70 underline underline-offset-2"
             >
-              Skip for now
+              Done
             </button>
           </div>
         </motion.div>
@@ -2279,18 +2500,9 @@ const HomeView = ({
               </p>
             </div>
 
-            {/* Comfort Designs gallery — visible at the start of every new project
-                so non-technical users can pick a visual ground truth before prompting. */}
-            {onTemplateSelect && (
-              <div className="w-full max-w-2xl">
-                <ComfortDesignsBlock
-                  selectedId={designPreferences?.templateId ?? null}
-                  onSelect={onTemplateSelect}
-                  variant="home"
-                  compact
-                />
-              </div>
-            )}
+            {/* Comfort Designs is intentionally NOT shown on the Home empty state.
+                It lives only on the website-build pane (above CommandCenterChecklist)
+                and inside Settings → Comfort Designs, to avoid surprising users on login. */}
 
             {/* Command Center is now anchored beneath the website preview
                 inside WebsiteRevealPane — no duplicate render here. */}
@@ -3426,15 +3638,27 @@ export default function Dashboard() {
   const [welcomeOpen, setWelcomeOpen] = useState(false);
   const [settingsFocus, setSettingsFocus] = useState<"brand-snap" | "comfort-designs" | null>(null);
 
+  // ─── NazAI Visual Theme (App Appearance) ────────────────────────────────────
+  // Persisted choice for how the NazAI app itself looks. Restores on every load.
+  const [nazaiThemeId, setNazaiThemeId] = useState<string>(() => loadNazaiThemeId());
+
+  // Apply the NazAI visual theme to :root whenever it changes (instant restyle).
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const seen = localStorage.getItem("nazai-welcome-template-seen");
-    if (!seen && !designPreferences.templateId) {
-      const t = setTimeout(() => setWelcomeOpen(true), 600);
-      return () => clearTimeout(t);
+    applyNazaiTheme(nazaiThemeId);
+    saveNazaiThemeId(nazaiThemeId);
+    const theme = NAZAI_THEMES.find((t) => t.id === nazaiThemeId);
+    if (theme) {
+      setAuraProfile((prev) => ({
+        ...prev,
+        glowPrimary: theme.aura.glowPrimary,
+        glowSecondary: theme.aura.glowSecondary,
+        isLightMode: theme.aura.isLightMode,
+      }));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [nazaiThemeId]);
+
+  // No auto-popup on login. Welcome modal is opened only via explicit user action
+  // (e.g. a Settings button). This prevents unwanted modals after sign-up/login.
 
   const closeWelcome = useCallback(() => {
     setWelcomeOpen(false);
@@ -4602,6 +4826,11 @@ export default function Dashboard() {
             setDesignPreferences={setDesignPreferences}
             onTemplateSelect={applyComfortTemplate}
             initialFocus={settingsFocus}
+            nazaiThemeId={nazaiThemeId}
+            onNazaiThemeSelect={(id) => {
+              setNazaiThemeId(id);
+              toast.success(`Theme applied ✓ — ${NAZAI_THEMES.find(t => t.id === id)?.name ?? id}`);
+            }}
           />
         );
         break;
@@ -5228,14 +5457,15 @@ export default function Dashboard() {
         )}
       </AnimatePresence>
 
-      {/* First-visit Comfort Designs welcome modal */}
+      {/* NazAI Visual Themes modal — opened only via explicit user action (Settings).
+          No auto-popup on login. */}
       <WelcomeTemplateModal
         open={welcomeOpen}
         onClose={closeWelcome}
-        selectedId={designPreferences.templateId}
-        onSelect={(id) => {
-          applyComfortTemplate(id);
-          closeWelcome();
+        selectedThemeId={nazaiThemeId}
+        onSelectTheme={(id) => {
+          setNazaiThemeId(id);
+          toast.success(`Theme applied ✓ — ${NAZAI_THEMES.find(t => t.id === id)?.name ?? id}`);
         }}
       />
 
