@@ -3437,20 +3437,39 @@ export default function Dashboard() {
   // Updates persisted preferences AND restyles the live preview iframe in
   // milliseconds by injecting a CSS override block. No AI roundtrip.
   const applyComfortTemplate = useCallback((id: string | null) => {
-    const next: DesignPreferences = {
-      ...designPreferences,
-      templateId: id,
-      savedAt: new Date().toISOString(),
-    };
-    setDesignPreferences(next);
-    saveDesignPreferences(next);
+    // Use functional updates so re-clicks always operate on the freshest state.
+    setDesignPreferences((prev) => {
+      const next: DesignPreferences = {
+        ...prev,
+        templateId: id,
+        savedAt: new Date().toISOString(),
+      };
+      saveDesignPreferences(next);
+      return next;
+    });
 
-    // Re-theme the existing preview instantly (if a website is loaded).
-    setActiveWebsiteCode((prev) => (prev ? applyTemplateThemeToHtml(prev, id) : prev));
+    // Force-restyle the live preview, even on re-click of the active template.
+    // We strip any existing comfort-theme block first, then inject the fresh one
+    // — guaranteeing the iframe key (which fingerprints the theme block) changes
+    // and the iframe remounts with the new srcDoc.
+    setActiveWebsiteCode((prev) => {
+      if (!prev) return prev;
+      const restyled = applyTemplateThemeToHtml(prev, id);
+      // If, by coincidence, the output is byte-identical (e.g. user re-clicked
+      // the active template), append a tiny invisible marker so the iframe key
+      // still changes and the user gets visible feedback.
+      if (restyled === prev) {
+        const marker = `<!-- comfort-theme:${id ?? "none"}:${Date.now()} -->`;
+        return restyled.includes("</body>")
+          ? restyled.replace(/<\/body>/i, `${marker}</body>`)
+          : restyled + marker;
+      }
+      return restyled;
+    });
 
     if (id) {
       const tpl = COMFORT_TEMPLATES.find((t) => t.id === id);
-      toast.success(`Applying template · ${tpl?.name ?? "Template"}`, {
+      toast.success(`Design applied · ${tpl?.name ?? "Template"} ✓`, {
         description: "Live preview restyled. Future edits will follow this design.",
         duration: 1800,
       });
@@ -3460,7 +3479,7 @@ export default function Dashboard() {
         duration: 1500,
       });
     }
-  }, [designPreferences]);
+  }, []);
 
 
   // ── "Return to Preview" safety net ──────────────────────────────────────────
