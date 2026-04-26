@@ -3498,7 +3498,7 @@ export default function Dashboard() {
         templateId: id,
         savedAt: new Date().toISOString(),
       };
-      saveDesignPreferences(next);
+      saveDesignPreferences(next, activeMissionId);
       return next;
     });
 
