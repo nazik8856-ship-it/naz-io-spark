@@ -3487,6 +3487,23 @@ export default function Dashboard() {
   const [generationRunId, setGenerationRunId] = useState(0);
   const [previewThemeRevision, setPreviewThemeRevision] = useState(0);
 
+  // Restore the saved Comfort Design for the current project/thread and apply it
+  // to the currently loaded preview without requiring the user to re-select it.
+  useEffect(() => {
+    const saved = loadDesignPreferences(activeMissionId);
+    setDesignPreferences(saved);
+    if (!saved.templateId) return;
+    setActiveWebsiteCode((prev) => {
+      if (!prev) return prev;
+      const restyled = applyTemplateThemeToHtml(prev, saved.templateId);
+      const marker = `<!-- comfort-restore:${saved.templateId}:${Date.now()} -->`;
+      return restyled.includes("</body>")
+        ? restyled.replace(/<\/body>/i, `${marker}</body>`)
+        : restyled + marker;
+    });
+    setPreviewThemeRevision((rev) => rev + 1);
+  }, [activeMissionId]);
+
   // ─── Comfort Designs: instant template apply ────────────────────────────────
   // Updates persisted preferences AND restyles the live preview iframe in
   // milliseconds by injecting a CSS override block. No AI roundtrip.
