@@ -4327,6 +4327,7 @@ export default function Dashboard() {
             setUserContext={setUserContext}
             designPreferences={designPreferences}
             setDesignPreferences={setDesignPreferences}
+            onTemplateSelect={applyComfortTemplate}
             initialFocus={settingsFocus}
           />
         );
