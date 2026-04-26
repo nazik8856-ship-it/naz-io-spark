@@ -3430,27 +3430,66 @@ export default function Dashboard() {
   // output (raw response text or extracted code). When the user types in
   // SANDBOX mode after a build, this is fed back to the AI as `[CurrentCode]`
   // so it performs surgical edits instead of regenerating an unrelated site.
-  const [activeWebsiteCode, setActiveWebsiteCode] = useState<string>("");
+  const ACTIVE_WEBSITE_STORAGE_KEY = "nazai-active-website-code";
+  const [activeWebsiteCode, setActiveWebsiteCode] = useState<string>(() => {
+    // Auto-restore the last live preview so refresh / re-login doesn't wipe work.
+    try {
+      return localStorage.getItem(ACTIVE_WEBSITE_STORAGE_KEY) ?? "";
+    } catch {
+      return "";
+    }
+  });
+  // Auto-save on every change (debounced via microtask). Strips itself if empty.
+  useEffect(() => {
+    try {
+      if (activeWebsiteCode) {
+        localStorage.setItem(ACTIVE_WEBSITE_STORAGE_KEY, activeWebsiteCode);
+      } else {
+        localStorage.removeItem(ACTIVE_WEBSITE_STORAGE_KEY);
+      }
+    } catch {
+      /* quota or disabled storage — no-op */
+    }
+  }, [activeWebsiteCode]);
   const [generationRunId, setGenerationRunId] = useState(0);
 
   // ─── Comfort Designs: instant template apply ────────────────────────────────
   // Updates persisted preferences AND restyles the live preview iframe in
   // milliseconds by injecting a CSS override block. No AI roundtrip.
   const applyComfortTemplate = useCallback((id: string | null) => {
-    const next: DesignPreferences = {
-      ...designPreferences,
-      templateId: id,
-      savedAt: new Date().toISOString(),
-    };
-    setDesignPreferences(next);
-    saveDesignPreferences(next);
+    // Use functional updates so re-clicks always operate on the freshest state.
+    setDesignPreferences((prev) => {
+      const next: DesignPreferences = {
+        ...prev,
+        templateId: id,
+        savedAt: new Date().toISOString(),
+      };
+      saveDesignPreferences(next);
+      return next;
+    });
 
-    // Re-theme the existing preview instantly (if a website is loaded).
-    setActiveWebsiteCode((prev) => (prev ? applyTemplateThemeToHtml(prev, id) : prev));
+    // Force-restyle the live preview, even on re-click of the active template.
+    // We strip any existing comfort-theme block first, then inject the fresh one
+    // — guaranteeing the iframe key (which fingerprints the theme block) changes
+    // and the iframe remounts with the new srcDoc.
+    setActiveWebsiteCode((prev) => {
+      if (!prev) return prev;
+      const restyled = applyTemplateThemeToHtml(prev, id);
+      // If, by coincidence, the output is byte-identical (e.g. user re-clicked
+      // the active template), append a tiny invisible marker so the iframe key
+      // still changes and the user gets visible feedback.
+      if (restyled === prev) {
+        const marker = `<!-- comfort-theme:${id ?? "none"}:${Date.now()} -->`;
+        return restyled.includes("</body>")
+          ? restyled.replace(/<\/body>/i, `${marker}</body>`)
+          : restyled + marker;
+      }
+      return restyled;
+    });
 
     if (id) {
       const tpl = COMFORT_TEMPLATES.find((t) => t.id === id);
-      toast.success(`Applying template · ${tpl?.name ?? "Template"}`, {
+      toast.success(`Design applied · ${tpl?.name ?? "Template"} ✓`, {
         description: "Live preview restyled. Future edits will follow this design.",
         duration: 1800,
       });
@@ -3460,7 +3499,7 @@ export default function Dashboard() {
         duration: 1500,
       });
     }
-  }, [designPreferences]);
+  }, []);
 
 
   // ── "Return to Preview" safety net ──────────────────────────────────────────

@@ -682,9 +682,16 @@ const GeneratedWebsitePreview: React.FC<{
 }> = ({ code, headline, device, stage, dimmed }) => {
   const canRenderHtml = /<\s*(html|body|main|section|div|header|nav|article|footer)[\s>]/i.test(code);
   if (canRenderHtml) {
+    // Build a stable-but-comprehensive key so the iframe remounts whenever ANY
+    // part of the document changes — including injected Comfort Design theme
+    // blocks near the end of <head>. Hashing avoids React reusing the iframe
+    // (which would silently keep the previous srcDoc on some browsers).
+    const themeMatch = code.match(/<style[^>]*id=["']nazai-comfort-theme["'][^>]*>([\s\S]*?)<\/style>/i);
+    const themeFingerprint = themeMatch ? themeMatch[1].length + ":" + themeMatch[1].slice(0, 24) : "no-theme";
+    const iframeKey = `${code.length}:${code.slice(0, 64)}:${themeFingerprint}`;
     return (
       <iframe
-        key={code.slice(0, 80)}
+        key={iframeKey}
         srcDoc={code}
         title="Generated website preview"
         sandbox="allow-scripts"
