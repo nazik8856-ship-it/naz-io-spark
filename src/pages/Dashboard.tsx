@@ -798,6 +798,142 @@ const saveAuraProfile = (profile: AuraProfile) => {
   localStorage.setItem("nazai-aura-profile", JSON.stringify(profile));
 };
 
+// ─── NazAI Visual Themes (App Appearance) ────────────────────────────────────
+// These themes restyle NazAI itself (sidebar, cards, accents, background) by
+// swapping the global --nazai-* and --glow-* CSS variables. They are SEPARATE
+// from Comfort Designs (which restyle the GENERATED websites).
+type NazaiTheme = {
+  id: string;
+  name: string;
+  tagline: string;
+  // Card preview (used in the gallery thumbnail)
+  preview: string;
+  // CSS variables applied to :root when active
+  vars: {
+    "--nazai-bg-base": string;
+    "--nazai-card-bg": string;
+    "--nazai-border-light": string;
+    "--nazai-text-color": string;
+    "--glow-primary": string;
+    "--glow-secondary": string;
+  };
+  // Aura overrides so existing components that read auraProfile stay in sync
+  aura: { glowPrimary: string; glowSecondary: string; isLightMode: boolean };
+};
+
+const NAZAI_THEMES: readonly NazaiTheme[] = [
+  {
+    id: "default-dark",
+    name: "Default Dark",
+    tagline: "The signature obsidian premium look.",
+    preview: "linear-gradient(135deg, #020617 0%, #0f172a 60%, #22c55e22 100%)",
+    vars: {
+      "--nazai-bg-base": "#020617",
+      "--nazai-card-bg": "#0f172a",
+      "--nazai-border-light": "rgba(255,255,255,0.05)",
+      "--nazai-text-color": "#e2e8f0",
+      "--glow-primary": "#22c55e",
+      "--glow-secondary": "#a855f7",
+    },
+    aura: { glowPrimary: "#22c55e", glowSecondary: "#a855f7", isLightMode: false },
+  },
+  {
+    id: "cyber-neon",
+    name: "Cyber Neon",
+    tagline: "Electric purple + cyan circuitry.",
+    preview: "linear-gradient(135deg, #0a0014 0%, #1b0533 55%, #22d3ee33 100%)",
+    vars: {
+      "--nazai-bg-base": "#08020f",
+      "--nazai-card-bg": "#150726",
+      "--nazai-border-light": "rgba(168,85,247,0.18)",
+      "--nazai-text-color": "#f5f3ff",
+      "--glow-primary": "#a855f7",
+      "--glow-secondary": "#22d3ee",
+    },
+    aura: { glowPrimary: "#a855f7", glowSecondary: "#22d3ee", isLightMode: false },
+  },
+  {
+    id: "minimal-clean",
+    name: "Minimal Clean",
+    tagline: "Soft grays with calm blue accents.",
+    preview: "linear-gradient(135deg, #f8fafc 0%, #e2e8f0 60%, #3b82f622 100%)",
+    vars: {
+      "--nazai-bg-base": "#f1f5f9",
+      "--nazai-card-bg": "rgba(255,255,255,0.92)",
+      "--nazai-border-light": "rgba(15,23,42,0.08)",
+      "--nazai-text-color": "#0f172a",
+      "--glow-primary": "#3b82f6",
+      "--glow-secondary": "#64748b",
+    },
+    aura: { glowPrimary: "#3b82f6", glowSecondary: "#64748b", isLightMode: true },
+  },
+  {
+    id: "warm-gradient",
+    name: "Warm Gradient",
+    tagline: "Sunset orange & pink with soft glow.",
+    preview: "linear-gradient(135deg, #1a0a08 0%, #3a1414 55%, #f9731644 100%)",
+    vars: {
+      "--nazai-bg-base": "#150807",
+      "--nazai-card-bg": "#241010",
+      "--nazai-border-light": "rgba(249,115,22,0.18)",
+      "--nazai-text-color": "#fff7ed",
+      "--glow-primary": "#f97316",
+      "--glow-secondary": "#ec4899",
+    },
+    aura: { glowPrimary: "#f97316", glowSecondary: "#ec4899", isLightMode: false },
+  },
+  {
+    id: "ocean-teal",
+    name: "Ocean Teal",
+    tagline: "Fresh teal over deep abyssal blue.",
+    preview: "linear-gradient(135deg, #02111a 0%, #052b3a 55%, #14b8a644 100%)",
+    vars: {
+      "--nazai-bg-base": "#031622",
+      "--nazai-card-bg": "#072a3a",
+      "--nazai-border-light": "rgba(20,184,166,0.2)",
+      "--nazai-text-color": "#ecfeff",
+      "--glow-primary": "#14b8a6",
+      "--glow-secondary": "#0ea5e9",
+    },
+    aura: { glowPrimary: "#14b8a6", glowSecondary: "#0ea5e9", isLightMode: false },
+  },
+  {
+    id: "purple-eclipse",
+    name: "Purple Eclipse",
+    tagline: "Rich violet glassmorphism.",
+    preview: "linear-gradient(135deg, #100422 0%, #2a0d52 55%, #c084fc55 100%)",
+    vars: {
+      "--nazai-bg-base": "#0c0420",
+      "--nazai-card-bg": "#1d0a3a",
+      "--nazai-border-light": "rgba(192,132,252,0.22)",
+      "--nazai-text-color": "#f5f3ff",
+      "--glow-primary": "#c084fc",
+      "--glow-secondary": "#7c3aed",
+    },
+    aura: { glowPrimary: "#c084fc", glowSecondary: "#7c3aed", isLightMode: false },
+  },
+] as const;
+
+const NAZAI_THEME_STORAGE_KEY = "nazai-visual-theme";
+
+const loadNazaiThemeId = (): string => {
+  try {
+    return localStorage.getItem(NAZAI_THEME_STORAGE_KEY) || "default-dark";
+  } catch {
+    return "default-dark";
+  }
+};
+
+const saveNazaiThemeId = (id: string) => {
+  try { localStorage.setItem(NAZAI_THEME_STORAGE_KEY, id); } catch { /* noop */ }
+};
+
+const applyNazaiTheme = (id: string) => {
+  const theme = NAZAI_THEMES.find((t) => t.id === id) ?? NAZAI_THEMES[0];
+  const root = document.documentElement;
+  Object.entries(theme.vars).forEach(([k, v]) => root.style.setProperty(k, v));
+};
+
 // Generate geometric gradient avatar colors
 const getAvatarGradient = (email: string) => {
   const hash = email.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
