@@ -58,7 +58,7 @@ const Signup = () => {
   useEffect(() => {
     if (authLoading || !user || hasRedirectedRef.current) return;
     hasRedirectedRef.current = true;
-    navigate("/dashboard/create", { replace: true });
+    navigate("/dashboard", { replace: true });
   }, [authLoading, user, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
