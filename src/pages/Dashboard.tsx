@@ -4758,7 +4758,23 @@ export default function Dashboard() {
         )}
       </AnimatePresence>
 
-      <style>{`
+      {/* First-visit Comfort Designs welcome modal */}
+      <WelcomeTemplateModal
+        open={welcomeOpen}
+        onClose={closeWelcome}
+        selectedId={designPreferences.templateId}
+        onSelect={(id) => {
+          const next = { ...designPreferences, templateId: id, savedAt: new Date().toISOString() };
+          setDesignPreferences(next);
+          saveDesignPreferences(next);
+          const tpl = COMFORT_TEMPLATES.find((t) => t.id === id);
+          toast.success(`Comfort design saved · ${tpl?.name ?? "Template"}`, {
+            description: "It will guide every website you generate. Change anytime in Settings.",
+          });
+          closeWelcome();
+        }}
+      />
+
         /* FORCE EVERYTHING TO BE CLICKABLE */
         * {
           pointer-events: auto !important;
