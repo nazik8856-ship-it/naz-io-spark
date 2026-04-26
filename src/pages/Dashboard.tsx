@@ -2089,6 +2089,7 @@ const HomeView = ({
   isPreviewActive,
   setIsPreviewActive,
   activeWebsiteCode,
+  previewThemeRevision,
   generationRunId,
 }: any) => {
   // Template definitions (master templates - never mutated)
