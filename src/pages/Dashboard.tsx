@@ -70,8 +70,14 @@ import {
   RefreshCw,
   Sparkles,
   ShieldCheck,
+  LayoutTemplate,
+  Rocket,
+  Store,
+  BarChart3,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
+import GuardianCanvas from "@/components/workflower/GuardianCanvas";
+import { toast } from "sonner";
 
 // ─── DEPLOYMENT VERSION ──────────────────────────────────────────────────────────
 const DEPLOYMENT_ID = "NAZAI_TITAN_V25_ARCHITECT";
