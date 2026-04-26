@@ -1797,10 +1797,71 @@ const TemplateGallery: React.FC<{
 };
 
 // ============================================================
-// COMFORT DESIGNS BLOCK — reusable card-wrapped gallery used in
-// WebsiteRevealPane (above CommandCenterChecklist) and HomeView
-// (above the prompt input on a fresh project).
+// NAZAI VISUAL THEMES — APP APPEARANCE GALLERY
+// (Separate from Comfort Designs — these restyle NazAI itself)
 // ============================================================
+const NazaiThemeGallery: React.FC<{
+  selectedId: string;
+  onSelect: (id: string) => void;
+  compact?: boolean;
+}> = ({ selectedId, onSelect, compact = false }) => {
+  return (
+    <div className={`grid gap-3 ${compact ? "grid-cols-2 md:grid-cols-3" : "grid-cols-1 sm:grid-cols-2 md:grid-cols-3"}`}>
+      {NAZAI_THEMES.map((theme) => {
+        const isActive = selectedId === theme.id;
+        return (
+          <motion.button
+            key={theme.id}
+            type="button"
+            onClick={() => onSelect(theme.id)}
+            whileHover={{ y: -2 }}
+            whileTap={{ scale: 0.98 }}
+            className={`group relative text-left rounded-xl overflow-hidden border transition-all ${
+              isActive
+                ? "border-fuchsia-400/70 shadow-[0_0_24px_rgba(217,70,239,0.35)]"
+                : "border-white/10 hover:border-white/25"
+            }`}
+            style={{ background: "rgba(255,255,255,0.02)" }}
+            aria-pressed={isActive}
+            aria-label={`Apply NazAI theme ${theme.name}`}
+          >
+            {/* Theme preview thumbnail */}
+            <div className="relative w-full" style={{ aspectRatio: "16 / 9", background: theme.preview }}>
+              {/* Mini sidebar mock */}
+              <div
+                className="absolute left-2 top-2 bottom-2 w-3 rounded-md"
+                style={{ background: theme.vars["--nazai-card-bg"], border: `1px solid ${theme.vars["--nazai-border-light"]}` }}
+              />
+              {/* Mini accent dots */}
+              <div className="absolute bottom-2 right-2 flex gap-1">
+                <span className="w-2.5 h-2.5 rounded-full" style={{ background: theme.vars["--glow-primary"], boxShadow: `0 0 8px ${theme.vars["--glow-primary"]}` }} />
+                <span className="w-2.5 h-2.5 rounded-full" style={{ background: theme.vars["--glow-secondary"], boxShadow: `0 0 8px ${theme.vars["--glow-secondary"]}` }} />
+              </div>
+              {isActive && (
+                <div className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-fuchsia-400 text-[#0a0014] text-[9px] font-bold tracking-wider flex items-center gap-1">
+                  <CheckCircle2 size={10} /> ACTIVE
+                </div>
+              )}
+            </div>
+            <div className="p-3">
+              <div className="text-[12px] font-semibold text-white/90 leading-tight">{theme.name}</div>
+              <div className="text-[10px] font-mono text-white/40 mt-1 leading-snug">{theme.tagline}</div>
+              <div
+                className={`mt-2.5 text-[10px] font-bold tracking-wider uppercase font-mono px-2.5 py-1 rounded-md inline-flex items-center gap-1 transition-all ${
+                  isActive
+                    ? "bg-fuchsia-400/15 text-fuchsia-200 border border-fuchsia-400/40"
+                    : "bg-white/5 text-white/60 border border-white/10 group-hover:bg-white/10"
+                }`}
+              >
+                {isActive ? (<><CheckCircle2 size={10} /> Current theme</>) : "Apply theme"}
+              </div>
+            </div>
+          </motion.button>
+        );
+      })}
+    </div>
+  );
+};
 const ComfortDesignsBlock: React.FC<{
   selectedId: string | null;
   onSelect: (id: string | null) => void;
