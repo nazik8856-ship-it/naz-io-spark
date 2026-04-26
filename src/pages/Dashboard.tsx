@@ -4300,7 +4300,24 @@ export default function Dashboard() {
       `  • goals=${userContext?.goals || "(unspecified)"}\n` +
       `  • style=${userContext?.style || "(unspecified)"}\n\n`;
 
-    masterPrompt = ORCHESTRATION_DIRECTIVE + ANTI_REPETITION_DIRECTIVE + masterPrompt;
+    // ── Smart Output Format: when the user asks for research, analysis,
+    //    comparison, or any structured info AND has not specified a format,
+    //    intelligently choose the best visual layout (Markdown tables,
+    //    Mermaid diagrams, bullet summaries). If a format IS specified,
+    //    follow it strictly.
+    const SMART_FORMAT_DIRECTIVE =
+      `[OUTPUT_FORMAT_INTELLIGENCE]\n` +
+      `For research, analysis, comparison, competitor breakdowns, market overviews, SWOT, roadmaps, or any structured information request:\n` +
+      `• If the user did NOT specify an output format, intelligently choose the most useful visual structure:\n` +
+      `   - Use clean GitHub-flavored Markdown tables for any comparison (columns: Name, Strengths, Weaknesses, Pricing, Differentiator, etc.).\n` +
+      `   - Use Mermaid diagrams in fenced \`\`\`mermaid blocks for flows, mindmaps, SWOT (quadrantChart), timelines, or org structures when a visual adds clarity.\n` +
+      `   - Combine: a short executive summary, then a table or diagram, then 3-5 actionable insights as bullets.\n` +
+      `   - Prioritize scannability, real-looking data, professional column headers, and crisp insight bullets.\n` +
+      `• If the user EXPLICITLY asks for a specific format (e.g. "as a table", "as bullet points", "as a diagram", "text only", "list"), follow that request strictly and deliver only that format.\n` +
+      `• Outputs must be high-quality, insightful, and actionable — better than generic AI tools. Use real-sounding company names, plausible metrics, and clear language.\n` +
+      `• Never wrap the entire reply in a code fence unless the user asked for code. Tables and mermaid diagrams use their own fences only.\n\n`;
+
+    masterPrompt = ORCHESTRATION_DIRECTIVE + ANTI_REPETITION_DIRECTIVE + SMART_FORMAT_DIRECTIVE + masterPrompt;
 
     // ── Intent detection ──────────────────────────────────────────────────────
     //  • If a website is already live in the preview pane → treat any new
