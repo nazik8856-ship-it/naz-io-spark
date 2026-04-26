@@ -2351,6 +2351,13 @@ const HomeView = ({
               generationRunId={generationRunId}
               onRefine={handleRefine}
               onEditTrigger={onEditTrigger}
+              comfortDesignsSlot={
+                <ComfortDesignsBlock
+                  selectedId={designPreferences?.templateId ?? null}
+                  onSelect={onTemplateSelect}
+                  variant="preview"
+                />
+              }
             />
             {/* Leave Preview — keeps the build alive, just hides the pane */}
             <button
