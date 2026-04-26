@@ -1515,7 +1515,11 @@ const TemplateGallery: React.FC<{
                     : "bg-white/5 text-white/60 border border-white/10 group-hover:bg-white/10"
                 }`}
               >
-                {isActive ? "Selected" : "Use this template"}
+                {isActive ? (
+                  <><CheckCircle2 size={10} /> Current template</>
+                ) : (
+                  "Use this template"
+                )}
               </div>
             </div>
           </motion.button>
