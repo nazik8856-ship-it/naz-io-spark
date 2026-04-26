@@ -3623,6 +3623,24 @@ export default function Dashboard() {
     }
   }, [nazaiThemeId]);
 
+  // ─── Auto-save safety net ─────────────────────────────────────────────────
+  // Persist all user preferences on tab close / navigation as a final guarantee
+  // that nothing is lost between sessions, in addition to the per-change saves.
+  useEffect(() => {
+    const flush = () => {
+      try {
+        saveNazaiThemeId(nazaiThemeId);
+        saveDesignPreferences(designPreferences, activeMissionId);
+      } catch { /* noop */ }
+    };
+    window.addEventListener("beforeunload", flush);
+    window.addEventListener("pagehide", flush);
+    return () => {
+      window.removeEventListener("beforeunload", flush);
+      window.removeEventListener("pagehide", flush);
+    };
+  }, [nazaiThemeId, designPreferences, activeMissionId]);
+
   // No auto-popup on login. Welcome modal is opened only via explicit user action
   // (e.g. a Settings button). This prevents unwanted modals after sign-up/login.
 
