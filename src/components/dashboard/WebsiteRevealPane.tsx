@@ -47,6 +47,8 @@ interface WebsiteRevealPaneProps {
   responseText: string;
   /** Latest complete generated code for the active website preview. */
   activeWebsiteCode?: string;
+  /** Increments when Comfort Design CSS is re-applied, including re-clicks. */
+  previewRevision?: number;
   /** Increments per generation request so cinematic stages restart reliably. */
   generationRunId?: number;
   /** True while the agent chain is running. Drives staged-reveal animation. */
@@ -81,6 +83,7 @@ const SECTION_ORDER: SectionId[] = ["hero", "features", "contact"];
 const WebsiteRevealPane: React.FC<WebsiteRevealPaneProps> = ({
   responseText,
   activeWebsiteCode = "",
+  previewRevision = 0,
   generationRunId = 0,
   isPending,
   isWebsiteComplete,
@@ -130,10 +133,11 @@ const WebsiteRevealPane: React.FC<WebsiteRevealPaneProps> = ({
   }, [directive, generationRunId]);
 
   useEffect(() => {
-    if (activeWebsiteCode.trim()) {
-      setVisibleWebsiteCode(activeWebsiteCode);
-    }
-  }, [activeWebsiteCode]);
+    // Keep the rendered iframe in lockstep with parent state. The previewRevision
+    // dependency makes Comfort Design re-clicks flush even when srcDoc is nearly
+    // identical aside from an invisible marker.
+    setVisibleWebsiteCode(activeWebsiteCode);
+  }, [activeWebsiteCode, previewRevision]);
 
   // ── Highlight-to-Refine tooltip in the Strategy pane ─────────────────────────
   useEffect(() => {
@@ -518,6 +522,7 @@ const WebsiteRevealPane: React.FC<WebsiteRevealPaneProps> = ({
 
               <div className="relative p-3 sm:p-4">
                 <GeneratedWebsitePreview
+                  key={`preview-${previewRevision}`}
                   code={visibleWebsiteCode}
                   headline={headline}
                   device={device}

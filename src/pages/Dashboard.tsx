@@ -337,9 +337,13 @@ const DEFAULT_DESIGN_PREFERENCES: DesignPreferences = {
   savedAt: null,
 };
 
-const loadDesignPreferences = (): DesignPreferences => {
+const DESIGN_PREFERENCES_STORAGE_KEY = "nazai-design-preferences";
+const projectDesignPreferencesKey = (projectId: string) => `${DESIGN_PREFERENCES_STORAGE_KEY}:${projectId}`;
+
+const loadDesignPreferences = (projectId?: string | null): DesignPreferences => {
   try {
-    const raw = localStorage.getItem("nazai-design-preferences");
+    const projectRaw = projectId ? localStorage.getItem(projectDesignPreferencesKey(projectId)) : null;
+    const raw = projectRaw || localStorage.getItem(DESIGN_PREFERENCES_STORAGE_KEY);
     if (!raw) return DEFAULT_DESIGN_PREFERENCES;
     return { ...DEFAULT_DESIGN_PREFERENCES, ...JSON.parse(raw) };
   } catch {
@@ -347,9 +351,10 @@ const loadDesignPreferences = (): DesignPreferences => {
   }
 };
 
-const saveDesignPreferences = (p: DesignPreferences) => {
+const saveDesignPreferences = (p: DesignPreferences, projectId?: string | null) => {
   try {
-    localStorage.setItem("nazai-design-preferences", JSON.stringify(p));
+    localStorage.setItem(DESIGN_PREFERENCES_STORAGE_KEY, JSON.stringify(p));
+    if (projectId) localStorage.setItem(projectDesignPreferencesKey(projectId), JSON.stringify(p));
   } catch {
     /* noop */
   }
@@ -545,8 +550,18 @@ const buildComfortThemeCss = (templateId: string | null): string => {
 ${fontImport}
 /* === NazAI Comfort Design: ${tpl.name} === */
 :root{
+  --primary:${t.accent};
+  --accent:${t.accent2};
+  --bg:${t.bg};
+  --glass:${t.surface};
+  --glass-border:${t.surfaceBorder};
+  --background:${t.bg};
+  --foreground:${t.fg};
+  --card:${t.surface};
+  --border:${t.surfaceBorder};
   --nazai-comfort-accent:${t.accent};
   --nazai-comfort-accent-2:${t.accent2};
+  --nazai-comfort-bg:${t.bg};
   --nazai-comfort-fg:${t.fg};
   --nazai-comfort-muted:${t.mutedFg};
   --nazai-comfort-surface:${t.surface};
@@ -557,36 +572,52 @@ html,body{
   background:${t.bg}!important;
   color:${t.fg}!important;
   font-family:${t.bodyFont}!important;
-  transition:background 380ms ease, color 320ms ease;
+  transition:background 180ms ease, color 160ms ease;
 }
+body > *{background:transparent!important;color:${t.fg}!important;}
 *,*::before,*::after{
-  transition:background-color 280ms ease, border-color 280ms ease, color 280ms ease, box-shadow 280ms ease;
+  transition:background-color 160ms ease, border-color 160ms ease, color 160ms ease, box-shadow 160ms ease, filter 160ms ease;
 }
-h1,h2,h3,h4,h5,h6{font-family:${t.headingFont}!important;}
+h1,h2,h3,h4,h5,h6{font-family:${t.headingFont}!important;color:${t.fg}!important;}
 h1{${t.headingTreatment}}
-h2{color:${t.fg};font-weight:700;letter-spacing:-0.02em;}
-p,li,span:not([class*="badge"]):not([class*="chip"]){color:${t.fg};}
-.muted,small,[class*="muted"],[class*="subtle"]{color:${t.mutedFg}!important;}
+h2{color:${t.fg}!important;font-weight:700;letter-spacing:-0.02em;}
+p,li,span:not([class*="badge"]):not([class*="chip"]){color:${t.fg}!important;}
+.muted,small,[class*="muted"],[class*="subtle"],[class*="gray"],[class*="slate"]{color:${t.mutedFg}!important;}
 
-section,header,footer,nav,article,aside,
-.card,.panel,.glass,[class*="card"],[class*="panel"],[class*="feature"],[class*="pricing"]{
+/* Override common AI/Tailwind generated color utilities so the visible preview actually changes. */
+[class*="bg-white"],[class*="bg-gray"],[class*="bg-slate"],[class*="bg-zinc"],[class*="bg-neutral"],[style*="background: white"],[style*="background:#fff"],[style*="background: #fff"]{
   background:${t.surface}!important;
-  border:1px solid ${t.surfaceBorder}!important;
-  border-radius:${t.radius};
-  ${t.glass !== "none" ? `backdrop-filter:${t.glass};-webkit-backdrop-filter:${t.glass};` : ""}
 }
-nav,header{backdrop-filter:${t.glass !== "none" ? t.glass : "blur(8px)"};-webkit-backdrop-filter:${t.glass !== "none" ? t.glass : "blur(8px)"};}
+[class*="text-black"],[class*="text-gray"],[class*="text-slate"],[class*="text-zinc"],[class*="text-neutral"]{
+  color:${t.fg}!important;
+}
+[class*="border-gray"],[class*="border-slate"],[class*="border-zinc"],[class*="border-neutral"],[class*="border-white"]{
+  border-color:${t.surfaceBorder}!important;
+}
 
-a{color:${t.accent};}
-a:hover{color:${t.accent2};}
+main,section,header,footer,nav,article,aside,
+.card,.panel,.glass,[class*="card"],[class*="panel"],[class*="feature"],[class*="pricing"],[class*="testimonial"],[class*="metric"],[class*="kpi"]{
+  background:${t.surface}!important;
+  border-color:${t.surfaceBorder}!important;
+  border-radius:${t.radius}!important;
+  ${t.glass !== "none" ? `backdrop-filter:${t.glass}!important;-webkit-backdrop-filter:${t.glass}!important;` : ""}
+}
+main > section:first-child, .hero, [class*="hero"]{
+  background:${t.bg}!important;
+  border-color:${t.surfaceBorder}!important;
+}
+nav,header{backdrop-filter:${t.glass !== "none" ? t.glass : "blur(8px)"}!important;-webkit-backdrop-filter:${t.glass !== "none" ? t.glass : "blur(8px)"}!important;}
 
-button,.btn,[class*="btn"],[type="button"],[type="submit"],a[class*="cta"],a[class*="button"]{
+a{color:${t.accent}!important;}
+a:hover{color:${t.accent2}!important;}
+
+button,.btn,[class*="btn"],[type="button"],[type="submit"],a[class*="cta"],a[class*="button"],a[class*="Button"]{
   background:${t.btnBg}!important;
   color:${t.btnFg}!important;
-  border:none!important;
+  border-color:transparent!important;
   border-radius:${t.btnRadius}!important;
   box-shadow:${t.btnShadow}!important;
-  font-weight:600;
+  font-weight:700!important;
   padding:0.75rem 1.5rem;
   cursor:pointer;
 }
@@ -596,11 +627,11 @@ input,textarea,select{
   background:${t.surface}!important;
   color:${t.fg}!important;
   border:1px solid ${t.surfaceBorder}!important;
-  border-radius:${t.radius};
+  border-radius:${t.radius}!important;
 }
 input:focus,textarea:focus,select:focus{outline:2px solid ${t.accent};outline-offset:2px;}
 
-hr{border-color:${t.surfaceBorder};}
+hr{border-color:${t.surfaceBorder}!important;}
 ${t.extra ?? ""}
 `.trim();
 };
@@ -2063,6 +2094,7 @@ const HomeView = ({
   isPreviewActive,
   setIsPreviewActive,
   activeWebsiteCode,
+  previewThemeRevision,
   generationRunId,
 }: any) => {
   // Template definitions (master templates - never mutated)
@@ -2257,6 +2289,7 @@ const HomeView = ({
               isWebsiteComplete={isWebsiteComplete}
               directive={lastWebsitePrompt}
               activeWebsiteCode={activeWebsiteCode}
+              previewRevision={previewThemeRevision}
               generationRunId={generationRunId}
               onRefine={handleRefine}
               onEditTrigger={onEditTrigger}
@@ -3452,6 +3485,24 @@ export default function Dashboard() {
     }
   }, [activeWebsiteCode]);
   const [generationRunId, setGenerationRunId] = useState(0);
+  const [previewThemeRevision, setPreviewThemeRevision] = useState(0);
+
+  // Restore the saved Comfort Design for the current project/thread and apply it
+  // to the currently loaded preview without requiring the user to re-select it.
+  useEffect(() => {
+    const saved = loadDesignPreferences(activeMissionId);
+    setDesignPreferences(saved);
+    if (!saved.templateId) return;
+    setActiveWebsiteCode((prev) => {
+      if (!prev) return prev;
+      const restyled = applyTemplateThemeToHtml(prev, saved.templateId);
+      const marker = `<!-- comfort-restore:${saved.templateId}:${Date.now()} -->`;
+      return restyled.includes("</body>")
+        ? restyled.replace(/<\/body>/i, `${marker}</body>`)
+        : restyled + marker;
+    });
+    setPreviewThemeRevision((rev) => rev + 1);
+  }, [activeMissionId]);
 
   // ─── Comfort Designs: instant template apply ────────────────────────────────
   // Updates persisted preferences AND restyles the live preview iframe in
@@ -3464,28 +3515,26 @@ export default function Dashboard() {
         templateId: id,
         savedAt: new Date().toISOString(),
       };
-      saveDesignPreferences(next);
+      saveDesignPreferences(next, activeMissionId);
       return next;
     });
 
     // Force-restyle the live preview, even on re-click of the active template.
-    // We strip any existing comfort-theme block first, then inject the fresh one
-    // — guaranteeing the iframe key (which fingerprints the theme block) changes
-    // and the iframe remounts with the new srcDoc.
+    // Strip any existing comfort-theme block first, then inject a fresh preset.
     setActiveWebsiteCode((prev) => {
-      if (!prev) return prev;
-      const restyled = applyTemplateThemeToHtml(prev, id);
-      // If, by coincidence, the output is byte-identical (e.g. user re-clicked
-      // the active template), append a tiny invisible marker so the iframe key
-      // still changes and the user gets visible feedback.
-      if (restyled === prev) {
-        const marker = `<!-- comfort-theme:${id ?? "none"}:${Date.now()} -->`;
-        return restyled.includes("</body>")
-          ? restyled.replace(/<\/body>/i, `${marker}</body>`)
-          : restyled + marker;
-      }
-      return restyled;
+      const base = prev || buildStarterWebsiteHtml(lastWebsitePrompt || "NazAI website preview");
+      const restyled = applyTemplateThemeToHtml(base, id);
+      // Always add a fresh invisible marker so the iframe remounts even when the
+      // same active template is re-clicked and the CSS output is byte-identical.
+      const marker = `<!-- comfort-theme:${id ?? "none"}:${Date.now()} -->`;
+      return restyled.includes("</body>")
+        ? restyled.replace(/<\/body>/i, `${marker}</body>`)
+        : restyled + marker;
     });
+    setPreviewThemeRevision((rev) => rev + 1);
+    setIsWebsiteIntent(true);
+    setIsWebsiteComplete(true);
+    setIsPreviewActive(true);
 
     if (id) {
       const tpl = COMFORT_TEMPLATES.find((t) => t.id === id);
@@ -3499,7 +3548,7 @@ export default function Dashboard() {
         duration: 1500,
       });
     }
-  }, []);
+  }, [activeMissionId, lastWebsitePrompt]);
 
 
   // ── "Return to Preview" safety net ──────────────────────────────────────────
@@ -4005,7 +4054,7 @@ export default function Dashboard() {
       shouldActivateWebsitePreview = true;
       setIsWebsiteIntent(true);
       setLastWebsitePrompt(trimmed);
-      setActiveWebsiteCode(buildStarterWebsiteHtml(trimmed));
+      setActiveWebsiteCode(applyTemplateThemeToHtml(buildStarterWebsiteHtml(trimmed), designPreferences.templateId));
       const designPrefDirective = buildDesignPreferenceDirective(designPreferences);
       masterPrompt =
         `[PRIORITY_DIRECTIVE: WEBSITE_BUILD]\n` +
@@ -4149,12 +4198,13 @@ export default function Dashboard() {
         setActiveWebsiteCode((prev) => {
           const candidate = (generatedCode || outputText || "").trim();
           if (hasPreviewHtml(candidate)) {
-            appliedCodeChange = candidate !== prev;
-            return candidate;
+            const themedCandidate = applyTemplateThemeToHtml(candidate, designPreferences.templateId);
+            appliedCodeChange = themedCandidate !== prev;
+            return themedCandidate;
           }
           if (hasPreviewHtml(prev)) return prev; // preserve live preview
           // First build with no usable HTML yet → fall back to bespoke starter
-          return buildStarterWebsiteHtml(lastWebsitePrompt || visiblePrompt);
+          return applyTemplateThemeToHtml(buildStarterWebsiteHtml(lastWebsitePrompt || visiblePrompt), designPreferences.templateId);
         });
         if (appliedCodeChange && inSandboxEditMode) {
           // Lightweight inline confirmation — no extra deps, dismisses itself.
@@ -4531,6 +4581,7 @@ export default function Dashboard() {
             isPreviewActive={isPreviewActive}
             setIsPreviewActive={setIsPreviewActive}
             activeWebsiteCode={activeWebsiteCode}
+            previewThemeRevision={previewThemeRevision}
             generationRunId={generationRunId}
           />
         );
