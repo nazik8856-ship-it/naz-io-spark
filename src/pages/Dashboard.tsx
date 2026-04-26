@@ -2284,6 +2284,7 @@ const HomeView = ({
               isWebsiteComplete={isWebsiteComplete}
               directive={lastWebsitePrompt}
               activeWebsiteCode={activeWebsiteCode}
+              previewRevision={previewThemeRevision}
               generationRunId={generationRunId}
               onRefine={handleRefine}
               onEditTrigger={onEditTrigger}
