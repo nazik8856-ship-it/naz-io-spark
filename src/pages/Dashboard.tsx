@@ -4663,6 +4663,8 @@ export default function Dashboard() {
             activeWebsiteCode={activeWebsiteCode}
             previewThemeRevision={previewThemeRevision}
             generationRunId={generationRunId}
+            designPreferences={designPreferences}
+            onTemplateSelect={applyComfortTemplate}
           />
         );
     }
