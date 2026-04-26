@@ -2279,6 +2279,19 @@ const HomeView = ({
               </p>
             </div>
 
+            {/* Comfort Designs gallery — visible at the start of every new project
+                so non-technical users can pick a visual ground truth before prompting. */}
+            {onTemplateSelect && (
+              <div className="w-full max-w-2xl">
+                <ComfortDesignsBlock
+                  selectedId={designPreferences?.templateId ?? null}
+                  onSelect={onTemplateSelect}
+                  variant="home"
+                  compact
+                />
+              </div>
+            )}
+
             {/* Command Center is now anchored beneath the website preview
                 inside WebsiteRevealPane — no duplicate render here. */}
           </div>
