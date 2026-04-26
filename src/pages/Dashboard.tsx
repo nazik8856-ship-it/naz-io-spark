@@ -1921,9 +1921,9 @@ const ComfortDesignsBlock: React.FC<{
 const WelcomeTemplateModal: React.FC<{
   open: boolean;
   onClose: () => void;
-  selectedId: string | null;
-  onSelect: (id: string) => void;
-}> = ({ open, onClose, selectedId, onSelect }) => (
+  selectedThemeId: string;
+  onSelectTheme: (id: string) => void;
+}> = ({ open, onClose, selectedThemeId, onSelectTheme }) => (
   <AnimatePresence>
     {open && (
       <motion.div
@@ -1946,14 +1946,14 @@ const WelcomeTemplateModal: React.FC<{
         >
           <div className="flex items-start justify-between px-6 pt-6 pb-3">
             <div>
-              <div className="text-[10px] font-mono tracking-[0.3em] text-cyan-400 uppercase mb-1">
-                Welcome · Comfort Designs
+              <div className="text-[10px] font-mono tracking-[0.3em] text-fuchsia-300 uppercase mb-1">
+                NazAI · Visual Themes
               </div>
               <h2 id="welcome-template-title" className="text-xl font-bold text-white tracking-tight">
-                What design would you choose for a more comfortable usage?
+                Choose how NazAI looks for you
               </h2>
               <p className="text-[12px] text-white/50 mt-1">
-                Pick a starting style — you can always change it later in Settings.
+                Restyles the NazAI app itself (sidebar, cards, accents). You can change it anytime in Settings.
               </p>
             </div>
             <button
@@ -1965,12 +1965,12 @@ const WelcomeTemplateModal: React.FC<{
             </button>
           </div>
           <div className="px-6 pb-6 max-h-[70vh] overflow-y-auto">
-            <TemplateGallery selectedId={selectedId} onSelect={onSelect} />
+            <NazaiThemeGallery selectedId={selectedThemeId} onSelect={onSelectTheme} />
             <button
               onClick={onClose}
               className="mt-5 text-[11px] font-mono text-white/40 hover:text-white/70 underline underline-offset-2"
             >
-              Skip for now
+              Done
             </button>
           </div>
         </motion.div>
