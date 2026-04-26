@@ -133,10 +133,11 @@ const WebsiteRevealPane: React.FC<WebsiteRevealPaneProps> = ({
   }, [directive, generationRunId]);
 
   useEffect(() => {
-    if (activeWebsiteCode.trim()) {
-      setVisibleWebsiteCode(activeWebsiteCode);
-    }
-  }, [activeWebsiteCode]);
+    // Keep the rendered iframe in lockstep with parent state. The previewRevision
+    // dependency makes Comfort Design re-clicks flush even when srcDoc is nearly
+    // identical aside from an invisible marker.
+    setVisibleWebsiteCode(activeWebsiteCode);
+  }, [activeWebsiteCode, previewRevision]);
 
   // ── Highlight-to-Refine tooltip in the Strategy pane ─────────────────────────
   useEffect(() => {
