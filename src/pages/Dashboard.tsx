@@ -4054,7 +4054,7 @@ export default function Dashboard() {
       shouldActivateWebsitePreview = true;
       setIsWebsiteIntent(true);
       setLastWebsitePrompt(trimmed);
-      setActiveWebsiteCode(buildStarterWebsiteHtml(trimmed));
+      setActiveWebsiteCode(applyTemplateThemeToHtml(buildStarterWebsiteHtml(trimmed), designPreferences.templateId));
       const designPrefDirective = buildDesignPreferenceDirective(designPreferences);
       masterPrompt =
         `[PRIORITY_DIRECTIVE: WEBSITE_BUILD]\n` +
