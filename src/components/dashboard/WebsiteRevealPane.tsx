@@ -61,6 +61,8 @@ interface WebsiteRevealPaneProps {
   onRefine?: (selected: string, instruction: string) => void;
   /** Pencil-edit callback — scrolls to input, forces sandbox, pulses input. */
   onEditTrigger?: () => void;
+  /** Optional slot rendered directly above the CommandCenterChecklist (Comfort Designs). */
+  comfortDesignsSlot?: React.ReactNode;
 }
 
 // ─── Verification chip ──────────────────────────────────────────────────────
@@ -90,6 +92,7 @@ const WebsiteRevealPane: React.FC<WebsiteRevealPaneProps> = ({
   directive,
   onRefine,
   onEditTrigger,
+  comfortDesignsSlot,
 }) => {
   const [device, setDevice] = useState<DeviceMode>("desktop");
   const [stage, setStage] = useState<number>(0); // 0 = nothing, 1 = hero, 2 = features, 3 = contact, 4 = done
@@ -553,6 +556,7 @@ const WebsiteRevealPane: React.FC<WebsiteRevealPaneProps> = ({
                   className="my-4 h-px w-full"
                   style={{ background: "linear-gradient(90deg, transparent, #27272a, transparent)" }}
                 />
+                {comfortDesignsSlot}
                 <CommandCenterChecklist />
                 <LaunchpadDeploymentBar directive={directive} />
               </motion.div>
