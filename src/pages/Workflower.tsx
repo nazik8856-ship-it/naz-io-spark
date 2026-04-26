@@ -31,7 +31,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import AuthModal from "@/components/AuthModal";
 import MissionWorkspace from "@/components/mission/MissionWorkspace";
-import GuardianCanvas from "@/components/workflower/GuardianCanvas";
+// GuardianCanvas relocated into Dashboard → Settings → Brand-Snap Canvas (per UX simplification).
 
 const NODES = [
   {
@@ -592,10 +592,7 @@ const Workflower = () => {
           </div>
         </section>
 
-        {/* DESIGN GUARDIAN — Brand-Snap Canvas */}
-        <div id="brand-snap" className="scroll-mt-20">
-          <GuardianCanvas />
-        </div>
+        {/* Brand-Snap Canvas now lives in Dashboard → Settings (less landing-page clutter, easier discovery in-app). */}
 
         {/* SYSTEM PULSE — Latest Updates */}
         <section className="py-20 md:py-24 px-6 md:px-8 border-t border-white/5">
@@ -747,7 +744,7 @@ const Workflower = () => {
                 </h4>
                 {[
                   { label: "Domain Master", href: "#domain-master" },
-                  { label: "Brand-Snap Canvas", href: "#brand-snap" },
+                  { label: "Brand-Snap Canvas", href: "/dashboard?settings=brand-snap" },
                   { label: "Operations", href: "#operations" },
                 ].map((item) => (
                   <a
