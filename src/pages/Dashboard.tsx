@@ -4958,13 +4958,7 @@ export default function Dashboard() {
         onClose={closeWelcome}
         selectedId={designPreferences.templateId}
         onSelect={(id) => {
-          const next = { ...designPreferences, templateId: id, savedAt: new Date().toISOString() };
-          setDesignPreferences(next);
-          saveDesignPreferences(next);
-          const tpl = COMFORT_TEMPLATES.find((t) => t.id === id);
-          toast.success(`Comfort design saved · ${tpl?.name ?? "Template"}`, {
-            description: "It will guide every website you generate. Change anytime in Settings.",
-          });
+          applyComfortTemplate(id);
           closeWelcome();
         }}
       />
