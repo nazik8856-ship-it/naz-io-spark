@@ -1653,6 +1653,27 @@ const SettingsView = ({
             </div>
           </motion.div>
 
+          {/* ─── NAZAI VISUAL THEMES (App Appearance) ─────────────────────── */}
+          <motion.div
+            id="nazai-visual-themes"
+            variants={itemVariants}
+            className="md:col-span-2 p-5 rounded-xl"
+            style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-sm font-semibold flex items-center gap-2 font-mono" style={{ color: "var(--nazai-text-color)" }}>
+                  <Palette size={16} className="text-fuchsia-400" /> NAZAI VISUAL THEMES
+                </h3>
+                <p className="text-[10px] font-mono text-white/40 mt-1">
+                  Restyles NazAI itself — sidebar, cards, accents, glow. Switching is instant and saved across sessions.
+                </p>
+              </div>
+              <span className="text-[9px] font-mono text-fuchsia-300/70 tracking-wider uppercase">App appearance</span>
+            </div>
+            <NazaiThemeGallery selectedId={nazaiThemeId} onSelect={onNazaiThemeSelect} />
+          </motion.div>
+
           {/* ─── COMFORT DESIGNS (Template Gallery) ────────────────────────── */}
           <motion.div
             id="comfort-designs"
