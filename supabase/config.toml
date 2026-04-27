@@ -17,3 +17,6 @@ verify_jwt = false
 
 [functions.handle-email-suppression]
 verify_jwt = false
+
+[functions.send-welcome-resend]
+verify_jwt = false

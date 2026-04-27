@@ -1,5 +1,3 @@
-import { supabase } from "@/integrations/supabase/client";
-
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
 
@@ -129,35 +127,13 @@ export async function sendWelcomeEmail(
 
   console.info(`Sending welcome email to: ${email}`, { source, userId });
 
-  // Prefer the live session token if available (e.g., social signup),
-  // otherwise fall back to the anon key so unauthenticated signups also pass.
-  let bearer = ANON_KEY;
-  let bearerSource: "session" | "anon" = "anon";
-  try {
-    const { data } = await supabase.auth.getSession();
-    if (data.session?.access_token) {
-      bearer = data.session.access_token;
-      bearerSource = "session";
-    }
-  } catch (sessErr) {
-    console.warn("[welcome-email] session lookup failed, using anon key", sessErr);
-  }
-  console.info("[welcome-email] auth", { bearerSource });
+  // Send directly via Resend through our dedicated edge function.
+  // This bypasses the queue (immediate send) and works with verify_jwt=false,
+  // so unauthenticated signups (no session yet) succeed reliably.
+  const body = { email, name: name || undefined };
+  console.info("[welcome-email] payload prepared", { email, hasName: !!name });
 
-  const idempotencyKey = `welcome-${userId ?? email}-${Date.now()}-${crypto.randomUUID()}`;
-  const body = {
-    templateName: "welcome-nazai",
-    recipientEmail: email,
-    idempotencyKey,
-    templateData: name ? { name } : {},
-  };
-  console.info("[welcome-email] payload prepared", {
-    templateName: body.templateName,
-    recipientEmail: body.recipientEmail,
-    idempotencyKey,
-  });
-
-  const url = `${SUPABASE_URL}/functions/v1/send-transactional-email`;
+  const url = `${SUPABASE_URL}/functions/v1/send-welcome-resend`;
   console.info("[welcome-email] → POST", url);
 
   try {
@@ -167,7 +143,7 @@ export async function sendWelcomeEmail(
       headers: {
         "Content-Type": "application/json",
         apikey: ANON_KEY,
-        Authorization: `Bearer ${bearer}`,
+        Authorization: `Bearer ${ANON_KEY}`,
       },
       body: JSON.stringify(body),
     });
@@ -200,7 +176,7 @@ export async function sendWelcomeEmail(
       body: text,
       ms,
     });
-    console.info("[welcome-email] ✔ queued successfully", {
+    console.info("[welcome-email] ✔ sent via Resend", {
       source,
       status: res.status,
       body: text,
