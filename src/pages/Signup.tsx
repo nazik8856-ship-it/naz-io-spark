@@ -126,7 +126,10 @@ const Signup = () => {
       if (userEmail) {
         console.log("Attempting to send welcome email to", userEmail);
         try {
-          await sendWelcomeEmail(userEmail);
+          const welcomeResult = await sendWelcomeEmail(userEmail);
+          if (!welcomeResult.ok) {
+            throw new Error(welcomeResult.error || welcomeResult.body || `HTTP ${welcomeResult.status ?? "unknown"}`);
+          }
           console.log("✅ Welcome email SENT successfully to", userEmail);
         } catch (error) {
           console.error("❌ Welcome email FAILED:", error);
