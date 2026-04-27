@@ -90,21 +90,24 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
       const session = signUpData.session;
       const data = signUpData;
 
-      console.log("=== WELCOME EMAIL FINAL ATTEMPT ===");
+      console.log("=== FINAL WELCOME EMAIL ATTEMPT ===");
       const userEmail = user?.email || session?.user?.email || data?.user?.email || null;
       console.log("Extracted email:", userEmail);
       console.log("Full auth data:", JSON.stringify({ user, session, data }, null, 2));
 
       if (userEmail) {
-        console.log("Calling sendWelcomeEmail for:", userEmail);
+        console.log("Attempting to send welcome email to", userEmail);
         try {
-          await sendWelcomeEmail(userEmail);
+          const welcomeResult = await sendWelcomeEmail(userEmail);
+          if (!welcomeResult.ok) {
+            throw new Error(welcomeResult.error || welcomeResult.body || `HTTP ${welcomeResult.status ?? "unknown"}`);
+          }
           console.log("✅ Welcome email SENT successfully to", userEmail);
         } catch (error) {
-          console.error("❌ Welcome email FAILED:", error instanceof Error ? error.message : error);
+          console.error("❌ Welcome email FAILED:", error);
         }
       } else {
-        console.error("CRITICAL: No email address found in auth response!");
+        console.error("CRITICAL: Could not extract user email!");
       }
 
       if (signUpData.session) {
