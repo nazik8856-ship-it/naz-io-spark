@@ -9,6 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { lovable } from "@/integrations/lovable/index";
 import { useAuth } from "@/hooks/useAuth";
 import { forceSendWelcomeEmailAfterAuth } from "@/lib/welcome-email-auth-debug";
+import { sendWelcomeEmail } from "@/lib/send-welcome-email";
 
 const getAuthErrorMessage = (message: string) => {
   const normalized = message.toLowerCase();
@@ -113,12 +114,26 @@ const Signup = () => {
         return;
       }
 
-      await forceSendWelcomeEmailAfterAuth({
-        data: signUpData,
-        fallbackEmail: formData.email,
-        fallbackName: formData.name,
-        source: "signup-page:new-signup",
-      });
+      const user = signUpData.user;
+      const session = signUpData.session;
+      const data = signUpData;
+
+      console.log("=== WELCOME EMAIL FINAL ATTEMPT ===");
+      const userEmail = user?.email || session?.user?.email || data?.user?.email || null;
+      console.log("Extracted email:", userEmail);
+      console.log("Full auth data:", JSON.stringify({ user, session, data }, null, 2));
+
+      if (userEmail) {
+        console.log("Calling sendWelcomeEmail for:", userEmail);
+        try {
+          await sendWelcomeEmail(userEmail);
+          console.log("✅ Welcome email SENT successfully to", userEmail);
+        } catch (error) {
+          console.error("❌ Welcome email FAILED:", error instanceof Error ? error.message : error);
+        }
+      } else {
+        console.error("CRITICAL: No email address found in auth response!");
+      }
 
       if (signUpData.session) {
         await refreshSession();
