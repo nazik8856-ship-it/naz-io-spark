@@ -223,32 +223,6 @@ Deno.serve(async (req) => {
         continue
       }
 
-      // Guard: skip if another worker already sent this message (VT expired race)
-      if (payload.message_id) {
-        const { data: alreadySent } = await supabase
-          .from('email_send_log')
-          .select('id')
-          .eq('message_id', payload.message_id)
-          .eq('status', 'sent')
-          .maybeSingle()
-
-        if (alreadySent) {
-          console.warn('Skipping duplicate send (already sent)', {
-            queue,
-            msg_id: msg.msg_id,
-            message_id: payload.message_id,
-          })
-          const { error: dupDelError } = await supabase.rpc('delete_email', {
-            queue_name: queue,
-            message_id: msg.msg_id,
-          })
-          if (dupDelError) {
-            console.error('Failed to delete duplicate message from queue', { queue, msg_id: msg.msg_id, error: dupDelError })
-          }
-          continue
-        }
-      }
-
       try {
         await sendLovableEmail(
           {
