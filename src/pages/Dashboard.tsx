@@ -5346,6 +5346,7 @@ export default function Dashboard() {
             getAvatarGradient={getAvatarGradient}
             setLogoutModalOpen={setLogoutModalOpen}
             openWorkspaceMenu={() => setWorkspaceMenuOpen(true)}
+            handleNewChat={handleNewChat}
           />
         </div>
       </motion.aside>
