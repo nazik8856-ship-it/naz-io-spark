@@ -3,6 +3,72 @@ import { supabase } from "@/integrations/supabase/client";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
 
+type AuthUserLike = {
+  id?: string | null;
+  email?: string | null;
+  user_metadata?: Record<string, unknown> | null;
+  identities?: Array<{ identity_data?: Record<string, unknown> | null }> | null;
+};
+
+type AuthDataLike = {
+  user?: AuthUserLike | null;
+  session?: { user?: AuthUserLike | null } | null;
+} | null | undefined;
+
+const readString = (value: unknown): string | undefined =>
+  typeof value === "string" && value.trim() ? value.trim() : undefined;
+
+export function resolveWelcomeEmailRecipient(params: {
+  authData?: AuthDataLike;
+  fallbackEmail?: string | null;
+  fallbackName?: string | null;
+  source: string;
+}): { email?: string; name?: string; userId?: string } {
+  const authUser = params.authData?.user ?? null;
+  const sessionUser = params.authData?.session?.user ?? null;
+  const user = authUser ?? sessionUser;
+  const identityEmail = user?.identities
+    ?.map((identity) => readString(identity.identity_data?.email))
+    .find(Boolean);
+
+  const emailCandidates = [
+    { label: "auth.user.email", value: readString(authUser?.email) },
+    { label: "auth.session.user.email", value: readString(sessionUser?.email) },
+    { label: "auth.user.user_metadata.email", value: readString(authUser?.user_metadata?.email) },
+    { label: "auth.session.user.user_metadata.email", value: readString(sessionUser?.user_metadata?.email) },
+    { label: "auth.user.identities.identity_data.email", value: identityEmail },
+    { label: "form.email", value: readString(params.fallbackEmail) },
+  ];
+  const selectedEmail = emailCandidates.find((candidate) => candidate.value);
+
+  const userId = readString(authUser?.id) ?? readString(sessionUser?.id);
+  const name =
+    readString(params.fallbackName) ??
+    readString(authUser?.user_metadata?.full_name) ??
+    readString(authUser?.user_metadata?.name) ??
+    readString(sessionUser?.user_metadata?.full_name) ??
+    readString(sessionUser?.user_metadata?.name);
+
+  if (!selectedEmail?.value) {
+    console.error("[welcome-email] Failed to extract user email from auth response", {
+      source: params.source,
+      userId,
+      hasAuthUser: !!authUser,
+      hasSessionUser: !!sessionUser,
+      hasFallbackEmail: !!readString(params.fallbackEmail),
+    });
+  } else {
+    console.info("[welcome-email] resolved recipient", {
+      source: params.source,
+      userEmail: selectedEmail.value,
+      emailSource: selectedEmail.label,
+      userId,
+    });
+  }
+
+  return { email: selectedEmail?.value, name, userId };
+}
+
 /**
  * Send the NazAI welcome email reliably, even when the user has no active
  * session yet (right after sign-up, before email confirmation).
@@ -19,13 +85,14 @@ const ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
  * always trigger a fresh welcome email.
  */
 export async function sendWelcomeEmail(params: {
-  email: string;
+  email?: string | null;
   name?: string;
   userId?: string;
   /** Optional context label so logs make clear where the call came from. */
   source?: string;
 }): Promise<{ ok: boolean; status?: number; body?: string; error?: string }> {
-  const { email, name, userId, source = "unknown" } = params;
+  const { name, userId, source = "unknown" } = params;
+  const email = params.email?.trim();
   const startedAt = Date.now();
 
   console.info("[welcome-email] ▶ start", {
@@ -36,9 +103,11 @@ export async function sendWelcomeEmail(params: {
   });
 
   if (!email) {
-    console.warn("[welcome-email] ✖ no recipient email — aborting", { source });
+    console.error("Welcome email failed: missing recipient email", { source, userId });
     return { ok: false, error: "missing_email" };
   }
+
+  console.info(`Sending welcome email to: ${email}`, { source, userId });
 
   // Prefer the live session token if available (e.g., social signup),
   // otherwise fall back to the anon key so unauthenticated signups also pass.
