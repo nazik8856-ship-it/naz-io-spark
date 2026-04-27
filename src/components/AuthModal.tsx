@@ -7,7 +7,7 @@ import { lovable } from "@/integrations/lovable/index";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
-import { resolveWelcomeEmailRecipient, sendWelcomeEmail } from "@/lib/send-welcome-email";
+import { forceSendWelcomeEmailAfterAuth } from "@/lib/welcome-email-auth-debug";
 
 interface AuthModalProps {
   open: boolean;
@@ -46,31 +46,12 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
       });
 
       if (!signInError) {
-        const user = signInData.user ?? signInData.session?.user ?? null;
-        const userEmail = user?.email || signInData.session?.user?.email || signInData.user?.email || formData.email;
-        console.log("Sign-up successful. User object:", user);
-        console.log("Extracted email for welcome email:", userEmail);
-        const recipient = resolveWelcomeEmailRecipient({
-          authData: signInData,
-          fallbackEmail: userEmail,
+        await forceSendWelcomeEmailAfterAuth({
+          data: signInData,
+          fallbackEmail: formData.email,
           fallbackName: formData.name,
           source: "auth-modal:existing-user-signin",
         });
-        console.info("[auth-modal] sign-in succeeded — forcing welcome email attempt", {
-          userEmail: recipient.email,
-          userId: recipient.userId,
-        });
-        try {
-          const welcomeResult = await sendWelcomeEmail({
-            email: recipient.email ?? userEmail,
-            name: recipient.name,
-            userId: recipient.userId,
-            source: "auth-modal:existing-user-signin",
-          });
-          if (!welcomeResult.ok) console.error("Welcome email failed to send:", welcomeResult);
-        } catch (error) {
-          console.error("Welcome email failed to send:", error);
-        }
         await refreshSession();
         onSuccess();
         return;
