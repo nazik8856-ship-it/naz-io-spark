@@ -1,3 +1,4 @@
+// @ts-nocheck — Scaffolded by Lovable email infra; runs on Deno runtime.
 import { sendLovableEmail } from 'npm:@lovable.dev/email-js'
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
