@@ -3340,6 +3340,7 @@ function SidebarContent({
   setActiveMissionId, setMessages, textareaRef, setDrawerOpen,
   missionsLoading, openChatFeed, handleLoadMission, openLifecycleModal,
   userEmail, getAvatarGradient, setLogoutModalOpen, openWorkspaceMenu,
+  handleNewChat,
 }: any) {
   const [projectsExpanded, setProjectsExpanded] = useState(true);
   
@@ -3379,10 +3380,14 @@ function SidebarContent({
       <div className="px-4 pb-4">
         <button
           onClick={() => {
-            setMessages([]);
-            setActiveMissionId(null);
-            if (textareaRef?.current) textareaRef.current.focus();
-            setDrawerOpen(false);
+            if (typeof handleNewChat === "function") {
+              handleNewChat();
+            } else {
+              setMessages([]);
+              setActiveMissionId(null);
+              if (textareaRef?.current) textareaRef.current.focus();
+              setDrawerOpen(false);
+            }
           }}
           className="flex items-center gap-3 w-full p-3 rounded-xl transition-all duration-300 group relative overflow-hidden border border-white/5 bg-white/[0.03] hover:bg-white/[0.06]"
         >
