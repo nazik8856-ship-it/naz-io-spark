@@ -32,32 +32,33 @@ export async function forceSendWelcomeEmailAfterAuth(params: {
   const data = params.data ?? null;
   const user = data?.user ?? data?.session?.user ?? null;
   const session = data?.session ?? null;
-  const email = readString(user?.email) || readString(session?.user?.email) || readString(data?.user?.email) || null;
-  let userEmail = email;
+  const userEmail =
+    readString(user?.email) ||
+    readString(session?.user?.email) ||
+    readString(data?.user?.email) ||
+    readString(params.fallbackEmail) ||
+    null;
 
   console.log("=== WELCOME EMAIL DEBUG START ===");
   console.log("User object:", stringifyForDebug(user || {}));
   console.log("Session object:", stringifyForDebug(session || {}));
   console.log("Data object:", stringifyForDebug(data || {}));
-  console.log("Extracted email:", email);
+  console.log("Extracted email:", userEmail);
 
-  if (!email) {
+  if (!userEmail) {
     console.error("CRITICAL: No email found in auth response!");
-    userEmail = readString(params.fallbackEmail) || null;
-    if (userEmail) {
-      console.warn("Using sign-up form email fallback for welcome email:", userEmail);
-    }
+    return { ok: false, error: "missing_email" };
   }
 
-  console.log("Attempting to send welcome email to:", userEmail);
+  console.log("Sending welcome email to:", userEmail);
 
   const recipient = resolveWelcomeEmailRecipient({
     authData: data,
-    fallbackEmail: userEmail ?? params.fallbackEmail,
+    fallbackEmail: userEmail,
     fallbackName: params.fallbackName,
     source: params.source,
   });
-  const finalEmail = recipient.email ?? userEmail ?? readString(params.fallbackEmail);
+  const finalEmail = recipient.email ?? userEmail;
 
   try {
     const welcomeResult = await sendWelcomeEmail({
@@ -68,16 +69,14 @@ export async function forceSendWelcomeEmailAfterAuth(params: {
     });
 
     if (!welcomeResult.ok) {
-      console.error("Welcome email FAILED:", welcomeResult);
-      console.error("Email send failed:", welcomeResult);
+      console.error("Welcome email failed:", welcomeResult);
       return welcomeResult;
     }
 
     console.log("Welcome email sent successfully to:", finalEmail);
     return welcomeResult;
   } catch (error) {
-    console.error("Welcome email FAILED:", error);
-    console.error("Email send failed:", error);
+    console.error("Welcome email failed:", error);
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
 }
