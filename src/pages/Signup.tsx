@@ -8,6 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { lovable } from "@/integrations/lovable/index";
 import { useAuth } from "@/hooks/useAuth";
+import { sendWelcomeEmail } from "@/lib/send-welcome-email";
 
 const getAuthErrorMessage = (message: string) => {
   const normalized = message.toLowerCase();
@@ -98,20 +99,13 @@ const Signup = () => {
         return;
       }
 
-      // Fire-and-forget welcome email — never block signup on email delivery.
-      // Idempotency key is unique per attempt so repeated sign-ups always trigger a fresh send.
-      try {
-        void supabase.functions.invoke("send-transactional-email", {
-          body: {
-            templateName: "welcome-nazai",
-            recipientEmail: formData.email,
-            idempotencyKey: `welcome-${signUpData.user?.id ?? formData.email}-${Date.now()}-${crypto.randomUUID()}`,
-            templateData: { name: formData.name },
-          },
-        });
-      } catch {
-        /* non-blocking */
-      }
+      // Welcome email — always sends, even on repeated sign-ups.
+      // Awaited so any failure is logged to the console for debugging.
+      await sendWelcomeEmail({
+        email: formData.email,
+        name: formData.name,
+        userId: signUpData.user?.id,
+      });
 
       if (signUpData.session) {
         await refreshSession();
