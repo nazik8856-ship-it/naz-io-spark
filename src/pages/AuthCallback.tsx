@@ -2,12 +2,14 @@ import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
+import { resolveWelcomeEmailRecipient, sendWelcomeEmail } from "@/lib/send-welcome-email";
 
 const AuthCallback = () => {
   const navigate = useNavigate();
   const { user, loading, refreshSession } = useAuth();
   const hasRedirectedRef = useRef(false);
   const hasProcessedRef = useRef(false);
+  const hasSentWelcomeRef = useRef(false);
 
   // Handle OAuth hash fragment (direct Supabase OAuth returns tokens in URL hash)
   useEffect(() => {
@@ -30,8 +32,36 @@ const AuthCallback = () => {
   useEffect(() => {
     if (loading || hasRedirectedRef.current) return;
 
-    hasRedirectedRef.current = true;
-    navigate(user ? "/dashboard" : "/signup", { replace: true });
+    const finishAuth = async () => {
+      hasRedirectedRef.current = true;
+
+      if (user && !hasSentWelcomeRef.current) {
+        hasSentWelcomeRef.current = true;
+        const recipient = resolveWelcomeEmailRecipient({
+          authData: { user },
+          fallbackEmail: user.email,
+          fallbackName: String(user.user_metadata?.full_name ?? user.user_metadata?.name ?? ""),
+          source: "auth-callback:oauth-session",
+        });
+        console.info("[auth-callback] authenticated session ready — forcing welcome email attempt", {
+          userEmail: recipient.email,
+          userId: recipient.userId,
+        });
+        await sendWelcomeEmail({
+          email: recipient.email,
+          name: recipient.name,
+          userId: recipient.userId,
+          source: "auth-callback:oauth-session",
+        });
+      }
+
+      navigate(user ? "/dashboard" : "/signup", { replace: true });
+    };
+
+    finishAuth().catch((err) => {
+      console.error("[auth-callback] welcome email flow failed", err);
+      navigate(user ? "/dashboard" : "/signup", { replace: true });
+    });
   }, [loading, user, navigate]);
 
   return (
