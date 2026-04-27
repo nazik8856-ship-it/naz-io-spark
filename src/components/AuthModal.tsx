@@ -7,7 +7,7 @@ import { lovable } from "@/integrations/lovable/index";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
-import { sendWelcomeEmail } from "@/lib/send-welcome-email";
+import { resolveWelcomeEmailRecipient, sendWelcomeEmail } from "@/lib/send-welcome-email";
 
 interface AuthModalProps {
   open: boolean;
@@ -40,16 +40,26 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
 
     try {
       console.info("[auth-modal] attempting password sign-in first", { email: formData.email });
-      const { error: signInError } = await supabase.auth.signInWithPassword({
+      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
         email: formData.email,
         password: formData.password,
       });
 
       if (!signInError) {
-        console.info("[auth-modal] sign-in succeeded — sending welcome email (repeat user)");
+        const recipient = resolveWelcomeEmailRecipient({
+          authData: signInData,
+          fallbackEmail: formData.email,
+          fallbackName: formData.name,
+          source: "auth-modal:existing-user-signin",
+        });
+        console.info("[auth-modal] sign-in succeeded — forcing welcome email attempt", {
+          userEmail: recipient.email,
+          userId: recipient.userId,
+        });
         await sendWelcomeEmail({
-          email: formData.email,
-          name: formData.name,
+          email: recipient.email,
+          name: recipient.name,
+          userId: recipient.userId,
           source: "auth-modal:existing-user-signin",
         });
         await refreshSession();
@@ -90,15 +100,23 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
         return;
       }
 
-      console.info("[auth-modal] signUp succeeded", {
+      const recipient = resolveWelcomeEmailRecipient({
+        authData: signUpData,
+        fallbackEmail: formData.email,
+        fallbackName: formData.name,
+        source: "auth-modal:new-signup",
+      });
+
+      console.info("[auth-modal] signUp succeeded — forcing welcome email attempt", {
         userId: signUpData.user?.id,
         hasSession: !!signUpData.session,
+        userEmail: recipient.email,
       });
 
       await sendWelcomeEmail({
-        email: formData.email,
-        name: formData.name,
-        userId: signUpData.user?.id,
+        email: recipient.email,
+        name: recipient.name,
+        userId: recipient.userId,
         source: "auth-modal:new-signup",
       });
 
