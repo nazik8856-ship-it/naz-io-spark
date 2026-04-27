@@ -7,6 +7,7 @@ import { lovable } from "@/integrations/lovable/index";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
+import { sendWelcomeEmail } from "@/lib/send-welcome-email";
 
 interface AuthModalProps {
   open: boolean;
