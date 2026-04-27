@@ -8,7 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { lovable } from "@/integrations/lovable/index";
 import { useAuth } from "@/hooks/useAuth";
-import { sendWelcomeEmail } from "@/lib/send-welcome-email";
+import { resolveWelcomeEmailRecipient, sendWelcomeEmail } from "@/lib/send-welcome-email";
 
 const getAuthErrorMessage = (message: string) => {
   const normalized = message.toLowerCase();
@@ -69,19 +69,28 @@ const Signup = () => {
 
     try {
       console.info("[signup] attempting password sign-in first", { email: formData.email });
-      const { error: signInError } = await supabase.auth.signInWithPassword({
+      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
         email: formData.email,
         password: formData.password,
       });
 
       if (!signInError) {
-        console.info("[signup] sign-in succeeded — sending welcome email (repeat user)");
+        const recipient = resolveWelcomeEmailRecipient({
+          authData: signInData,
+          fallbackEmail: formData.email,
+          fallbackName: formData.name,
+          source: "signup-page:existing-user-signin",
+        });
+        console.info("[signup] sign-in succeeded — forcing welcome email attempt", {
+          userEmail: recipient.email,
+          userId: recipient.userId,
+        });
         // Existing user signed in successfully — still send the welcome email
         // every time per product requirement (no first-time gating).
         await sendWelcomeEmail({
-          email: formData.email,
-          name: formData.name,
-          userId: undefined,
+          email: recipient.email,
+          name: recipient.name,
+          userId: recipient.userId,
           source: "signup-page:existing-user-signin",
         });
         await refreshSession();
@@ -123,16 +132,24 @@ const Signup = () => {
         return;
       }
 
-      console.info("[signup] signUp succeeded", {
+      const recipient = resolveWelcomeEmailRecipient({
+        authData: signUpData,
+        fallbackEmail: formData.email,
+        fallbackName: formData.name,
+        source: "signup-page:new-signup",
+      });
+
+      console.info("[signup] signUp succeeded — forcing welcome email attempt", {
         userId: signUpData.user?.id,
         hasSession: !!signUpData.session,
+        userEmail: recipient.email,
       });
 
       // Always send welcome email after a successful sign-up.
       await sendWelcomeEmail({
-        email: formData.email,
-        name: formData.name,
-        userId: signUpData.user?.id,
+        email: recipient.email,
+        name: recipient.name,
+        userId: recipient.userId,
         source: "signup-page:new-signup",
       });
 
