@@ -3335,7 +3335,7 @@ function SidebarContent({
   borderColor, activeNav, showSettings, activeMissionId, handleNavClick, 
   setActiveMissionId, setMessages, textareaRef, setDrawerOpen,
   missionsLoading, openChatFeed, handleLoadMission, openLifecycleModal,
-  userEmail, getAvatarGradient, setLogoutModalOpen
+  userEmail, getAvatarGradient, setLogoutModalOpen, openWorkspaceMenu,
 }: any) {
   const [projectsExpanded, setProjectsExpanded] = useState(true);
   
