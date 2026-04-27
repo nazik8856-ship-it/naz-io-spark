@@ -3503,51 +3503,46 @@ function SidebarContent({
       {/* ── Project Memory · Approved Ground Truth ─────────────────────── */}
       <ProjectMemoryPanel />
 
-      {/* Bottom Admin Stack: Archives / Trash / Settings + Sign Out */}
+      {/* Bottom — Workspace menu (opens modal with all workspace items) + user pill */}
       <div
-        className="px-2 pt-2 pb-3 shrink-0 space-y-0.5"
+        className="px-3 pt-3 pb-3 shrink-0 space-y-2"
         style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
       >
-        {BOTTOM_NAV_ITEMS.map((item) => {
-          const Icon = item.icon;
-          const isActive =
-            (item.label === "Settings" && showSettings) ||
-            (item.label !== "Settings" && activeNav === item.label.toLowerCase() && !showSettings);
-          const itemTheme = SECTION_THEMES[item.label];
-          return (
-            <button
-              key={item.label}
-              onClick={() => handleNavClick(item.label)}
-              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all hover:bg-white/[0.04]"
-              style={{
-                background: isActive ? `${itemTheme.color}15` : "transparent",
-              }}
-            >
-              <Icon size={14} style={{ color: isActive ? itemTheme.color : "rgba(255,255,255,0.45)" }} />
-              <span
-                className="text-[11px] font-medium"
-                style={{ color: isActive ? itemTheme.color : "rgba(255,255,255,0.6)" }}
-              >
-                {item.label}
-              </span>
-            </button>
-          );
-        })}
-
         <button
-          onClick={() => setLogoutModalOpen(true)}
-          className="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all hover:bg-red-500/10 mt-1"
+          onClick={() => openWorkspaceMenu?.()}
+          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl transition-all hover:bg-white/[0.05] group"
+          style={{
+            background: "rgba(255,255,255,0.025)",
+            border: "1px solid rgba(255,255,255,0.06)",
+          }}
         >
-          <LogOut size={14} className="text-white/40" />
-          <span className="text-[11px] font-medium text-white/60">Sign Out</span>
-          {userEmail && (
-            <div
-              className="ml-auto w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-semibold overflow-hidden"
-              style={{ background: getAvatarGradient(userEmail) }}
-            >
-              {userEmail[0].toUpperCase()}
+          <div
+            className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
+            style={{
+              background: `linear-gradient(135deg, rgba(6,182,212,0.18), rgba(168,85,247,0.18))`,
+              border: "1px solid rgba(255,255,255,0.08)",
+            }}
+          >
+            {userEmail ? (
+              <span
+                className="text-[10px] font-bold text-white"
+                style={{ textShadow: "0 1px 2px rgba(0,0,0,0.4)" }}
+              >
+                {userEmail[0].toUpperCase()}
+              </span>
+            ) : (
+              <User size={13} className="text-white/70" />
+            )}
+          </div>
+          <div className="flex-1 min-w-0 text-left">
+            <div className="text-[12px] font-semibold text-white/85 truncate">
+              {userEmail ? userEmail.split("@")[0] : "Workspace"}
             </div>
-          )}
+            <div className="text-[9.5px] tracking-[0.12em] uppercase text-white/40 font-mono">
+              Open menu
+            </div>
+          </div>
+          <ChevronRight size={13} className="text-white/30 group-hover:text-white/60 transition-colors" />
         </button>
       </div>
     </>
