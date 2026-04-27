@@ -7,85 +7,153 @@ interface RichMarkdownProps {
 }
 
 /**
- * Renders an AI response as Markdown with GitHub-flavored extensions
- * (tables, task lists, strikethrough) and inline Mermaid diagrams when
- * the AI returns a fenced ```mermaid block.
+ * Premium 2026-grade Markdown renderer for NazAI chat outputs.
  *
- * Styling stays consistent with the chat bubble: small font, cyan accents,
- * scannable spacing.
+ * Design principles:
+ *  • Generous whitespace and refined typography (Inter / system stack).
+ *  • Card-style code blocks and tables with subtle borders.
+ *  • Theme-aware accents using CSS custom props (--nazai-accent fallback to cyan).
+ *  • Mermaid diagrams render in their own styled card.
  */
 const RichMarkdown = ({ text }: RichMarkdownProps) => {
   return (
-    <div className="rich-markdown text-[11px] leading-relaxed text-white/80 font-sans">
+    <div
+      className="rich-markdown text-[13px] leading-[1.7] font-sans"
+      style={{
+        color: "var(--nazai-text-color, rgba(255,255,255,0.92))",
+        fontFamily:
+          "'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
+        letterSpacing: "0.005em",
+      }}
+    >
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
           h1: ({ children }) => (
-            <h1 className="text-sm font-bold text-cyan-300 mt-3 mb-1.5 tracking-tight">
+            <h1
+              className="text-[18px] font-semibold mt-5 mb-3 tracking-tight"
+              style={{ color: "var(--nazai-accent, #06b6d4)" }}
+            >
               {children}
             </h1>
           ),
           h2: ({ children }) => (
-            <h2 className="text-[12px] font-bold text-cyan-300 mt-3 mb-1.5 tracking-tight">
+            <h2
+              className="text-[15px] font-semibold mt-5 mb-2.5 tracking-tight"
+              style={{ color: "var(--nazai-accent, #06b6d4)" }}
+            >
               {children}
             </h2>
           ),
           h3: ({ children }) => (
-            <h3 className="text-[11px] font-bold text-cyan-200 mt-2.5 mb-1 uppercase tracking-wider">
+            <h3
+              className="text-[13px] font-semibold mt-4 mb-2 uppercase tracking-[0.12em]"
+              style={{ color: "var(--nazai-accent-soft, rgba(6,182,212,0.85))" }}
+            >
               {children}
             </h3>
           ),
-          p: ({ children }) => <p className="my-1.5">{children}</p>,
-          strong: ({ children }) => (
-            <strong className="font-bold text-white/95">{children}</strong>
+          p: ({ children }) => (
+            <p className="my-2.5 leading-[1.75]">{children}</p>
           ),
-          em: ({ children }) => <em className="italic text-white/85">{children}</em>,
+          strong: ({ children }) => (
+            <strong className="font-semibold" style={{ color: "var(--nazai-text-strong, #ffffff)" }}>
+              {children}
+            </strong>
+          ),
+          em: ({ children }) => (
+            <em className="italic" style={{ color: "var(--nazai-text-muted, rgba(255,255,255,0.75))" }}>
+              {children}
+            </em>
+          ),
           a: ({ href, children }) => (
             <a
               href={href}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-cyan-300 underline decoration-cyan-500/40 hover:decoration-cyan-300"
+              className="font-medium underline-offset-2 hover:underline transition-colors"
+              style={{ color: "var(--nazai-accent, #06b6d4)" }}
             >
               {children}
             </a>
           ),
           ul: ({ children }) => (
-            <ul className="list-disc pl-5 my-1.5 space-y-0.5 marker:text-cyan-400">
+            <ul
+              className="list-disc pl-6 my-3 space-y-1.5"
+              style={{ color: "inherit" }}
+            >
               {children}
             </ul>
           ),
           ol: ({ children }) => (
-            <ol className="list-decimal pl-5 my-1.5 space-y-0.5 marker:text-cyan-400">
-              {children}
-            </ol>
+            <ol className="list-decimal pl-6 my-3 space-y-1.5">{children}</ol>
           ),
-          li: ({ children }) => <li className="leading-snug">{children}</li>,
+          li: ({ children }) => (
+            <li className="leading-[1.65] pl-1">{children}</li>
+          ),
           blockquote: ({ children }) => (
-            <blockquote className="border-l-2 border-cyan-500/60 pl-3 my-2 text-white/70 italic">
+            <blockquote
+              className="my-3 pl-4 py-2 italic rounded-r-md"
+              style={{
+                borderLeft: "3px solid var(--nazai-accent, #06b6d4)",
+                background: "var(--nazai-blockquote-bg, rgba(6,182,212,0.06))",
+                color: "var(--nazai-text-muted, rgba(255,255,255,0.78))",
+              }}
+            >
               {children}
             </blockquote>
           ),
-          hr: () => <hr className="my-3 border-white/10" />,
+          hr: () => (
+            <hr
+              className="my-5"
+              style={{ borderColor: "var(--nazai-border-soft, rgba(255,255,255,0.08))" }}
+            />
+          ),
+          // Premium tables — clean borders, subtle header tint, generous padding.
           table: ({ children }) => (
-            <div className="my-2.5 overflow-x-auto rounded-lg border border-cyan-500/20 bg-zinc-950/50">
-              <table className="w-full text-[10.5px] border-collapse">{children}</table>
+            <div
+              className="my-4 overflow-x-auto rounded-xl"
+              style={{
+                border: "1px solid var(--nazai-border-soft, rgba(255,255,255,0.10))",
+                background: "var(--nazai-table-bg, rgba(255,255,255,0.02))",
+                boxShadow: "0 1px 0 0 rgba(255,255,255,0.04) inset",
+              }}
+            >
+              <table className="w-full text-[12.5px] border-collapse">{children}</table>
             </div>
           ),
           thead: ({ children }) => (
-            <thead className="bg-cyan-500/10 text-cyan-200">{children}</thead>
+            <thead
+              style={{
+                background: "var(--nazai-table-head-bg, rgba(6,182,212,0.08))",
+                color: "var(--nazai-accent, #06b6d4)",
+              }}
+            >
+              {children}
+            </thead>
           ),
           tbody: ({ children }) => <tbody>{children}</tbody>,
           tr: ({ children }) => (
-            <tr className="border-b border-white/5 last:border-0">{children}</tr>
+            <tr
+              style={{
+                borderBottom: "1px solid var(--nazai-border-soft, rgba(255,255,255,0.06))",
+              }}
+            >
+              {children}
+            </tr>
           ),
           th: ({ children }) => (
-            <th className="text-left font-bold uppercase tracking-wider px-2.5 py-1.5 text-[10px]">
+            <th className="text-left font-semibold uppercase tracking-[0.08em] px-4 py-2.5 text-[11px]">
               {children}
             </th>
           ),
           td: ({ children }) => (
-            <td className="px-2.5 py-1.5 align-top text-white/80">{children}</td>
+            <td
+              className="px-4 py-3 align-top leading-[1.6]"
+              style={{ color: "var(--nazai-text-color, rgba(255,255,255,0.88))" }}
+            >
+              {children}
+            </td>
           ),
           code: ({ inline, className, children, ...props }: any) => {
             const langMatch = /language-(\w+)/.exec(className || "");
@@ -93,13 +161,28 @@ const RichMarkdown = ({ text }: RichMarkdownProps) => {
             const value = String(children ?? "").replace(/\n$/, "");
 
             if (!inline && lang === "mermaid") {
-              return <MermaidDiagram code={value} />;
+              return (
+                <div
+                  className="my-4 p-5 rounded-xl"
+                  style={{
+                    border: "1px solid var(--nazai-border-soft, rgba(255,255,255,0.10))",
+                    background: "var(--nazai-card-bg-soft, rgba(255,255,255,0.03))",
+                  }}
+                >
+                  <MermaidDiagram code={value} />
+                </div>
+              );
             }
 
             if (inline) {
               return (
                 <code
-                  className="px-1 py-0.5 rounded bg-cyan-500/10 text-cyan-200 font-mono text-[10.5px]"
+                  className="px-1.5 py-0.5 rounded font-mono text-[12px]"
+                  style={{
+                    background: "var(--nazai-inline-code-bg, rgba(6,182,212,0.10))",
+                    color: "var(--nazai-accent, #06b6d4)",
+                    border: "1px solid var(--nazai-border-soft, rgba(6,182,212,0.18))",
+                  }}
                   {...props}
                 >
                   {children}
@@ -108,9 +191,17 @@ const RichMarkdown = ({ text }: RichMarkdownProps) => {
             }
 
             return (
-              <pre className="my-2 p-3 rounded-lg bg-zinc-950/80 border border-white/10 overflow-x-auto">
+              <pre
+                className="my-3 p-4 rounded-xl overflow-x-auto"
+                style={{
+                  background: "var(--nazai-code-bg, rgba(2,6,23,0.7))",
+                  border: "1px solid var(--nazai-border-soft, rgba(255,255,255,0.08))",
+                  fontFamily: "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace",
+                }}
+              >
                 <code
-                  className={`font-mono text-[10.5px] text-zinc-200 ${className || ""}`}
+                  className={`text-[12px] leading-[1.6] ${className || ""}`}
+                  style={{ color: "var(--nazai-code-fg, #e2e8f0)" }}
                   {...props}
                 >
                   {children}

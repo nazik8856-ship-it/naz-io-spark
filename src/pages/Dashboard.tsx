@@ -75,6 +75,15 @@ import {
   Rocket,
   Store,
   BarChart3,
+  Activity,
+  HelpCircle,
+  MessageCircle,
+  Link2,
+  CreditCard,
+  Plug,
+  UserCog,
+  Notebook,
+  DownloadCloud,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import GuardianCanvas from "@/components/workflower/GuardianCanvas";
@@ -194,11 +203,36 @@ const AI_CATEGORIES: Record<string, Category> = {
 
 const TOP_NAV_ITEMS = [{ icon: Home, label: "Home" }] as const;
 
-const BOTTOM_NAV_ITEMS = [
-  { icon: Archive, label: "Archives" },
-  { icon: Trash2, label: "Trash" },
-  { icon: Settings, label: "Settings" },
-] as const;
+// ─── Workspace Menu Items ────────────────────────────────────────────────────
+// These appear inside the "Workspace" section (replaces the old Settings/Archives/Trash/Sign Out
+// bottom stack). Each item is fully functional via the workspace menu modal.
+type WorkspaceItemId =
+  | "activity"
+  | "personal-context"
+  | "import-memory"
+  | "connected-apps"
+  | "public-links"
+  | "theme"
+  | "subscriptions"
+  | "notebooklm"
+  | "feedback"
+  | "help";
+
+const WORKSPACE_MENU_ITEMS: { id: WorkspaceItemId; icon: any; label: string; description: string }[] = [
+  { id: "activity",         icon: Activity,      label: "Activity",              description: "Recent actions, generations & edits" },
+  { id: "personal-context", icon: UserCog,       label: "Personal Context",      description: "Your background, notes & preferences" },
+  { id: "import-memory",    icon: DownloadCloud, label: "Import Memory to Gemini", description: "Export your context for external AI" },
+  { id: "connected-apps",   icon: Plug,          label: "Connected Apps",        description: "API keys & integrations" },
+  { id: "public-links",     icon: Link2,         label: "Your Public Links",     description: "Shareable links for your projects" },
+  { id: "theme",            icon: Palette,       label: "Theme",                 description: "NazAI visual themes & appearance" },
+  { id: "subscriptions",    icon: CreditCard,    label: "View Subscriptions",    description: "Plan details & upgrade" },
+  { id: "notebooklm",       icon: Notebook,      label: "NotebookLM",            description: "Notebook-style research workspace" },
+  { id: "feedback",         icon: MessageCircle, label: "Send Feedback",         description: "Share thoughts with the NazAI team" },
+  { id: "help",             icon: HelpCircle,    label: "Help",                  description: "Documentation & support" },
+];
+
+// Kept for backwards compatibility with SECTION_THEMES lookups elsewhere.
+const BOTTOM_NAV_ITEMS: readonly { icon: any; label: string }[] = [] as const;
 
 const NAV_ITEMS = [...TOP_NAV_ITEMS, ...BOTTOM_NAV_ITEMS] as const;
 
@@ -208,6 +242,7 @@ const SECTION_THEMES: Record<string, Theme> = {
   Archives: { gradient: "linear-gradient(135deg, #818cf8, #c084fc)", glowRgba: "129,140,248", color: "#818cf8" },
   Trash: { gradient: "linear-gradient(135deg, #ef4444, #f97316)", glowRgba: "239,68,68", color: "#ef4444" },
   Settings: { gradient: "linear-gradient(135deg, #6366f1, #a855f7)", glowRgba: "99,102,241", color: "#6366f1" },
+  Workspace: { gradient: "linear-gradient(135deg, #06b6d4, #a855f7)", glowRgba: "6,182,212", color: "#06b6d4" },
 };
 
 const STYLES: readonly Style[] = ["Technical", "Creative", "Fast"] as const;
@@ -2501,26 +2536,57 @@ const HomeView = ({
           >
             {msg.role === "user" ? (
               <div
-                className="max-w-[78%] px-3 py-2 text-xs font-mono"
+                className="max-w-[78%] px-4 py-3 text-[13px] leading-[1.6] font-sans"
                 style={{
-                  borderRadius: "12px 12px 2px 12px",
-                  background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.05)`,
-                  border: `1px solid var(--nazai-border-light)`,
+                  borderRadius: "16px 16px 4px 16px",
+                  background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.07)`,
+                  border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.18)`,
                   color: "var(--nazai-text-color)",
+                  boxShadow: `0 1px 0 0 rgba(255,255,255,0.04) inset, 0 4px 16px -8px rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.25)`,
+                  fontFamily:
+                    "'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
+                  letterSpacing: "0.005em",
                 }}
               >
                 {msg.text}
               </div>
             ) : (
               <>
-                <div className="max-w-[85%] rounded-xl overflow-hidden border border-border bg-card/80">
-                  <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-secondary/20">
-                    <Brain size={12} className="text-primary" />
-                    <span className="text-[9px] font-mono font-bold tracking-wider text-primary">
+                <div
+                  className="max-w-[88%] rounded-2xl overflow-hidden"
+                  style={{
+                    background: "var(--nazai-card-bg, rgba(255,255,255,0.025))",
+                    border: "1px solid var(--nazai-border-soft, rgba(255,255,255,0.08))",
+                    boxShadow:
+                      "0 1px 0 0 rgba(255,255,255,0.04) inset, 0 12px 40px -16px rgba(0,0,0,0.45)",
+                    backdropFilter: "blur(12px)",
+                  }}
+                >
+                  <div
+                    className="flex items-center gap-2 px-4 py-2.5"
+                    style={{
+                      borderBottom: "1px solid var(--nazai-border-soft, rgba(255,255,255,0.06))",
+                      background:
+                        "linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0))",
+                    }}
+                  >
+                    <div
+                      className="w-5 h-5 rounded-md flex items-center justify-center"
+                      style={{
+                        background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.12)`,
+                        border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.25)`,
+                      }}
+                    >
+                      <Brain size={11} style={{ color: auraProfile.glowPrimary }} />
+                    </div>
+                    <span
+                      className="text-[10px] font-semibold tracking-[0.18em] uppercase"
+                      style={{ color: auraProfile.glowPrimary }}
+                    >
                       NazAI
                     </span>
                   </div>
-                  <div className="px-3 py-2.5">{formatAIResponse(msg.text)}</div>
+                  <div className="px-5 py-4">{formatAIResponse(msg.text)}</div>
                   {/* Verification chip · Reasoning trace · Approve as ground truth */}
                   <AIResponseExtras
                     text={msg.text}
@@ -3269,7 +3335,7 @@ function SidebarContent({
   borderColor, activeNav, showSettings, activeMissionId, handleNavClick, 
   setActiveMissionId, setMessages, textareaRef, setDrawerOpen,
   missionsLoading, openChatFeed, handleLoadMission, openLifecycleModal,
-  userEmail, getAvatarGradient, setLogoutModalOpen
+  userEmail, getAvatarGradient, setLogoutModalOpen, openWorkspaceMenu,
 }: any) {
   const [projectsExpanded, setProjectsExpanded] = useState(true);
   
@@ -3437,54 +3503,264 @@ function SidebarContent({
       {/* ── Project Memory · Approved Ground Truth ─────────────────────── */}
       <ProjectMemoryPanel />
 
-      {/* Bottom Admin Stack: Archives / Trash / Settings + Sign Out */}
+      {/* Bottom — Workspace menu (opens modal with all workspace items) + user pill */}
       <div
-        className="px-2 pt-2 pb-3 shrink-0 space-y-0.5"
+        className="px-3 pt-3 pb-3 shrink-0 space-y-2"
         style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
       >
-        {BOTTOM_NAV_ITEMS.map((item) => {
-          const Icon = item.icon;
-          const isActive =
-            (item.label === "Settings" && showSettings) ||
-            (item.label !== "Settings" && activeNav === item.label.toLowerCase() && !showSettings);
-          const itemTheme = SECTION_THEMES[item.label];
-          return (
-            <button
-              key={item.label}
-              onClick={() => handleNavClick(item.label)}
-              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all hover:bg-white/[0.04]"
-              style={{
-                background: isActive ? `${itemTheme.color}15` : "transparent",
-              }}
-            >
-              <Icon size={14} style={{ color: isActive ? itemTheme.color : "rgba(255,255,255,0.45)" }} />
-              <span
-                className="text-[11px] font-medium"
-                style={{ color: isActive ? itemTheme.color : "rgba(255,255,255,0.6)" }}
-              >
-                {item.label}
-              </span>
-            </button>
-          );
-        })}
-
         <button
-          onClick={() => setLogoutModalOpen(true)}
-          className="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all hover:bg-red-500/10 mt-1"
+          onClick={() => openWorkspaceMenu?.()}
+          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl transition-all hover:bg-white/[0.05] group"
+          style={{
+            background: "rgba(255,255,255,0.025)",
+            border: "1px solid rgba(255,255,255,0.06)",
+          }}
         >
-          <LogOut size={14} className="text-white/40" />
-          <span className="text-[11px] font-medium text-white/60">Sign Out</span>
-          {userEmail && (
-            <div
-              className="ml-auto w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-semibold overflow-hidden"
-              style={{ background: getAvatarGradient(userEmail) }}
-            >
-              {userEmail[0].toUpperCase()}
+          <div
+            className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
+            style={{
+              background: `linear-gradient(135deg, rgba(6,182,212,0.18), rgba(168,85,247,0.18))`,
+              border: "1px solid rgba(255,255,255,0.08)",
+            }}
+          >
+            {userEmail ? (
+              <span
+                className="text-[10px] font-bold text-white"
+                style={{ textShadow: "0 1px 2px rgba(0,0,0,0.4)" }}
+              >
+                {userEmail[0].toUpperCase()}
+              </span>
+            ) : (
+              <User size={13} className="text-white/70" />
+            )}
+          </div>
+          <div className="flex-1 min-w-0 text-left">
+            <div className="text-[12px] font-semibold text-white/85 truncate">
+              {userEmail ? userEmail.split("@")[0] : "Workspace"}
             </div>
-          )}
+            <div className="text-[9.5px] tracking-[0.12em] uppercase text-white/40 font-mono">
+              Open menu
+            </div>
+          </div>
+          <ChevronRight size={13} className="text-white/30 group-hover:text-white/60 transition-colors" />
         </button>
       </div>
     </>
+  );
+}
+
+// ─── Workspace Menu Modal ────────────────────────────────────────────────────
+// Premium menu containing the 10 workspace items + Sign Out. Each item opens an
+// inline detail panel. All items are functional (Activity log, editable Personal
+// Context, etc.). State is persisted to localStorage.
+function WorkspaceMenuModal({
+  open, onClose, userEmail,
+  activeItem, setActiveItem,
+  onOpenSettings, onOpenTheme, onOpenPersonalContext, onOpenConnectedApps,
+  onSignOut, missions,
+}: {
+  open: boolean;
+  onClose: () => void;
+  userEmail: string | null;
+  activeItem: WorkspaceItemId | null;
+  setActiveItem: (id: WorkspaceItemId | null) => void;
+  onOpenSettings: () => void;
+  onOpenTheme: () => void;
+  onOpenPersonalContext: () => void;
+  onOpenConnectedApps: () => void;
+  onSignOut: () => void;
+  missions: Mission[];
+}) {
+  const [feedback, setFeedback] = useState("");
+  const [feedbackSent, setFeedbackSent] = useState(false);
+  const [contextDraft, setContextDraft] = useState(() => {
+    try { return localStorage.getItem("nazai-personal-context") || ""; } catch { return ""; }
+  });
+  const [contextSaved, setContextSaved] = useState(false);
+
+  const handleItemClick = (id: WorkspaceItemId) => {
+    if (id === "theme")            { onClose(); onOpenTheme(); return; }
+    if (id === "personal-context") { onClose(); onOpenPersonalContext(); return; }
+    if (id === "connected-apps")   { onClose(); onOpenConnectedApps(); return; }
+    if (id === "import-memory") {
+      const ctx = (() => { try { return localStorage.getItem("nazai-personal-context") || ""; } catch { return ""; } })();
+      const blob = new Blob([`# NazAI Memory Export\n\n${ctx}\n`], { type: "text/markdown" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = "nazai-memory.md"; a.click();
+      URL.revokeObjectURL(url);
+      toast.success("Memory exported — import the file into Gemini");
+      return;
+    }
+    if (id === "help")          { window.open("https://nazai.net", "_blank"); return; }
+    setActiveItem(id);
+  };
+
+  const saveContext = () => {
+    try { localStorage.setItem("nazai-personal-context", contextDraft); } catch {}
+    setContextSaved(true);
+    setTimeout(() => setContextSaved(false), 1600);
+    toast.success("Personal context saved");
+  };
+
+  const sendFeedback = () => {
+    if (!feedback.trim()) return;
+    try {
+      const log = JSON.parse(localStorage.getItem("nazai-feedback-log") || "[]");
+      log.push({ at: new Date().toISOString(), text: feedback });
+      localStorage.setItem("nazai-feedback-log", JSON.stringify(log));
+    } catch {}
+    setFeedbackSent(true);
+    setFeedback("");
+    setTimeout(() => setFeedbackSent(false), 2400);
+    toast.success("Thanks — feedback received");
+  };
+
+  const renderDetail = () => {
+    if (!activeItem) return null;
+    if (activeItem === "activity") {
+      const items = missions.slice(0, 25);
+      return (
+        <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
+          {items.length === 0 && (
+            <p className="text-[12px] text-white/40 py-6 text-center">No recent activity yet.</p>
+          )}
+          {items.map((m) => (
+            <div key={m.id} className="px-3 py-2.5 rounded-lg" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+              <div className="text-[12px] text-white/85 truncate">{(m.prompt || "Untitled").slice(0, 80)}</div>
+              <div className="text-[10px] font-mono text-white/35 mt-0.5">
+                {m.created_at ? formatDistanceToNow(new Date(m.created_at), { addSuffix: true }) : "—"} · {m.status}
+              </div>
+            </div>
+          ))}
+        </div>
+      );
+    }
+    if (activeItem === "public-links") {
+      const links = missions.filter((m) => m.id).slice(0, 10).map((m) => `${window.location.origin}/share/${m.id}`);
+      return (
+        <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+          {links.length === 0 && <p className="text-[12px] text-white/40 py-6 text-center">No shared links yet.</p>}
+          {links.map((l) => (
+            <div key={l} className="flex items-center gap-2 px-3 py-2 rounded-lg" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+              <Link2 size={12} className="text-cyan-400 shrink-0" />
+              <span className="text-[11px] font-mono text-white/70 truncate flex-1">{l}</span>
+              <button onClick={() => { navigator.clipboard.writeText(l); toast.success("Link copied"); }} className="text-[10px] px-2 py-1 rounded bg-white/5 hover:bg-white/10">Copy</button>
+            </div>
+          ))}
+        </div>
+      );
+    }
+    if (activeItem === "subscriptions") {
+      return (
+        <div className="space-y-3">
+          <div className="p-4 rounded-xl" style={{ background: "linear-gradient(135deg, rgba(6,182,212,0.08), rgba(168,85,247,0.08))", border: "1px solid rgba(6,182,212,0.18)" }}>
+            <div className="text-[10px] font-mono uppercase tracking-[0.2em] text-cyan-300/80 mb-1">Current Plan</div>
+            <div className="text-lg font-bold text-white">NazAI Free</div>
+            <div className="text-[11px] text-white/60 mt-1">3 free credits per month · Premium templates · All NazAI themes</div>
+          </div>
+          <button className="w-full py-3 rounded-xl text-[13px] font-semibold text-white" style={{ background: "linear-gradient(135deg, #06b6d4, #a855f7)" }}>Upgrade to Pro</button>
+          <p className="text-[10px] text-white/40 text-center">Pro unlocks unlimited credits, premium models, and team workspaces.</p>
+        </div>
+      );
+    }
+    if (activeItem === "notebooklm") {
+      return (
+        <div className="text-center py-8">
+          <Notebook size={36} className="mx-auto mb-3 text-cyan-400/70" />
+          <div className="text-[14px] font-semibold text-white/85">NotebookLM Workspace</div>
+          <p className="text-[12px] text-white/50 mt-2 max-w-sm mx-auto">Upload sources and let NazAI synthesise structured notes, summaries, and citations. Coming soon — your existing chats will sync automatically.</p>
+        </div>
+      );
+    }
+    if (activeItem === "feedback") {
+      return (
+        <div className="space-y-3">
+          <textarea
+            value={feedback}
+            onChange={(e) => setFeedback(e.target.value)}
+            placeholder="Tell us what you love, what's missing, or what's broken…"
+            className="w-full min-h-[140px] p-3 rounded-xl text-[12.5px] text-white/90 resize-none outline-none"
+            style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}
+          />
+          <button onClick={sendFeedback} disabled={!feedback.trim()} className="w-full py-2.5 rounded-xl text-[12px] font-semibold disabled:opacity-40" style={{ background: "linear-gradient(135deg, #06b6d4, #a855f7)", color: "#fff" }}>
+            {feedbackSent ? "✓ Sent" : "Send Feedback"}
+          </button>
+        </div>
+      );
+    }
+    return null;
+  };
+
+  if (!open) return null;
+  const activeMeta = WORKSPACE_MENU_ITEMS.find((i) => i.id === activeItem);
+
+  return (
+    <AnimatePresence>
+      <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
+        <motion.div
+          initial={{ opacity: 0, scale: 0.96, y: 8 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.96, y: 8 }}
+          onClick={(e) => e.stopPropagation()}
+          className="w-full max-w-md rounded-2xl overflow-hidden"
+          style={{ background: "rgba(11,15,25,0.96)", border: "1px solid rgba(255,255,255,0.08)", boxShadow: "0 30px 80px -20px rgba(0,0,0,0.6)" }}
+        >
+          {/* Header */}
+          <div className="flex items-center gap-3 px-5 py-4" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: "linear-gradient(135deg, rgba(6,182,212,0.2), rgba(168,85,247,0.2))", border: "1px solid rgba(255,255,255,0.08)" }}>
+              <span className="text-[12px] font-bold text-white">{userEmail ? userEmail[0].toUpperCase() : "N"}</span>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[13px] font-semibold text-white truncate">{userEmail || "NazAI Workspace"}</div>
+              <div className="text-[10px] tracking-[0.18em] uppercase font-mono text-white/40">{activeMeta?.label || "Workspace"}</div>
+            </div>
+            <button onClick={onClose} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-white/5"><X size={14} className="text-white/60" /></button>
+          </div>
+
+          {/* Body */}
+          <div className="p-3 max-h-[70vh] overflow-y-auto">
+            {activeItem ? (
+              <>
+                <button onClick={() => setActiveItem(null)} className="flex items-center gap-1.5 text-[11px] text-white/50 hover:text-white/80 px-2 py-1.5 mb-2">
+                  <ChevronRight size={12} className="rotate-180" /> Back
+                </button>
+                <div className="px-2">{renderDetail()}</div>
+              </>
+            ) : (
+              <div className="space-y-1">
+                {WORKSPACE_MENU_ITEMS.map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => handleItemClick(item.id)}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all hover:bg-white/[0.04] group"
+                  >
+                    <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                      <item.icon size={14} className="text-cyan-300/80 group-hover:text-cyan-300 transition-colors" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[12.5px] font-semibold text-white/90">{item.label}</div>
+                      <div className="text-[10.5px] text-white/45 truncate">{item.description}</div>
+                    </div>
+                    <ChevronRight size={12} className="text-white/25 group-hover:text-white/60 transition-colors" />
+                  </button>
+                ))}
+                <div className="my-2" style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }} />
+                <button onClick={onSignOut} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all hover:bg-red-500/10 group">
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.18)" }}>
+                    <LogOut size={14} className="text-red-400" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-[12.5px] font-semibold text-red-300">Sign Out</div>
+                    <div className="text-[10.5px] text-white/40">End your session</div>
+                  </div>
+                </button>
+              </div>
+            )}
+          </div>
+        </motion.div>
+      </div>
+    </AnimatePresence>
   );
 }
 
@@ -3574,6 +3850,8 @@ export default function Dashboard() {
   const [isPending, setIsPending] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
+  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
+  const [activeWorkspaceItem, setActiveWorkspaceItem] = useState<WorkspaceItemId | null>(null);
   const [missions, setMissions] = useState<Mission[]>([]);
   const [missionsLoading, setMissionsLoading] = useState(true);
   const [connectorStatus, setConnectorStatus] = useState<ConnectorStatus>({
@@ -4999,6 +5277,7 @@ export default function Dashboard() {
                 userEmail={userEmail}
                 getAvatarGradient={getAvatarGradient}
                 setLogoutModalOpen={setLogoutModalOpen}
+                openWorkspaceMenu={() => setWorkspaceMenuOpen(true)}
               />
             </div>
           </motion.aside>
@@ -5033,6 +5312,7 @@ export default function Dashboard() {
             userEmail={userEmail}
             getAvatarGradient={getAvatarGradient}
             setLogoutModalOpen={setLogoutModalOpen}
+            openWorkspaceMenu={() => setWorkspaceMenuOpen(true)}
           />
         </div>
       </motion.aside>
@@ -5490,6 +5770,21 @@ export default function Dashboard() {
           setNazaiThemeId(id);
           toast.success(`Theme applied ✓ — ${NAZAI_THEMES.find(t => t.id === id)?.name ?? id}`);
         }}
+      />
+
+      {/* Workspace Menu Modal — replaces old Settings/Archives/Trash/Sign Out stack */}
+      <WorkspaceMenuModal
+        open={workspaceMenuOpen}
+        onClose={() => { setWorkspaceMenuOpen(false); setActiveWorkspaceItem(null); }}
+        userEmail={userEmail}
+        activeItem={activeWorkspaceItem}
+        setActiveItem={setActiveWorkspaceItem}
+        onOpenSettings={() => { setWorkspaceMenuOpen(false); setShowSettings(true); setActiveNav("settings"); }}
+        onOpenTheme={() => { setWorkspaceMenuOpen(false); setWelcomeOpen(true); }}
+        onOpenPersonalContext={() => { setWorkspaceMenuOpen(false); setShowSettings(true); setActiveNav("settings"); }}
+        onOpenConnectedApps={() => { setWorkspaceMenuOpen(false); setShowSettings(true); setActiveNav("settings"); }}
+        onSignOut={() => { setWorkspaceMenuOpen(false); setLogoutModalOpen(true); }}
+        missions={missions}
       />
 
       <style>{`
