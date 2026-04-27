@@ -9,7 +9,6 @@ const AuthCallback = () => {
   const { user, loading, refreshSession } = useAuth();
   const hasRedirectedRef = useRef(false);
   const hasProcessedRef = useRef(false);
-  const hasSentWelcomeRef = useRef(false);
 
   // Handle OAuth hash fragment (direct Supabase OAuth returns tokens in URL hash)
   useEffect(() => {
@@ -35,11 +34,13 @@ const AuthCallback = () => {
     const finishAuth = async () => {
       hasRedirectedRef.current = true;
 
-      if (user && !hasSentWelcomeRef.current) {
-        hasSentWelcomeRef.current = true;
+      if (user) {
+        const userEmail = user.email || String(user.user_metadata?.email ?? "");
+        console.log("Sign-up successful. User object:", user);
+        console.log("Extracted email for welcome email:", userEmail);
         const recipient = resolveWelcomeEmailRecipient({
           authData: { user },
-          fallbackEmail: user.email,
+          fallbackEmail: userEmail,
           fallbackName: String(user.user_metadata?.full_name ?? user.user_metadata?.name ?? ""),
           source: "auth-callback:oauth-session",
         });
@@ -47,12 +48,17 @@ const AuthCallback = () => {
           userEmail: recipient.email,
           userId: recipient.userId,
         });
-        await sendWelcomeEmail({
-          email: recipient.email,
-          name: recipient.name,
-          userId: recipient.userId,
-          source: "auth-callback:oauth-session",
-        });
+        try {
+          const welcomeResult = await sendWelcomeEmail({
+            email: recipient.email ?? userEmail,
+            name: recipient.name,
+            userId: recipient.userId,
+            source: "auth-callback:oauth-session",
+          });
+          if (!welcomeResult.ok) console.error("Welcome email failed to send:", welcomeResult);
+        } catch (error) {
+          console.error("Welcome email failed to send:", error);
+        }
       }
 
       navigate(user ? "/dashboard" : "/signup", { replace: true });

@@ -27,16 +27,18 @@ export function resolveWelcomeEmailRecipient(params: {
   const authUser = params.authData?.user ?? null;
   const sessionUser = params.authData?.session?.user ?? null;
   const user = authUser ?? sessionUser;
-  const identityEmail = user?.identities
-    ?.map((identity) => readString(identity.identity_data?.email))
+  const identityEmail = [authUser, sessionUser]
+    .flatMap((candidate) => candidate?.identities ?? [])
+    .map((identity) => readString(identity.identity_data?.email))
     .find(Boolean);
 
   const emailCandidates = [
-    { label: "auth.user.email", value: readString(authUser?.email) },
-    { label: "auth.session.user.email", value: readString(sessionUser?.email) },
-    { label: "auth.user.user_metadata.email", value: readString(authUser?.user_metadata?.email) },
-    { label: "auth.session.user.user_metadata.email", value: readString(sessionUser?.user_metadata?.email) },
-    { label: "auth.user.identities.identity_data.email", value: identityEmail },
+    { label: "user.email", value: readString(authUser?.email) },
+    { label: "session?.user?.email", value: readString(sessionUser?.email) },
+    { label: "data.user?.email", value: readString(params.authData?.user?.email) },
+    { label: "user.user_metadata.email", value: readString(authUser?.user_metadata?.email) },
+    { label: "session?.user?.user_metadata.email", value: readString(sessionUser?.user_metadata?.email) },
+    { label: "user.identities.identity_data.email", value: identityEmail },
     { label: "form.email", value: readString(params.fallbackEmail) },
   ];
   const selectedEmail = emailCandidates.find((candidate) => candidate.value);
@@ -50,14 +52,17 @@ export function resolveWelcomeEmailRecipient(params: {
     readString(sessionUser?.user_metadata?.name);
 
   if (!selectedEmail?.value) {
-    console.error("[welcome-email] Failed to extract user email from auth response", {
+    console.error("[welcome-email] ❌ Failed to extract user email from auth response", {
       source: params.source,
       userId,
       hasAuthUser: !!authUser,
       hasSessionUser: !!sessionUser,
       hasFallbackEmail: !!readString(params.fallbackEmail),
+      authUser,
+      sessionUser,
     });
   } else {
+    console.log("Extracted email for welcome email:", selectedEmail.value);
     console.info("[welcome-email] resolved recipient", {
       source: params.source,
       userEmail: selectedEmail.value,
@@ -103,8 +108,17 @@ export async function sendWelcomeEmail(params: {
   });
 
   if (!email) {
-    console.error("Welcome email failed: missing recipient email", { source, userId });
+    console.error("Welcome email failed to send:", "missing recipient email", { source, userId });
     return { ok: false, error: "missing_email" };
+  }
+
+  if (!SUPABASE_URL || !ANON_KEY) {
+    console.error("Welcome email failed to send:", "missing email function configuration", {
+      source,
+      hasUrl: !!SUPABASE_URL,
+      hasAnonKey: !!ANON_KEY,
+    });
+    return { ok: false, error: "missing_email_function_config" };
   }
 
   console.info(`Sending welcome email to: ${email}`, { source, userId });
@@ -143,6 +157,7 @@ export async function sendWelcomeEmail(params: {
   try {
     const res = await fetch(url, {
       method: "POST",
+      keepalive: true,
       headers: {
         "Content-Type": "application/json",
         apikey: ANON_KEY,
@@ -154,6 +169,10 @@ export async function sendWelcomeEmail(params: {
     const ms = Date.now() - startedAt;
 
     if (!res.ok) {
+      console.error("Welcome email failed to send:", `${res.status} ${res.statusText}`, {
+        source,
+        body: text,
+      });
       console.error(`Welcome email failed: ${res.status} ${res.statusText}`, {
         source,
         body: text,
@@ -168,6 +187,13 @@ export async function sendWelcomeEmail(params: {
       return { ok: false, status: res.status, body: text };
     }
 
+    console.info("Welcome email send request succeeded:", {
+      source,
+      email,
+      status: res.status,
+      body: text,
+      ms,
+    });
     console.info("[welcome-email] ✔ queued successfully", {
       source,
       status: res.status,
@@ -178,6 +204,7 @@ export async function sendWelcomeEmail(params: {
   } catch (err) {
     const ms = Date.now() - startedAt;
     const message = err instanceof Error ? err.message : String(err);
+    console.error("Welcome email failed to send:", message, { source, ms, err });
     console.error(`Welcome email failed: ${message}`, { source, ms });
     console.error("[welcome-email] ✖ network error", { source, message, ms, err });
     return { ok: false, error: message };

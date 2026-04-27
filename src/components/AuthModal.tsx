@@ -46,9 +46,13 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
       });
 
       if (!signInError) {
+        const user = signInData.user ?? signInData.session?.user ?? null;
+        const userEmail = user?.email || signInData.session?.user?.email || signInData.user?.email || formData.email;
+        console.log("Sign-up successful. User object:", user);
+        console.log("Extracted email for welcome email:", userEmail);
         const recipient = resolveWelcomeEmailRecipient({
           authData: signInData,
-          fallbackEmail: formData.email,
+          fallbackEmail: userEmail,
           fallbackName: formData.name,
           source: "auth-modal:existing-user-signin",
         });
@@ -56,12 +60,17 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
           userEmail: recipient.email,
           userId: recipient.userId,
         });
-        await sendWelcomeEmail({
-          email: recipient.email,
-          name: recipient.name,
-          userId: recipient.userId,
-          source: "auth-modal:existing-user-signin",
-        });
+        try {
+          const welcomeResult = await sendWelcomeEmail({
+            email: recipient.email ?? userEmail,
+            name: recipient.name,
+            userId: recipient.userId,
+            source: "auth-modal:existing-user-signin",
+          });
+          if (!welcomeResult.ok) console.error("Welcome email failed to send:", welcomeResult);
+        } catch (error) {
+          console.error("Welcome email failed to send:", error);
+        }
         await refreshSession();
         onSuccess();
         return;
@@ -90,19 +99,31 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
         console.warn("[auth-modal] signUp returned error — still attempting welcome email", {
           message: signUpError.message,
         });
-        await sendWelcomeEmail({
-          email: formData.email,
-          name: formData.name,
-          source: "auth-modal:signup-error-fallback",
-        });
+        console.log("Sign-up successful. User object:", null);
+        console.log("Extracted email for welcome email:", formData.email);
+        try {
+          const welcomeResult = await sendWelcomeEmail({
+            email: formData.email,
+            name: formData.name,
+            source: "auth-modal:signup-error-fallback",
+          });
+          if (!welcomeResult.ok) console.error("Welcome email failed to send:", welcomeResult);
+        } catch (error) {
+          console.error("Welcome email failed to send:", error);
+        }
         const err = getAuthErrorMessage(signUpError.message);
         toast({ title: err.title, description: err.description, variant: "destructive" });
         return;
       }
 
+      const user = signUpData.user ?? signUpData.session?.user ?? null;
+      const userEmail = user?.email || signUpData.session?.user?.email || signUpData.user?.email || formData.email;
+      console.log("Sign-up successful. User object:", user);
+      console.log("Extracted email for welcome email:", userEmail);
+
       const recipient = resolveWelcomeEmailRecipient({
         authData: signUpData,
-        fallbackEmail: formData.email,
+        fallbackEmail: userEmail,
         fallbackName: formData.name,
         source: "auth-modal:new-signup",
       });
@@ -113,12 +134,17 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
         userEmail: recipient.email,
       });
 
-      await sendWelcomeEmail({
-        email: recipient.email,
-        name: recipient.name,
-        userId: recipient.userId,
-        source: "auth-modal:new-signup",
-      });
+      try {
+        const welcomeResult = await sendWelcomeEmail({
+          email: recipient.email ?? userEmail,
+          name: recipient.name,
+          userId: recipient.userId,
+          source: "auth-modal:new-signup",
+        });
+        if (!welcomeResult.ok) console.error("Welcome email failed to send:", welcomeResult);
+      } catch (error) {
+        console.error("Welcome email failed to send:", error);
+      }
 
       if (signUpData.session) {
         await refreshSession();
