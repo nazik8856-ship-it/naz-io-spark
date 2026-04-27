@@ -203,11 +203,36 @@ const AI_CATEGORIES: Record<string, Category> = {
 
 const TOP_NAV_ITEMS = [{ icon: Home, label: "Home" }] as const;
 
-const BOTTOM_NAV_ITEMS = [
-  { icon: Archive, label: "Archives" },
-  { icon: Trash2, label: "Trash" },
-  { icon: Settings, label: "Settings" },
-] as const;
+// ─── Workspace Menu Items ────────────────────────────────────────────────────
+// These appear inside the "Workspace" section (replaces the old Settings/Archives/Trash/Sign Out
+// bottom stack). Each item is fully functional via the workspace menu modal.
+type WorkspaceItemId =
+  | "activity"
+  | "personal-context"
+  | "import-memory"
+  | "connected-apps"
+  | "public-links"
+  | "theme"
+  | "subscriptions"
+  | "notebooklm"
+  | "feedback"
+  | "help";
+
+const WORKSPACE_MENU_ITEMS: { id: WorkspaceItemId; icon: any; label: string; description: string }[] = [
+  { id: "activity",         icon: Activity,      label: "Activity",              description: "Recent actions, generations & edits" },
+  { id: "personal-context", icon: UserCog,       label: "Personal Context",      description: "Your background, notes & preferences" },
+  { id: "import-memory",    icon: DownloadCloud, label: "Import Memory to Gemini", description: "Export your context for external AI" },
+  { id: "connected-apps",   icon: Plug,          label: "Connected Apps",        description: "API keys & integrations" },
+  { id: "public-links",     icon: Link2,         label: "Your Public Links",     description: "Shareable links for your projects" },
+  { id: "theme",            icon: Palette,       label: "Theme",                 description: "NazAI visual themes & appearance" },
+  { id: "subscriptions",    icon: CreditCard,    label: "View Subscriptions",    description: "Plan details & upgrade" },
+  { id: "notebooklm",       icon: Notebook,      label: "NotebookLM",            description: "Notebook-style research workspace" },
+  { id: "feedback",         icon: MessageCircle, label: "Send Feedback",         description: "Share thoughts with the NazAI team" },
+  { id: "help",             icon: HelpCircle,    label: "Help",                  description: "Documentation & support" },
+];
+
+// Kept for backwards compatibility with SECTION_THEMES lookups elsewhere.
+const BOTTOM_NAV_ITEMS: readonly { icon: any; label: string }[] = [] as const;
 
 const NAV_ITEMS = [...TOP_NAV_ITEMS, ...BOTTOM_NAV_ITEMS] as const;
 
@@ -217,6 +242,7 @@ const SECTION_THEMES: Record<string, Theme> = {
   Archives: { gradient: "linear-gradient(135deg, #818cf8, #c084fc)", glowRgba: "129,140,248", color: "#818cf8" },
   Trash: { gradient: "linear-gradient(135deg, #ef4444, #f97316)", glowRgba: "239,68,68", color: "#ef4444" },
   Settings: { gradient: "linear-gradient(135deg, #6366f1, #a855f7)", glowRgba: "99,102,241", color: "#6366f1" },
+  Workspace: { gradient: "linear-gradient(135deg, #06b6d4, #a855f7)", glowRgba: "6,182,212", color: "#06b6d4" },
 };
 
 const STYLES: readonly Style[] = ["Technical", "Creative", "Fast"] as const;
