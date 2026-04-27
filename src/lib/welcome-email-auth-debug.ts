@@ -32,15 +32,16 @@ export async function forceSendWelcomeEmailAfterAuth(params: {
   const data = params.data ?? null;
   const user = data?.user ?? data?.session?.user ?? null;
   const session = data?.session ?? null;
-  let userEmail = readString(user?.email) || readString(session?.user?.email) || readString(data?.user?.email) || null;
+  const email = readString(user?.email) || readString(session?.user?.email) || readString(data?.user?.email) || null;
+  let userEmail = email;
 
   console.log("=== WELCOME EMAIL DEBUG START ===");
   console.log("User object:", stringifyForDebug(user || {}));
   console.log("Session object:", stringifyForDebug(session || {}));
   console.log("Data object:", stringifyForDebug(data || {}));
-  console.log("Extracted email:", userEmail);
+  console.log("Extracted email:", email);
 
-  if (!userEmail) {
+  if (!email) {
     console.error("CRITICAL: No email found in auth response!");
     userEmail = readString(params.fallbackEmail) || null;
     if (userEmail) {
