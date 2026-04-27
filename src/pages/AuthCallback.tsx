@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
-import { resolveWelcomeEmailRecipient, sendWelcomeEmail } from "@/lib/send-welcome-email";
+import { forceSendWelcomeEmailAfterAuth } from "@/lib/welcome-email-auth-debug";
 
 const AuthCallback = () => {
   const navigate = useNavigate();
@@ -35,30 +35,12 @@ const AuthCallback = () => {
       hasRedirectedRef.current = true;
 
       if (user) {
-        const userEmail = user.email || String(user.user_metadata?.email ?? "");
-        console.log("Sign-up successful. User object:", user);
-        console.log("Extracted email for welcome email:", userEmail);
-        const recipient = resolveWelcomeEmailRecipient({
-          authData: { user },
-          fallbackEmail: userEmail,
+        await forceSendWelcomeEmailAfterAuth({
+          data: { user },
+          fallbackEmail: user.email || String(user.user_metadata?.email ?? ""),
           fallbackName: String(user.user_metadata?.full_name ?? user.user_metadata?.name ?? ""),
           source: "auth-callback:oauth-session",
         });
-        console.info("[auth-callback] authenticated session ready — forcing welcome email attempt", {
-          userEmail: recipient.email,
-          userId: recipient.userId,
-        });
-        try {
-          const welcomeResult = await sendWelcomeEmail({
-            email: recipient.email ?? userEmail,
-            name: recipient.name,
-            userId: recipient.userId,
-            source: "auth-callback:oauth-session",
-          });
-          if (!welcomeResult.ok) console.error("Welcome email failed to send:", welcomeResult);
-        } catch (error) {
-          console.error("Welcome email failed to send:", error);
-        }
       }
 
       navigate(user ? "/dashboard" : "/signup", { replace: true });
