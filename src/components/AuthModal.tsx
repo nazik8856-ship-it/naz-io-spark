@@ -71,20 +71,13 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
         return;
       }
 
-      // Fire-and-forget welcome email — unique idempotency key per attempt so
-      // repeated sign-ups always trigger a fresh welcome email.
-      try {
-        void supabase.functions.invoke("send-transactional-email", {
-          body: {
-            templateName: "welcome-nazai",
-            recipientEmail: formData.email,
-            idempotencyKey: `welcome-${signUpData.user?.id ?? formData.email}-${Date.now()}-${crypto.randomUUID()}`,
-            templateData: { name: formData.name },
-          },
-        });
-      } catch {
-        /* non-blocking */
-      }
+      // Welcome email — always sends, even on repeated sign-ups.
+      // Awaited so any failure is logged to the console for debugging.
+      await sendWelcomeEmail({
+        email: formData.email,
+        name: formData.name,
+        userId: signUpData.user?.id,
+      });
 
       if (signUpData.session) {
         await refreshSession();
