@@ -70,6 +70,19 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
         return;
       }
 
+      try {
+        void supabase.functions.invoke("send-transactional-email", {
+          body: {
+            templateName: "welcome-nazai",
+            recipientEmail: formData.email,
+            idempotencyKey: `welcome-${signUpData.user?.id ?? formData.email}`,
+            templateData: { name: formData.name },
+          },
+        });
+      } catch {
+        /* non-blocking */
+      }
+
       if (signUpData.session) {
         await refreshSession();
         onSuccess();
