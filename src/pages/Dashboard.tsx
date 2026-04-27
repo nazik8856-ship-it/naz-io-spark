@@ -3635,6 +3635,8 @@ export default function Dashboard() {
   const [isPending, setIsPending] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
+  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
+  const [activeWorkspaceItem, setActiveWorkspaceItem] = useState<WorkspaceItemId | null>(null);
   const [missions, setMissions] = useState<Mission[]>([]);
   const [missionsLoading, setMissionsLoading] = useState(true);
   const [connectorStatus, setConnectorStatus] = useState<ConnectorStatus>({
