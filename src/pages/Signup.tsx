@@ -99,12 +99,13 @@ const Signup = () => {
       }
 
       // Fire-and-forget welcome email — never block signup on email delivery.
+      // Idempotency key is unique per attempt so repeated sign-ups always trigger a fresh send.
       try {
         void supabase.functions.invoke("send-transactional-email", {
           body: {
             templateName: "welcome-nazai",
             recipientEmail: formData.email,
-            idempotencyKey: `welcome-${signUpData.user?.id ?? formData.email}`,
+            idempotencyKey: `welcome-${signUpData.user?.id ?? formData.email}-${Date.now()}-${crypto.randomUUID()}`,
             templateData: { name: formData.name },
           },
         });

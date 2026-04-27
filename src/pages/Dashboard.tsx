@@ -195,7 +195,6 @@ const AI_CATEGORIES: Record<string, Category> = {
     glowRgba: "6,182,212",
     label: "RESEARCH",
     tools: [
-      { id: "google/notebooklm", name: "NotebookLM", subtitle: "The Librarian", icon: BookOpen },
       { id: "x-ai/grok-4.20", name: "Grok 4.20", subtitle: "The Trendsetter", icon: TrendingUp },
     ],
   },
@@ -214,19 +213,17 @@ type WorkspaceItemId =
   | "public-links"
   | "theme"
   | "subscriptions"
-  | "notebooklm"
   | "feedback"
   | "help";
 
 const WORKSPACE_MENU_ITEMS: { id: WorkspaceItemId; icon: any; label: string; description: string }[] = [
   { id: "activity",         icon: Activity,      label: "Activity",              description: "Recent actions, generations & edits" },
   { id: "personal-context", icon: UserCog,       label: "Personal Context",      description: "Your background, notes & preferences" },
-  { id: "import-memory",    icon: DownloadCloud, label: "Import Memory to Gemini", description: "Export your context for external AI" },
+  { id: "import-memory",    icon: DownloadCloud, label: "Import Memory to NazAI", description: "Bring your context into NazAI's memory" },
   { id: "connected-apps",   icon: Plug,          label: "Connected Apps",        description: "API keys & integrations" },
   { id: "public-links",     icon: Link2,         label: "Your Public Links",     description: "Shareable links for your projects" },
   { id: "theme",            icon: Palette,       label: "Theme",                 description: "NazAI visual themes & appearance" },
   { id: "subscriptions",    icon: CreditCard,    label: "View Subscriptions",    description: "Plan details & upgrade" },
-  { id: "notebooklm",       icon: Notebook,      label: "NotebookLM",            description: "Notebook-style research workspace" },
   { id: "feedback",         icon: MessageCircle, label: "Send Feedback",         description: "Share thoughts with the NazAI team" },
   { id: "help",             icon: HelpCircle,    label: "Help",                  description: "Documentation & support" },
 ];
@@ -3340,6 +3337,7 @@ function SidebarContent({
   setActiveMissionId, setMessages, textareaRef, setDrawerOpen,
   missionsLoading, openChatFeed, handleLoadMission, openLifecycleModal,
   userEmail, getAvatarGradient, setLogoutModalOpen, openWorkspaceMenu,
+  handleNewChat,
 }: any) {
   const [projectsExpanded, setProjectsExpanded] = useState(true);
   
@@ -3379,10 +3377,14 @@ function SidebarContent({
       <div className="px-4 pb-4">
         <button
           onClick={() => {
-            setMessages([]);
-            setActiveMissionId(null);
-            if (textareaRef?.current) textareaRef.current.focus();
-            setDrawerOpen(false);
+            if (typeof handleNewChat === "function") {
+              handleNewChat();
+            } else {
+              setMessages([]);
+              setActiveMissionId(null);
+              if (textareaRef?.current) textareaRef.current.focus();
+              setDrawerOpen(false);
+            }
           }}
           className="flex items-center gap-3 w-full p-3 rounded-xl transition-all duration-300 group relative overflow-hidden border border-white/5 bg-white/[0.03] hover:bg-white/[0.06]"
         >
@@ -3587,13 +3589,28 @@ function WorkspaceMenuModal({
     if (id === "personal-context") { onClose(); onOpenPersonalContext(); return; }
     if (id === "connected-apps")   { onClose(); onOpenConnectedApps(); return; }
     if (id === "import-memory") {
-      const ctx = (() => { try { return localStorage.getItem("nazai-personal-context") || ""; } catch { return ""; } })();
-      const blob = new Blob([`# NazAI Memory Export\n\n${ctx}\n`], { type: "text/markdown" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url; a.download = "nazai-memory.md"; a.click();
-      URL.revokeObjectURL(url);
-      toast.success("Memory exported — import the file into Gemini");
+      // Import existing context (text, markdown, JSON) directly into NazAI's local memory.
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = ".md,.txt,.json,text/markdown,text/plain,application/json";
+      input.onchange = async () => {
+        const file = input.files?.[0];
+        if (!file) return;
+        try {
+          const text = await file.text();
+          const existing = (() => { try { return localStorage.getItem("nazai-personal-context") || ""; } catch { return ""; } })();
+          const merged = existing
+            ? `${existing}\n\n--- Imported from ${file.name} ---\n${text}`.trim()
+            : text.trim();
+          try { localStorage.setItem("nazai-personal-context", merged); } catch {}
+          setContextDraft(merged);
+          toast.success(`Imported ${file.name} into NazAI memory`);
+          setActiveItem("personal-context");
+        } catch {
+          toast.error("Could not read that file");
+        }
+      };
+      input.click();
       return;
     }
     if (id === "help")          { window.open("https://nazai.net", "_blank"); return; }
@@ -3668,15 +3685,7 @@ function WorkspaceMenuModal({
         </div>
       );
     }
-    if (activeItem === "notebooklm") {
-      return (
-        <div className="text-center py-8">
-          <Notebook size={36} className="mx-auto mb-3 text-cyan-400/70" />
-          <div className="text-[14px] font-semibold text-white/85">NotebookLM Workspace</div>
-          <p className="text-[12px] text-white/50 mt-2 max-w-sm mx-auto">Upload sources and let NazAI synthesise structured notes, summaries, and citations. Coming soon — your existing chats will sync automatically.</p>
-        </div>
-      );
-    }
+    // NotebookLM section removed.
     if (activeItem === "feedback") {
       return (
         <div className="space-y-3">
@@ -4447,6 +4456,23 @@ export default function Dashboard() {
   const handleSelectTool = useCallback((id: string) => {
     setSelectedModel(id);
     setDrawerOpen(false);
+  }, []);
+
+  // ─── New Chat: reset to a clean Home with no preview, no mission, no preloaded project ───
+  const handleNewChat = useCallback(() => {
+    setMessages([]);
+    setActiveMissionId(null);
+    setIsWebsiteComplete(false);
+    setActiveWebsiteCode("");
+    try { localStorage.removeItem(ACTIVE_WEBSITE_STORAGE_KEY); } catch { /* noop */ }
+    setShowSettings(false);
+    setActiveNav("home");
+    setIsSidebarOpen(false);
+    setDrawerOpen(false);
+    if (textareaRef.current) {
+      textareaRef.current.value = "";
+      textareaRef.current.focus();
+    }
   }, []);
 
   // Sign Out Handler
@@ -5288,6 +5314,7 @@ export default function Dashboard() {
                 getAvatarGradient={getAvatarGradient}
                 setLogoutModalOpen={setLogoutModalOpen}
                 openWorkspaceMenu={() => setWorkspaceMenuOpen(true)}
+                handleNewChat={handleNewChat}
               />
             </div>
           </motion.aside>
@@ -5323,6 +5350,7 @@ export default function Dashboard() {
             getAvatarGradient={getAvatarGradient}
             setLogoutModalOpen={setLogoutModalOpen}
             openWorkspaceMenu={() => setWorkspaceMenuOpen(true)}
+            handleNewChat={handleNewChat}
           />
         </div>
       </motion.aside>
