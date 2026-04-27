@@ -2501,26 +2501,57 @@ const HomeView = ({
           >
             {msg.role === "user" ? (
               <div
-                className="max-w-[78%] px-3 py-2 text-xs font-mono"
+                className="max-w-[78%] px-4 py-3 text-[13px] leading-[1.6] font-sans"
                 style={{
-                  borderRadius: "12px 12px 2px 12px",
-                  background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.05)`,
-                  border: `1px solid var(--nazai-border-light)`,
+                  borderRadius: "16px 16px 4px 16px",
+                  background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.07)`,
+                  border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.18)`,
                   color: "var(--nazai-text-color)",
+                  boxShadow: `0 1px 0 0 rgba(255,255,255,0.04) inset, 0 4px 16px -8px rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.25)`,
+                  fontFamily:
+                    "'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
+                  letterSpacing: "0.005em",
                 }}
               >
                 {msg.text}
               </div>
             ) : (
               <>
-                <div className="max-w-[85%] rounded-xl overflow-hidden border border-border bg-card/80">
-                  <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-secondary/20">
-                    <Brain size={12} className="text-primary" />
-                    <span className="text-[9px] font-mono font-bold tracking-wider text-primary">
+                <div
+                  className="max-w-[88%] rounded-2xl overflow-hidden"
+                  style={{
+                    background: "var(--nazai-card-bg, rgba(255,255,255,0.025))",
+                    border: "1px solid var(--nazai-border-soft, rgba(255,255,255,0.08))",
+                    boxShadow:
+                      "0 1px 0 0 rgba(255,255,255,0.04) inset, 0 12px 40px -16px rgba(0,0,0,0.45)",
+                    backdropFilter: "blur(12px)",
+                  }}
+                >
+                  <div
+                    className="flex items-center gap-2 px-4 py-2.5"
+                    style={{
+                      borderBottom: "1px solid var(--nazai-border-soft, rgba(255,255,255,0.06))",
+                      background:
+                        "linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0))",
+                    }}
+                  >
+                    <div
+                      className="w-5 h-5 rounded-md flex items-center justify-center"
+                      style={{
+                        background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.12)`,
+                        border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.25)`,
+                      }}
+                    >
+                      <Brain size={11} style={{ color: auraProfile.glowPrimary }} />
+                    </div>
+                    <span
+                      className="text-[10px] font-semibold tracking-[0.18em] uppercase"
+                      style={{ color: auraProfile.glowPrimary }}
+                    >
                       NazAI
                     </span>
                   </div>
-                  <div className="px-3 py-2.5">{formatAIResponse(msg.text)}</div>
+                  <div className="px-5 py-4">{formatAIResponse(msg.text)}</div>
                   {/* Verification chip · Reasoning trace · Approve as ground truth */}
                   <AIResponseExtras
                     text={msg.text}
