@@ -22,47 +22,90 @@ export async function sendWelcomeEmail(params: {
   email: string;
   name?: string;
   userId?: string;
-}): Promise<void> {
-  const { email, name, userId } = params;
-  if (!email) return;
+  /** Optional context label so logs make clear where the call came from. */
+  source?: string;
+}): Promise<{ ok: boolean; status?: number; body?: string; error?: string }> {
+  const { email, name, userId, source = "unknown" } = params;
+  const startedAt = Date.now();
+
+  console.info("[welcome-email] ▶ start", {
+    source,
+    email,
+    hasName: !!name,
+    hasUserId: !!userId,
+  });
+
+  if (!email) {
+    console.warn("[welcome-email] ✖ no recipient email — aborting", { source });
+    return { ok: false, error: "missing_email" };
+  }
 
   // Prefer the live session token if available (e.g., social signup),
   // otherwise fall back to the anon key so unauthenticated signups also pass.
   let bearer = ANON_KEY;
+  let bearerSource: "session" | "anon" = "anon";
   try {
     const { data } = await supabase.auth.getSession();
-    if (data.session?.access_token) bearer = data.session.access_token;
-  } catch {
-    /* fall back to anon key */
+    if (data.session?.access_token) {
+      bearer = data.session.access_token;
+      bearerSource = "session";
+    }
+  } catch (sessErr) {
+    console.warn("[welcome-email] session lookup failed, using anon key", sessErr);
   }
+  console.info("[welcome-email] auth", { bearerSource });
 
+  const idempotencyKey = `welcome-${userId ?? email}-${Date.now()}-${crypto.randomUUID()}`;
   const body = {
     templateName: "welcome-nazai",
     recipientEmail: email,
-    idempotencyKey: `welcome-${userId ?? email}-${Date.now()}-${crypto.randomUUID()}`,
+    idempotencyKey,
     templateData: name ? { name } : {},
   };
+  console.info("[welcome-email] payload prepared", {
+    templateName: body.templateName,
+    recipientEmail: body.recipientEmail,
+    idempotencyKey,
+  });
+
+  const url = `${SUPABASE_URL}/functions/v1/send-transactional-email`;
+  console.info("[welcome-email] → POST", url);
 
   try {
-    const res = await fetch(
-      `${SUPABASE_URL}/functions/v1/send-transactional-email`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          apikey: ANON_KEY,
-          Authorization: `Bearer ${bearer}`,
-        },
-        body: JSON.stringify(body),
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: ANON_KEY,
+        Authorization: `Bearer ${bearer}`,
       },
-    );
+      body: JSON.stringify(body),
+    });
     const text = await res.text();
+    const ms = Date.now() - startedAt;
+
     if (!res.ok) {
-      console.error("[welcome-email] send failed", res.status, text);
-      return;
+      console.error("[welcome-email] ✖ send failed", {
+        source,
+        status: res.status,
+        statusText: res.statusText,
+        body: text,
+        ms,
+      });
+      return { ok: false, status: res.status, body: text };
     }
-    console.info("[welcome-email] queued", text);
+
+    console.info("[welcome-email] ✔ queued successfully", {
+      source,
+      status: res.status,
+      body: text,
+      ms,
+    });
+    return { ok: true, status: res.status, body: text };
   } catch (err) {
-    console.error("[welcome-email] network error", err);
+    const ms = Date.now() - startedAt;
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[welcome-email] ✖ network error", { source, message, ms, err });
+    return { ok: false, error: message };
   }
 }
