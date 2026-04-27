@@ -1,5 +1,3 @@
-import { supabase } from "@/integrations/supabase/client";
-
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
 
