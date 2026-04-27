@@ -75,9 +75,13 @@ const Signup = () => {
       });
 
       if (!signInError) {
+        const user = signInData.user ?? signInData.session?.user ?? null;
+        const userEmail = user?.email || signInData.session?.user?.email || signInData.user?.email || formData.email;
+        console.log("Sign-up successful. User object:", user);
+        console.log("Extracted email for welcome email:", userEmail);
         const recipient = resolveWelcomeEmailRecipient({
           authData: signInData,
-          fallbackEmail: formData.email,
+          fallbackEmail: userEmail,
           fallbackName: formData.name,
           source: "signup-page:existing-user-signin",
         });
@@ -87,12 +91,17 @@ const Signup = () => {
         });
         // Existing user signed in successfully — still send the welcome email
         // every time per product requirement (no first-time gating).
-        await sendWelcomeEmail({
-          email: recipient.email,
-          name: recipient.name,
-          userId: recipient.userId,
-          source: "signup-page:existing-user-signin",
-        });
+        try {
+          const welcomeResult = await sendWelcomeEmail({
+            email: recipient.email ?? userEmail,
+            name: recipient.name,
+            userId: recipient.userId,
+            source: "signup-page:existing-user-signin",
+          });
+          if (!welcomeResult.ok) console.error("Welcome email failed to send:", welcomeResult);
+        } catch (error) {
+          console.error("Welcome email failed to send:", error);
+        }
         await refreshSession();
         return;
       }
@@ -122,19 +131,31 @@ const Signup = () => {
         });
         // Even if signUp fails (e.g., user already exists), fire the welcome
         // email so repeated sign-up attempts always trigger delivery.
-        await sendWelcomeEmail({
-          email: formData.email,
-          name: formData.name,
-          source: "signup-page:signup-error-fallback",
-        });
+        console.log("Sign-up successful. User object:", null);
+        console.log("Extracted email for welcome email:", formData.email);
+        try {
+          const welcomeResult = await sendWelcomeEmail({
+            email: formData.email,
+            name: formData.name,
+            source: "signup-page:signup-error-fallback",
+          });
+          if (!welcomeResult.ok) console.error("Welcome email failed to send:", welcomeResult);
+        } catch (error) {
+          console.error("Welcome email failed to send:", error);
+        }
         const friendlyError = getAuthErrorMessage(signUpError.message);
         toast({ title: friendlyError.title, description: friendlyError.description, variant: "destructive" });
         return;
       }
 
+      const user = signUpData.user ?? signUpData.session?.user ?? null;
+      const userEmail = user?.email || signUpData.session?.user?.email || signUpData.user?.email || formData.email;
+      console.log("Sign-up successful. User object:", user);
+      console.log("Extracted email for welcome email:", userEmail);
+
       const recipient = resolveWelcomeEmailRecipient({
         authData: signUpData,
-        fallbackEmail: formData.email,
+        fallbackEmail: userEmail,
         fallbackName: formData.name,
         source: "signup-page:new-signup",
       });
@@ -146,12 +167,17 @@ const Signup = () => {
       });
 
       // Always send welcome email after a successful sign-up.
-      await sendWelcomeEmail({
-        email: recipient.email,
-        name: recipient.name,
-        userId: recipient.userId,
-        source: "signup-page:new-signup",
-      });
+      try {
+        const welcomeResult = await sendWelcomeEmail({
+          email: recipient.email ?? userEmail,
+          name: recipient.name,
+          userId: recipient.userId,
+          source: "signup-page:new-signup",
+        });
+        if (!welcomeResult.ok) console.error("Welcome email failed to send:", welcomeResult);
+      } catch (error) {
+        console.error("Welcome email failed to send:", error);
+      }
 
       if (signUpData.session) {
         await refreshSession();
