@@ -98,6 +98,20 @@ const Signup = () => {
         return;
       }
 
+      // Fire-and-forget welcome email — never block signup on email delivery.
+      try {
+        void supabase.functions.invoke("send-transactional-email", {
+          body: {
+            templateName: "welcome-nazai",
+            recipientEmail: formData.email,
+            idempotencyKey: `welcome-${signUpData.user?.id ?? formData.email}`,
+            templateData: { name: formData.name },
+          },
+        });
+      } catch {
+        /* non-blocking */
+      }
+
       if (signUpData.session) {
         await refreshSession();
         return;

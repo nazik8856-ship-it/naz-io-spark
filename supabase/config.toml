@@ -3,3 +3,17 @@ project_id = "qaeduinfirtljnbecyzq"
 [auth]
 site_url = "https://naz-io.vercel.app"
 additional_redirect_urls = ["https://naz-io.vercel.app", "https://naz-io.vercel.app/auth/callback", "https://naz-io-spark.lovable.app", "https://naz-io-spark.lovable.app/auth/callback"]
+[functions.process-email-queue]
+verify_jwt = true
+
+[functions.send-transactional-email]
+verify_jwt = true
+
+[functions.preview-transactional-email]
+verify_jwt = false
+
+[functions.handle-email-unsubscribe]
+verify_jwt = false
+
+[functions.handle-email-suppression]
+verify_jwt = false
