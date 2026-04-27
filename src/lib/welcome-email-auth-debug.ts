@@ -36,23 +36,18 @@ export async function forceSendWelcomeEmailAfterAuth(params: {
     readString(user?.email) ||
     readString(session?.user?.email) ||
     readString(data?.user?.email) ||
-    readString(params.fallbackEmail) ||
     null;
 
-  console.log("=== WELCOME EMAIL FINAL DEBUG ===");
-  console.log("Full user:", stringifyForDebug(user || {}));
-  console.log("Full session:", stringifyForDebug(session || {}));
-  console.log("Full data:", stringifyForDebug(data || {}));
+  console.log("=== WELCOME EMAIL FINAL ATTEMPT ===");
   console.log("Extracted email:", userEmail);
+  console.log("Full auth data:", stringifyForDebug({ user, session, data }));
 
   if (!userEmail) {
-    console.error("CRITICAL ERROR: No email found in auth response!");
+    console.error("CRITICAL: No email address found in auth response!");
     return { ok: false, error: "missing_email" };
-  } else {
-    console.log("Calling sendWelcomeEmail with:", userEmail);
   }
 
-  console.log("Sending welcome email to:", userEmail);
+  console.log("Calling sendWelcomeEmail for:", userEmail);
 
   const recipient = resolveWelcomeEmailRecipient({
     authData: data,
@@ -71,14 +66,14 @@ export async function forceSendWelcomeEmailAfterAuth(params: {
     });
 
     if (!welcomeResult.ok) {
-      console.error("Welcome email failed:", welcomeResult);
+      console.error("❌ Welcome email FAILED:", welcomeResult.error || welcomeResult.body || welcomeResult);
       return welcomeResult;
     }
 
-    console.log("Welcome email sent successfully to:", finalEmail);
+    console.log("✅ Welcome email SENT successfully to", finalEmail);
     return welcomeResult;
   } catch (error) {
-    console.error("Welcome email failed:", error);
+    console.error("❌ Welcome email FAILED:", error instanceof Error ? error.message : error);
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
 }

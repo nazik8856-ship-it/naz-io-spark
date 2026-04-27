@@ -89,15 +89,21 @@ export function resolveWelcomeEmailRecipient(params: {
  * gating. Idempotency key is unique per attempt so repeated sign-ups
  * always trigger a fresh welcome email.
  */
-export async function sendWelcomeEmail(params: {
+type SendWelcomeEmailParams = {
   email?: string | null;
   name?: string;
   userId?: string;
   /** Optional context label so logs make clear where the call came from. */
   source?: string;
-}): Promise<{ ok: boolean; status?: number; body?: string; error?: string }> {
-  const { name, userId, source = "unknown" } = params;
-  const email = params.email?.trim();
+};
+
+export async function sendWelcomeEmail(
+  params: string | SendWelcomeEmailParams
+): Promise<{ ok: boolean; status?: number; body?: string; error?: string }> {
+  const normalizedParams: SendWelcomeEmailParams =
+    typeof params === "string" ? { email: params, source: "signup-final-attempt" } : params;
+  const { name, userId, source = "unknown" } = normalizedParams;
+  const email = normalizedParams.email?.trim();
   const startedAt = Date.now();
 
   console.info("[welcome-email] ▶ start", {
