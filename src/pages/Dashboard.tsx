@@ -1295,7 +1295,7 @@ const SettingsView = ({
   designPreferences: DesignPreferences;
   setDesignPreferences: (p: DesignPreferences) => void;
   onTemplateSelect: (id: string | null) => void;
-  initialFocus?: "brand-snap" | "comfort-designs" | null;
+  initialFocus?: "brand-snap" | "comfort-designs" | "theme" | "personal-context" | "connected-apps" | null;
   nazaiThemeId: string;
   onNazaiThemeSelect: (id: string) => void;
 }) => {
@@ -1570,8 +1570,9 @@ const SettingsView = ({
 
           {/* Connected Apps Grid - Responsive: 1 column on mobile, 2 on tablet, 4 on desktop */}
           <motion.div
+            id="connected-apps"
             variants={itemVariants}
-            className="md:col-span-2 p-5 rounded-xl overflow-x-hidden w-full"
+            className="md:col-span-2 p-5 rounded-xl overflow-x-hidden w-full scroll-mt-24"
             style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
           >
             <h3
@@ -1611,8 +1612,9 @@ const SettingsView = ({
 
           {/* Personal Context Section */}
           <motion.div
+            id="personal-context"
             variants={itemVariants}
-            className="md:col-span-2 p-5 rounded-xl"
+            className="md:col-span-2 p-5 rounded-xl scroll-mt-24"
             style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
           >
             <h3
@@ -1708,11 +1710,13 @@ const SettingsView = ({
 
           {/* ─── NAZAI VISUAL THEMES (App Appearance) ─────────────────────── */}
           <motion.div
-            id="nazai-visual-themes"
+            id="theme"
             variants={itemVariants}
-            className="md:col-span-2 p-5 rounded-xl"
+            className="md:col-span-2 p-5 rounded-xl scroll-mt-24"
             style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
           >
+            {/* Anchor alias kept for legacy deep-links */}
+            <span id="nazai-visual-themes" className="sr-only" />
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h3 className="text-sm font-semibold flex items-center gap-2 font-mono" style={{ color: "var(--nazai-text-color)" }}>
@@ -3898,7 +3902,7 @@ export default function Dashboard() {
   // ─── Comfort Designs (Ground Truth) ─────────────────────────────────────────
   const [designPreferences, setDesignPreferences] = useState<DesignPreferences>(loadDesignPreferences);
   const [welcomeOpen, setWelcomeOpen] = useState(false);
-  const [settingsFocus, setSettingsFocus] = useState<"brand-snap" | "comfort-designs" | null>(null);
+  const [settingsFocus, setSettingsFocus] = useState<"brand-snap" | "comfort-designs" | "theme" | "personal-context" | "connected-apps" | null>(null);
 
   // ─── NazAI Visual Theme (App Appearance) ────────────────────────────────────
   // Persisted choice for how the NazAI app itself looks. Restores on every load.
@@ -3949,8 +3953,14 @@ export default function Dashboard() {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     const target = params.get("settings");
-    if (target === "brand-snap" || target === "comfort-designs") {
-      setSettingsFocus(target as "brand-snap" | "comfort-designs");
+    if (
+      target === "brand-snap" ||
+      target === "comfort-designs" ||
+      target === "theme" ||
+      target === "personal-context" ||
+      target === "connected-apps"
+    ) {
+      setSettingsFocus(target);
     }
   }, []);
 
@@ -5780,9 +5790,9 @@ export default function Dashboard() {
         activeItem={activeWorkspaceItem}
         setActiveItem={setActiveWorkspaceItem}
         onOpenSettings={() => { setWorkspaceMenuOpen(false); setShowSettings(true); setActiveNav("settings"); }}
-        onOpenTheme={() => { setWorkspaceMenuOpen(false); setWelcomeOpen(true); }}
-        onOpenPersonalContext={() => { setWorkspaceMenuOpen(false); setShowSettings(true); setActiveNav("settings"); }}
-        onOpenConnectedApps={() => { setWorkspaceMenuOpen(false); setShowSettings(true); setActiveNav("settings"); }}
+        onOpenTheme={() => { setWorkspaceMenuOpen(false); setShowSettings(true); setActiveNav("settings"); setSettingsFocus("theme"); }}
+        onOpenPersonalContext={() => { setWorkspaceMenuOpen(false); setShowSettings(true); setActiveNav("settings"); setSettingsFocus("personal-context"); }}
+        onOpenConnectedApps={() => { setWorkspaceMenuOpen(false); setShowSettings(true); setActiveNav("settings"); setSettingsFocus("connected-apps"); }}
         onSignOut={() => { setWorkspaceMenuOpen(false); setLogoutModalOpen(true); }}
         missions={missions}
       />
