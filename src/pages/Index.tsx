@@ -143,7 +143,6 @@ const AI_CATEGORIES: Record<string, Category> = {
     glowRgba: "6,182,212",
     label: "RESEARCH",
     tools: [
-      { id: "google/notebooklm", name: "NotebookLM", subtitle: "The Librarian", icon: BookOpen },
       { id: "x-ai/grok-4.20", name: "Grok 4.20", subtitle: "The Trendsetter", icon: TrendingUp },
     ],
   },
