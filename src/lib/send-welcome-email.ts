@@ -154,6 +154,10 @@ export async function sendWelcomeEmail(params: {
     const ms = Date.now() - startedAt;
 
     if (!res.ok) {
+      console.error(`Welcome email failed: ${res.status} ${res.statusText}`, {
+        source,
+        body: text,
+      });
       console.error("[welcome-email] ✖ send failed", {
         source,
         status: res.status,
@@ -174,6 +178,7 @@ export async function sendWelcomeEmail(params: {
   } catch (err) {
     const ms = Date.now() - startedAt;
     const message = err instanceof Error ? err.message : String(err);
+    console.error(`Welcome email failed: ${message}`, { source, ms });
     console.error("[welcome-email] ✖ network error", { source, message, ms, err });
     return { ok: false, error: message };
   }
