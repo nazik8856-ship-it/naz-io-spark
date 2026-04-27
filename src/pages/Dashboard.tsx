@@ -5060,6 +5060,7 @@ export default function Dashboard() {
                 userEmail={userEmail}
                 getAvatarGradient={getAvatarGradient}
                 setLogoutModalOpen={setLogoutModalOpen}
+                openWorkspaceMenu={() => setWorkspaceMenuOpen(true)}
               />
             </div>
           </motion.aside>
@@ -5094,6 +5095,7 @@ export default function Dashboard() {
             userEmail={userEmail}
             getAvatarGradient={getAvatarGradient}
             setLogoutModalOpen={setLogoutModalOpen}
+            openWorkspaceMenu={() => setWorkspaceMenuOpen(true)}
           />
         </div>
       </motion.aside>
