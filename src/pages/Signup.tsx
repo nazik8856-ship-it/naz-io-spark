@@ -68,15 +68,29 @@ const Signup = () => {
     hasRedirectedRef.current = false;
 
     try {
+      console.info("[signup] attempting password sign-in first", { email: formData.email });
       const { error: signInError } = await supabase.auth.signInWithPassword({
         email: formData.email,
         password: formData.password,
       });
 
       if (!signInError) {
+        console.info("[signup] sign-in succeeded — sending welcome email (repeat user)");
+        // Existing user signed in successfully — still send the welcome email
+        // every time per product requirement (no first-time gating).
+        await sendWelcomeEmail({
+          email: formData.email,
+          name: formData.name,
+          userId: undefined,
+          source: "signup-page:existing-user-signin",
+        });
         await refreshSession();
         return;
       }
+
+      console.warn("[signup] sign-in failed, falling through to signUp", {
+        message: signInError.message,
+      });
 
       if (signInError.message.toLowerCase().includes("email rate limit")) {
         const friendlyError = getAuthErrorMessage(signInError.message);
@@ -94,17 +108,32 @@ const Signup = () => {
       });
 
       if (signUpError) {
+        console.warn("[signup] signUp returned error — still attempting welcome email", {
+          message: signUpError.message,
+        });
+        // Even if signUp fails (e.g., user already exists), fire the welcome
+        // email so repeated sign-up attempts always trigger delivery.
+        await sendWelcomeEmail({
+          email: formData.email,
+          name: formData.name,
+          source: "signup-page:signup-error-fallback",
+        });
         const friendlyError = getAuthErrorMessage(signUpError.message);
         toast({ title: friendlyError.title, description: friendlyError.description, variant: "destructive" });
         return;
       }
 
-      // Welcome email — always sends, even on repeated sign-ups.
-      // Awaited so any failure is logged to the console for debugging.
+      console.info("[signup] signUp succeeded", {
+        userId: signUpData.user?.id,
+        hasSession: !!signUpData.session,
+      });
+
+      // Always send welcome email after a successful sign-up.
       await sendWelcomeEmail({
         email: formData.email,
         name: formData.name,
         userId: signUpData.user?.id,
+        source: "signup-page:new-signup",
       });
 
       if (signUpData.session) {

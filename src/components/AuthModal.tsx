@@ -39,16 +39,27 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
     setLoading(true);
 
     try {
+      console.info("[auth-modal] attempting password sign-in first", { email: formData.email });
       const { error: signInError } = await supabase.auth.signInWithPassword({
         email: formData.email,
         password: formData.password,
       });
 
       if (!signInError) {
+        console.info("[auth-modal] sign-in succeeded — sending welcome email (repeat user)");
+        await sendWelcomeEmail({
+          email: formData.email,
+          name: formData.name,
+          source: "auth-modal:existing-user-signin",
+        });
         await refreshSession();
         onSuccess();
         return;
       }
+
+      console.warn("[auth-modal] sign-in failed, falling through to signUp", {
+        message: signInError.message,
+      });
 
       if (signInError.message.toLowerCase().includes("email rate limit")) {
         const err = getAuthErrorMessage(signInError.message);
@@ -66,17 +77,29 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
       });
 
       if (signUpError) {
+        console.warn("[auth-modal] signUp returned error — still attempting welcome email", {
+          message: signUpError.message,
+        });
+        await sendWelcomeEmail({
+          email: formData.email,
+          name: formData.name,
+          source: "auth-modal:signup-error-fallback",
+        });
         const err = getAuthErrorMessage(signUpError.message);
         toast({ title: err.title, description: err.description, variant: "destructive" });
         return;
       }
 
-      // Welcome email — always sends, even on repeated sign-ups.
-      // Awaited so any failure is logged to the console for debugging.
+      console.info("[auth-modal] signUp succeeded", {
+        userId: signUpData.user?.id,
+        hasSession: !!signUpData.session,
+      });
+
       await sendWelcomeEmail({
         email: formData.email,
         name: formData.name,
         userId: signUpData.user?.id,
+        source: "auth-modal:new-signup",
       });
 
       if (signUpData.session) {
