@@ -32,22 +32,23 @@ export async function forceSendWelcomeEmailAfterAuth(params: {
   const data = params.data ?? null;
   const user = data?.user ?? data?.session?.user ?? null;
   const session = data?.session ?? null;
-  let userEmail = readString(user?.email) || readString(session?.user?.email) || readString(data?.user?.email);
+  let userEmail = readString(user?.email) || readString(session?.user?.email) || readString(data?.user?.email) || null;
 
-  console.log("=== SIGN-UP SUCCESS DEBUG ===");
-  console.log("Full user object:", stringifyForDebug(user));
-  console.log("Session object:", stringifyForDebug(session));
-  console.log("Extracted user email:", userEmail);
+  console.log("=== WELCOME EMAIL DEBUG START ===");
+  console.log("User object:", stringifyForDebug(user || {}));
+  console.log("Session object:", stringifyForDebug(session || {}));
+  console.log("Data object:", stringifyForDebug(data || {}));
+  console.log("Extracted email:", userEmail);
 
   if (!userEmail) {
-    console.error("ERROR: No email found in auth response");
-    userEmail = readString(params.fallbackEmail);
+    console.error("CRITICAL: No email found in auth response!");
+    userEmail = readString(params.fallbackEmail) || null;
     if (userEmail) {
       console.warn("Using sign-up form email fallback for welcome email:", userEmail);
     }
   }
 
-  console.log("Attempting to send welcome email...");
+  console.log("Attempting to send welcome email to:", userEmail);
 
   const recipient = resolveWelcomeEmailRecipient({
     authData: data,
@@ -67,6 +68,7 @@ export async function forceSendWelcomeEmailAfterAuth(params: {
 
     if (!welcomeResult.ok) {
       console.error("Welcome email FAILED:", welcomeResult);
+      console.error("Email send failed:", welcomeResult);
       return welcomeResult;
     }
 
@@ -74,6 +76,7 @@ export async function forceSendWelcomeEmailAfterAuth(params: {
     return welcomeResult;
   } catch (error) {
     console.error("Welcome email FAILED:", error);
+    console.error("Email send failed:", error);
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
 }
