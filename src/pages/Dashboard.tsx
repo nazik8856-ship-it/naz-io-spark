@@ -75,6 +75,15 @@ import {
   Rocket,
   Store,
   BarChart3,
+  Activity,
+  HelpCircle,
+  MessageCircle,
+  Link2,
+  CreditCard,
+  Plug,
+  UserCog,
+  Notebook,
+  DownloadCloud,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import GuardianCanvas from "@/components/workflower/GuardianCanvas";
