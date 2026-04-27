@@ -5772,6 +5772,21 @@ export default function Dashboard() {
         }}
       />
 
+      {/* Workspace Menu Modal — replaces old Settings/Archives/Trash/Sign Out stack */}
+      <WorkspaceMenuModal
+        open={workspaceMenuOpen}
+        onClose={() => { setWorkspaceMenuOpen(false); setActiveWorkspaceItem(null); }}
+        userEmail={userEmail}
+        activeItem={activeWorkspaceItem}
+        setActiveItem={setActiveWorkspaceItem}
+        onOpenSettings={() => { setWorkspaceMenuOpen(false); setShowSettings(true); setActiveNav("settings"); }}
+        onOpenTheme={() => { setWorkspaceMenuOpen(false); setWelcomeOpen(true); }}
+        onOpenPersonalContext={() => { setWorkspaceMenuOpen(false); setShowSettings(true); setActiveNav("settings"); }}
+        onOpenConnectedApps={() => { setWorkspaceMenuOpen(false); setShowSettings(true); setActiveNav("settings"); }}
+        onSignOut={() => { setWorkspaceMenuOpen(false); setLogoutModalOpen(true); }}
+        missions={missions}
+      />
+
       <style>{`
         /* FORCE EVERYTHING TO BE CLICKABLE */
         * {
