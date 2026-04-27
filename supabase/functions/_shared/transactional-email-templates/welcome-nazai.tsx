@@ -47,7 +47,7 @@ const WelcomeNazaiEmail = ({ name }: WelcomeNazaiProps) => {
 
             <Section style={ctaWrap}>
               <Button href={`${APP_URL}/dashboard`} style={ctaButton}>
-                Open your workspace →
+                Open NazAI Dashboard Now →
               </Button>
             </Section>
 
