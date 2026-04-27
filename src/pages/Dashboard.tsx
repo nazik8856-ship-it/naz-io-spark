@@ -195,7 +195,6 @@ const AI_CATEGORIES: Record<string, Category> = {
     glowRgba: "6,182,212",
     label: "RESEARCH",
     tools: [
-      { id: "google/notebooklm", name: "NotebookLM", subtitle: "The Librarian", icon: BookOpen },
       { id: "x-ai/grok-4.20", name: "Grok 4.20", subtitle: "The Trendsetter", icon: TrendingUp },
     ],
   },
@@ -214,19 +213,17 @@ type WorkspaceItemId =
   | "public-links"
   | "theme"
   | "subscriptions"
-  | "notebooklm"
   | "feedback"
   | "help";
 
 const WORKSPACE_MENU_ITEMS: { id: WorkspaceItemId; icon: any; label: string; description: string }[] = [
   { id: "activity",         icon: Activity,      label: "Activity",              description: "Recent actions, generations & edits" },
   { id: "personal-context", icon: UserCog,       label: "Personal Context",      description: "Your background, notes & preferences" },
-  { id: "import-memory",    icon: DownloadCloud, label: "Import Memory to Gemini", description: "Export your context for external AI" },
+  { id: "import-memory",    icon: DownloadCloud, label: "Import Memory to NazAI", description: "Bring your context into NazAI's memory" },
   { id: "connected-apps",   icon: Plug,          label: "Connected Apps",        description: "API keys & integrations" },
   { id: "public-links",     icon: Link2,         label: "Your Public Links",     description: "Shareable links for your projects" },
   { id: "theme",            icon: Palette,       label: "Theme",                 description: "NazAI visual themes & appearance" },
   { id: "subscriptions",    icon: CreditCard,    label: "View Subscriptions",    description: "Plan details & upgrade" },
-  { id: "notebooklm",       icon: Notebook,      label: "NotebookLM",            description: "Notebook-style research workspace" },
   { id: "feedback",         icon: MessageCircle, label: "Send Feedback",         description: "Share thoughts with the NazAI team" },
   { id: "help",             icon: HelpCircle,    label: "Help",                  description: "Documentation & support" },
 ];
