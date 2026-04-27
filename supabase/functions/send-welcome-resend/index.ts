@@ -14,9 +14,8 @@ const corsHeaders = {
 
 const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
 
-// Use Resend's onboarding sender by default — works without a verified
-// domain. Once nazai.net is verified in Resend, swap to noreply@nazai.net.
-const FROM_ADDRESS = Deno.env.get('RESEND_FROM') || 'NazAI <onboarding@resend.dev>'
+// nazai.net is verified in Resend — send from the verified domain.
+const FROM_ADDRESS = Deno.env.get('RESEND_FROM') || 'NazAI <onboarding@nazai.net>'
 const APP_URL = 'https://nazai.net'
 
 function escapeHtml(value: string): string {
