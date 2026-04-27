@@ -3589,13 +3589,28 @@ function WorkspaceMenuModal({
     if (id === "personal-context") { onClose(); onOpenPersonalContext(); return; }
     if (id === "connected-apps")   { onClose(); onOpenConnectedApps(); return; }
     if (id === "import-memory") {
-      const ctx = (() => { try { return localStorage.getItem("nazai-personal-context") || ""; } catch { return ""; } })();
-      const blob = new Blob([`# NazAI Memory Export\n\n${ctx}\n`], { type: "text/markdown" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url; a.download = "nazai-memory.md"; a.click();
-      URL.revokeObjectURL(url);
-      toast.success("Memory exported — import the file into Gemini");
+      // Import existing context (text, markdown, JSON) directly into NazAI's local memory.
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = ".md,.txt,.json,text/markdown,text/plain,application/json";
+      input.onchange = async () => {
+        const file = input.files?.[0];
+        if (!file) return;
+        try {
+          const text = await file.text();
+          const existing = (() => { try { return localStorage.getItem("nazai-personal-context") || ""; } catch { return ""; } })();
+          const merged = existing
+            ? `${existing}\n\n--- Imported from ${file.name} ---\n${text}`.trim()
+            : text.trim();
+          try { localStorage.setItem("nazai-personal-context", merged); } catch {}
+          setContextDraft(merged);
+          toast.success(`Imported ${file.name} into NazAI memory`);
+          setActiveItem("personal-context");
+        } catch {
+          toast.error("Could not read that file");
+        }
+      };
+      input.click();
       return;
     }
     if (id === "help")          { window.open("https://nazai.net", "_blank"); return; }
@@ -3670,15 +3685,7 @@ function WorkspaceMenuModal({
         </div>
       );
     }
-    if (activeItem === "notebooklm") {
-      return (
-        <div className="text-center py-8">
-          <Notebook size={36} className="mx-auto mb-3 text-cyan-400/70" />
-          <div className="text-[14px] font-semibold text-white/85">NotebookLM Workspace</div>
-          <p className="text-[12px] text-white/50 mt-2 max-w-sm mx-auto">Upload sources and let NazAI synthesise structured notes, summaries, and citations. Coming soon — your existing chats will sync automatically.</p>
-        </div>
-      );
-    }
+    // NotebookLM section removed.
     if (activeItem === "feedback") {
       return (
         <div className="space-y-3">
