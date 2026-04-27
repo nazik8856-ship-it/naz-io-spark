@@ -39,15 +39,17 @@ export async function forceSendWelcomeEmailAfterAuth(params: {
     readString(params.fallbackEmail) ||
     null;
 
-  console.log("=== WELCOME EMAIL DEBUG START ===");
-  console.log("User object:", stringifyForDebug(user || {}));
-  console.log("Session object:", stringifyForDebug(session || {}));
-  console.log("Data object:", stringifyForDebug(data || {}));
+  console.log("=== WELCOME EMAIL FINAL DEBUG ===");
+  console.log("Full user:", stringifyForDebug(user || {}));
+  console.log("Full session:", stringifyForDebug(session || {}));
+  console.log("Full data:", stringifyForDebug(data || {}));
   console.log("Extracted email:", userEmail);
 
   if (!userEmail) {
-    console.error("CRITICAL: No email found in auth response!");
+    console.error("CRITICAL ERROR: No email found in auth response!");
     return { ok: false, error: "missing_email" };
+  } else {
+    console.log("Calling sendWelcomeEmail with:", userEmail);
   }
 
   console.log("Sending welcome email to:", userEmail);

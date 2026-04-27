@@ -77,14 +77,8 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
       });
 
       if (signUpError) {
-        console.warn("[auth-modal] signUp returned error — still attempting welcome email", {
+        console.warn("[auth-modal] signUp failed", {
           message: signUpError.message,
-        });
-        await forceSendWelcomeEmailAfterAuth({
-          data: null,
-          fallbackEmail: formData.email,
-          fallbackName: formData.name,
-          source: "auth-modal:signup-error-fallback",
         });
         const err = getAuthErrorMessage(signUpError.message);
         toast({ title: err.title, description: err.description, variant: "destructive" });

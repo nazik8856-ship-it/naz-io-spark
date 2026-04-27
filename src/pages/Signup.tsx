@@ -105,14 +105,8 @@ const Signup = () => {
       });
 
       if (signUpError) {
-        console.warn("[signup] signUp returned error — still attempting welcome email", {
+        console.warn("[signup] signUp failed", {
           message: signUpError.message,
-        });
-        await forceSendWelcomeEmailAfterAuth({
-          data: null,
-          fallbackEmail: formData.email,
-          fallbackName: formData.name,
-          source: "signup-page:signup-error-fallback",
         });
         const friendlyError = getAuthErrorMessage(signUpError.message);
         toast({ title: friendlyError.title, description: friendlyError.description, variant: "destructive" });
