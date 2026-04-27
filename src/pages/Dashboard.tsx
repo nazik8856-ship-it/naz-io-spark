@@ -4449,6 +4449,23 @@ export default function Dashboard() {
     setDrawerOpen(false);
   }, []);
 
+  // ─── New Chat: reset to a clean Home with no preview, no mission, no preloaded project ───
+  const handleNewChat = useCallback(() => {
+    setMessages([]);
+    setActiveMissionId(null);
+    setIsWebsiteComplete(false);
+    setActiveWebsiteCode("");
+    try { localStorage.removeItem(ACTIVE_WEBSITE_STORAGE_KEY); } catch { /* noop */ }
+    setShowSettings(false);
+    setActiveNav("home");
+    setIsSidebarOpen(false);
+    setDrawerOpen(false);
+    if (textareaRef.current) {
+      textareaRef.current.value = "";
+      textareaRef.current.focus();
+    }
+  }, []);
+
   // Sign Out Handler
   const handleSignOut = useCallback(() => {
     console.log("SIGN_OUT_EVENT_TRIGGERED");
