@@ -14,9 +14,8 @@ const corsHeaders = {
 
 const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
 
-// Use Resend's onboarding sender by default — works without a verified
-// domain. Once nazai.net is verified in Resend, swap to noreply@nazai.net.
-const FROM_ADDRESS = Deno.env.get('RESEND_FROM') || 'NazAI <onboarding@resend.dev>'
+// nazai.net is verified in Resend — send from the verified domain.
+const FROM_ADDRESS = Deno.env.get('RESEND_FROM') || 'NazAI <onboarding@nazai.net>'
 const APP_URL = 'https://nazai.net'
 
 function escapeHtml(value: string): string {
@@ -158,7 +157,7 @@ Deno.serve(async (req) => {
   const html = buildWelcomeHtml(name || undefined)
   const subject = 'Welcome to NazAI 🚀'
 
-  console.log('[send-welcome-resend] sending', { email, hasName: !!name })
+  console.log(`📧 Sending welcome email to ${email} from ${FROM_ADDRESS}`)
 
   try {
     const res = await fetch('https://api.resend.com/emails', {
@@ -177,10 +176,7 @@ Deno.serve(async (req) => {
 
     const text = await res.text()
     if (!res.ok) {
-      console.error('[send-welcome-resend] Resend error', {
-        status: res.status,
-        body: text,
-      })
+      console.error(`❌ Failed to send welcome email to ${email} from ${FROM_ADDRESS} — status ${res.status}: ${text}`)
       return new Response(
         JSON.stringify({ error: 'resend_failed', status: res.status, body: text }),
         {
@@ -190,7 +186,7 @@ Deno.serve(async (req) => {
       )
     }
 
-    console.log('[send-welcome-resend] sent', { email, body: text })
+    console.log(`✅ Welcome email sent successfully to ${email} from ${FROM_ADDRESS} — ${text}`)
     return new Response(JSON.stringify({ ok: true, body: text }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
