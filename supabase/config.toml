@@ -23,3 +23,6 @@ verify_jwt = false
 
 [functions.resend-events]
 verify_jwt = false
+
+[functions.send-test-email]
+verify_jwt = false

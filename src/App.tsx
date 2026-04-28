@@ -15,6 +15,7 @@ const Generator = lazy(() => import("./pages/Generator"));
 const Generating = lazy(() => import("./pages/Generating"));
 const Pricing = lazy(() => import("./pages/Pricing"));
 const Unsubscribe = lazy(() => import("./pages/Unsubscribe"));
+const TestEmail = lazy(() => import("./pages/TestEmail"));
 
 const queryClient = new QueryClient();
 
@@ -51,6 +52,7 @@ const App = () => (
                 <Route path="/generate" element={<Generator />} />
                 <Route path="/pricing" element={<Pricing />} />
                 <Route path="/unsubscribe" element={<Unsubscribe />} />
+                <Route path="/test-email" element={<TestEmail />} />
 
                 {/* Nested Dashboard Routes */}
                 <Route path="/dashboard/*" element={<Dashboard />} />
