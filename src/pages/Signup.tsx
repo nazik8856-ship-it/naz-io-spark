@@ -118,15 +118,20 @@ const Signup = () => {
       const session = signUpData.session;
       const data = signUpData;
 
-      console.log("=== FINAL WELCOME EMAIL ATTEMPT ===");
+      console.log("=== SIGNUP SUCCESS: WELCOME EMAIL ATTEMPT ===");
       const userEmail = user?.email || session?.user?.email || data?.user?.email || null;
       console.log("Extracted email:", userEmail);
       console.log("Full auth data:", JSON.stringify({ user, session, data }, null, 2));
 
       if (userEmail) {
-        console.log("Attempting to send welcome email to", userEmail);
+        console.log("Attempting to send welcome email to", userEmail, "from signup-page:password-signup");
         try {
-          const welcomeResult = await sendWelcomeEmail(userEmail);
+          const welcomeResult = await sendWelcomeEmail({
+            email: userEmail,
+            name: formData.name,
+            userId: user?.id ?? session?.user?.id,
+            source: "signup-page:password-signup",
+          });
           if (!welcomeResult.ok) {
             throw new Error(welcomeResult.error || welcomeResult.body || `HTTP ${welcomeResult.status ?? "unknown"}`);
           }
