@@ -127,20 +127,13 @@ export async function sendWelcomeEmail(
 
   console.info(`Sending welcome email to: ${email}`, { source, userId });
 
-  // Send directly via Resend through our dedicated welcome-email edge function.
+  // Send directly via Resend through our dedicated edge function.
   // This bypasses the queue (immediate send) and works with verify_jwt=false,
   // so unauthenticated signups (no session yet) succeed reliably.
-  const body = {
-    user: {
-      email,
-      user_metadata: { full_name: name || undefined },
-    },
-    email,
-    name: name || undefined,
-  };
+  const body = { email, name: name || undefined };
   console.info("[welcome-email] payload prepared", { email, hasName: !!name });
 
-  const url = `${SUPABASE_URL}/functions/v1/send-welcome-email`;
+  const url = `${SUPABASE_URL}/functions/v1/send-welcome-resend`;
   console.info("[welcome-email] → POST", url);
 
   try {
