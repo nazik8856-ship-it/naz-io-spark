@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import DropScanOverlay from "@/components/interactions/DropScanOverlay";
 import MagneticButton from "@/components/interactions/MagneticButton";
 import WebsiteRevealPane from "@/components/dashboard/WebsiteRevealPane";
+import NextStepHints from "@/components/dashboard/NextStepHints";
 import AIResponseExtras, {
   readGroundTruth,
   type GroundTruthEntry,
@@ -2831,6 +2832,31 @@ const HomeView = ({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* ─── PROACTIVE NEXT-STEP HINTS — appear above the input after the first AI reply.
+              Hidden during pending generation, when minimized, when the dedicated website
+              reveal pane is showing (it has its own affordances), and during iteration mode
+              (the FixPromptBlank already focuses the next action). ─── */}
+      {(() => {
+        const hasAiReply = messages.some((m: any) => m.role === "ai" && (m.text || "").trim().length > 0);
+        const showHints =
+          hasAiReply &&
+          !isPending &&
+          !isMinimized &&
+          !(isWebsiteIntent && isPreviewActive) &&
+          !isWebsiteComplete;
+        if (!showHints) return null;
+        return (
+          <NextStepHints
+            latestResponse={latestAiText}
+            isPending={isPending}
+            accentColor={auraProfile.glowPrimary}
+            getRgb={getRgbFromHex}
+            onSuggestionClick={(prompt) => handleSendMessage(prompt)}
+            onStrategyAsk={(question) => handleSendMessage(question)}
+          />
+        );
+      })()}
 
       {/* ─── ADAPTIVE WORKBENCH INPUT CONTAINER WITH HEIGHT ANIMATION ─── */}
       <motion.div
