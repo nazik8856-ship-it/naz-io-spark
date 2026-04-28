@@ -20,3 +20,6 @@ verify_jwt = false
 
 [functions.send-welcome-resend]
 verify_jwt = false
+
+[functions.resend-events]
+verify_jwt = false
