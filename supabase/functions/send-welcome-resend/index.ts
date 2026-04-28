@@ -50,10 +50,15 @@ function buildWelcomeHtml(name?: string): string {
         <h1 style="font-size:26px;font-weight:700;color:#0a0a0a;margin:0 0 14px;line-height:1.2;letter-spacing:-0.02em;">
           ${greeting} 🚀
         </h1>
+        <p style="font-size:15px;line-height:1.65;color:#3f3f46;margin:0 0 12px;">
+          Hi there,
+        </p>
+        <p style="font-size:15px;line-height:1.65;color:#3f3f46;margin:0 0 12px;">
+          Thank you for joining <strong>NazAI</strong> — your AI Business Operating System.
+        </p>
         <p style="font-size:15px;line-height:1.65;color:#3f3f46;margin:0 0 24px;">
-          Your AI Business Co-Founder is ready. NazAI helps you go from idea to a real,
-          launched online business in minutes — strategy, brand, website, and content,
-          all generated and orchestrated by intelligent agents.
+          You're now ready to generate websites, run research, create brand assets,
+          and build faster than ever.
         </p>
 
         <div style="text-align:center;margin:8px 0;">
@@ -65,29 +70,39 @@ function buildWelcomeHtml(name?: string): string {
         <hr style="border:none;border-top:1px solid #ececef;margin:28px 0;" />
 
         <h2 style="font-size:15px;font-weight:700;color:#0a0a0a;margin:8px 0 12px;text-transform:uppercase;letter-spacing:0.06em;">
-          What you can do right now
+          Quick next steps
         </h2>
 
         <div style="margin:0 0 14px;">
-          <p style="font-size:14px;font-weight:600;color:#0a0a0a;margin:0 0 4px;">1. Generate a complete business</p>
+          <p style="font-size:14px;font-weight:600;color:#0a0a0a;margin:0 0 4px;">1. Create your first project</p>
           <p style="font-size:13.5px;line-height:1.6;color:#52525b;margin:0;">
             Describe your idea once. NazAI builds a niche, brand, and website in a single flow.
           </p>
         </div>
 
         <div style="margin:0 0 14px;">
-          <p style="font-size:14px;font-weight:600;color:#0a0a0a;margin:0 0 4px;">2. Launch with a real preview</p>
+          <p style="font-size:14px;font-weight:600;color:#0a0a0a;margin:0 0 4px;">2. Try generating a website with Comfort Designs</p>
           <p style="font-size:13.5px;line-height:1.6;color:#52525b;margin:0;">
-            Iterate live with the Iteration Bar and switch Comfort Designs to match your style.
+            Switch templates instantly to match your style and iterate live.
           </p>
         </div>
 
         <div style="margin:0 0 14px;">
-          <p style="font-size:14px;font-weight:600;color:#0a0a0a;margin:0 0 4px;">3. Personalize NazAI</p>
+          <p style="font-size:14px;font-weight:600;color:#0a0a0a;margin:0 0 4px;">3. Customize NazAI appearance in Settings</p>
           <p style="font-size:13.5px;line-height:1.6;color:#52525b;margin:0;">
-            Set Personal Context and switch Visual Themes from your Workspace menu.
+            Pick a Visual Theme and set your Personal Context from the Workspace menu.
           </p>
         </div>
+
+        <p style="font-size:14px;line-height:1.65;color:#3f3f46;margin:18px 0 6px;">
+          If you have any questions, just reply to this email.
+        </p>
+        <p style="font-size:14px;line-height:1.65;color:#3f3f46;margin:0 0 4px;">
+          Let's build something great together.
+        </p>
+        <p style="font-size:14px;line-height:1.65;color:#0a0a0a;font-weight:600;margin:0;">
+          — The NazAI Team
+        </p>
 
         <hr style="border:none;border-top:1px solid #ececef;margin:28px 0;" />
 
