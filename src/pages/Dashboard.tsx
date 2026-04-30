@@ -2834,6 +2834,20 @@ const HomeView = ({
         )}
       </AnimatePresence>
 
+      {/* ─── ANTIFRAGILE MODE CHIP — toggle the Antifragile Resilience Orchestrator
+              system prompt for this project. Persists per-project in localStorage. ─── */}
+      {!isMinimized && !(isWebsiteIntent && isPreviewActive) && (
+        <div className="w-full max-w-2xl mx-auto px-2 mb-2 flex items-center justify-end">
+          <AntifragileMode
+            projectId={activeMissionId}
+            active={antifragileState.active}
+            niche={antifragileState.niche}
+            onChange={setAntifragileState}
+            accentColor="#f97316"
+          />
+        </div>
+      )}
+
       {/* ─── PROACTIVE NEXT-STEP HINTS — appear above the input after the first AI reply.
               Hidden during pending generation, when minimized, when the dedicated website
               reveal pane is showing (it has its own affordances), and during iteration mode
