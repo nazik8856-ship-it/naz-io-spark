@@ -5,6 +5,7 @@ import DropScanOverlay from "@/components/interactions/DropScanOverlay";
 import MagneticButton from "@/components/interactions/MagneticButton";
 import WebsiteRevealPane from "@/components/dashboard/WebsiteRevealPane";
 import NextStepHints from "@/components/dashboard/NextStepHints";
+import AntifragileMode, { useAntifragileState, ANTIFRAGILE_SYSTEM_PROMPT } from "@/components/dashboard/AntifragileMode";
 import AIResponseExtras, {
   readGroundTruth,
   type GroundTruthEntry,
@@ -2398,6 +2399,9 @@ const HomeView = ({
   generationRunId,
   designPreferences,
   onTemplateSelect,
+  activeMissionId,
+  antifragileState,
+  setAntifragileState,
 }: any) => {
   // Template definitions (master templates - never mutated)
   const TEMPLATE_MASTERS = {
@@ -2832,6 +2836,20 @@ const HomeView = ({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* ─── ANTIFRAGILE MODE CHIP — toggle the Antifragile Resilience Orchestrator
+              system prompt for this project. Persists per-project in localStorage. ─── */}
+      {!isMinimized && !(isWebsiteIntent && isPreviewActive) && (
+        <div className="w-full max-w-2xl mx-auto px-2 mb-2 flex items-center justify-end">
+          <AntifragileMode
+            projectId={activeMissionId}
+            active={antifragileState.active}
+            niche={antifragileState.niche}
+            onChange={setAntifragileState}
+            accentColor="#f97316"
+          />
+        </div>
+      )}
 
       {/* ─── PROACTIVE NEXT-STEP HINTS — appear above the input after the first AI reply.
               Hidden during pending generation, when minimized, when the dedicated website
@@ -3907,6 +3925,9 @@ export default function Dashboard() {
   const [lifecycleTarget, setLifecycleTarget] = useState<Mission | null>(null);
   const [lifecycleChoice, setLifecycleChoice] = useState<LifecycleAction | null>(null);
   const [activeMissionId, setActiveMissionId] = useState<string | null>(null);
+
+  // ── Antifragile Resilience Orchestrator mode (per-project, persisted to localStorage) ──
+  const { state: antifragileState, update: setAntifragileState } = useAntifragileState(activeMissionId);
   const [projectsExpanded, setProjectsExpanded] = useState(true);
 
   // Dynamic cards state
@@ -4657,7 +4678,12 @@ export default function Dashboard() {
       `• Outputs must be high-quality, insightful, and actionable — better than generic AI tools. Use real-sounding company names, plausible metrics, and clear language.\n` +
       `• Never wrap the entire reply in a code fence unless the user asked for code. Tables and mermaid diagrams use their own fences only.\n\n`;
 
-    masterPrompt = ORCHESTRATION_DIRECTIVE + ANTI_REPETITION_DIRECTIVE + SMART_FORMAT_DIRECTIVE + masterPrompt;
+    // ── Antifragile Mode prepend (highest priority — wraps the entire prompt) ──
+    const ANTIFRAGILE_PREFIX = antifragileState.active && antifragileState.niche.trim().length > 0
+      ? ANTIFRAGILE_SYSTEM_PROMPT(antifragileState.niche.trim()) + "\n\n"
+      : "";
+
+    masterPrompt = ANTIFRAGILE_PREFIX + ORCHESTRATION_DIRECTIVE + ANTI_REPETITION_DIRECTIVE + SMART_FORMAT_DIRECTIVE + masterPrompt;
 
     // ── Intent detection ──────────────────────────────────────────────────────
     //  • If a website is already live in the preview pane → treat any new
@@ -5257,6 +5283,9 @@ export default function Dashboard() {
             generationRunId={generationRunId}
             designPreferences={designPreferences}
             onTemplateSelect={applyComfortTemplate}
+            activeMissionId={activeMissionId}
+            antifragileState={antifragileState}
+            setAntifragileState={setAntifragileState}
           />
         );
     }
