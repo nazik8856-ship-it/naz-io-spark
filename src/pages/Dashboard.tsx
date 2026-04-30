@@ -2399,6 +2399,9 @@ const HomeView = ({
   generationRunId,
   designPreferences,
   onTemplateSelect,
+  activeMissionId,
+  antifragileState,
+  setAntifragileState,
 }: any) => {
   // Template definitions (master templates - never mutated)
   const TEMPLATE_MASTERS = {
