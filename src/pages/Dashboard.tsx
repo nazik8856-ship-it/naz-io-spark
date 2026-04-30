@@ -3908,6 +3908,9 @@ export default function Dashboard() {
   const [lifecycleTarget, setLifecycleTarget] = useState<Mission | null>(null);
   const [lifecycleChoice, setLifecycleChoice] = useState<LifecycleAction | null>(null);
   const [activeMissionId, setActiveMissionId] = useState<string | null>(null);
+
+  // ── Antifragile Resilience Orchestrator mode (per-project, persisted to localStorage) ──
+  const { state: antifragileState, update: setAntifragileState } = useAntifragileState(activeMissionId);
   const [projectsExpanded, setProjectsExpanded] = useState(true);
 
   // Dynamic cards state
