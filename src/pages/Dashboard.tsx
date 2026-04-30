@@ -5283,6 +5283,9 @@ export default function Dashboard() {
             generationRunId={generationRunId}
             designPreferences={designPreferences}
             onTemplateSelect={applyComfortTemplate}
+            activeMissionId={activeMissionId}
+            antifragileState={antifragileState}
+            setAntifragileState={setAntifragileState}
           />
         );
     }
