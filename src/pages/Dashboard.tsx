@@ -4661,7 +4661,12 @@ export default function Dashboard() {
       `• Outputs must be high-quality, insightful, and actionable — better than generic AI tools. Use real-sounding company names, plausible metrics, and clear language.\n` +
       `• Never wrap the entire reply in a code fence unless the user asked for code. Tables and mermaid diagrams use their own fences only.\n\n`;
 
-    masterPrompt = ORCHESTRATION_DIRECTIVE + ANTI_REPETITION_DIRECTIVE + SMART_FORMAT_DIRECTIVE + masterPrompt;
+    // ── Antifragile Mode prepend (highest priority — wraps the entire prompt) ──
+    const ANTIFRAGILE_PREFIX = antifragileState.active && antifragileState.niche.trim().length > 0
+      ? ANTIFRAGILE_SYSTEM_PROMPT(antifragileState.niche.trim()) + "\n\n"
+      : "";
+
+    masterPrompt = ANTIFRAGILE_PREFIX + ORCHESTRATION_DIRECTIVE + ANTI_REPETITION_DIRECTIVE + SMART_FORMAT_DIRECTIVE + masterPrompt;
 
     // ── Intent detection ──────────────────────────────────────────────────────
     //  • If a website is already live in the preview pane → treat any new
