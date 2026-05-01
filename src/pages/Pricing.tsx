@@ -256,17 +256,38 @@ const caseStudies = [
   },
 ];
 
-const comparisonRows = [
-  { label: "Missions per month", values: ["8", "Unlimited", "Unlimited", "Custom"] },
-  { label: "Concurrent agents", values: ["2", "8", "30+", "Unlimited"] },
-  { label: "Brand-Snap Guardian", values: ["Basic", "Full", "Full + Custom", "Custom"] },
-  { label: "Vault & version history", values: ["7 days", "Unlimited", "Unlimited", "Unlimited"] },
-  { label: "Finance/Legal orchestration", values: [false, true, true, true] },
-  { label: "Team collaboration", values: [false, "5 seats", "Unlimited", "Unlimited"] },
-  { label: "Integrations & API", values: [false, "Standard", "Custom API", "White-label"] },
-  { label: "Support level", values: ["Community", "Priority email", "Dedicated", "24/7 + CSM"] },
-  { label: "Custom agent training", values: [false, false, true, true] },
-  { label: "Audit logs", values: [false, false, true, true] },
+type CellValue = boolean | string | "limited";
+
+const comparisonGroups: { group: string; rows: { label: string; values: CellValue[] }[] }[] = [
+  {
+    group: "Design & Customization",
+    rows: [
+      { label: "Light / Dark mode switching", values: [true, true, true, true] },
+      { label: "NazAI visual themes", values: [false, true, true, true] },
+      { label: "Brand-Snap Canvas", values: [false, false, true, true] },
+      { label: "Aura Studio", values: [false, true, true, true] },
+      { label: "Custom brand kits & white-label", values: [false, false, "limited", true] },
+    ],
+  },
+  {
+    group: "Orchestration & Power",
+    rows: [
+      { label: "Missions per month", values: ["8", "Unlimited", "Unlimited", "Custom"] },
+      { label: "Concurrent agents", values: ["2", "8", "30+", "Unlimited"] },
+      { label: "Vault & version history", values: ["7 days", "Unlimited", "Unlimited", "Unlimited"] },
+      { label: "Finance / Legal orchestration", values: [false, true, true, true] },
+      { label: "Custom agent training", values: [false, false, true, true] },
+    ],
+  },
+  {
+    group: "Collaboration & Integrations",
+    rows: [
+      { label: "Team collaboration", values: [false, "5 seats", "Unlimited", "Unlimited"] },
+      { label: "Integrations & API", values: [false, "Standard", "Custom API", "White-label"] },
+      { label: "Audit logs", values: [false, false, true, true] },
+      { label: "Support level", values: ["Community", "Priority email", "Dedicated", "24/7 + CSM"] },
+    ],
+  },
 ];
 
 const faqs = [
