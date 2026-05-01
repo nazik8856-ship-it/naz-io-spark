@@ -2843,7 +2843,13 @@ const HomeView = ({
       {/* ─── ANTIFRAGILE MODE CHIP — toggle the Antifragile Resilience Orchestrator
               system prompt for this project. Persists per-project in localStorage. ─── */}
       {!isMinimized && !(isWebsiteIntent && isPreviewActive) && (
-        <div className="w-full max-w-2xl mx-auto px-2 mb-2 flex items-center justify-end">
+        <div className="w-full max-w-2xl mx-auto px-2 mb-2 flex items-center justify-end gap-2">
+          <ProDesignerMode
+            projectId={activeMissionId}
+            active={proDesignerState.active}
+            onChange={setProDesignerState}
+            accentColor="#a78bfa"
+          />
           <AntifragileMode
             projectId={activeMissionId}
             active={antifragileState.active}
