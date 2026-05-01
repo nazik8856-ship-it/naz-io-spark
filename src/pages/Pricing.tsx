@@ -669,6 +669,9 @@ const Pricing = () => {
                     {tier.cta}
                   </button>
                 </MagneticButton>
+                <p className="mt-3 text-[10px] text-center text-white/40 leading-relaxed">
+                  {tier.reassurance}
+                </p>
 
                 {/* Features */}
                 <ul className="mt-8 space-y-3">
