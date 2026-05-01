@@ -802,26 +802,41 @@ const Pricing = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {comparisonRows.map((row, i) => (
-                    <motion.tr
-                      key={row.label}
-                      initial={{ opacity: 0 }}
-                      whileInView={{ opacity: 1 }}
-                      viewport={{ once: true }}
-                      transition={{ duration: 0.3, delay: i * 0.03 }}
-                      className="border-b border-white/5 hover:bg-white/[0.02] transition-colors"
-                    >
-                      <td className="px-6 py-4 text-white/80">{row.label}</td>
-                      {row.values.map((v, j) => (
-                        <td key={j} className={`px-6 py-4 text-center ${j === 1 ? "bg-[#06b6d4]/[0.04]" : ""}`}>
-                          {typeof v === "boolean" ? (
-                            v ? <Check size={16} className="text-[#06b6d4] inline" /> : <X size={16} className="text-white/20 inline" />
-                          ) : (
-                            <span className="text-white/80">{v}</span>
-                          )}
+                  {comparisonGroups.map((grp, gi) => (
+                    <React.Fragment key={grp.group}>
+                      <tr className="bg-white/[0.03]">
+                        <td colSpan={5} className="px-6 py-3 text-[10px] font-black uppercase tracking-[0.25em] text-[#f5c451]">
+                          {grp.group}
                         </td>
+                      </tr>
+                      {grp.rows.map((row, i) => (
+                        <motion.tr
+                          key={row.label}
+                          initial={{ opacity: 0 }}
+                          whileInView={{ opacity: 1 }}
+                          viewport={{ once: true }}
+                          transition={{ duration: 0.3, delay: (gi * 0.05) + (i * 0.02) }}
+                          className="border-b border-white/5 hover:bg-white/[0.02] transition-colors"
+                        >
+                          <td className="px-6 py-4 text-white/80">{row.label}</td>
+                          {row.values.map((v, j) => (
+                            <td key={j} className={`px-6 py-4 text-center ${j === 1 ? "bg-[#06b6d4]/[0.04]" : ""}`}>
+                              {typeof v === "boolean" ? (
+                                v
+                                  ? <Check size={16} className="text-[#06b6d4] inline" aria-label="Included" />
+                                  : <Minus size={16} className="text-white/20 inline" aria-label="Not included" />
+                              ) : v === "limited" ? (
+                                <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#f5c451]/15 text-[#f5c451] border border-[#f5c451]/30">
+                                  Limited
+                                </span>
+                              ) : (
+                                <span className="text-white/80">{v}</span>
+                              )}
+                            </td>
+                          ))}
+                        </motion.tr>
                       ))}
-                    </motion.tr>
+                    </React.Fragment>
                   ))}
                 </tbody>
               </table>
