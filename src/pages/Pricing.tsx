@@ -22,6 +22,11 @@ import {
   FileCheck,
   Clock,
   Activity,
+  Palette,
+  Layers,
+  Wand2,
+  Sun,
+  Minus,
 } from "lucide-react";
 import MagneticButton from "@/components/interactions/MagneticButton";
 
