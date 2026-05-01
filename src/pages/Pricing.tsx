@@ -510,6 +510,82 @@ const Pricing = () => {
         </div>
       </section>
 
+      {/* ═══════════════════ TRUSTED BY (Logo Strip) ═══════════════════ */}
+      <section className="relative py-10 px-6 border-y border-white/5 bg-white/[0.015]">
+        <div className="max-w-7xl mx-auto">
+          <p className="text-center text-[10px] tracking-[0.4em] uppercase text-white/40 mb-6">
+            Join <span className="text-white font-bold">8,700+</span> teams orchestrating with NazAI
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-x-10 gap-y-4 opacity-70">
+            {trustedByLogos.map((logo) => (
+              <span
+                key={logo}
+                className="text-base md:text-lg font-black tracking-[0.15em] uppercase text-white/55 hover:text-white/90 transition-colors"
+                style={{ fontFamily: "'JetBrains Mono', monospace" }}
+              >
+                {logo}
+              </span>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ═══════════════════ VALUE RECAP — Why Teams Choose Us ═══════════════════ */}
+      <section className="relative py-20 px-6">
+        <div className="max-w-6xl mx-auto">
+          <div className="text-center mb-12">
+            <span className="text-[11px] tracking-[0.4em] text-[#06b6d4] font-bold uppercase block mb-4">
+              Why Teams Choose NazAI
+            </span>
+            <h2 className="text-3xl md:text-4xl font-black tracking-tight">
+              The orchestration layer your stack has been missing.
+            </h2>
+          </div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {valueRecap.map((v, i) => (
+              <motion.div
+                key={v.title}
+                initial={{ opacity: 0, y: 16 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.5, delay: i * 0.08 }}
+                className="p-6 rounded-2xl bg-white/[0.02] border border-white/10 hover:border-[#06b6d4]/40 transition-colors"
+              >
+                <v.icon size={22} className="text-[#06b6d4] mb-4" />
+                <h3 className="font-bold text-white mb-2">{v.title}</h3>
+                <p className="text-sm text-white/55 leading-relaxed">{v.desc}</p>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ═══════════════════ SOCIAL PROOF NEAR PRICING ═══════════════════ */}
+      <section className="relative pt-4 pb-10 px-6">
+        <div className="max-w-6xl mx-auto grid md:grid-cols-3 gap-4">
+          {pricingTestimonials.map((t, i) => (
+            <motion.figure
+              key={t.author}
+              initial={{ opacity: 0, y: 12 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.5, delay: i * 0.08 }}
+              className="p-5 rounded-xl bg-gradient-to-br from-white/[0.04] to-transparent border border-white/10"
+            >
+              <div className="flex gap-0.5 mb-2">
+                {[...Array(5)].map((_, k) => (
+                  <Star key={k} size={11} className="text-[#f5c451] fill-[#f5c451]" />
+                ))}
+              </div>
+              <blockquote className="text-sm text-white/80 italic leading-relaxed mb-3">"{t.quote}"</blockquote>
+              <figcaption className="text-[11px] uppercase tracking-wider text-white/45">
+                <span className="text-white/80 font-bold">{t.author}</span> · {t.role}
+              </figcaption>
+            </motion.figure>
+          ))}
+        </div>
+      </section>
+
       {/* ═══════════════════ PRICING TIERS ═══════════════════ */}
       <section id="tiers" className="relative py-16 px-6">
         <div className="max-w-7xl mx-auto">
