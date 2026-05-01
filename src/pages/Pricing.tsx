@@ -483,7 +483,7 @@ const Pricing = () => {
                     annual ? "bg-[#020617]/20 text-[#020617]" : "bg-[#f5c451]/20 text-[#f5c451]"
                   }`}
                 >
-                  Save 25%
+                  Save 25% · 2 months free
                 </span>
               </button>
             </div>
