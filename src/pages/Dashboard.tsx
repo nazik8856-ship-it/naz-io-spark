@@ -3937,6 +3937,8 @@ export default function Dashboard() {
 
   // ── Antifragile Resilience Orchestrator mode (per-project, persisted to localStorage) ──
   const { state: antifragileState, update: setAntifragileState } = useAntifragileState(activeMissionId);
+  // ── Pro Designer mode (per-project, persisted to localStorage) ──
+  const { state: proDesignerState, update: setProDesignerState } = useProDesignerState(activeMissionId);
   const [projectsExpanded, setProjectsExpanded] = useState(true);
 
   // Dynamic cards state
