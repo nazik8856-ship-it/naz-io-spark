@@ -5300,6 +5300,8 @@ export default function Dashboard() {
             activeMissionId={activeMissionId}
             antifragileState={antifragileState}
             setAntifragileState={setAntifragileState}
+            proDesignerState={proDesignerState}
+            setProDesignerState={setProDesignerState}
           />
         );
     }
