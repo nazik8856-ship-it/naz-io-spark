@@ -22,6 +22,11 @@ import {
   FileCheck,
   Clock,
   Activity,
+  Palette,
+  Layers,
+  Wand2,
+  Sun,
+  Minus,
 } from "lucide-react";
 import MagneticButton from "@/components/interactions/MagneticButton";
 
@@ -135,12 +140,13 @@ const tiers = [
     monthly: 0,
     annual: 0,
     free: true,
-    cta: "Start Free Mission",
+    cta: "Start Free — No Card Required",
+    reassurance: "Free forever • No credit card • Full data export",
     power: 33,
     features: [
       "8 missions / month",
       "Core Input Sensor + basic Logic Gate",
-      "Brand-Snap Canvas (limited uploads)",
+      "Light & Dark mode switching only",
       "Dashboard with Recent Projects + basic Archives",
       "Standard execution (plans, simple deployments)",
     ],
@@ -148,6 +154,7 @@ const tiers = [
       "Up to 2 concurrent agents",
       "Community support",
       "Basic export (PDF, MD)",
+      "No NazAI visual themes • No Brand-Snap Canvas • No Aura Studio",
     ],
     trust: "No card required • Cancel anytime • Full data export",
   },
@@ -158,21 +165,23 @@ const tiers = [
     monthly: 34,
     annual: 25,
     popular: true,
-    cta: "Activate Operator Tier",
+    cta: "Upgrade to Operator",
+    reassurance: "14-day free trial • Cancel anytime • No credit card required",
     power: 75,
     features: [
       "Unlimited missions & conversational orchestration",
-      "Full Brand-Snap Canvas + unlimited file drops + Guardian",
+      "Full access to NazAI visual themes",
+      "Aura Studio included",
       "Advanced Logic Gate (multi-scenario, risk analysis)",
       "Up to 8 concurrent AI agents",
       "Rich Execution: websites, automations, exports, integrations",
-      "Full Vault: unlimited Archives, Trash recovery, history",
       "Team invites (up to 5) + priority email support",
     ],
     expanded: [
       "Webhook & Zapier orchestration",
       "Custom domain deployments",
       "Advanced analytics dashboard",
+      "Brand-Snap Canvas not included — upgrade to Titan for full canvas",
     ],
     trust: "30-day money-back • Upgrade/downgrade anytime",
   },
@@ -182,21 +191,23 @@ const tiers = [
     tagline: "Scaling teams and complex enterprises.",
     monthly: 119,
     annual: 89,
-    cta: "Enter Titan Tier",
+    cta: "Talk to Sales — Enter Titan",
+    reassurance: "30-day money-back • Concierge onboarding included",
     power: 100,
     features: [
-      "Truly unlimited everything",
+      "Everything in Operator, truly unlimited",
+      "Brand-Snap Canvas + NazAI visual themes (full design suite)",
+      "Aura Studio included",
       "Fleet of 30+ concurrent agents with custom training",
       "Deep Finance, Legal, Operations & Scaling Orchestration",
-      "Advanced Execution: white-label, custom API, multi-entity",
       "Unlimited team seats + role-based collaboration Vault",
       "Dedicated priority support + personal strategy session",
-      "Audit logs + compliance reporting",
     ],
     expanded: [
       "On-prem deployment options",
       "Custom agent training pipelines",
       "SLA-backed 99.99% uptime",
+      "Audit logs + compliance reporting",
     ],
     trust: "Dedicated success manager • SOC2 Type II ready",
   },
@@ -245,17 +256,38 @@ const caseStudies = [
   },
 ];
 
-const comparisonRows = [
-  { label: "Missions per month", values: ["8", "Unlimited", "Unlimited", "Custom"] },
-  { label: "Concurrent agents", values: ["2", "8", "30+", "Unlimited"] },
-  { label: "Brand-Snap Guardian", values: ["Basic", "Full", "Full + Custom", "Custom"] },
-  { label: "Vault & version history", values: ["7 days", "Unlimited", "Unlimited", "Unlimited"] },
-  { label: "Finance/Legal orchestration", values: [false, true, true, true] },
-  { label: "Team collaboration", values: [false, "5 seats", "Unlimited", "Unlimited"] },
-  { label: "Integrations & API", values: [false, "Standard", "Custom API", "White-label"] },
-  { label: "Support level", values: ["Community", "Priority email", "Dedicated", "24/7 + CSM"] },
-  { label: "Custom agent training", values: [false, false, true, true] },
-  { label: "Audit logs", values: [false, false, true, true] },
+type CellValue = boolean | string | "limited";
+
+const comparisonGroups: { group: string; rows: { label: string; values: CellValue[] }[] }[] = [
+  {
+    group: "Design & Customization",
+    rows: [
+      { label: "Light / Dark mode switching", values: [true, true, true, true] },
+      { label: "NazAI visual themes", values: [false, true, true, true] },
+      { label: "Brand-Snap Canvas", values: [false, false, true, true] },
+      { label: "Aura Studio", values: [false, true, true, true] },
+      { label: "Custom brand kits & white-label", values: [false, false, "limited", true] },
+    ],
+  },
+  {
+    group: "Orchestration & Power",
+    rows: [
+      { label: "Missions per month", values: ["8", "Unlimited", "Unlimited", "Custom"] },
+      { label: "Concurrent agents", values: ["2", "8", "30+", "Unlimited"] },
+      { label: "Vault & version history", values: ["7 days", "Unlimited", "Unlimited", "Unlimited"] },
+      { label: "Finance / Legal orchestration", values: [false, true, true, true] },
+      { label: "Custom agent training", values: [false, false, true, true] },
+    ],
+  },
+  {
+    group: "Collaboration & Integrations",
+    rows: [
+      { label: "Team collaboration", values: [false, "5 seats", "Unlimited", "Unlimited"] },
+      { label: "Integrations & API", values: [false, "Standard", "Custom API", "White-label"] },
+      { label: "Audit logs", values: [false, false, true, true] },
+      { label: "Support level", values: ["Community", "Priority email", "Dedicated", "24/7 + CSM"] },
+    ],
+  },
 ];
 
 const faqs = [
@@ -303,7 +335,45 @@ const faqs = [
     q: "Can I self-host or get on-prem deployment?",
     a: "Enterprise customers can request on-prem or VPC deployments with dedicated infrastructure. Talk to our team to scope.",
   },
+  {
+    q: "What is Aura Studio and which tiers include it?",
+    a: "Aura Studio is our advanced visual generation + brand-aware design surface for crafting on-brand websites, decks, and assets. It's included in Operator, Titan, and Enterprise. It's not available on Explorer.",
+  },
+  {
+    q: "What's the difference between NazAI visual themes and Brand-Snap Canvas?",
+    a: "NazAI visual themes are curated, ready-to-use design systems applied across your outputs (Operator and above). Brand-Snap Canvas is the full custom brand-engineering surface — uploads, guardian rules, palette/typography lock — available on Titan and Enterprise.",
+  },
+  {
+    q: "How is billing handled — monthly vs annual?",
+    a: "Monthly plans bill every 30 days. Annual plans are billed once per year and save ~25% (about 2.5 months free). You can switch billing cycles anytime from your dashboard.",
+  },
+  {
+    q: "What happens when I upgrade?",
+    a: "Upgrades take effect instantly. New tier features (themes, Brand-Snap, Aura Studio, agent capacity) unlock immediately, and we prorate the difference automatically — no migration, no downtime.",
+  },
+  {
+    q: "Can I cancel anytime?",
+    a: "Yes. Cancellations are instant from your dashboard. You keep access until the end of your current billing period, and your data remains exportable indefinitely.",
+  },
 ];
+
+// ─── Value Recap (Why Teams Choose Us) ──────────────────────────
+const valueRecap = [
+  { icon: Zap, title: "From prompt to production", desc: "Strategy, design, and execution in a single orchestrated pass — not 12 disconnected tools." },
+  { icon: Palette, title: "On-brand by default", desc: "Visual themes, Brand-Snap, and Aura Studio keep every output unmistakably yours." },
+  { icon: Shield, title: "Enterprise-grade trust", desc: "SOC2, GDPR, AES-256, no training on your data. Built for serious operators." },
+  { icon: TrendingUp, title: "Measurable impact in 30 days", desc: "87% of teams report tangible ROI within their first month on Operator or Titan." },
+];
+
+// ─── Pricing-Adjacent Social Proof ──────────────────────────────
+const pricingTestimonials = [
+  { quote: "We replaced 4 SaaS subscriptions with NazAI Operator. ROI in week one.", author: "Lena M.", role: "Founder, B2B SaaS" },
+  { quote: "Brand-Snap on Titan is the first design tool that actually respects our system.", author: "David R.", role: "Head of Design, Agency" },
+  { quote: "Aura Studio outputs go straight to our site. Zero rework.", author: "Priya S.", role: "Marketing Lead" },
+];
+
+// ─── Trusted By logos / stats ───────────────────────────────────
+const trustedByLogos = ["Northwind", "Helios Labs", "Atlas&Co.", "Lumen", "Vector7", "Nordstack"];
 
 // ─── Main Pricing Page ────────────────────────────────────────────
 const Pricing = () => {
@@ -413,7 +483,7 @@ const Pricing = () => {
                     annual ? "bg-[#020617]/20 text-[#020617]" : "bg-[#f5c451]/20 text-[#f5c451]"
                   }`}
                 >
-                  Save 25%
+                  Save 25% · 2 months free
                 </span>
               </button>
             </div>
@@ -440,6 +510,82 @@ const Pricing = () => {
         </div>
       </section>
 
+      {/* ═══════════════════ TRUSTED BY (Logo Strip) ═══════════════════ */}
+      <section className="relative py-10 px-6 border-y border-white/5 bg-white/[0.015]">
+        <div className="max-w-7xl mx-auto">
+          <p className="text-center text-[10px] tracking-[0.4em] uppercase text-white/40 mb-6">
+            Join <span className="text-white font-bold">8,700+</span> teams orchestrating with NazAI
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-x-10 gap-y-4 opacity-70">
+            {trustedByLogos.map((logo) => (
+              <span
+                key={logo}
+                className="text-base md:text-lg font-black tracking-[0.15em] uppercase text-white/55 hover:text-white/90 transition-colors"
+                style={{ fontFamily: "'JetBrains Mono', monospace" }}
+              >
+                {logo}
+              </span>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ═══════════════════ VALUE RECAP — Why Teams Choose Us ═══════════════════ */}
+      <section className="relative py-20 px-6">
+        <div className="max-w-6xl mx-auto">
+          <div className="text-center mb-12">
+            <span className="text-[11px] tracking-[0.4em] text-[#06b6d4] font-bold uppercase block mb-4">
+              Why Teams Choose NazAI
+            </span>
+            <h2 className="text-3xl md:text-4xl font-black tracking-tight">
+              The orchestration layer your stack has been missing.
+            </h2>
+          </div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {valueRecap.map((v, i) => (
+              <motion.div
+                key={v.title}
+                initial={{ opacity: 0, y: 16 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.5, delay: i * 0.08 }}
+                className="p-6 rounded-2xl bg-white/[0.02] border border-white/10 hover:border-[#06b6d4]/40 transition-colors"
+              >
+                <v.icon size={22} className="text-[#06b6d4] mb-4" />
+                <h3 className="font-bold text-white mb-2">{v.title}</h3>
+                <p className="text-sm text-white/55 leading-relaxed">{v.desc}</p>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ═══════════════════ SOCIAL PROOF NEAR PRICING ═══════════════════ */}
+      <section className="relative pt-4 pb-10 px-6">
+        <div className="max-w-6xl mx-auto grid md:grid-cols-3 gap-4">
+          {pricingTestimonials.map((t, i) => (
+            <motion.figure
+              key={t.author}
+              initial={{ opacity: 0, y: 12 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.5, delay: i * 0.08 }}
+              className="p-5 rounded-xl bg-gradient-to-br from-white/[0.04] to-transparent border border-white/10"
+            >
+              <div className="flex gap-0.5 mb-2">
+                {[...Array(5)].map((_, k) => (
+                  <Star key={k} size={11} className="text-[#f5c451] fill-[#f5c451]" />
+                ))}
+              </div>
+              <blockquote className="text-sm text-white/80 italic leading-relaxed mb-3">"{t.quote}"</blockquote>
+              <figcaption className="text-[11px] uppercase tracking-wider text-white/45">
+                <span className="text-white/80 font-bold">{t.author}</span> · {t.role}
+              </figcaption>
+            </motion.figure>
+          ))}
+        </div>
+      </section>
+
       {/* ═══════════════════ PRICING TIERS ═══════════════════ */}
       <section id="tiers" className="relative py-16 px-6">
         <div className="max-w-7xl mx-auto">
@@ -459,13 +605,14 @@ const Pricing = () => {
                 }`}
               >
                 {tier.popular && (
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+                  <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
                     <motion.div
-                      animate={{ boxShadow: ["0 0 20px rgba(6,182,212,0.4)", "0 0 40px rgba(6,182,212,0.7)", "0 0 20px rgba(6,182,212,0.4)"] }}
+                      animate={{ boxShadow: ["0 0 24px rgba(6,182,212,0.45)", "0 0 50px rgba(6,182,212,0.85)", "0 0 24px rgba(6,182,212,0.45)"] }}
                       transition={{ duration: 2.5, repeat: Infinity }}
-                      className="px-4 py-1.5 rounded-full bg-gradient-to-r from-[#06b6d4] to-[#0891b2] text-[#020617] text-[10px] font-black tracking-[0.2em] uppercase"
+                      className="px-5 py-2 rounded-full bg-gradient-to-r from-[#06b6d4] via-[#22d3ee] to-[#0891b2] text-[#020617] text-[10px] font-black tracking-[0.22em] uppercase flex items-center gap-1.5"
                     >
-                      Most Popular
+                      <Star size={10} className="fill-[#020617]" />
+                      Best Value · Most Popular
                     </motion.div>
                   </div>
                 )}
@@ -522,6 +669,9 @@ const Pricing = () => {
                     {tier.cta}
                   </button>
                 </MagneticButton>
+                <p className="mt-3 text-[10px] text-center text-white/40 leading-relaxed">
+                  {tier.reassurance}
+                </p>
 
                 {/* Features */}
                 <ul className="mt-8 space-y-3">
@@ -732,26 +882,41 @@ const Pricing = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {comparisonRows.map((row, i) => (
-                    <motion.tr
-                      key={row.label}
-                      initial={{ opacity: 0 }}
-                      whileInView={{ opacity: 1 }}
-                      viewport={{ once: true }}
-                      transition={{ duration: 0.3, delay: i * 0.03 }}
-                      className="border-b border-white/5 hover:bg-white/[0.02] transition-colors"
-                    >
-                      <td className="px-6 py-4 text-white/80">{row.label}</td>
-                      {row.values.map((v, j) => (
-                        <td key={j} className={`px-6 py-4 text-center ${j === 1 ? "bg-[#06b6d4]/[0.04]" : ""}`}>
-                          {typeof v === "boolean" ? (
-                            v ? <Check size={16} className="text-[#06b6d4] inline" /> : <X size={16} className="text-white/20 inline" />
-                          ) : (
-                            <span className="text-white/80">{v}</span>
-                          )}
+                  {comparisonGroups.map((grp, gi) => (
+                    <React.Fragment key={grp.group}>
+                      <tr className="bg-white/[0.03]">
+                        <td colSpan={5} className="px-6 py-3 text-[10px] font-black uppercase tracking-[0.25em] text-[#f5c451]">
+                          {grp.group}
                         </td>
+                      </tr>
+                      {grp.rows.map((row, i) => (
+                        <motion.tr
+                          key={row.label}
+                          initial={{ opacity: 0 }}
+                          whileInView={{ opacity: 1 }}
+                          viewport={{ once: true }}
+                          transition={{ duration: 0.3, delay: (gi * 0.05) + (i * 0.02) }}
+                          className="border-b border-white/5 hover:bg-white/[0.02] transition-colors"
+                        >
+                          <td className="px-6 py-4 text-white/80">{row.label}</td>
+                          {row.values.map((v, j) => (
+                            <td key={j} className={`px-6 py-4 text-center ${j === 1 ? "bg-[#06b6d4]/[0.04]" : ""}`}>
+                              {typeof v === "boolean" ? (
+                                v
+                                  ? <Check size={16} className="text-[#06b6d4] inline" aria-label="Included" />
+                                  : <Minus size={16} className="text-white/20 inline" aria-label="Not included" />
+                              ) : v === "limited" ? (
+                                <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#f5c451]/15 text-[#f5c451] border border-[#f5c451]/30">
+                                  Limited
+                                </span>
+                              ) : (
+                                <span className="text-white/80">{v}</span>
+                              )}
+                            </td>
+                          ))}
+                        </motion.tr>
                       ))}
-                    </motion.tr>
+                    </React.Fragment>
                   ))}
                 </tbody>
               </table>
