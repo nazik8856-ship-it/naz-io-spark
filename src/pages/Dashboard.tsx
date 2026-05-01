@@ -6,6 +6,7 @@ import MagneticButton from "@/components/interactions/MagneticButton";
 import WebsiteRevealPane from "@/components/dashboard/WebsiteRevealPane";
 import NextStepHints from "@/components/dashboard/NextStepHints";
 import AntifragileMode, { useAntifragileState, ANTIFRAGILE_SYSTEM_PROMPT } from "@/components/dashboard/AntifragileMode";
+import ProDesignerMode, { useProDesignerState, PRO_DESIGNER_SYSTEM_PROMPT } from "@/components/dashboard/ProDesignerMode";
 import AIResponseExtras, {
   readGroundTruth,
   type GroundTruthEntry,
@@ -2402,6 +2403,8 @@ const HomeView = ({
   activeMissionId,
   antifragileState,
   setAntifragileState,
+  proDesignerState,
+  setProDesignerState,
 }: any) => {
   // Template definitions (master templates - never mutated)
   const TEMPLATE_MASTERS = {
@@ -2840,7 +2843,13 @@ const HomeView = ({
       {/* ─── ANTIFRAGILE MODE CHIP — toggle the Antifragile Resilience Orchestrator
               system prompt for this project. Persists per-project in localStorage. ─── */}
       {!isMinimized && !(isWebsiteIntent && isPreviewActive) && (
-        <div className="w-full max-w-2xl mx-auto px-2 mb-2 flex items-center justify-end">
+        <div className="w-full max-w-2xl mx-auto px-2 mb-2 flex items-center justify-end gap-2">
+          <ProDesignerMode
+            projectId={activeMissionId}
+            active={proDesignerState.active}
+            onChange={setProDesignerState}
+            accentColor="#a78bfa"
+          />
           <AntifragileMode
             projectId={activeMissionId}
             active={antifragileState.active}
@@ -3928,6 +3937,8 @@ export default function Dashboard() {
 
   // ── Antifragile Resilience Orchestrator mode (per-project, persisted to localStorage) ──
   const { state: antifragileState, update: setAntifragileState } = useAntifragileState(activeMissionId);
+  // ── Pro Designer mode (per-project, persisted to localStorage) ──
+  const { state: proDesignerState, update: setProDesignerState } = useProDesignerState(activeMissionId);
   const [projectsExpanded, setProjectsExpanded] = useState(true);
 
   // Dynamic cards state
@@ -4683,7 +4694,10 @@ export default function Dashboard() {
       ? ANTIFRAGILE_SYSTEM_PROMPT(antifragileState.niche.trim()) + "\n\n"
       : "";
 
-    masterPrompt = ANTIFRAGILE_PREFIX + ORCHESTRATION_DIRECTIVE + ANTI_REPETITION_DIRECTIVE + SMART_FORMAT_DIRECTIVE + masterPrompt;
+    // ── Pro Designer Mode prepend ──
+    const PRO_DESIGNER_PREFIX = proDesignerState.active ? PRO_DESIGNER_SYSTEM_PROMPT + "\n\n" : "";
+
+    masterPrompt = ANTIFRAGILE_PREFIX + PRO_DESIGNER_PREFIX + ORCHESTRATION_DIRECTIVE + ANTI_REPETITION_DIRECTIVE + SMART_FORMAT_DIRECTIVE + masterPrompt;
 
     // ── Intent detection ──────────────────────────────────────────────────────
     //  • If a website is already live in the preview pane → treat any new
@@ -5286,6 +5300,8 @@ export default function Dashboard() {
             activeMissionId={activeMissionId}
             antifragileState={antifragileState}
             setAntifragileState={setAntifragileState}
+            proDesignerState={proDesignerState}
+            setProDesignerState={setProDesignerState}
           />
         );
     }
