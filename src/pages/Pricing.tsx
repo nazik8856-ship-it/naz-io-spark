@@ -605,13 +605,14 @@ const Pricing = () => {
                 }`}
               >
                 {tier.popular && (
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+                  <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
                     <motion.div
-                      animate={{ boxShadow: ["0 0 20px rgba(6,182,212,0.4)", "0 0 40px rgba(6,182,212,0.7)", "0 0 20px rgba(6,182,212,0.4)"] }}
+                      animate={{ boxShadow: ["0 0 24px rgba(6,182,212,0.45)", "0 0 50px rgba(6,182,212,0.85)", "0 0 24px rgba(6,182,212,0.45)"] }}
                       transition={{ duration: 2.5, repeat: Infinity }}
-                      className="px-4 py-1.5 rounded-full bg-gradient-to-r from-[#06b6d4] to-[#0891b2] text-[#020617] text-[10px] font-black tracking-[0.2em] uppercase"
+                      className="px-5 py-2 rounded-full bg-gradient-to-r from-[#06b6d4] via-[#22d3ee] to-[#0891b2] text-[#020617] text-[10px] font-black tracking-[0.22em] uppercase flex items-center gap-1.5"
                     >
-                      Most Popular
+                      <Star size={10} className="fill-[#020617]" />
+                      Best Value · Most Popular
                     </motion.div>
                   </div>
                 )}
