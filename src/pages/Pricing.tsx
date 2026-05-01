@@ -372,9 +372,6 @@ const pricingTestimonials = [
   { quote: "Aura Studio outputs go straight to our site. Zero rework.", author: "Priya S.", role: "Marketing Lead" },
 ];
 
-// ─── Trusted By logos / stats ───────────────────────────────────
-const trustedByLogos = ["Northwind", "Helios Labs", "Atlas&Co.", "Lumen", "Vector7", "Nordstack"];
-
 // ─── Main Pricing Page ────────────────────────────────────────────
 const Pricing = () => {
   const navigate = useNavigate();
@@ -405,7 +402,7 @@ const Pricing = () => {
       </nav>
 
       {/* ═══════════════════ HERO ═══════════════════ */}
-      <section className="relative pt-24 pb-16 px-6">
+      <section className="relative pt-24 pb-12 px-6">
         <div className="max-w-5xl mx-auto text-center">
           <motion.div
             initial={{ opacity: 0, y: 12 }}
@@ -491,104 +488,13 @@ const Pricing = () => {
               Unlock bonus orchestration credits + priority support
             </p>
           </motion.div>
-
-          {/* Trust Bar */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.6, delay: 0.5 }}
-            className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[11px] tracking-wider uppercase text-white/40"
-          >
-            <span className="flex items-center gap-1.5"><Users size={12} /> 8,700+ founders & teams</span>
-            <span className="text-white/15">•</span>
-            <span className="flex items-center gap-1.5"><Star size={12} className="text-[#f5c451]" /> 4.9/5 from 1,200+ reviews</span>
-            <span className="text-white/15">•</span>
-            <span className="flex items-center gap-1.5"><Shield size={12} /> SOC2 & GDPR</span>
-            <span className="text-white/15">•</span>
-            <span className="flex items-center gap-1.5"><Activity size={12} className="text-[#06b6d4]" /> 99.98% uptime</span>
-          </motion.div>
         </div>
       </section>
 
-      {/* ═══════════════════ TRUSTED BY (Logo Strip) ═══════════════════ */}
-      <section className="relative py-10 px-6 border-y border-white/5 bg-white/[0.015]">
+      {/* ═══════════════════ PRICING TIERS ─────────────────────────────────────── */}
+      <section id="tiers" className="relative py-8 px-6">
         <div className="max-w-7xl mx-auto">
-          <p className="text-center text-[10px] tracking-[0.4em] uppercase text-white/40 mb-6">
-            Join <span className="text-white font-bold">8,700+</span> teams orchestrating with NazAI
-          </p>
-          <div className="flex flex-wrap items-center justify-center gap-x-10 gap-y-4 opacity-70">
-            {trustedByLogos.map((logo) => (
-              <span
-                key={logo}
-                className="text-base md:text-lg font-black tracking-[0.15em] uppercase text-white/55 hover:text-white/90 transition-colors"
-                style={{ fontFamily: "'JetBrains Mono', monospace" }}
-              >
-                {logo}
-              </span>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ═══════════════════ VALUE RECAP — Why Teams Choose Us ═══════════════════ */}
-      <section className="relative py-20 px-6">
-        <div className="max-w-6xl mx-auto">
-          <div className="text-center mb-12">
-            <span className="text-[11px] tracking-[0.4em] text-[#06b6d4] font-bold uppercase block mb-4">
-              Why Teams Choose NazAI
-            </span>
-            <h2 className="text-3xl md:text-4xl font-black tracking-tight">
-              The orchestration layer your stack has been missing.
-            </h2>
-          </div>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {valueRecap.map((v, i) => (
-              <motion.div
-                key={v.title}
-                initial={{ opacity: 0, y: 16 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.5, delay: i * 0.08 }}
-                className="p-6 rounded-2xl bg-white/[0.02] border border-white/10 hover:border-[#06b6d4]/40 transition-colors"
-              >
-                <v.icon size={22} className="text-[#06b6d4] mb-4" />
-                <h3 className="font-bold text-white mb-2">{v.title}</h3>
-                <p className="text-sm text-white/55 leading-relaxed">{v.desc}</p>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ═══════════════════ SOCIAL PROOF NEAR PRICING ═══════════════════ */}
-      <section className="relative pt-4 pb-10 px-6">
-        <div className="max-w-6xl mx-auto grid md:grid-cols-3 gap-4">
-          {pricingTestimonials.map((t, i) => (
-            <motion.figure
-              key={t.author}
-              initial={{ opacity: 0, y: 12 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.5, delay: i * 0.08 }}
-              className="p-5 rounded-xl bg-gradient-to-br from-white/[0.04] to-transparent border border-white/10"
-            >
-              <div className="flex gap-0.5 mb-2">
-                {[...Array(5)].map((_, k) => (
-                  <Star key={k} size={11} className="text-[#f5c451] fill-[#f5c451]" />
-                ))}
-              </div>
-              <blockquote className="text-sm text-white/80 italic leading-relaxed mb-3">"{t.quote}"</blockquote>
-              <figcaption className="text-[11px] uppercase tracking-wider text-white/45">
-                <span className="text-white/80 font-bold">{t.author}</span> · {t.role}
-              </figcaption>
-            </motion.figure>
-          ))}
-        </div>
-      </section>
-
-      {/* ═══════════════════ PRICING TIERS ═══════════════════ */}
-      <section id="tiers" className="relative py-16 px-6">
-        <div className="max-w-7xl mx-auto">
+          <h2 className="text-3xl font-black text-center mb-10">Choose your NazAI Mission Tier</h2>
           <div className="grid md:grid-cols-3 gap-6 lg:gap-8">
             {tiers.map((tier, idx) => (
               <motion.div
@@ -600,7 +506,7 @@ const Pricing = () => {
                 whileHover={{ y: -6 }}
                 className={`relative rounded-2xl p-8 backdrop-blur-sm transition-all duration-500 ${
                   tier.popular
-                    ? "bg-gradient-to-b from-[#06b6d4]/10 via-white/[0.03] to-white/[0.02] border-2 border-[#06b6d4]/40 shadow-[0_0_60px_rgba(6,182,212,0.15)] md:scale-105"
+                    ? "bg-gradient-to-b from-[#06b6d4]/10 via-white/[0.03] to-white/[0.02] border-2 border-[#06b6d4]/40 shadow-[0_0_60px_rgba(6,182,212,0.15)] lg:scale-105 z-10"
                     : "bg-white/[0.02] border border-white/10 hover:border-[#f5c451]/40"
                 }`}
               >
@@ -743,8 +649,130 @@ const Pricing = () => {
         </div>
       </section>
 
-      {/* ═══════════════════ TRUST & CREDIBILITY ═══════════════════ */}
-      <section id="trust" className="relative py-24 px-6 border-t border-white/5">
+      {/* ═══════════════════ COMPARISON TABLE ─────────────────────────────────────── */}
+      <section id="compare" className="relative py-24 px-6">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-12">
+            <span className="text-[11px] tracking-[0.4em] text-[#06b6d4] font-bold uppercase block mb-4">
+              Side by Side
+            </span>
+            <h2 className="text-3xl md:text-5xl font-black tracking-tight">Compare every capability</h2>
+          </div>
+          <div className="rounded-2xl border border-white/10 overflow-hidden bg-white/[0.02] backdrop-blur-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-white/10 bg-white/[0.02]">
+                    <th className="text-left px-6 py-5 font-bold text-white/60 uppercase text-[11px] tracking-wider">Feature</th>
+                    {["Explorer", "Operator", "Titan", "Enterprise"].map((c) => (
+                      <th key={c} className={`px-6 py-5 font-black uppercase text-[11px] tracking-[0.15em] ${c === "Operator" ? "text-[#06b6d4]" : "text-white"}`}>
+                        {c}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {comparisonGroups.map((grp, gi) => (
+                    <React.Fragment key={grp.group}>
+                      <tr className="bg-white/[0.03]">
+                        <td colSpan={5} className="px-6 py-3 text-[10px] font-black uppercase tracking-[0.25em] text-[#f5c451]">
+                          {grp.group}
+                        </td>
+                      </tr>
+                      {grp.rows.map((row, i) => (
+                        <motion.tr
+                          key={row.label}
+                          initial={{ opacity: 0 }}
+                          whileInView={{ opacity: 1 }}
+                          viewport={{ once: true }}
+                          transition={{ duration: 0.3, delay: (gi * 0.05) + (i * 0.02) }}
+                          className="border-b border-white/5 hover:bg-white/[0.02] transition-colors"
+                        >
+                          <td className="px-6 py-4 text-white/80">{row.label}</td>
+                          {row.values.map((v, j) => (
+                            <td key={j} className={`px-6 py-4 text-center ${j === 1 ? "bg-[#06b6d4]/[0.04]" : ""}`}>
+                              {typeof v === "boolean" ? (
+                                v
+                                  ? <Check size={16} className="text-[#06b6d4] inline" aria-label="Included" />
+                                  : <Minus size={16} className="text-white/20 inline" aria-label="Not included" />
+                              ) : v === "limited" ? (
+                                <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#f5c451]/15 text-[#f5c451] border border-[#f5c451]/30">
+                                  Limited
+                                </span>
+                              ) : (
+                                <span className="text-white/80">{v}</span>
+                              )}
+                            </td>
+                          ))}
+                        </motion.tr>
+                      ))}
+                    </React.Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ═══════════════════ VALUE RECAP ─────────────────────────────────────── */}
+      <section className="relative py-20 px-6 border-t border-white/5">
+        <div className="max-w-6xl mx-auto">
+          <div className="text-center mb-12">
+            <span className="text-[11px] tracking-[0.4em] text-[#06b6d4] font-bold uppercase block mb-4">
+              Why Teams Choose NazAI
+            </span>
+            <h2 className="text-3xl md:text-4xl font-black tracking-tight">
+              The orchestration layer your stack has been missing.
+            </h2>
+          </div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {valueRecap.map((v, i) => (
+              <motion.div
+                key={v.title}
+                initial={{ opacity: 0, y: 16 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.5, delay: i * 0.08 }}
+                className="p-6 rounded-2xl bg-white/[0.02] border border-white/10 hover:border-[#06b6d4]/40 transition-colors"
+              >
+                <v.icon size={22} className="text-[#06b6d4] mb-4" />
+                <h3 className="font-bold text-white mb-2">{v.title}</h3>
+                <p className="text-sm text-white/55 leading-relaxed">{v.desc}</p>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ═══════════════════ SOCIAL PROOF TESTIMONIALS ─────────────────────────────────────── */}
+      <section className="relative pt-4 pb-10 px-6">
+        <div className="max-w-6xl mx-auto grid md:grid-cols-3 gap-4">
+          {pricingTestimonials.map((t, i) => (
+            <motion.figure
+              key={t.author}
+              initial={{ opacity: 0, y: 12 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.5, delay: i * 0.08 }}
+              className="p-5 rounded-xl bg-gradient-to-br from-white/[0.04] to-transparent border border-white/10"
+            >
+              <div className="flex gap-0.5 mb-2">
+                {[...Array(5)].map((_, k) => (
+                  <Star key={k} size={11} className="text-[#f5c451] fill-[#f5c451]" />
+                ))}
+              </div>
+              <blockquote className="text-sm text-white/80 italic leading-relaxed mb-3">"{t.quote}"</blockquote>
+              <figcaption className="text-[11px] uppercase tracking-wider text-white/45">
+                <span className="text-white/80 font-bold">{t.author}</span> · {t.role}
+              </figcaption>
+            </motion.figure>
+          ))}
+        </div>
+      </section>
+
+      {/* ═══════════════════ TRUST & CREDIBILITY ─────────────────────────────────────── */}
+      <section id="trust" className="relative py-24 px-6">
         <div className="max-w-7xl mx-auto">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -856,72 +884,6 @@ const Pricing = () => {
           <p className="text-center text-sm text-white/40 italic max-w-3xl mx-auto">
             Unlike basic website builders, NazAI delivers deep, ongoing business intelligence and execution.
           </p>
-        </div>
-      </section>
-
-      {/* ═══════════════════ COMPARISON TABLE ═══════════════════ */}
-      <section id="compare" className="relative py-24 px-6 border-t border-white/5">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center mb-12">
-            <span className="text-[11px] tracking-[0.4em] text-[#06b6d4] font-bold uppercase block mb-4">
-              Side by Side
-            </span>
-            <h2 className="text-3xl md:text-5xl font-black tracking-tight">Compare every capability</h2>
-          </div>
-          <div className="rounded-2xl border border-white/10 overflow-hidden bg-white/[0.02] backdrop-blur-sm">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-white/10 bg-white/[0.02]">
-                    <th className="text-left px-6 py-5 font-bold text-white/60 uppercase text-[11px] tracking-wider">Feature</th>
-                    {["Explorer", "Operator", "Titan", "Enterprise"].map((c) => (
-                      <th key={c} className={`px-6 py-5 font-black uppercase text-[11px] tracking-[0.15em] ${c === "Operator" ? "text-[#06b6d4]" : "text-white"}`}>
-                        {c}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {comparisonGroups.map((grp, gi) => (
-                    <React.Fragment key={grp.group}>
-                      <tr className="bg-white/[0.03]">
-                        <td colSpan={5} className="px-6 py-3 text-[10px] font-black uppercase tracking-[0.25em] text-[#f5c451]">
-                          {grp.group}
-                        </td>
-                      </tr>
-                      {grp.rows.map((row, i) => (
-                        <motion.tr
-                          key={row.label}
-                          initial={{ opacity: 0 }}
-                          whileInView={{ opacity: 1 }}
-                          viewport={{ once: true }}
-                          transition={{ duration: 0.3, delay: (gi * 0.05) + (i * 0.02) }}
-                          className="border-b border-white/5 hover:bg-white/[0.02] transition-colors"
-                        >
-                          <td className="px-6 py-4 text-white/80">{row.label}</td>
-                          {row.values.map((v, j) => (
-                            <td key={j} className={`px-6 py-4 text-center ${j === 1 ? "bg-[#06b6d4]/[0.04]" : ""}`}>
-                              {typeof v === "boolean" ? (
-                                v
-                                  ? <Check size={16} className="text-[#06b6d4] inline" aria-label="Included" />
-                                  : <Minus size={16} className="text-white/20 inline" aria-label="Not included" />
-                              ) : v === "limited" ? (
-                                <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#f5c451]/15 text-[#f5c451] border border-[#f5c451]/30">
-                                  Limited
-                                </span>
-                              ) : (
-                                <span className="text-white/80">{v}</span>
-                              )}
-                            </td>
-                          ))}
-                        </motion.tr>
-                      ))}
-                    </React.Fragment>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
         </div>
       </section>
 
