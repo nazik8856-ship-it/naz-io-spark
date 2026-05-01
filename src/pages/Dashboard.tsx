@@ -2403,6 +2403,8 @@ const HomeView = ({
   activeMissionId,
   antifragileState,
   setAntifragileState,
+  proDesignerState,
+  setProDesignerState,
 }: any) => {
   // Template definitions (master templates - never mutated)
   const TEMPLATE_MASTERS = {
