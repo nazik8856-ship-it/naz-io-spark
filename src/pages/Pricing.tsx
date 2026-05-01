@@ -335,7 +335,45 @@ const faqs = [
     q: "Can I self-host or get on-prem deployment?",
     a: "Enterprise customers can request on-prem or VPC deployments with dedicated infrastructure. Talk to our team to scope.",
   },
+  {
+    q: "What is Aura Studio and which tiers include it?",
+    a: "Aura Studio is our advanced visual generation + brand-aware design surface for crafting on-brand websites, decks, and assets. It's included in Operator, Titan, and Enterprise. It's not available on Explorer.",
+  },
+  {
+    q: "What's the difference between NazAI visual themes and Brand-Snap Canvas?",
+    a: "NazAI visual themes are curated, ready-to-use design systems applied across your outputs (Operator and above). Brand-Snap Canvas is the full custom brand-engineering surface — uploads, guardian rules, palette/typography lock — available on Titan and Enterprise.",
+  },
+  {
+    q: "How is billing handled — monthly vs annual?",
+    a: "Monthly plans bill every 30 days. Annual plans are billed once per year and save ~25% (about 2.5 months free). You can switch billing cycles anytime from your dashboard.",
+  },
+  {
+    q: "What happens when I upgrade?",
+    a: "Upgrades take effect instantly. New tier features (themes, Brand-Snap, Aura Studio, agent capacity) unlock immediately, and we prorate the difference automatically — no migration, no downtime.",
+  },
+  {
+    q: "Can I cancel anytime?",
+    a: "Yes. Cancellations are instant from your dashboard. You keep access until the end of your current billing period, and your data remains exportable indefinitely.",
+  },
 ];
+
+// ─── Value Recap (Why Teams Choose Us) ──────────────────────────
+const valueRecap = [
+  { icon: Zap, title: "From prompt to production", desc: "Strategy, design, and execution in a single orchestrated pass — not 12 disconnected tools." },
+  { icon: Palette, title: "On-brand by default", desc: "Visual themes, Brand-Snap, and Aura Studio keep every output unmistakably yours." },
+  { icon: Shield, title: "Enterprise-grade trust", desc: "SOC2, GDPR, AES-256, no training on your data. Built for serious operators." },
+  { icon: TrendingUp, title: "Measurable impact in 30 days", desc: "87% of teams report tangible ROI within their first month on Operator or Titan." },
+];
+
+// ─── Pricing-Adjacent Social Proof ──────────────────────────────
+const pricingTestimonials = [
+  { quote: "We replaced 4 SaaS subscriptions with NazAI Operator. ROI in week one.", author: "Lena M.", role: "Founder, B2B SaaS" },
+  { quote: "Brand-Snap on Titan is the first design tool that actually respects our system.", author: "David R.", role: "Head of Design, Agency" },
+  { quote: "Aura Studio outputs go straight to our site. Zero rework.", author: "Priya S.", role: "Marketing Lead" },
+];
+
+// ─── Trusted By logos / stats ───────────────────────────────────
+const trustedByLogos = ["Northwind", "Helios Labs", "Atlas&Co.", "Lumen", "Vector7", "Nordstack"];
 
 // ─── Main Pricing Page ────────────────────────────────────────────
 const Pricing = () => {
