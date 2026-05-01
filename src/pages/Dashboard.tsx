@@ -4694,7 +4694,10 @@ export default function Dashboard() {
       ? ANTIFRAGILE_SYSTEM_PROMPT(antifragileState.niche.trim()) + "\n\n"
       : "";
 
-    masterPrompt = ANTIFRAGILE_PREFIX + ORCHESTRATION_DIRECTIVE + ANTI_REPETITION_DIRECTIVE + SMART_FORMAT_DIRECTIVE + masterPrompt;
+    // ── Pro Designer Mode prepend ──
+    const PRO_DESIGNER_PREFIX = proDesignerState.active ? PRO_DESIGNER_SYSTEM_PROMPT + "\n\n" : "";
+
+    masterPrompt = ANTIFRAGILE_PREFIX + PRO_DESIGNER_PREFIX + ORCHESTRATION_DIRECTIVE + ANTI_REPETITION_DIRECTIVE + SMART_FORMAT_DIRECTIVE + masterPrompt;
 
     // ── Intent detection ──────────────────────────────────────────────────────
     //  • If a website is already live in the preview pane → treat any new
