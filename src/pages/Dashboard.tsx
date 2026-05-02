@@ -5,8 +5,10 @@ import DropScanOverlay from "@/components/interactions/DropScanOverlay";
 import MagneticButton from "@/components/interactions/MagneticButton";
 import WebsiteRevealPane from "@/components/dashboard/WebsiteRevealPane";
 import NextStepHints from "@/components/dashboard/NextStepHints";
-import AntifragileMode, { useAntifragileState, ANTIFRAGILE_SYSTEM_PROMPT } from "@/components/dashboard/AntifragileMode";
-import ProDesignerMode, { useProDesignerState, PRO_DESIGNER_SYSTEM_PROMPT } from "@/components/dashboard/ProDesignerMode";
+import { useAntifragileState, ANTIFRAGILE_SYSTEM_PROMPT } from "@/components/dashboard/AntifragileMode";
+import { useProDesignerState, PRO_DESIGNER_SYSTEM_PROMPT } from "@/components/dashboard/ProDesignerMode";
+import ModeSelector, { type ChatMode } from "@/components/dashboard/ModeSelector";
+import CreditBalance from "@/components/dashboard/CreditBalance";
 import AIResponseExtras, {
   readGroundTruth,
   type GroundTruthEntry,
