@@ -564,14 +564,49 @@ const Pricing = () => {
 
                 {/* Price */}
                 <div className="mb-2 flex items-baseline gap-2">
-                  <span className="text-5xl font-black tracking-tight">
-                    ${tier.free ? 0 : <AnimatedPrice value={annual ? tier.annual : tier.monthly} />}
-                  </span>
-                  {!tier.free && <span className="text-white/40 text-sm">/ month</span>}
+                  {tier.isCustom ? (
+                    <span className="text-4xl font-black tracking-tight">Custom</span>
+                  ) : (
+                    <>
+                      <span className="text-5xl font-black tracking-tight">
+                        ${tier.free ? 0 : <AnimatedPrice value={annual ? tier.annual : tier.monthly} />}
+                      </span>
+                      {!tier.free && <span className="text-white/40 text-sm">/ month</span>}
+                    </>
+                  )}
                 </div>
-                <p className="text-[11px] uppercase tracking-wider text-white/30 mb-6">
-                  {tier.free ? "Forever free" : annual ? "billed annually" : "billed monthly"}
+                <p className="text-[11px] uppercase tracking-wider text-white/30 mb-4">
+                  {tier.isCustom
+                    ? "Volume + dedicated infrastructure"
+                    : tier.free
+                      ? "Forever free"
+                      : annual
+                        ? "billed annually"
+                        : "billed monthly"}
                 </p>
+
+                {/* Monthly credits highlight */}
+                <div
+                  className="mb-5 px-3 py-2.5 rounded-lg border flex items-center gap-2.5"
+                  style={{
+                    background: tier.popular
+                      ? "rgba(6,182,212,0.08)"
+                      : "rgba(255,255,255,0.025)",
+                    borderColor: tier.popular ? "rgba(6,182,212,0.35)" : "rgba(255,255,255,0.08)",
+                  }}
+                >
+                  <Zap size={14} className={tier.popular ? "text-[#06b6d4]" : "text-[#f5c451]"} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[15px] font-black tracking-tight tabular-nums">
+                      {tier.isCustom
+                        ? "Custom credits"
+                        : `${tier.monthlyCredits.toLocaleString("en-US")} credits`}
+                    </div>
+                    <div className="text-[10px] text-white/40 uppercase tracking-wider">
+                      per month · {tier.overage}
+                    </div>
+                  </div>
+                </div>
 
                 {/* Power level */}
                 <div className="mb-6">
@@ -597,13 +632,15 @@ const Pricing = () => {
                 {/* CTA */}
                 <MagneticButton radius={80} strength={0.2}>
                   <button
-                    onClick={() => navigate(tier.free ? "/" : "/dashboard")}
+                    onClick={() => navigate(tier.isCustom ? "/dashboard" : tier.free ? "/" : "/dashboard")}
                     className={`w-full py-3.5 rounded-lg font-black uppercase text-xs tracking-[0.15em] transition-all ${
                       tier.popular
                         ? "bg-gradient-to-r from-[#06b6d4] to-[#0891b2] text-[#020617] hover:shadow-[0_0_40px_rgba(6,182,212,0.5)]"
-                        : tier.free
-                          ? "bg-white/10 text-white hover:bg-white/15 border border-white/15"
-                          : "bg-[#f5c451] text-[#020617] hover:shadow-[0_0_40px_rgba(245,196,81,0.4)]"
+                        : tier.isCustom
+                          ? "bg-gradient-to-r from-[#a78bfa] to-[#7c3aed] text-white hover:shadow-[0_0_40px_rgba(167,139,250,0.4)]"
+                          : tier.free
+                            ? "bg-white/10 text-white hover:bg-white/15 border border-white/15"
+                            : "bg-[#f5c451] text-[#020617] hover:shadow-[0_0_40px_rgba(245,196,81,0.4)]"
                     }`}
                   >
                     {tier.cta}
