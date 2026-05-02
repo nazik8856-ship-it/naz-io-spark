@@ -529,7 +529,7 @@ const Pricing = () => {
       <section id="tiers" className="relative py-8 px-6">
         <div className="max-w-7xl mx-auto">
           <h2 className="text-3xl font-black text-center mb-10">Choose your NazAI Mission Tier</h2>
-          <div className="grid md:grid-cols-3 gap-6 lg:gap-8">
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 lg:gap-6">
             {tiers.map((tier, idx) => (
               <motion.div
                 key={tier.id}
