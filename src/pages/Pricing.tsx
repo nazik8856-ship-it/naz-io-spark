@@ -140,11 +140,13 @@ const tiers = [
     monthly: 0,
     annual: 0,
     free: true,
+    monthlyCredits: 300,
+    overage: "No overage — upgrade to continue once depleted",
     cta: "Start Free — No Card Required",
     reassurance: "Free forever • No credit card • Full data export",
     power: 33,
     features: [
-      "8 missions / month",
+      "300 orchestration credits / month",
       "Core Input Sensor + basic Logic Gate",
       "Light & Dark mode switching only",
       "Dashboard with Recent Projects + basic Archives",
@@ -165,11 +167,13 @@ const tiers = [
     monthly: 34,
     annual: 25,
     popular: true,
+    monthlyCredits: 2_500,
+    overage: "$0.018 per extra credit — billed monthly",
     cta: "Upgrade to Operator",
     reassurance: "14-day free trial • Cancel anytime • No credit card required",
     power: 75,
     features: [
-      "Unlimited missions & conversational orchestration",
+      "2,500 orchestration credits / month",
       "Full access to NazAI visual themes",
       "Aura Studio included",
       "Advanced Logic Gate (multi-scenario, risk analysis)",
@@ -191,11 +195,13 @@ const tiers = [
     tagline: "Scaling teams and complex enterprises.",
     monthly: 119,
     annual: 89,
+    monthlyCredits: 12_000,
+    overage: "$0.012 per extra credit — volume discount",
     cta: "Talk to Sales — Enter Titan",
     reassurance: "30-day money-back • Concierge onboarding included",
     power: 100,
     features: [
-      "Everything in Operator, truly unlimited",
+      "12,000 orchestration credits / month",
       "Brand-Snap Canvas + NazAI visual themes (full design suite)",
       "Aura Studio included",
       "Fleet of 30+ concurrent agents with custom training",
@@ -210,6 +216,34 @@ const tiers = [
       "Audit logs + compliance reporting",
     ],
     trust: "Dedicated success manager • SOC2 Type II ready",
+  },
+  {
+    id: "enterprise",
+    name: "Enterprise",
+    tagline: "Custom-scaled orchestration for complex organizations.",
+    monthly: 0,
+    annual: 0,
+    isCustom: true,
+    monthlyCredits: 0,
+    overage: "Custom volume pricing — negotiated SLA",
+    cta: "Contact Sales",
+    reassurance: "Dedicated CSM • Custom contracts • Procurement-friendly",
+    power: 100,
+    features: [
+      "Custom monthly credit pool — sized to your workload",
+      "Dedicated infrastructure & private deployment",
+      "Custom agent training + private model fine-tuning",
+      "24/7 dedicated support engineer",
+      "SSO/SAML, audit logs, compliance reporting",
+      "Custom SLAs with financial guarantees",
+    ],
+    expanded: [
+      "On-prem or private cloud (AWS/Azure/GCP)",
+      "Procurement-friendly contracts (NET 30/60)",
+      "Quarterly business reviews",
+      "White-glove onboarding & training",
+    ],
+    trust: "Custom MSAs • Procurement-ready • SOC2 + ISO 27001",
   },
 ];
 
@@ -495,7 +529,7 @@ const Pricing = () => {
       <section id="tiers" className="relative py-8 px-6">
         <div className="max-w-7xl mx-auto">
           <h2 className="text-3xl font-black text-center mb-10">Choose your NazAI Mission Tier</h2>
-          <div className="grid md:grid-cols-3 gap-6 lg:gap-8">
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 lg:gap-6">
             {tiers.map((tier, idx) => (
               <motion.div
                 key={tier.id}
@@ -530,14 +564,49 @@ const Pricing = () => {
 
                 {/* Price */}
                 <div className="mb-2 flex items-baseline gap-2">
-                  <span className="text-5xl font-black tracking-tight">
-                    ${tier.free ? 0 : <AnimatedPrice value={annual ? tier.annual : tier.monthly} />}
-                  </span>
-                  {!tier.free && <span className="text-white/40 text-sm">/ month</span>}
+                  {tier.isCustom ? (
+                    <span className="text-4xl font-black tracking-tight">Custom</span>
+                  ) : (
+                    <>
+                      <span className="text-5xl font-black tracking-tight">
+                        ${tier.free ? 0 : <AnimatedPrice value={annual ? tier.annual : tier.monthly} />}
+                      </span>
+                      {!tier.free && <span className="text-white/40 text-sm">/ month</span>}
+                    </>
+                  )}
                 </div>
-                <p className="text-[11px] uppercase tracking-wider text-white/30 mb-6">
-                  {tier.free ? "Forever free" : annual ? "billed annually" : "billed monthly"}
+                <p className="text-[11px] uppercase tracking-wider text-white/30 mb-4">
+                  {tier.isCustom
+                    ? "Volume + dedicated infrastructure"
+                    : tier.free
+                      ? "Forever free"
+                      : annual
+                        ? "billed annually"
+                        : "billed monthly"}
                 </p>
+
+                {/* Monthly credits highlight */}
+                <div
+                  className="mb-5 px-3 py-2.5 rounded-lg border flex items-center gap-2.5"
+                  style={{
+                    background: tier.popular
+                      ? "rgba(6,182,212,0.08)"
+                      : "rgba(255,255,255,0.025)",
+                    borderColor: tier.popular ? "rgba(6,182,212,0.35)" : "rgba(255,255,255,0.08)",
+                  }}
+                >
+                  <Zap size={14} className={tier.popular ? "text-[#06b6d4]" : "text-[#f5c451]"} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[15px] font-black tracking-tight tabular-nums">
+                      {tier.isCustom
+                        ? "Custom credits"
+                        : `${tier.monthlyCredits.toLocaleString("en-US")} credits`}
+                    </div>
+                    <div className="text-[10px] text-white/40 uppercase tracking-wider">
+                      per month · {tier.overage}
+                    </div>
+                  </div>
+                </div>
 
                 {/* Power level */}
                 <div className="mb-6">
@@ -563,13 +632,15 @@ const Pricing = () => {
                 {/* CTA */}
                 <MagneticButton radius={80} strength={0.2}>
                   <button
-                    onClick={() => navigate(tier.free ? "/" : "/dashboard")}
+                    onClick={() => navigate(tier.isCustom ? "/dashboard" : tier.free ? "/" : "/dashboard")}
                     className={`w-full py-3.5 rounded-lg font-black uppercase text-xs tracking-[0.15em] transition-all ${
                       tier.popular
                         ? "bg-gradient-to-r from-[#06b6d4] to-[#0891b2] text-[#020617] hover:shadow-[0_0_40px_rgba(6,182,212,0.5)]"
-                        : tier.free
-                          ? "bg-white/10 text-white hover:bg-white/15 border border-white/15"
-                          : "bg-[#f5c451] text-[#020617] hover:shadow-[0_0_40px_rgba(245,196,81,0.4)]"
+                        : tier.isCustom
+                          ? "bg-gradient-to-r from-[#a78bfa] to-[#7c3aed] text-white hover:shadow-[0_0_40px_rgba(167,139,250,0.4)]"
+                          : tier.free
+                            ? "bg-white/10 text-white hover:bg-white/15 border border-white/15"
+                            : "bg-[#f5c451] text-[#020617] hover:shadow-[0_0_40px_rgba(245,196,81,0.4)]"
                     }`}
                   >
                     {tier.cta}

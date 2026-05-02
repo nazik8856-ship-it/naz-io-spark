@@ -5,8 +5,10 @@ import DropScanOverlay from "@/components/interactions/DropScanOverlay";
 import MagneticButton from "@/components/interactions/MagneticButton";
 import WebsiteRevealPane from "@/components/dashboard/WebsiteRevealPane";
 import NextStepHints from "@/components/dashboard/NextStepHints";
-import AntifragileMode, { useAntifragileState, ANTIFRAGILE_SYSTEM_PROMPT } from "@/components/dashboard/AntifragileMode";
-import ProDesignerMode, { useProDesignerState, PRO_DESIGNER_SYSTEM_PROMPT } from "@/components/dashboard/ProDesignerMode";
+import { useAntifragileState, ANTIFRAGILE_SYSTEM_PROMPT } from "@/components/dashboard/AntifragileMode";
+import { useProDesignerState, PRO_DESIGNER_SYSTEM_PROMPT } from "@/components/dashboard/ProDesignerMode";
+import ModeSelector, { type ChatMode } from "@/components/dashboard/ModeSelector";
+import CreditBalance from "@/components/dashboard/CreditBalance";
 import AIResponseExtras, {
   readGroundTruth,
   type GroundTruthEntry,
@@ -2840,22 +2842,42 @@ const HomeView = ({
         )}
       </AnimatePresence>
 
-      {/* ─── ANTIFRAGILE MODE CHIP — toggle the Antifragile Resilience Orchestrator
-              system prompt for this project. Persists per-project in localStorage. ─── */}
+      {/* ─── AI MODE SELECTOR — single ✨ trigger that opens a popover offering
+              Pro Designer or Antifragile. Active mode is shown as a pill with X.
+              State persists per-project via the existing localStorage hooks. ─── */}
       {!isMinimized && !(isWebsiteIntent && isPreviewActive) && (
         <div className="w-full max-w-2xl mx-auto px-2 mb-2 flex items-center justify-end gap-2">
-          <ProDesignerMode
-            projectId={activeMissionId}
-            active={proDesignerState.active}
-            onChange={setProDesignerState}
-            accentColor="#a78bfa"
-          />
-          <AntifragileMode
-            projectId={activeMissionId}
-            active={antifragileState.active}
+          <ModeSelector
+            active={
+              proDesignerState.active
+                ? "pro-designer"
+                : antifragileState.active
+                  ? "antifragile"
+                  : null
+            }
+            onChange={(next: ChatMode) => {
+              // Mutually exclusive — only one specialized mode at a time.
+              if (next === "pro-designer") {
+                setProDesignerState({ active: true });
+                if (antifragileState.active) {
+                  setAntifragileState({ ...antifragileState, active: false });
+                }
+              } else if (next === "antifragile") {
+                setAntifragileState({ ...antifragileState, active: true });
+                if (proDesignerState.active) {
+                  setProDesignerState({ active: false });
+                }
+              } else {
+                if (proDesignerState.active) setProDesignerState({ active: false });
+                if (antifragileState.active) {
+                  setAntifragileState({ ...antifragileState, active: false });
+                }
+              }
+            }}
             niche={antifragileState.niche}
-            onChange={setAntifragileState}
-            accentColor="#f97316"
+            onNicheChange={(niche) =>
+              setAntifragileState({ ...antifragileState, niche })
+            }
           />
         </div>
       )}
@@ -5477,6 +5499,7 @@ export default function Dashboard() {
             </span>
           </div>
           <div className="flex items-center gap-3">
+            <CreditBalance compact />
             <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: borderColor }} />
             <span className="text-[8px] font-mono tracking-wider text-white/30">SECURE_NODE</span>
           </div>
@@ -5519,6 +5542,7 @@ export default function Dashboard() {
             </span>
           </div>
           <div className="flex items-center gap-3">
+            <CreditBalance />
             <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: borderColor }} />
             <span className="text-[8px] font-mono tracking-wider text-white/30">SECURE_NODE</span>
           </div>
