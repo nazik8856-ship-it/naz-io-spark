@@ -5542,6 +5542,7 @@ export default function Dashboard() {
             </span>
           </div>
           <div className="flex items-center gap-3">
+            <CreditBalance />
             <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: borderColor }} />
             <span className="text-[8px] font-mono tracking-wider text-white/30">SECURE_NODE</span>
           </div>
