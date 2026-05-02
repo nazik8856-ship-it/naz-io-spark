@@ -2842,22 +2842,42 @@ const HomeView = ({
         )}
       </AnimatePresence>
 
-      {/* ─── ANTIFRAGILE MODE CHIP — toggle the Antifragile Resilience Orchestrator
-              system prompt for this project. Persists per-project in localStorage. ─── */}
+      {/* ─── AI MODE SELECTOR — single ✨ trigger that opens a popover offering
+              Pro Designer or Antifragile. Active mode is shown as a pill with X.
+              State persists per-project via the existing localStorage hooks. ─── */}
       {!isMinimized && !(isWebsiteIntent && isPreviewActive) && (
         <div className="w-full max-w-2xl mx-auto px-2 mb-2 flex items-center justify-end gap-2">
-          <ProDesignerMode
-            projectId={activeMissionId}
-            active={proDesignerState.active}
-            onChange={setProDesignerState}
-            accentColor="#a78bfa"
-          />
-          <AntifragileMode
-            projectId={activeMissionId}
-            active={antifragileState.active}
+          <ModeSelector
+            active={
+              proDesignerState.active
+                ? "pro-designer"
+                : antifragileState.active
+                  ? "antifragile"
+                  : null
+            }
+            onChange={(next: ChatMode) => {
+              // Mutually exclusive — only one specialized mode at a time.
+              if (next === "pro-designer") {
+                setProDesignerState({ active: true });
+                if (antifragileState.active) {
+                  setAntifragileState({ ...antifragileState, active: false });
+                }
+              } else if (next === "antifragile") {
+                setAntifragileState({ ...antifragileState, active: true });
+                if (proDesignerState.active) {
+                  setProDesignerState({ active: false });
+                }
+              } else {
+                if (proDesignerState.active) setProDesignerState({ active: false });
+                if (antifragileState.active) {
+                  setAntifragileState({ ...antifragileState, active: false });
+                }
+              }
+            }}
             niche={antifragileState.niche}
-            onChange={setAntifragileState}
-            accentColor="#f97316"
+            onNicheChange={(niche) =>
+              setAntifragileState({ ...antifragileState, niche })
+            }
           />
         </div>
       )}
