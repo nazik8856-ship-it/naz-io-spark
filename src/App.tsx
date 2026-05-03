@@ -61,6 +61,7 @@ const App = () => (
               </Routes>
 
               <Toaster />
+              <PaymentWindow />
             </Suspense>
           </EntranceSplash>
         </main>
