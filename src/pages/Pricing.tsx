@@ -28,6 +28,7 @@ import {
   Sun,
   Minus,
 } from "lucide-react";
+import { openPaymentWindow } from "@/lib/credit-packs";
 import MagneticButton from "@/components/interactions/MagneticButton";
 
 // ─── Animated Counter ─────────────────────────────────────────────
