@@ -259,6 +259,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      add_credits: { Args: { amount: number }; Returns: number }
       deduct_credit: { Args: { user_id: string }; Returns: boolean }
       delete_email: {
         Args: { message_id: number; queue_name: string }
