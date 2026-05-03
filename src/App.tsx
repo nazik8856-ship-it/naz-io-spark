@@ -4,6 +4,7 @@ import { AuthProvider } from "@/hooks/useAuth";
 import { Toaster } from "@/components/ui/toaster";
 import { lazy, Suspense } from "react";
 import EntranceSplash from "@/components/EntranceSplash";
+import PaymentWindow from "@/components/payments/PaymentWindow";
 
 // ─── Route Components ─────────────────────────────────────────────────────────
 const Workflower = lazy(() => import("./pages/Workflower"));
@@ -60,6 +61,7 @@ const App = () => (
               </Routes>
 
               <Toaster />
+              <PaymentWindow />
             </Suspense>
           </EntranceSplash>
         </main>
