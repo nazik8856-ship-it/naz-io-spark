@@ -633,7 +633,24 @@ const Pricing = () => {
                 {/* CTA */}
                 <MagneticButton radius={80} strength={0.2}>
                   <button
-                    onClick={() => navigate(tier.isCustom ? "/dashboard" : tier.free ? "/" : "/dashboard")}
+                    onClick={() => {
+                      if (tier.isCustom) {
+                        navigate("/dashboard");
+                        return;
+                      }
+                      if (tier.free) {
+                        navigate("/dashboard");
+                        return;
+                      }
+                      const price = annual ? tier.annual : tier.monthly;
+                      openPaymentWindow({
+                        kind: "plan",
+                        tierId: tier.id as any,
+                        annual,
+                        price,
+                        name: tier.name,
+                      });
+                    }}
                     className={`w-full py-3.5 rounded-lg font-black uppercase text-xs tracking-[0.15em] transition-all ${
                       tier.popular
                         ? "bg-gradient-to-r from-[#06b6d4] to-[#0891b2] text-[#020617] hover:shadow-[0_0_40px_rgba(6,182,212,0.5)]"
