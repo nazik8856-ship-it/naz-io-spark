@@ -3635,7 +3635,7 @@ function SidebarContent({
 // inline detail panel. All items are functional (Activity log, editable Personal
 // Context, etc.). State is persisted to localStorage.
 function WorkspaceMenuModal({
-  open, onClose, userEmail,
+  open, onClose, userEmail, userId,
   activeItem, setActiveItem,
   onOpenSettings, onOpenTheme, onOpenPersonalContext, onOpenConnectedApps,
   onSignOut, missions,
@@ -3643,6 +3643,7 @@ function WorkspaceMenuModal({
   open: boolean;
   onClose: () => void;
   userEmail: string | null;
+  userId: string | null;
   activeItem: WorkspaceItemId | null;
   setActiveItem: (id: WorkspaceItemId | null) => void;
   onOpenSettings: () => void;
@@ -3748,17 +3749,7 @@ function WorkspaceMenuModal({
       );
     }
     if (activeItem === "subscriptions") {
-      return (
-        <div className="space-y-3">
-          <div className="p-4 rounded-xl" style={{ background: "linear-gradient(135deg, rgba(6,182,212,0.08), rgba(168,85,247,0.08))", border: "1px solid rgba(6,182,212,0.18)" }}>
-            <div className="text-[10px] font-mono uppercase tracking-[0.2em] text-cyan-300/80 mb-1">Current Plan</div>
-            <div className="text-lg font-bold text-white">NazAI Free</div>
-            <div className="text-[11px] text-white/60 mt-1">3 free credits per month · Premium templates · All NazAI themes</div>
-          </div>
-          <button className="w-full py-3 rounded-xl text-[13px] font-semibold text-white" style={{ background: "linear-gradient(135deg, #06b6d4, #a855f7)" }}>Upgrade to Pro</button>
-          <p className="text-[10px] text-white/40 text-center">Pro unlocks unlimited credits, premium models, and team workspaces.</p>
-        </div>
-      );
+      return <SubscriptionsPanel userId={userId} />;
     }
     // NotebookLM section removed.
     if (activeItem === "feedback") {
@@ -5925,6 +5916,7 @@ export default function Dashboard() {
         open={workspaceMenuOpen}
         onClose={() => { setWorkspaceMenuOpen(false); setActiveWorkspaceItem(null); }}
         userEmail={userEmail}
+        userId={userId}
         activeItem={activeWorkspaceItem}
         setActiveItem={setActiveWorkspaceItem}
         onOpenSettings={() => { setWorkspaceMenuOpen(false); setShowSettings(true); setActiveNav("settings"); }}
