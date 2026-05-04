@@ -3630,6 +3630,168 @@ function SidebarContent({
   );
 }
 
+// ─── Subscriptions Panel (with Transaction History) ─────────────────────────
+function SubscriptionsPanel({ userId }: { userId: string | null }) {
+  const [tab, setTab] = useState<"plan" | "history">("plan");
+  const [transactions, setTransactions] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [tier, setTier] = useState<TierId>(() => getStoredTier());
+  const plan = TIER_PLANS[tier];
+
+  useEffect(() => {
+    const onTier = (e: Event) => {
+      const detail = (e as CustomEvent).detail as TierId | undefined;
+      if (detail) setTier(detail);
+    };
+    window.addEventListener("nazai:tier-changed", onTier);
+    return () => window.removeEventListener("nazai:tier-changed", onTier);
+  }, []);
+
+  const fetchTx = useCallback(async () => {
+    if (!userId) return;
+    setLoading(true);
+    const { data } = await supabase
+      .from("credit_transactions" as any)
+      .select("*")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(50);
+    setTransactions((data as any[]) || []);
+    setLoading(false);
+  }, [userId]);
+
+  useEffect(() => {
+    if (tab === "history") fetchTx();
+  }, [tab, fetchTx]);
+
+  useEffect(() => {
+    if (!userId) return;
+    const channel = supabase
+      .channel(`tx-panel:${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "credit_transactions", filter: `user_id=eq.${userId}` },
+        () => fetchTx(),
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [userId, fetchTx]);
+
+  return (
+    <div className="space-y-3">
+      {/* Tabs */}
+      <div className="inline-flex items-center p-1 rounded-full border border-white/10 bg-white/[0.03]">
+        {(["plan", "history"] as const).map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className="relative px-4 py-1.5 rounded-full text-[10.5px] font-bold uppercase tracking-wider transition-colors"
+            style={{
+              background: tab === t ? "linear-gradient(135deg, #06b6d4, #22d3ee)" : "transparent",
+              color: tab === t ? "#020617" : "rgba(255,255,255,0.55)",
+            }}
+          >
+            {t === "plan" ? "Billing" : "Transaction History"}
+          </button>
+        ))}
+      </div>
+
+      {tab === "plan" ? (
+        <div className="space-y-3">
+          <div
+            className="p-4 rounded-xl"
+            style={{
+              background: "linear-gradient(135deg, rgba(6,182,212,0.08), rgba(168,85,247,0.08))",
+              border: "1px solid rgba(6,182,212,0.18)",
+            }}
+          >
+            <div className="text-[10px] font-mono uppercase tracking-[0.2em] text-cyan-300/80 mb-1">
+              Current Plan
+            </div>
+            <div className="text-lg font-bold text-white">NazAI {plan.name}</div>
+            <div className="text-[11px] text-white/60 mt-1">
+              {plan.isCustom
+                ? "Custom credits · dedicated support"
+                : `${plan.monthlyCredits.toLocaleString()} credits / month · ${plan.overageRate}`}
+            </div>
+          </div>
+          <button
+            onClick={() =>
+              openPaymentWindow({
+                kind: "plan",
+                tierId: "operator",
+                name: "Operator",
+                price: TIER_PLANS.operator.monthlyPrice,
+              })
+            }
+            className="w-full py-3 rounded-xl text-[13px] font-semibold text-white"
+            style={{ background: "linear-gradient(135deg, #06b6d4, #a855f7)" }}
+          >
+            Upgrade Plan
+          </button>
+          <p className="text-[10px] text-white/40 text-center">
+            Manage subscription · cancel anytime · prorated upgrades.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
+          {loading && (
+            <p className="text-[12px] text-white/40 py-6 text-center">Loading transactions…</p>
+          )}
+          {!loading && transactions.length === 0 && (
+            <p className="text-[12px] text-white/40 py-6 text-center">
+              No transactions yet. Purchases and plan changes will appear here.
+            </p>
+          )}
+          {transactions.map((tx) => (
+            <div
+              key={tx.id}
+              className="px-3 py-2.5 rounded-lg flex items-center gap-3"
+              style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}
+            >
+              <div
+                className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+                style={{
+                  background:
+                    tx.type === "plan_change"
+                      ? "rgba(168,85,247,0.12)"
+                      : "rgba(6,182,212,0.12)",
+                  border: "1px solid rgba(255,255,255,0.06)",
+                }}
+              >
+                {tx.type === "plan_change" ? (
+                  <Crown size={13} className="text-purple-300" />
+                ) : (
+                  <Zap size={13} className="text-cyan-300" />
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-[12px] text-white/85 truncate">{tx.description}</div>
+                <div className="text-[10px] font-mono text-white/40 mt-0.5">
+                  {new Date(tx.created_at).toLocaleDateString()} ·{" "}
+                  {tx.type === "plan_change" ? "Plan change" : "Credit purchase"} · {tx.status}
+                </div>
+              </div>
+              <div className="text-right shrink-0">
+                {tx.amount > 0 && (
+                  <div className="text-[11px] font-mono tabular-nums text-emerald-300">
+                    +{tx.amount.toLocaleString()}
+                  </div>
+                )}
+                {tx.price_usd != null && (
+                  <div className="text-[10px] font-mono text-white/45">
+                    ${Number(tx.price_usd).toFixed(2)}
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Workspace Menu Modal ────────────────────────────────────────────────────
 // Premium menu containing the 10 workspace items + Sign Out. Each item opens an
 // inline detail panel. All items are functional (Activity log, editable Personal
