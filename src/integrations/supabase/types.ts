@@ -14,6 +14,42 @@ export type Database = {
   }
   public: {
     Tables: {
+      credit_transactions: {
+        Row: {
+          amount: number
+          created_at: string
+          description: string
+          id: string
+          metadata: Json | null
+          price_usd: number | null
+          status: string
+          type: string
+          user_id: string
+        }
+        Insert: {
+          amount?: number
+          created_at?: string
+          description: string
+          id?: string
+          metadata?: Json | null
+          price_usd?: number | null
+          status?: string
+          type: string
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          description?: string
+          id?: string
+          metadata?: Json | null
+          price_usd?: number | null
+          status?: string
+          type?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       email_send_log: {
         Row: {
           created_at: string
