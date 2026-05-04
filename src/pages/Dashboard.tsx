@@ -4641,6 +4641,21 @@ export default function Dashboard() {
       return;
     }
 
+    // ── Out-of-credits gate: block sending and surface upgrade modal. ─────────
+    try {
+      const { data: prof } = await supabase
+        .from("profiles")
+        .select("credits")
+        .eq("id", userId)
+        .maybeSingle();
+      if (prof && (prof.credits ?? 0) <= 0) {
+        window.dispatchEvent(new CustomEvent("nazai:out-of-credits"));
+        return;
+      }
+    } catch {
+      /* non-fatal — let the request proceed */
+    }
+
     // ── Kinetic UI: Haptic Feedback ───────────────────────────────────────────
     // Pulse-pattern vibration on supported devices/wearables, plus a transient
     // "Haptic Sync" status banner so the user feels the asset's weight & texture
