@@ -89,7 +89,10 @@ import {
   UserCog,
   Notebook,
   DownloadCloud,
+  Crown,
 } from "lucide-react";
+import { TIER_PLANS, getStoredTier, type TierId } from "@/lib/credit-tiers";
+import { openPaymentWindow } from "@/lib/credit-packs";
 import { Switch } from "@/components/ui/switch";
 import GuardianCanvas from "@/components/workflower/GuardianCanvas";
 import { toast } from "sonner";
