@@ -92,6 +92,7 @@ import {
   Crown,
 } from "lucide-react";
 import { TIER_PLANS, getStoredTier, type TierId } from "@/lib/credit-tiers";
+import { hasFeature, useTier, maxConcurrentAgents } from "@/lib/feature-gates";
 import { openPaymentWindow } from "@/lib/credit-packs";
 import { Switch } from "@/components/ui/switch";
 import GuardianCanvas from "@/components/workflower/GuardianCanvas";
