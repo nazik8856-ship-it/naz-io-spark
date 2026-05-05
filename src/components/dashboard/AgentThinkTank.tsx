@@ -13,6 +13,8 @@ import {
   Sparkles,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { useTier, maxConcurrentAgents } from "@/lib/feature-gates";
+import { TIER_PLANS } from "@/lib/credit-tiers";
 
 /**
  * AgentThinkTank
