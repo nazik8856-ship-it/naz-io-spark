@@ -1,7 +1,10 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Sparkles, Shield, X, ChevronDown } from "lucide-react";
+import { Sparkles, Shield, X, ChevronDown, Lock } from "lucide-react";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { useTier, hasFeature } from "@/lib/feature-gates";
+import { TIER_PLANS } from "@/lib/credit-tiers";
 
 export type ChatMode = "pro-designer" | "antifragile" | null;
 
