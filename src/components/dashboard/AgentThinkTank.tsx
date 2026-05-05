@@ -13,6 +13,8 @@ import {
   Sparkles,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { useTier, maxConcurrentAgents } from "@/lib/feature-gates";
+import { TIER_PLANS } from "@/lib/credit-tiers";
 
 /**
  * AgentThinkTank
@@ -66,6 +68,9 @@ const AgentThinkTank: React.FC<AgentThinkTankProps> = ({ open, directive, onClos
   const [frames, setFrames] = useState<Frame[]>([]);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const tier = useTier();
+  const agentCap = maxConcurrentAgents(tier);
+  const tierName = TIER_PLANS[tier].name;
   const logRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -234,8 +239,19 @@ const AgentThinkTank: React.FC<AgentThinkTankProps> = ({ open, directive, onClos
                   <Brain size={18} style={{ color: "#06b6d4" }} />
                 </motion.div>
                 <div className="min-w-0">
-                  <div className="text-sm font-bold tracking-tight text-white">
+                  <div className="text-sm font-bold tracking-tight text-white flex items-center gap-2">
                     NazAI
+                    <span
+                      className="text-[9px] font-mono uppercase tracking-[0.18em] px-1.5 py-0.5 rounded-full"
+                      style={{
+                        background: "rgba(6,182,212,0.10)",
+                        border: "1px solid rgba(6,182,212,0.30)",
+                        color: "#67e8f9",
+                      }}
+                      title={`Concurrent agent cap on ${tierName}`}
+                    >
+                      {tierName} · {agentCap === 999 ? "∞" : agentCap} agents
+                    </span>
                   </div>
                   <div className="text-[11px] text-white/60 font-mono">
                     {running ? "Orchestrating Business…" : final ? "Orchestration complete" : "Initializing…"}

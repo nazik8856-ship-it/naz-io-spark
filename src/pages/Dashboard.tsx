@@ -92,6 +92,7 @@ import {
   Crown,
 } from "lucide-react";
 import { TIER_PLANS, getStoredTier, type TierId } from "@/lib/credit-tiers";
+import { hasFeature, useTier, maxConcurrentAgents } from "@/lib/feature-gates";
 import { openPaymentWindow } from "@/lib/credit-packs";
 import { Switch } from "@/components/ui/switch";
 import GuardianCanvas from "@/components/workflower/GuardianCanvas";
@@ -1739,24 +1740,51 @@ const SettingsView = ({
           {/* COMFORT DESIGNS removed from Settings — now strictly scoped to the
               active project's editing tab (above the Command Center). */}
           {/* ─── BRAND-SNAP CANVAS (relocated from landing page) ─────────────── */}
+          {(() => {
+            const _tier = getStoredTier();
+            const _brandSnapUnlocked = hasFeature(_tier, "brand-snap");
+            return (
           <motion.div
             id="brand-snap"
             variants={itemVariants}
-            className="md:col-span-2 p-5 rounded-xl"
+            className="md:col-span-2 p-5 rounded-xl relative"
             style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
           >
-            <div className="mb-4">
-              <h3 className="text-sm font-semibold flex items-center gap-2 font-mono" style={{ color: "var(--nazai-text-color)" }}>
-                <Wand2 size={16} className="text-cyan-400" /> BRAND-SNAP CANVAS
-              </h3>
-              <p className="text-[10px] font-mono text-white/40 mt-1">
-                Drop logos, palettes, or screenshots — the AI Guardian auto-checks contrast, palette, and grid.
-              </p>
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold flex items-center gap-2 font-mono" style={{ color: "var(--nazai-text-color)" }}>
+                  <Wand2 size={16} className="text-cyan-400" /> BRAND-SNAP CANVAS
+                </h3>
+                <p className="text-[10px] font-mono text-white/40 mt-1">
+                  Drop logos, palettes, or screenshots — the AI Guardian auto-checks contrast, palette, and grid.
+                </p>
+              </div>
+              {!_brandSnapUnlocked && (
+                <a
+                  href="/pricing"
+                  className="text-[10px] font-mono uppercase tracking-[0.18em] px-2.5 py-1 rounded-md bg-cyan-500/15 border border-cyan-400/40 text-cyan-200 hover:bg-cyan-500/25 transition-colors whitespace-nowrap"
+                >
+                  Titan only · Upgrade
+                </a>
+              )}
             </div>
-            <div className="rounded-xl overflow-hidden border border-white/5 bg-black/20">
+            <div className="rounded-xl overflow-hidden border border-white/5 bg-black/20 relative">
               <GuardianCanvas />
+              {!_brandSnapUnlocked && (
+                <div className="absolute inset-0 backdrop-blur-md bg-black/55 flex items-center justify-center text-center px-6">
+                  <div className="max-w-sm">
+                    <div className="text-[10px] font-mono uppercase tracking-[0.22em] text-cyan-300/80 mb-2">Locked</div>
+                    <div className="text-sm font-semibold text-white mb-1">Brand-Snap Canvas is a Titan feature</div>
+                    <div className="text-[11px] text-white/55 leading-relaxed">
+                      Upgrade to Titan to unlock the full custom brand-engineering surface — uploads, guardian rules, palette &amp; typography lock.
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </motion.div>
+            );
+          })()}
 
           <motion.div variants={itemVariants} className="md:col-span-2">
             <motion.button
@@ -1857,9 +1885,30 @@ const NazaiThemeGallery: React.FC<{
   onSelect: (id: string) => void;
   compact?: boolean;
 }> = ({ selectedId, onSelect, compact = false }) => {
+  // Tier-gated theme list. Explorer only sees the bundled light + dark themes;
+  // Operator and above unlock the full visual gallery.
+  const tier = getStoredTier();
+  const themesUnlocked = hasFeature(tier, "themes.visual");
+  const visibleThemes = themesUnlocked
+    ? NAZAI_THEMES
+    : NAZAI_THEMES.filter((t) => t.id === "default-dark" || t.id === "minimal-clean");
   return (
-    <div className={`grid gap-3 ${compact ? "grid-cols-2 md:grid-cols-3" : "grid-cols-1 sm:grid-cols-2 md:grid-cols-3"}`}>
-      {NAZAI_THEMES.map((theme) => {
+    <div>
+      {!themesUnlocked && (
+        <div className="mb-3 flex items-center justify-between gap-3 px-3 py-2 rounded-lg border border-white/10 bg-white/[0.03]">
+          <div className="text-[11px] font-mono text-white/60">
+            Light &amp; Dark only on {TIER_PLANS[tier].name}. Upgrade to unlock all NazAI visual themes.
+          </div>
+          <a
+            href="/pricing"
+            className="text-[10px] font-mono uppercase tracking-[0.18em] px-2.5 py-1 rounded-md bg-fuchsia-500/15 border border-fuchsia-400/40 text-fuchsia-200 hover:bg-fuchsia-500/25 transition-colors"
+          >
+            Upgrade
+          </a>
+        </div>
+      )}
+      <div className={`grid gap-3 ${compact ? "grid-cols-2 md:grid-cols-3" : "grid-cols-1 sm:grid-cols-2 md:grid-cols-3"}`}>
+      {visibleThemes.map((theme) => {
         const isActive = selectedId === theme.id;
         return (
           <motion.button
@@ -1911,6 +1960,7 @@ const NazaiThemeGallery: React.FC<{
           </motion.button>
         );
       })}
+      </div>
     </div>
   );
 };

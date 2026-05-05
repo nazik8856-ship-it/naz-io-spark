@@ -1,7 +1,10 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Sparkles, Shield, X, ChevronDown } from "lucide-react";
+import { Sparkles, Shield, X, ChevronDown, Lock } from "lucide-react";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { useTier, hasFeature } from "@/lib/feature-gates";
+import { TIER_PLANS } from "@/lib/credit-tiers";
 
 export type ChatMode = "pro-designer" | "antifragile" | null;
 
@@ -41,6 +44,9 @@ const MODE_META: Record<
  */
 const ModeSelector = ({ active, onChange, niche = "", onNicheChange }: ModeSelectorProps) => {
   const [open, setOpen] = useState(false);
+  const navigate = useNavigate();
+  const tier = useTier();
+  const tierName = TIER_PLANS[tier].name;
 
   const activeMeta = active ? MODE_META[active] : null;
 
@@ -95,22 +101,30 @@ const ModeSelector = ({ active, onChange, niche = "", onNicheChange }: ModeSelec
               const meta = MODE_META[key];
               const Icon = meta.icon;
               const isActive = active === key;
+              const featureKey = key === "pro-designer" ? "mode.pro-designer" : "mode.antifragile";
+              const unlocked = hasFeature(tier, featureKey);
               return (
                 <motion.button
                   key={key}
-                  whileHover={{ scale: 1.015 }}
-                  whileTap={{ scale: 0.985 }}
+                  whileHover={{ scale: unlocked ? 1.015 : 1 }}
+                  whileTap={{ scale: unlocked ? 0.985 : 1 }}
                   onClick={() => {
+                    if (!unlocked) {
+                      setOpen(false);
+                      navigate("/pricing");
+                      return;
+                    }
                     onChange(isActive ? null : key);
                     setOpen(false);
                   }}
-                  className="w-full text-left p-3 rounded-xl border transition-all flex items-start gap-3"
+                  className="w-full text-left p-3 rounded-xl border transition-all flex items-start gap-3 relative"
                   style={{
                     background: isActive
                       ? `linear-gradient(135deg, ${meta.accent}1c, ${meta.accent}08)`
                       : "rgba(255,255,255,0.025)",
                     borderColor: isActive ? `${meta.accent}80` : "rgba(255,255,255,0.08)",
                     boxShadow: isActive ? `0 0 24px ${meta.accent}33` : "none",
+                    opacity: unlocked ? 1 : 0.78,
                   }}
                 >
                   <div
@@ -120,10 +134,14 @@ const ModeSelector = ({ active, onChange, niche = "", onNicheChange }: ModeSelec
                       border: `1px solid ${meta.accent}55`,
                     }}
                   >
-                    <Icon size={16} style={{ color: meta.accent }} />
+                    {unlocked ? (
+                      <Icon size={16} style={{ color: meta.accent }} />
+                    ) : (
+                      <Lock size={14} style={{ color: meta.accent }} />
+                    )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span
                         className="text-[13px] font-bold tracking-tight"
                         style={{ color: isActive ? meta.accent : "rgba(255,255,255,0.92)" }}
@@ -133,17 +151,28 @@ const ModeSelector = ({ active, onChange, niche = "", onNicheChange }: ModeSelec
                       {isActive && (
                         <span
                           className="text-[9px] font-mono uppercase tracking-[0.18em] px-1.5 py-0.5 rounded-full"
-                          style={{
-                            background: `${meta.accent}22`,
-                            color: meta.accent,
-                          }}
+                          style={{ background: `${meta.accent}22`, color: meta.accent }}
                         >
                           ON
                         </span>
                       )}
+                      {!unlocked && (
+                        <span
+                          className="text-[9px] font-mono uppercase tracking-[0.18em] px-1.5 py-0.5 rounded-full"
+                          style={{
+                            background: "rgba(255,255,255,0.06)",
+                            color: "rgba(255,255,255,0.6)",
+                            border: "1px solid rgba(255,255,255,0.1)",
+                          }}
+                        >
+                          Operator+
+                        </span>
+                      )}
                     </div>
                     <p className="text-[11px] text-white/55 mt-0.5 leading-relaxed">
-                      {meta.sub}
+                      {unlocked
+                        ? meta.sub
+                        : `Locked on ${tierName}. Upgrade to unlock this specialized protocol.`}
                     </p>
                   </div>
                 </motion.button>
