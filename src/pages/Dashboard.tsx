@@ -1932,6 +1932,7 @@ const NazaiThemeGallery: React.FC<{
           </motion.button>
         );
       })}
+      </div>
     </div>
   );
 };
