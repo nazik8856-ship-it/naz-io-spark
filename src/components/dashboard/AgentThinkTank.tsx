@@ -68,6 +68,9 @@ const AgentThinkTank: React.FC<AgentThinkTankProps> = ({ open, directive, onClos
   const [frames, setFrames] = useState<Frame[]>([]);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const tier = useTier();
+  const agentCap = maxConcurrentAgents(tier);
+  const tierName = TIER_PLANS[tier].name;
   const logRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
