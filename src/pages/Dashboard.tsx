@@ -1857,9 +1857,30 @@ const NazaiThemeGallery: React.FC<{
   onSelect: (id: string) => void;
   compact?: boolean;
 }> = ({ selectedId, onSelect, compact = false }) => {
+  // Tier-gated theme list. Explorer only sees the bundled light + dark themes;
+  // Operator and above unlock the full visual gallery.
+  const tier = getStoredTier();
+  const themesUnlocked = hasFeature(tier, "themes.visual");
+  const visibleThemes = themesUnlocked
+    ? NAZAI_THEMES
+    : NAZAI_THEMES.filter((t) => t.id === "default-dark" || t.id === "minimal-clean");
   return (
-    <div className={`grid gap-3 ${compact ? "grid-cols-2 md:grid-cols-3" : "grid-cols-1 sm:grid-cols-2 md:grid-cols-3"}`}>
-      {NAZAI_THEMES.map((theme) => {
+    <div>
+      {!themesUnlocked && (
+        <div className="mb-3 flex items-center justify-between gap-3 px-3 py-2 rounded-lg border border-white/10 bg-white/[0.03]">
+          <div className="text-[11px] font-mono text-white/60">
+            Light &amp; Dark only on {TIER_PLANS[tier].name}. Upgrade to unlock all NazAI visual themes.
+          </div>
+          <a
+            href="/pricing"
+            className="text-[10px] font-mono uppercase tracking-[0.18em] px-2.5 py-1 rounded-md bg-fuchsia-500/15 border border-fuchsia-400/40 text-fuchsia-200 hover:bg-fuchsia-500/25 transition-colors"
+          >
+            Upgrade
+          </a>
+        </div>
+      )}
+      <div className={`grid gap-3 ${compact ? "grid-cols-2 md:grid-cols-3" : "grid-cols-1 sm:grid-cols-2 md:grid-cols-3"}`}>
+      {visibleThemes.map((theme) => {
         const isActive = selectedId === theme.id;
         return (
           <motion.button
