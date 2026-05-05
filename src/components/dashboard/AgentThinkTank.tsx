@@ -239,8 +239,19 @@ const AgentThinkTank: React.FC<AgentThinkTankProps> = ({ open, directive, onClos
                   <Brain size={18} style={{ color: "#06b6d4" }} />
                 </motion.div>
                 <div className="min-w-0">
-                  <div className="text-sm font-bold tracking-tight text-white">
+                  <div className="text-sm font-bold tracking-tight text-white flex items-center gap-2">
                     NazAI
+                    <span
+                      className="text-[9px] font-mono uppercase tracking-[0.18em] px-1.5 py-0.5 rounded-full"
+                      style={{
+                        background: "rgba(6,182,212,0.10)",
+                        border: "1px solid rgba(6,182,212,0.30)",
+                        color: "#67e8f9",
+                      }}
+                      title={`Concurrent agent cap on ${tierName}`}
+                    >
+                      {tierName} · {agentCap === 999 ? "∞" : agentCap} agents
+                    </span>
                   </div>
                   <div className="text-[11px] text-white/60 font-mono">
                     {running ? "Orchestrating Business…" : final ? "Orchestration complete" : "Initializing…"}
