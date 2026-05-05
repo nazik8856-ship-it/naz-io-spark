@@ -44,6 +44,9 @@ const MODE_META: Record<
  */
 const ModeSelector = ({ active, onChange, niche = "", onNicheChange }: ModeSelectorProps) => {
   const [open, setOpen] = useState(false);
+  const navigate = useNavigate();
+  const tier = useTier();
+  const tierName = TIER_PLANS[tier].name;
 
   const activeMeta = active ? MODE_META[active] : null;
 
