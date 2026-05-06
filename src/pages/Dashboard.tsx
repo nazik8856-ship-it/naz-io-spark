@@ -5006,8 +5006,19 @@ export default function Dashboard() {
     // ── Context Bridge: when in SANDBOX after a generated site, treat any
     //    new prompt as a surgical edit on the active code, regardless of
     //    whether the new prompt re-mentions "website".
+    //    EXCEPTION: a fresh Business Launch intent ALWAYS forces a brand-new
+    //    site — never iterate on a stale cached preview.
     const inSandboxEditMode =
-      options?.source === "iteration" || (isWebsiteComplete && promptMode === "sandbox" && !isRefine);
+      !_businessLaunch &&
+      (options?.source === "iteration" || (isWebsiteComplete && promptMode === "sandbox" && !isRefine));
+
+    // Business Launch: nuke any stale preview so a completely fresh website
+    // is generated for the new idea — no cached templates carry over.
+    if (_businessLaunch) {
+      setActiveWebsiteCode("");
+      setIsWebsiteComplete(false);
+      setLastWebsitePrompt("");
+    }
 
     let shouldActivateWebsitePreview = false;
 
@@ -5053,13 +5064,31 @@ export default function Dashboard() {
       shouldActivateWebsitePreview = true;
       setIsWebsiteIntent(true);
       setLastWebsitePrompt(trimmed);
-      setActiveWebsiteCode(applyTemplateThemeToHtml(buildStarterWebsiteHtml(trimmed), designPreferences.templateId));
-      const designPrefDirective = buildDesignPreferenceDirective(designPreferences);
+      // For a fresh Business Launch, clear the preview so users see the new
+      // site stream in — never show the previous cached site.
+      if (_businessLaunch) {
+        setActiveWebsiteCode("");
+      } else {
+        setActiveWebsiteCode(applyTemplateThemeToHtml(buildStarterWebsiteHtml(trimmed), designPreferences.templateId));
+      }
+      const designPrefDirective = _businessLaunch ? "" : buildDesignPreferenceDirective(designPreferences);
+      const FRESH_BUILD_DIRECTIVE = _businessLaunch
+        ? `[FRESH_BUILD: NO_CACHE | NONCE: ${VARIANCE_SEED}]\n` +
+          `This is a brand-new business launch. Ignore any prior generations, ` +
+          `templates, comfort designs, palettes, or saved styles. Build a 100% ` +
+          `original website from scratch derived ONLY from the user's specific ` +
+          `idea, industry, audience, and tone. Choose a unique color palette, ` +
+          `typography pairing, section order, and copy voice that fit THIS ` +
+          `business — different from any previous output. Do not reuse ` +
+          `boilerplate hero/feature/pricing layouts; design sections that ` +
+          `make sense for this specific venture.\n\n`
+        : "";
       masterPrompt =
         `[PRIORITY_DIRECTIVE: WEBSITE_BUILD]\n` +
         `SYSTEM (HARD RULE — CODE OUTPUT MODE): Always output complete runnable code, never text-only explanations.\n` +
         `Return ONLY ONE complete, standalone HTML document inside a single \`\`\`html fenced block, with inline CSS/JS that renders in iframe srcDoc. No prose before or after the fence.\n` +
         `Use the user's exact prompt to create a bespoke premium website tailored to that business. Adapt sections, copy, visual emphasis, palette, typography, and imagery to the prompt — never reuse the same template across users.\n\n` +
+        FRESH_BUILD_DIRECTIVE +
         designPrefDirective +
         PREMIUM_WEBSITE_QUALITY_GUIDELINES +
         masterPrompt;

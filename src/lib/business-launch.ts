@@ -78,22 +78,26 @@ export const buildBusinessLaunchDirective = (
 ): string => {
   if (!detectBusinessIntent(prompt)) return "";
   const ceil = tierCeiling(tier);
+  const nonce = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   return (
-    `[PRIORITY_DIRECTIVE: BUSINESS_LAUNCH_MODE | TIER: ${ceil.label}]\n` +
+    `[PRIORITY_DIRECTIVE: BUSINESS_LAUNCH_MODE | TIER: ${ceil.label} | NONCE: ${nonce}]\n` +
     `The user is launching a brand-new business. Treat this as a complete ` +
-    `launch package — not a single deliverable. Deeply understand the idea ` +
-    `first, then produce ALL sections below in one structured response.\n\n` +
+    `launch package — not a single deliverable. IGNORE any previous ` +
+    `generations, cached templates, saved comfort designs, or prior style ` +
+    `tokens. Build everything fresh from the user's specific idea.\n\n` +
+    `Deeply understand the idea first, then produce ALL sections below in one structured response.\n\n` +
     `## REQUIRED SECTIONS (in order)\n` +
     `1. **Idea Understanding** — 2-3 sentences confirming the business, target audience, and unique angle you inferred.\n` +
     `2. **Brand Identity** — proposed business name (3 options, pick the strongest), tagline, one-line positioning statement.\n` +
     `3. **Visual Branding** — ${ceil.branding}\n` +
     `4. **Website** — ${ceil.website} ${ceil.footerNote}\n` +
-    `   Output the website as ONE complete standalone HTML document inside a single \`\`\`html fenced block (inline CSS/JS, renders in iframe srcDoc). No prose inside the fence.\n` +
+    `   Output the website as ONE complete standalone HTML document inside a single \`\`\`html fenced block (inline CSS/JS, renders in iframe srcDoc). No prose inside the fence. The site must be 100% original — unique palette, typography, section order, and copy crafted specifically for THIS business.\n` +
     `5. **Business Plan Summary** — ${ceil.plan}\n` +
     `6. **Financial Projections** — ${ceil.financials} Use a clean Markdown table.\n` +
     `7. **Initial Marketing Assets** — ${ceil.marketing}\n\n` +
     `Quality bar: this output must feel like a senior founder + designer + ` +
     `strategist team handed the user a turnkey launch kit. No filler, no ` +
-    `generic templates, no AI-sounding copy. Be specific to the user's idea.\n\n`
+    `generic templates, no AI-sounding copy, no reused layouts. Be specific ` +
+    `to the user's idea — every word and pixel must reflect it.\n\n`
   );
 };
