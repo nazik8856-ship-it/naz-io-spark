@@ -5006,8 +5006,19 @@ export default function Dashboard() {
     // ── Context Bridge: when in SANDBOX after a generated site, treat any
     //    new prompt as a surgical edit on the active code, regardless of
     //    whether the new prompt re-mentions "website".
+    //    EXCEPTION: a fresh Business Launch intent ALWAYS forces a brand-new
+    //    site — never iterate on a stale cached preview.
     const inSandboxEditMode =
-      options?.source === "iteration" || (isWebsiteComplete && promptMode === "sandbox" && !isRefine);
+      !_businessLaunch &&
+      (options?.source === "iteration" || (isWebsiteComplete && promptMode === "sandbox" && !isRefine));
+
+    // Business Launch: nuke any stale preview so a completely fresh website
+    // is generated for the new idea — no cached templates carry over.
+    if (_businessLaunch) {
+      setActiveWebsiteCode("");
+      setIsWebsiteComplete(false);
+      setLastWebsitePrompt("");
+    }
 
     let shouldActivateWebsitePreview = false;
 
