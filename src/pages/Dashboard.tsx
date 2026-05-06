@@ -4933,15 +4933,62 @@ export default function Dashboard() {
       `• Outputs must be high-quality, insightful, and actionable — better than generic AI tools. Use real-sounding company names, plausible metrics, and clear language.\n` +
       `• Never wrap the entire reply in a code fence unless the user asked for code. Tables and mermaid diagrams use their own fences only.\n\n`;
 
+    // ── Business Launch detection ─────────────────────────────────────────────
+    //  Auto-detect prompts that signal "launch a new business/startup/SaaS",
+    //  auto-activate Pro Designer + Antifragile (where the user's tier allows),
+    //  and prepend a supercharged launch directive. Skipped on iteration edits.
+    const _launchTier = getStoredTier();
+    const _isIteration = options?.source === "iteration" || isRefineDirective(visiblePrompt);
+    const _businessLaunch =
+      !_isIteration && detectBusinessIntent(visiblePrompt);
+    let _autoProDesigner = proDesignerState.active;
+    let _autoAntifragileNiche = antifragileState.niche;
+    let _autoAntifragileActive = antifragileState.active;
+    if (_businessLaunch) {
+      const proAllowed = hasFeature(_launchTier, "mode.pro-designer");
+      const antiAllowed = hasFeature(_launchTier, "mode.antifragile");
+      if (proAllowed && !proDesignerState.active) {
+        setProDesignerState({ active: true });
+        _autoProDesigner = true;
+      }
+      if (antiAllowed) {
+        const niche = antifragileState.niche.trim().length > 0
+          ? antifragileState.niche
+          : "new business launch";
+        if (!antifragileState.active || antifragileState.niche !== niche) {
+          setAntifragileState({ active: true, niche });
+        }
+        _autoAntifragileActive = true;
+        _autoAntifragileNiche = niche;
+      }
+      try {
+        const modesNote = proAllowed && antiAllowed
+          ? "Pro Designer + Antifragile"
+          : proAllowed
+            ? "Pro Designer"
+            : antiAllowed
+              ? "Antifragile"
+              : "Limited (Explorer)";
+        toast.success("Business Launch mode activated", {
+          description: `Understood! Spinning up the full launch package with ${modesNote}…`,
+        });
+      } catch { /* noop */ }
+    }
+
     // ── Antifragile Mode prepend (highest priority — wraps the entire prompt) ──
-    const ANTIFRAGILE_PREFIX = antifragileState.active && antifragileState.niche.trim().length > 0
-      ? ANTIFRAGILE_SYSTEM_PROMPT(antifragileState.niche.trim()) + "\n\n"
+    const ANTIFRAGILE_PREFIX = (_autoAntifragileActive || antifragileState.active) && (_autoAntifragileNiche || antifragileState.niche).trim().length > 0
+      ? ANTIFRAGILE_SYSTEM_PROMPT((_autoAntifragileNiche || antifragileState.niche).trim()) + "\n\n"
       : "";
 
     // ── Pro Designer Mode prepend ──
-    const PRO_DESIGNER_PREFIX = proDesignerState.active ? PRO_DESIGNER_SYSTEM_PROMPT + "\n\n" : "";
+    const PRO_DESIGNER_PREFIX = (_autoProDesigner || proDesignerState.active) ? PRO_DESIGNER_SYSTEM_PROMPT + "\n\n" : "";
 
-    masterPrompt = ANTIFRAGILE_PREFIX + PRO_DESIGNER_PREFIX + ORCHESTRATION_DIRECTIVE + ANTI_REPETITION_DIRECTIVE + SMART_FORMAT_DIRECTIVE + masterPrompt;
+    // ── Business Launch directive (tier-aware supercharged package) ──
+    const BUSINESS_LAUNCH_PREFIX = _businessLaunch
+      ? buildBusinessLaunchDirective(visiblePrompt, _launchTier)
+      : "";
+
+    masterPrompt = BUSINESS_LAUNCH_PREFIX + ANTIFRAGILE_PREFIX + PRO_DESIGNER_PREFIX + ORCHESTRATION_DIRECTIVE + ANTI_REPETITION_DIRECTIVE + SMART_FORMAT_DIRECTIVE + masterPrompt;
 
     // ── Intent detection ──────────────────────────────────────────────────────
     //  • If a website is already live in the preview pane → treat any new
