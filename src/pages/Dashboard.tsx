@@ -4998,6 +4998,7 @@ export default function Dashboard() {
     const lowerPrompt = trimmed.toLowerCase();
     const isRefine = trimmed.startsWith("[REFINE_DIRECTIVE");
     const websiteIntent =
+      _businessLaunch ||
       /\b(website|web\s*site|landing\s*page|landing|site|webpage|web\s*page|homepage|micro[-\s]?site)\b/.test(
         lowerPrompt,
       );
