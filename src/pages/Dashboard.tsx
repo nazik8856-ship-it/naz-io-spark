@@ -4938,7 +4938,7 @@ export default function Dashboard() {
     //  auto-activate Pro Designer + Antifragile (where the user's tier allows),
     //  and prepend a supercharged launch directive. Skipped on iteration edits.
     const _launchTier = getStoredTier();
-    const _isIteration = options?.source === "iteration" || isRefineDirective(visiblePrompt);
+    const _isIteration = options?.source === "iteration" || visiblePrompt.trim().startsWith("[REFINE_DIRECTIVE");
     const _businessLaunch =
       !_isIteration && detectBusinessIntent(visiblePrompt);
     let _autoProDesigner = proDesignerState.active;
