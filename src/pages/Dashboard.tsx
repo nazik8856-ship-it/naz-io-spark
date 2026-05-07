@@ -94,6 +94,10 @@ import {
 import { TIER_PLANS, getStoredTier, type TierId } from "@/lib/credit-tiers";
 import { hasFeature, useTier, maxConcurrentAgents } from "@/lib/feature-gates";
 import { detectBusinessIntent, buildBusinessLaunchDirective } from "@/lib/business-launch";
+import LaunchSuite from "@/components/dashboard/LaunchSuite";
+import LaunchPortal from "@/components/dashboard/LaunchPortal";
+import IntentHintChip from "@/components/dashboard/IntentHintChip";
+import { FITNESS_SAAS_HTML, FITNESS_SAAS_PROMPT } from "@/lib/fitness-saas-sample";
 import { openPaymentWindow } from "@/lib/credit-packs";
 import { Switch } from "@/components/ui/switch";
 import GuardianCanvas from "@/components/workflower/GuardianCanvas";
@@ -2461,6 +2465,7 @@ const HomeView = ({
   setAntifragileState,
   proDesignerState,
   setProDesignerState,
+  applyAnimationPack,
 }: any) => {
   // Template definitions (master templates - never mutated)
   const TEMPLATE_MASTERS = {
@@ -2694,12 +2699,25 @@ const HomeView = ({
               onRefine={handleRefine}
               onEditTrigger={onEditTrigger}
               comfortDesignsSlot={
-                <ComfortDesignsBlock
-                  selectedId={designPreferences?.templateId ?? null}
-                  onSelect={onTemplateSelect}
-                  variant="preview"
-                />
+                <>
+                  <LaunchSuite
+                    directive={lastWebsitePrompt || FITNESS_SAAS_PROMPT}
+                    activeWebsiteCode={activeWebsiteCode}
+                    onApplyAnimationPack={applyAnimationPack}
+                  />
+                  <ComfortDesignsBlock
+                    selectedId={designPreferences?.templateId ?? null}
+                    onSelect={onTemplateSelect}
+                    variant="preview"
+                  />
+                </>
               }
+            />
+            {/* Spinning portal — only during website generation */}
+            <LaunchPortal
+              active={isPending && !isWebsiteComplete}
+              complete={!isPending && isWebsiteComplete}
+              label="Materializing your website"
             />
             {/* Leave Preview — keeps the build alive, just hides the pane */}
             <button
@@ -3128,6 +3146,7 @@ const HomeView = ({
                   transition={{ duration: 0.25 }}
                   className="px-4 pt-3 pb-2 overflow-hidden"
                 >
+                  <IntentHintChip value={sandboxText} />
                   <textarea
                     ref={textareaRef}
                     value={sandboxText}
@@ -4377,6 +4396,41 @@ export default function Dashboard() {
   const [generationRunId, setGenerationRunId] = useState(0);
   const [previewThemeRevision, setPreviewThemeRevision] = useState(0);
 
+  // ─── First-run sample: pre-load FitForge fitness SaaS so the dashboard is
+  // never empty for new users. Skipped if any prior preview exists.
+  useEffect(() => {
+    const KEY = "nazai-fitness-sample-seeded";
+    try {
+      if (localStorage.getItem(KEY)) return;
+      if (activeWebsiteCode) {
+        localStorage.setItem(KEY, "1");
+        return;
+      }
+      setActiveWebsiteCode(FITNESS_SAAS_HTML);
+      setLastWebsitePrompt(FITNESS_SAAS_PROMPT);
+      setIsWebsiteIntent(true);
+      setIsWebsiteComplete(true);
+      localStorage.setItem(KEY, "1");
+    } catch { /* noop */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Apply an Animation Studio CSS pack to the live preview HTML.
+  const applyAnimationPack = useCallback((cssBlock: string, _label: string) => {
+    setActiveWebsiteCode((prev) => {
+      const base = prev || "";
+      if (!base) return base;
+      const tag = `<style id="nazai-animation-pack" data-pack="${Date.now()}">${cssBlock}</style>`;
+      // Strip prior pack and re-inject so re-applying always refreshes.
+      const stripped = base.replace(/<style id="nazai-animation-pack"[\s\S]*?<\/style>/i, "");
+      return stripped.includes("</head>")
+        ? stripped.replace(/<\/head>/i, `${tag}</head>`)
+        : tag + stripped;
+    });
+    setPreviewThemeRevision((r) => r + 1);
+  }, []);
+
+
   // Restore the saved Comfort Design for the current project/thread and apply it
   // to the currently loaded preview without requiring the user to re-select it.
   useEffect(() => {
@@ -5623,6 +5677,7 @@ export default function Dashboard() {
             setAntifragileState={setAntifragileState}
             proDesignerState={proDesignerState}
             setProDesignerState={setProDesignerState}
+            applyAnimationPack={applyAnimationPack}
           />
         );
     }
