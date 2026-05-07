@@ -2465,6 +2465,7 @@ const HomeView = ({
   setAntifragileState,
   proDesignerState,
   setProDesignerState,
+  applyAnimationPack,
 }: any) => {
   // Template definitions (master templates - never mutated)
   const TEMPLATE_MASTERS = {
