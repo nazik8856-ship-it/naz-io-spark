@@ -5670,6 +5670,7 @@ export default function Dashboard() {
             setAntifragileState={setAntifragileState}
             proDesignerState={proDesignerState}
             setProDesignerState={setProDesignerState}
+            applyAnimationPack={applyAnimationPack}
           />
         );
     }
