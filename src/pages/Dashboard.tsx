@@ -2698,11 +2698,18 @@ const HomeView = ({
               onRefine={handleRefine}
               onEditTrigger={onEditTrigger}
               comfortDesignsSlot={
-                <ComfortDesignsBlock
-                  selectedId={designPreferences?.templateId ?? null}
-                  onSelect={onTemplateSelect}
-                  variant="preview"
-                />
+                <>
+                  <LaunchSuite
+                    directive={lastWebsitePrompt || FITNESS_SAAS_PROMPT}
+                    activeWebsiteCode={activeWebsiteCode}
+                    onApplyAnimationPack={applyAnimationPack}
+                  />
+                  <ComfortDesignsBlock
+                    selectedId={designPreferences?.templateId ?? null}
+                    onSelect={onTemplateSelect}
+                    variant="preview"
+                  />
+                </>
               }
             />
             {/* Leave Preview — keeps the build alive, just hides the pane */}
