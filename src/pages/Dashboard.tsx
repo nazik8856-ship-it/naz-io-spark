@@ -3146,6 +3146,7 @@ const HomeView = ({
                   transition={{ duration: 0.25 }}
                   className="px-4 pt-3 pb-2 overflow-hidden"
                 >
+                  <IntentHintChip value={sandboxText} />
                   <textarea
                     ref={textareaRef}
                     value={sandboxText}
