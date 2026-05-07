@@ -2713,6 +2713,12 @@ const HomeView = ({
                 </>
               }
             />
+            {/* Spinning portal — only during website generation */}
+            <LaunchPortal
+              active={isPending && !isWebsiteComplete}
+              complete={!isPending && isWebsiteComplete}
+              label="Materializing your website"
+            />
             {/* Leave Preview — keeps the build alive, just hides the pane */}
             <button
               type="button"
