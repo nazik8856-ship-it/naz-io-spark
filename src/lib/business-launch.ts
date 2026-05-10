@@ -32,6 +32,8 @@
  * ════════════════════════════════════════════════════════════════════════════════
  */
 
+// NOTE: Save this file as src/lib/business-launch.ts
+// (Dashboard imports from "@/lib/business-launch")
 import type { TierId } from "./credit-tiers";
 
 // ════════════════════════════════════════════════════════════════════════════════
@@ -622,37 +624,37 @@ export const generateTagline = (businessType: string, industry: string): string 
     "E-Commerce": {
       general: "Sell smarter, grow faster.",
       ecommerce: "Your marketplace, your rules.",
-      general: "Commerce made simple.",
+      retail: "Commerce made simple.",
     },
     Agency: {
       general: "Creative excellence, delivered.",
       agency: "Design that drives results.",
-      general: "Ideas into impact.",
+      studio: "Ideas into impact.",
     },
     App: {
       general: "Experience the difference.",
       app: "Innovation in your pocket.",
-      general: "Built for the modern user.",
+      mobile: "Built for the modern user.",
     },
     Marketplace: {
       general: "Connect, trade, thrive.",
       marketplace: "Where buyers meet sellers.",
-      general: "Your trusted trading hub.",
+      platform: "Your trusted trading hub.",
     },
     Content: {
       general: "Stories that matter.",
       content: "Your voice, amplified.",
-      general: "Content that converts.",
+      media: "Content that converts.",
     },
     EdTech: {
       general: "Learn at your pace.",
       education: "Education reimagined.",
-      general: "Skills for tomorrow.",
+      training: "Skills for tomorrow.",
     },
     general: {
       general: "Innovate. Create. Succeed.",
-      general: "The future starts here.",
-      general: "Transform your business.",
+      startup: "The future starts here.",
+      venture: "Transform your business.",
     },
   };
 
@@ -707,42 +709,25 @@ export const validateBusinessLaunchRequest = (
 };
 
 // ════════════════════════════════════════════════════════════════════════════════
-// EXPORT SUMMARY
+// USAGE GUIDE
+// ════════════════════════════════════════════════════════════════════════════════
+//
+// Save this file as: src/lib/business-launch.ts
+//
+// Dashboard already imports:
+//   import { detectBusinessIntent, buildBusinessLaunchDirective }
+//     from "@/lib/business-launch";
+//
+// All functions are exported inline above with `export const`.
+// TierId is re-exported below for consumers that need the type directly.
+//
+// Usage in handleSendMessage:
+//   const _businessLaunch = !_isIteration && detectBusinessIntent(visiblePrompt);
+//   const BUSINESS_FORGE_PREFIX = _businessLaunch
+//     ? buildBusinessLaunchDirective(visiblePrompt, _launchTier)
+//     : "";
+//
 // ════════════════════════════════════════════════════════════════════════════════
 
-/**
- * Main export: complete business launch system
- * Usage in Dashboard:
- *
- * ```typescript
- * import {
- *   detectBusinessIntent,
- *   buildBusinessLaunchDirective,
- *   extractBusinessDetails,
- *   validateBusinessLaunchRequest,
- * } from "@/lib/launch-business";
- *
- * // In your prompt handler:
- * if (detectBusinessIntent(userPrompt)) {
- *   const directive = buildBusinessLaunchDirective(userPrompt, userTier);
- *   const fullPrompt = directive + userPrompt;
- *   // Send to AI with fullPrompt
- * }
- * ```
- */
-
+// Re-export TierId so consumers can import it from this file if needed
 export type { TierId };
-
-export {
-  detectBusinessIntent,
-  detectIndustry,
-  extractBusinessDetails,
-  buildBusinessLaunchDirective,
-  buildDashboardDirective,
-  buildAdminDirective,
-  generateColorPalette,
-  generateTypography,
-  generateBusinessNameSuggestions,
-  generateTagline,
-  validateBusinessLaunchRequest,
-};
