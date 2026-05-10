@@ -5344,3 +5344,1095 @@ export default function Dashboard() {
       }, 250);
     }
   }, [isPending, messages.length, selectedModel, userId, activeStyle, webSearchActive, activeMissionId, fetchMissions, compileMasterPrompt, extractorData, userContext, isWebsiteComplete, isWebsiteIntent, lastWebsitePrompt, activeWebsiteCode, promptMode, sandboxText, editablePrompt, designPreferences, proDesignerState, antifragileState]);
+
+  // ─── Listen for checklist / external action directives ────────────────────
+  // The CommandCenterChecklist (and any other Dashboard widget) can dispatch
+  // a `nazai:run-directive` CustomEvent to push a prompt straight into the
+  // chat pipeline as if the user typed it. This keeps onboarding cards
+  // functional without prop-drilling a callback through WebsiteRevealPane.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as
+        | { directive?: string; source?: string }
+        | undefined;
+      const directive = detail?.directive?.trim();
+      if (!directive) return;
+      handleSendMessage(directive);
+    };
+    window.addEventListener("nazai:run-directive", handler as EventListener);
+    return () =>
+      window.removeEventListener("nazai:run-directive", handler as EventListener);
+  }, [handleSendMessage]);
+
+  // ─── INPUT TRIGGERS ────────────────────────────────────────────────────────
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        handleSendMessage();
+      }
+    },
+    [handleSendMessage],
+  );
+
+  const handleSendPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      handleSendMessage();
+    },
+    [handleSendMessage],
+  );
+
+  // ─── THE MANUAL SIDEBAR LIFECYCLE ───────────────────────────────────────────
+
+  const handleUpdateMissionStatus = useCallback(
+    async (missionId: string, newStatus: MissionStatus) => {
+      if (!userId) return;
+      const { error } = await supabase
+        .from("missions")
+        .update({ status: newStatus })
+        .eq("id", missionId)
+        .eq("user_id", userId);
+
+      if (!error) {
+        setMissions((prev) => prev.map((m) => (m.id === missionId ? { ...m, status: newStatus } : m)));
+
+        if (newStatus === "trashed" && activeMissionId === missionId) {
+          setActiveMissionId(null);
+          setMessages([]);
+        }
+      }
+    },
+    [userId, activeMissionId],
+  );
+
+  const handleRestoreMission = useCallback(
+    async (mission: Mission) => {
+      await handleUpdateMissionStatus(mission.id, "recently");
+      if (textareaRef.current) textareaRef.current.value = mission.prompt || "";
+      setActiveNav("home");
+      setShowSettings(false);
+      setIsSidebarOpen(false);
+
+      const toastEl = document.createElement("div");
+      toastEl.textContent = "✓ Mission Restored to Feed";
+      toastEl.style.cssText =
+        "position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:100;padding:8px 20px;border-radius:8px;font-size:12px;font-family:monospace;font-weight:bold;color:#020617;background:#50C878;box-shadow:0 0 20px rgba(80,200,120,0.5);";
+      document.body.appendChild(toastEl);
+      setTimeout(() => toastEl.remove(), 2500);
+    },
+    [handleUpdateMissionStatus],
+  );
+
+  const handleDeleteMissionPermanently = useCallback(
+    async (missionId: string) => {
+      if (!userId) return;
+      const { error } = await supabase.from("missions").delete().eq("id", missionId).eq("user_id", userId);
+      if (!error) {
+        setMissions((prev) => prev.filter((m) => m.id !== missionId));
+      }
+    },
+    [userId],
+  );
+
+  const handleLoadMission = useCallback((mission: Mission) => {
+    // ── PROJECT CHAT CONTINUITY ──────────────────────────────────────────────
+    // Re-entering an existing project thread: pin `activeMissionId` so every
+    // subsequent Iteration Bar message is appended to THIS thread instead of
+    // spawning a new mission row. Hydrate the original directive as the first
+    // message so the conversation visibly starts from the original prompt.
+    setActiveMissionId(mission.id);
+    setActiveNav("home");
+    setShowSettings(false);
+    setIsSidebarOpen(false);
+    const hydrated: { role: "user" | "ai"; text: string }[] = [
+      { role: "user", text: mission.prompt || "" },
+    ];
+    if (mission.response) {
+      hydrated.push({ role: "ai", text: mission.response });
+    }
+    setMessages(hydrated);
+    if (textareaRef.current) textareaRef.current.value = "";
+    setTimeout(() => textareaRef.current?.focus(), 50);
+  }, []);
+  
+  // ─── Lifecycle modal: open / confirm ─────────────────────────────────────────────
+  const openLifecycleModal = useCallback((mission: Mission) => {
+    setLifecycleTarget(mission);
+    setLifecycleChoice(null);
+  }, []);
+
+  const closeLifecycleModal = useCallback(() => {
+    setLifecycleTarget(null);
+    setLifecycleChoice(null);
+  }, []);
+
+  const confirmLifecycleAction = useCallback(async () => {
+    if (!lifecycleTarget || !lifecycleChoice || !userId) return;
+    const target = lifecycleTarget;
+    const action = lifecycleChoice;
+
+    if (action === "removed") {
+      const { error } = await supabase.from("missions").delete().eq("id", target.id).eq("user_id", userId);
+      if (!error) setMissions((prev) => prev.filter((m) => m.id !== target.id));
+    } else {
+      const newStatus: MissionStatus = action; // "trashed" | "archived"
+      const { error } = await supabase
+        .from("missions")
+        .update({ status: newStatus })
+        .eq("id", target.id)
+        .eq("user_id", userId);
+      if (!error) {
+        setMissions((prev) => prev.map((m) => (m.id === target.id ? { ...m, status: newStatus } : m)));
+      }
+    }
+
+    if (activeMissionId === target.id) {
+      setActiveMissionId(null);
+      setMessages([]);
+      if (textareaRef.current) textareaRef.current.value = "";
+      if (activeNav === "home") {
+        setActiveNav("recently");
+        setShowSettings(false);
+      }
+    }
+
+    closeLifecycleModal();
+  }, [lifecycleTarget, lifecycleChoice, userId, activeMissionId, activeNav, closeLifecycleModal]);
+
+  // ─── Render Components ──────────────────────────────────────────────────────────
+
+  const renderNavItem = useCallback(
+    (item: (typeof NAV_ITEMS)[number]) => {
+      const Icon = item.icon;
+      const isActive = activeNav === item.label.toLowerCase() && !showSettings;
+      const isSettingsActive = item.label === "Settings" && showSettings;
+      const itemTheme = SECTION_THEMES[item.label] || SECTION_THEMES["Home"];
+      return (
+        <motion.button
+          key={item.label}
+          onClick={() => handleNavClick(item.label)}
+          title={item.label}
+          className="w-10 h-10 flex items-center justify-center rounded-xl transition-all duration-200 relative group"
+          whileHover={{ scale: 1.05, backgroundColor: "rgba(255,255,255,0.05)" }}
+          whileTap={{ scale: 0.95 }}
+        >
+          {(isActive || isSettingsActive) && (
+            <motion.div
+              layoutId="nav-active-bg"
+              className="absolute inset-0 rounded-xl"
+              style={{ background: itemTheme.gradient, opacity: 0.1 }}
+              transition={springTransition}
+            />
+          )}
+          <Icon
+            size={18}
+            className="relative z-10 transition-colors duration-200"
+            style={{
+              color: isActive || isSettingsActive ? itemTheme.color : "rgba(255,255,255,0.4)",
+            }}
+          />
+        </motion.button>
+      );
+    },
+    [activeNav, showSettings, handleNavClick],
+  );
+
+  const renderMissionItem = useCallback(
+    (mission: Mission, index: number) => (
+      <motion.div
+        key={mission.id}
+        variants={itemVariants}
+        whileHover={{ scale: 1.01, backgroundColor: "rgba(255,255,255,0.03)" }}
+        className="group flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer transition-all duration-200"
+        style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
+        onClick={() => handleLoadMission(mission)}
+      >
+        <div
+          className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+          style={{ background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.1)` }}
+        >
+          <Zap size={14} style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.7)` }} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-[13px] font-medium truncate line-clamp-2" style={{ color: "var(--nazai-text-color)" }}>
+            {mission.prompt?.slice(0, 80) || "Untitled Blueprint"}
+          </p>
+          {mission.response && (
+            <p className="text-[10px] font-mono mt-1 line-clamp-2" style={{ color: '#50C878' }}>
+              {mission.response.slice(0, 100)}...
+            </p>
+          )}
+          <p className="text-[9px] font-mono mt-1 text-white/30">
+            {formatDistanceToNow(new Date(mission.created_at), { addSuffix: true })}
+          </p>
+        </div>
+        <ChevronRight
+          size={14}
+          className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-white/30"
+        />
+      </motion.div>
+    ),
+    [auraProfile.glowPrimary, handleLoadMission],
+  );
+
+  // ─── Main Render ────────────────────────────────────────────────────────────────
+
+  // Render content based on activeNav, with a Directional Slide-Fade transition
+  const renderContent = () => {
+    let view: React.ReactNode = null;
+    switch(activeNav) {
+      case 'trash':
+        view = (
+          <TrashView
+            missions={missions}
+            onRestore={handleRestoreMission}
+            onPermanentDelete={handleDeleteMissionPermanently}
+          />
+        );
+        break;
+      case 'archives':
+        view = (
+          <ArchivesView
+            missions={missions}
+            onRestore={handleRestoreMission}
+          />
+        );
+        break;
+      case 'settings':
+        view = (
+          <SettingsView
+            customPalette={customPalette}
+            setCustomPalette={setCustomPalette}
+            auraProfile={auraProfile}
+            updateAuraProfile={updateAuraProfile}
+            resetAuraToDefault={resetAuraToDefault}
+            toggleLightMode={toggleLightMode}
+            userContext={userContext}
+            setUserContext={setUserContext}
+            designPreferences={designPreferences}
+            setDesignPreferences={setDesignPreferences}
+            onTemplateSelect={applyComfortTemplate}
+            initialFocus={settingsFocus}
+            nazaiThemeId={nazaiThemeId}
+            onNazaiThemeSelect={(id) => {
+              setNazaiThemeId(id);
+              toast.success(`Theme applied ✓ — ${NAZAI_THEMES.find(t => t.id === id)?.name ?? id}`);
+            }}
+          />
+        );
+        break;
+      case 'home':
+      default:
+        view = (
+          <HomeView
+            errorMessage={errorMessage}
+            messages={messages}
+            activeTool={activeTool}
+            initialCards={initialCards}
+            auraProfile={auraProfile}
+            currentTheme={currentTheme}
+            isPending={isPending}
+            handleSendMessage={handleSendMessage}
+            handleKeyDown={handleKeyDown}
+            handleTextareaFocus={handleTextareaFocus}
+            handleTextareaBlur={handleTextareaBlur}
+            handleSendPointerDown={handleSendPointerDown}
+            setSelectedModel={setSelectedModel}
+            setPlusMenuOpen={setPlusMenuOpen}
+            setDrawerOpen={setDrawerOpen}
+            textareaRef={textareaRef}
+            inputContainerRef={inputContainerRef}
+            messagesEndRef={messagesEndRef}
+            formatAIResponse={formatAIResponse}
+            getRgbFromHex={getRgbFromHex}
+            laserShineAnimation={laserShineAnimation}
+            userMissionAssets={userMissionAssets}
+            setUserMissionAssets={setUserMissionAssets}
+            activeAssetIndex={activeAssetIndex}
+            setActiveAssetIndex={setActiveAssetIndex}
+            isDragOver={isDragOver}
+            setIsDragOver={setIsDragOver}
+            promptMode={promptMode}
+            setPromptMode={setPromptMode}
+            sandboxText={sandboxText}
+            setSandboxText={setSandboxText}
+            extractorData={extractorData}
+            setExtractorData={setExtractorData}
+            editablePrompt={editablePrompt}
+            setEditablePrompt={setEditablePrompt}
+            selectedTemplate={selectedTemplate}
+            setSelectedTemplate={setSelectedTemplate}
+            fileInputRef={fileInputRef}
+            cameraInputRef={cameraInputRef}
+            isWebsiteComplete={isWebsiteComplete}
+            isMinimized={isMinimized}
+            setIsMinimized={setIsMinimized}
+            hapticStatus={hapticStatus}
+            isWebsiteIntent={isWebsiteIntent}
+            setIsWebsiteIntent={setIsWebsiteIntent}
+            lastWebsitePrompt={lastWebsitePrompt}
+            isIterationMode={isIterationMode}
+            onEditTrigger={handleEditTrigger}
+            editPulse={editPulse}
+            isPreviewActive={isPreviewActive}
+            setIsPreviewActive={setIsPreviewActive}
+            activeWebsiteCode={activeWebsiteCode}
+            previewThemeRevision={previewThemeRevision}
+            generationRunId={generationRunId}
+            designPreferences={designPreferences}
+            onTemplateSelect={applyComfortTemplate}
+            activeMissionId={activeMissionId}
+            antifragileState={antifragileState}
+            setAntifragileState={setAntifragileState}
+            proDesignerState={proDesignerState}
+            setProDesignerState={setProDesignerState}
+            applyAnimationPack={applyAnimationPack}
+          />
+        );
+    }
+
+    return (
+      <motion.div
+        key={activeNav}
+        initial={{ opacity: 0, x: 24 }}
+        animate={{ opacity: 1, x: 0 }}
+        exit={{ opacity: 0, x: -24 }}
+        transition={{ type: "spring", stiffness: 320, damping: 30, mass: 0.7 }}
+        className="absolute inset-0 flex flex-col"
+      >
+        {view}
+      </motion.div>
+    );
+  };
+
+  return (
+    <div
+      className="flex h-screen w-screen overflow-hidden font-sans"
+      style={{ background: "var(--nazai-bg-base)", color: "var(--nazai-text-color)" }}
+    >
+      <input ref={fileInputRef} type="file" multiple className="hidden" />
+      <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" />
+
+      {/* Mobile Backdrop Overlay when sidebar is open */}
+      <AnimatePresence>
+        {isSidebarOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setIsSidebarOpen(false)}
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[998] lg:hidden"
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Mobile Sidebar - Fixed, slides in from left, floats over content, NO PUSH */}
+      <AnimatePresence mode="wait">
+        {isSidebarOpen && (
+          <motion.aside
+            key="mobile-sidebar"
+            initial={{ x: "-100%" }}
+            animate={{ x: 0 }}
+            exit={{ x: "-100%" }}
+            transition={{ duration: 0.25, ease: "easeInOut" }}
+            className="fixed top-0 left-0 bottom-0 z-[999] w-[280px] flex flex-col lg:hidden"
+            style={{
+              background: "#0B1F3A",
+              borderRight: `1px solid var(--nazai-border-light)`,
+            }}
+          >
+            <div className="flex flex-col h-full">
+              {/* Close button */}
+              <div className="flex justify-end p-3">
+                <button
+                  onClick={() => setIsSidebarOpen(false)}
+                  className="p-2 rounded-lg hover:bg-white/10 transition-all"
+                >
+                  <X size={18} className="text-white/60" />
+                </button>
+              </div>
+              {/* Sidebar Content */}
+              <SidebarContent 
+                borderColor={borderColor}
+                activeNav={activeNav}
+                showSettings={showSettings}
+                activeMissionId={activeMissionId}
+                handleNavClick={handleNavClick}
+                setActiveMissionId={setActiveMissionId}
+                setMessages={setMessages}
+                textareaRef={textareaRef}
+                setDrawerOpen={setDrawerOpen}
+                missionsLoading={missionsLoading}
+                openChatFeed={openChatFeed}
+                handleLoadMission={handleLoadMission}
+                openLifecycleModal={openLifecycleModal}
+                userEmail={userEmail}
+                getAvatarGradient={getAvatarGradient}
+                setLogoutModalOpen={setLogoutModalOpen}
+                openWorkspaceMenu={() => setWorkspaceMenuOpen(true)}
+                handleNewChat={handleNewChat}
+              />
+            </div>
+          </motion.aside>
+        )}
+      </AnimatePresence>
+
+      {/* Desktop Sidebar - Always visible in flow, collapsible */}
+      <motion.aside
+        animate={{ width: sidebarCollapsed ? 0 : 260 }}
+        transition={{ duration: 0.25 }}
+        className="hidden lg:flex flex-col shrink-0 overflow-hidden z-20"
+        style={{
+          borderRight: `1px solid var(--nazai-border-light)`,
+          background: "#0B1F3A",
+        }}
+      >
+        <div className="flex flex-col w-[260px] h-full">
+          <SidebarContent 
+            borderColor={borderColor}
+            activeNav={activeNav}
+            showSettings={showSettings}
+            activeMissionId={activeMissionId}
+            handleNavClick={handleNavClick}
+            setActiveMissionId={setActiveMissionId}
+            setMessages={setMessages}
+            textareaRef={textareaRef}
+            setDrawerOpen={setDrawerOpen}
+            missionsLoading={missionsLoading}
+            openChatFeed={openChatFeed}
+            handleLoadMission={handleLoadMission}
+            openLifecycleModal={openLifecycleModal}
+            userEmail={userEmail}
+            getAvatarGradient={getAvatarGradient}
+            setLogoutModalOpen={setLogoutModalOpen}
+            openWorkspaceMenu={() => setWorkspaceMenuOpen(true)}
+            handleNewChat={handleNewChat}
+          />
+        </div>
+      </motion.aside>
+
+      {/* Main Content - ALWAYS w-full on mobile, never shifts when sidebar opens */}
+      <main 
+        className="flex flex-col flex-1 min-w-0 relative w-full"
+        style={{
+          marginLeft: 0, // Mobile always has no margin - sidebar floats over
+        }}
+      >
+        {/* Mobile Header with Menu Button - HIGH z-index and pointer-events-auto */}
+        <header
+          className="flex items-center justify-between px-4 py-2 shrink-0 lg:hidden relative"
+          style={{
+            borderBottom: `1px solid var(--nazai-border-light)`,
+            background: auraProfile.isLightMode ? "rgba(255,255,255,0.8)" : "rgba(2,6,23,0.8)",
+            backdropFilter: `blur(${auraProfile.glassBlur}px)`,
+          }}
+        >
+          <div className="flex items-center gap-2">
+            {/* FIXED: Dead Hamburger Button - High z-index, explicit handler */}
+            <div className="z-[9999] relative pointer-events-auto">
+              <button
+                onClick={(e) => { 
+                  e.stopPropagation(); 
+                  setIsSidebarOpen(true); 
+                }}
+                className="text-white/60 hover:text-white/80 transition-colors p-2 -ml-2 rounded-lg active:scale-95"
+                style={{ pointerEvents: "auto" }}
+              >
+                <Menu size={20} />
+              </button>
+            </div>
+            <span
+              className="text-[10px] font-mono font-black tracking-tighter"
+              style={{
+                color: borderColor,
+                textShadow: `0 0 calc(var(--text-glow-intensity) * 15px) var(--glow-primary)`,
+              }}
+            >
+              NEURAL://
+            </span>
+            <span
+              className="text-[10px] font-mono font-bold"
+              style={{
+                background: currentTheme.gradient,
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+              }}
+            >
+              {activeNav.toUpperCase()}
+            </span>
+          </div>
+          <div className="flex items-center gap-3">
+            <CreditBalance compact />
+            <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: borderColor }} />
+            <span className="text-[8px] font-mono tracking-wider text-white/30">SECURE_NODE</span>
+          </div>
+        </header>
+
+        {/* Desktop Header */}
+        <header
+          className="hidden lg:flex items-center justify-between px-4 py-2 shrink-0"
+          style={{
+            borderBottom: `1px solid var(--nazai-border-light)`,
+            background: auraProfile.isLightMode ? "rgba(255,255,255,0.8)" : "rgba(2,6,23,0.8)",
+            backdropFilter: `blur(${auraProfile.glassBlur}px)`,
+          }}
+        >
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setSidebarCollapsed((v) => !v)}
+              className="text-white/40 hover:text-white/60 transition-colors"
+            >
+              {sidebarCollapsed ? <PanelLeft size={14} /> : <PanelLeftClose size={14} />}
+            </button>
+            <span
+              className="text-[10px] font-mono font-black tracking-tighter"
+              style={{
+                color: borderColor,
+                textShadow: `0 0 calc(var(--text-glow-intensity) * 15px) var(--glow-primary)`,
+              }}
+            >
+              NEURAL://
+            </span>
+            <span
+              className="text-[10px] font-mono font-bold"
+              style={{
+                background: currentTheme.gradient,
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+              }}
+            >
+              {activeNav.toUpperCase()}
+            </span>
+          </div>
+          <div className="flex items-center gap-3">
+            <CreditBalance />
+            <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: borderColor }} />
+            <span className="text-[8px] font-mono tracking-wider text-white/30">SECURE_NODE</span>
+          </div>
+        </header>
+
+        <div className="flex-1 flex flex-col overflow-hidden relative">
+          <AnimatePresence mode="wait">
+            {renderContent()}
+          </AnimatePresence>
+        </div>
+
+        <footer
+          className="flex items-center justify-between px-4 py-1.5 shrink-0 text-[8px] font-mono tracking-wider text-white/30"
+          style={{
+            borderTop: `1px solid var(--nazai-border-light)`,
+            background: auraProfile.isLightMode ? "rgba(255,255,255,0.8)" : "rgba(2,6,23,0.8)",
+          }}
+        >
+          <span>SYSTEM_STABLE</span>
+          <div className="flex gap-3">
+            <span>DB:ONLINE</span>
+            <span>AI:READY</span>
+          </div>
+        </footer>
+
+        <AnimatePresence>
+          {isWebsiteIntent && activeNav !== "home" && (
+            <motion.button
+              key="global-return-to-preview"
+              type="button"
+              onClick={() => {
+                setActiveNav("home");
+                setShowSettings(false);
+                setIsPreviewActive(true);
+              }}
+              initial={{ opacity: 0, y: 24, scale: 0.92 }}
+              animate={{
+                opacity: 1,
+                y: 0,
+                scale: 1,
+                boxShadow: [
+                  "0 0 0 1px rgba(6,182,212,0.55), 0 0 18px rgba(6,182,212,0.35)",
+                  "0 0 0 1px rgba(6,182,212,0.85), 0 0 32px rgba(6,182,212,0.7)",
+                  "0 0 0 1px rgba(6,182,212,0.55), 0 0 18px rgba(6,182,212,0.35)",
+                ],
+              }}
+              exit={{ opacity: 0, y: 24, scale: 0.92 }}
+              transition={{
+                opacity: { duration: 0.2 },
+                y: { type: "spring", stiffness: 320, damping: 26 },
+                scale: { type: "spring", stiffness: 320, damping: 26 },
+                boxShadow: { duration: 2.4, repeat: Infinity, ease: "easeInOut" },
+              }}
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.96 }}
+              className="fixed bottom-10 right-6 z-[70] flex items-center gap-2 px-4 py-2.5 rounded-full font-mono text-[11px] tracking-wider uppercase"
+              style={{
+                background: "rgba(255,255,255,0.08)",
+                backdropFilter: "blur(14px) saturate(140%)",
+                WebkitBackdropFilter: "blur(14px) saturate(140%)",
+                border: "1px solid rgba(6,182,212,0.6)",
+                color: "#06b6d4",
+              }}
+              aria-label="Return to website preview"
+            >
+              <Maximize2 size={13} />
+              Return to Preview
+            </motion.button>
+          )}
+        </AnimatePresence>
+      </main>
+
+      {/* PLUS MENU MODAL */}
+      <AnimatePresence>
+        {plusMenuOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setPlusMenuOpen(false)}
+              className="fixed inset-0 z-[998] bg-black/40 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, y: 20, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 20, scale: 0.95 }}
+              transition={springTransition}
+              className="fixed z-[999] bottom-24 left-1/2 -translate-x-1/2 w-[90vw] max-w-sm rounded-xl overflow-hidden"
+              style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
+            >
+              <div className="px-4 py-2 border-b border-white/10 flex justify-between items-center">
+                <span className="text-[10px] font-mono text-white/40">TOOLS & OPTIONS</span>
+                <button
+                  onClick={() => setPlusMenuOpen(false)}
+                  className="text-white/40 hover:text-white/80 transition-colors"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+              <div className="p-3 space-y-2">
+                <button
+                  onClick={() => {
+                    fileInputRef.current?.click();
+                    setPlusMenuOpen(false);
+                  }}
+                  className="flex items-center gap-3 w-full px-3 py-2 rounded-lg hover:bg-white/5 transition-all"
+                >
+                  <Paperclip size={14} style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.6)` }} />
+                  <div className="text-left">
+                    <div className="text-xs">Add Files / Photos</div>
+                    <div className="text-[9px] text-white/30">Upload from device</div>
+                  </div>
+                </button>
+                <button
+                  onClick={() => {
+                    cameraInputRef.current?.click();
+                    setPlusMenuOpen(false);
+                  }}
+                  className="flex items-center gap-3 w-full px-3 py-2 rounded-lg hover:bg-white/5 transition-all"
+                >
+                  <Camera size={14} style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.6)` }} />
+                  <div className="text-left">
+                    <div className="text-xs">Take a Photo</div>
+                    <div className="text-[9px] text-white/30">Open device camera</div>
+                  </div>
+                </button>
+                <div className="h-px bg-white/10 my-2" />
+                <div className="text-[9px] font-mono text-white/40 px-2">SKILLS</div>
+                {SKILLS.map(({ icon: Icon, label }) => (
+                  <button
+                    key={label}
+                    onClick={() => {
+                      if (textareaRef.current) {
+                        textareaRef.current.value = `[${label}] `;
+                        textareaRef.current.focus();
+                      }
+                      setPlusMenuOpen(false);
+                    }}
+                    className="flex items-center gap-3 w-full px-3 py-2 rounded-lg hover:bg-white/5 transition-all"
+                  >
+                    <Icon size={14} style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.5)` }} />
+                    <span className="text-xs">{label}</span>
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* AI DRAWER MODAL */}
+      <AnimatePresence>
+        {drawerOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setDrawerOpen(false)}
+              className="fixed inset-0 z-[998] bg-black/40 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, y: 20, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 20, scale: 0.95 }}
+              transition={springTransition}
+              className="fixed z-[999] bottom-24 left-1/2 -translate-x-1/2 w-[90vw] max-w-md rounded-xl overflow-hidden"
+              style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
+            >
+              <div className="px-4 py-2 border-b border-white/10 flex justify-between items-center">
+                <span className="text-[10px] font-mono text-white/40">SELECT AI ENGINE</span>
+                <button
+                  onClick={() => setDrawerOpen(false)}
+                  className="text-white/40 hover:text-white/80 transition-colors"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+              <div className="p-3 space-y-3">
+                {Object.entries(AI_CATEGORIES).map(([catKey, cat]) => (
+                  <div key={catKey}>
+                    <div className="text-[8px] font-mono mb-1" style={{ color: cat.color }}>
+                      {cat.label}
+                    </div>
+                    <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${cat.tools.length}, 1fr)` }}>
+                      {cat.tools.map((tool) => (
+                        <button
+                          key={tool.id}
+                          onClick={() => handleSelectTool(tool.id)}
+                          className="p-2 rounded-lg text-left transition-all"
+                          style={{
+                            background:
+                              selectedModel === tool.id ? `rgba(${cat.glowRgba},0.1)` : "rgba(255,255,255,0.02)",
+                            border: `1px solid ${selectedModel === tool.id ? cat.color : "rgba(255,255,255,0.05)"}`,
+                          }}
+                        >
+                          <div className="flex items-center gap-1 mb-0.5">
+                            <tool.icon
+                              size={10}
+                              style={{ color: selectedModel === tool.id ? cat.color : "white/40" }}
+                            />
+                            <span className="text-[9px] font-semibold">{tool.name}</span>
+                          </div>
+                          <div className="text-[8px] text-white/30">{tool.subtitle}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Mission Lifecycle Modal */}
+      <AnimatePresence>
+        {lifecycleTarget && (
+          <div
+            className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+            onClick={closeLifecycleModal}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.92 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.92 }}
+              transition={springTransition}
+              onClick={(e) => e.stopPropagation()}
+              className="max-w-sm w-full rounded-xl p-5"
+              style={{ background: "var(--nazai-card-bg)", border: "1px solid var(--nazai-border-light)" }}
+            >
+              <div className="mb-4">
+                <div className="text-[9px] font-mono tracking-[0.2em] text-white/40 mb-1">MISSION_LIFECYCLE</div>
+                <h3 className="text-sm font-bold font-mono" style={{ color: "var(--nazai-text-color)" }}>
+                  Manage Blueprint
+                </h3>
+                <p className="text-[11px] text-white/50 mt-1 truncate font-mono">
+                  "{lifecycleTarget.prompt?.slice(0, 60) || "Untitled"}"
+                </p>
+              </div>
+
+              <div className="space-y-2 mb-5">
+                {(
+                  [
+                    { id: "trashed", label: "Move to Trash", color: "#ef4444" },
+                    { id: "archived", label: "Move to Archives", color: "#818cf8" },
+                    { id: "removed", label: "Remove Entirely", color: "#dc2626" },
+                  ] as const
+                ).map((opt) => {
+                  const selected = lifecycleChoice === opt.id;
+                  return (
+                    <label
+                      key={opt.id}
+                      className="flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-all"
+                      style={{
+                        background: selected ? `${opt.color}10` : "rgba(255,255,255,0.02)",
+                        border: `1px solid ${selected ? opt.color + "60" : "rgba(255,255,255,0.05)"}`,
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name="lifecycle"
+                        value={opt.id}
+                        checked={selected}
+                        onChange={() => setLifecycleChoice(opt.id)}
+                        className="sr-only"
+                      />
+                      <div
+                        className="w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0"
+                        style={{ borderColor: selected ? opt.color : "rgba(255,255,255,0.3)" }}
+                      >
+                        {selected && (
+                          <div
+                            className="w-1.5 h-1.5 rounded-full"
+                            style={{ background: opt.color, boxShadow: `0 0 6px ${opt.color}` }}
+                          />
+                        )}
+                      </div>
+                      <span
+                        className="text-xs font-mono"
+                        style={{ color: selected ? opt.color : "var(--nazai-text-color)" }}
+                      >
+                        {opt.label}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={closeLifecycleModal}
+                  className="flex-1 py-2 rounded-lg text-xs font-mono bg-white/5 border border-white/10 hover:bg-white/10 transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmLifecycleAction}
+                  disabled={!lifecycleChoice}
+                  className="flex-1 py-2 rounded-lg text-xs font-mono font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                  style={{
+                    background: lifecycleChoice
+                      ? `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.15)`
+                      : "rgba(255,255,255,0.05)",
+                    border: `1px solid ${lifecycleChoice ? auraProfile.glowPrimary + "60" : "rgba(255,255,255,0.1)"}`,
+                    color: lifecycleChoice ? auraProfile.glowPrimary : "rgba(255,255,255,0.4)",
+                  }}
+                >
+                  OK
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Logout Modal */}
+      <AnimatePresence>
+        {logoutModalOpen && (
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="max-w-sm w-full rounded-xl p-6 text-center"
+              style={{ background: "var(--nazai-card-bg)", border: "1px solid rgba(239,68,68,0.2)" }}
+            >
+              <LogOut size={32} className="mx-auto mb-3 text-red-500" />
+              <h3 className="text-sm font-bold mb-1 font-mono">System Termination</h3>
+              <p className="text-xs text-white/50 mb-4">Are you sure you want to log out?</p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setLogoutModalOpen(false)}
+                  className="flex-1 py-2 rounded-lg text-xs bg-white/5 border border-white/10 hover:bg-white/10 transition-all"
+                >
+                  Stay
+                </button>
+                <button
+                  onClick={handleSignOut}
+                  className="flex-1 py-2 rounded-lg text-xs bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-all"
+                >
+                  Terminate
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* NazAI Visual Themes modal — opened only via explicit user action (Settings).
+          No auto-popup on login. */}
+      <WelcomeTemplateModal
+        open={welcomeOpen}
+        onClose={closeWelcome}
+        selectedThemeId={nazaiThemeId}
+        onSelectTheme={(id) => {
+          setNazaiThemeId(id);
+          toast.success(`Theme applied ✓ — ${NAZAI_THEMES.find(t => t.id === id)?.name ?? id}`);
+        }}
+      />
+
+      {/* Workspace Menu Modal — replaces old Settings/Archives/Trash/Sign Out stack */}
+      <WorkspaceMenuModal
+        open={workspaceMenuOpen}
+        onClose={() => { setWorkspaceMenuOpen(false); setActiveWorkspaceItem(null); }}
+        userEmail={userEmail}
+        userId={userId}
+        activeItem={activeWorkspaceItem}
+        setActiveItem={setActiveWorkspaceItem}
+        onOpenSettings={() => { setWorkspaceMenuOpen(false); setShowSettings(true); setActiveNav("settings"); }}
+        onOpenTheme={() => { setWorkspaceMenuOpen(false); setShowSettings(true); setActiveNav("settings"); setSettingsFocus("theme"); }}
+        onOpenPersonalContext={() => { setWorkspaceMenuOpen(false); setShowSettings(true); setActiveNav("settings"); setSettingsFocus("personal-context"); }}
+        onOpenConnectedApps={() => { setWorkspaceMenuOpen(false); setShowSettings(true); setActiveNav("settings"); setSettingsFocus("connected-apps"); }}
+        onSignOut={() => { setWorkspaceMenuOpen(false); setLogoutModalOpen(true); }}
+        missions={missions}
+      />
+
+      <style>{`
+        /* FORCE EVERYTHING TO BE CLICKABLE */
+        * {
+          pointer-events: auto !important;
+        }
+        
+        .pointer-events-none {
+          pointer-events: none !important;
+        }
+        
+        textarea {
+          z-index: 999999 !important;
+          position: relative !important;
+          pointer-events: auto !important;
+          -webkit-user-select: text !important;
+        }
+        
+        * {
+          -webkit-tap-highlight-color: transparent;
+        }
+        
+        body {
+          cursor: default;
+          touch-action: manipulation;
+        }
+        
+        html, body {
+          height: 100% !important;
+          width: 100vw !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          overflow-x: hidden !important;
+          overflow-y: auto !important;
+          position: relative !important;
+          -webkit-overflow-scrolling: touch;
+          touch-action: manipulation;
+        }
+        
+        body::before, .scanlines, .radar-sweep {
+          pointer-events: none !important;
+          z-index: -1 !important;
+        }
+        
+        @keyframes shake {
+          0%, 100% { transform: translateX(0); }
+          10%, 30%, 50%, 70%, 90% { transform: translateX(-2px); }
+          20%, 40%, 60%, 80% { transform: translateX(2px); }
+        }
+        .animate-shake {
+          animation: shake 0.3s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+        }
+        
+        .overflow-y-auto {
+          -webkit-overflow-scrolling: touch;
+          overscroll-behavior: contain;
+          touch-action: pan-y;
+        }
+        
+        .line-clamp-2 {
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+        }
+        
+        .line-clamp-3 {
+          display: -webkit-box;
+          -webkit-line-clamp: 3;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+        }
+        
+        @import url('https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,100..900;1,100..900&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap');
+        
+        :root {
+          --glow-primary: #22c55e;
+          --glow-primary-rgb: 34,197,94;
+          --glow-secondary: #a855f7;
+          --glow-secondary-rgb: 168,85,247;
+          --text-glow-intensity: 0.5;
+          --glass-blur: 16px;
+          --nazai-text-color: #e2e8f0;
+          --nazai-bg-base: #020617;
+          --nazai-border-light: rgba(255,255,255,0.05);
+          --nazai-card-bg: #0f172a;
+          --nazai-glow: #06b6d4;
+          --nazai-bg: #020617;
+          --nazai-bg-image: none;
+          --keyboard-height: 0px;
+        }
+        
+        * {
+          font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+        
+        .font-mono, .font-mono * {
+          font-family: 'JetBrains Mono', monospace;
+        }
+        
+        @keyframes pulse {
+          0%, 100% { opacity: 0.4; transform: scale(1); }
+          50% { opacity: 1; transform: scale(1.2); }
+        }
+        .animate-pulse { animation: pulse 2s ease-in-out infinite; }
+        
+        textarea::placeholder { color: rgba(255,255,255,0.2); }
+        
+        input[type="range"] {
+          -webkit-appearance: none;
+          background: transparent;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+          -webkit-appearance: none;
+          width: 14px;
+          height: 14px;
+          border-radius: 50%;
+          background: var(--glow-primary);
+          cursor: pointer;
+          box-shadow: 0 0 8px var(--glow-primary);
+          border: 2px solid rgba(255,255,255,0.5);
+        }
+        input[type="color"]::-webkit-color-swatch-wrapper {
+          padding: 0;
+        }
+        input[type="color"]::-webkit-color-swatch {
+          border: none;
+          border-radius: 8px;
+        }
+        
+        ::-webkit-scrollbar {
+          width: 4px;
+          height: 4px;
+        }
+        ::-webkit-scrollbar-track {
+          background: rgba(255,255,255,0.02);
+        }
+        ::-webkit-scrollbar-thumb {
+          background: rgba(255,255,255,0.1);
+          border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+          background: rgba(255,255,255,0.2);
+        }
+      `}</style>
+
+      {/* Chat surface shows clean dialogue history only.
+          Iteration is driven by the secondary "Fix" prompt rendered in HomeView. */}
+    </div>
+  );
+}
