@@ -4871,257 +4871,476 @@ export default function Dashboard() {
     return contextPrefix + "Generate a professional business blueprint.";
   }, [promptMode, sandboxText, extractorData, editablePrompt, userContext]);
 
-// ─── THE TITAN UNIFIED MESSAGE HANDLER ──────────────────────────────────────
-const handleSendMessage = useCallback(async (
-  overridePrompt?: string,
-  options?: {
-    source?: "iteration";
-    referenceImages?: { name: string; dataUrl: string }[];
-  }
-) => {
-  let masterPrompt = typeof overridePrompt === "string" && overridePrompt.trim().length > 0
-    ? overridePrompt
-    : compileMasterPrompt();
+ // ─── THE TITAN UNIFIED MESSAGE HANDLER ──────────────────────────────────────
+  const handleSendMessage = useCallback(async (
+    overridePrompt?: string,
+    options?: {
+      source?: "iteration";
+      referenceImages?: { name: string; dataUrl: string }[];
+    },
+  ) => {
+    let masterPrompt = typeof overridePrompt === "string" && overridePrompt.trim().length > 0
+      ? overridePrompt
+      : compileMasterPrompt();
+    const trimmed = masterPrompt.trim();
+    const visiblePrompt =
+      typeof overridePrompt === "string" && overridePrompt.trim().length > 0
+        ? overridePrompt.trim()
+        : promptMode === "sandbox"
+          ? sandboxText.trim() || "Generate a strategic business blueprint."
+          : promptMode === "extractor"
+            ? `Business blueprint: ${extractorData.industry || "industry TBD"}`
+            : editablePrompt.trim() || "Generate a professional business blueprint.";
 
-  const trimmed = masterPrompt.trim();
-
-  const visiblePrompt = typeof overridePrompt === "string" && overridePrompt.trim().length > 0
-    ? overridePrompt.trim()
-    : promptMode === "sandbox"
-      ? (sandboxText.trim() || "Generate a strategic business blueprint.")
-      : promptMode === "extractor"
-        ? Business blueprint: ${extractorData.industry || "industry TBD"}
-        : (editablePrompt.trim() || "Generate a professional business blueprint.");
-
-  if (isPending || trimmed.length === 0) return;
-
-  if (!userId) {
-    setErrorMessage("Please sign in to save your progress.");
-    return;
-  }
-
-  // Credit check
-  try {
-    const { data: prof } = await supabase
-      .from("profiles")
-      .select("credits")
-      .eq("id", userId)
-      .maybeSingle();
-
-    if (prof && (prof.credits ?? 0) <= 0) {
-      window.dispatchEvent(new CustomEvent("nazai:out-of-credits"));
+    if (isPending || trimmed.length === 0) {
       return;
     }
-  } catch (_) {}
 
-  // Haptic feedback
-  try {
-    if (navigator.vibrate) navigator.vibrate([20, 10, 20]);
-  } catch (_) {}
-
-  setHapticStatus("Transmitting...");
-  setTimeout(() => setHapticStatus(null), 1800);
-  setIsMinimized(true);
-
-  // Business Launch Detection
-  const launchTier = getStoredTier();
-  const isIteration = options?.source === "iteration" || visiblePrompt.trim().startsWith("[REFINE_DIRECTIVE");
-  const isBusinessLaunch = !isIteration && detectBusinessIntent(visiblePrompt);
-
-  if (isBusinessLaunch) {
-    const proAllowed = hasFeature(launchTier, "mode.pro-designer");
-    const antiAllowed = hasFeature(launchTier, "mode.antifragile");
-
-    if (proAllowed && !proDesignerState.active) {
-      setProDesignerState({ active: true });
+    if (!userId) {
+      console.error("MISSION ABORTED: No User ID found.");
+      setErrorMessage("Please sign in to save your progress.");
+      return;
     }
-    if (antiAllowed) {
-      const niche = (antifragileState.niche  "").trim()  "new business launch";
-      setAntifragileState({ active: true, niche });
+
+    // ── Out-of-credits gate: block sending and surface upgrade modal. ─────────
+    try {
+      const { data: prof } = await supabase
+        .from("profiles")
+        .select("credits")
+        .eq("id", userId)
+        .maybeSingle();
+      if (prof && (prof.credits ?? 0) <= 0) {
+        window.dispatchEvent(new CustomEvent("nazai:out-of-credits"));
+        return;
+      }
+    } catch {
+      /* non-fatal — let the request proceed */
     }
-  }
 
-  // Prompt Construction
-  const ANTIFRAGILE_PREFIX = (antifragileState.active && (antifragileState.niche || "").trim())
-    ? ANTIFRAGILE_SYSTEM_PROMPT(antifragileState.niche) + "\n\n"
-    : "";
+    // ── Kinetic UI: Haptic Feedback ───────────────────────────────────────────
+    // Pulse-pattern vibration on supported devices/wearables, plus a transient
+    // "Haptic Sync" status banner so the user feels the asset's weight & texture
+    // being processed before the visual result appears.
+    try {
+      if (typeof window !== "undefined" && window.navigator && typeof window.navigator.vibrate === "function") {
+        window.navigator.vibrate([20, 10, 20]);
+      }
+    } catch {
+      /* vibration unsupported — silent fallback */
+    }
+    setHapticStatus("Transmitting physical data to wearable interface...");
+    setTimeout(() => setHapticStatus(null), 1800);
 
-  const PRO_DESIGNER_PREFIX = proDesignerState.active
-    ? PRO_DESIGNER_SYSTEM_PROMPT + "\n\n"
-    : "";
+    // ── Sent animation: collapse prompt pill into a sleek 48px chat bar ───────
+    setIsMinimized(true);
 
-  const BUSINESS_FORGE_PREFIX = isBusinessLaunch
-    ? buildBusinessLaunchDirective(visiblePrompt, launchTier)
-    : "";
+    // ── Auto-Orchestration: hidden system instruction telling the AI to pick
+    //    the fastest + most accurate multi-agent toolchain for this directive.
+    const ORCHESTRATION_DIRECTIVE =
+      `[SYSTEM_ORCHESTRATION: AUTO]\n` +
+      `Select the fastest and most accurate tools available via multi-agent ` +
+      `orchestration based on the user's specific input. Route reasoning to the ` +
+      `strongest model, delegate creative or media tasks to specialized agents, ` +
+      `and parallelize independent steps. Do not ask the user which engine to use.\n\n`;
 
-  const BASE_DIRECTIVES = 
-    "[SYSTEM_ORCHESTRATION: AUTO]\n" +
-    [SYSTEM_ENTROPY: HIGH | SEED: \( {Date.now().toString(36)}- \){Math.random().toString(36).slice(2, 10)}]\n +
-    "[OUTPUT_FORMAT_INTELLIGENCE]\n\n";
+    // ── Anti-Repetition: force high-entropy, bespoke architectural responses.
+    //    The AI must NEVER fall back on a static template — every output must
+      //    be derived from this user's specific industry, vibe, and constraints.
+    //    A unique seed (timestamp + random) is injected to break any caching
+    //    or template-matching heuristics on the model side.
+    const { industry: extIndustry, audience: extAudience, budget: extBudget, vibe: extVibe } = extractorData || {} as any;
+    const VARIANCE_SEED = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    const ANTI_REPETITION_DIRECTIVE =
+      `[SYSTEM_ENTROPY: HIGH | SEED: ${VARIANCE_SEED}]\n` +
+      `You are an Elite Web Architect. Do NOT use generic templates. ` +
+      `Analyze the user's specific Industry, Vibe, and Audience. Create a ` +
+      `bespoke, one-of-a-kind React component structure for every request. ` +
+      `If the user is a "Gym Owner in [city]", the layout must look ` +
+      `different than a "Crypto Startup in London" — different sections, ` +
+      `different hierarchy, different color palette, different copy tone. ` +
+      `Use Tailwind CSS utility classes and Lucide React icons exclusively ` +
+      `to keep the output high-class, modern, and production-ready. ` +
+      `Reject any template-style output.\n` +
+      `EXTRACTOR_VARIABLES:\n` +
+      `  • industry=${extIndustry || "(infer from prompt)"}\n` +
+      `  • audience=${extAudience || "(infer from prompt)"}\n` +
+      `  • budget=${extBudget || "(infer from prompt)"}\n` +
+      `  • vibe=${extVibe || "(infer from prompt)"}\n` +
+      `  • identity=${userContext?.identity || "(unspecified)"}\n` +
+      `  • goals=${userContext?.goals || "(unspecified)"}\n` +
+      `  • style=${userContext?.style || "(unspecified)"}\n\n`;
 
-  let finalPromptForAI = BUSINESS_FORGE_PREFIX + ANTIFRAGILE_PREFIX + PRO_DESIGNER_PREFIX + BASE_DIRECTIVES + masterPrompt;
+    // ── Smart Output Format: when the user asks for research, analysis,
+    //    comparison, or any structured info AND has not specified a format,
+    //    intelligently choose the best visual layout (Markdown tables,
+    //    Mermaid diagrams, bullet summaries). If a format IS specified,
+    //    follow it strictly.
+    const SMART_FORMAT_DIRECTIVE =
+      `[OUTPUT_FORMAT_INTELLIGENCE]\n` +
+      `For research, analysis, comparison, competitor breakdowns, market overviews, SWOT, roadmaps, or any structured information request:\n` +
+      `• If the user did NOT specify an output format, intelligently choose the most useful visual structure:\n` +
+      `   - Use clean GitHub-flavored Markdown tables for any comparison (columns: Name, Strengths, Weaknesses, Pricing, Differentiator, etc.).\n` +
+      `   - Use Mermaid diagrams in fenced \`\`\`mermaid blocks for flows, mindmaps, SWOT (quadrantChart), timelines, or org structures when a visual adds clarity.\n` +
+      `   - Combine: a short executive summary, then a table or diagram, then 3-5 actionable insights as bullets.\n` +
+      `   - Prioritize scannability, real-looking data, professional column headers, and crisp insight bullets.\n` +
+      `• If the user EXPLICITLY asks for a specific format (e.g. "as a table", "as bullet points", "as a diagram", "text only", "list"), follow that request strictly and deliver only that format.\n` +
+      `• Outputs must be high-quality, insightful, and actionable — better than generic AI tools. Use real-sounding company names, plausible metrics, and clear language.\n` +
+      `• Never wrap the entire reply in a code fence unless the user asked for code. Tables and mermaid diagrams use their own fences only.\n\n`;
 
-  // Website / Iteration Logic
-  const lowerPrompt = trimmed.toLowerCase();
-  const websiteIntent = isBusinessLaunch ||
-    /\b(website|landing\s*page|site|webpage|homepage|micro[-\s]?site)\b/.test(lowerPrompt);
-
-  const inSandboxEditMode = !isBusinessLaunch &&
-    (options?.source === "iteration" || (isWebsiteComplete && promptMode === "sandbox"));
-
-  if (isBusinessLaunch) {
-    setActiveWebsiteCode("");
-    setIsWebsiteComplete(false);
-    setLastWebsitePrompt("");
-  }
-
-  let shouldActivateWebsitePreview = false;
-
-  if ((isWebsiteComplete && isWebsiteIntent && !trimmed.startsWith("[REFINE_DIRECTIVE")) || inSandboxEditMode) {
-    shouldActivateWebsitePreview = true;
-    const currentCode = activeWebsiteCode  buildStarterWebsiteHtml(lastWebsitePrompt  visiblePrompt);
-    const designPrefDirective = buildDesignPreferenceDirective(designPreferences);
+    // ── Business Forge Detection & Activation ─────────────────────────────────
+    //  Auto-detect prompts that signal "launch a new business/startup/SaaS",
+    //  auto-activate Pro Designer + Antifragile (where the user's tier allows),
+    //  and prepend a supercharged launch directive. Skipped on iteration edits.
+    const _launchTier = getStoredTier();
+    const _isIteration = options?.source === "iteration" || visiblePrompt.trim().startsWith("[REFINE_DIRECTIVE");
+    const _businessLaunch = !_isIteration && detectBusinessIntent(visiblePrompt);
+    let _autoProDesigner = proDesignerState.active;
+    let _autoAntifragileNiche = antifragileState.niche;
+    let _autoAntifragileActive = antifragileState.active;
     
-    const iterationDirective = 
-      "SYSTEM (HARD RULE — CODE OUTPUT MODE):\n" +
-      "Return ONLY ONE complete standalone HTML document inside a single
-      "Analyze the current code below and make precise edits based on the request.\n\n" +
-      designPrefDirective +
-      PREMIUM_WEBSITE_QUALITY_GUIDELINES +
-      `[ITERATION_DIRECTIVE: LIVE_EDIT]\nREQUESTED_CHANGE: ${visiblePrompt}\n\n` +
-      `[CURRENT_LIVE_PREVIEW]\n\`\`\`html\n${currentCode}\n\`\`\`\n`;
+    if (_businessLaunch) {
+      const proAllowed = hasFeature(_launchTier, "mode.pro-designer");
+      const antiAllowed = hasFeature(_launchTier, "mode.antifragile");
+      if (proAllowed && !proDesignerState.active) {
+        setProDesignerState({ active: true });
+        _autoProDesigner = true;
+      }
+      if (antiAllowed) {
+        const niche = antifragileState.niche.trim().length > 0
+          ? antifragileState.niche
+          : "new business launch";
+        if (!antifragileState.active || antifragileState.niche !== niche) {
+          setAntifragileState({ active: true, niche });
+        }
+        _autoAntifragileActive = true;
+        _autoAntifragileNiche = niche;
+      }
+      try {
+        const modesNote = proAllowed && antiAllowed
+          ? "Pro Designer + Antifragile"
+          : proAllowed
+            ? "Pro Designer"
+            : antiAllowed
+              ? "Antifragile"
+              : "Limited (Explorer)";
+        toast.success("Business Forge activated", {
+          description: `Launch package spinning up with ${modesNote}…`,
+        });
+      } catch { /* noop */ }
+    }
 
-    finalPromptForAI = BUSINESS_FORGE_PREFIX + ANTIFRAGILE_PREFIX + PRO_DESIGNER_PREFIX + BASE_DIRECTIVES + iterationDirective + masterPrompt;
-
-  } else if (websiteIntent) {
-    shouldActivateWebsitePreview = true;
-    setIsWebsiteIntent(true);
-    setLastWebsitePrompt(trimmed);
-
-    const designPrefDirective = isBusinessLaunch ? "" : buildDesignPreferenceDirective(designPreferences);
-    
-    const freshBuildNote = isBusinessLaunch 
-      ? "[FRESH_BUILD: NO_CACHE] Build completely new brand identity and website.\n\n"
+    // ── Antifragile Mode prepend (highest priority — wraps the entire prompt) ──
+    const ANTIFRAGILE_PREFIX = (_autoAntifragileActive || antifragileState.active) && (_autoAntifragileNiche || antifragileState.niche).trim().length > 0
+      ? ANTIFRAGILE_SYSTEM_PROMPT((_autoAntifragileNiche || antifragileState.niche).trim()) + "\n\n"
       : "";
 
-    const websiteDirective =
-      "[PRIORITY_DIRECTIVE: WEBSITE_BUILD]\n" +
-      "Return ONLY ONE complete standalone HTML document inside a single 
-html fenced block.\n\n" +
-      freshBuildNote +
-      designPrefDirective +
-      PREMIUM_WEBSITE_QUALITY_GUIDELINES;
+    // ── Pro Designer Mode prepend ──
+    const PRO_DESIGNER_PREFIX = (_autoProDesigner || proDesignerState.active) ? PRO_DESIGNER_SYSTEM_PROMPT + "\n\n" : "";
 
-    finalPromptForAI = BUSINESS_FORGE_PREFIX + ANTIFRAGILE_PREFIX + PRO_DESIGNER_PREFIX + BASE_DIRECTIVES + websiteDirective + masterPrompt;
-  }
+    // ── Business Forge directive (tier-aware supercharged package) ──
+    const BUSINESS_FORGE_PREFIX = _businessLaunch
+      ? buildBusinessLaunchDirective(visiblePrompt, _launchTier)
+      : "";
 
-  // Send Request
-  setIsPending(true);
-  if (shouldActivateWebsitePreview || isWebsiteIntent) {
-    setGenerationRunId(prev => prev + 1);
-  }
+    // ── Base directive stack (always applied) ──
+    const BASE_DIRECTIVES = ORCHESTRATION_DIRECTIVE + ANTI_REPETITION_DIRECTIVE + SMART_FORMAT_DIRECTIVE;
+    
+    // ── Core enhanced prompt builder (without website-specific wrappers) ──
+    const buildCoreEnhancedPrompt = (userPrompt: string) => {
+      return BUSINESS_FORGE_PREFIX + ANTIFRAGILE_PREFIX + PRO_DESIGNER_PREFIX + BASE_DIRECTIVES + userPrompt;
+    };
 
-  if (currentAbortControllerRef.current) currentAbortControllerRef.current.abort();
-  const controller = new AbortController();
-  currentAbortControllerRef.current = controller;
+    // ── Intent detection ──────────────────────────────────────────────────────
+    //  • If a website is already live in the preview pane → treat any new
+    //    sandbox prompt as an Iteration Command (e.g. "make the header red").
+    //  • Otherwise, if the user asks for a website / landing page / site,
+    //    inject the high-priority website-build directive.
+    const lowerPrompt = trimmed.toLowerCase();
+    const isRefine = trimmed.startsWith("[REFINE_DIRECTIVE");
+    const websiteIntent =
+      _businessLaunch ||
+      /\b(website|web\s*site|landing\s*page|landing|site|webpage|web\s*page|homepage|micro[-\s]?site)\b/.test(
+        lowerPrompt,
+      );
 
-  setMessages(prev => [
-    ...prev,
-    { role: "user", text: visiblePrompt },
-    { role: "ai", text: "Neural Architect is processing..." }
-  ]);
+    // ── Context Bridge: when in SANDBOX after a generated site, treat any
+    //    new prompt as a surgical edit on the active code, regardless of
+    //    whether the new prompt re-mentions "website".
+    //    EXCEPTION: a fresh Business Launch intent ALWAYS forces a brand-new
+    //    site — never iterate on a stale cached preview.
+    const inSandboxEditMode =
+      !_businessLaunch &&
+      (options?.source === "iteration" || (isWebsiteComplete && promptMode === "sandbox" && !isRefine));
 
-  let missionToUpdateId = activeMissionId;
-
-  try {
-    if (missionToUpdateId) {
-      await supabase.from("missions").update({ updated_at: new Date().toISOString() }).eq("id", missionToUpdateId);
-    } else {
-      const { data: saved } = await supabase.from("missions").insert({
-        user_id: userId,
-        directive: visiblePrompt,
-        status: "recently"
-      }).select().single();
-
-      if (saved) {
-        const newMission: Mission = { ...saved, prompt: visiblePrompt, status: "recently" as MissionStatus };
-        setMissions(prev => [newMission, ...prev]);
-        setActiveMissionId(saved.id);
-        missionToUpdateId = saved.id;
-      }
+    // Business Forge: nuke any stale preview so a completely fresh website
+    // is generated for the new idea — no cached templates carry over.
+    if (_businessLaunch) {
+      setActiveWebsiteCode("");
+      setIsWebsiteComplete(false);
+      setLastWebsitePrompt("");
     }
 
-    const result = await supabase.functions.invoke("generate-business-plan", {
-      body: {
-        prompt: finalPromptForAI,
-        model: selectedModel,
-        style: activeStyle,
-        webSearch: webSearchActive,
-        systemPrompt: SYSTEM_PROMPT,
-      },
-      signal: controller.signal
-    });
+    let shouldActivateWebsitePreview = false;
+    let finalPromptForAI = buildCoreEnhancedPrompt(masterPrompt);
 
-    if (result.error) throw result.error;
-
-    const outputText = result.data?.plan  result.data?.response  result.data?.text || "Blueprint generated.";
-    const generatedCode = extractGeneratedCode(outputText);
-
-    setMessages(prev => {
-      const updated = [...prev];
-      if (updated[updated.length - 1]?.role === "ai") {
-        updated[updated.length - 1].text = outputText;
+    if ((isWebsiteComplete && isWebsiteIntent && !isRefine) || inSandboxEditMode) {
+      // ── Iteration Command: edit the existing live preview in place ─────────
+      //    Inject the current website code so the AI performs surgical edits
+      //    rather than regenerating an unrelated site.
+      shouldActivateWebsitePreview = true;
+      const currentCodeSnapshot = (activeWebsiteCode || "").trim() || buildStarterWebsiteHtml(lastWebsitePrompt || visiblePrompt);
+      const instantCode = applyInstantWebsiteEdit(currentCodeSnapshot, visiblePrompt);
+      if (instantCode !== activeWebsiteCode) {
+        setActiveWebsiteCode(instantCode);
+        setIsWebsiteIntent(true);
+        setIsWebsiteComplete(true);
       }
-      return updated;
-    });
+      const refs = options?.referenceImages ?? [];
+      const styleReferenceBlock = refs.length
+        ? `[STYLE_REFERENCE_IMAGES: ${refs.length} attached]\n` +
+          `INSTRUCTION: Analyze the reference image(s) below for colors, typography, spacing, glassmorphism level, accent style, and overall vibe. Adapt the current website to closely match the reference while preserving functionality and content structure. Treat the references as authoritative for visual style.\n` +
+          refs
+            .map(
+              (r, i) =>
+                `REFERENCE_${i + 1} (${r.name}): ${r.dataUrl.slice(0, 120)}…[truncated dataURL — full image attached to the multimodal payload]`,
+            )
+            .join("\n") +
+          `\n\n`
+        : "";
+      const designPrefDirective = buildDesignPreferenceDirective(designPreferences);
+      const iterationDirective =
+        `SYSTEM (HARD RULE — CODE OUTPUT MODE):\n` +
+        `When the user asks to generate, build, modify, or edit a website or any visual component, ALWAYS output complete, valid, runnable code that can be applied directly to the live preview. Never respond with only text descriptions, summaries, strategies, or explanations unless the user explicitly asks for non-code content.\n` +
+        `You are given the COMPLETE latest source code of the live preview below. First analyze the existing code carefully. Then make precise, targeted edits ONLY to the requested parts. Preserve everything else exactly. Never regenerate the entire site from scratch unless the user says "regenerate full site".\n` +
+        `Return ONLY ONE complete, standalone HTML document inside a single \`\`\`html fenced block. Inline CSS/JS. No markdown prose, no TSX imports, no partial snippets, no explanations before or after.\n\n` +
+        designPrefDirective +
+        PREMIUM_WEBSITE_QUALITY_GUIDELINES +
+        styleReferenceBlock +
+        `[ITERATION_DIRECTIVE: LIVE_EDIT]\n` +
+        `REQUESTED_CHANGE: ${visiblePrompt}\n` +
+        `LAST_BUILD_DIRECTIVE: ${lastWebsitePrompt}\n\n` +
+        `[COMPLETE_LATEST_LIVE_PREVIEW_SOURCE]\n\`\`\`html\n${instantCode}\n\`\`\`\n\n` +
+        `[COMPLETE_PREVIEW_COMPONENT_TREE]\nWebsiteRevealPane > GeneratedWebsitePreview iframe[srcDoc] > activeWebsiteCode. The code above is the full rendered preview source.\n\n`;
+      
+      finalPromptForAI = buildCoreEnhancedPrompt(iterationDirective + masterPrompt);
+      
+    } else if (websiteIntent) {
+      shouldActivateWebsitePreview = true;
+      setIsWebsiteIntent(true);
+      setLastWebsitePrompt(trimmed);
+      // For a fresh Business Launch, clear the preview so users see the new
+      // site stream in — never show the previous cached site.
+      if (_businessLaunch) {
+        setActiveWebsiteCode("");
+      } else {
+        setActiveWebsiteCode(applyTemplateThemeToHtml(buildStarterWebsiteHtml(trimmed), designPreferences.templateId));
+      }
+      const designPrefDirective = _businessLaunch ? "" : buildDesignPreferenceDirective(designPreferences);
+      const FRESH_BUILD_DIRECTIVE = _businessLaunch
+        ? `[FRESH_BUILD: NO_CACHE | NONCE: ${VARIANCE_SEED}]\n` +
+          `This is a brand-new business launch. Ignore any prior generations, ` +
+          `templates, comfort designs, palettes, or saved styles. Build a 100% ` +
+          `original website from scratch derived ONLY from the user's specific ` +
+          `idea, industry, audience, and tone. Choose a unique color palette, ` +
+          `typography pairing, section order, and copy voice that fit THIS ` +
+          `business — different from any previous output. Do not reuse ` +
+          `boilerplate hero/feature/pricing layouts; design sections that ` +
+          `make sense for this specific venture.\n\n`
+        : "";
+      const websiteDirective =
+        `[PRIORITY_DIRECTIVE: WEBSITE_BUILD]\n` +
+        `SYSTEM (HARD RULE — CODE OUTPUT MODE): Always output complete runnable code, never text-only explanations.\n` +
+        `Return ONLY ONE complete, standalone HTML document inside a single \`\`\`html fenced block, with inline CSS/JS that renders in iframe srcDoc. No prose before or after the fence.\n` +
+        `Use the user's exact prompt to create a bespoke premium website tailored to that business. Adapt sections, copy, visual emphasis, palette, typography, and imagery to the prompt — never reuse the same template across users.\n\n` +
+        FRESH_BUILD_DIRECTIVE +
+        designPrefDirective +
+        PREMIUM_WEBSITE_QUALITY_GUIDELINES;
+      
+      finalPromptForAI = buildCoreEnhancedPrompt(websiteDirective + masterPrompt);
+    }
 
-    if (shouldActivateWebsitePreview  websiteIntent  /\b(website|site|landing)\b/.test((outputText || "").toLowerCase())) {
-      setIsWebsiteComplete(true);
-      setActiveWebsiteCode(prev => {
-        const candidate = generatedCode || outputText;
-        if (hasPreviewHtml(candidate)) {
-          return applyTemplateThemeToHtml(candidate, designPreferences.templateId);
+    setIsPending(true);
+    if (shouldActivateWebsitePreview || isWebsiteIntent || inSandboxEditMode) {
+      setGenerationRunId((run) => run + 1);
+    }
+
+    if (currentAbortControllerRef.current) {
+      currentAbortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    currentAbortControllerRef.current = controller;
+
+    const userMessage = finalPromptForAI.trim();
+    const aiMsgIndex = messages.length + 1;
+
+    setErrorMessage(null);
+    
+    setMessages((prev) => [
+      ...prev,
+      { role: "user", text: visiblePrompt },
+      { role: "ai", text: "Neural Architect: Processing blueprint..." },
+    ]);
+
+    // Secondary haptic pulse — confirms the agent processing phase is engaged
+    try {
+      window.navigator?.vibrate?.([15, 8, 15, 8, 25]);
+    } catch {
+      /* noop */
+    }
+    setHapticStatus("Synchronizing agent telemetry with wearable interface...");
+    setTimeout(() => setHapticStatus(null), 2200);
+
+    let missionToUpdateId = activeMissionId;
+    let finalResponseText = "";
+
+    try {
+      if (missionToUpdateId) {
+        // ── PROJECT CHAT CONTINUITY ──────────────────────────────────────────
+        // We are inside an existing project thread (initial generation already
+        // happened). DO NOT overwrite `directive` — that is the root prompt of
+        // the thread and must be preserved so the conversation stays unified.
+        // Only bump `updated_at` so the mission floats to the top of the feed.
+        console.log("TITAN: Continuing existing project thread:", missionToUpdateId);
+        await supabase
+          .from("missions")
+          .update({
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", missionToUpdateId)
+          .eq("user_id", userId);
+      } else {
+        console.log("TITAN: Vaulting new mission for:", userId);
+        const { data: savedMission, error: saveError } = await supabase
+          .from("missions")
+          .insert({
+            user_id: userId,
+            directive: visiblePrompt,
+            status: "recently",
+          })
+          .select()
+          .single();
+
+        if (saveError) throw saveError;
+
+        if (savedMission) {
+          console.log("TITAN: Vault Success. ID:", savedMission.id);
+          const newMission: Mission = {
+            id: savedMission.id,
+            user_id: savedMission.user_id,
+            prompt: savedMission.directive ?? visiblePrompt,
+            status: (savedMission.status ?? "recently") as MissionStatus,
+            created_at: savedMission.created_at,
+            updated_at: savedMission.updated_at,
+          };
+          setMissions((prev) => [newMission, ...prev]);
+          setActiveMissionId(savedMission.id);
+          missionToUpdateId = savedMission.id;
         }
-        return prev || applyTemplateThemeToHtml(buildStarterWebsiteHtml(visiblePrompt), designPreferences.templateId);
-      });
-    }
-    if (missionToUpdateId) {
-      await supabase.from("missions").update({ status: "completed" }).eq("id", missionToUpdateId);
-      fetchMissions();
+      }
+    } catch (err: any) {
+      console.error("VAULT SYNC ERROR:", err.message);
     }
 
-  } catch (error) {
-    console.error("Generation error:", error);
-    setMessages(prev => {
-      const updated = [...prev];
-      if (updated[updated.length - 1]?.role === "ai") {
-        updated[updated.length - 1].text = "Connection error. Please try again.";
-      }
-      return updated;
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error("Connection timeout after 12s")), 12000);
     });
-  } finally {
-    setIsPending(false);
-    currentAbortControllerRef.current = null;
-    setTimeout(() => textareaRef.current?.focus(), 300);
-  }
-}, [
-  isPending,
-  compileMasterPrompt,
-  promptMode,
-  sandboxText,
-  extractorData,
-  editablePrompt,
-  userId,
-  selectedModel,
-  activeStyle,
-  webSearchActive,
-  activeMissionId,
-  isWebsiteComplete,
-  isWebsiteIntent,
-  lastWebsitePrompt,
-  activeWebsiteCode,
-  designPreferences,
-  proDesignerState,
-  antifragileState,
-  fetchMissions,
-]);
+
+    try {
+      const result = (await Promise.race([
+        supabase.functions.invoke("generate-business-plan", {
+          body: {
+            prompt: userMessage,
+            model: selectedModel,
+            style: activeStyle,
+            webSearch: webSearchActive,
+            systemPrompt: SYSTEM_PROMPT,
+          },
+          signal: controller.signal,
+        }),
+        timeoutPromise,
+      ])) as { data: any; error: any };
+
+      if (result.error) throw new Error(result.error.message || "Link Failed");
+
+      const outputText = result.data?.plan || result.data?.response || result.data?.text || result.data?.content || `Blueprint ready.`;
+      const generatedCode = extractGeneratedCode(outputText);
+      finalResponseText = outputText;
+
+      setMessages((prev) => {
+        const updated = [...prev];
+        if (updated[aiMsgIndex]) {
+          updated[aiMsgIndex] = { ...updated[aiMsgIndex], text: outputText };
+        }
+        return updated;
+      });
+
+      // Reward gate: if AI confirms a website was generated, unlock Command Center
+      const out = (outputText || "").toLowerCase();
+      const websiteGenerated =
+        /\b(website|landing\s*page|site|webpage|homepage)\b/.test(out) &&
+        /\b(generated|built|created|deployed|ready|live|published|done|complete)\b/.test(out);
+      if (websiteGenerated || shouldActivateWebsitePreview || inSandboxEditMode) {
+        setIsWebsiteComplete(true);
+      }
+      // Snapshot the generated output so SANDBOX iteration prompts can feed
+      // it back to the AI as `[CurrentCode]` for surgical edits.
+      // CRITICAL: during an iteration, NEVER overwrite the live preview with a
+      // fresh starter — if the AI returned prose-only, keep the previous code.
+      if (shouldActivateWebsitePreview || isWebsiteIntent || websiteGenerated || inSandboxEditMode) {
+        let appliedCodeChange = false;
+        setActiveWebsiteCode((prev) => {
+          const candidate = (generatedCode || outputText || "").trim();
+          if (hasPreviewHtml(candidate)) {
+            const themedCandidate = applyTemplateThemeToHtml(candidate, designPreferences.templateId);
+            appliedCodeChange = themedCandidate !== prev;
+            return themedCandidate;
+          }
+          if (hasPreviewHtml(prev)) return prev; // preserve live preview
+          // First build with no usable HTML yet → fall back to bespoke starter
+          return applyTemplateThemeToHtml(buildStarterWebsiteHtml(lastWebsitePrompt || visiblePrompt), designPreferences.templateId);
+        });
+        if (appliedCodeChange && inSandboxEditMode) {
+          // Lightweight inline confirmation — no extra deps, dismisses itself.
+          try {
+            const { toast } = await import("sonner");
+            toast.success("Preview updated ✓", { duration: 1800 });
+          } catch { /* noop */ }
+        }
+      }
+
+      if (missionToUpdateId) {
+        await supabase
+          .from("missions")
+          .update({
+            updated_at: new Date().toISOString(),
+            status: "completed"
+          })
+          .eq("id", missionToUpdateId)
+          .eq("user_id", userId);
+        
+        fetchMissions();
+      }
+
+    } catch (error) {
+      console.error("Execution Error:", error);
+      finalResponseText = "SYSTEM ERROR: Link failed. Directive stored locally.";
+      setMessages((prev) => {
+        const updated = [...prev];
+        if (updated[aiMsgIndex]) {
+          updated[aiMsgIndex] = {
+            ...updated[aiMsgIndex],
+            text: finalResponseText,
+            isSimulation: true,
+          };
+        }
+        return updated;
+      });
+    } finally {
+      setIsPending(false);
+      currentAbortControllerRef.current = null;
+      setTimeout(() => {
+        textareaRef.current?.focus();
+        window.scrollTo(0, document.body.scrollHeight);
+      }, 250);
+    }
+  }, [isPending, messages.length, selectedModel, userId, activeStyle, webSearchActive, activeMissionId, fetchMissions, compileMasterPrompt, extractorData, userContext, isWebsiteComplete, isWebsiteIntent, lastWebsitePrompt, activeWebsiteCode, promptMode, sandboxText, editablePrompt, designPreferences, proDesignerState, antifragileState]);
