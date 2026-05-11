@@ -1,3 +1,38 @@
+/**
+ * ════════════════════════════════════════════════════════════════════════════════
+ * NAZAI DASHBOARD — TITAN V27 — PRODUCTION FINAL (BUSINESS FORGE V2)
+ * ════════════════════════════════════════════════════════════════════════════════
+ *
+ * Single-file, production-ready Dashboard component for NazAI.
+ *
+ * V27 Improvements:
+ *  • Mission search bar in sidebar — filter chats instantly by keyword
+ *  • Quick-start capability chips on empty home state (Launch SaaS, Build website…)
+ *  • Streaming dots animation for pending AI responses
+ *  • Enhanced bottom action bar — engine picker chip + char counter + spinner
+ *  • Character counter for sandbox textarea
+ *  • Cleaner send button with loading spinner state
+ *
+ * Key features:
+ *  • Business Forge system (detectBusinessIntent + buildBusinessLaunchDirective)
+ *    — Auto-detects "launch a business" intent; auto-activates Pro Designer +
+ *      Antifragile where allowed by tier; prepends supercharged tier-aware directive
+ *    — Fresh launches ALWAYS clear the active preview AND localStorage cache so
+ *      no stale templates or previous sites bleed through
+ *    — Comfort Designs are intentionally SKIPPED on Business Forge launches so
+ *      every generated site is 100% original and business-specific
+ *  • WebsiteRevealPane live preview with iteration mode (sandbox edits)
+ *  • Comfort Templates + instant theme injection (applyTemplateThemeToHtml)
+ *  • NazAI visual themes (app appearance) — separate from Comfort Designs
+ *  • Aura profile, glassmorphism, haptics
+ *  • Mission system with Supabase — with sidebar search
+ *  • All modals, sidebar, workspace menu, settings
+ *  • Anti-repetition + smart output format directives
+ *  • Multi-mode prompt composer (Sandbox / Extractor / Blueprint)
+ *
+ * ════════════════════════════════════════════════════════════════════════════════
+ */
+
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { motion, AnimatePresence } from "framer-motion";
@@ -104,7 +139,9 @@ import GuardianCanvas from "@/components/workflower/GuardianCanvas";
 import { toast } from "sonner";
 
 // ─── DEPLOYMENT VERSION ──────────────────────────────────────────────────────────
-const DEPLOYMENT_ID = "NAZAI_TITAN_V25_ARCHITECT";
+// Increment this whenever breaking logic changes are deployed — triggers a
+// one-time session/service-worker/cache purge on first load (the Surgical Nuke).
+const DEPLOYMENT_ID = "NAZAI_TITAN_V27_BUSINESS_FORGE_V2";
 
 // ─── Type Definitions ──────────────────────────────────────────────────────────────
 
@@ -722,7 +759,19 @@ const PLACEHOLDER_TEXTS = [
 ];
 
 // Professional system prompt for AI
-const SYSTEM_PROMPT = `You are The Neural Architect, a high-precision business blueprinting AI. Respond in a professional, architectural tone. Provide structured, actionable business plans. Focus on strategic frameworks, market analysis, operational excellence, and financial architecture. Use clear sections and professional language.`;
+const SYSTEM_PROMPT = `You are The Neural Architect — an elite, high-precision business blueprinting AI operating at the intersection of strategy, technology, and execution. You think in frameworks, communicate in structures, and deliver with specificity.
+
+RESPONSE STANDARDS:
+• Always lead with the most strategic insight first
+• Use structured sections with clear headers when content warrants it
+• Provide real-world metrics, benchmarks, and comparisons — never generic placeholders
+• When asked about websites, ALWAYS output complete runnable HTML — never text descriptions
+• Reject vague answers: be specific, be bold, be actionable
+• For business plans: include market sizing (TAM/SAM/SOM), competitive moats, unit economics
+• For technical questions: include concrete code, architecture diagrams, or implementation steps
+• Never say "it depends" without immediately answering both cases
+
+TONE: Confident. Precise. Founder-centric. Think McKinsey meets Y Combinator.`;
 
 // Premium quality guidelines injected into every website generation/edit prompt.
 // Goal: outputs that exceed Durable AI in design polish, copywriting, responsiveness,
@@ -1185,6 +1234,7 @@ const TrashView = ({ missions, onRestore, onPermanentDelete }: {
         <div className="text-center py-20">
           <Trash2 size={48} className="mx-auto text-white/10 mb-4" />
           <p className="text-[11px] font-mono text-white/30">Trash is empty</p>
+          <p className="text-[9px] font-mono text-white/20 mt-1">Trashed chats are automatically wiped after 30 days</p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -1250,6 +1300,7 @@ const ArchivesView = ({ missions, onRestore }: {
         <div className="text-center py-20">
           <Archive size={48} className="mx-auto text-white/10 mb-4" />
           <p className="text-[11px] font-mono text-white/30">Archive is empty</p>
+          <p className="text-[9px] font-mono text-white/20 mt-1">Archive chats to save them here for future reference</p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -2589,6 +2640,31 @@ const HomeView = ({
               </p>
             </div>
 
+            {/* Quick-start capability chips */}
+            <div className="flex flex-wrap gap-2 justify-center max-w-sm mt-2">
+              {[
+                { label: "Launch a SaaS", icon: Rocket },
+                { label: "Build a website", icon: Globe },
+                { label: "Business strategy", icon: Briefcase },
+                { label: "Market analysis", icon: BarChart3 },
+              ].map(({ label, icon: Icon }) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => handleSendMessage(label)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-mono transition-all hover:scale-105"
+                  style={{
+                    background: "rgba(6,182,212,0.06)",
+                    border: "1px solid rgba(6,182,212,0.2)",
+                    color: "rgba(6,182,212,0.8)",
+                  }}
+                >
+                  <Icon size={11} />
+                  {label}
+                </button>
+              ))}
+            </div>
+
             {/* Comfort Designs is intentionally NOT shown on the Home empty state.
                 It lives only on the website-build pane (above CommandCenterChecklist)
                 and inside Settings → Comfort Designs, to avoid surprising users on login. */}
@@ -2605,20 +2681,25 @@ const HomeView = ({
             className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"} group`}
           >
             {msg.role === "user" ? (
-              <div
-                className="max-w-[78%] px-4 py-3 text-[13px] leading-[1.6] font-sans"
-                style={{
-                  borderRadius: "16px 16px 4px 16px",
-                  background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.07)`,
-                  border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.18)`,
-                  color: "var(--nazai-text-color)",
-                  boxShadow: `0 1px 0 0 rgba(255,255,255,0.04) inset, 0 4px 16px -8px rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.25)`,
-                  fontFamily:
-                    "'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
-                  letterSpacing: "0.005em",
-                }}
-              >
-                {msg.text}
+              <div className="flex flex-col items-end gap-0.5">
+                <div
+                  className="max-w-[78%] px-4 py-3 text-[13px] leading-[1.6] font-sans"
+                  style={{
+                    borderRadius: "16px 16px 4px 16px",
+                    background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.07)`,
+                    border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.18)`,
+                    color: "var(--nazai-text-color)",
+                    boxShadow: `0 1px 0 0 rgba(255,255,255,0.04) inset, 0 4px 16px -8px rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.25)`,
+                    fontFamily:
+                      "'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
+                    letterSpacing: "0.005em",
+                  }}
+                >
+                  {msg.text}
+                </div>
+                <span className="text-[8px] font-mono text-white/20 pr-1">
+                  {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
               </div>
             ) : (
               <>
@@ -2655,20 +2736,57 @@ const HomeView = ({
                     >
                       NazAI
                     </span>
+                    {!isPending && msg.text && msg.text !== "Neural Architect: Processing blueprint..." && (
+                      <span className="ml-auto text-[8px] font-mono text-white/20">
+                        {msg.text.split(/\s+/).filter(Boolean).length} words
+                      </span>
+                    )}
                   </div>
-                  <div className="px-5 py-4">{formatAIResponse(msg.text)}</div>
+                  <div className="px-5 py-4">
+                  {isPending && msg === messages[messages.length - 1] && msg.role === "ai" && msg.text === "Neural Architect: Processing blueprint..." ? (
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] font-mono text-white/50">Processing</span>
+                      <div className="flex gap-1">
+                        {[0, 1, 2].map((i) => (
+                          <motion.span
+                            key={i}
+                            className="w-1.5 h-1.5 rounded-full bg-cyan-400"
+                            animate={{ opacity: [0.2, 1, 0.2], scale: [0.8, 1.2, 0.8] }}
+                            transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.2 }}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    formatAIResponse(msg.text)
+                  )}
+                </div>
                   {/* Verification chip · Reasoning trace · Approve as ground truth */}
-                  <AIResponseExtras
-                    text={msg.text}
-                    messageId={`msg-${i}-${(msg.text || "").slice(0, 40)}`}
-                    prompt={
-                      // Prefer the immediately preceding user prompt as context
-                      messages
-                        .slice(0, i)
-                        .reverse()
-                        .find((m: any) => m.role === "user")?.text ?? ""
-                    }
-                  />
+                  <div className="flex items-center gap-2 px-4 pb-2">
+                    <AIResponseExtras
+                      text={msg.text}
+                      messageId={`msg-${i}-${(msg.text || "").slice(0, 40)}`}
+                      prompt={
+                        messages
+                          .slice(0, i)
+                          .reverse()
+                          .find((m: any) => m.role === "user")?.text ?? ""
+                      }
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(msg.text).then(() => {
+                          try { toast.success("Copied to clipboard", { duration: 1200 }); } catch {}
+                        });
+                      }}
+                      className="ml-auto flex items-center gap-1 px-2 py-1 rounded text-[9px] font-mono text-white/30 hover:text-white/60 hover:bg-white/5 transition-all"
+                      title="Copy response"
+                    >
+                      <FileText size={9} />
+                      Copy
+                    </button>
+                  </div>
                 </div>
               </>
             )}
@@ -2676,6 +2794,25 @@ const HomeView = ({
         ))}
         <div ref={messagesEndRef} />
       </div>
+
+      {/* Scroll to bottom indicator - shown when messages overflow */}
+      {messages.length > 3 && (
+        <motion.button
+          type="button"
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          onClick={() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })}
+          className="absolute right-4 bottom-[160px] z-30 w-8 h-8 rounded-full flex items-center justify-center shadow-lg transition-all hover:scale-110"
+          style={{
+            background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.15)`,
+            border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.35)`,
+            color: auraProfile.glowPrimary,
+          }}
+          title="Scroll to bottom"
+        >
+          <ChevronDown size={14} />
+        </motion.button>
+      )}
 
       {/* ─── WEBSITE REVEAL SPLIT-PANE — only for website-build directives ─── */}
       <AnimatePresence>
@@ -2857,6 +2994,33 @@ const HomeView = ({
           </AnimatePresence>
         </div>
       </div>
+
+      {/* ─── AI THINKING BANNER — shows which engine is active during generation ─── */}
+      <AnimatePresence>
+        {isPending && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8 }}
+            transition={{ duration: 0.2 }}
+            className="fixed top-16 left-1/2 -translate-x-1/2 z-[55] flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-mono"
+            style={{
+              background: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.08)`,
+              border: `1px solid rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.3)`,
+              color: auraProfile.glowPrimary,
+              backdropFilter: "blur(12px)",
+            }}
+          >
+            <motion.span
+              className="w-1.5 h-1.5 rounded-full"
+              style={{ background: auraProfile.glowPrimary }}
+              animate={{ opacity: [0.3, 1, 0.3] }}
+              transition={{ duration: 0.9, repeat: Infinity }}
+            />
+            Neural Architect processing…
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ─── HAPTIC SYNC STATUS BANNER (Kinetic UI) ─── */}
       <AnimatePresence>
@@ -3147,19 +3311,36 @@ const HomeView = ({
                   className="px-4 pt-3 pb-2 overflow-hidden"
                 >
                   <IntentHintChip value={sandboxText} />
-                  <textarea
-                    ref={textareaRef}
-                    value={sandboxText}
-                    onChange={(e) => setSandboxText(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    onFocus={handleTextareaFocus}
-                    onBlur={handleTextareaBlur}
-                    placeholder="Describe your business vision, challenge, or opportunity..."
-                    rows={3}
-                    className="w-full bg-black/30 backdrop-blur-sm rounded-xl border border-white/10 focus:border-cyan-500/50 outline-none p-3 text-sm font-mono resize-none"
-                    style={{ color: "var(--nazai-text-color)" }}
-                  />
-                  <div className="text-[9px] font-mono text-white/30 text-right mt-1">Founder Persona context will be applied automatically</div>
+                  <div className="relative">
+                    <textarea
+                      ref={textareaRef}
+                      value={sandboxText}
+                      onChange={(e) => setSandboxText(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      onFocus={handleTextareaFocus}
+                      onBlur={handleTextareaBlur}
+                      placeholder="Describe your business vision, challenge, or opportunity..."
+                      rows={3}
+                      className="w-full bg-black/30 backdrop-blur-sm rounded-xl border border-white/10 focus:border-cyan-500/50 outline-none p-3 text-sm font-mono resize-none pr-16"
+                      style={{ color: "var(--nazai-text-color)" }}
+                    />
+                    {sandboxText && (
+                      <button
+                        type="button"
+                        onClick={() => setSandboxText("")}
+                        className="absolute top-2 right-2 w-5 h-5 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all"
+                        title="Clear text"
+                      >
+                        <X size={10} className="text-white/60" />
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between mt-1">
+                    <span className="text-[9px] font-mono text-white/30">Founder Persona context applied automatically</span>
+                    {sandboxText.length > 0 && (
+                      <span className="text-[9px] font-mono text-white/25">{sandboxText.length} chars</span>
+                    )}
+                  </div>
                 </motion.div>
               )}
 
@@ -3355,27 +3536,67 @@ const HomeView = ({
 
             {/* Bottom action bar */}
             <div className="flex items-center justify-between px-4 py-2.5 border-t border-white/5 bg-black/30">
-              <div className="flex gap-2">
+              <div className="flex gap-2 items-center">
                 <button
                   onClick={() => setPlusMenuOpen(true)}
                   className="w-8 h-8 rounded-xl flex items-center justify-center bg-white/5 border border-white/10 hover:bg-white/10 transition-all"
+                  title="Add files / skills"
                 >
                   <Plus size={14} className="text-white/70" />
                 </button>
-                {/* Engine Switcher removed — orchestration is now automatic (handleSendMessage injects SYSTEM_ORCHESTRATION directive) */}
+                <button
+                  onClick={() => setDrawerOpen(true)}
+                  className="h-7 px-2.5 rounded-lg flex items-center gap-1.5 transition-all"
+                  style={{
+                    background: "rgba(255,255,255,0.04)",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                  }}
+                  title="Select AI engine"
+                >
+                  <Brain size={11} className="text-white/50" />
+                  <span className="text-[9px] font-mono text-white/40 tracking-wider">ENGINE</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWebSearchActive((v: boolean) => !v)}
+                  className="h-7 px-2.5 rounded-lg flex items-center gap-1.5 transition-all"
+                  style={{
+                    background: webSearchActive ? `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.12)` : "rgba(255,255,255,0.04)",
+                    border: `1px solid ${webSearchActive ? `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.4)` : "rgba(255,255,255,0.08)"}`,
+                  }}
+                  title={webSearchActive ? "Web search ON — click to disable" : "Enable web search"}
+                >
+                  <Globe size={11} style={{ color: webSearchActive ? auraProfile.glowPrimary : "rgba(255,255,255,0.4)" }} />
+                  <span className="text-[9px] font-mono tracking-wider" style={{ color: webSearchActive ? auraProfile.glowPrimary : "rgba(255,255,255,0.4)" }}>
+                    {webSearchActive ? "SEARCH ON" : "SEARCH"}
+                  </span>
+                </button>
               </div>
 
-              <div className="flex gap-2">
-                {/* Think Tank button removed — agent orchestration runs silently
-                    via SYSTEM_ORCHESTRATION; chat surface stays focused on dialogue. */}
-
+              <div className="flex gap-2 items-center">
+                {/* Character counter for sandbox mode */}
+                {promptMode === "sandbox" && sandboxText.length > 0 && (
+                  <span className="text-[9px] font-mono text-white/30">
+                    {sandboxText.length}
+                  </span>
+                )}
                 <button
                   onPointerDown={handleSendPointerDown}
-                  disabled={isPending}
-                  className="w-8 h-8 rounded-xl flex items-center justify-center transition-all shadow-lg"
+                  disabled={isPending || (promptMode === "sandbox" && !sandboxText.trim())}
+                  className="w-8 h-8 rounded-xl flex items-center justify-center transition-all shadow-lg disabled:opacity-40"
                   style={{ background: currentTheme.color }}
+                  title="Send (Enter)"
                 >
-                  <Send size={13} style={{ color: "#020617" }} />
+                  {isPending ? (
+                    <motion.div
+                      className="w-3 h-3 border-2 border-t-transparent rounded-full"
+                      style={{ borderColor: "#020617" }}
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 0.8, repeat: Infinity, ease: "linear" }}
+                    />
+                  ) : (
+                    <Send size={13} style={{ color: "#020617" }} />
+                  )}
                 </button>
               </div>
             </div>
@@ -3488,6 +3709,14 @@ function SidebarContent({
   handleNewChat,
 }: any) {
   const [projectsExpanded, setProjectsExpanded] = useState(true);
+  const [missionSearch, setMissionSearch] = useState("");
+  const filteredChatFeed = useMemo(() => {
+    if (!missionSearch.trim()) return openChatFeed;
+    const q = missionSearch.toLowerCase();
+    return (openChatFeed || []).filter((m: any) =>
+      (m.prompt || "").toLowerCase().includes(q)
+    );
+  }, [openChatFeed, missionSearch]);
   
   return (
     <>
@@ -3540,8 +3769,11 @@ function SidebarContent({
           <div className="p-1.5 rounded-lg bg-white/5 group-hover:bg-glow-primary/20 transition-colors">
             <Plus size={16} className="text-white/70 group-hover:text-glow-primary transition-colors" />
           </div>
-          <span className="text-[13px] font-semibold text-white/60 group-hover:text-white transition-colors">
+          <span className="text-[13px] font-semibold text-white/60 group-hover:text-white transition-colors flex-1">
             New chat
+          </span>
+          <span className="text-[9px] font-mono text-white/20 group-hover:text-white/40 transition-colors hidden sm:inline">
+            ⌘N
           </span>
         </button>
       </div>
@@ -3582,7 +3814,17 @@ function SidebarContent({
         onClick={() => setProjectsExpanded((v) => !v)}
         className="flex items-center justify-between px-4 py-2 mt-1 mb-1 shrink-0 hover:bg-white/[0.02] transition-all"
       >
-        <span className="text-[9px] font-mono font-bold tracking-[0.25em] uppercase text-white/40">Projects</span>
+        <div className="flex items-center gap-2">
+          <span className="text-[9px] font-mono font-bold tracking-[0.25em] uppercase text-white/40">Projects</span>
+          {openChatFeed && openChatFeed.length > 0 && (
+            <span
+              className="text-[8px] font-mono px-1.5 py-0.5 rounded"
+              style={{ background: "rgba(6,182,212,0.1)", border: "1px solid rgba(6,182,212,0.2)", color: "rgba(6,182,212,0.7)" }}
+            >
+              {openChatFeed.length}
+            </span>
+          )}
+        </div>
         <ChevronDown
           size={12}
           className="text-white/40 transition-transform"
@@ -3600,6 +3842,27 @@ function SidebarContent({
             transition={{ duration: 0.2 }}
             className="flex-1 min-h-0 overflow-hidden flex flex-col"
           >
+            {/* Mission Search */}
+            <div className="px-2 pb-1 shrink-0">
+              <div
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg"
+                style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}
+              >
+                <Search size={10} className="text-white/30 shrink-0" />
+                <input
+                  type="text"
+                  value={missionSearch}
+                  onChange={(e) => setMissionSearch(e.target.value)}
+                  placeholder="Search chats..."
+                  className="flex-1 bg-transparent text-[11px] font-mono text-white/70 placeholder:text-white/25 outline-none"
+                />
+                {missionSearch && (
+                  <button onClick={() => setMissionSearch("")} className="text-white/30 hover:text-white/60">
+                    <X size={9} />
+                  </button>
+                )}
+              </div>
+            </div>
             <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-2 space-y-0.5">
               {missionsLoading ? (
                 <div className="flex justify-center py-6">
@@ -3608,10 +3871,19 @@ function SidebarContent({
                     style={{ borderColor: `rgba(${getRgbFromHex(borderColor)},0.4)` }}
                   />
                 </div>
-              ) : openChatFeed.length === 0 ? (
-                <p className="text-[10px] font-mono text-white/25 px-3 py-4 text-center">No chats yet</p>
+              ) : filteredChatFeed.length === 0 ? (
+                <div className="text-center py-4">
+                  {missionSearch ? (
+                    <>
+                      <p className="text-[10px] font-mono text-white/25 px-3">No results for "{missionSearch}"</p>
+                      <button onClick={() => setMissionSearch("")} className="text-[9px] font-mono text-cyan-400/60 hover:text-cyan-400 mt-1 transition-colors">Clear search</button>
+                    </>
+                  ) : (
+                    <p className="text-[10px] font-mono text-white/25 px-3">No chats yet</p>
+                  )}
+                </div>
               ) : (
-                openChatFeed.map((mission: Mission) => {
+                filteredChatFeed.map((mission: Mission) => {
                   const isActive = activeMissionId === mission.id;
                   const title = mission.prompt?.trim().slice(0, 40) || "Untitled";
                   return (
@@ -4372,7 +4644,8 @@ export default function Dashboard() {
   // output (raw response text or extracted code). When the user types in
   // SANDBOX mode after a build, this is fed back to the AI as `[CurrentCode]`
   // so it performs surgical edits instead of regenerating an unrelated site.
-  const ACTIVE_WEBSITE_STORAGE_KEY = "nazai-active-website-code";
+  // Key is declared at component scope (accessible in all callbacks).
+  const ACTIVE_WEBSITE_STORAGE_KEY = "nazai-active-website-code" as const;
   const [activeWebsiteCode, setActiveWebsiteCode] = useState<string>(() => {
     // Auto-restore the last live preview so refresh / re-login doesn't wipe work.
     try {
@@ -4659,30 +4932,7 @@ export default function Dashboard() {
     }
   }, [messages]);
 
-  // ── Effects ──────────────────────────────────────────────────────────────────────
-  useEffect(() => {
-    let isMounted = true;
-    const getSession = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (isMounted) {
-        setUserEmail(session?.user?.email ?? null);
-        setUserId(session?.user?.id ?? null);
-      }
-    };
-    getSession();
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (isMounted) {
-        setUserEmail(session?.user?.email ?? null);
-        setUserId(session?.user?.id ?? null);
-      }
-    });
-    return () => {
-      isMounted = false;
-      listener.subscription.unsubscribe();
-    };
-  }, []);
+  // ── Effects (auth is handled above in IDENTITY BRIDGE; no duplicate needed) ────────
 
   // FIXED: fetchMissions with proper select fields including response
   const fetchMissions = useCallback(async () => {
@@ -4799,12 +5049,32 @@ export default function Dashboard() {
     setDrawerOpen(false);
   }, []);
 
+  // ─── Keyboard shortcut: Cmd+N / Ctrl+N → New Chat ──────────────────────────
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "n") {
+        e.preventDefault();
+        handleNewChat();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // ─── New Chat: reset to a clean Home with no preview, no mission, no preloaded project ───
   const handleNewChat = useCallback(() => {
     setMessages([]);
     setActiveMissionId(null);
     setIsWebsiteComplete(false);
+    setIsWebsiteIntent(false);
+    setLastWebsitePrompt("");
     setActiveWebsiteCode("");
+    setIsPreviewActive(true);
+    setSandboxText("");
+    setPromptMode("sandbox");
+    setIsMinimized(false);
+    setEditPulse(false);
     try { localStorage.removeItem(ACTIVE_WEBSITE_STORAGE_KEY); } catch { /* noop */ }
     setShowSettings(false);
     setActiveNav("home");
@@ -5074,10 +5344,17 @@ export default function Dashboard() {
 
     // Business Forge: nuke any stale preview so a completely fresh website
     // is generated for the new idea — no cached templates carry over.
+    // Also wipe localStorage so a page refresh during generation doesn't
+    // reload the old site from the persisted cache.
     if (_businessLaunch) {
       setActiveWebsiteCode("");
       setIsWebsiteComplete(false);
       setLastWebsitePrompt("");
+      try {
+        localStorage.removeItem(ACTIVE_WEBSITE_STORAGE_KEY);
+        // Also clear the fitness-sample seed flag so the fresh build is truly blank
+        localStorage.removeItem("nazai-fitness-sample-seeded");
+      } catch { /* noop */ }
     }
 
     let shouldActivateWebsitePreview = false;
@@ -5128,13 +5405,18 @@ export default function Dashboard() {
       shouldActivateWebsitePreview = true;
       setIsWebsiteIntent(true);
       setLastWebsitePrompt(trimmed);
-      // For a fresh Business Launch, clear the preview so users see the new
-      // site stream in — never show the previous cached site.
+      // For a fresh Business Launch, keep the preview blank so users see the new
+      // site stream in fresh — never show the previous cached site or apply any
+      // saved Comfort Design template from a previous project.
       if (_businessLaunch) {
+        // Already cleared above — keep it blank; AI will generate 100% original HTML
         setActiveWebsiteCode("");
       } else {
+        // Non-business-launch fresh website: inject starter + apply saved Comfort Design
         setActiveWebsiteCode(applyTemplateThemeToHtml(buildStarterWebsiteHtml(trimmed), designPreferences.templateId));
       }
+      // Business Forge: never inject Comfort Design directives — the launch package
+      // must be 100% original, derived only from the user's specific business idea.
       const designPrefDirective = _businessLaunch ? "" : buildDesignPreferenceDirective(designPreferences);
       const FRESH_BUILD_DIRECTIVE = _businessLaunch
         ? `[FRESH_BUILD: NO_CACHE | NONCE: ${VARIANCE_SEED}]\n` +
@@ -5280,7 +5562,17 @@ export default function Dashboard() {
         /\b(website|landing\s*page|site|webpage|homepage)\b/.test(out) &&
         /\b(generated|built|created|deployed|ready|live|published|done|complete)\b/.test(out);
       if (websiteGenerated || shouldActivateWebsitePreview || inSandboxEditMode) {
+        const wasAlreadyComplete = isWebsiteComplete;
         setIsWebsiteComplete(true);
+        // First-time website completion toast
+        if (!wasAlreadyComplete && !inSandboxEditMode) {
+          try {
+            toast.success("Website generated ✓", {
+              description: "Your live preview is ready. Use the Fix bar to iterate.",
+              duration: 3000,
+            });
+          } catch {}
+        }
       }
       // Snapshot the generated output so SANDBOX iteration prompts can feed
       // it back to the AI as `[CurrentCode]` for surgical edits.
@@ -5291,12 +5583,18 @@ export default function Dashboard() {
         setActiveWebsiteCode((prev) => {
           const candidate = (generatedCode || outputText || "").trim();
           if (hasPreviewHtml(candidate)) {
-            const themedCandidate = applyTemplateThemeToHtml(candidate, designPreferences.templateId);
+            // Business Forge: NEVER apply a saved Comfort Design template to fresh
+            // business launch output — it must remain 100% original as generated.
+            const themedCandidate = _businessLaunch
+              ? candidate
+              : applyTemplateThemeToHtml(candidate, designPreferences.templateId);
             appliedCodeChange = themedCandidate !== prev;
             return themedCandidate;
           }
           if (hasPreviewHtml(prev)) return prev; // preserve live preview
           // First build with no usable HTML yet → fall back to bespoke starter
+          // (only for non-business-launch, since a launch must wait for AI HTML)
+          if (_businessLaunch) return prev;
           return applyTemplateThemeToHtml(buildStarterWebsiteHtml(lastWebsitePrompt || visiblePrompt), designPreferences.templateId);
         });
         if (appliedCodeChange && inSandboxEditMode) {
@@ -5348,8 +5646,7 @@ export default function Dashboard() {
   // ─── Listen for checklist / external action directives ────────────────────
   // The CommandCenterChecklist (and any other Dashboard widget) can dispatch
   // a `nazai:run-directive` CustomEvent to push a prompt straight into the
-  // chat pipeline as if the user typed it. This keeps onboarding cards
-  // functional without prop-drilling a callback through WebsiteRevealPane.
+  // chat pipeline as if the user typed it.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const handler = (e: Event) => {
@@ -5384,7 +5681,7 @@ export default function Dashboard() {
     [handleSendMessage],
   );
 
-  // ─── THE MANUAL SIDEBAR LIFECYCLE ───────────────────────────────────────────
+  // ─── MISSION LIFECYCLE HANDLERS ───────────────────────────────────────────
 
   const handleUpdateMissionStatus = useCallback(
     async (missionId: string, newStatus: MissionStatus) => {
@@ -5397,7 +5694,6 @@ export default function Dashboard() {
 
       if (!error) {
         setMissions((prev) => prev.map((m) => (m.id === missionId ? { ...m, status: newStatus } : m)));
-
         if (newStatus === "trashed" && activeMissionId === missionId) {
           setActiveMissionId(null);
           setMessages([]);
@@ -5437,11 +5733,9 @@ export default function Dashboard() {
   );
 
   const handleLoadMission = useCallback((mission: Mission) => {
-    // ── PROJECT CHAT CONTINUITY ──────────────────────────────────────────────
-    // Re-entering an existing project thread: pin `activeMissionId` so every
+    // Re-entering an existing project thread: pin activeMissionId so every
     // subsequent Iteration Bar message is appended to THIS thread instead of
-    // spawning a new mission row. Hydrate the original directive as the first
-    // message so the conversation visibly starts from the original prompt.
+    // spawning a new mission row.
     setActiveMissionId(mission.id);
     setActiveNav("home");
     setShowSettings(false);
@@ -5456,8 +5750,9 @@ export default function Dashboard() {
     if (textareaRef.current) textareaRef.current.value = "";
     setTimeout(() => textareaRef.current?.focus(), 50);
   }, []);
-  
-  // ─── Lifecycle modal: open / confirm ─────────────────────────────────────────────
+
+  // ─── Lifecycle modal: open / confirm ─────────────────────────────────────
+
   const openLifecycleModal = useCallback((mission: Mission) => {
     setLifecycleTarget(mission);
     setLifecycleChoice(null);
@@ -5501,7 +5796,7 @@ export default function Dashboard() {
     closeLifecycleModal();
   }, [lifecycleTarget, lifecycleChoice, userId, activeMissionId, activeNav, closeLifecycleModal]);
 
-  // ─── Render Components ──────────────────────────────────────────────────────────
+  // ─── Render Components ──────────────────────────────────────────────────────
 
   const renderNavItem = useCallback(
     (item: (typeof NAV_ITEMS)[number]) => {
@@ -5540,7 +5835,7 @@ export default function Dashboard() {
   );
 
   const renderMissionItem = useCallback(
-    (mission: Mission, index: number) => (
+    (mission: Mission, _index: number) => (
       <motion.div
         key={mission.id}
         variants={itemVariants}
@@ -5577,13 +5872,13 @@ export default function Dashboard() {
     [auraProfile.glowPrimary, handleLoadMission],
   );
 
-  // ─── Main Render ────────────────────────────────────────────────────────────────
+  // ─── Main Render: content router ───────────────────────────────────────────
+  // Directional slide-fade transition between nav sections.
 
-  // Render content based on activeNav, with a Directional Slide-Fade transition
   const renderContent = () => {
     let view: React.ReactNode = null;
-    switch(activeNav) {
-      case 'trash':
+    switch (activeNav) {
+      case "trash":
         view = (
           <TrashView
             missions={missions}
@@ -5592,7 +5887,7 @@ export default function Dashboard() {
           />
         );
         break;
-      case 'archives':
+      case "archives":
         view = (
           <ArchivesView
             missions={missions}
@@ -5600,7 +5895,7 @@ export default function Dashboard() {
           />
         );
         break;
-      case 'settings':
+      case "settings":
         view = (
           <SettingsView
             customPalette={customPalette}
@@ -5618,12 +5913,12 @@ export default function Dashboard() {
             nazaiThemeId={nazaiThemeId}
             onNazaiThemeSelect={(id) => {
               setNazaiThemeId(id);
-              toast.success(`Theme applied ✓ — ${NAZAI_THEMES.find(t => t.id === id)?.name ?? id}`);
+              toast.success(`Theme applied ✓ — ${NAZAI_THEMES.find((t) => t.id === id)?.name ?? id}`);
             }}
           />
         );
         break;
-      case 'home':
+      case "home":
       default:
         view = (
           <HomeView
@@ -5689,6 +5984,8 @@ export default function Dashboard() {
             proDesignerState={proDesignerState}
             setProDesignerState={setProDesignerState}
             applyAnimationPack={applyAnimationPack}
+            webSearchActive={webSearchActive}
+            setWebSearchActive={setWebSearchActive}
           />
         );
     }
@@ -5706,6 +6003,8 @@ export default function Dashboard() {
       </motion.div>
     );
   };
+
+  // ─── JSX RENDER ─────────────────────────────────────────────────────────────
 
   return (
     <div
@@ -5728,7 +6027,7 @@ export default function Dashboard() {
         )}
       </AnimatePresence>
 
-      {/* Mobile Sidebar - Fixed, slides in from left, floats over content, NO PUSH */}
+      {/* Mobile Sidebar — Fixed, slides in from left, floats over content */}
       <AnimatePresence mode="wait">
         {isSidebarOpen && (
           <motion.aside
@@ -5744,7 +6043,6 @@ export default function Dashboard() {
             }}
           >
             <div className="flex flex-col h-full">
-              {/* Close button */}
               <div className="flex justify-end p-3">
                 <button
                   onClick={() => setIsSidebarOpen(false)}
@@ -5753,8 +6051,7 @@ export default function Dashboard() {
                   <X size={18} className="text-white/60" />
                 </button>
               </div>
-              {/* Sidebar Content */}
-              <SidebarContent 
+              <SidebarContent
                 borderColor={borderColor}
                 activeNav={activeNav}
                 showSettings={showSettings}
@@ -5779,7 +6076,7 @@ export default function Dashboard() {
         )}
       </AnimatePresence>
 
-      {/* Desktop Sidebar - Always visible in flow, collapsible */}
+      {/* Desktop Sidebar — Always in flow, collapsible */}
       <motion.aside
         animate={{ width: sidebarCollapsed ? 0 : 260 }}
         transition={{ duration: 0.25 }}
@@ -5790,7 +6087,7 @@ export default function Dashboard() {
         }}
       >
         <div className="flex flex-col w-[260px] h-full">
-          <SidebarContent 
+          <SidebarContent
             borderColor={borderColor}
             activeNav={activeNav}
             showSettings={showSettings}
@@ -5813,14 +6110,12 @@ export default function Dashboard() {
         </div>
       </motion.aside>
 
-      {/* Main Content - ALWAYS w-full on mobile, never shifts when sidebar opens */}
-      <main 
+      {/* Main Content */}
+      <main
         className="flex flex-col flex-1 min-w-0 relative w-full"
-        style={{
-          marginLeft: 0, // Mobile always has no margin - sidebar floats over
-        }}
+        style={{ marginLeft: 0 }}
       >
-        {/* Mobile Header with Menu Button - HIGH z-index and pointer-events-auto */}
+        {/* Mobile Header */}
         <header
           className="flex items-center justify-between px-4 py-2 shrink-0 lg:hidden relative"
           style={{
@@ -5830,12 +6125,11 @@ export default function Dashboard() {
           }}
         >
           <div className="flex items-center gap-2">
-            {/* FIXED: Dead Hamburger Button - High z-index, explicit handler */}
             <div className="z-[9999] relative pointer-events-auto">
               <button
-                onClick={(e) => { 
-                  e.stopPropagation(); 
-                  setIsSidebarOpen(true); 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsSidebarOpen(true);
                 }}
                 className="text-white/60 hover:text-white/80 transition-colors p-2 -ml-2 rounded-lg active:scale-95"
                 style={{ pointerEvents: "auto" }}
@@ -5927,12 +6221,16 @@ export default function Dashboard() {
           }}
         >
           <span>SYSTEM_STABLE</span>
-          <div className="flex gap-3">
+          <div className="flex gap-3 items-center">
             <span>DB:ONLINE</span>
             <span>AI:READY</span>
+            {isPending && (
+              <span style={{ color: auraProfile.glowPrimary }}>GENERATING...</span>
+            )}
           </div>
         </footer>
 
+        {/* Global "Return to Preview" button — shown when on non-home nav with active site */}
         <AnimatePresence>
           {isWebsiteIntent && activeNav !== "home" && (
             <motion.button
@@ -5980,7 +6278,7 @@ export default function Dashboard() {
         </AnimatePresence>
       </main>
 
-      {/* PLUS MENU MODAL */}
+      {/* ─── PLUS MENU MODAL ───────────────────────────────────────────────── */}
       <AnimatePresence>
         {plusMenuOpen && (
           <>
@@ -6010,10 +6308,7 @@ export default function Dashboard() {
               </div>
               <div className="p-3 space-y-2">
                 <button
-                  onClick={() => {
-                    fileInputRef.current?.click();
-                    setPlusMenuOpen(false);
-                  }}
+                  onClick={() => { fileInputRef.current?.click(); setPlusMenuOpen(false); }}
                   className="flex items-center gap-3 w-full px-3 py-2 rounded-lg hover:bg-white/5 transition-all"
                 >
                   <Paperclip size={14} style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.6)` }} />
@@ -6023,10 +6318,7 @@ export default function Dashboard() {
                   </div>
                 </button>
                 <button
-                  onClick={() => {
-                    cameraInputRef.current?.click();
-                    setPlusMenuOpen(false);
-                  }}
+                  onClick={() => { cameraInputRef.current?.click(); setPlusMenuOpen(false); }}
                   className="flex items-center gap-3 w-full px-3 py-2 rounded-lg hover:bg-white/5 transition-all"
                 >
                   <Camera size={14} style={{ color: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.6)` }} />
@@ -6059,7 +6351,7 @@ export default function Dashboard() {
         )}
       </AnimatePresence>
 
-      {/* AI DRAWER MODAL */}
+      {/* ─── AI DRAWER MODAL ───────────────────────────────────────────────── */}
       <AnimatePresence>
         {drawerOpen && (
           <>
@@ -6093,7 +6385,10 @@ export default function Dashboard() {
                     <div className="text-[8px] font-mono mb-1" style={{ color: cat.color }}>
                       {cat.label}
                     </div>
-                    <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${cat.tools.length}, 1fr)` }}>
+                    <div
+                      className="grid gap-1"
+                      style={{ gridTemplateColumns: `repeat(${cat.tools.length}, 1fr)` }}
+                    >
                       {cat.tools.map((tool) => (
                         <button
                           key={tool.id}
@@ -6101,14 +6396,18 @@ export default function Dashboard() {
                           className="p-2 rounded-lg text-left transition-all"
                           style={{
                             background:
-                              selectedModel === tool.id ? `rgba(${cat.glowRgba},0.1)` : "rgba(255,255,255,0.02)",
-                            border: `1px solid ${selectedModel === tool.id ? cat.color : "rgba(255,255,255,0.05)"}`,
+                              selectedModel === tool.id
+                                ? `rgba(${cat.glowRgba},0.1)`
+                                : "rgba(255,255,255,0.02)",
+                            border: `1px solid ${
+                              selectedModel === tool.id ? cat.color : "rgba(255,255,255,0.05)"
+                            }`,
                           }}
                         >
                           <div className="flex items-center gap-1 mb-0.5">
                             <tool.icon
                               size={10}
-                              style={{ color: selectedModel === tool.id ? cat.color : "white/40" }}
+                              style={{ color: selectedModel === tool.id ? cat.color : "rgba(255,255,255,0.4)" }}
                             />
                             <span className="text-[9px] font-semibold">{tool.name}</span>
                           </div>
@@ -6124,7 +6423,7 @@ export default function Dashboard() {
         )}
       </AnimatePresence>
 
-      {/* Mission Lifecycle Modal */}
+      {/* ─── MISSION LIFECYCLE MODAL ──────────────────────────────────────── */}
       <AnimatePresence>
         {lifecycleTarget && (
           <div
@@ -6225,7 +6524,7 @@ export default function Dashboard() {
         )}
       </AnimatePresence>
 
-      {/* Logout Modal */}
+      {/* ─── LOGOUT MODAL ─────────────────────────────────────────────────── */}
       <AnimatePresence>
         {logoutModalOpen && (
           <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
@@ -6258,19 +6557,19 @@ export default function Dashboard() {
         )}
       </AnimatePresence>
 
-      {/* NazAI Visual Themes modal — opened only via explicit user action (Settings).
-          No auto-popup on login. */}
+      {/* ─── NAZAI VISUAL THEMES MODAL ────────────────────────────────────── */}
+      {/* Opened only via explicit user action (Settings). No auto-popup on login. */}
       <WelcomeTemplateModal
         open={welcomeOpen}
         onClose={closeWelcome}
         selectedThemeId={nazaiThemeId}
         onSelectTheme={(id) => {
           setNazaiThemeId(id);
-          toast.success(`Theme applied ✓ — ${NAZAI_THEMES.find(t => t.id === id)?.name ?? id}`);
+          toast.success(`Theme applied ✓ — ${NAZAI_THEMES.find((t) => t.id === id)?.name ?? id}`);
         }}
       />
 
-      {/* Workspace Menu Modal — replaces old Settings/Archives/Trash/Sign Out stack */}
+      {/* ─── WORKSPACE MENU MODAL ─────────────────────────────────────────── */}
       <WorkspaceMenuModal
         open={workspaceMenuOpen}
         onClose={() => { setWorkspaceMenuOpen(false); setActiveWorkspaceItem(null); }}
@@ -6286,32 +6585,19 @@ export default function Dashboard() {
         missions={missions}
       />
 
+      {/* ─── GLOBAL CSS OVERRIDES ─────────────────────────────────────────── */}
       <style>{`
         /* FORCE EVERYTHING TO BE CLICKABLE */
-        * {
-          pointer-events: auto !important;
-        }
-        
-        .pointer-events-none {
-          pointer-events: none !important;
-        }
-        
+        * { pointer-events: auto !important; }
+        .pointer-events-none { pointer-events: none !important; }
         textarea {
           z-index: 999999 !important;
           position: relative !important;
           pointer-events: auto !important;
           -webkit-user-select: text !important;
         }
-        
-        * {
-          -webkit-tap-highlight-color: transparent;
-        }
-        
-        body {
-          cursor: default;
-          touch-action: manipulation;
-        }
-        
+        * { -webkit-tap-highlight-color: transparent; }
+        body { cursor: default; touch-action: manipulation; }
         html, body {
           height: 100% !important;
           width: 100vw !important;
@@ -6323,43 +6609,34 @@ export default function Dashboard() {
           -webkit-overflow-scrolling: touch;
           touch-action: manipulation;
         }
-        
         body::before, .scanlines, .radar-sweep {
           pointer-events: none !important;
           z-index: -1 !important;
         }
-        
         @keyframes shake {
           0%, 100% { transform: translateX(0); }
           10%, 30%, 50%, 70%, 90% { transform: translateX(-2px); }
           20%, 40%, 60%, 80% { transform: translateX(2px); }
         }
-        .animate-shake {
-          animation: shake 0.3s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
-        }
-        
+        .animate-shake { animation: shake 0.3s cubic-bezier(0.36, 0.07, 0.19, 0.97) both; }
         .overflow-y-auto {
           -webkit-overflow-scrolling: touch;
           overscroll-behavior: contain;
           touch-action: pan-y;
         }
-        
         .line-clamp-2 {
           display: -webkit-box;
           -webkit-line-clamp: 2;
           -webkit-box-orient: vertical;
           overflow: hidden;
         }
-        
         .line-clamp-3 {
           display: -webkit-box;
           -webkit-line-clamp: 3;
           -webkit-box-orient: vertical;
           overflow: hidden;
         }
-        
         @import url('https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,100..900;1,100..900&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap');
-        
         :root {
           --glow-primary: #22c55e;
           --glow-primary-rgb: 34,197,94;
@@ -6376,63 +6653,29 @@ export default function Dashboard() {
           --nazai-bg-image: none;
           --keyboard-height: 0px;
         }
-        
-        * {
-          font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-        }
-        
-        .font-mono, .font-mono * {
-          font-family: 'JetBrains Mono', monospace;
-        }
-        
+        * { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
+        .font-mono, .font-mono * { font-family: 'JetBrains Mono', monospace; }
         @keyframes pulse {
           0%, 100% { opacity: 0.4; transform: scale(1); }
           50% { opacity: 1; transform: scale(1.2); }
         }
         .animate-pulse { animation: pulse 2s ease-in-out infinite; }
-        
         textarea::placeholder { color: rgba(255,255,255,0.2); }
-        
-        input[type="range"] {
-          -webkit-appearance: none;
-          background: transparent;
-        }
+        input[type="range"] { -webkit-appearance: none; background: transparent; }
         input[type="range"]::-webkit-slider-thumb {
           -webkit-appearance: none;
-          width: 14px;
-          height: 14px;
-          border-radius: 50%;
-          background: var(--glow-primary);
-          cursor: pointer;
+          width: 14px; height: 14px; border-radius: 50%;
+          background: var(--glow-primary); cursor: pointer;
           box-shadow: 0 0 8px var(--glow-primary);
           border: 2px solid rgba(255,255,255,0.5);
         }
-        input[type="color"]::-webkit-color-swatch-wrapper {
-          padding: 0;
-        }
-        input[type="color"]::-webkit-color-swatch {
-          border: none;
-          border-radius: 8px;
-        }
-        
-        ::-webkit-scrollbar {
-          width: 4px;
-          height: 4px;
-        }
-        ::-webkit-scrollbar-track {
-          background: rgba(255,255,255,0.02);
-        }
-        ::-webkit-scrollbar-thumb {
-          background: rgba(255,255,255,0.1);
-          border-radius: 4px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-          background: rgba(255,255,255,0.2);
-        }
+        input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+        input[type="color"]::-webkit-color-swatch { border: none; border-radius: 8px; }
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar-track { background: rgba(255,255,255,0.02); }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
       `}</style>
-
-      {/* Chat surface shows clean dialogue history only.
-          Iteration is driven by the secondary "Fix" prompt rendered in HomeView. */}
     </div>
   );
 }
