@@ -2945,47 +2945,81 @@ const HomeView = ({
                 transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
                 className="origin-bottom"
               >
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {initialCards.slice(0, 2).map((card: string, idx: number) => (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {[
+                    {
+                      key: "generator",
+                      label: "Generator",
+                      kicker: "COMMAND CENTER",
+                      desc: "Your command center. Chat with NazAI and build your business — instantly.",
+                      prompt: "Generate a complete business from this idea: ",
+                      accent: auraProfile.glowPrimary,
+                    },
+                    {
+                      key: "automator",
+                      label: "Automator",
+                      kicker: "AUTOPILOT",
+                      desc: "Automate anything. Emails, ads, follow-ups, campaigns — NazAI executes on autopilot.",
+                      prompt: "Design and launch an automation that: ",
+                      accent: "#a855f7",
+                    },
+                    {
+                      key: "others",
+                      label: "Others",
+                      kicker: "STRATEGY",
+                      desc: "Strategic planning made simple. Deep research, competitor analysis, and winning business strategies — on demand.",
+                      prompt: "Run deep strategic analysis for: ",
+                      accent: "#22c55e",
+                    },
+                  ].map((card, idx) => (
                     <motion.button
-                      key={idx}
-                      initial={{ opacity: 0, scale: 0.95 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      transition={{ delay: 0.1 + idx * 0.08 }}
-                      onClick={() => handleSendMessage(card)}
-                      className="group relative p-5 rounded-2xl text-left transition-all duration-300 overflow-hidden cursor-pointer"
+                      key={card.key}
+                      initial={{ opacity: 0, y: 10, scale: 0.96 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      transition={{ delay: 0.08 + idx * 0.08, ease: [0.22, 1, 0.36, 1] }}
+                      onClick={() => {
+                        setSandboxText(card.prompt);
+                        textareaRef.current?.focus();
+                      }}
+                      className="group relative p-4 rounded-2xl text-left transition-all duration-300 overflow-hidden cursor-pointer"
                       style={{
                         background: "rgba(255,255,255,0.03)",
-                        border: "1px solid rgba(255,255,255,0.1)",
+                        border: `1px solid ${card.accent}33`,
                         backdropFilter: "blur(16px)",
                         pointerEvents: "auto",
-                        boxShadow: "0 0 15px rgba(6,182,212,0.2)",  // Subtle cyan glow
+                        boxShadow: `0 0 18px ${card.accent}22`,
                       }}
-                      whileHover={{ 
+                      whileHover={{
                         y: -4,
                         backgroundColor: "rgba(255,255,255,0.06)",
-                        borderColor: `rgba(${getRgbFromHex(auraProfile.glowPrimary)},0.5)`,
-                        boxShadow: `0 0 25px rgba(6,182,212,0.3)`
+                        borderColor: `${card.accent}aa`,
+                        boxShadow: `0 0 32px ${card.accent}55`,
                       }}
-                      whileTap={{ scale: 0.98 }}
+                      whileTap={{ scale: 0.97 }}
                     >
                       <div className="absolute inset-0 bg-gradient-to-br from-transparent via-transparent to-white/[0.02] pointer-events-none" />
                       <div className="relative z-10">
                         <div className="flex items-center gap-2 mb-2">
-                          <div 
-                            className="w-1.5 h-1.5 rounded-full animate-pulse" 
-                            style={{ backgroundColor: auraProfile.glowPrimary }} 
+                          <div
+                            className="w-1.5 h-1.5 rounded-full animate-pulse"
+                            style={{ backgroundColor: card.accent }}
                           />
-                          <p className="text-[9px] font-mono font-black uppercase tracking-[0.2em]" style={{ color: auraProfile.glowPrimary }}>
-                            INITIATE MISSION
+                          <p
+                            className="text-[9px] font-mono font-black uppercase tracking-[0.2em]"
+                            style={{ color: card.accent }}
+                          >
+                            {card.kicker}
                           </p>
                         </div>
-                        <p className="text-[14px] font-bold leading-tight text-white/90 group-hover:text-white transition-colors line-clamp-2">
-                          {card}
+                        <p className="text-[15px] font-black tracking-tight text-white mb-1.5">
+                          {card.label}
+                        </p>
+                        <p className="text-[11px] leading-relaxed text-white/55 group-hover:text-white/75 transition-colors">
+                          {card.desc}
                         </p>
                         <div className="flex items-center gap-1 mt-3 text-[8px] font-mono font-bold text-white/30 group-hover:text-white/60 transition-all">
-                          <span>DEPLOY MODULE</span>
-                          <ChevronRight size={10} style={{ color: auraProfile.glowPrimary }} />
+                          <span>OPEN</span>
+                          <ChevronRight size={10} style={{ color: card.accent }} />
                         </div>
                       </div>
                     </motion.button>

@@ -30,6 +30,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import AuthModal from "@/components/AuthModal";
+import AuthTransition from "@/components/AuthTransition";
 import MissionWorkspace from "@/components/mission/MissionWorkspace";
 // GuardianCanvas relocated into Dashboard → Settings → Brand-Snap Canvas (per UX simplification).
 
@@ -108,6 +109,7 @@ const TYPEWRITER_PROMPTS = [
 const Workflower = () => {
   const [scrollY, setScrollY] = useState(0);
   const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [authTransitioning, setAuthTransitioning] = useState(false);
   const [missionOpen, setMissionOpen] = useState(false);
   const [activeSector, setActiveSector] = useState("home");
   const [typedText, setTypedText] = useState("");
@@ -160,7 +162,7 @@ const Workflower = () => {
 
   const handleAuthSuccess = () => {
     setAuthModalOpen(false);
-    navigate("/dashboard");
+    setAuthTransitioning(true);
   };
 
   return (
@@ -856,6 +858,15 @@ const Workflower = () => {
         open={authModalOpen}
         onClose={() => setAuthModalOpen(false)}
         onSuccess={handleAuthSuccess}
+      />
+
+      {/* Post-auth slides transition → dashboard */}
+      <AuthTransition
+        active={authTransitioning}
+        onComplete={() => {
+          setAuthTransitioning(false);
+          navigate("/dashboard");
+        }}
       />
 
       {/* Inline workspace (for when opened from within the page) */}
