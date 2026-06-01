@@ -860,6 +860,15 @@ const Workflower = () => {
         onSuccess={handleAuthSuccess}
       />
 
+      {/* Post-auth slides transition → dashboard */}
+      <AuthTransition
+        active={authTransitioning}
+        onComplete={() => {
+          setAuthTransitioning(false);
+          navigate("/dashboard");
+        }}
+      />
+
       {/* Inline workspace (for when opened from within the page) */}
       <MissionWorkspace open={missionOpen} onClose={() => setMissionOpen(false)} initialSector={activeSector} />
 
