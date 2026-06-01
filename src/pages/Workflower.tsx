@@ -162,7 +162,7 @@ const Workflower = () => {
 
   const handleAuthSuccess = () => {
     setAuthModalOpen(false);
-    navigate("/dashboard");
+    setAuthTransitioning(true);
   };
 
   return (
