@@ -30,6 +30,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import AuthModal from "@/components/AuthModal";
+import AuthTransition from "@/components/AuthTransition";
 import MissionWorkspace from "@/components/mission/MissionWorkspace";
 // GuardianCanvas relocated into Dashboard → Settings → Brand-Snap Canvas (per UX simplification).
 
