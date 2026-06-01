@@ -142,17 +142,25 @@ const Workflower = () => {
   const launchMission = (sector = "home") => {
     setActiveSector(sector);
     if (user) {
-      // Authenticated — go directly to workspace
-      navigate("/workspace");
+      // Authenticated — skip registration window, go straight to dashboard
+      navigate("/dashboard");
     } else {
-      // Not authenticated — show auth modal
+      // Not authenticated — show auth modal (once)
+      setAuthModalOpen(true);
+    }
+  };
+
+  const openAuthOrDashboard = () => {
+    if (user) {
+      navigate("/dashboard");
+    } else {
       setAuthModalOpen(true);
     }
   };
 
   const handleAuthSuccess = () => {
     setAuthModalOpen(false);
-    navigate("/workspace");
+    navigate("/dashboard");
   };
 
   return (
