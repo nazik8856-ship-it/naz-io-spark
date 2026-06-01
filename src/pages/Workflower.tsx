@@ -109,6 +109,7 @@ const TYPEWRITER_PROMPTS = [
 const Workflower = () => {
   const [scrollY, setScrollY] = useState(0);
   const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [authTransitioning, setAuthTransitioning] = useState(false);
   const [missionOpen, setMissionOpen] = useState(false);
   const [activeSector, setActiveSector] = useState("home");
   const [typedText, setTypedText] = useState("");
