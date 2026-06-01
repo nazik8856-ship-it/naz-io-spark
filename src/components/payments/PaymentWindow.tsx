@@ -118,30 +118,32 @@ export default function PaymentWindow() {
     try {
       if (intent.kind === "pack") {
         const amount = totalCredits(intent.pack);
-        const { error } = await supabase.rpc("add_credits", { amount });
+        const { error } = await supabase.functions.invoke("purchase-credits", {
+          body: {
+            kind: "pack",
+            amount,
+            price_usd: total,
+            type: "credit_pack",
+            description: `${formatCredits(amount)} credits pack${appliedPromo ? ` · ${appliedPromo.code}` : ""}`,
+            metadata: { method, pack_id: intent.pack.id, promo: appliedPromo?.code ?? null },
+          },
+        });
         if (error) throw error;
         await refetchCredits();
-        await supabase.from("credit_transactions" as any).insert({
-          user_id: user.id,
-          type: "credit_pack",
-          description: `${formatCredits(amount)} credits pack${appliedPromo ? ` · ${appliedPromo.code}` : ""}`,
-          amount,
-          price_usd: total,
-          status: "completed",
-          metadata: { method, pack_id: intent.pack.id, promo: appliedPromo?.code ?? null },
-        });
       } else {
         // Plan switch — stored locally for now (subscription billing wires later).
         setStoredTier(intent.tierId as TierId);
-        await supabase.from("credit_transactions" as any).insert({
-          user_id: user.id,
-          type: "plan_change",
-          description: `Switched to ${intent.name} plan${intent.annual ? " (annual)" : " (monthly)"}`,
-          amount: TIER_PLANS[intent.tierId as TierId]?.monthlyCredits ?? 0,
-          price_usd: total,
-          status: "completed",
-          metadata: { method, tier: intent.tierId, annual: !!intent.annual, promo: appliedPromo?.code ?? null },
+        const { error } = await supabase.functions.invoke("purchase-credits", {
+          body: {
+            kind: "plan",
+            amount: TIER_PLANS[intent.tierId as TierId]?.monthlyCredits ?? 0,
+            price_usd: total,
+            type: "plan_change",
+            description: `Switched to ${intent.name} plan${intent.annual ? " (annual)" : " (monthly)"}`,
+            metadata: { method, tier: intent.tierId, annual: !!intent.annual, promo: appliedPromo?.code ?? null },
+          },
         });
+        if (error) throw error;
       }
       setPhase("success");
     } catch (err: any) {

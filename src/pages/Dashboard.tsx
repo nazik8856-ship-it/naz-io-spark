@@ -2517,6 +2517,8 @@ const HomeView = ({
   proDesignerState,
   setProDesignerState,
   applyAnimationPack,
+  webSearchActive,
+  setWebSearchActive,
 }: any) => {
   // Template definitions (master templates - never mutated)
   const TEMPLATE_MASTERS = {
