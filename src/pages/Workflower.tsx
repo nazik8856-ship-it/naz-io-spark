@@ -241,7 +241,7 @@ const Workflower = () => {
                       if (item.gated && !user) {
                         setAuthModalOpen(true);
                       } else {
-                        navigate(item.href);
+                        navigate(item.gated ? "/dashboard" : item.href);
                       }
                     }}
                     className="px-3 py-2 text-[12.5px] font-medium text-white/65 hover:text-white transition-colors rounded-md hover:bg-white/[0.04]"
