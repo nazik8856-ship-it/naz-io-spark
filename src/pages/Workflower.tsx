@@ -142,17 +142,25 @@ const Workflower = () => {
   const launchMission = (sector = "home") => {
     setActiveSector(sector);
     if (user) {
-      // Authenticated — go directly to workspace
-      navigate("/workspace");
+      // Authenticated — skip registration window, go straight to dashboard
+      navigate("/dashboard");
     } else {
-      // Not authenticated — show auth modal
+      // Not authenticated — show auth modal (once)
+      setAuthModalOpen(true);
+    }
+  };
+
+  const openAuthOrDashboard = () => {
+    if (user) {
+      navigate("/dashboard");
+    } else {
       setAuthModalOpen(true);
     }
   };
 
   const handleAuthSuccess = () => {
     setAuthModalOpen(false);
-    navigate("/workspace");
+    navigate("/dashboard");
   };
 
   return (
@@ -233,7 +241,7 @@ const Workflower = () => {
                       if (item.gated && !user) {
                         setAuthModalOpen(true);
                       } else {
-                        navigate(item.href);
+                        navigate(item.gated ? "/dashboard" : item.href);
                       }
                     }}
                     className="px-3 py-2 text-[12.5px] font-medium text-white/65 hover:text-white transition-colors rounded-md hover:bg-white/[0.04]"
