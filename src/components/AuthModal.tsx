@@ -10,6 +10,16 @@ import { Input } from "@/components/ui/input";
 import { forceSendWelcomeEmailAfterAuth } from "@/lib/welcome-email-auth-debug";
 import { sendWelcomeEmail } from "@/lib/send-welcome-email";
 
+const clearStaleDashboardCache = () => {
+  try {
+    localStorage.removeItem("nazai-active-website-code");
+    localStorage.removeItem("nazai-fitness-sample-seeded");
+    sessionStorage.removeItem("nazai_directive");
+  } catch {
+    /* noop */
+  }
+};
+
 interface AuthModalProps {
   open: boolean;
   onClose: () => void;
@@ -54,6 +64,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
           source: "auth-modal:existing-user-signin",
         });
         await refreshSession();
+        clearStaleDashboardCache();
         onSuccess();
         return;
       }
@@ -112,6 +123,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
 
       if (signUpData.session) {
         await refreshSession();
+        clearStaleDashboardCache();
         onSuccess();
         return;
       }
