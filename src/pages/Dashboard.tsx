@@ -132,7 +132,6 @@ import { detectBusinessIntent, buildBusinessLaunchDirective } from "@/lib/busine
 import LaunchSuite from "@/components/dashboard/LaunchSuite";
 import LaunchPortal from "@/components/dashboard/LaunchPortal";
 import IntentHintChip from "@/components/dashboard/IntentHintChip";
-import { FITNESS_SAAS_HTML, FITNESS_SAAS_PROMPT } from "@/lib/fitness-saas-sample";
 import { openPaymentWindow } from "@/lib/credit-packs";
 import { Switch } from "@/components/ui/switch";
 import GuardianCanvas from "@/components/workflower/GuardianCanvas";
@@ -141,7 +140,7 @@ import { toast } from "sonner";
 // ─── DEPLOYMENT VERSION ──────────────────────────────────────────────────────────
 // Increment this whenever breaking logic changes are deployed — triggers a
 // one-time session/service-worker/cache purge on first load (the Surgical Nuke).
-const DEPLOYMENT_ID = "NAZAI_TITAN_V27_BUSINESS_FORGE_V2";
+const DEPLOYMENT_ID = "NAZAI_TITAN_V28_AUTH_DASHBOARD_RESET";
 
 // ─── Type Definitions ──────────────────────────────────────────────────────────────
 
@@ -2839,8 +2838,8 @@ const HomeView = ({
               onEditTrigger={onEditTrigger}
               comfortDesignsSlot={
                 <>
-                  <LaunchSuite
-                    directive={lastWebsitePrompt || FITNESS_SAAS_PROMPT}
+                    <LaunchSuite
+                    directive={lastWebsitePrompt}
                     activeWebsiteCode={activeWebsiteCode}
                     onApplyAnimationPack={applyAnimationPack}
                   />
@@ -4682,47 +4681,9 @@ export default function Dashboard() {
   // so it performs surgical edits instead of regenerating an unrelated site.
   // Key is declared at component scope (accessible in all callbacks).
   const ACTIVE_WEBSITE_STORAGE_KEY = "nazai-active-website-code" as const;
-  const [activeWebsiteCode, setActiveWebsiteCode] = useState<string>(() => {
-    // Auto-restore the last live preview so refresh / re-login doesn't wipe work.
-    try {
-      return localStorage.getItem(ACTIVE_WEBSITE_STORAGE_KEY) ?? "";
-    } catch {
-      return "";
-    }
-  });
-  // Auto-save on every change (debounced via microtask). Strips itself if empty.
-  useEffect(() => {
-    try {
-      if (activeWebsiteCode) {
-        localStorage.setItem(ACTIVE_WEBSITE_STORAGE_KEY, activeWebsiteCode);
-      } else {
-        localStorage.removeItem(ACTIVE_WEBSITE_STORAGE_KEY);
-      }
-    } catch {
-      /* quota or disabled storage — no-op */
-    }
-  }, [activeWebsiteCode]);
+  const [activeWebsiteCode, setActiveWebsiteCode] = useState<string>("");
   const [generationRunId, setGenerationRunId] = useState(0);
   const [previewThemeRevision, setPreviewThemeRevision] = useState(0);
-
-  // ─── First-run sample: pre-load FitForge fitness SaaS so the dashboard is
-  // never empty for new users. Skipped if any prior preview exists.
-  useEffect(() => {
-    const KEY = "nazai-fitness-sample-seeded";
-    try {
-      if (localStorage.getItem(KEY)) return;
-      if (activeWebsiteCode) {
-        localStorage.setItem(KEY, "1");
-        return;
-      }
-      setActiveWebsiteCode(FITNESS_SAAS_HTML);
-      setLastWebsitePrompt(FITNESS_SAAS_PROMPT);
-      setIsWebsiteIntent(true);
-      setIsWebsiteComplete(true);
-      localStorage.setItem(KEY, "1");
-    } catch { /* noop */ }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // Apply an Animation Studio CSS pack to the live preview HTML.
   const applyAnimationPack = useCallback((cssBlock: string, _label: string) => {

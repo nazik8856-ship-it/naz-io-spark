@@ -1,14 +1,25 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { forceSendWelcomeEmailAfterAuth } from "@/lib/welcome-email-auth-debug";
+
+const clearStaleDashboardCache = () => {
+  try {
+    localStorage.removeItem("nazai-active-website-code");
+    localStorage.removeItem("nazai-fitness-sample-seeded");
+    sessionStorage.removeItem("nazai_directive");
+  } catch {
+    /* noop */
+  }
+};
 
 const AuthCallback = () => {
   const navigate = useNavigate();
   const { user, loading, refreshSession } = useAuth();
   const hasRedirectedRef = useRef(false);
   const hasProcessedRef = useRef(false);
+  const [processingCallback, setProcessingCallback] = useState(true);
 
   // Handle OAuth hash fragment (direct Supabase OAuth returns tokens in URL hash)
   useEffect(() => {
@@ -22,35 +33,46 @@ const AuthCallback = () => {
     if (accessToken && refreshToken) {
       supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken })
         .then(() => refreshSession())
-        .catch((err) => console.error("Session set error:", err));
+        .catch((err) => console.error("Session set error:", err))
+        .finally(() => setProcessingCallback(false));
     } else {
-      refreshSession().catch((err) => console.error("Auth callback error:", err));
+      refreshSession()
+        .catch((err) => console.error("Auth callback error:", err))
+        .finally(() => setProcessingCallback(false));
     }
   }, [refreshSession]);
 
   useEffect(() => {
-    if (loading || hasRedirectedRef.current) return;
+    if (processingCallback || loading || hasRedirectedRef.current) return;
 
     const finishAuth = async () => {
       hasRedirectedRef.current = true;
 
-      if (user) {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      const authedUser = session?.user ?? user;
+
+      if (authedUser) {
         await forceSendWelcomeEmailAfterAuth({
-          data: { user },
-          fallbackEmail: user.email || String(user.user_metadata?.email ?? ""),
-          fallbackName: String(user.user_metadata?.full_name ?? user.user_metadata?.name ?? ""),
+          data: { user: authedUser },
+          fallbackEmail: authedUser.email || String(authedUser.user_metadata?.email ?? ""),
+          fallbackName: String(authedUser.user_metadata?.full_name ?? authedUser.user_metadata?.name ?? ""),
           source: "auth-callback:oauth-session",
         });
+        clearStaleDashboardCache();
       }
 
-      navigate(user ? "/dashboard" : "/signup", { replace: true });
+      navigate("/dashboard", { replace: true });
     };
 
     finishAuth().catch((err) => {
       console.error("[auth-callback] welcome email flow failed", err);
-      navigate(user ? "/dashboard" : "/signup", { replace: true });
+      clearStaleDashboardCache();
+      navigate("/dashboard", { replace: true });
     });
-  }, [loading, user, navigate]);
+  }, [processingCallback, loading, user, navigate]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background">

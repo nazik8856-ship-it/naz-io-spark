@@ -10,6 +10,16 @@ import { Input } from "@/components/ui/input";
 import { forceSendWelcomeEmailAfterAuth } from "@/lib/welcome-email-auth-debug";
 import { sendWelcomeEmail } from "@/lib/send-welcome-email";
 
+const clearStaleDashboardCache = () => {
+  try {
+    localStorage.removeItem("nazai-active-website-code");
+    localStorage.removeItem("nazai-fitness-sample-seeded");
+    sessionStorage.removeItem("nazai_directive");
+  } catch {
+    /* noop */
+  }
+};
+
 interface AuthModalProps {
   open: boolean;
   onClose: () => void;
@@ -54,6 +64,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
           source: "auth-modal:existing-user-signin",
         });
         await refreshSession();
+        clearStaleDashboardCache();
         onSuccess();
         return;
       }
@@ -73,7 +84,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
         password: formData.password,
         options: {
           data: { full_name: formData.name },
-          emailRedirectTo: `${window.location.origin}/generating`,
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
         },
       });
 
@@ -112,6 +123,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
 
       if (signUpData.session) {
         await refreshSession();
+        clearStaleDashboardCache();
         onSuccess();
         return;
       }
@@ -138,7 +150,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
       } else {
         const { error } = await supabase.auth.signInWithOAuth({
           provider,
-          options: { redirectTo: `${window.location.origin}/generating` },
+          options: { redirectTo: `${window.location.origin}/auth/callback` },
         });
         if (error) {
           toast({ title: "Sign in failed", description: error.message, variant: "destructive" });
