@@ -4681,26 +4681,7 @@ export default function Dashboard() {
   // so it performs surgical edits instead of regenerating an unrelated site.
   // Key is declared at component scope (accessible in all callbacks).
   const ACTIVE_WEBSITE_STORAGE_KEY = "nazai-active-website-code" as const;
-  const [activeWebsiteCode, setActiveWebsiteCode] = useState<string>(() => {
-    // Auto-restore the last live preview so refresh / re-login doesn't wipe work.
-    try {
-      return localStorage.getItem(ACTIVE_WEBSITE_STORAGE_KEY) ?? "";
-    } catch {
-      return "";
-    }
-  });
-  // Auto-save on every change (debounced via microtask). Strips itself if empty.
-  useEffect(() => {
-    try {
-      if (activeWebsiteCode) {
-        localStorage.setItem(ACTIVE_WEBSITE_STORAGE_KEY, activeWebsiteCode);
-      } else {
-        localStorage.removeItem(ACTIVE_WEBSITE_STORAGE_KEY);
-      }
-    } catch {
-      /* quota or disabled storage — no-op */
-    }
-  }, [activeWebsiteCode]);
+  const [activeWebsiteCode, setActiveWebsiteCode] = useState<string>("");
   const [generationRunId, setGenerationRunId] = useState(0);
   const [previewThemeRevision, setPreviewThemeRevision] = useState(0);
 
