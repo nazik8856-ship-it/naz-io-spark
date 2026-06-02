@@ -84,7 +84,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
         password: formData.password,
         options: {
           data: { full_name: formData.name },
-          emailRedirectTo: `${window.location.origin}/generating`,
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
         },
       });
 
@@ -150,7 +150,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
       } else {
         const { error } = await supabase.auth.signInWithOAuth({
           provider,
-          options: { redirectTo: `${window.location.origin}/generating` },
+          options: { redirectTo: `${window.location.origin}/auth/callback` },
         });
         if (error) {
           toast({ title: "Sign in failed", description: error.message, variant: "destructive" });
