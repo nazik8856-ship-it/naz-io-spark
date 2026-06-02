@@ -132,7 +132,6 @@ import { detectBusinessIntent, buildBusinessLaunchDirective } from "@/lib/busine
 import LaunchSuite from "@/components/dashboard/LaunchSuite";
 import LaunchPortal from "@/components/dashboard/LaunchPortal";
 import IntentHintChip from "@/components/dashboard/IntentHintChip";
-import { FITNESS_SAAS_HTML, FITNESS_SAAS_PROMPT } from "@/lib/fitness-saas-sample";
 import { openPaymentWindow } from "@/lib/credit-packs";
 import { Switch } from "@/components/ui/switch";
 import GuardianCanvas from "@/components/workflower/GuardianCanvas";
@@ -141,7 +140,7 @@ import { toast } from "sonner";
 // ─── DEPLOYMENT VERSION ──────────────────────────────────────────────────────────
 // Increment this whenever breaking logic changes are deployed — triggers a
 // one-time session/service-worker/cache purge on first load (the Surgical Nuke).
-const DEPLOYMENT_ID = "NAZAI_TITAN_V27_BUSINESS_FORGE_V2";
+const DEPLOYMENT_ID = "NAZAI_TITAN_V28_AUTH_DASHBOARD_RESET";
 
 // ─── Type Definitions ──────────────────────────────────────────────────────────────
 
@@ -2839,8 +2838,8 @@ const HomeView = ({
               onEditTrigger={onEditTrigger}
               comfortDesignsSlot={
                 <>
-                  <LaunchSuite
-                    directive={lastWebsitePrompt || FITNESS_SAAS_PROMPT}
+                    <LaunchSuite
+                    directive={lastWebsitePrompt}
                     activeWebsiteCode={activeWebsiteCode}
                     onApplyAnimationPack={applyAnimationPack}
                   />
