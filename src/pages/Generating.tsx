@@ -10,7 +10,7 @@ const Generating = () => {
   useEffect(() => {
     if (loading) return;
     if (!user) {
-      navigate("/signup", { replace: true });
+      navigate("/", { replace: true });
     } else {
       // Auth confirmed — redirect to dashboard
       navigate("/dashboard", { replace: true });
