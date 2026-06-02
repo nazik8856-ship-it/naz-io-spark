@@ -64,7 +64,7 @@ const AuthCallback = () => {
         clearStaleDashboardCache();
       }
 
-      navigate(authedUser ? "/dashboard" : "/", { replace: true });
+      navigate("/dashboard", { replace: true });
     };
 
     finishAuth().catch((err) => {
