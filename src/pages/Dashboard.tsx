@@ -4704,25 +4704,6 @@ export default function Dashboard() {
   const [generationRunId, setGenerationRunId] = useState(0);
   const [previewThemeRevision, setPreviewThemeRevision] = useState(0);
 
-  // ─── First-run sample: pre-load FitForge fitness SaaS so the dashboard is
-  // never empty for new users. Skipped if any prior preview exists.
-  useEffect(() => {
-    const KEY = "nazai-fitness-sample-seeded";
-    try {
-      if (localStorage.getItem(KEY)) return;
-      if (activeWebsiteCode) {
-        localStorage.setItem(KEY, "1");
-        return;
-      }
-      setActiveWebsiteCode(FITNESS_SAAS_HTML);
-      setLastWebsitePrompt(FITNESS_SAAS_PROMPT);
-      setIsWebsiteIntent(true);
-      setIsWebsiteComplete(true);
-      localStorage.setItem(KEY, "1");
-    } catch { /* noop */ }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   // Apply an Animation Studio CSS pack to the live preview HTML.
   const applyAnimationPack = useCallback((cssBlock: string, _label: string) => {
     setActiveWebsiteCode((prev) => {
