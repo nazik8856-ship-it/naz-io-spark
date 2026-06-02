@@ -17,7 +17,7 @@ export const AuthGuard = () => {
 
   useEffect(() => {
     if (!loading && !user) {
-      navigate("/signup", { replace: true });
+      navigate("/", { replace: true });
     }
   }, [loading, user, navigate]);
 
