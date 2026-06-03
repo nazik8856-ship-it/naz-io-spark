@@ -16,7 +16,7 @@ const Hero = ({ onStart }: { onStart?: () => void }) => {
             style={{ animationDelay: "0.2s" }}
           >
             <Sparkles className="w-4 h-4 text-primary" />
-            <span className="text-sm text-muted-foreground">AI-Powered Business Launcher</span>
+            <span className="text-sm text-muted-foreground">AI-Powered Agent Launcher</span>
           </div>
 
           {/* Headline */}
@@ -24,7 +24,7 @@ const Hero = ({ onStart }: { onStart?: () => void }) => {
             className="animate-section-enter text-5xl md:text-7xl font-bold tracking-tight mb-6"
             style={{ animationDelay: "0.35s" }}
           >
-            Launch a Real Online Business using <span className="text-gradient">AI in Minutes</span>
+            Launch Real AI Agents using <span className="text-gradient">AI in Minutes</span>
           </h1>
 
           {/* Subheadline */}

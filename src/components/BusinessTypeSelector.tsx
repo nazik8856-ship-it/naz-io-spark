@@ -24,7 +24,7 @@ const BusinessTypeSelector = ({ onSelect }: BusinessTypeSelectorProps) => {
           What are you building?
         </h2>
         <p className="text-sm text-muted-foreground">
-          Choose your business type so we can tailor the website for you.
+          Choose your AI Agent type so we can tailor the website for you.
         </p>
       </div>
 
@@ -65,7 +65,7 @@ const BusinessTypeSelector = ({ onSelect }: BusinessTypeSelectorProps) => {
       {isCustom && (
         <input
           type="text"
-          placeholder="What kind of business? (e.g. AI Gym, Pet Shop...)"
+          placeholder="What kind of AI Agent? (e.g. AI Gym, Pet Shop...)"
           className="w-full p-3 bg-secondary/50 border border-border rounded-lg text-foreground outline-none focus:border-primary"
           value={custom}
           onChange={(e) => setCustom(e.target.value)}

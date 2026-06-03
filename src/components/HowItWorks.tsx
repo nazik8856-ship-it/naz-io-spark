@@ -5,13 +5,13 @@ const steps = [
     number: "01",
     title: "Describe Your Idea",
     description:
-      "Tell NazAI about your business concept, target market, and unique value proposition in simple terms.",
+      "Tell NazAI about your AI Agent concept, target market, and unique value proposition in simple terms.",
   },
   {
     number: "02",
     title: "AI Validates & Plans",
     description:
-      "NazAI analyzes your idea, validates market fit, and generates a comprehensive business plan with actionable steps.",
+      "NazAI analyzes your idea, validates market fit, and generates a comprehensive AI Agent plan with actionable steps.",
   },
   {
     number: "03",

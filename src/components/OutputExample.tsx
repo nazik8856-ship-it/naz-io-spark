@@ -3,7 +3,7 @@ import { Lightbulb, BarChart3, DollarSign, ListChecks } from "lucide-react";
 const outputs = [
   {
     icon: Lightbulb,
-    title: "Business Idea",
+    title: "AI Agent Idea",
     content: "AI-powered resume builder that matches job descriptions and optimizes keywords for ATS systems.",
   },
   {
