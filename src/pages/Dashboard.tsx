@@ -92,35 +92,29 @@ export default function Dashboard() {
       </header>
 
       {/* Main */}
-      <main className="px-6 py-12 md:py-20 max-w-6xl mx-auto">
-        <div className="mb-10 md:mb-14 text-center">
-          <h1 className="text-3xl md:text-5xl font-bold tracking-tight">
+      <main className="px-4 sm:px-6 py-8 md:py-12 max-w-7xl mx-auto">
+        <div className="mb-8 md:mb-10 text-center">
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold tracking-tight">
             Welcome to <span className="text-[#00f2ff]">NazAI</span>
           </h1>
-          <p className="mt-3 text-zinc-400 text-sm md:text-base">
+          <p className="mt-2 text-zinc-400 text-sm">
             Choose your interface
           </p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {CARDS.map((c, idx) => {
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-5">
+          {CARDS.map((c) => {
             const Icon = c.icon;
-            const isLast = idx === CARDS.length - 1;
             return (
               <button
                 key={c.id}
                 onClick={() => navigate(c.route)}
-                className={`group relative text-left rounded-2xl p-6 md:p-8 border transition-all duration-300 ${
-                  isLast ? "lg:col-span-2" : ""
-                }`}
-                style={
-                  {
-                    backgroundColor: "#020617",
-                    borderColor: `${c.glow}55`,
-                    boxShadow: `0 0 18px ${c.glow}22, inset 0 0 0 1px ${c.glow}22`,
-                    ["--glow" as never]: c.glow,
-                  } as React.CSSProperties
-                }
+                className="group relative text-left rounded-2xl p-5 md:p-6 border transition-all duration-300 flex flex-col h-full min-h-[200px] md:min-h-[260px]"
+                style={{
+                  backgroundColor: "#020617",
+                  borderColor: `${c.glow}55`,
+                  boxShadow: `0 0 18px ${c.glow}22, inset 0 0 0 1px ${c.glow}22`,
+                }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.boxShadow = `0 0 40px ${c.glow}66, inset 0 0 0 1px ${c.glow}88`;
                   e.currentTarget.style.borderColor = c.glow;
@@ -131,38 +125,27 @@ export default function Dashboard() {
                 }}
               >
                 <div
-                  className="flex items-center gap-2 text-[11px] font-mono uppercase tracking-[0.2em] mb-5"
+                  className="flex items-center gap-2 text-[10px] font-mono uppercase tracking-[0.2em] mb-4"
                   style={{ color: c.glow }}
                 >
                   <span
                     className="h-2 w-2 rounded-full"
-                    style={{
-                      backgroundColor: c.glow,
-                      boxShadow: `0 0 10px ${c.glow}`,
-                    }}
+                    style={{ backgroundColor: c.glow, boxShadow: `0 0 10px ${c.glow}` }}
                   />
                   {c.label}
                 </div>
 
-                <div className="flex items-start gap-4">
-                  <div
-                    className="shrink-0 h-12 w-12 rounded-xl flex items-center justify-center border"
-                    style={{
-                      borderColor: `${c.glow}66`,
-                      backgroundColor: `${c.glow}10`,
-                    }}
-                  >
-                    <Icon className="h-6 w-6" style={{ color: c.glow }} />
-                  </div>
-                  <div className="flex-1">
-                    <h2 className="text-2xl md:text-3xl font-bold mb-2">
-                      {c.title}
-                    </h2>
-                    <p className="text-zinc-400 text-sm md:text-base leading-relaxed">
-                      {c.description}
-                    </p>
-                  </div>
+                <div
+                  className="h-11 w-11 rounded-xl flex items-center justify-center border mb-4"
+                  style={{ borderColor: `${c.glow}66`, backgroundColor: `${c.glow}10` }}
+                >
+                  <Icon className="h-5 w-5" style={{ color: c.glow }} />
                 </div>
+
+                <h2 className="text-xl md:text-2xl font-bold mb-2">{c.title}</h2>
+                <p className="text-zinc-400 text-sm leading-relaxed">
+                  {c.description}
+                </p>
               </button>
             );
           })}
