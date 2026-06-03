@@ -9,7 +9,7 @@ const pricingTiers = [
     features: [
       "1 project",
       "AI idea validation",
-      "Basic business plan",
+      "Basic AI Agent plan",
       "Community support",
     ],
     cta: "Get Started",
@@ -21,7 +21,7 @@ const pricingTiers = [
     description: "For serious builders",
     features: [
       "Unlimited projects",
-      "Full business plan",
+      "Full AI Agent plan",
       "Landing page generation",
       "Custom domain support",
       "Email support",
@@ -60,7 +60,7 @@ const Pricing = () => {
             Simple, Transparent <span className="text-gradient">Pricing</span>
           </h2>
           <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
-            Choose the perfect plan for your business needs. Always flexible, no long-term contracts.
+            Choose the perfect plan for your AI Agent needs. Always flexible, no long-term contracts.
           </p>
         </div>
 
