@@ -29,7 +29,7 @@ const CARDS: Card[] = [
       "Your command center. Chat with NazAI and build your AI Agent — instantly.",
     icon: MessageSquare,
     glow: "#00f2ff",
-    route: "/workspace",
+    route: "/generator-home",
   },
   {
     id: "automator",
