@@ -25,7 +25,7 @@ export default function GeneratorHome() {
     if (!prompt.trim()) return;
     sessionStorage.setItem("nazai_pending_prompt", prompt.trim());
     sessionStorage.setItem("nazai_pending_type", activeType);
-    navigate("/workspace");
+    navigate("/generation-workspace");
   };
 
   return (
