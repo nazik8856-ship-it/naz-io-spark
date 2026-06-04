@@ -36,13 +36,34 @@ const SUGGESTIONS = [
   "Define data categories",
 ];
 
+type ChatMode = "plan" | "build" | "ask";
+
+const CHAT_MODES: { id: ChatMode; label: string; description: string; icon: typeof Pencil }[] = [
+  { id: "plan", label: "Plan", description: "Outline architecture & strategy", icon: Pencil },
+  { id: "build", label: "Build", description: "Generate & implement code", icon: Hammer },
+  { id: "ask", label: "Ask", description: "Chat & explore ideas", icon: HelpCircle },
+];
+
 export default function GenerationWorkspace() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [prompt, setPrompt] = useState("");
   const [activeTab, setActiveTab] = useState<"preview" | "dashboard">("preview");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [chatMode, setChatMode] = useState<ChatMode>("build");
+  const [modeMenuOpen, setModeMenuOpen] = useState(false);
+  const modeMenuRef = useRef<HTMLDivElement>(null);
   const initialized = useRef(false);
+
+  useEffect(() => {
+    const onClickOutside = (e: MouseEvent) => {
+      if (modeMenuRef.current && !modeMenuRef.current.contains(e.target as Node)) {
+        setModeMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, []);
 
   // Pull pending prompt from /generator-home
   useEffect(() => {
