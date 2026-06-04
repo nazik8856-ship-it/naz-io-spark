@@ -16,6 +16,10 @@ import {
   Sparkles,
   LayoutGrid,
   Palette,
+  Pencil,
+  Hammer,
+  HelpCircle,
+  Check,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
