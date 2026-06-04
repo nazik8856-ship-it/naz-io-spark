@@ -14,6 +14,7 @@ const Signup = lazy(() => import("./pages/Signup"));
 const AuthCallback = lazy(() => import("./pages/AuthCallback"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Generator = lazy(() => import("./pages/Generator"));
+const GeneratorHome = lazy(() => import("./pages/GeneratorHome"));
 const Generating = lazy(() => import("./pages/Generating"));
 const Pricing = lazy(() => import("./pages/Pricing"));
 const Unsubscribe = lazy(() => import("./pages/Unsubscribe"));
@@ -51,6 +52,7 @@ const App = () => (
 
                 {/* Mission Generator & Dashboard */}
                 <Route path="/generate" element={<Generator />} />
+                <Route path="/generator-home" element={<GeneratorHome />} />
                 <Route path="/pricing" element={<Pricing />} />
                 <Route path="/unsubscribe" element={<Unsubscribe />} />
 
