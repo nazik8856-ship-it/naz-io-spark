@@ -68,39 +68,33 @@ export default function GenerationWorkspace() {
     return () => document.removeEventListener("mousedown", onClickOutside);
   }, []);
 
-  // Pull pending prompt from /generator-home
+  // Pull pending prompt from /generator-home and immediately generate
   useEffect(() => {
     if (initialized.current) return;
     initialized.current = true;
     const pending = sessionStorage.getItem("nazai_pending_prompt");
     if (pending) {
       sessionStorage.removeItem("nazai_pending_prompt");
-      setMessages([
-        {
-          id: crypto.randomUUID(),
-          role: "user",
-          content: pending,
-          time: "just now",
-        },
-        {
-          id: crypto.randomUUID(),
-          role: "nazai",
-          content:
-            "Locked in. NazAI is preparing your generation environment. Continue refining your directive in the chat — the live preview will update on the right.",
-          time: "just now",
-        },
-      ]);
+      const userMsg: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: "user",
+        content: pending,
+        time: "just now",
+      };
+      setMessages([userMsg]);
+      void streamFromNazAI([{ role: "user", content: pending }]);
     } else {
       setMessages([
         {
           id: crypto.randomUUID(),
           role: "nazai",
           content:
-            "It looks like your message might have been accidental or incomplete. What would you like to build? Let me know and I'll get started!",
+            "Tell me what you want to build and I'll start generating right away. The more specific, the better.",
           time: "just now",
         },
       ]);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const [isStreaming, setIsStreaming] = useState(false);
