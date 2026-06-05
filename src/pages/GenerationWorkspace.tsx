@@ -479,20 +479,62 @@ export default function GenerationWorkspace() {
           {/* Preview canvas */}
           <div className="flex-1 relative overflow-hidden">
             <div
-              className="absolute inset-0"
+              className="absolute inset-0 pointer-events-none"
               style={{
                 background:
                   "radial-gradient(ellipse 70% 55% at 50% 60%, rgba(139,92,246,0.18) 0%, rgba(34,211,238,0.10) 35%, rgba(2,6,23,0) 70%)",
               }}
             />
-            <div className="relative h-full flex flex-col items-center justify-center text-center px-6">
-              <h2 className="text-2xl md:text-3xl font-bold tracking-tight">
-                Waiting for your next step…
-              </h2>
-              <p className="text-zinc-500 text-sm mt-2">
-                Continue in the chat when you're ready
-              </p>
-            </div>
+            {(() => {
+              const lastNaz = [...messages].reverse().find((m) => m.role === "nazai" && m.content);
+              const lastUser = [...messages].reverse().find((m) => m.role === "user");
+              if (!lastNaz) {
+                return (
+                  <div className="relative h-full flex flex-col items-center justify-center text-center px-6">
+                    <h2 className="text-2xl md:text-3xl font-bold tracking-tight">
+                      Waiting for your next step…
+                    </h2>
+                    <p className="text-zinc-500 text-sm mt-2">
+                      Tell NazAI what to build and it will generate it here.
+                    </p>
+                  </div>
+                );
+              }
+              return (
+                <div className="relative h-full overflow-y-auto px-6 md:px-10 py-8">
+                  <div className="max-w-3xl mx-auto">
+                    {lastUser && (
+                      <div className="mb-6">
+                        <div className="text-[10px] uppercase tracking-[0.2em] text-purple-300 mb-1">
+                          Generating for
+                        </div>
+                        <div className="text-lg md:text-xl font-semibold text-white leading-snug">
+                          {lastUser.content}
+                        </div>
+                      </div>
+                    )}
+                    <div className="rounded-2xl border border-white/10 bg-black/40 backdrop-blur-sm p-6 md:p-8 shadow-2xl">
+                      <div className="flex items-center gap-2 mb-4 pb-3 border-b border-white/5">
+                        <div className="h-6 w-6 rounded-md bg-gradient-to-br from-purple-500 to-cyan-400 flex items-center justify-center text-[10px] font-bold text-black">
+                          N
+                        </div>
+                        <div className="text-xs font-mono uppercase tracking-[0.2em] text-zinc-400">
+                          NazAI · {chatMode}
+                        </div>
+                        {isStreaming && (
+                          <span className="ml-auto text-[10px] font-mono text-purple-300 animate-pulse">
+                            generating…
+                          </span>
+                        )}
+                      </div>
+                      <div className="prose prose-invert prose-sm md:prose-base max-w-none prose-headings:text-white prose-pre:bg-black/60 prose-pre:border prose-pre:border-white/10 prose-code:text-cyan-300">
+                        <ReactMarkdown>{lastNaz.content}</ReactMarkdown>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </section>
       </div>
