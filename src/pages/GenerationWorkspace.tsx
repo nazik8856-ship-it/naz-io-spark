@@ -136,6 +136,7 @@ export default function GenerationWorkspace() {
         content: agentMode ? "🤖 Detected AI Agent request — forging a brand-new agent…\n\n" : "",
         time: "just now",
         streaming: true,
+        isAgent: agentMode,
       },
     ]);
 
