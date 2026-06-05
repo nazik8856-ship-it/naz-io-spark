@@ -99,23 +99,59 @@ export default function GenerationWorkspace() {
 
   const [isStreaming, setIsStreaming] = useState(false);
 
+  // Detect if user prompt is asking for an AI agent
+  const isAgentIntent = (text: string): boolean => {
+    const t = text.toLowerCase();
+    const patterns = [
+      /\bai[\s-]?agent\b/,
+      /\bai assistant\b/,
+      /\bautonomous agent\b/,
+      /\bchat ?bot\b/,
+      /\bchatbot\b/,
+      /\bllm agent\b/,
+      /\bgpt agent\b/,
+      /\bvirtual assistant\b/,
+      /\bagent that\b/,
+      /\bbuild .* agent\b/,
+      /\bcreate .* agent\b/,
+      /\bmake .* agent\b/,
+      /\bdesign .* agent\b/,
+      /\bcopilot\b/,
+    ];
+    return patterns.some((re) => re.test(t));
+  };
+
   const streamFromNazAI = async (history: { role: "user" | "assistant"; content: string }[]) => {
     setIsStreaming(true);
     const assistantId = crypto.randomUUID();
+    const lastUser = [...history].reverse().find((m) => m.role === "user")?.content ?? "";
+    const agentMode = isAgentIntent(lastUser);
+
     setMessages((m) => [
       ...m,
-      { id: assistantId, role: "nazai", content: "", time: "just now", streaming: true },
+      {
+        id: assistantId,
+        role: "nazai",
+        content: agentMode ? "🤖 Detected AI Agent request — forging a brand-new agent…\n\n" : "",
+        time: "just now",
+        streaming: true,
+      },
     ]);
 
     try {
-      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/nazai-chat`;
+      const endpoint = agentMode ? "generate-ai-agent" : "nazai-chat";
+      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${endpoint}`;
+      const body = agentMode
+        ? { prompt: lastUser, messages: history }
+        : { messages: history, mode: chatMode };
+
       const resp = await fetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
         },
-        body: JSON.stringify({ messages: history, mode: chatMode }),
+        body: JSON.stringify(body),
       });
 
       if (resp.status === 429) {
@@ -131,7 +167,7 @@ export default function GenerationWorkspace() {
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
       let buf = "";
-      let acc = "";
+      let acc = agentMode ? "🤖 Detected AI Agent request — forging a brand-new agent…\n\n" : "";
       let done = false;
 
       while (!done) {
