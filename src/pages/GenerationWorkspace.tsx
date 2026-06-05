@@ -274,9 +274,16 @@ export default function GenerationWorkspace() {
                     </div>
                     <div className="text-sm font-semibold">NazAI</div>
                   </div>
-                  <p className="text-sm text-zinc-200 leading-relaxed pl-9">
-                    {m.content}
-                  </p>
+                  <div className="text-sm text-zinc-200 leading-relaxed pl-9 prose prose-invert prose-sm max-w-none prose-pre:bg-black/60 prose-pre:border prose-pre:border-white/10 prose-code:text-cyan-300 prose-headings:text-white">
+                    {m.content ? (
+                      <ReactMarkdown>{m.content}</ReactMarkdown>
+                    ) : (
+                      <span className="inline-flex gap-1 items-center text-zinc-500 text-xs">
+                        <span className="h-1.5 w-1.5 rounded-full bg-purple-400 animate-pulse" />
+                        NazAI is thinking…
+                      </span>
+                    )}
+                  </div>
                   <div className="text-[10px] font-mono text-zinc-600 pl-9">
                     {m.time}
                   </div>
