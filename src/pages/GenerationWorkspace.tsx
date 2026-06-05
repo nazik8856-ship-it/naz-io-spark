@@ -22,12 +22,15 @@ import {
   Check,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import ReactMarkdown from "react-markdown";
+import { toast } from "sonner";
 
 type ChatMessage = {
   id: string;
   role: "user" | "nazai";
   content: string;
   time: string;
+  streaming?: boolean;
 };
 
 const SUGGESTIONS = [
