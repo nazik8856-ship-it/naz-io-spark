@@ -23,3 +23,6 @@ verify_jwt = false
 
 [functions.resend-events]
 verify_jwt = false
+
+[functions.nazai-chat]
+verify_jwt = false

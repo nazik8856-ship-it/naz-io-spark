@@ -22,12 +22,15 @@ import {
   Check,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import ReactMarkdown from "react-markdown";
+import { toast } from "sonner";
 
 type ChatMessage = {
   id: string;
   role: "user" | "nazai";
   content: string;
   time: string;
+  streaming?: boolean;
 };
 
 const SUGGESTIONS = [
@@ -65,61 +68,133 @@ export default function GenerationWorkspace() {
     return () => document.removeEventListener("mousedown", onClickOutside);
   }, []);
 
-  // Pull pending prompt from /generator-home
+  // Pull pending prompt from /generator-home and immediately generate
   useEffect(() => {
     if (initialized.current) return;
     initialized.current = true;
     const pending = sessionStorage.getItem("nazai_pending_prompt");
     if (pending) {
       sessionStorage.removeItem("nazai_pending_prompt");
-      setMessages([
-        {
-          id: crypto.randomUUID(),
-          role: "user",
-          content: pending,
-          time: "just now",
-        },
-        {
-          id: crypto.randomUUID(),
-          role: "nazai",
-          content:
-            "Locked in. NazAI is preparing your generation environment. Continue refining your directive in the chat — the live preview will update on the right.",
-          time: "just now",
-        },
-      ]);
+      const userMsg: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: "user",
+        content: pending,
+        time: "just now",
+      };
+      setMessages([userMsg]);
+      void streamFromNazAI([{ role: "user", content: pending }]);
     } else {
       setMessages([
         {
           id: crypto.randomUUID(),
           role: "nazai",
           content:
-            "It looks like your message might have been accidental or incomplete. What would you like to build? Let me know and I'll get started!",
+            "Tell me what you want to build and I'll start generating right away. The more specific, the better.",
           time: "just now",
         },
       ]);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const [isStreaming, setIsStreaming] = useState(false);
+
+  const streamFromNazAI = async (history: { role: "user" | "assistant"; content: string }[]) => {
+    setIsStreaming(true);
+    const assistantId = crypto.randomUUID();
+    setMessages((m) => [
+      ...m,
+      { id: assistantId, role: "nazai", content: "", time: "just now", streaming: true },
+    ]);
+
+    try {
+      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/nazai-chat`;
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+        },
+        body: JSON.stringify({ messages: history, mode: chatMode }),
+      });
+
+      if (resp.status === 429) {
+        toast.error("Rate limit hit. Try again in a moment.");
+        throw new Error("rate limit");
+      }
+      if (resp.status === 402) {
+        toast.error("AI credits exhausted.");
+        throw new Error("credits");
+      }
+      if (!resp.ok || !resp.body) throw new Error("Stream failed");
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      let acc = "";
+      let done = false;
+
+      while (!done) {
+        const { done: d, value } = await reader.read();
+        if (d) break;
+        buf += decoder.decode(value, { stream: true });
+        let nl: number;
+        while ((nl = buf.indexOf("\n")) !== -1) {
+          let line = buf.slice(0, nl);
+          buf = buf.slice(nl + 1);
+          if (line.endsWith("\r")) line = line.slice(0, -1);
+          if (!line.startsWith("data: ")) continue;
+          const json = line.slice(6).trim();
+          if (json === "[DONE]") { done = true; break; }
+          try {
+            const parsed = JSON.parse(json);
+            const delta = parsed.choices?.[0]?.delta?.content;
+            if (delta) {
+              acc += delta;
+              setMessages((m) =>
+                m.map((x) => (x.id === assistantId ? { ...x, content: acc } : x)),
+              );
+            }
+          } catch {
+            buf = line + "\n" + buf;
+            break;
+          }
+        }
+      }
+    } catch (e) {
+      console.error(e);
+      setMessages((m) =>
+        m.map((x) =>
+          x.id === assistantId
+            ? { ...x, content: x.content || "Something went wrong reaching NazAI. Try again." }
+            : x,
+        ),
+      );
+    } finally {
+      setMessages((m) => m.map((x) => (x.id === assistantId ? { ...x, streaming: false } : x)));
+      setIsStreaming(false);
+    }
+  };
 
   const sendPrompt = () => {
     const text = prompt.trim();
-    if (!text) return;
-    setMessages((m) => [
-      ...m,
-      { id: crypto.randomUUID(), role: "user", content: text, time: "just now" },
-    ]);
+    if (!text || isStreaming) return;
+    const userMsg: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: "user",
+      content: text,
+      time: "just now",
+    };
+    const next = [...messages, userMsg];
+    setMessages(next);
     setPrompt("");
-    // Echo response — real generation hook lives in legacy pipeline.
-    setTimeout(() => {
-      setMessages((m) => [
-        ...m,
-        {
-          id: crypto.randomUUID(),
-          role: "nazai",
-          content: "Received. Routing through NazAI orchestrator…",
-          time: "just now",
-        },
-      ]);
-    }, 400);
+    const history = next
+      .filter((m) => m.content.trim().length > 0)
+      .map((m) => ({
+        role: m.role === "user" ? ("user" as const) : ("assistant" as const),
+        content: m.content,
+      }));
+    void streamFromNazAI(history);
   };
 
   return (
@@ -199,9 +274,16 @@ export default function GenerationWorkspace() {
                     </div>
                     <div className="text-sm font-semibold">NazAI</div>
                   </div>
-                  <p className="text-sm text-zinc-200 leading-relaxed pl-9">
-                    {m.content}
-                  </p>
+                  <div className="text-sm text-zinc-200 leading-relaxed pl-9 prose prose-invert prose-sm max-w-none prose-pre:bg-black/60 prose-pre:border prose-pre:border-white/10 prose-code:text-cyan-300 prose-headings:text-white">
+                    {m.content ? (
+                      <ReactMarkdown>{m.content}</ReactMarkdown>
+                    ) : (
+                      <span className="inline-flex gap-1 items-center text-zinc-500 text-xs">
+                        <span className="h-1.5 w-1.5 rounded-full bg-purple-400 animate-pulse" />
+                        NazAI is thinking…
+                      </span>
+                    )}
+                  </div>
                   <div className="text-[10px] font-mono text-zinc-600 pl-9">
                     {m.time}
                   </div>
@@ -397,20 +479,62 @@ export default function GenerationWorkspace() {
           {/* Preview canvas */}
           <div className="flex-1 relative overflow-hidden">
             <div
-              className="absolute inset-0"
+              className="absolute inset-0 pointer-events-none"
               style={{
                 background:
                   "radial-gradient(ellipse 70% 55% at 50% 60%, rgba(139,92,246,0.18) 0%, rgba(34,211,238,0.10) 35%, rgba(2,6,23,0) 70%)",
               }}
             />
-            <div className="relative h-full flex flex-col items-center justify-center text-center px-6">
-              <h2 className="text-2xl md:text-3xl font-bold tracking-tight">
-                Waiting for your next step…
-              </h2>
-              <p className="text-zinc-500 text-sm mt-2">
-                Continue in the chat when you're ready
-              </p>
-            </div>
+            {(() => {
+              const lastNaz = [...messages].reverse().find((m) => m.role === "nazai" && m.content);
+              const lastUser = [...messages].reverse().find((m) => m.role === "user");
+              if (!lastNaz) {
+                return (
+                  <div className="relative h-full flex flex-col items-center justify-center text-center px-6">
+                    <h2 className="text-2xl md:text-3xl font-bold tracking-tight">
+                      Waiting for your next step…
+                    </h2>
+                    <p className="text-zinc-500 text-sm mt-2">
+                      Tell NazAI what to build and it will generate it here.
+                    </p>
+                  </div>
+                );
+              }
+              return (
+                <div className="relative h-full overflow-y-auto px-6 md:px-10 py-8">
+                  <div className="max-w-3xl mx-auto">
+                    {lastUser && (
+                      <div className="mb-6">
+                        <div className="text-[10px] uppercase tracking-[0.2em] text-purple-300 mb-1">
+                          Generating for
+                        </div>
+                        <div className="text-lg md:text-xl font-semibold text-white leading-snug">
+                          {lastUser.content}
+                        </div>
+                      </div>
+                    )}
+                    <div className="rounded-2xl border border-white/10 bg-black/40 backdrop-blur-sm p-6 md:p-8 shadow-2xl">
+                      <div className="flex items-center gap-2 mb-4 pb-3 border-b border-white/5">
+                        <div className="h-6 w-6 rounded-md bg-gradient-to-br from-purple-500 to-cyan-400 flex items-center justify-center text-[10px] font-bold text-black">
+                          N
+                        </div>
+                        <div className="text-xs font-mono uppercase tracking-[0.2em] text-zinc-400">
+                          NazAI · {chatMode}
+                        </div>
+                        {isStreaming && (
+                          <span className="ml-auto text-[10px] font-mono text-purple-300 animate-pulse">
+                            generating…
+                          </span>
+                        )}
+                      </div>
+                      <div className="prose prose-invert prose-sm md:prose-base max-w-none prose-headings:text-white prose-pre:bg-black/60 prose-pre:border prose-pre:border-white/10 prose-code:text-cyan-300">
+                        <ReactMarkdown>{lastNaz.content}</ReactMarkdown>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </section>
       </div>
