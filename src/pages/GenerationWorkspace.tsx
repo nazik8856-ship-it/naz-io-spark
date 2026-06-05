@@ -103,26 +103,104 @@ export default function GenerationWorkspace() {
     }
   }, []);
 
-  const sendPrompt = () => {
-    const text = prompt.trim();
-    if (!text) return;
+  const [isStreaming, setIsStreaming] = useState(false);
+
+  const streamFromNazAI = async (history: { role: "user" | "assistant"; content: string }[]) => {
+    setIsStreaming(true);
+    const assistantId = crypto.randomUUID();
     setMessages((m) => [
       ...m,
-      { id: crypto.randomUUID(), role: "user", content: text, time: "just now" },
+      { id: assistantId, role: "nazai", content: "", time: "just now", streaming: true },
     ]);
-    setPrompt("");
-    // Echo response — real generation hook lives in legacy pipeline.
-    setTimeout(() => {
-      setMessages((m) => [
-        ...m,
-        {
-          id: crypto.randomUUID(),
-          role: "nazai",
-          content: "Received. Routing through NazAI orchestrator…",
-          time: "just now",
+
+    try {
+      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/nazai-chat`;
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
         },
-      ]);
-    }, 400);
+        body: JSON.stringify({ messages: history, mode: chatMode }),
+      });
+
+      if (resp.status === 429) {
+        toast.error("Rate limit hit. Try again in a moment.");
+        throw new Error("rate limit");
+      }
+      if (resp.status === 402) {
+        toast.error("AI credits exhausted.");
+        throw new Error("credits");
+      }
+      if (!resp.ok || !resp.body) throw new Error("Stream failed");
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      let acc = "";
+      let done = false;
+
+      while (!done) {
+        const { done: d, value } = await reader.read();
+        if (d) break;
+        buf += decoder.decode(value, { stream: true });
+        let nl: number;
+        while ((nl = buf.indexOf("\n")) !== -1) {
+          let line = buf.slice(0, nl);
+          buf = buf.slice(nl + 1);
+          if (line.endsWith("\r")) line = line.slice(0, -1);
+          if (!line.startsWith("data: ")) continue;
+          const json = line.slice(6).trim();
+          if (json === "[DONE]") { done = true; break; }
+          try {
+            const parsed = JSON.parse(json);
+            const delta = parsed.choices?.[0]?.delta?.content;
+            if (delta) {
+              acc += delta;
+              setMessages((m) =>
+                m.map((x) => (x.id === assistantId ? { ...x, content: acc } : x)),
+              );
+            }
+          } catch {
+            buf = line + "\n" + buf;
+            break;
+          }
+        }
+      }
+    } catch (e) {
+      console.error(e);
+      setMessages((m) =>
+        m.map((x) =>
+          x.id === assistantId
+            ? { ...x, content: x.content || "Something went wrong reaching NazAI. Try again." }
+            : x,
+        ),
+      );
+    } finally {
+      setMessages((m) => m.map((x) => (x.id === assistantId ? { ...x, streaming: false } : x)));
+      setIsStreaming(false);
+    }
+  };
+
+  const sendPrompt = () => {
+    const text = prompt.trim();
+    if (!text || isStreaming) return;
+    const userMsg: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: "user",
+      content: text,
+      time: "just now",
+    };
+    const next = [...messages, userMsg];
+    setMessages(next);
+    setPrompt("");
+    const history = next
+      .filter((m) => m.content.trim().length > 0)
+      .map((m) => ({
+        role: m.role === "user" ? ("user" as const) : ("assistant" as const),
+        content: m.content,
+      }));
+    void streamFromNazAI(history);
   };
 
   return (
