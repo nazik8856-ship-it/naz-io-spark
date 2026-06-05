@@ -557,7 +557,7 @@ export default function GenerationWorkspace() {
                           N
                         </div>
                         <div className="text-xs font-mono uppercase tracking-[0.2em] text-zinc-400">
-                          NazAI · {chatMode}
+                          NazAI · {lastNaz.isAgent ? "agent forge" : chatMode}
                         </div>
                         {isStreaming && (
                           <span className="ml-auto text-[10px] font-mono text-purple-300 animate-pulse">
@@ -568,6 +568,29 @@ export default function GenerationWorkspace() {
                       <div className="prose prose-invert prose-sm md:prose-base max-w-none prose-headings:text-white prose-pre:bg-black/60 prose-pre:border prose-pre:border-white/10 prose-code:text-cyan-300">
                         <ReactMarkdown>{lastNaz.content}</ReactMarkdown>
                       </div>
+                      {lastNaz.isAgent && !lastNaz.streaming && lastNaz.content && (
+                        <div className="mt-6 pt-5 border-t border-white/5 flex flex-wrap items-center gap-3">
+                          <button
+                            onClick={() => {
+                              navigator.clipboard.writeText(lastNaz.content);
+                              toast.success("Agent spec copied to clipboard");
+                            }}
+                            className="px-4 py-2 rounded-lg border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] text-sm text-zinc-200"
+                          >
+                            Copy spec
+                          </button>
+                          <button
+                            onClick={() => toast.success("Agent queued for deployment — you'll get a live endpoint shortly.")}
+                            className="px-5 py-2 rounded-lg bg-gradient-to-r from-purple-500 to-cyan-400 text-black text-sm font-semibold flex items-center gap-2 shadow-lg shadow-purple-500/20"
+                          >
+                            <Sparkles className="h-4 w-4" />
+                            Deploy Agent
+                          </button>
+                          <div className="text-[11px] font-mono text-zinc-500 ml-auto">
+                            freshly forged · non-cached
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
