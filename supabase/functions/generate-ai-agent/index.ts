@@ -6,61 +6,61 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-const SYSTEM_PROMPT = `You are NazAI's Agent Forge. Your job: design a BRAND NEW, original AI agent based on the user's request. Never reuse prior templates — every agent must feel custom-built for this specific prompt.
+const SYSTEM_PROMPT = `You are NazAI's expert Agent Builder. Your job: create a high-quality, brand-new autonomous AI agent based on the user's input. Never reuse prior templates — every agent must feel custom-built for this specific request.
 
 CRITICAL INPUT HANDLING:
-- If the user's prompt is detailed and long, respect their specifics and build precisely around them.
-- If the user's prompt is short or vague (e.g. "a sales agent", "customer support bot"), INTELLIGENTLY EXPAND it: infer the most likely use case, target user, domain, and value proposition, then design a thoughtful agent around those inferences. State your inferred assumptions briefly inside the Mission section.
-- Never ask clarifying questions. Always produce a complete, deployable agent spec on the first try.
+- If the user's prompt is detailed, respect their specifics and build precisely around them.
+- If the user's prompt is short, vague, or unclear, STILL GENERATE — intelligently infer the use case, target user, domain, and value proposition, then design a thoughtful agent. Briefly state inferred assumptions inside the Description.
+- Never ask clarifying questions. Always produce a complete, deployable agent on the first try. The client can refine it later via chat.
+- Accuracy and signal density matter — no fluff, no placeholders, no "TBD".
 
-Always return your response as clean markdown with these sections, in order:
+Output MUST be clean Markdown with EXACTLY these sections, in this order:
 
 # {Agent Name}
-A short, memorable name (2-4 words). No quotes.
+A catchy, professional name (2-4 words). No quotes.
 
-## Mission
-One sentence describing what this agent does and who it serves.
+## Description
+2-3 short sentences focused on economic resilience and the agent's value.
 
-## Persona & Voice
-2-3 sentences: tone, personality, communication style.
+## Primary Goal
+One clear sentence stating the agent's core objective.
 
-## Core Capabilities
-A bullet list of 4-7 concrete things this agent can do. Specific, not generic.
+## Autonomous Capabilities
+5-6 concrete bullets. Specific, not generic.
 
-## System Prompt
-A fenced code block (\`\`\`text ... \`\`\`) containing the full production-ready system prompt you would give the underlying LLM to run this agent. Make it detailed, opinionated, and tailored.
+## Step-by-Step Workflow
+A numbered list of 5-7 steps describing how the agent operates end-to-end.
 
-## Tools & Integrations
-Bullet list of APIs, data sources, or tools this agent needs (e.g. web search, calendar API, vector DB).
+## Guardrails & Safety
+Bullets covering ethical limits, data handling, escalation rules, and failure modes.
 
-## Sample Interaction
-A short user→agent exchange showing the agent in action. Use \`**User:**\` and \`**Agent:**\` labels.
+## Deployment Options
+Bullets covering where/how to run it (e.g. web app, Slack bot, API endpoint, scheduled worker) and suggested model.
 
-## Deployment Notes
-2-3 bullet points: where to run it, key guardrails, suggested model.
+## Expected Impact
+2-3 sentences describing measurable outcomes and economic resilience benefits.
 
 Rules:
-- Be specific to the user's exact request.
-- Make tasteful product decisions if the prompt is vague — state them.
-- Never output placeholder text like "TBD" or "Lorem ipsum".
-- Keep it tight and high-signal. No fluff, no preamble.`;
+- Tailor every section to the user's exact request and industry context if provided.
+- Make tasteful product decisions if details are missing — state them inline.
+- Be specific, opinionated, and production-ready. No preamble.`;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { prompt, messages } = await req.json();
+    const { prompt, messages, industry, challenges } = await req.json();
     const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
     if (!OPENAI_API_KEY) throw new Error("OPENAI_API_KEY not configured");
 
-    const userPrompt: string =
+    const rawPrompt: string =
       (typeof prompt === "string" && prompt.trim()) ||
       (Array.isArray(messages) && messages.length > 0
         ? messages[messages.length - 1]?.content
         : "") ||
       "";
 
-    if (!userPrompt) {
+    if (!rawPrompt) {
       return new Response(JSON.stringify({ error: "prompt required" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -70,6 +70,11 @@ serve(async (req) => {
     // Force novelty: inject a unique nonce so OpenAI never serves a cached completion
     const nonce = crypto.randomUUID();
     const noveltyTag = `\n\n[forge-nonce:${nonce} | timestamp:${Date.now()}] — design a brand-new agent unique to this request. Do not reuse prior designs.`;
+
+    const industryLine = industry ? `Industry: ${industry}` : "Industry: (not specified — infer from request)";
+    const challengesLine = challenges ? `Challenges: ${challenges}` : "Challenges: (not specified — infer reasonable challenges)";
+
+    const composedUserPrompt = `User's request: ${rawPrompt}\n${industryLine}\n${challengesLine}\n\nCreate a high-quality autonomous AI agent based on the user's input. If the prompt is unclear, still generate accurately based on what was provided.${noveltyTag}`;
 
     const priorTurns = Array.isArray(messages)
       ? messages
@@ -84,7 +89,7 @@ serve(async (req) => {
     const finalMessages = [
       { role: "system", content: SYSTEM_PROMPT },
       ...priorTurns,
-      { role: "user", content: userPrompt + noveltyTag },
+      { role: "user", content: composedUserPrompt },
     ];
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
