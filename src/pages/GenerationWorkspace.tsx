@@ -122,6 +122,42 @@ export default function GenerationWorkspace() {
     return patterns.some((re) => re.test(t));
   };
 
+  const createAgentFallback = (request: string): string => {
+    const cleanRequest = request.trim() || "an AI agent for improving business resilience";
+    const hasSales = /sales|lead|crm|pipeline|revenue/i.test(cleanRequest);
+    const hasSupport = /support|customer|ticket|service|helpdesk/i.test(cleanRequest);
+    const focus = hasSales ? "Revenue Resilience" : hasSupport ? "Customer Continuity" : "Business Resilience";
+
+    return `1. Agent Name: ${focus} Agent
+
+2. Description: This autonomous agent is designed around the request: ${cleanRequest}. It helps the business protect revenue, reduce operational drag, and make faster decisions during uncertain market conditions.
+
+3. Primary Goal: Improve business resilience by turning the user's stated need into monitored actions, prioritized decisions, and measurable outcomes.
+
+4. Autonomous Capabilities:
+- Interprets incoming business signals and classifies urgency, risk, and opportunity.
+- Monitors relevant workflows, customer inputs, operational data, and task queues.
+- Recommends or triggers next-best actions based on business value and downside risk.
+- Drafts messages, reports, plans, and follow-up actions for human review when needed.
+- Escalates high-risk decisions, unusual patterns, or financial-impact actions to a human owner.
+- Learns from approved outcomes to improve prioritization and response quality over time.
+
+5. Step-by-Step Workflow:
+1. Receives the user's request, business context, or connected workflow event.
+2. Extracts the goal, stakeholders, constraints, risks, and success metrics.
+3. Checks available data sources for relevant context and recent changes.
+4. Produces a prioritized action plan with confidence levels and expected impact.
+5. Executes low-risk automations such as drafts, summaries, routing, reminders, and updates.
+6. Requests human approval for sensitive, costly, customer-facing, or irreversible actions.
+7. Tracks results and updates future recommendations based on measurable outcomes.
+
+6. Guardrails & Safety: The agent must not make financial commitments, legal claims, hiring decisions, customer refunds, or destructive system changes without human approval. It should protect private data, cite uncertainty clearly, log every action, and escalate when confidence is low or business risk is high.
+
+7. Deployment Options: Deploy it as a dashboard assistant, embedded chat agent, scheduled background worker, CRM/helpdesk automation, internal API endpoint, or operations copilot connected to business tools.
+
+8. Expected Impact: The business gets faster response cycles, clearer prioritization, lower manual workload, and better protection against revenue leakage. Over time, the agent should improve resilience by helping teams act earlier on risks and capture opportunities with less operational friction.`;
+  };
+
   const streamFromNazAI = async (history: { role: "user" | "assistant"; content: string }[]) => {
     setIsStreaming(true);
     const assistantId = crypto.randomUUID();
@@ -229,7 +265,10 @@ export default function GenerationWorkspace() {
       setMessages((m) =>
         m.map((x) =>
           x.id === assistantId
-            ? { ...x, content: x.content || "Something went wrong reaching NazAI. Try again." }
+            ? {
+                ...x,
+                content: x.content || (agentMode ? createAgentFallback(lastUser) : "Something went wrong reaching NazAI. Try again."),
+              }
             : x,
         ),
       );
