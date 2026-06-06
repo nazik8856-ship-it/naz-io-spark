@@ -133,7 +133,7 @@ export default function GenerationWorkspace() {
       {
         id: assistantId,
         role: "nazai",
-        content: agentMode ? "🤖 Detected AI Agent request — forging a brand-new agent…\n\n" : "",
+        content: "",
         time: "just now",
         streaming: true,
         isAgent: agentMode,
@@ -169,7 +169,7 @@ export default function GenerationWorkspace() {
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
       let buf = "";
-      let acc = agentMode ? "🤖 Detected AI Agent request — forging a brand-new agent…\n\n" : "";
+      let acc = "";
       let done = false;
 
       while (!done) {
@@ -198,6 +198,31 @@ export default function GenerationWorkspace() {
             break;
           }
         }
+      }
+
+      if (buf.trim()) {
+        for (let rawLine of buf.split("\n")) {
+          if (rawLine.endsWith("\r")) rawLine = rawLine.slice(0, -1);
+          if (!rawLine.startsWith("data: ")) continue;
+          const json = rawLine.slice(6).trim();
+          if (!json || json === "[DONE]") continue;
+          try {
+            const parsed = JSON.parse(json);
+            const delta = parsed.choices?.[0]?.delta?.content;
+            if (delta) {
+              acc += delta;
+              setMessages((m) =>
+                m.map((x) => (x.id === assistantId ? { ...x, content: acc } : x)),
+              );
+            }
+          } catch {
+            // Ignore incomplete trailing SSE fragments.
+          }
+        }
+      }
+
+      if (!acc.trim()) {
+        throw new Error("No agent output received");
       }
     } catch (e) {
       console.error(e);
