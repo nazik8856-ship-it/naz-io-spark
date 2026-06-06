@@ -52,7 +52,10 @@ serve(async (req) => {
   try {
     const { prompt, messages, industry, challenges } = await req.json();
     const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
-    if (!OPENAI_API_KEY) throw new Error("OPENAI_API_KEY not configured");
+    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    if (!OPENAI_API_KEY && !LOVABLE_API_KEY) {
+      throw new Error("AI generation key not configured");
+    }
 
     const rawPrompt: string =
       (typeof prompt === "string" && prompt.trim()) ||
@@ -93,14 +96,19 @@ serve(async (req) => {
       { role: "user", content: composedUserPrompt },
     ];
 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const aiUrl = OPENAI_API_KEY
+      ? "https://api.openai.com/v1/chat/completions"
+      : "https://ai.gateway.lovable.dev/v1/chat/completions";
+    const aiKey = OPENAI_API_KEY || LOVABLE_API_KEY;
+
+    const response = await fetch(aiUrl, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        Authorization: `Bearer ${aiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
+        model: OPENAI_API_KEY ? "gpt-4o-mini" : "google/gemini-3-flash-preview",
         messages: finalMessages,
         stream: true,
         temperature: 0.95,
