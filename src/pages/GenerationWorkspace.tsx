@@ -579,13 +579,6 @@ export default function GenerationWorkspace() {
                           >
                             Copy spec
                           </button>
-                          <button
-                            onClick={() => toast.success("Agent queued for deployment — you'll get a live endpoint shortly.")}
-                            className="px-5 py-2 rounded-lg bg-gradient-to-r from-purple-500 to-cyan-400 text-black text-sm font-semibold flex items-center gap-2 shadow-lg shadow-purple-500/20"
-                          >
-                            <Sparkles className="h-4 w-4" />
-                            Deploy Agent
-                          </button>
                           <div className="text-[11px] font-mono text-zinc-500 ml-auto">
                             freshly forged · non-cached
                           </div>
