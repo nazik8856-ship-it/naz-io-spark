@@ -605,7 +605,7 @@ export default function GenerationWorkspace() {
               return (
                 <div className="relative h-full overflow-y-auto px-6 md:px-10 py-8">
                   <div className="max-w-3xl mx-auto">
-                    {lastUser && (
+                    {lastUser && !lastNaz.isAgent && (
                       <div className="mb-6">
                         <div className="text-[10px] uppercase tracking-[0.2em] text-purple-300 mb-1">
                           Generating for
@@ -616,19 +616,21 @@ export default function GenerationWorkspace() {
                       </div>
                     )}
                     <div className="rounded-2xl border border-white/10 bg-black/40 backdrop-blur-sm p-6 md:p-8 shadow-2xl">
-                      <div className="flex items-center gap-2 mb-4 pb-3 border-b border-white/5">
-                        <div className="h-6 w-6 rounded-md bg-gradient-to-br from-purple-500 to-cyan-400 flex items-center justify-center text-[10px] font-bold text-black">
-                          N
+                      {!lastNaz.isAgent && (
+                        <div className="flex items-center gap-2 mb-4 pb-3 border-b border-white/5">
+                          <div className="h-6 w-6 rounded-md bg-gradient-to-br from-purple-500 to-cyan-400 flex items-center justify-center text-[10px] font-bold text-black">
+                            N
+                          </div>
+                          <div className="text-xs font-mono uppercase tracking-[0.2em] text-zinc-400">
+                            NazAI · {chatMode}
+                          </div>
+                          {isStreaming && (
+                            <span className="ml-auto text-[10px] font-mono text-purple-300 animate-pulse">
+                              generating…
+                            </span>
+                          )}
                         </div>
-                        <div className="text-xs font-mono uppercase tracking-[0.2em] text-zinc-400">
-                          NazAI · {lastNaz.isAgent ? "agent forge" : chatMode}
-                        </div>
-                        {isStreaming && (
-                          <span className="ml-auto text-[10px] font-mono text-purple-300 animate-pulse">
-                            generating…
-                          </span>
-                        )}
-                      </div>
+                      )}
                       <div className="prose prose-invert prose-sm md:prose-base max-w-none prose-headings:text-white prose-pre:bg-black/60 prose-pre:border prose-pre:border-white/10 prose-code:text-cyan-300">
                         <ReactMarkdown>{lastNaz.content}</ReactMarkdown>
                       </div>
