@@ -122,6 +122,42 @@ export default function GenerationWorkspace() {
     return patterns.some((re) => re.test(t));
   };
 
+  const createAgentFallback = (request: string): string => {
+    const cleanRequest = request.trim() || "an AI agent for improving business resilience";
+    const hasSales = /sales|lead|crm|pipeline|revenue/i.test(cleanRequest);
+    const hasSupport = /support|customer|ticket|service|helpdesk/i.test(cleanRequest);
+    const focus = hasSales ? "Revenue Resilience" : hasSupport ? "Customer Continuity" : "Business Resilience";
+
+    return `1. Agent Name: ${focus} Agent
+
+2. Description: This autonomous agent is designed around the request: ${cleanRequest}. It helps the business protect revenue, reduce operational drag, and make faster decisions during uncertain market conditions.
+
+3. Primary Goal: Improve business resilience by turning the user's stated need into monitored actions, prioritized decisions, and measurable outcomes.
+
+4. Autonomous Capabilities:
+- Interprets incoming business signals and classifies urgency, risk, and opportunity.
+- Monitors relevant workflows, customer inputs, operational data, and task queues.
+- Recommends or triggers next-best actions based on business value and downside risk.
+- Drafts messages, reports, plans, and follow-up actions for human review when needed.
+- Escalates high-risk decisions, unusual patterns, or financial-impact actions to a human owner.
+- Learns from approved outcomes to improve prioritization and response quality over time.
+
+5. Step-by-Step Workflow:
+1. Receives the user's request, business context, or connected workflow event.
+2. Extracts the goal, stakeholders, constraints, risks, and success metrics.
+3. Checks available data sources for relevant context and recent changes.
+4. Produces a prioritized action plan with confidence levels and expected impact.
+5. Executes low-risk automations such as drafts, summaries, routing, reminders, and updates.
+6. Requests human approval for sensitive, costly, customer-facing, or irreversible actions.
+7. Tracks results and updates future recommendations based on measurable outcomes.
+
+6. Guardrails & Safety: The agent must not make financial commitments, legal claims, hiring decisions, customer refunds, or destructive system changes without human approval. It should protect private data, cite uncertainty clearly, log every action, and escalate when confidence is low or business risk is high.
+
+7. Deployment Options: Deploy it as a dashboard assistant, embedded chat agent, scheduled background worker, CRM/helpdesk automation, internal API endpoint, or operations copilot connected to business tools.
+
+8. Expected Impact: The business gets faster response cycles, clearer prioritization, lower manual workload, and better protection against revenue leakage. Over time, the agent should improve resilience by helping teams act earlier on risks and capture opportunities with less operational friction.`;
+  };
+
   const streamFromNazAI = async (history: { role: "user" | "assistant"; content: string }[]) => {
     setIsStreaming(true);
     const assistantId = crypto.randomUUID();
@@ -133,7 +169,7 @@ export default function GenerationWorkspace() {
       {
         id: assistantId,
         role: "nazai",
-        content: agentMode ? "🤖 Detected AI Agent request — forging a brand-new agent…\n\n" : "",
+        content: "",
         time: "just now",
         streaming: true,
         isAgent: agentMode,
@@ -169,7 +205,7 @@ export default function GenerationWorkspace() {
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
       let buf = "";
-      let acc = agentMode ? "🤖 Detected AI Agent request — forging a brand-new agent…\n\n" : "";
+      let acc = "";
       let done = false;
 
       while (!done) {
@@ -199,12 +235,40 @@ export default function GenerationWorkspace() {
           }
         }
       }
+
+      if (buf.trim()) {
+        for (let rawLine of buf.split("\n")) {
+          if (rawLine.endsWith("\r")) rawLine = rawLine.slice(0, -1);
+          if (!rawLine.startsWith("data: ")) continue;
+          const json = rawLine.slice(6).trim();
+          if (!json || json === "[DONE]") continue;
+          try {
+            const parsed = JSON.parse(json);
+            const delta = parsed.choices?.[0]?.delta?.content;
+            if (delta) {
+              acc += delta;
+              setMessages((m) =>
+                m.map((x) => (x.id === assistantId ? { ...x, content: acc } : x)),
+              );
+            }
+          } catch {
+            // Ignore incomplete trailing SSE fragments.
+          }
+        }
+      }
+
+      if (!acc.trim()) {
+        throw new Error("No agent output received");
+      }
     } catch (e) {
       console.error(e);
       setMessages((m) =>
         m.map((x) =>
           x.id === assistantId
-            ? { ...x, content: x.content || "Something went wrong reaching NazAI. Try again." }
+            ? {
+                ...x,
+                content: x.content || (agentMode ? createAgentFallback(lastUser) : "Something went wrong reaching NazAI. Try again."),
+              }
             : x,
         ),
       );
@@ -541,7 +605,7 @@ export default function GenerationWorkspace() {
               return (
                 <div className="relative h-full overflow-y-auto px-6 md:px-10 py-8">
                   <div className="max-w-3xl mx-auto">
-                    {lastUser && (
+                    {lastUser && !lastNaz.isAgent && (
                       <div className="mb-6">
                         <div className="text-[10px] uppercase tracking-[0.2em] text-purple-300 mb-1">
                           Generating for
@@ -552,38 +616,24 @@ export default function GenerationWorkspace() {
                       </div>
                     )}
                     <div className="rounded-2xl border border-white/10 bg-black/40 backdrop-blur-sm p-6 md:p-8 shadow-2xl">
-                      <div className="flex items-center gap-2 mb-4 pb-3 border-b border-white/5">
-                        <div className="h-6 w-6 rounded-md bg-gradient-to-br from-purple-500 to-cyan-400 flex items-center justify-center text-[10px] font-bold text-black">
-                          N
+                      {!lastNaz.isAgent && (
+                        <div className="flex items-center gap-2 mb-4 pb-3 border-b border-white/5">
+                          <div className="h-6 w-6 rounded-md bg-gradient-to-br from-purple-500 to-cyan-400 flex items-center justify-center text-[10px] font-bold text-black">
+                            N
+                          </div>
+                          <div className="text-xs font-mono uppercase tracking-[0.2em] text-zinc-400">
+                            NazAI · {chatMode}
+                          </div>
+                          {isStreaming && (
+                            <span className="ml-auto text-[10px] font-mono text-purple-300 animate-pulse">
+                              generating…
+                            </span>
+                          )}
                         </div>
-                        <div className="text-xs font-mono uppercase tracking-[0.2em] text-zinc-400">
-                          NazAI · {lastNaz.isAgent ? "agent forge" : chatMode}
-                        </div>
-                        {isStreaming && (
-                          <span className="ml-auto text-[10px] font-mono text-purple-300 animate-pulse">
-                            generating…
-                          </span>
-                        )}
-                      </div>
+                      )}
                       <div className="prose prose-invert prose-sm md:prose-base max-w-none prose-headings:text-white prose-pre:bg-black/60 prose-pre:border prose-pre:border-white/10 prose-code:text-cyan-300">
                         <ReactMarkdown>{lastNaz.content}</ReactMarkdown>
                       </div>
-                      {lastNaz.isAgent && !lastNaz.streaming && lastNaz.content && (
-                        <div className="mt-6 pt-5 border-t border-white/5 flex flex-wrap items-center gap-3">
-                          <button
-                            onClick={() => {
-                              navigator.clipboard.writeText(lastNaz.content);
-                              toast.success("Agent spec copied to clipboard");
-                            }}
-                            className="px-4 py-2 rounded-lg border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] text-sm text-zinc-200"
-                          >
-                            Copy spec
-                          </button>
-                          <div className="text-[11px] font-mono text-zinc-500 ml-auto">
-                            freshly forged · non-cached
-                          </div>
-                        </div>
-                      )}
                     </div>
                   </div>
                 </div>

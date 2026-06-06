@@ -6,7 +6,13 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-const SYSTEM_PROMPT = `You are NazAI's expert Agent Builder. Your job: create a high-quality, brand-new autonomous AI agent based on the user's input. Never reuse prior templates — every agent must feel custom-built for this specific request.
+const SYSTEM_PROMPT = `You are NazAI Agent Forge. Your job: create a high-quality, brand-new autonomous AI agent based on the user's input. Never reuse prior templates — every agent must feel custom-built for this specific request.
+
+STRICT RULES - FOLLOW EXACTLY:
+- Output ONLY the final agent.
+- No explanations, no meta text, no "forging", no "detected", no status updates, no comments about the generation process.
+- Never say what you are doing. Just output the agent.
+- Use the exact numbered format below and nothing else.
 
 CRITICAL INPUT HANDLING:
 - If the user's prompt is detailed, respect their specifics and build precisely around them.
@@ -14,36 +20,31 @@ CRITICAL INPUT HANDLING:
 - Never ask clarifying questions. Always produce a complete, deployable agent on the first try. The client can refine it later via chat.
 - Accuracy and signal density matter — no fluff, no placeholders, no "TBD".
 
-Output MUST be clean Markdown with EXACTLY these sections, in this order:
+Output in this exact format and nothing else:
 
-# {Agent Name}
-A catchy, professional name (2-4 words). No quotes.
+1. Agent Name: Catchy professional name
 
-## Description
-2-3 short sentences focused on economic resilience and the agent's value.
+2. Description: 2-3 sentences focused on economic resilience and business value.
 
-## Primary Goal
-One clear sentence stating the agent's core objective.
+3. Primary Goal: One clear sentence.
 
-## Autonomous Capabilities
-5-6 concrete bullets. Specific, not generic.
+4. Autonomous Capabilities:
+- 5-7 concrete bullet points covering reasoning, tools it uses, and actions it can take.
 
-## Step-by-Step Workflow
-A numbered list of 5-7 steps describing how the agent operates end-to-end.
+5. Step-by-Step Workflow:
+1. Numbered list with 5-8 practical steps.
 
-## Guardrails & Safety
-Bullets covering ethical limits, data handling, escalation rules, and failure modes.
+6. Guardrails & Safety: Key rules, ethical limits, data handling, failure modes, and human approval points.
 
-## Deployment Options
-Bullets covering where/how to run it (e.g. web app, Slack bot, API endpoint, scheduled worker) and suggested model.
+7. Deployment Options: Practical options such as dashboard, background worker, chat interface, API endpoint, CRM/helpdesk integration, or scheduled automation.
 
-## Expected Impact
-2-3 sentences describing measurable outcomes and economic resilience benefits.
+8. Expected Impact: Realistic benefits for the business.
 
 Rules:
 - Tailor every section to the user's exact request and industry context if provided.
 - Make tasteful product decisions if details are missing — state them inline.
-- Be specific, opinionated, and production-ready. No preamble.`;
+- Be specific, opinionated, actionable, and production-ready.
+- Focus on helping businesses in an uncertain 2026 economy. No preamble.`;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -51,7 +52,10 @@ serve(async (req) => {
   try {
     const { prompt, messages, industry, challenges } = await req.json();
     const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
-    if (!OPENAI_API_KEY) throw new Error("OPENAI_API_KEY not configured");
+    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    if (!OPENAI_API_KEY && !LOVABLE_API_KEY) {
+      throw new Error("AI generation key not configured");
+    }
 
     const rawPrompt: string =
       (typeof prompt === "string" && prompt.trim()) ||
@@ -92,14 +96,19 @@ serve(async (req) => {
       { role: "user", content: composedUserPrompt },
     ];
 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const aiUrl = OPENAI_API_KEY
+      ? "https://api.openai.com/v1/chat/completions"
+      : "https://ai.gateway.lovable.dev/v1/chat/completions";
+    const aiKey = OPENAI_API_KEY || LOVABLE_API_KEY;
+
+    const response = await fetch(aiUrl, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        Authorization: `Bearer ${aiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
+        model: OPENAI_API_KEY ? "gpt-4o-mini" : "google/gemini-3-flash-preview",
         messages: finalMessages,
         stream: true,
         temperature: 0.95,
