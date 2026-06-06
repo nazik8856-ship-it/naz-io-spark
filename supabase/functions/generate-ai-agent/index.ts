@@ -49,18 +49,18 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { prompt, messages } = await req.json();
+    const { prompt, messages, industry, challenges } = await req.json();
     const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
     if (!OPENAI_API_KEY) throw new Error("OPENAI_API_KEY not configured");
 
-    const userPrompt: string =
+    const rawPrompt: string =
       (typeof prompt === "string" && prompt.trim()) ||
       (Array.isArray(messages) && messages.length > 0
         ? messages[messages.length - 1]?.content
         : "") ||
       "";
 
-    if (!userPrompt) {
+    if (!rawPrompt) {
       return new Response(JSON.stringify({ error: "prompt required" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -70,6 +70,11 @@ serve(async (req) => {
     // Force novelty: inject a unique nonce so OpenAI never serves a cached completion
     const nonce = crypto.randomUUID();
     const noveltyTag = `\n\n[forge-nonce:${nonce} | timestamp:${Date.now()}] — design a brand-new agent unique to this request. Do not reuse prior designs.`;
+
+    const industryLine = industry ? `Industry: ${industry}` : "Industry: (not specified — infer from request)";
+    const challengesLine = challenges ? `Challenges: ${challenges}` : "Challenges: (not specified — infer reasonable challenges)";
+
+    const composedUserPrompt = `User's request: ${rawPrompt}\n${industryLine}\n${challengesLine}\n\nCreate a high-quality autonomous AI agent based on the user's input. If the prompt is unclear, still generate accurately based on what was provided.${noveltyTag}`;
 
     const priorTurns = Array.isArray(messages)
       ? messages
@@ -84,7 +89,7 @@ serve(async (req) => {
     const finalMessages = [
       { role: "system", content: SYSTEM_PROMPT },
       ...priorTurns,
-      { role: "user", content: userPrompt + noveltyTag },
+      { role: "user", content: composedUserPrompt },
     ];
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
