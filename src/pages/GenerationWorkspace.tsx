@@ -76,8 +76,11 @@ export default function GenerationWorkspace() {
     if (initialized.current) return;
     initialized.current = true;
     const pending = sessionStorage.getItem("nazai_pending_prompt");
+    const pendingType = sessionStorage.getItem("nazai_pending_type");
+    if (pendingType === "business") forcedAgentRef.current = true;
     if (pending) {
       sessionStorage.removeItem("nazai_pending_prompt");
+      sessionStorage.removeItem("nazai_pending_type");
       const userMsg: ChatMessage = {
         id: crypto.randomUUID(),
         role: "user",
@@ -91,8 +94,9 @@ export default function GenerationWorkspace() {
         {
           id: crypto.randomUUID(),
           role: "nazai",
-          content:
-            "Tell me what you want to build and I'll start generating right away. The more specific, the better.",
+          content: forcedAgentRef.current
+            ? "Describe the AI agent you want and I'll generate it right away. Short or long prompts both work — I'll expand short ones intelligently."
+            : "Tell me what you want to build and I'll start generating right away. The more specific, the better.",
           time: "just now",
         },
       ]);
