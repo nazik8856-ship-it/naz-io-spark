@@ -135,7 +135,10 @@ export default function GenerationWorkspace() {
     const hasSupport = /support|customer|ticket|service|helpdesk/i.test(cleanRequest);
     const focus = hasSales ? "Revenue Resilience" : hasSupport ? "Customer Continuity" : "Business Resilience";
 
-    return `1. Agent Name: ${focus} Agent
+    return `> ⚠️ **Draft Agent (offline fallback — live generator unreachable)**
+
+1. Agent Name: ${focus} Agent
+
 
 2. Description: This autonomous agent is designed around the request: ${cleanRequest}. It helps the business protect revenue, reduce operational drag, and make faster decisions during uncertain market conditions.
 
