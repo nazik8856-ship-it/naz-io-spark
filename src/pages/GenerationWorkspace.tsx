@@ -308,6 +308,36 @@ export default function GenerationWorkspace() {
     void streamFromNazAI(history);
   };
 
+  const buildAgentFromPlan = () => {
+    if (isStreaming) return;
+    const lastPlan = [...messages].reverse().find((m) => m.role === "nazai" && m.isPlan && m.content);
+    if (!lastPlan) return;
+    const lastUser = [...messages].reverse().find((m) => m.role === "user")?.content ?? "an autonomous AI agent";
+
+    const trigger = "Build the AI agent from the plan above.";
+    const userMsg: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: "user",
+      content: trigger,
+      time: "just now",
+    };
+    const next = [...messages, userMsg];
+    setMessages(next);
+    setChatMode("build");
+    forcedAgentRef.current = true;
+
+    const history = next
+      .filter((m) => m.content.trim().length > 0)
+      .map((m) => ({
+        role: m.role === "user" ? ("user" as const) : ("assistant" as const),
+        content: m.role === "user" && m.id === userMsg.id
+          ? `${trigger}\n\nOriginal request: ${lastUser}\n\nPlan to implement:\n${lastPlan.content}`
+          : m.content,
+      }));
+    void streamFromNazAI(history);
+  };
+
+
   return (
     <div
       className="min-h-screen w-full text-white flex flex-col"
