@@ -110,32 +110,29 @@ serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: OPENAI_API_KEY ? "gpt-4o-mini" : "google/gemini-3-flash-preview",
+        model: aiModel,
         messages: finalMessages,
         stream: true,
-        temperature: 0.95,
-        top_p: 0.95,
-        presence_penalty: 0.6,
-        frequency_penalty: 0.3,
+        temperature: 0.9,
       }),
     });
 
     if (!response.ok) {
       const t = await response.text();
-      console.error("OpenAI error", response.status, t);
+      console.error("AI gateway error", response.status, t);
       if (response.status === 429) {
         return new Response(
-          JSON.stringify({ error: "OpenAI rate limit. Try again shortly." }),
+          JSON.stringify({ error: "Rate limit hit. Try again shortly." }),
           { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
-      if (response.status === 401) {
+      if (response.status === 402) {
         return new Response(
-          JSON.stringify({ error: "OpenAI key invalid." }),
-          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          JSON.stringify({ error: "AI credits exhausted." }),
+          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
-      return new Response(JSON.stringify({ error: "OpenAI error", detail: t }), {
+      return new Response(JSON.stringify({ error: "AI error", detail: t }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
