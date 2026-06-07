@@ -168,7 +168,7 @@ export default function GenerationWorkspace() {
     setIsStreaming(true);
     const assistantId = crypto.randomUUID();
     const lastUser = [...history].reverse().find((m) => m.role === "user")?.content ?? "";
-    const agentMode = isAgentIntent(lastUser);
+    const agentMode = forcedAgentRef.current || isAgentIntent(lastUser);
 
     setMessages((m) => [
       ...m,
