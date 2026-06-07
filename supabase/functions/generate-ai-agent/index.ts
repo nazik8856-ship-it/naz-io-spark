@@ -99,7 +99,7 @@ serve(async (req) => {
         model: aiModel,
         messages: finalMessages,
         stream: true,
-        temperature: 0.9,
+        temperature: 0.7,
       }),
     });
 
