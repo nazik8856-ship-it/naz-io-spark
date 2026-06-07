@@ -71,30 +71,16 @@ serve(async (req) => {
       });
     }
 
-    // Force novelty: inject a unique nonce so OpenAI never serves a cached completion
-    const nonce = crypto.randomUUID();
-    const noveltyTag = `\n\n[forge-nonce:${nonce} | timestamp:${Date.now()}] — design a brand-new agent unique to this request. Do not reuse prior designs.`;
+    const industryLine = industry ? `Industry: ${industry}` : "Industry: (infer from request)";
+    const challengesLine = challenges ? `Challenges: ${challenges}` : "Challenges: (infer reasonable challenges)";
 
-    const industryLine = industry ? `Industry: ${industry}` : "Industry: (not specified — infer from request)";
-    const challengesLine = challenges ? `Challenges: ${challenges}` : "Challenges: (not specified — infer reasonable challenges)";
-
-    const composedUserPrompt = `User's request: ${rawPrompt}\n${industryLine}\n${challengesLine}\n\nCreate a high-quality autonomous AI agent based on the user's input. If the prompt is unclear, still generate accurately based on what was provided.${noveltyTag}`;
-
-    const priorTurns = Array.isArray(messages)
-      ? messages
-          .filter((m: any) => m && typeof m.content === "string" && m.role !== "system")
-          .slice(-8)
-          .map((m: any) => ({
-            role: m.role === "user" ? "user" : "assistant",
-            content: m.content,
-          }))
-      : [];
+    const composedUserPrompt = `User's request: ${rawPrompt}\n${industryLine}\n${challengesLine}\n\nCreate a high-quality, brand-new autonomous AI agent tailored to this exact request. Output ONLY the 8 numbered sections, no preamble.`;
 
     const finalMessages = [
       { role: "system", content: SYSTEM_PROMPT },
-      ...priorTurns,
       { role: "user", content: composedUserPrompt },
     ];
+
 
     // Prefer Lovable AI Gateway (always provisioned, reliable). Fall back to OpenAI if explicitly available and gateway missing.
     const aiUrl = LOVABLE_API_KEY
@@ -113,7 +99,7 @@ serve(async (req) => {
         model: aiModel,
         messages: finalMessages,
         stream: true,
-        temperature: 0.9,
+        temperature: 0.7,
       }),
     });
 
