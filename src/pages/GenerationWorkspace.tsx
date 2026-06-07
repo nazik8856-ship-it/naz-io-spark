@@ -32,6 +32,7 @@ type ChatMessage = {
   time: string;
   streaming?: boolean;
   isAgent?: boolean;
+  isPlan?: boolean;
 };
 
 const SUGGESTIONS = [

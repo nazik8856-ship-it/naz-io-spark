@@ -1,39 +1,55 @@
-Yes. The correct fix is not another placeholder patch — NazAI needs a dedicated agent-building path from input to output, with deterministic routing and a real deployable result.
+## Goal
 
-Plan:
+Right now, when the user sends a prompt in the workspace (especially in **Plan** mode), NazAI replies with a plan but never actually builds an AI agent from it. We'll add an explicit **Build** step that turns the most recent plan into a real generated AI agent, shown in the same chat + preview surface.
 
-1. Make AI Agent selection deterministic
-- Read `nazai_pending_type` from `GeneratorHome` inside `GenerationWorkspace`.
-- If the user selected `AI Agent`, always call `generate-ai-agent` even if the prompt does not contain the word “agent”.
-- Keep text-based agent intent detection only as a fallback for prompts typed directly in the workspace.
+## Flow
 
-2. Replace fragile streaming handling with a reliable parser
-- Keep token-by-token streaming for the UI.
-- Handle malformed/partial SSE chunks safely.
-- If the stream fails, show a clear error toast and still render a valid fallback agent spec instead of an empty screen.
-- Ensure the generated agent appears in the preview tab immediately as it streams.
-
-3. Fix the backend agent builder function
-- Use one backend prompt that outputs only the final agent in the exact 8-section format.
-- Remove any meta/status language from the model prompt.
-- Prefer the built-in AI gateway unless the existing OpenAI key is explicitly required.
-- Add proper handling for rate limit, payment/credits, invalid key, and empty model output.
-
-4. Add actual “build” output instead of just chat text
-- Render the generated agent as the primary output artifact in the right preview pane.
-- Structure the output as an agent spec: name, description, goal, capabilities, workflow, guardrails, deployment options, impact.
-- Add a real deploy/action area only if it performs something meaningful, otherwise do not show a fake unpressable deploy button.
-
-5. Preserve the simple blueprint
 ```text
-Input Screen -> Generation -> Output Screen
+User prompt
+  → NazAI Plan (chat + preview)
+    → [Build Agent from this plan] button appears under the plan
+      → calls generate-ai-agent with: user prompt + the plan as context
+        → streams the final AI Agent into chat + preview (same surface)
 ```
-- Input Screen: user describes the agent need.
-- Generation: NazAI expands short prompts and respects long prompts.
-- Output Screen: generated agent appears in the same tab, non-cached, ready to copy/refine/deploy later.
 
-6. Validate the flow end-to-end
-- Test from `GeneratorHome` with AI Agent selected.
-- Test from direct workspace prompt.
-- Test a tiny prompt and a large prompt.
-- Confirm the network call hits `generate-ai-agent` and the preview pane shows the final agent, not placeholder text.
+No new pages. Same workspace. The agent appears right where the plan was, so it feels like a continuation, not a new flow.
+
+## Changes (frontend only — `src/pages/GenerationWorkspace.tsx`)
+
+1. **Track plan messages**
+   - When `chatMode === "plan"` and NazAI replies, mark that message with `isPlan: true` (extend the `ChatMessage` type).
+
+2. **Add "Build Agent from this plan" CTA**
+   - Under any NazAI message where `isPlan` is true and streaming is finished, render a button:
+     - Label: `Build Agent from this plan`
+     - Icon: `Hammer`
+     - Style: matches existing purple→cyan gradient buttons.
+   - Show it both in the chat sidebar and at the bottom of the preview pane when the latest NazAI message is a plan.
+
+3. **Wire the button to a `buildAgentFromPlan()` handler**
+   - Find the most recent plan message + the most recent user prompt.
+   - Push a synthetic user message to chat: `"Build the AI agent from the plan above."`
+   - Call `streamFromNazAI(...)` with `forcedAgentRef.current = true` for this call so it always hits `generate-ai-agent`, passing:
+     - `prompt`: original user request
+     - `messages`: full history including the plan
+   - The existing streaming code already renders the agent into chat AND the preview pane, so no preview changes needed beyond the CTA.
+
+4. **Mode hint**
+   - When the user clicks Build, also switch `chatMode` from `plan` → `build` so the UI state matches what just happened.
+
+5. **Empty / error states**
+   - If no plan exists yet, the button is not rendered.
+   - If the build call fails, fall back to `createAgentFallback()` (already implemented).
+
+## Backend
+
+No changes. `generate-ai-agent` already accepts `{ prompt, messages }` and streams the agent. The plan is included via `messages`, which the system prompt will use as context.
+
+## Validation
+
+1. Go to `/generator-home`, pick **AI Agent**, enter a short prompt, hit Generate.
+2. In the workspace, switch chat mode to **Plan**, send a prompt like "AI agent that triages support tickets".
+3. NazAI returns a plan in chat + preview.
+4. Click **Build Agent from this plan** under the plan.
+5. The agent streams in below, replacing the preview content with the final 8-section agent spec.
+6. Confirm the network tab shows a call to `/functions/v1/generate-ai-agent`.
