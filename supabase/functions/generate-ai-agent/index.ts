@@ -96,10 +96,12 @@ serve(async (req) => {
       { role: "user", content: composedUserPrompt },
     ];
 
-    const aiUrl = OPENAI_API_KEY
-      ? "https://api.openai.com/v1/chat/completions"
-      : "https://ai.gateway.lovable.dev/v1/chat/completions";
-    const aiKey = OPENAI_API_KEY || LOVABLE_API_KEY;
+    // Prefer Lovable AI Gateway (always provisioned, reliable). Fall back to OpenAI if explicitly available and gateway missing.
+    const aiUrl = LOVABLE_API_KEY
+      ? "https://ai.gateway.lovable.dev/v1/chat/completions"
+      : "https://api.openai.com/v1/chat/completions";
+    const aiKey = LOVABLE_API_KEY || OPENAI_API_KEY;
+    const aiModel = LOVABLE_API_KEY ? "google/gemini-3-flash-preview" : "gpt-4o-mini";
 
     const response = await fetch(aiUrl, {
       method: "POST",
@@ -108,32 +110,29 @@ serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: OPENAI_API_KEY ? "gpt-4o-mini" : "google/gemini-3-flash-preview",
+        model: aiModel,
         messages: finalMessages,
         stream: true,
-        temperature: 0.95,
-        top_p: 0.95,
-        presence_penalty: 0.6,
-        frequency_penalty: 0.3,
+        temperature: 0.9,
       }),
     });
 
     if (!response.ok) {
       const t = await response.text();
-      console.error("OpenAI error", response.status, t);
+      console.error("AI gateway error", response.status, t);
       if (response.status === 429) {
         return new Response(
-          JSON.stringify({ error: "OpenAI rate limit. Try again shortly." }),
+          JSON.stringify({ error: "Rate limit hit. Try again shortly." }),
           { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
-      if (response.status === 401) {
+      if (response.status === 402) {
         return new Response(
-          JSON.stringify({ error: "OpenAI key invalid." }),
-          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          JSON.stringify({ error: "AI credits exhausted." }),
+          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
-      return new Response(JSON.stringify({ error: "OpenAI error", detail: t }), {
+      return new Response(JSON.stringify({ error: "AI error", detail: t }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

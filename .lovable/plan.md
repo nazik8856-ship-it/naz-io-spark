@@ -1,23 +1,39 @@
-## Goal
+Yes. The correct fix is not another placeholder patch — NazAI needs a dedicated agent-building path from input to output, with deterministic routing and a real deployable result.
 
-When a user clicks "Start Free Mission" (or any auth-gated CTA), the registration window should appear only once — for users who are not signed in. Once they've signed in or signed up, subsequent clicks must skip the modal and go straight to `/dashboard`.
+Plan:
 
-## Changes
+1. Make AI Agent selection deterministic
+- Read `nazai_pending_type` from `GeneratorHome` inside `GenerationWorkspace`.
+- If the user selected `AI Agent`, always call `generate-ai-agent` even if the prompt does not contain the word “agent”.
+- Keep text-based agent intent detection only as a fallback for prompts typed directly in the workspace.
 
-### 1. `src/pages/Workflower.tsx`
-- `launchMission()` (line 142): when `user` is present, navigate to `/dashboard` instead of `/workspace`.
-- `handleAuthSuccess()` (line 153): navigate to `/dashboard` instead of `/workspace` so first-time signup also lands on the dashboard.
-- "Sign In" button (line 263): if `user` is already authenticated, navigate to `/dashboard` instead of opening `AuthModal`. (For unauthenticated users, behavior is unchanged — modal opens once.)
-- Gated nav buttons (line 232–238): no change needed; they already check `user` before opening the modal.
-- Any other in-page CTAs that currently call `setAuthModalOpen(true)` unconditionally get wrapped with the same `user ? navigate("/dashboard") : setAuthModalOpen(true)` guard.
+2. Replace fragile streaming handling with a reliable parser
+- Keep token-by-token streaming for the UI.
+- Handle malformed/partial SSE chunks safely.
+- If the stream fails, show a clear error toast and still render a valid fallback agent spec instead of an empty screen.
+- Ensure the generated agent appears in the preview tab immediately as it streams.
 
-### 2. `src/components/mission/ActionTerminal.tsx`
-- Lines 214 and 444: replace `setShowAuthModal(true)` calls with `isAuthorized ? startWorkflow() : setShowAuthModal(true)` (line 444 already does this; line 214 needs the same guard) so an authenticated user never sees the modal again.
-- `onSuccess={startWorkflow}` is already correct — after first successful auth, the workflow continues without re-prompting.
+3. Fix the backend agent builder function
+- Use one backend prompt that outputs only the final agent in the exact 8-section format.
+- Remove any meta/status language from the model prompt.
+- Prefer the built-in AI gateway unless the existing OpenAI key is explicitly required.
+- Add proper handling for rate limit, payment/credits, invalid key, and empty model output.
 
-### 3. No backend / no schema changes
-Auth persistence is already handled by `AuthProvider` + Supabase session — once signed in, `user` stays populated across reloads, so the modal naturally won't reappear.
+4. Add actual “build” output instead of just chat text
+- Render the generated agent as the primary output artifact in the right preview pane.
+- Structure the output as an agent spec: name, description, goal, capabilities, workflow, guardrails, deployment options, impact.
+- Add a real deploy/action area only if it performs something meaningful, otherwise do not show a fake unpressable deploy button.
 
-## Result
-- First visit, not signed in → "Start Free Mission" opens `AuthModal` once → on success, redirect to `/dashboard`.
-- Any subsequent visit while session is valid → "Start Free Mission" / "Sign In" / gated CTAs go straight to `/dashboard`, no modal.
+5. Preserve the simple blueprint
+```text
+Input Screen -> Generation -> Output Screen
+```
+- Input Screen: user describes the agent need.
+- Generation: NazAI expands short prompts and respects long prompts.
+- Output Screen: generated agent appears in the same tab, non-cached, ready to copy/refine/deploy later.
+
+6. Validate the flow end-to-end
+- Test from `GeneratorHome` with AI Agent selected.
+- Test from direct workspace prompt.
+- Test a tiny prompt and a large prompt.
+- Confirm the network call hits `generate-ai-agent` and the preview pane shows the final agent, not placeholder text.
