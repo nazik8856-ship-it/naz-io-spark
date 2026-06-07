@@ -170,6 +170,7 @@ export default function GenerationWorkspace() {
     const assistantId = crypto.randomUUID();
     const lastUser = [...history].reverse().find((m) => m.role === "user")?.content ?? "";
     const agentMode = forcedAgentRef.current || isAgentIntent(lastUser);
+    const planMode = !agentMode && chatMode === "plan";
 
     setMessages((m) => [
       ...m,
@@ -180,6 +181,7 @@ export default function GenerationWorkspace() {
         time: "just now",
         streaming: true,
         isAgent: agentMode,
+        isPlan: planMode,
       },
     ]);
 
