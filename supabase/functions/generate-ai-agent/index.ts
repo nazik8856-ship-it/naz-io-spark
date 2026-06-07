@@ -96,10 +96,12 @@ serve(async (req) => {
       { role: "user", content: composedUserPrompt },
     ];
 
-    const aiUrl = OPENAI_API_KEY
-      ? "https://api.openai.com/v1/chat/completions"
-      : "https://ai.gateway.lovable.dev/v1/chat/completions";
-    const aiKey = OPENAI_API_KEY || LOVABLE_API_KEY;
+    // Prefer Lovable AI Gateway (always provisioned, reliable). Fall back to OpenAI if explicitly available and gateway missing.
+    const aiUrl = LOVABLE_API_KEY
+      ? "https://ai.gateway.lovable.dev/v1/chat/completions"
+      : "https://api.openai.com/v1/chat/completions";
+    const aiKey = LOVABLE_API_KEY || OPENAI_API_KEY;
+    const aiModel = LOVABLE_API_KEY ? "google/gemini-3-flash-preview" : "gpt-4o-mini";
 
     const response = await fetch(aiUrl, {
       method: "POST",
