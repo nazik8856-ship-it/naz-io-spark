@@ -32,6 +32,7 @@ type ChatMessage = {
   time: string;
   streaming?: boolean;
   isAgent?: boolean;
+  isPlan?: boolean;
 };
 
 const SUGGESTIONS = [
@@ -169,6 +170,7 @@ export default function GenerationWorkspace() {
     const assistantId = crypto.randomUUID();
     const lastUser = [...history].reverse().find((m) => m.role === "user")?.content ?? "";
     const agentMode = forcedAgentRef.current || isAgentIntent(lastUser);
+    const planMode = !agentMode && chatMode === "plan";
 
     setMessages((m) => [
       ...m,
@@ -179,6 +181,7 @@ export default function GenerationWorkspace() {
         time: "just now",
         streaming: true,
         isAgent: agentMode,
+        isPlan: planMode,
       },
     ]);
 
@@ -305,6 +308,36 @@ export default function GenerationWorkspace() {
     void streamFromNazAI(history);
   };
 
+  const buildAgentFromPlan = () => {
+    if (isStreaming) return;
+    const lastPlan = [...messages].reverse().find((m) => m.role === "nazai" && m.isPlan && m.content);
+    if (!lastPlan) return;
+    const lastUser = [...messages].reverse().find((m) => m.role === "user")?.content ?? "an autonomous AI agent";
+
+    const trigger = "Build the AI agent from the plan above.";
+    const userMsg: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: "user",
+      content: trigger,
+      time: "just now",
+    };
+    const next = [...messages, userMsg];
+    setMessages(next);
+    setChatMode("build");
+    forcedAgentRef.current = true;
+
+    const history = next
+      .filter((m) => m.content.trim().length > 0)
+      .map((m) => ({
+        role: m.role === "user" ? ("user" as const) : ("assistant" as const),
+        content: m.role === "user" && m.id === userMsg.id
+          ? `${trigger}\n\nOriginal request: ${lastUser}\n\nPlan to implement:\n${lastPlan.content}`
+          : m.content,
+      }));
+    void streamFromNazAI(history);
+  };
+
+
   return (
     <div
       className="min-h-screen w-full text-white flex flex-col"
@@ -392,9 +425,22 @@ export default function GenerationWorkspace() {
                       </span>
                     )}
                   </div>
+                  {m.isPlan && !m.streaming && m.content && (
+                    <div className="pl-9">
+                      <button
+                        onClick={buildAgentFromPlan}
+                        disabled={isStreaming}
+                        className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-gradient-to-r from-purple-500 to-cyan-400 text-black text-xs font-semibold hover:opacity-90 disabled:opacity-40"
+                      >
+                        <Hammer className="h-3.5 w-3.5" />
+                        Build Agent from this plan
+                      </button>
+                    </div>
+                  )}
                   <div className="text-[10px] font-mono text-zinc-600 pl-9">
                     {m.time}
                   </div>
+
                 </div>
               ) : (
                 <div key={m.id} className="flex justify-end">
@@ -640,6 +686,22 @@ export default function GenerationWorkspace() {
                       <div className="prose prose-invert prose-sm md:prose-base max-w-none prose-headings:text-white prose-pre:bg-black/60 prose-pre:border prose-pre:border-white/10 prose-code:text-cyan-300">
                         <ReactMarkdown>{lastNaz.content}</ReactMarkdown>
                       </div>
+                      {lastNaz.isPlan && !lastNaz.streaming && (
+                        <div className="mt-6 pt-5 border-t border-white/10 flex items-center justify-between gap-3 flex-wrap">
+                          <div className="text-xs text-zinc-400">
+                            Plan ready. Build the AI agent based on it.
+                          </div>
+                          <button
+                            onClick={buildAgentFromPlan}
+                            disabled={isStreaming}
+                            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 to-cyan-400 text-black text-sm font-semibold hover:opacity-90 disabled:opacity-40"
+                          >
+                            <Hammer className="h-4 w-4" />
+                            Build Agent from this plan
+                          </button>
+                        </div>
+                      )}
+
                     </div>
                   </div>
                 </div>
