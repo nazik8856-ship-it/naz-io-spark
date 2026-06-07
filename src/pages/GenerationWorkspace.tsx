@@ -425,9 +425,22 @@ export default function GenerationWorkspace() {
                       </span>
                     )}
                   </div>
+                  {m.isPlan && !m.streaming && m.content && (
+                    <div className="pl-9">
+                      <button
+                        onClick={buildAgentFromPlan}
+                        disabled={isStreaming}
+                        className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-gradient-to-r from-purple-500 to-cyan-400 text-black text-xs font-semibold hover:opacity-90 disabled:opacity-40"
+                      >
+                        <Hammer className="h-3.5 w-3.5" />
+                        Build Agent from this plan
+                      </button>
+                    </div>
+                  )}
                   <div className="text-[10px] font-mono text-zinc-600 pl-9">
                     {m.time}
                   </div>
+
                 </div>
               ) : (
                 <div key={m.id} className="flex justify-end">
