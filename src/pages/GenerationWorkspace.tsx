@@ -58,6 +58,8 @@ export default function GenerationWorkspace() {
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const modeMenuRef = useRef<HTMLDivElement>(null);
   const initialized = useRef(false);
+  // Selected generation type from /generator-home ("business" === AI Agent)
+  const forcedAgentRef = useRef<boolean>(false);
 
   useEffect(() => {
     const onClickOutside = (e: MouseEvent) => {
