@@ -934,10 +934,12 @@ export default function GenerationWorkspace() {
             />
             {(() => {
               const lastNaz = [...messages].reverse().find((m) => {
-                if (m.role !== "nazai" || !m.content) return false;
-                // Only show agent specs in preview once approved
-                if (m.kind === "agent-spec" && m.agentStatus !== "approved") return false;
-                return true;
+                if (m.role !== "nazai") return false;
+                if (m.kind === "agent-spec") {
+                  // Show building/approved agents (no content gate for these states)
+                  return m.agentStatus === "approved" || m.agentStatus === "building";
+                }
+                return !!m.content;
               });
               const lastUser = [...messages].reverse().find((m) => m.role === "user");
               if (!lastNaz) {
@@ -952,6 +954,53 @@ export default function GenerationWorkspace() {
                   </div>
                 );
               }
+
+              // BUILDING: neo-brutalist booting skeleton
+              if (lastNaz.kind === "agent-spec" && lastNaz.agentStatus === "building") {
+                const spec = parseAgentSpec(lastNaz.content);
+                return (
+                  <div className="relative h-full flex items-center justify-center px-6">
+                    <div className="w-full max-w-xl border-2 border-cyan-400/40 bg-black/60 p-6 rounded-none shadow-[0_0_0_4px_rgba(0,163,255,0.08)]">
+                      <div className="text-[10px] font-mono uppercase tracking-[0.3em] text-cyan-300 mb-3 animate-pulse">
+                        ▮ Booting agent…
+                      </div>
+                      <div className="text-2xl font-bold text-white mb-2">{spec.name || "AI Agent"}</div>
+                      <div className="space-y-2">
+                        <div className="h-3 w-full bg-white/10" />
+                        <div className="h-3 w-5/6 bg-white/10" />
+                        <div className="h-3 w-2/3 bg-white/10" />
+                      </div>
+                      <div className="mt-5 flex gap-2">
+                        <div className="h-8 w-24 bg-cyan-400/20 border border-cyan-400/40" />
+                        <div className="h-8 w-20 bg-white/5 border border-white/10" />
+                        <div className="h-8 w-28 bg-white/5 border border-white/10" />
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              // APPROVED agent-spec → live chat with the agent
+              if (lastNaz.kind === "agent-spec" && lastNaz.agentStatus === "approved") {
+                const spec = parseAgentSpec(lastNaz.content);
+                const agentName = lastNaz.agentName || spec.name || "AI Agent";
+                const turns = lastNaz.agentChat ?? [];
+                const suggestions = lastNaz.agentSuggestions ?? [];
+                return (
+                  <LiveAgentChat
+                    key={lastNaz.id}
+                    agentId={lastNaz.id}
+                    name={agentName}
+                    goal={spec.goal}
+                    turns={turns}
+                    suggestions={suggestions}
+                    streaming={!!lastNaz.agentStreaming}
+                    fullSpec={lastNaz.content}
+                    onSend={(text) => void sendAgentTurn(lastNaz.id, text)}
+                  />
+                );
+              }
+
               return (
                 <div className="relative h-full overflow-y-auto px-6 md:px-10 py-8">
                   <div className="max-w-3xl mx-auto">
