@@ -364,6 +364,28 @@ export default function GenerationWorkspace() {
     void streamFromNazAI(history);
   };
 
+  // --- Agent spec card handlers (Approve / Edit / Remove + auto-approve) ---
+  const updateMsg = (id: string, patch: Partial<ChatMessage>) =>
+    setMessages((m) => m.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+
+  const approveAgent = (id: string) => updateMsg(id, { agentStatus: "approved", editing: false });
+  const removeAgent = (id: string) => updateMsg(id, { agentStatus: "removed", editing: false });
+  const startEditAgent = (id: string) => updateMsg(id, { editing: true });
+  const saveEditAgent = (id: string, content: string) =>
+    updateMsg(id, { content, editing: false, agentStatus: "approved" });
+
+  // Auto-approve any finished agent-spec message after 10s of inactivity
+  useEffect(() => {
+    const pending = messages.find(
+      (m) => m.kind === "agent-spec" && !m.streaming && m.agentStatus === "pending" && !m.editing && m.content,
+    );
+    if (!pending) return;
+    const t = setTimeout(() => approveAgent(pending.id), 10000);
+    return () => clearTimeout(t);
+  }, [messages]);
+
+
+
 
   return (
     <div
