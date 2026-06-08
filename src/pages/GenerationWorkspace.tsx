@@ -24,8 +24,11 @@ import {
 import { useAuth } from "@/hooks/useAuth";
 import ReactMarkdown from "react-markdown";
 import { toast } from "sonner";
+import LiveAgentChat from "@/components/agents/LiveAgentChat";
 
-type AgentStatus = "pending" | "approved" | "removed";
+type AgentStatus = "pending" | "building" | "approved" | "removed";
+
+type AgentTurn = { role: "user" | "assistant"; content: string };
 
 type ChatMessage = {
   id: string;
@@ -38,6 +41,13 @@ type ChatMessage = {
   kind?: "agent-spec";
   agentStatus?: AgentStatus;
   editing?: boolean;
+  agentName?: string;
+  agentGreeting?: string;
+  agentSuggestions?: string[];
+  agentSystemPrompt?: string;
+  agentChat?: AgentTurn[];
+  agentStreaming?: boolean;
+  agentError?: string;
 };
 
 function parseAgentSpec(text: string) {
@@ -364,24 +374,175 @@ export default function GenerationWorkspace() {
     void streamFromNazAI(history);
   };
 
-  // --- Agent spec card handlers (Approve / Edit / Remove + auto-approve) ---
+  // --- Agent spec card handlers (Build / Edit / Remove + auto-build) ---
   const updateMsg = (id: string, patch: Partial<ChatMessage>) =>
     setMessages((m) => m.map((x) => (x.id === id ? { ...x, ...patch } : x)));
 
-  const approveAgent = (id: string) => updateMsg(id, { agentStatus: "approved", editing: false });
+  const buildingRef = useRef<Set<string>>(new Set());
+
+  const buildAgent = async (id: string) => {
+    if (buildingRef.current.has(id)) return;
+    const msg = messages.find((x) => x.id === id);
+    if (!msg || !msg.content) return;
+    if (msg.agentStatus === "approved" || msg.agentStatus === "building") return;
+    buildingRef.current.add(id);
+    updateMsg(id, { agentStatus: "building", editing: false, agentError: undefined });
+
+    try {
+      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/run-ai-agent`;
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+        },
+        body: JSON.stringify({ spec: msg.content }),
+      });
+      if (resp.status === 429) throw new Error("Rate limit hit. Try again in a moment.");
+      if (resp.status === 402) throw new Error("AI credits exhausted.");
+      if (!resp.ok) throw new Error("Could not boot agent.");
+      const data = (await resp.json()) as {
+        name?: string;
+        greeting?: string;
+        suggestedPrompts?: string[];
+        systemPrompt?: string;
+      };
+      const name = data.name || parseAgentSpec(msg.content).name || "AI Agent";
+      const greeting = data.greeting || `Hi, I'm ${name}. How can I help?`;
+      updateMsg(id, {
+        agentStatus: "approved",
+        agentName: name,
+        agentGreeting: greeting,
+        agentSuggestions: data.suggestedPrompts ?? [],
+        agentSystemPrompt: data.systemPrompt,
+        agentChat: [{ role: "assistant", content: greeting }],
+      });
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : "Could not boot agent.";
+      toast.error(errMsg);
+      updateMsg(id, { agentStatus: "pending", agentError: errMsg });
+    } finally {
+      buildingRef.current.delete(id);
+    }
+  };
+
   const removeAgent = (id: string) => updateMsg(id, { agentStatus: "removed", editing: false });
   const startEditAgent = (id: string) => updateMsg(id, { editing: true });
-  const saveEditAgent = (id: string, content: string) =>
-    updateMsg(id, { content, editing: false, agentStatus: "approved" });
+  const saveEditAgent = (id: string, content: string) => {
+    updateMsg(id, { content, editing: false, agentStatus: "pending" });
+    // Kick off a real build with the edited spec
+    setTimeout(() => void buildAgent(id), 0);
+  };
 
-  // Auto-approve any finished agent-spec message after 10s of inactivity
+  const sendAgentTurn = async (id: string, text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const msg = messages.find((x) => x.id === id);
+    if (!msg || msg.agentStreaming) return;
+
+    const baseChat = msg.agentChat ?? [];
+    const nextChat: AgentTurn[] = [
+      ...baseChat,
+      { role: "user", content: trimmed },
+      { role: "assistant", content: "" },
+    ];
+    updateMsg(id, { agentChat: nextChat, agentStreaming: true });
+
+    try {
+      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/run-ai-agent`;
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+        },
+        body: JSON.stringify({
+          spec: msg.content,
+          messages: nextChat
+            .slice(0, -1) // drop the empty assistant placeholder
+            .map((t) => ({ role: t.role, content: t.content })),
+        }),
+      });
+      if (resp.status === 429) throw new Error("Rate limit hit. Try again in a moment.");
+      if (resp.status === 402) throw new Error("AI credits exhausted.");
+      if (!resp.ok || !resp.body) throw new Error("Agent failed to respond.");
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      let acc = "";
+      let done = false;
+
+      const flushAssistant = () =>
+        setMessages((all) =>
+          all.map((x) => {
+            if (x.id !== id || !x.agentChat) return x;
+            const copy = [...x.agentChat];
+            copy[copy.length - 1] = { role: "assistant", content: acc };
+            return { ...x, agentChat: copy };
+          }),
+        );
+
+      while (!done) {
+        const { done: d, value } = await reader.read();
+        if (d) break;
+        buf += decoder.decode(value, { stream: true });
+        let nl: number;
+        while ((nl = buf.indexOf("\n")) !== -1) {
+          let line = buf.slice(0, nl);
+          buf = buf.slice(nl + 1);
+          if (line.endsWith("\r")) line = line.slice(0, -1);
+          if (!line.startsWith("data: ")) continue;
+          const json = line.slice(6).trim();
+          if (json === "[DONE]") { done = true; break; }
+          try {
+            const parsed = JSON.parse(json);
+            const delta = parsed.choices?.[0]?.delta?.content;
+            if (delta) {
+              acc += delta;
+              flushAssistant();
+            }
+          } catch {
+            buf = line + "\n" + buf;
+            break;
+          }
+        }
+      }
+
+      if (!acc.trim()) {
+        acc = "(no response — try again)";
+        flushAssistant();
+      }
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : "Agent error.";
+      toast.error(errMsg);
+      setMessages((all) =>
+        all.map((x) => {
+          if (x.id !== id || !x.agentChat) return x;
+          const copy = [...x.agentChat];
+          copy[copy.length - 1] = { role: "assistant", content: `⚠️ ${errMsg}` };
+          return { ...x, agentChat: copy };
+        }),
+      );
+    } finally {
+      updateMsg(id, { agentStreaming: false });
+    }
+  };
+
+  // Auto-build any finished agent-spec after 10s of inactivity
   useEffect(() => {
     const pending = messages.find(
-      (m) => m.kind === "agent-spec" && !m.streaming && m.agentStatus === "pending" && !m.editing && m.content,
+      (m) =>
+        m.kind === "agent-spec" &&
+        !m.streaming &&
+        m.agentStatus === "pending" &&
+        !m.editing &&
+        m.content,
     );
     if (!pending) return;
-    const t = setTimeout(() => approveAgent(pending.id), 10000);
+    const t = setTimeout(() => void buildAgent(pending.id), 10000);
     return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages]);
 
 
@@ -504,6 +665,9 @@ export default function GenerationWorkspace() {
                               {m.agentStatus === "approved" && (
                                 <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-400/15 text-emerald-300 border border-emerald-400/30">Live</span>
                               )}
+                              {m.agentStatus === "building" && (
+                                <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-cyan-400/15 text-cyan-300 border border-cyan-400/30 animate-pulse">Booting</span>
+                              )}
                               {m.agentStatus === "pending" && !m.streaming && (
                                 <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-purple-400/15 text-purple-300 border border-purple-400/30">Pending</span>
                               )}
@@ -527,10 +691,10 @@ export default function GenerationWorkspace() {
                                 ) : (
                                   <>
                                     <button
-                                      onClick={() => approveAgent(m.id)}
-                                      disabled={m.agentStatus === "approved"}
+                                      onClick={() => void buildAgent(m.id)}
+                                      disabled={m.agentStatus === "approved" || m.agentStatus === "building"}
                                       className="px-2.5 py-1 rounded-md text-[11px] font-semibold text-black bg-gradient-to-r from-purple-500 to-cyan-400 disabled:opacity-50"
-                                    >{m.agentStatus === "approved" ? "Approved" : "Approve & Build"}</button>
+                                    >{m.agentStatus === "approved" ? "Live" : m.agentStatus === "building" ? "Booting…" : "Approve & Build"}</button>
                                     <button
                                       onClick={() => startEditAgent(m.id)}
                                       className="px-2.5 py-1 rounded-md text-[11px] text-zinc-200 border border-white/10 hover:bg-white/5"
@@ -771,10 +935,12 @@ export default function GenerationWorkspace() {
             />
             {(() => {
               const lastNaz = [...messages].reverse().find((m) => {
-                if (m.role !== "nazai" || !m.content) return false;
-                // Only show agent specs in preview once approved
-                if (m.kind === "agent-spec" && m.agentStatus !== "approved") return false;
-                return true;
+                if (m.role !== "nazai") return false;
+                if (m.kind === "agent-spec") {
+                  // Show building/approved agents (no content gate for these states)
+                  return m.agentStatus === "approved" || m.agentStatus === "building";
+                }
+                return !!m.content;
               });
               const lastUser = [...messages].reverse().find((m) => m.role === "user");
               if (!lastNaz) {
@@ -789,6 +955,53 @@ export default function GenerationWorkspace() {
                   </div>
                 );
               }
+
+              // BUILDING: neo-brutalist booting skeleton
+              if (lastNaz.kind === "agent-spec" && lastNaz.agentStatus === "building") {
+                const spec = parseAgentSpec(lastNaz.content);
+                return (
+                  <div className="relative h-full flex items-center justify-center px-6">
+                    <div className="w-full max-w-xl border-2 border-cyan-400/40 bg-black/60 p-6 rounded-none shadow-[0_0_0_4px_rgba(0,163,255,0.08)]">
+                      <div className="text-[10px] font-mono uppercase tracking-[0.3em] text-cyan-300 mb-3 animate-pulse">
+                        ▮ Booting agent…
+                      </div>
+                      <div className="text-2xl font-bold text-white mb-2">{spec.name || "AI Agent"}</div>
+                      <div className="space-y-2">
+                        <div className="h-3 w-full bg-white/10" />
+                        <div className="h-3 w-5/6 bg-white/10" />
+                        <div className="h-3 w-2/3 bg-white/10" />
+                      </div>
+                      <div className="mt-5 flex gap-2">
+                        <div className="h-8 w-24 bg-cyan-400/20 border border-cyan-400/40" />
+                        <div className="h-8 w-20 bg-white/5 border border-white/10" />
+                        <div className="h-8 w-28 bg-white/5 border border-white/10" />
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              // APPROVED agent-spec → live chat with the agent
+              if (lastNaz.kind === "agent-spec" && lastNaz.agentStatus === "approved") {
+                const spec = parseAgentSpec(lastNaz.content);
+                const agentName = lastNaz.agentName || spec.name || "AI Agent";
+                const turns = lastNaz.agentChat ?? [];
+                const suggestions = lastNaz.agentSuggestions ?? [];
+                return (
+                  <LiveAgentChat
+                    key={lastNaz.id}
+                    agentId={lastNaz.id}
+                    name={agentName}
+                    goal={spec.goal}
+                    turns={turns}
+                    suggestions={suggestions}
+                    streaming={!!lastNaz.agentStreaming}
+                    fullSpec={lastNaz.content}
+                    onSend={(text) => void sendAgentTurn(lastNaz.id, text)}
+                  />
+                );
+              }
+
               return (
                 <div className="relative h-full overflow-y-auto px-6 md:px-10 py-8">
                   <div className="max-w-3xl mx-auto">
