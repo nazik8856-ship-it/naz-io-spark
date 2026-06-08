@@ -29,3 +29,6 @@ verify_jwt = false
 
 [functions.generate-ai-agent]
 verify_jwt = false
+
+[functions.run-ai-agent]
+verify_jwt = false
