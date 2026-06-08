@@ -770,7 +770,12 @@ export default function GenerationWorkspace() {
               }}
             />
             {(() => {
-              const lastNaz = [...messages].reverse().find((m) => m.role === "nazai" && m.content);
+              const lastNaz = [...messages].reverse().find((m) => {
+                if (m.role !== "nazai" || !m.content) return false;
+                // Only show agent specs in preview once approved
+                if (m.kind === "agent-spec" && m.agentStatus !== "approved") return false;
+                return true;
+              });
               const lastUser = [...messages].reverse().find((m) => m.role === "user");
               if (!lastNaz) {
                 return (
