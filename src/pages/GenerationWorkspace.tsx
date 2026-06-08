@@ -25,6 +25,8 @@ import { useAuth } from "@/hooks/useAuth";
 import ReactMarkdown from "react-markdown";
 import { toast } from "sonner";
 
+type AgentStatus = "pending" | "approved" | "removed";
+
 type ChatMessage = {
   id: string;
   role: "user" | "nazai";
@@ -33,7 +35,26 @@ type ChatMessage = {
   streaming?: boolean;
   isAgent?: boolean;
   isPlan?: boolean;
+  kind?: "agent-spec";
+  agentStatus?: AgentStatus;
+  editing?: boolean;
 };
+
+function parseAgentSpec(text: string) {
+  const get = (re: RegExp) => {
+    const m = text.match(re);
+    return m ? m[1].trim() : "";
+  };
+  const name = get(/1\.\s*Agent Name:\s*([^\n]+)/i);
+  const description = get(/2\.\s*Description:\s*([\s\S]*?)(?=\n\s*3\.|$)/i);
+  const goal = get(/3\.\s*Primary Goal:\s*([\s\S]*?)(?=\n\s*4\.|$)/i);
+  const capsBlock = get(/4\.\s*Autonomous Capabilities:\s*([\s\S]*?)(?=\n\s*5\.|$)/i);
+  const capCount = capsBlock
+    ? capsBlock.split("\n").filter((l) => /^\s*(?:[•\-*]|\d+\.)\s+\S/.test(l)).length
+    : 0;
+  return { name, description, goal, capCount };
+}
+
 
 const SUGGESTIONS = [
   "Create new database",
