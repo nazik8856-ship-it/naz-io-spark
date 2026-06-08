@@ -373,24 +373,175 @@ export default function GenerationWorkspace() {
     void streamFromNazAI(history);
   };
 
-  // --- Agent spec card handlers (Approve / Edit / Remove + auto-approve) ---
+  // --- Agent spec card handlers (Build / Edit / Remove + auto-build) ---
   const updateMsg = (id: string, patch: Partial<ChatMessage>) =>
     setMessages((m) => m.map((x) => (x.id === id ? { ...x, ...patch } : x)));
 
-  const approveAgent = (id: string) => updateMsg(id, { agentStatus: "approved", editing: false });
+  const buildingRef = useRef<Set<string>>(new Set());
+
+  const buildAgent = async (id: string) => {
+    if (buildingRef.current.has(id)) return;
+    const msg = messages.find((x) => x.id === id);
+    if (!msg || !msg.content) return;
+    if (msg.agentStatus === "approved" || msg.agentStatus === "building") return;
+    buildingRef.current.add(id);
+    updateMsg(id, { agentStatus: "building", editing: false, agentError: undefined });
+
+    try {
+      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/run-ai-agent`;
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+        },
+        body: JSON.stringify({ spec: msg.content }),
+      });
+      if (resp.status === 429) throw new Error("Rate limit hit. Try again in a moment.");
+      if (resp.status === 402) throw new Error("AI credits exhausted.");
+      if (!resp.ok) throw new Error("Could not boot agent.");
+      const data = (await resp.json()) as {
+        name?: string;
+        greeting?: string;
+        suggestedPrompts?: string[];
+        systemPrompt?: string;
+      };
+      const name = data.name || parseAgentSpec(msg.content).name || "AI Agent";
+      const greeting = data.greeting || `Hi, I'm ${name}. How can I help?`;
+      updateMsg(id, {
+        agentStatus: "approved",
+        agentName: name,
+        agentGreeting: greeting,
+        agentSuggestions: data.suggestedPrompts ?? [],
+        agentSystemPrompt: data.systemPrompt,
+        agentChat: [{ role: "assistant", content: greeting }],
+      });
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : "Could not boot agent.";
+      toast.error(errMsg);
+      updateMsg(id, { agentStatus: "pending", agentError: errMsg });
+    } finally {
+      buildingRef.current.delete(id);
+    }
+  };
+
   const removeAgent = (id: string) => updateMsg(id, { agentStatus: "removed", editing: false });
   const startEditAgent = (id: string) => updateMsg(id, { editing: true });
-  const saveEditAgent = (id: string, content: string) =>
-    updateMsg(id, { content, editing: false, agentStatus: "approved" });
+  const saveEditAgent = (id: string, content: string) => {
+    updateMsg(id, { content, editing: false, agentStatus: "pending" });
+    // Kick off a real build with the edited spec
+    setTimeout(() => void buildAgent(id), 0);
+  };
 
-  // Auto-approve any finished agent-spec message after 10s of inactivity
+  const sendAgentTurn = async (id: string, text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const msg = messages.find((x) => x.id === id);
+    if (!msg || msg.agentStreaming) return;
+
+    const baseChat = msg.agentChat ?? [];
+    const nextChat: AgentTurn[] = [
+      ...baseChat,
+      { role: "user", content: trimmed },
+      { role: "assistant", content: "" },
+    ];
+    updateMsg(id, { agentChat: nextChat, agentStreaming: true });
+
+    try {
+      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/run-ai-agent`;
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+        },
+        body: JSON.stringify({
+          spec: msg.content,
+          messages: nextChat
+            .slice(0, -1) // drop the empty assistant placeholder
+            .map((t) => ({ role: t.role, content: t.content })),
+        }),
+      });
+      if (resp.status === 429) throw new Error("Rate limit hit. Try again in a moment.");
+      if (resp.status === 402) throw new Error("AI credits exhausted.");
+      if (!resp.ok || !resp.body) throw new Error("Agent failed to respond.");
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      let acc = "";
+      let done = false;
+
+      const flushAssistant = () =>
+        setMessages((all) =>
+          all.map((x) => {
+            if (x.id !== id || !x.agentChat) return x;
+            const copy = [...x.agentChat];
+            copy[copy.length - 1] = { role: "assistant", content: acc };
+            return { ...x, agentChat: copy };
+          }),
+        );
+
+      while (!done) {
+        const { done: d, value } = await reader.read();
+        if (d) break;
+        buf += decoder.decode(value, { stream: true });
+        let nl: number;
+        while ((nl = buf.indexOf("\n")) !== -1) {
+          let line = buf.slice(0, nl);
+          buf = buf.slice(nl + 1);
+          if (line.endsWith("\r")) line = line.slice(0, -1);
+          if (!line.startsWith("data: ")) continue;
+          const json = line.slice(6).trim();
+          if (json === "[DONE]") { done = true; break; }
+          try {
+            const parsed = JSON.parse(json);
+            const delta = parsed.choices?.[0]?.delta?.content;
+            if (delta) {
+              acc += delta;
+              flushAssistant();
+            }
+          } catch {
+            buf = line + "\n" + buf;
+            break;
+          }
+        }
+      }
+
+      if (!acc.trim()) {
+        acc = "(no response — try again)";
+        flushAssistant();
+      }
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : "Agent error.";
+      toast.error(errMsg);
+      setMessages((all) =>
+        all.map((x) => {
+          if (x.id !== id || !x.agentChat) return x;
+          const copy = [...x.agentChat];
+          copy[copy.length - 1] = { role: "assistant", content: `⚠️ ${errMsg}` };
+          return { ...x, agentChat: copy };
+        }),
+      );
+    } finally {
+      updateMsg(id, { agentStreaming: false });
+    }
+  };
+
+  // Auto-build any finished agent-spec after 10s of inactivity
   useEffect(() => {
     const pending = messages.find(
-      (m) => m.kind === "agent-spec" && !m.streaming && m.agentStatus === "pending" && !m.editing && m.content,
+      (m) =>
+        m.kind === "agent-spec" &&
+        !m.streaming &&
+        m.agentStatus === "pending" &&
+        !m.editing &&
+        m.content,
     );
     if (!pending) return;
-    const t = setTimeout(() => approveAgent(pending.id), 10000);
+    const t = setTimeout(() => void buildAgent(pending.id), 10000);
     return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages]);
 
 
