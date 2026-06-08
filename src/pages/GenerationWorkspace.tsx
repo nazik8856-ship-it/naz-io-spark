@@ -687,10 +687,10 @@ export default function GenerationWorkspace() {
                                 ) : (
                                   <>
                                     <button
-                                      onClick={() => approveAgent(m.id)}
-                                      disabled={m.agentStatus === "approved"}
+                                      onClick={() => void buildAgent(m.id)}
+                                      disabled={m.agentStatus === "approved" || m.agentStatus === "building"}
                                       className="px-2.5 py-1 rounded-md text-[11px] font-semibold text-black bg-gradient-to-r from-purple-500 to-cyan-400 disabled:opacity-50"
-                                    >{m.agentStatus === "approved" ? "Approved" : "Approve & Build"}</button>
+                                    >{m.agentStatus === "approved" ? "Live" : m.agentStatus === "building" ? "Booting…" : "Approve & Build"}</button>
                                     <button
                                       onClick={() => startEditAgent(m.id)}
                                       className="px-2.5 py-1 rounded-md text-[11px] text-zinc-200 border border-white/10 hover:bg-white/5"
