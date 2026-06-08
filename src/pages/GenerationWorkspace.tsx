@@ -25,7 +25,9 @@ import { useAuth } from "@/hooks/useAuth";
 import ReactMarkdown from "react-markdown";
 import { toast } from "sonner";
 
-type AgentStatus = "pending" | "approved" | "removed";
+type AgentStatus = "pending" | "building" | "approved" | "removed";
+
+type AgentTurn = { role: "user" | "assistant"; content: string };
 
 type ChatMessage = {
   id: string;
@@ -38,6 +40,13 @@ type ChatMessage = {
   kind?: "agent-spec";
   agentStatus?: AgentStatus;
   editing?: boolean;
+  agentName?: string;
+  agentGreeting?: string;
+  agentSuggestions?: string[];
+  agentSystemPrompt?: string;
+  agentChat?: AgentTurn[];
+  agentStreaming?: boolean;
+  agentError?: string;
 };
 
 function parseAgentSpec(text: string) {
