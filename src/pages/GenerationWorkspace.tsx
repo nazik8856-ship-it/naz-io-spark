@@ -206,8 +206,11 @@ export default function GenerationWorkspace() {
         streaming: true,
         isAgent: agentMode,
         isPlan: planMode,
+        kind: agentMode ? "agent-spec" : undefined,
+        agentStatus: agentMode ? "pending" : undefined,
       },
     ]);
+
 
     try {
       const endpoint = agentMode ? "generate-ai-agent" : "nazai-chat";
