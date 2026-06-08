@@ -664,6 +664,9 @@ export default function GenerationWorkspace() {
                               {m.agentStatus === "approved" && (
                                 <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-400/15 text-emerald-300 border border-emerald-400/30">Live</span>
                               )}
+                              {m.agentStatus === "building" && (
+                                <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-cyan-400/15 text-cyan-300 border border-cyan-400/30 animate-pulse">Booting</span>
+                              )}
                               {m.agentStatus === "pending" && !m.streaming && (
                                 <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-purple-400/15 text-purple-300 border border-purple-400/30">Pending</span>
                               )}
