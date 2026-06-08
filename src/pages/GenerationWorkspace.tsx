@@ -465,7 +465,88 @@ export default function GenerationWorkspace() {
                     <div className="text-sm font-semibold">NazAI</div>
                   </div>
                   <div className="text-sm text-zinc-200 leading-relaxed pl-9 prose prose-invert prose-sm max-w-none prose-pre:bg-black/60 prose-pre:border prose-pre:border-white/10 prose-code:text-cyan-300 prose-headings:text-white">
-                    {m.content ? (
+                    {m.kind === "agent-spec" && m.content ? (
+                      (() => {
+                        const spec = parseAgentSpec(m.content);
+                        const dismissed = m.agentStatus === "removed";
+                        if (m.editing) {
+                          return (
+                            <div className="not-prose rounded-xl border border-purple-400/30 bg-black/40 p-3 space-y-2">
+                              <div className="text-[10px] uppercase tracking-[0.18em] text-purple-300">Editing agent spec</div>
+                              <textarea
+                                defaultValue={m.content}
+                                rows={10}
+                                id={`edit-${m.id}`}
+                                className="w-full bg-black/60 border border-white/10 rounded-lg p-2 text-xs font-mono text-zinc-100 outline-none focus:border-purple-400/60"
+                              />
+                              <div className="flex gap-2 justify-end">
+                                <button
+                                  onClick={() => updateMsg(m.id, { editing: false })}
+                                  className="px-3 py-1.5 rounded-md text-xs text-zinc-300 hover:bg-white/5"
+                                >Cancel</button>
+                                <button
+                                  onClick={() => {
+                                    const el = document.getElementById(`edit-${m.id}`) as HTMLTextAreaElement | null;
+                                    if (el) saveEditAgent(m.id, el.value);
+                                  }}
+                                  className="px-3 py-1.5 rounded-md text-xs font-semibold text-black bg-gradient-to-r from-purple-500 to-cyan-400"
+                                >Save &amp; Build</button>
+                              </div>
+                            </div>
+                          );
+                        }
+                        return (
+                          <div className={`not-prose rounded-xl border bg-black/40 p-3 space-y-2 ${dismissed ? "border-white/5 opacity-60" : "border-purple-400/30"}`}>
+                            <div className="flex items-center justify-between gap-2">
+                              <div className={`text-sm font-bold ${dismissed ? "line-through text-zinc-500" : "text-white"}`}>
+                                {spec.name || "AI Agent"}
+                              </div>
+                              {m.agentStatus === "approved" && (
+                                <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-400/15 text-emerald-300 border border-emerald-400/30">Live</span>
+                              )}
+                              {m.agentStatus === "pending" && !m.streaming && (
+                                <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-purple-400/15 text-purple-300 border border-purple-400/30">Pending</span>
+                              )}
+                            </div>
+                            {spec.description && (
+                              <div className="text-[12px] text-zinc-300 leading-relaxed line-clamp-2">{spec.description}</div>
+                            )}
+                            {spec.goal && (
+                              <div className="text-[11px] text-cyan-300/90 line-clamp-1">🎯 {spec.goal}</div>
+                            )}
+                            <div className="text-[10px] font-mono text-zinc-500">
+                              {spec.capCount || 6} capabilities · workflow ready
+                            </div>
+                            {!m.streaming && (
+                              <div className="flex gap-1.5 pt-1">
+                                {dismissed ? (
+                                  <button
+                                    onClick={() => updateMsg(m.id, { agentStatus: "pending" })}
+                                    className="px-2.5 py-1 rounded-md text-[11px] text-zinc-300 border border-white/10 hover:bg-white/5"
+                                  >Restore</button>
+                                ) : (
+                                  <>
+                                    <button
+                                      onClick={() => approveAgent(m.id)}
+                                      disabled={m.agentStatus === "approved"}
+                                      className="px-2.5 py-1 rounded-md text-[11px] font-semibold text-black bg-gradient-to-r from-purple-500 to-cyan-400 disabled:opacity-50"
+                                    >{m.agentStatus === "approved" ? "Approved" : "Approve & Build"}</button>
+                                    <button
+                                      onClick={() => startEditAgent(m.id)}
+                                      className="px-2.5 py-1 rounded-md text-[11px] text-zinc-200 border border-white/10 hover:bg-white/5"
+                                    >Edit</button>
+                                    <button
+                                      onClick={() => removeAgent(m.id)}
+                                      className="px-2.5 py-1 rounded-md text-[11px] text-zinc-400 hover:text-red-300 hover:bg-red-500/10"
+                                    >Remove</button>
+                                  </>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()
+                    ) : m.content ? (
                       <ReactMarkdown>{m.content}</ReactMarkdown>
                     ) : (
                       <span className="inline-flex gap-1 items-center text-zinc-500 text-xs">
