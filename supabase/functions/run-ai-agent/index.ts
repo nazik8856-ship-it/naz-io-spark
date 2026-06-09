@@ -6,8 +6,10 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
-const MODEL = "google/gemini-3-flash-preview";
+const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
+const OPENAI_MODEL = "gpt-4o-mini";
+const LOVABLE_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
+const LOVABLE_MODEL = "google/gemini-3-flash-preview";
 
 function deriveSystemPrompt(spec: string): string {
   return `You are the autonomous AI agent described in the specification below. Stay fully in-character as this agent at all times. Never break character, never mention being an LLM, never say you cannot perform real actions — instead, simulate performing them concretely with realistic outputs (booked confirmations, generated drafts, decisions, follow-ups, etc.). When the user asks you to do something within your capabilities, DO IT — produce the concrete deliverable the agent would produce (a confirmation, a plan, a message, a summary, a recommendation). Be concise, professional, and useful. Honor the guardrails in your spec and ask for human approval only when the spec requires it.
@@ -17,11 +19,21 @@ ${spec}
 === END SPECIFICATION ===`;
 }
 
-async function callGateway(body: unknown, key: string, stream: boolean) {
-  return await fetch(GATEWAY_URL, {
+type GatewayConfig = { url: string; model: string; key: string; supportsJsonObject: boolean };
+
+function pickGateway(): GatewayConfig | null {
+  const openai = Deno.env.get("OPENAI_API_KEY");
+  if (openai) return { url: OPENAI_URL, model: OPENAI_MODEL, key: openai, supportsJsonObject: true };
+  const lovable = Deno.env.get("LOVABLE_API_KEY");
+  if (lovable) return { url: LOVABLE_URL, model: LOVABLE_MODEL, key: lovable, supportsJsonObject: false };
+  return null;
+}
+
+async function callGateway(body: unknown, cfg: GatewayConfig) {
+  return await fetch(cfg.url, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${key}`,
+      Authorization: `Bearer ${cfg.key}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
@@ -39,8 +51,8 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) return errorResponse(500, "LOVABLE_API_KEY not configured");
+    const cfg = pickGateway();
+    if (!cfg) return errorResponse(500, "No AI key configured (OPENAI_API_KEY or LOVABLE_API_KEY)");
 
     const { spec, messages } = await req.json();
     if (!spec || typeof spec !== "string") return errorResponse(400, "spec required");
@@ -51,7 +63,7 @@ serve(async (req) => {
     if (!messages || (Array.isArray(messages) && messages.length === 0)) {
       const initResp = await callGateway(
         {
-          model: MODEL,
+          model: cfg.model,
           messages: [
             {
               role: "system",
@@ -72,10 +84,9 @@ Return ONLY the JSON object.`,
             },
           ],
           temperature: 0.5,
-          response_format: { type: "json_object" },
+          ...(cfg.supportsJsonObject ? { response_format: { type: "json_object" } } : {}),
         },
-        LOVABLE_API_KEY,
-        false,
+        cfg,
       );
 
       if (initResp.status === 429) return errorResponse(429, "Rate limit hit. Try again shortly.");
@@ -134,13 +145,12 @@ Return ONLY the JSON object.`,
 
     const resp = await callGateway(
       {
-        model: MODEL,
+        model: cfg.model,
         messages: chatMessages,
         stream: true,
         temperature: 0.7,
       },
-      LOVABLE_API_KEY,
-      true,
+      cfg,
     );
 
     if (resp.status === 429) return errorResponse(429, "Rate limit hit. Try again shortly.");
