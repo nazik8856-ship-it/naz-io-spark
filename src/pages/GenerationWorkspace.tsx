@@ -415,7 +415,7 @@ export default function GenerationWorkspace() {
     void streamFromNazAI(history);
   };
 
-  // --- Agent spec card handlers (Build / Edit / Remove + auto-build) ---
+  // --- Agent spec card handlers (Build / Edit / Remove) ---
   const updateMsg = (id: string, patch: Partial<ChatMessage>) =>
     setMessages((m) => m.map((x) => (x.id === id ? { ...x, ...patch } : x)));
 
@@ -426,7 +426,7 @@ export default function GenerationWorkspace() {
     const msg = messages.find((x) => x.id === id);
     const sourceSpec = cleanAgentSpecOutput(specOverride || msg?.content || "");
     if (!msg || !sourceSpec) return;
-    if (msg.agentStatus === "approved" || msg.agentStatus === "building") return;
+    if (msg.agentStatus === "building" || (msg.agentStatus === "approved" && !specOverride)) return;
     buildingRef.current.add(id);
     updateMsg(id, { content: sourceSpec, agentStatus: "building", editing: false, agentError: undefined });
 
