@@ -19,6 +19,39 @@ ${spec}
 === END SPECIFICATION ===`;
 }
 
+function cleanAgentSpecOutput(text: string): string {
+  if (!text) return "";
+  let cleaned = text
+    .replace(/```(?:markdown|md|text)?/gi, "")
+    .replace(/```/g, "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\bbrand[-\s]?new\b/gi, "complete")
+    .replace(/\bforging\b/gi, "building")
+    .replace(/\bdetected\b/gi, "identified");
+
+  const start = cleaned.search(/\b1\.\s*(?:\*\*)?\s*Agent Name/i);
+  if (start >= 0) cleaned = cleaned.slice(start);
+
+  return cleaned
+    .split("\n")
+    .filter((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return true;
+      if (/^>/.test(trimmed)) return false;
+      if (/^(sure|here(?:'s| is)|nazai|output|final output|draft agent|offline fallback)\b/i.test(trimmed)) return false;
+      if (/^(generating|building|identified)\b.*(?:agent|request|intent|plan)/i.test(trimmed)) return false;
+      return true;
+    })
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function extractAgentName(spec: string): string {
+  const match = cleanAgentSpecOutput(spec).match(/1\.\s*(?:\*\*)?Agent Name(?:\*\*)?\s*:\s*([^\n]+)/i);
+  return (match?.[1] || "AI Agent").replace(/\*\*/g, "").trim().slice(0, 60);
+}
+
 type GatewayConfig = { url: string; model: string; key: string; supportsJsonObject: boolean };
 
 function pickGateway(): GatewayConfig | null {
@@ -30,10 +63,11 @@ function pickGateway(): GatewayConfig | null {
 }
 
 async function callGateway(body: unknown, cfg: GatewayConfig) {
+  const isOpenAI = cfg.url.includes("api.openai.com");
   return await fetch(cfg.url, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${cfg.key}`,
+      ...(isOpenAI ? { Authorization: `Bearer ${cfg.key}` } : { "Lovable-API-Key": cfg.key }),
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
