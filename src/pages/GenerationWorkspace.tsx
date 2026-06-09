@@ -20,11 +20,13 @@ import {
   Hammer,
   HelpCircle,
   Check,
+  Copy,
+  Rocket,
+  Save,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import ReactMarkdown from "react-markdown";
 import { toast } from "sonner";
-import LiveAgentChat from "@/components/agents/LiveAgentChat";
 
 type AgentStatus = "pending" | "building" | "approved" | "removed";
 
@@ -45,20 +47,52 @@ type ChatMessage = {
   agentGreeting?: string;
   agentSuggestions?: string[];
   agentSystemPrompt?: string;
+  agentFinalSpec?: string;
   agentChat?: AgentTurn[];
   agentStreaming?: boolean;
   agentError?: string;
 };
 
+function cleanAgentSpecOutput(text: string): string {
+  if (!text) return "";
+  let cleaned = text
+    .replace(/```(?:markdown|md|text)?/gi, "")
+    .replace(/```/g, "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\bbrand[-\s]?new\b/gi, "complete")
+    .replace(/\bforging\b/gi, "building")
+    .replace(/\bdetected\b/gi, "identified");
+
+  const start = cleaned.search(/\b1\.\s*(?:\*\*)?\s*Agent Name/i);
+  if (start >= 0) cleaned = cleaned.slice(start);
+
+  cleaned = cleaned
+    .split("\n")
+    .filter((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return true;
+      if (/^>/.test(trimmed)) return false;
+      if (/^(sure|here(?:'s| is)|nazai|output|final output|draft agent|offline fallback)\b/i.test(trimmed)) return false;
+      if (/^(generating|building|identified)\b.*(?:agent|request|intent|plan)/i.test(trimmed)) return false;
+      return true;
+    })
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  return cleaned;
+}
+
 function parseAgentSpec(text: string) {
+  const clean = cleanAgentSpecOutput(text);
   const get = (re: RegExp) => {
-    const m = text.match(re);
+    const m = clean.match(re);
     return m ? m[1].trim() : "";
   };
-  const name = get(/1\.\s*Agent Name:\s*([^\n]+)/i);
-  const description = get(/2\.\s*Description:\s*([\s\S]*?)(?=\n\s*3\.|$)/i);
-  const goal = get(/3\.\s*Primary Goal:\s*([\s\S]*?)(?=\n\s*4\.|$)/i);
-  const capsBlock = get(/4\.\s*Autonomous Capabilities:\s*([\s\S]*?)(?=\n\s*5\.|$)/i);
+  const name = get(/1\.\s*(?:\*\*)?Agent Name(?:\*\*)?\s*:\s*([^\n]+)/i).replace(/\*\*/g, "");
+  const description = get(/2\.\s*(?:\*\*)?Description(?:\*\*)?\s*:\s*([\s\S]*?)(?=\n\s*3\.|$)/i);
+  const goal = get(/3\.\s*(?:\*\*)?Primary Goal(?:\*\*)?\s*:\s*([\s\S]*?)(?=\n\s*4\.|$)/i);
+  const capsBlock = get(/4\.\s*(?:\*\*)?Autonomous Capabilities(?:\*\*)?\s*:\s*([\s\S]*?)(?=\n\s*5\.|$)/i);
   const capCount = capsBlock
     ? capsBlock.split("\n").filter((l) => /^\s*(?:[•\-*]|\d+\.)\s+\S/.test(l)).length
     : 0;
