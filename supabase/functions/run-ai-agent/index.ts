@@ -88,10 +88,67 @@ serve(async (req) => {
     const cfg = pickGateway();
     if (!cfg) return errorResponse(500, "No AI key configured (OPENAI_API_KEY or LOVABLE_API_KEY)");
 
-    const { spec, messages } = await req.json();
-    if (!spec || typeof spec !== "string") return errorResponse(400, "spec required");
+    const { spec, messages, mode } = await req.json();
+    const cleanSpec = cleanAgentSpecOutput(String(spec || ""));
+    if (!cleanSpec) return errorResponse(400, "spec required");
 
-    const systemPrompt = deriveSystemPrompt(spec);
+    const systemPrompt = deriveSystemPrompt(cleanSpec);
+
+    if (mode === "build") {
+      const buildResp = await callGateway(
+        {
+          model: cfg.model,
+          messages: [
+            {
+              role: "system",
+              content: `You are a professional AI Agent Architect. Return ONLY a final clean agent specification. No preamble, no comments, no markdown fences, no status words, no meta text. Never use these words: forging, detected, brand-new, draft, offline fallback.
+
+Output exactly this structure:
+1. **Agent Name**:
+2. **Description**:
+3. **Primary Goal**:
+4. **Autonomous Capabilities**:
+5. **Step-by-Step Workflow**:
+6. **Guardrails & Safety**:
+7. **Deployment Options**:
+8. **Expected Impact**:`,
+            },
+            {
+              role: "user",
+              content: `Build the final deployable autonomous AI agent from this generated plan. Improve clarity, keep it practical for 2026 economic conditions, and output ONLY the final 8-section specification.
+
+Generated plan:
+${cleanSpec}`,
+            },
+          ],
+          temperature: 0.45,
+          stream: false,
+        },
+        cfg,
+      );
+
+      if (buildResp.status === 429) return errorResponse(429, "Rate limit hit. Try again shortly.");
+      if (buildResp.status === 402) return errorResponse(402, "AI credits exhausted.");
+      if (!buildResp.ok) {
+        const t = await buildResp.text();
+        console.error("build gateway error", buildResp.status, t);
+        return errorResponse(500, "AI error");
+      }
+
+      const data = await buildResp.json();
+      const raw = data?.choices?.[0]?.message?.content ?? cleanSpec;
+      const finalSpec = cleanAgentSpecOutput(raw) || cleanSpec;
+
+      return new Response(
+        JSON.stringify({
+          agentId: crypto.randomUUID(),
+          name: extractAgentName(finalSpec),
+          finalSpec,
+          systemPrompt: deriveSystemPrompt(finalSpec),
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
 
     // INIT mode: no chat history → bootstrap the agent (name, greeting, suggestions)
     if (!messages || (Array.isArray(messages) && messages.length === 0)) {
