@@ -20,11 +20,13 @@ import {
   Hammer,
   HelpCircle,
   Check,
+  Copy,
+  Rocket,
+  Save,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import ReactMarkdown from "react-markdown";
 import { toast } from "sonner";
-import LiveAgentChat from "@/components/agents/LiveAgentChat";
 
 type AgentStatus = "pending" | "building" | "approved" | "removed";
 
@@ -45,20 +47,52 @@ type ChatMessage = {
   agentGreeting?: string;
   agentSuggestions?: string[];
   agentSystemPrompt?: string;
+  agentFinalSpec?: string;
   agentChat?: AgentTurn[];
   agentStreaming?: boolean;
   agentError?: string;
 };
 
+function cleanAgentSpecOutput(text: string): string {
+  if (!text) return "";
+  let cleaned = text
+    .replace(/```(?:markdown|md|text)?/gi, "")
+    .replace(/```/g, "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\bbrand[-\s]?new\b/gi, "complete")
+    .replace(/\bforging\b/gi, "building")
+    .replace(/\bdetected\b/gi, "identified");
+
+  const start = cleaned.search(/\b1\.\s*(?:\*\*)?\s*Agent Name/i);
+  if (start >= 0) cleaned = cleaned.slice(start);
+
+  cleaned = cleaned
+    .split("\n")
+    .filter((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return true;
+      if (/^>/.test(trimmed)) return false;
+      if (/^(sure|here(?:'s| is)|nazai|output|final output|draft agent|offline fallback)\b/i.test(trimmed)) return false;
+      if (/^(generating|building|identified)\b.*(?:agent|request|intent|plan)/i.test(trimmed)) return false;
+      return true;
+    })
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  return cleaned;
+}
+
 function parseAgentSpec(text: string) {
+  const clean = cleanAgentSpecOutput(text);
   const get = (re: RegExp) => {
-    const m = text.match(re);
+    const m = clean.match(re);
     return m ? m[1].trim() : "";
   };
-  const name = get(/1\.\s*Agent Name:\s*([^\n]+)/i);
-  const description = get(/2\.\s*Description:\s*([\s\S]*?)(?=\n\s*3\.|$)/i);
-  const goal = get(/3\.\s*Primary Goal:\s*([\s\S]*?)(?=\n\s*4\.|$)/i);
-  const capsBlock = get(/4\.\s*Autonomous Capabilities:\s*([\s\S]*?)(?=\n\s*5\.|$)/i);
+  const name = get(/1\.\s*(?:\*\*)?Agent Name(?:\*\*)?\s*:\s*([^\n]+)/i).replace(/\*\*/g, "");
+  const description = get(/2\.\s*(?:\*\*)?Description(?:\*\*)?\s*:\s*([\s\S]*?)(?=\n\s*3\.|$)/i);
+  const goal = get(/3\.\s*(?:\*\*)?Primary Goal(?:\*\*)?\s*:\s*([\s\S]*?)(?=\n\s*4\.|$)/i);
+  const capsBlock = get(/4\.\s*(?:\*\*)?Autonomous Capabilities(?:\*\*)?\s*:\s*([\s\S]*?)(?=\n\s*5\.|$)/i);
   const capCount = capsBlock
     ? capsBlock.split("\n").filter((l) => /^\s*(?:[•\-*]|\d+\.)\s+\S/.test(l)).length
     : 0;
@@ -166,16 +200,14 @@ export default function GenerationWorkspace() {
     const hasSupport = /support|customer|ticket|service|helpdesk/i.test(cleanRequest);
     const focus = hasSales ? "Revenue Resilience" : hasSupport ? "Customer Continuity" : "Business Resilience";
 
-    return `> ⚠️ **Draft Agent (offline fallback — live generator unreachable)**
-
-1. Agent Name: ${focus} Agent
+    return `1. **Agent Name**: ${focus} Agent
 
 
-2. Description: This autonomous agent is designed around the request: ${cleanRequest}. It helps the business protect revenue, reduce operational drag, and make faster decisions during uncertain market conditions.
+2. **Description**: This autonomous agent is designed around the request: ${cleanRequest}. It helps the business protect revenue, reduce operational drag, and make faster decisions during uncertain market conditions.
 
-3. Primary Goal: Improve business resilience by turning the user's stated need into monitored actions, prioritized decisions, and measurable outcomes.
+3. **Primary Goal**: Improve business resilience by turning the user's stated need into monitored actions, prioritized decisions, and measurable outcomes.
 
-4. Autonomous Capabilities:
+4. **Autonomous Capabilities**:
 - Interprets incoming business signals and classifies urgency, risk, and opportunity.
 - Monitors relevant workflows, customer inputs, operational data, and task queues.
 - Recommends or triggers next-best actions based on business value and downside risk.
@@ -183,7 +215,7 @@ export default function GenerationWorkspace() {
 - Escalates high-risk decisions, unusual patterns, or financial-impact actions to a human owner.
 - Learns from approved outcomes to improve prioritization and response quality over time.
 
-5. Step-by-Step Workflow:
+5. **Step-by-Step Workflow**:
 1. Receives the user's request, business context, or connected workflow event.
 2. Extracts the goal, stakeholders, constraints, risks, and success metrics.
 3. Checks available data sources for relevant context and recent changes.
@@ -192,11 +224,11 @@ export default function GenerationWorkspace() {
 6. Requests human approval for sensitive, costly, customer-facing, or irreversible actions.
 7. Tracks results and updates future recommendations based on measurable outcomes.
 
-6. Guardrails & Safety: The agent must not make financial commitments, legal claims, hiring decisions, customer refunds, or destructive system changes without human approval. It should protect private data, cite uncertainty clearly, log every action, and escalate when confidence is low or business risk is high.
+6. **Guardrails & Safety**: The agent must not make financial commitments, legal claims, hiring decisions, customer refunds, or destructive system changes without human approval. It should protect private data, cite uncertainty clearly, log every action, and escalate when confidence is low or business risk is high.
 
-7. Deployment Options: Deploy it as a dashboard assistant, embedded chat agent, scheduled background worker, CRM/helpdesk automation, internal API endpoint, or operations copilot connected to business tools.
+7. **Deployment Options**: Deploy it as a dashboard assistant, embedded chat agent, scheduled background worker, CRM/helpdesk automation, internal API endpoint, or operations copilot connected to business tools.
 
-8. Expected Impact: The business gets faster response cycles, clearer prioritization, lower manual workload, and better protection against revenue leakage. Over time, the agent should improve resilience by helping teams act earlier on risks and capture opportunities with less operational friction.`;
+8. **Expected Impact**: The business gets faster response cycles, clearer prioritization, lower manual workload, and better protection against revenue leakage. Over time, the agent should improve resilience by helping teams act earlier on risks and capture opportunities with less operational friction.`;
   };
 
   const streamFromNazAI = async (history: { role: "user" | "assistant"; content: string }[]) => {
@@ -271,8 +303,9 @@ export default function GenerationWorkspace() {
             const delta = parsed.choices?.[0]?.delta?.content;
             if (delta) {
               acc += delta;
+              const nextContent = agentMode ? cleanAgentSpecOutput(acc) : acc;
               setMessages((m) =>
-                m.map((x) => (x.id === assistantId ? { ...x, content: acc } : x)),
+                m.map((x) => (x.id === assistantId ? { ...x, content: nextContent } : x)),
               );
             }
           } catch {
@@ -293,8 +326,9 @@ export default function GenerationWorkspace() {
             const delta = parsed.choices?.[0]?.delta?.content;
             if (delta) {
               acc += delta;
+              const nextContent = agentMode ? cleanAgentSpecOutput(acc) : acc;
               setMessages((m) =>
-                m.map((x) => (x.id === assistantId ? { ...x, content: acc } : x)),
+                m.map((x) => (x.id === assistantId ? { ...x, content: nextContent } : x)),
               );
             }
           } catch {
@@ -305,6 +339,13 @@ export default function GenerationWorkspace() {
 
       if (!acc.trim()) {
         throw new Error("No agent output received");
+      }
+      if (agentMode) {
+        setMessages((m) =>
+          m.map((x) =>
+            x.id === assistantId ? { ...x, content: cleanAgentSpecOutput(acc) || createAgentFallback(lastUser) } : x,
+          ),
+        );
       }
     } catch (e) {
       console.error(e);
@@ -374,19 +415,20 @@ export default function GenerationWorkspace() {
     void streamFromNazAI(history);
   };
 
-  // --- Agent spec card handlers (Build / Edit / Remove + auto-build) ---
+  // --- Agent spec card handlers (Build / Edit / Remove) ---
   const updateMsg = (id: string, patch: Partial<ChatMessage>) =>
     setMessages((m) => m.map((x) => (x.id === id ? { ...x, ...patch } : x)));
 
   const buildingRef = useRef<Set<string>>(new Set());
 
-  const buildAgent = async (id: string) => {
+  const buildAgent = async (id: string, specOverride?: string) => {
     if (buildingRef.current.has(id)) return;
     const msg = messages.find((x) => x.id === id);
-    if (!msg || !msg.content) return;
-    if (msg.agentStatus === "approved" || msg.agentStatus === "building") return;
+    const sourceSpec = cleanAgentSpecOutput(specOverride || msg?.content || "");
+    if (!msg || !sourceSpec) return;
+    if (msg.agentStatus === "building" || (msg.agentStatus === "approved" && !specOverride)) return;
     buildingRef.current.add(id);
-    updateMsg(id, { agentStatus: "building", editing: false, agentError: undefined });
+    updateMsg(id, { content: sourceSpec, agentStatus: "building", editing: false, agentError: undefined });
 
     try {
       const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/run-ai-agent`;
@@ -396,29 +438,28 @@ export default function GenerationWorkspace() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
         },
-        body: JSON.stringify({ spec: msg.content }),
+        body: JSON.stringify({ spec: sourceSpec, mode: "build" }),
       });
       if (resp.status === 429) throw new Error("Rate limit hit. Try again in a moment.");
       if (resp.status === 402) throw new Error("AI credits exhausted.");
-      if (!resp.ok) throw new Error("Could not boot agent.");
+      if (!resp.ok) throw new Error("Could not build agent.");
       const data = (await resp.json()) as {
         name?: string;
-        greeting?: string;
-        suggestedPrompts?: string[];
+        finalSpec?: string;
         systemPrompt?: string;
       };
-      const name = data.name || parseAgentSpec(msg.content).name || "AI Agent";
-      const greeting = data.greeting || `Hi, I'm ${name}. How can I help?`;
+      const finalSpec = cleanAgentSpecOutput(data.finalSpec || sourceSpec);
+      const name = data.name || parseAgentSpec(finalSpec).name || "AI Agent";
       updateMsg(id, {
+        content: finalSpec,
         agentStatus: "approved",
         agentName: name,
-        agentGreeting: greeting,
-        agentSuggestions: data.suggestedPrompts ?? [],
+        agentFinalSpec: finalSpec,
         agentSystemPrompt: data.systemPrompt,
-        agentChat: [{ role: "assistant", content: greeting }],
       });
+      toast.success("Agent successfully built!");
     } catch (e) {
-      const errMsg = e instanceof Error ? e.message : "Could not boot agent.";
+      const errMsg = e instanceof Error ? e.message : "Could not build agent.";
       toast.error(errMsg);
       updateMsg(id, { agentStatus: "pending", agentError: errMsg });
     } finally {
@@ -429,9 +470,32 @@ export default function GenerationWorkspace() {
   const removeAgent = (id: string) => updateMsg(id, { agentStatus: "removed", editing: false });
   const startEditAgent = (id: string) => updateMsg(id, { editing: true });
   const saveEditAgent = (id: string, content: string) => {
-    updateMsg(id, { content, editing: false, agentStatus: "pending" });
-    // Kick off a real build with the edited spec
-    setTimeout(() => void buildAgent(id), 0);
+    const cleaned = cleanAgentSpecOutput(content);
+    updateMsg(id, { content: cleaned, editing: false, agentStatus: "pending" });
+    void buildAgent(id, cleaned);
+  };
+
+  const copyAgentSpec = async (spec: string) => {
+    await navigator.clipboard.writeText(cleanAgentSpecOutput(spec));
+    toast.success("Spec copied.");
+  };
+
+  const deployAgentPreview = () => {
+    setActiveTab("preview");
+    toast.success("Deploy preview ready on this page.");
+  };
+
+  const saveAgent = (msg: ChatMessage) => {
+    const saved = JSON.parse(localStorage.getItem("nazai_saved_agents") || "[]") as unknown[];
+    const finalSpec = cleanAgentSpecOutput(msg.agentFinalSpec || msg.content);
+    localStorage.setItem(
+      "nazai_saved_agents",
+      JSON.stringify([
+        { id: msg.id, name: msg.agentName || parseAgentSpec(finalSpec).name || "AI Agent", spec: finalSpec, savedAt: new Date().toISOString() },
+        ...saved.filter((item: any) => item?.id !== msg.id),
+      ]),
+    );
+    toast.success("Agent saved.");
   };
 
   const sendAgentTurn = async (id: string, text: string) => {
@@ -528,25 +592,6 @@ export default function GenerationWorkspace() {
       updateMsg(id, { agentStreaming: false });
     }
   };
-
-  // Auto-build any finished agent-spec after 10s of inactivity
-  useEffect(() => {
-    const pending = messages.find(
-      (m) =>
-        m.kind === "agent-spec" &&
-        !m.streaming &&
-        m.agentStatus === "pending" &&
-        !m.editing &&
-        m.content,
-    );
-    if (!pending) return;
-    const t = setTimeout(() => void buildAgent(pending.id), 10000);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages]);
-
-
-
 
   return (
     <div
@@ -936,10 +981,7 @@ export default function GenerationWorkspace() {
             {(() => {
               const lastNaz = [...messages].reverse().find((m) => {
                 if (m.role !== "nazai") return false;
-                if (m.kind === "agent-spec") {
-                  // Show building/approved agents (no content gate for these states)
-                  return m.agentStatus === "approved" || m.agentStatus === "building";
-                }
+                if (m.kind === "agent-spec") return !!m.content || m.agentStatus === "approved" || m.agentStatus === "building";
                 return !!m.content;
               });
               const lastUser = [...messages].reverse().find((m) => m.role === "user");
@@ -981,24 +1023,57 @@ export default function GenerationWorkspace() {
                 );
               }
 
-              // APPROVED agent-spec → live chat with the agent
+              // APPROVED agent-spec → final built agent card
               if (lastNaz.kind === "agent-spec" && lastNaz.agentStatus === "approved") {
-                const spec = parseAgentSpec(lastNaz.content);
+                const finalSpec = cleanAgentSpecOutput(lastNaz.agentFinalSpec || lastNaz.content);
+                const spec = parseAgentSpec(finalSpec);
                 const agentName = lastNaz.agentName || spec.name || "AI Agent";
-                const turns = lastNaz.agentChat ?? [];
-                const suggestions = lastNaz.agentSuggestions ?? [];
                 return (
-                  <LiveAgentChat
-                    key={lastNaz.id}
-                    agentId={lastNaz.id}
-                    name={agentName}
-                    goal={spec.goal}
-                    turns={turns}
-                    suggestions={suggestions}
-                    streaming={!!lastNaz.agentStreaming}
-                    fullSpec={lastNaz.content}
-                    onSend={(text) => void sendAgentTurn(lastNaz.id, text)}
-                  />
+                  <div className="relative h-full overflow-y-auto px-6 md:px-10 py-8">
+                    <div className="max-w-4xl mx-auto rounded-xl border border-emerald-400/30 bg-black/50 backdrop-blur-sm shadow-2xl shadow-emerald-500/10 overflow-hidden">
+                      <div className="flex items-start justify-between gap-4 p-5 border-b border-white/10 bg-emerald-400/5">
+                        <div className="min-w-0">
+                          <div className="text-[10px] uppercase tracking-[0.22em] text-emerald-300 font-mono mb-2">
+                            Agent successfully built!
+                          </div>
+                          <h1 className="text-2xl md:text-3xl font-bold text-white truncate">{agentName}</h1>
+                          {spec.goal && <p className="text-sm text-cyan-200/90 mt-2 line-clamp-2">{spec.goal}</p>}
+                        </div>
+                        <span className="shrink-0 text-[10px] uppercase tracking-wider px-2.5 py-1 rounded bg-emerald-400/15 text-emerald-300 border border-emerald-400/30 inline-flex items-center gap-1">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                          Built
+                        </span>
+                      </div>
+                      <div className="p-5 md:p-7">
+                        <div className="prose prose-invert prose-sm md:prose-base max-w-none prose-headings:text-white prose-pre:bg-black/60 prose-pre:border prose-pre:border-white/10 prose-code:text-cyan-300">
+                          <ReactMarkdown>{finalSpec}</ReactMarkdown>
+                        </div>
+                        <div className="mt-6 pt-5 border-t border-white/10 flex flex-wrap gap-2">
+                          <button
+                            onClick={() => void copyAgentSpec(finalSpec)}
+                            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 text-white text-sm font-semibold hover:bg-white/15 border border-white/10"
+                          >
+                            <Copy className="h-4 w-4 text-cyan-300" />
+                            Copy Spec
+                          </button>
+                          <button
+                            onClick={deployAgentPreview}
+                            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 to-cyan-400 text-black text-sm font-semibold hover:opacity-90"
+                          >
+                            <Rocket className="h-4 w-4" />
+                            Deploy Preview
+                          </button>
+                          <button
+                            onClick={() => saveAgent(lastNaz)}
+                            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 text-white text-sm font-semibold hover:bg-white/15 border border-white/10"
+                          >
+                            <Save className="h-4 w-4 text-emerald-300" />
+                            Save Agent
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 );
               }
 
@@ -1034,6 +1109,20 @@ export default function GenerationWorkspace() {
                       <div className="prose prose-invert prose-sm md:prose-base max-w-none prose-headings:text-white prose-pre:bg-black/60 prose-pre:border prose-pre:border-white/10 prose-code:text-cyan-300">
                         <ReactMarkdown>{lastNaz.content}</ReactMarkdown>
                       </div>
+                      {lastNaz.kind === "agent-spec" && !lastNaz.streaming && lastNaz.agentStatus === "pending" && (
+                        <div className="mt-6 pt-5 border-t border-white/10 flex items-center justify-between gap-3 flex-wrap">
+                          <div className="text-xs text-zinc-400">
+                            Plan ready. Approve it to build the final clean agent.
+                          </div>
+                          <button
+                            onClick={() => void buildAgent(lastNaz.id)}
+                            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 to-cyan-400 text-black text-sm font-semibold hover:opacity-90"
+                          >
+                            <Hammer className="h-4 w-4" />
+                            Approve &amp; Build
+                          </button>
+                        </div>
+                      )}
                       {lastNaz.isPlan && !lastNaz.streaming && (
                         <div className="mt-6 pt-5 border-t border-white/10 flex items-center justify-between gap-3 flex-wrap">
                           <div className="text-xs text-zinc-400">

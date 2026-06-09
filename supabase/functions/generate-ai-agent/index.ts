@@ -6,41 +6,24 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-const SYSTEM_PROMPT = `You are a professional AI Agent Architect. Your only job is to output clean, ready-to-use agent specifications.
+const SYSTEM_PROMPT = `Generate one complete autonomous AI agent based on user request.
 
-Generate one high-quality autonomous AI agent.
+Output ONLY this structure with no extra text(for the generated plan):
 
-OUTPUT RULES: Produce ONLY the agent specification below. Do not write any other text, explanations, introductions, forging messages, or comments.
+1. **Agent Name**: 
+2. **Description**: 
+3. **Primary Goal**: 
+4. **Autonomous Capabilities**: (bullets)
+5. **Step-by-Step Workflow**: (numbered)
+6. **Guardrails & Safety**: 
+7. **Deployment Options**: 
+8. **Expected Impact**:
 
-1. Agent Name: A short, catchy, professional name
-
-2. Description: 2-3 clear sentences about what the agent does and why it is valuable for businesses facing uncertainty
-
-3. Primary Goal: One specific measurable goal
-
-4. Autonomous Capabilities:
-• Point 1
-• Point 2
-• Point 3
-• Point 4
-• Point 5
-• Point 6
-
-5. Step-by-Step Workflow:
-1. First step
-2. Second step
-3. Third step
-4. Fourth step
-5. Fifth step
-6. Sixth step
-
-6. Guardrails & Safety: List the main safety rules and when the agent must ask for human approval
-
-7. Deployment Options: 3-4 practical ways to use this agent
-
-8. Expected Impact: 2-3 realistic business benefits
-
-Make the agent practical for 2026 economic conditions. Never ask clarifying questions — always produce a complete, deployable agent on the first try. If the user's prompt is short or vague, intelligently infer the use case and briefly state the inferred assumptions inside the Description.`;
+Strict rules:
+- No preamble, status labels, comments, markdown fences, or meta text.
+- Never use words like "forging", "detected", "brand-new", "draft", or "offline fallback".
+- Make the agent practical for 2026 economic conditions.
+- Never ask clarifying questions. Infer missing context and include assumptions only inside Description.`;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -70,7 +53,7 @@ serve(async (req) => {
     const industryLine = industry ? `Industry: ${industry}` : "Industry: (infer from request)";
     const challengesLine = challenges ? `Challenges: ${challenges}` : "Challenges: (infer reasonable challenges)";
 
-    const composedUserPrompt = `User's request: ${rawPrompt}\n${industryLine}\n${challengesLine}\n\nCreate a high-quality, brand-new autonomous AI agent tailored to this exact request. Output ONLY the 8 numbered sections, no preamble.`;
+    const composedUserPrompt = `User's request: ${rawPrompt}\n${industryLine}\n${challengesLine}\n\nGenerate one complete autonomous AI agent based on this request. Output ONLY the 8 numbered sections exactly as requested, with clean business-ready content and no extra text.`;
 
     const finalMessages = [
       { role: "system", content: SYSTEM_PROMPT },
@@ -78,17 +61,17 @@ serve(async (req) => {
     ];
 
 
-    // Prefer Lovable AI Gateway (always provisioned, reliable). Fall back to OpenAI if explicitly available and gateway missing.
-    const aiUrl = LOVABLE_API_KEY
-      ? "https://ai.gateway.lovable.dev/v1/chat/completions"
-      : "https://api.openai.com/v1/chat/completions";
-    const aiKey = LOVABLE_API_KEY || OPENAI_API_KEY;
-    const aiModel = LOVABLE_API_KEY ? "google/gemini-3-flash-preview" : "gpt-4o-mini";
+    const useOpenAI = Boolean(OPENAI_API_KEY);
+    const aiUrl = useOpenAI
+      ? "https://api.openai.com/v1/chat/completions"
+      : "https://ai.gateway.lovable.dev/v1/chat/completions";
+    const aiKey = OPENAI_API_KEY || LOVABLE_API_KEY;
+    const aiModel = useOpenAI ? "gpt-4o-mini" : "google/gemini-3-flash-preview";
 
     const response = await fetch(aiUrl, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${aiKey}`,
+        ...(useOpenAI ? { Authorization: `Bearer ${aiKey}` } : { "Lovable-API-Key": aiKey }),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({

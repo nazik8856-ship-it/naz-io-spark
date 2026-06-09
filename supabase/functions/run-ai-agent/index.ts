@@ -19,6 +19,39 @@ ${spec}
 === END SPECIFICATION ===`;
 }
 
+function cleanAgentSpecOutput(text: string): string {
+  if (!text) return "";
+  let cleaned = text
+    .replace(/```(?:markdown|md|text)?/gi, "")
+    .replace(/```/g, "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\bbrand[-\s]?new\b/gi, "complete")
+    .replace(/\bforging\b/gi, "building")
+    .replace(/\bdetected\b/gi, "identified");
+
+  const start = cleaned.search(/\b1\.\s*(?:\*\*)?\s*Agent Name/i);
+  if (start >= 0) cleaned = cleaned.slice(start);
+
+  return cleaned
+    .split("\n")
+    .filter((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return true;
+      if (/^>/.test(trimmed)) return false;
+      if (/^(sure|here(?:'s| is)|nazai|output|final output|draft agent|offline fallback)\b/i.test(trimmed)) return false;
+      if (/^(generating|building|identified)\b.*(?:agent|request|intent|plan)/i.test(trimmed)) return false;
+      return true;
+    })
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function extractAgentName(spec: string): string {
+  const match = cleanAgentSpecOutput(spec).match(/1\.\s*(?:\*\*)?Agent Name(?:\*\*)?\s*:\s*([^\n]+)/i);
+  return (match?.[1] || "AI Agent").replace(/\*\*/g, "").trim().slice(0, 60);
+}
+
 type GatewayConfig = { url: string; model: string; key: string; supportsJsonObject: boolean };
 
 function pickGateway(): GatewayConfig | null {
@@ -30,10 +63,11 @@ function pickGateway(): GatewayConfig | null {
 }
 
 async function callGateway(body: unknown, cfg: GatewayConfig) {
+  const isOpenAI = cfg.url.includes("api.openai.com");
   return await fetch(cfg.url, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${cfg.key}`,
+      ...(isOpenAI ? { Authorization: `Bearer ${cfg.key}` } : { "Lovable-API-Key": cfg.key }),
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
@@ -54,10 +88,67 @@ serve(async (req) => {
     const cfg = pickGateway();
     if (!cfg) return errorResponse(500, "No AI key configured (OPENAI_API_KEY or LOVABLE_API_KEY)");
 
-    const { spec, messages } = await req.json();
-    if (!spec || typeof spec !== "string") return errorResponse(400, "spec required");
+    const { spec, messages, mode } = await req.json();
+    const cleanSpec = cleanAgentSpecOutput(String(spec || ""));
+    if (!cleanSpec) return errorResponse(400, "spec required");
 
-    const systemPrompt = deriveSystemPrompt(spec);
+    const systemPrompt = deriveSystemPrompt(cleanSpec);
+
+    if (mode === "build") {
+      const buildResp = await callGateway(
+        {
+          model: cfg.model,
+          messages: [
+            {
+              role: "system",
+              content: `You are a professional AI Agent Architect. Return ONLY a final clean agent specification. No preamble, no comments, no markdown fences, no status words, no meta text. Never use these words: forging, detected, brand-new, draft, offline fallback.
+
+Output exactly this structure:
+1. **Agent Name**:
+2. **Description**:
+3. **Primary Goal**:
+4. **Autonomous Capabilities**:
+5. **Step-by-Step Workflow**:
+6. **Guardrails & Safety**:
+7. **Deployment Options**:
+8. **Expected Impact**:`,
+            },
+            {
+              role: "user",
+              content: `Build the final deployable autonomous AI agent from this generated plan. Improve clarity, keep it practical for 2026 economic conditions, and output ONLY the final 8-section specification.
+
+Generated plan:
+${cleanSpec}`,
+            },
+          ],
+          temperature: 0.45,
+          stream: false,
+        },
+        cfg,
+      );
+
+      if (buildResp.status === 429) return errorResponse(429, "Rate limit hit. Try again shortly.");
+      if (buildResp.status === 402) return errorResponse(402, "AI credits exhausted.");
+      if (!buildResp.ok) {
+        const t = await buildResp.text();
+        console.error("build gateway error", buildResp.status, t);
+        return errorResponse(500, "AI error");
+      }
+
+      const data = await buildResp.json();
+      const raw = data?.choices?.[0]?.message?.content ?? cleanSpec;
+      const finalSpec = cleanAgentSpecOutput(raw) || cleanSpec;
+
+      return new Response(
+        JSON.stringify({
+          agentId: crypto.randomUUID(),
+          name: extractAgentName(finalSpec),
+          finalSpec,
+          systemPrompt: deriveSystemPrompt(finalSpec),
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
 
     // INIT mode: no chat history → bootstrap the agent (name, greeting, suggestions)
     if (!messages || (Array.isArray(messages) && messages.length === 0)) {
@@ -78,7 +169,7 @@ serve(async (req) => {
 - "suggestedPrompts": array of EXACTLY 3 short user prompts (max 8 words each) the user could click to interact with this agent immediately.
 
 Spec:
-${spec}
+${cleanSpec}
 
 Return ONLY the JSON object.`,
             },
