@@ -169,7 +169,7 @@ ${cleanSpec}`,
 - "suggestedPrompts": array of EXACTLY 3 short user prompts (max 8 words each) the user could click to interact with this agent immediately.
 
 Spec:
-${spec}
+${cleanSpec}
 
 Return ONLY the JSON object.`,
             },
