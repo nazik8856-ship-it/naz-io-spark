@@ -1109,6 +1109,20 @@ export default function GenerationWorkspace() {
                       <div className="prose prose-invert prose-sm md:prose-base max-w-none prose-headings:text-white prose-pre:bg-black/60 prose-pre:border prose-pre:border-white/10 prose-code:text-cyan-300">
                         <ReactMarkdown>{lastNaz.content}</ReactMarkdown>
                       </div>
+                      {lastNaz.kind === "agent-spec" && !lastNaz.streaming && lastNaz.agentStatus === "pending" && (
+                        <div className="mt-6 pt-5 border-t border-white/10 flex items-center justify-between gap-3 flex-wrap">
+                          <div className="text-xs text-zinc-400">
+                            Plan ready. Approve it to build the final clean agent.
+                          </div>
+                          <button
+                            onClick={() => void buildAgent(lastNaz.id)}
+                            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 to-cyan-400 text-black text-sm font-semibold hover:opacity-90"
+                          >
+                            <Hammer className="h-4 w-4" />
+                            Approve &amp; Build
+                          </button>
+                        </div>
+                      )}
                       {lastNaz.isPlan && !lastNaz.streaming && (
                         <div className="mt-6 pt-5 border-t border-white/10 flex items-center justify-between gap-3 flex-wrap">
                           <div className="text-xs text-zinc-400">
