@@ -421,13 +421,14 @@ export default function GenerationWorkspace() {
 
   const buildingRef = useRef<Set<string>>(new Set());
 
-  const buildAgent = async (id: string) => {
+  const buildAgent = async (id: string, specOverride?: string) => {
     if (buildingRef.current.has(id)) return;
     const msg = messages.find((x) => x.id === id);
-    if (!msg || !msg.content) return;
+    const sourceSpec = cleanAgentSpecOutput(specOverride || msg?.content || "");
+    if (!msg || !sourceSpec) return;
     if (msg.agentStatus === "approved" || msg.agentStatus === "building") return;
     buildingRef.current.add(id);
-    updateMsg(id, { agentStatus: "building", editing: false, agentError: undefined });
+    updateMsg(id, { content: sourceSpec, agentStatus: "building", editing: false, agentError: undefined });
 
     try {
       const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/run-ai-agent`;
@@ -437,29 +438,28 @@ export default function GenerationWorkspace() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
         },
-        body: JSON.stringify({ spec: msg.content }),
+        body: JSON.stringify({ spec: sourceSpec, mode: "build" }),
       });
       if (resp.status === 429) throw new Error("Rate limit hit. Try again in a moment.");
       if (resp.status === 402) throw new Error("AI credits exhausted.");
-      if (!resp.ok) throw new Error("Could not boot agent.");
+      if (!resp.ok) throw new Error("Could not build agent.");
       const data = (await resp.json()) as {
         name?: string;
-        greeting?: string;
-        suggestedPrompts?: string[];
+        finalSpec?: string;
         systemPrompt?: string;
       };
-      const name = data.name || parseAgentSpec(msg.content).name || "AI Agent";
-      const greeting = data.greeting || `Hi, I'm ${name}. How can I help?`;
+      const finalSpec = cleanAgentSpecOutput(data.finalSpec || sourceSpec);
+      const name = data.name || parseAgentSpec(finalSpec).name || "AI Agent";
       updateMsg(id, {
+        content: finalSpec,
         agentStatus: "approved",
         agentName: name,
-        agentGreeting: greeting,
-        agentSuggestions: data.suggestedPrompts ?? [],
+        agentFinalSpec: finalSpec,
         agentSystemPrompt: data.systemPrompt,
-        agentChat: [{ role: "assistant", content: greeting }],
       });
+      toast.success("Agent successfully built!");
     } catch (e) {
-      const errMsg = e instanceof Error ? e.message : "Could not boot agent.";
+      const errMsg = e instanceof Error ? e.message : "Could not build agent.";
       toast.error(errMsg);
       updateMsg(id, { agentStatus: "pending", agentError: errMsg });
     } finally {
@@ -470,9 +470,32 @@ export default function GenerationWorkspace() {
   const removeAgent = (id: string) => updateMsg(id, { agentStatus: "removed", editing: false });
   const startEditAgent = (id: string) => updateMsg(id, { editing: true });
   const saveEditAgent = (id: string, content: string) => {
-    updateMsg(id, { content, editing: false, agentStatus: "pending" });
-    // Kick off a real build with the edited spec
-    setTimeout(() => void buildAgent(id), 0);
+    const cleaned = cleanAgentSpecOutput(content);
+    updateMsg(id, { content: cleaned, editing: false, agentStatus: "pending" });
+    void buildAgent(id, cleaned);
+  };
+
+  const copyAgentSpec = async (spec: string) => {
+    await navigator.clipboard.writeText(cleanAgentSpecOutput(spec));
+    toast.success("Spec copied.");
+  };
+
+  const deployAgentPreview = () => {
+    setActiveTab("preview");
+    toast.success("Deploy preview ready on this page.");
+  };
+
+  const saveAgent = (msg: ChatMessage) => {
+    const saved = JSON.parse(localStorage.getItem("nazai_saved_agents") || "[]") as unknown[];
+    const finalSpec = cleanAgentSpecOutput(msg.agentFinalSpec || msg.content);
+    localStorage.setItem(
+      "nazai_saved_agents",
+      JSON.stringify([
+        { id: msg.id, name: msg.agentName || parseAgentSpec(finalSpec).name || "AI Agent", spec: finalSpec, savedAt: new Date().toISOString() },
+        ...saved.filter((item: any) => item?.id !== msg.id),
+      ]),
+    );
+    toast.success("Agent saved.");
   };
 
   const sendAgentTurn = async (id: string, text: string) => {
