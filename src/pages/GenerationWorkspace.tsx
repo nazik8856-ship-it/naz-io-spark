@@ -1000,10 +1000,7 @@ export default function GenerationWorkspace() {
             {(() => {
               const lastNaz = [...messages].reverse().find((m) => {
                 if (m.role !== "nazai") return false;
-                if (m.kind === "agent-spec") {
-                  // Show building/approved agents (no content gate for these states)
-                  return m.agentStatus === "approved" || m.agentStatus === "building";
-                }
+                if (m.kind === "agent-spec") return !!m.content || m.agentStatus === "approved" || m.agentStatus === "building";
                 return !!m.content;
               });
               const lastUser = [...messages].reverse().find((m) => m.role === "user");
@@ -1045,24 +1042,57 @@ export default function GenerationWorkspace() {
                 );
               }
 
-              // APPROVED agent-spec → live chat with the agent
+              // APPROVED agent-spec → final built agent card
               if (lastNaz.kind === "agent-spec" && lastNaz.agentStatus === "approved") {
-                const spec = parseAgentSpec(lastNaz.content);
+                const finalSpec = cleanAgentSpecOutput(lastNaz.agentFinalSpec || lastNaz.content);
+                const spec = parseAgentSpec(finalSpec);
                 const agentName = lastNaz.agentName || spec.name || "AI Agent";
-                const turns = lastNaz.agentChat ?? [];
-                const suggestions = lastNaz.agentSuggestions ?? [];
                 return (
-                  <LiveAgentChat
-                    key={lastNaz.id}
-                    agentId={lastNaz.id}
-                    name={agentName}
-                    goal={spec.goal}
-                    turns={turns}
-                    suggestions={suggestions}
-                    streaming={!!lastNaz.agentStreaming}
-                    fullSpec={lastNaz.content}
-                    onSend={(text) => void sendAgentTurn(lastNaz.id, text)}
-                  />
+                  <div className="relative h-full overflow-y-auto px-6 md:px-10 py-8">
+                    <div className="max-w-4xl mx-auto rounded-xl border border-emerald-400/30 bg-black/50 backdrop-blur-sm shadow-2xl shadow-emerald-500/10 overflow-hidden">
+                      <div className="flex items-start justify-between gap-4 p-5 border-b border-white/10 bg-emerald-400/5">
+                        <div className="min-w-0">
+                          <div className="text-[10px] uppercase tracking-[0.22em] text-emerald-300 font-mono mb-2">
+                            Agent successfully built!
+                          </div>
+                          <h1 className="text-2xl md:text-3xl font-bold text-white truncate">{agentName}</h1>
+                          {spec.goal && <p className="text-sm text-cyan-200/90 mt-2 line-clamp-2">{spec.goal}</p>}
+                        </div>
+                        <span className="shrink-0 text-[10px] uppercase tracking-wider px-2.5 py-1 rounded bg-emerald-400/15 text-emerald-300 border border-emerald-400/30 inline-flex items-center gap-1">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                          Built
+                        </span>
+                      </div>
+                      <div className="p-5 md:p-7">
+                        <div className="prose prose-invert prose-sm md:prose-base max-w-none prose-headings:text-white prose-pre:bg-black/60 prose-pre:border prose-pre:border-white/10 prose-code:text-cyan-300">
+                          <ReactMarkdown>{finalSpec}</ReactMarkdown>
+                        </div>
+                        <div className="mt-6 pt-5 border-t border-white/10 flex flex-wrap gap-2">
+                          <button
+                            onClick={() => void copyAgentSpec(finalSpec)}
+                            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 text-white text-sm font-semibold hover:bg-white/15 border border-white/10"
+                          >
+                            <Copy className="h-4 w-4 text-cyan-300" />
+                            Copy Spec
+                          </button>
+                          <button
+                            onClick={deployAgentPreview}
+                            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 to-cyan-400 text-black text-sm font-semibold hover:opacity-90"
+                          >
+                            <Rocket className="h-4 w-4" />
+                            Deploy Preview
+                          </button>
+                          <button
+                            onClick={() => saveAgent(lastNaz)}
+                            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 text-white text-sm font-semibold hover:bg-white/15 border border-white/10"
+                          >
+                            <Save className="h-4 w-4 text-emerald-300" />
+                            Save Agent
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 );
               }
 
