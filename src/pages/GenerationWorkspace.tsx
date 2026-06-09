@@ -200,16 +200,14 @@ export default function GenerationWorkspace() {
     const hasSupport = /support|customer|ticket|service|helpdesk/i.test(cleanRequest);
     const focus = hasSales ? "Revenue Resilience" : hasSupport ? "Customer Continuity" : "Business Resilience";
 
-    return `> ⚠️ **Draft Agent (offline fallback — live generator unreachable)**
-
-1. Agent Name: ${focus} Agent
+    return `1. **Agent Name**: ${focus} Agent
 
 
-2. Description: This autonomous agent is designed around the request: ${cleanRequest}. It helps the business protect revenue, reduce operational drag, and make faster decisions during uncertain market conditions.
+2. **Description**: This autonomous agent is designed around the request: ${cleanRequest}. It helps the business protect revenue, reduce operational drag, and make faster decisions during uncertain market conditions.
 
-3. Primary Goal: Improve business resilience by turning the user's stated need into monitored actions, prioritized decisions, and measurable outcomes.
+3. **Primary Goal**: Improve business resilience by turning the user's stated need into monitored actions, prioritized decisions, and measurable outcomes.
 
-4. Autonomous Capabilities:
+4. **Autonomous Capabilities**:
 - Interprets incoming business signals and classifies urgency, risk, and opportunity.
 - Monitors relevant workflows, customer inputs, operational data, and task queues.
 - Recommends or triggers next-best actions based on business value and downside risk.
@@ -217,7 +215,7 @@ export default function GenerationWorkspace() {
 - Escalates high-risk decisions, unusual patterns, or financial-impact actions to a human owner.
 - Learns from approved outcomes to improve prioritization and response quality over time.
 
-5. Step-by-Step Workflow:
+5. **Step-by-Step Workflow**:
 1. Receives the user's request, business context, or connected workflow event.
 2. Extracts the goal, stakeholders, constraints, risks, and success metrics.
 3. Checks available data sources for relevant context and recent changes.
@@ -226,11 +224,11 @@ export default function GenerationWorkspace() {
 6. Requests human approval for sensitive, costly, customer-facing, or irreversible actions.
 7. Tracks results and updates future recommendations based on measurable outcomes.
 
-6. Guardrails & Safety: The agent must not make financial commitments, legal claims, hiring decisions, customer refunds, or destructive system changes without human approval. It should protect private data, cite uncertainty clearly, log every action, and escalate when confidence is low or business risk is high.
+6. **Guardrails & Safety**: The agent must not make financial commitments, legal claims, hiring decisions, customer refunds, or destructive system changes without human approval. It should protect private data, cite uncertainty clearly, log every action, and escalate when confidence is low or business risk is high.
 
-7. Deployment Options: Deploy it as a dashboard assistant, embedded chat agent, scheduled background worker, CRM/helpdesk automation, internal API endpoint, or operations copilot connected to business tools.
+7. **Deployment Options**: Deploy it as a dashboard assistant, embedded chat agent, scheduled background worker, CRM/helpdesk automation, internal API endpoint, or operations copilot connected to business tools.
 
-8. Expected Impact: The business gets faster response cycles, clearer prioritization, lower manual workload, and better protection against revenue leakage. Over time, the agent should improve resilience by helping teams act earlier on risks and capture opportunities with less operational friction.`;
+8. **Expected Impact**: The business gets faster response cycles, clearer prioritization, lower manual workload, and better protection against revenue leakage. Over time, the agent should improve resilience by helping teams act earlier on risks and capture opportunities with less operational friction.`;
   };
 
   const streamFromNazAI = async (history: { role: "user" | "assistant"; content: string }[]) => {
@@ -305,8 +303,9 @@ export default function GenerationWorkspace() {
             const delta = parsed.choices?.[0]?.delta?.content;
             if (delta) {
               acc += delta;
+              const nextContent = agentMode ? cleanAgentSpecOutput(acc) : acc;
               setMessages((m) =>
-                m.map((x) => (x.id === assistantId ? { ...x, content: acc } : x)),
+                m.map((x) => (x.id === assistantId ? { ...x, content: nextContent } : x)),
               );
             }
           } catch {
@@ -327,8 +326,9 @@ export default function GenerationWorkspace() {
             const delta = parsed.choices?.[0]?.delta?.content;
             if (delta) {
               acc += delta;
+              const nextContent = agentMode ? cleanAgentSpecOutput(acc) : acc;
               setMessages((m) =>
-                m.map((x) => (x.id === assistantId ? { ...x, content: acc } : x)),
+                m.map((x) => (x.id === assistantId ? { ...x, content: nextContent } : x)),
               );
             }
           } catch {
@@ -339,6 +339,13 @@ export default function GenerationWorkspace() {
 
       if (!acc.trim()) {
         throw new Error("No agent output received");
+      }
+      if (agentMode) {
+        setMessages((m) =>
+          m.map((x) =>
+            x.id === assistantId ? { ...x, content: cleanAgentSpecOutput(acc) || createAgentFallback(lastUser) } : x,
+          ),
+        );
       }
     } catch (e) {
       console.error(e);
