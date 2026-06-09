@@ -593,25 +593,6 @@ export default function GenerationWorkspace() {
     }
   };
 
-  // Auto-build any finished agent-spec after 10s of inactivity
-  useEffect(() => {
-    const pending = messages.find(
-      (m) =>
-        m.kind === "agent-spec" &&
-        !m.streaming &&
-        m.agentStatus === "pending" &&
-        !m.editing &&
-        m.content,
-    );
-    if (!pending) return;
-    const t = setTimeout(() => void buildAgent(pending.id), 10000);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages]);
-
-
-
-
   return (
     <div
       className="min-h-screen w-full text-white flex flex-col"
