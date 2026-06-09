@@ -51,8 +51,8 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) return errorResponse(500, "LOVABLE_API_KEY not configured");
+    const cfg = pickGateway();
+    if (!cfg) return errorResponse(500, "No AI key configured (OPENAI_API_KEY or LOVABLE_API_KEY)");
 
     const { spec, messages } = await req.json();
     if (!spec || typeof spec !== "string") return errorResponse(400, "spec required");
@@ -63,7 +63,7 @@ serve(async (req) => {
     if (!messages || (Array.isArray(messages) && messages.length === 0)) {
       const initResp = await callGateway(
         {
-          model: MODEL,
+          model: cfg.model,
           messages: [
             {
               role: "system",
@@ -84,10 +84,9 @@ Return ONLY the JSON object.`,
             },
           ],
           temperature: 0.5,
-          response_format: { type: "json_object" },
+          ...(cfg.supportsJsonObject ? { response_format: { type: "json_object" } } : {}),
         },
-        LOVABLE_API_KEY,
-        false,
+        cfg,
       );
 
       if (initResp.status === 429) return errorResponse(429, "Rate limit hit. Try again shortly.");
@@ -146,13 +145,12 @@ Return ONLY the JSON object.`,
 
     const resp = await callGateway(
       {
-        model: MODEL,
+        model: cfg.model,
         messages: chatMessages,
         stream: true,
         temperature: 0.7,
       },
-      LOVABLE_API_KEY,
-      true,
+      cfg,
     );
 
     if (resp.status === 429) return errorResponse(429, "Rate limit hit. Try again shortly.");
