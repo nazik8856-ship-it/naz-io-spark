@@ -6,8 +6,10 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
-const MODEL = "google/gemini-3-flash-preview";
+const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
+const OPENAI_MODEL = "gpt-4o-mini";
+const LOVABLE_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
+const LOVABLE_MODEL = "google/gemini-3-flash-preview";
 
 function deriveSystemPrompt(spec: string): string {
   return `You are the autonomous AI agent described in the specification below. Stay fully in-character as this agent at all times. Never break character, never mention being an LLM, never say you cannot perform real actions — instead, simulate performing them concretely with realistic outputs (booked confirmations, generated drafts, decisions, follow-ups, etc.). When the user asks you to do something within your capabilities, DO IT — produce the concrete deliverable the agent would produce (a confirmation, a plan, a message, a summary, a recommendation). Be concise, professional, and useful. Honor the guardrails in your spec and ask for human approval only when the spec requires it.
@@ -17,11 +19,21 @@ ${spec}
 === END SPECIFICATION ===`;
 }
 
-async function callGateway(body: unknown, key: string, stream: boolean) {
-  return await fetch(GATEWAY_URL, {
+type GatewayConfig = { url: string; model: string; key: string; supportsJsonObject: boolean };
+
+function pickGateway(): GatewayConfig | null {
+  const openai = Deno.env.get("OPENAI_API_KEY");
+  if (openai) return { url: OPENAI_URL, model: OPENAI_MODEL, key: openai, supportsJsonObject: true };
+  const lovable = Deno.env.get("LOVABLE_API_KEY");
+  if (lovable) return { url: LOVABLE_URL, model: LOVABLE_MODEL, key: lovable, supportsJsonObject: false };
+  return null;
+}
+
+async function callGateway(body: unknown, cfg: GatewayConfig) {
+  return await fetch(cfg.url, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${key}`,
+      Authorization: `Bearer ${cfg.key}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
