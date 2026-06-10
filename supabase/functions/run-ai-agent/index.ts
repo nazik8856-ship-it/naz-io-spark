@@ -115,39 +115,96 @@ Output exactly this structure:
             },
             {
               role: "user",
-              content: `Build the final deployable autonomous AI agent from this generated plan. Improve clarity, keep it practical for 2026 economic conditions, and output ONLY the final 8-section specification.
+              content: `Build the final deployable autonomous AI agent from this generated plan. Improve clarity, keep it practical for 2026 economic conditions, every section must directly reflect the plan's actual domain and tasks, and output ONLY the final 8-section specification.
 
 Generated plan:
 ${cleanSpec}`,
             },
           ],
           temperature: 0.45,
-          stream: false,
+          stream: true,
         },
         cfg,
       );
 
       if (buildResp.status === 429) return errorResponse(429, "Rate limit hit. Try again shortly.");
       if (buildResp.status === 402) return errorResponse(402, "AI credits exhausted.");
-      if (!buildResp.ok) {
-        const t = await buildResp.text();
+      if (!buildResp.ok || !buildResp.body) {
+        const t = await buildResp.text().catch(() => "");
         console.error("build gateway error", buildResp.status, t);
         return errorResponse(500, "AI error");
       }
 
-      const data = await buildResp.json();
-      const raw = data?.choices?.[0]?.message?.content ?? cleanSpec;
-      const finalSpec = cleanAgentSpecOutput(raw) || cleanSpec;
+      // Stream tokens back to client; final SSE event includes the finalized payload.
+      const encoder = new TextEncoder();
+      const decoder = new TextDecoder();
+      const reader = buildResp.body.getReader();
+      let acc = "";
+      let buf = "";
 
-      return new Response(
-        JSON.stringify({
-          agentId: crypto.randomUUID(),
-          name: extractAgentName(finalSpec),
-          finalSpec,
-          systemPrompt: deriveSystemPrompt(finalSpec),
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+      const stream = new ReadableStream({
+        async start(controller) {
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              buf += decoder.decode(value, { stream: true });
+              let nl: number;
+              while ((nl = buf.indexOf("\n")) !== -1) {
+                let line = buf.slice(0, nl);
+                buf = buf.slice(nl + 1);
+                if (line.endsWith("\r")) line = line.slice(0, -1);
+                if (!line.startsWith("data: ")) continue;
+                const json = line.slice(6).trim();
+                if (!json || json === "[DONE]") continue;
+                try {
+                  const parsed = JSON.parse(json);
+                  const delta = parsed.choices?.[0]?.delta?.content;
+                  if (delta) {
+                    acc += delta;
+                    controller.enqueue(
+                      encoder.encode(
+                        `data: ${JSON.stringify({ type: "delta", content: delta })}\n\n`,
+                      ),
+                    );
+                  }
+                } catch {
+                  buf = line + "\n" + buf;
+                  break;
+                }
+              }
+            }
+
+            const finalSpec = cleanAgentSpecOutput(acc) || cleanSpec;
+            const name = extractAgentName(finalSpec);
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({
+                  type: "final",
+                  agentId: crypto.randomUUID(),
+                  name,
+                  finalSpec,
+                  systemPrompt: deriveSystemPrompt(finalSpec),
+                })}\n\n`,
+              ),
+            );
+            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+            controller.close();
+          } catch (err) {
+            console.error("build stream error", err);
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({ type: "error", message: "Stream interrupted" })}\n\n`,
+              ),
+            );
+            controller.close();
+          }
+        },
+      });
+
+      return new Response(stream, {
+        headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
+      });
     }
 
     // INIT mode: no chat history → bootstrap the agent (name, greeting, suggestions)
