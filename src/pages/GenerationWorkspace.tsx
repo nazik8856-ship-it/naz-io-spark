@@ -345,9 +345,10 @@ export default function GenerationWorkspace() {
         throw new Error("No agent output received");
       }
       if (agentMode) {
+        const finalClean = cleanAgentSpecOutput(acc, { final: true }) || createAgentFallback(lastUser);
         setMessages((m) =>
           m.map((x) =>
-            x.id === assistantId ? { ...x, content: cleanAgentSpecOutput(acc) || createAgentFallback(lastUser) } : x,
+            x.id === assistantId ? { ...x, content: finalClean } : x,
           ),
         );
       }
