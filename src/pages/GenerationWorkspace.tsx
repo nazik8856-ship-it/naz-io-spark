@@ -53,7 +53,7 @@ type ChatMessage = {
   agentError?: string;
 };
 
-function cleanAgentSpecOutput(text: string): string {
+function cleanAgentSpecOutput(text: string, opts: { final?: boolean } = {}): string {
   if (!text) return "";
   let cleaned = text
     .replace(/```(?:markdown|md|text)?/gi, "")
@@ -63,8 +63,12 @@ function cleanAgentSpecOutput(text: string): string {
     .replace(/\bforging\b/gi, "building")
     .replace(/\bdetected\b/gi, "identified");
 
-  const start = cleaned.search(/\b1\.\s*(?:\*\*)?\s*Agent Name/i);
-  if (start >= 0) cleaned = cleaned.slice(start);
+  // Only hard-slice on the final pass — slicing mid-stream blanks the UI
+  // until the model finally emits the "1. Agent Name" header.
+  if (opts.final) {
+    const start = cleaned.search(/\b1\.\s*(?:\*\*)?\s*Agent Name/i);
+    if (start > 0) cleaned = cleaned.slice(start);
+  }
 
   cleaned = cleaned
     .split("\n")
@@ -341,9 +345,10 @@ export default function GenerationWorkspace() {
         throw new Error("No agent output received");
       }
       if (agentMode) {
+        const finalClean = cleanAgentSpecOutput(acc, { final: true }) || createAgentFallback(lastUser);
         setMessages((m) =>
           m.map((x) =>
-            x.id === assistantId ? { ...x, content: cleanAgentSpecOutput(acc) || createAgentFallback(lastUser) } : x,
+            x.id === assistantId ? { ...x, content: finalClean } : x,
           ),
         );
       }
@@ -461,7 +466,9 @@ export default function GenerationWorkspace() {
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : "Could not build agent.";
       toast.error(errMsg);
-      updateMsg(id, { agentStatus: "pending", agentError: errMsg });
+      // Keep the spec on screen with a clear error — do NOT bounce back to a
+      // state that hides the card or flashes the action row.
+      updateMsg(id, { content: sourceSpec, agentStatus: "pending", agentError: errMsg });
     } finally {
       buildingRef.current.delete(id);
     }
