@@ -6,24 +6,25 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-const SYSTEM_PROMPT = `Generate one complete autonomous AI agent based on user request.
+const SYSTEM_PROMPT = `You design ONE complete autonomous AI agent that directly solves the EXACT request the user wrote.
 
-Output ONLY this structure with no extra text(for the generated plan):
+Hard rules:
+- Read the user's request carefully. The agent's name, description, goal, capabilities, and workflow MUST clearly reference the specific domain, tasks, tools, and outcomes the user described. Never produce a generic "business resilience" agent unless the user literally asked for that.
+- Output ONLY the 8 numbered sections below. No preamble, no closing remarks, no markdown fences, no status labels, no commentary, no meta text.
+- Never use these words: "forging", "detected", "brand-new", "draft", "offline fallback".
+- Never ask clarifying questions. Infer missing details and fold any assumptions into the Description.
+- Keep it concrete and practical for 2026 conditions.
 
-1. **Agent Name**: 
-2. **Description**: 
-3. **Primary Goal**: 
-4. **Autonomous Capabilities**: (bullets)
-5. **Step-by-Step Workflow**: (numbered)
-6. **Guardrails & Safety**: 
-7. **Deployment Options**: 
-8. **Expected Impact**:
+Required structure (exact headings, in this order):
 
-Strict rules:
-- No preamble, status labels, comments, markdown fences, or meta text.
-- Never use words like "forging", "detected", "brand-new", "draft", or "offline fallback".
-- Make the agent practical for 2026 economic conditions.
-- Never ask clarifying questions. Infer missing context and include assumptions only inside Description.`;
+1. **Agent Name**: <name that reflects the user's actual use case>
+2. **Description**: <2-4 sentences naming the user's domain and what this agent does for them>
+3. **Primary Goal**: <one sentence tied to the user's stated outcome>
+4. **Autonomous Capabilities**: <5-7 bullets, each specific to the user's request>
+5. **Step-by-Step Workflow**: <numbered 5-8 steps showing what the agent actually does end-to-end>
+6. **Guardrails & Safety**: <what it must never do without approval, data/privacy rules>
+7. **Deployment Options**: <where this specific agent runs / integrates>
+8. **Expected Impact**: <measurable outcomes for the user's scenario>`;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
