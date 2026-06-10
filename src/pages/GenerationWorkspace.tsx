@@ -53,7 +53,7 @@ type ChatMessage = {
   agentError?: string;
 };
 
-function cleanAgentSpecOutput(text: string): string {
+function cleanAgentSpecOutput(text: string, opts: { final?: boolean } = {}): string {
   if (!text) return "";
   let cleaned = text
     .replace(/```(?:markdown|md|text)?/gi, "")
@@ -63,8 +63,12 @@ function cleanAgentSpecOutput(text: string): string {
     .replace(/\bforging\b/gi, "building")
     .replace(/\bdetected\b/gi, "identified");
 
-  const start = cleaned.search(/\b1\.\s*(?:\*\*)?\s*Agent Name/i);
-  if (start >= 0) cleaned = cleaned.slice(start);
+  // Only hard-slice on the final pass — slicing mid-stream blanks the UI
+  // until the model finally emits the "1. Agent Name" header.
+  if (opts.final) {
+    const start = cleaned.search(/\b1\.\s*(?:\*\*)?\s*Agent Name/i);
+    if (start > 0) cleaned = cleaned.slice(start);
+  }
 
   cleaned = cleaned
     .split("\n")
