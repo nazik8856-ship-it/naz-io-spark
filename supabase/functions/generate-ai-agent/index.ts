@@ -54,7 +54,14 @@ serve(async (req) => {
     const industryLine = industry ? `Industry: ${industry}` : "Industry: (infer from request)";
     const challengesLine = challenges ? `Challenges: ${challenges}` : "Challenges: (infer reasonable challenges)";
 
-    const composedUserPrompt = `User's request: ${rawPrompt}\n${industryLine}\n${challengesLine}\n\nGenerate one complete autonomous AI agent based on this request. Output ONLY the 8 numbered sections exactly as requested, with clean business-ready content and no extra text.`;
+    const composedUserPrompt = `USER REQUEST (verbatim, treat as source of truth):
+"""
+${rawPrompt}
+"""
+${industryLine}
+${challengesLine}
+
+Design ONE autonomous AI agent that directly fulfills the request above. Every section must explicitly reflect the user's wording, domain, and desired outcome — do not output a generic template. Return ONLY the 8 numbered sections.`;
 
     const finalMessages = [
       { role: "system", content: SYSTEM_PROMPT },
