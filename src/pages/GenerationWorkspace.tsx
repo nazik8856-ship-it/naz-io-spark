@@ -433,7 +433,13 @@ export default function GenerationWorkspace() {
     if (!msg || !sourceSpec) return;
     if (msg.agentStatus === "building" || (msg.agentStatus === "approved" && !specOverride)) return;
     buildingRef.current.add(id);
-    updateMsg(id, { content: sourceSpec, agentStatus: "building", editing: false, agentError: undefined });
+    // Keep source spec visible while building so nothing flashes/closes.
+    updateMsg(id, {
+      content: sourceSpec,
+      agentStatus: "building",
+      editing: false,
+      agentError: undefined,
+    });
 
     try {
       const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/run-ai-agent`;
@@ -447,27 +453,61 @@ export default function GenerationWorkspace() {
       });
       if (resp.status === 429) throw new Error("Rate limit hit. Try again in a moment.");
       if (resp.status === 402) throw new Error("AI credits exhausted.");
-      if (!resp.ok) throw new Error("Could not build agent.");
-      const data = (await resp.json()) as {
-        name?: string;
-        finalSpec?: string;
-        systemPrompt?: string;
-      };
-      const finalSpec = cleanAgentSpecOutput(data.finalSpec || sourceSpec);
-      const name = data.name || parseAgentSpec(finalSpec).name || "AI Agent";
+      if (!resp.ok || !resp.body) throw new Error("Could not build agent.");
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      let acc = "";
+      let finalPayload: { name?: string; finalSpec?: string; systemPrompt?: string } | null = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let nl: number;
+        while ((nl = buf.indexOf("\n")) !== -1) {
+          let line = buf.slice(0, nl);
+          buf = buf.slice(nl + 1);
+          if (line.endsWith("\r")) line = line.slice(0, -1);
+          if (!line.startsWith("data: ")) continue;
+          const json = line.slice(6).trim();
+          if (!json || json === "[DONE]") continue;
+          try {
+            const evt = JSON.parse(json);
+            if (evt.type === "delta" && typeof evt.content === "string") {
+              acc += evt.content;
+              const partial = cleanAgentSpecOutput(acc) || sourceSpec;
+              updateMsg(id, { content: partial, agentStatus: "building" });
+            } else if (evt.type === "final") {
+              finalPayload = evt;
+            } else if (evt.type === "error") {
+              throw new Error(evt.message || "Stream interrupted");
+            }
+          } catch (err) {
+            if (err instanceof Error && err.message === "Stream interrupted") throw err;
+            // partial JSON — re-buffer
+            buf = line + "\n" + buf;
+            break;
+          }
+        }
+      }
+
+      const finalSpec =
+        cleanAgentSpecOutput(finalPayload?.finalSpec || acc, { final: true }) || sourceSpec;
+      const name = finalPayload?.name || parseAgentSpec(finalSpec).name || "AI Agent";
       updateMsg(id, {
         content: finalSpec,
         agentStatus: "approved",
         agentName: name,
         agentFinalSpec: finalSpec,
-        agentSystemPrompt: data.systemPrompt,
+        agentSystemPrompt: finalPayload?.systemPrompt,
+        agentError: undefined,
       });
       toast.success("Agent successfully built!");
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : "Could not build agent.";
       toast.error(errMsg);
-      // Keep the spec on screen with a clear error — do NOT bounce back to a
-      // state that hides the card or flashes the action row.
       updateMsg(id, { content: sourceSpec, agentStatus: "pending", agentError: errMsg });
     } finally {
       buildingRef.current.delete(id);
@@ -1005,25 +1045,29 @@ export default function GenerationWorkspace() {
                 );
               }
 
-              // BUILDING: neo-brutalist booting skeleton
+              // BUILDING: live-streaming spec preview (no flash, no closing window)
               if (lastNaz.kind === "agent-spec" && lastNaz.agentStatus === "building") {
                 const spec = parseAgentSpec(lastNaz.content);
+                const liveText = lastNaz.content || "Booting agent…";
                 return (
-                  <div className="relative h-full flex items-center justify-center px-6">
-                    <div className="w-full max-w-xl border-2 border-cyan-400/40 bg-black/60 p-6 rounded-none shadow-[0_0_0_4px_rgba(0,163,255,0.08)]">
-                      <div className="text-[10px] font-mono uppercase tracking-[0.3em] text-cyan-300 mb-3 animate-pulse">
-                        ▮ Booting agent…
+                  <div className="relative h-full overflow-y-auto px-6 md:px-10 py-8">
+                    <div className="max-w-4xl mx-auto rounded-xl border border-cyan-400/40 bg-black/55 backdrop-blur-sm overflow-hidden shadow-2xl shadow-cyan-500/10">
+                      <div className="flex items-center justify-between gap-3 p-5 border-b border-white/10 bg-cyan-400/5">
+                        <div className="min-w-0">
+                          <div className="text-[10px] uppercase tracking-[0.22em] text-cyan-300 font-mono mb-2 animate-pulse">
+                            ▮ Building agent live…
+                          </div>
+                          <h1 className="text-2xl md:text-3xl font-bold text-white truncate">{spec.name || "AI Agent"}</h1>
+                        </div>
+                        <span className="shrink-0 text-[10px] uppercase tracking-wider px-2.5 py-1 rounded bg-cyan-400/15 text-cyan-300 border border-cyan-400/30 inline-flex items-center gap-1">
+                          <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                          Booting
+                        </span>
                       </div>
-                      <div className="text-2xl font-bold text-white mb-2">{spec.name || "AI Agent"}</div>
-                      <div className="space-y-2">
-                        <div className="h-3 w-full bg-white/10" />
-                        <div className="h-3 w-5/6 bg-white/10" />
-                        <div className="h-3 w-2/3 bg-white/10" />
-                      </div>
-                      <div className="mt-5 flex gap-2">
-                        <div className="h-8 w-24 bg-cyan-400/20 border border-cyan-400/40" />
-                        <div className="h-8 w-20 bg-white/5 border border-white/10" />
-                        <div className="h-8 w-28 bg-white/5 border border-white/10" />
+                      <div className="p-5 md:p-7">
+                        <div className="prose prose-invert prose-sm md:prose-base max-w-none prose-headings:text-white prose-pre:bg-black/60 prose-pre:border prose-pre:border-white/10 prose-code:text-cyan-300">
+                          <ReactMarkdown>{liveText}</ReactMarkdown>
+                        </div>
                       </div>
                     </div>
                   </div>
