@@ -466,7 +466,9 @@ export default function GenerationWorkspace() {
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : "Could not build agent.";
       toast.error(errMsg);
-      updateMsg(id, { agentStatus: "pending", agentError: errMsg });
+      // Keep the spec on screen with a clear error — do NOT bounce back to a
+      // state that hides the card or flashes the action row.
+      updateMsg(id, { content: sourceSpec, agentStatus: "pending", agentError: errMsg });
     } finally {
       buildingRef.current.delete(id);
     }
