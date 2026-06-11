@@ -23,10 +23,13 @@ import {
   Copy,
   Rocket,
   Save,
+  Trash2,
+  Play,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import ReactMarkdown from "react-markdown";
 import { toast } from "sonner";
+import LiveAgentChat from "@/components/agents/LiveAgentChat";
 
 type AgentStatus = "pending" | "building" | "approved" | "removed";
 
