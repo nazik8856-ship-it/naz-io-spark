@@ -23,10 +23,13 @@ import {
   Copy,
   Rocket,
   Save,
+  Trash2,
+  Play,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import ReactMarkdown from "react-markdown";
 import { toast } from "sonner";
+import LiveAgentChat from "@/components/agents/LiveAgentChat";
 
 type AgentStatus = "pending" | "building" | "approved" | "removed";
 
@@ -128,8 +131,20 @@ export default function GenerationWorkspace() {
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const modeMenuRef = useRef<HTMLDivElement>(null);
   const initialized = useRef(false);
-  // Selected generation type from /generator-home ("business" === AI Agent)
   const forcedAgentRef = useRef<boolean>(false);
+
+  type SavedAgent = { id: string; name: string; spec: string; systemPrompt?: string; savedAt: string };
+  const [savedAgents, setSavedAgents] = useState<SavedAgent[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("nazai_saved_agents") || "[]") as SavedAgent[];
+    } catch { return []; }
+  });
+  const [selectedSavedId, setSelectedSavedId] = useState<string | null>(null);
+
+  const persistSaved = (next: SavedAgent[]) => {
+    setSavedAgents(next);
+    localStorage.setItem("nazai_saved_agents", JSON.stringify(next));
+  };
 
   useEffect(() => {
     const onClickOutside = (e: MouseEvent) => {
@@ -504,7 +519,18 @@ export default function GenerationWorkspace() {
         agentSystemPrompt: finalPayload?.systemPrompt,
         agentError: undefined,
       });
-      toast.success("Agent successfully built!");
+      // Auto-save to Dashboard
+      const entry: SavedAgent = {
+        id,
+        name,
+        spec: finalSpec,
+        systemPrompt: finalPayload?.systemPrompt,
+        savedAt: new Date().toISOString(),
+      };
+      const current = JSON.parse(localStorage.getItem("nazai_saved_agents") || "[]") as SavedAgent[];
+      const next = [entry, ...current.filter((a) => a.id !== id)];
+      persistSaved(next);
+      toast.success("Agent successfully built & saved!");
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : "Could not build agent.";
       toast.error(errMsg);
@@ -512,6 +538,12 @@ export default function GenerationWorkspace() {
     } finally {
       buildingRef.current.delete(id);
     }
+  };
+
+  const removeSavedAgent = (id: string) => {
+    persistSaved(savedAgents.filter((a) => a.id !== id));
+    if (selectedSavedId === id) setSelectedSavedId(null);
+    toast.success("Agent removed.");
   };
 
   const removeAgent = (id: string) => updateMsg(id, { agentStatus: "removed", editing: false });
@@ -676,17 +708,20 @@ export default function GenerationWorkspace() {
 
         {/* Center tabs */}
         <div className="flex items-center gap-1 p-1 rounded-xl border border-white/10 bg-white/[0.03]">
-          {(["preview", "dashboard"] as const).map((t) => (
+          {([
+            { id: "preview" as const, label: "Preview" },
+            { id: "dashboard" as const, label: "Chat" },
+          ]).map((t) => (
             <button
-              key={t}
-              onClick={() => setActiveTab(t)}
-              className={`px-4 py-1.5 rounded-lg text-sm capitalize transition-colors ${
-                activeTab === t
+              key={t.id}
+              onClick={() => setActiveTab(t.id)}
+              className={`px-4 py-1.5 rounded-lg text-sm transition-colors ${
+                activeTab === t.id
                   ? "bg-white/10 text-white"
                   : "text-zinc-400 hover:text-white"
               }`}
             >
-              {t}
+              {t.label}
             </button>
           ))}
         </div>
@@ -1026,6 +1061,119 @@ export default function GenerationWorkspace() {
               }}
             />
             {(() => {
+              // CHAT TAB → live chat with the selected (or latest) built agent
+              if (activeTab === "dashboard") {
+                const approvedMsgs = messages.filter(
+                  (m) => m.role === "nazai" && m.kind === "agent-spec" && m.agentStatus === "approved",
+                );
+                const lastApproved = approvedMsgs[approvedMsgs.length - 1];
+                const selected = selectedSavedId
+                  ? savedAgents.find((a) => a.id === selectedSavedId)
+                  : null;
+
+                // Prefer in-session approved (has live agentChat); else hydrate from saved
+                let chatMsg = lastApproved;
+                if (selected && (!chatMsg || chatMsg.id !== selected.id)) {
+                  chatMsg = messages.find((m) => m.id === selected.id) || {
+                    id: selected.id,
+                    role: "nazai",
+                    content: selected.spec,
+                    time: "saved",
+                    kind: "agent-spec",
+                    agentStatus: "approved",
+                    agentName: selected.name,
+                    agentFinalSpec: selected.spec,
+                    agentSystemPrompt: selected.systemPrompt,
+                    agentChat: [],
+                  };
+                }
+
+                if (!chatMsg && savedAgents.length === 0) {
+                  return (
+                    <div className="relative h-full flex flex-col items-center justify-center text-center px-6">
+                      <h2 className="text-xl font-bold">No agent yet</h2>
+                      <p className="text-zinc-500 text-sm mt-2">Build an agent in the Preview tab to start chatting.</p>
+                    </div>
+                  );
+                }
+
+                if (!chatMsg) {
+                  // Pick first saved if nothing in-session
+                  const fallback = savedAgents[0];
+                  chatMsg = {
+                    id: fallback.id,
+                    role: "nazai",
+                    content: fallback.spec,
+                    time: "saved",
+                    kind: "agent-spec",
+                    agentStatus: "approved",
+                    agentName: fallback.name,
+                    agentFinalSpec: fallback.spec,
+                    agentSystemPrompt: fallback.systemPrompt,
+                    agentChat: [],
+                  };
+                }
+
+                const parsed = parseAgentSpec(chatMsg.agentFinalSpec || chatMsg.content);
+                const name = chatMsg.agentName || parsed.name || "AI Agent";
+
+                // Ensure live message exists in messages array so sendAgentTurn works
+                const liveMsg = messages.find((m) => m.id === chatMsg!.id);
+                if (!liveMsg) {
+                  // Inject into messages on first chat-open so streaming works
+                  setTimeout(() => {
+                    setMessages((m) => (m.find((x) => x.id === chatMsg!.id) ? m : [...m, chatMsg!]));
+                  }, 0);
+                }
+                const turns = liveMsg?.agentChat ?? chatMsg.agentChat ?? [];
+                const streaming = !!liveMsg?.agentStreaming;
+
+                return (
+                  <div className="relative h-full flex">
+                    {savedAgents.length > 0 && (
+                      <div className="w-56 border-r border-white/10 overflow-y-auto p-3 space-y-1.5 hidden md:block">
+                        <div className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 px-2 mb-1">Agents</div>
+                        {savedAgents.map((a) => {
+                          const active = (selectedSavedId ?? lastApproved?.id) === a.id;
+                          return (
+                            <div
+                              key={a.id}
+                              className={`group flex items-center gap-1 rounded-lg ${active ? "bg-white/10" : "hover:bg-white/5"}`}
+                            >
+                              <button
+                                onClick={() => setSelectedSavedId(a.id)}
+                                className="flex-1 text-left px-2.5 py-2 text-xs text-white truncate"
+                              >
+                                {a.name}
+                              </button>
+                              <button
+                                onClick={() => removeSavedAgent(a.id)}
+                                className="opacity-0 group-hover:opacity-100 p-1.5 text-zinc-500 hover:text-red-300"
+                                title="Remove"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <LiveAgentChat
+                        agentId={chatMsg.id}
+                        name={name}
+                        goal={parsed.goal}
+                        turns={turns}
+                        suggestions={chatMsg.agentSuggestions ?? []}
+                        streaming={streaming}
+                        fullSpec={chatMsg.agentFinalSpec || chatMsg.content}
+                        onSend={(text) => void sendAgentTurn(chatMsg!.id, text)}
+                      />
+                    </div>
+                  </div>
+                );
+              }
+
               const lastNaz = [...messages].reverse().find((m) => {
                 if (m.role !== "nazai") return false;
                 if (m.kind === "agent-spec") return !!m.content || m.agentStatus === "approved" || m.agentStatus === "building";
@@ -1101,29 +1249,61 @@ export default function GenerationWorkspace() {
                         </div>
                         <div className="mt-6 pt-5 border-t border-white/10 flex flex-wrap gap-2">
                           <button
-                            onClick={() => void copyAgentSpec(finalSpec)}
+                            onClick={() => setActiveTab("dashboard")}
+                            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-emerald-400 to-cyan-400 text-black text-sm font-semibold hover:opacity-90"
+                          >
+                            <Play className="h-4 w-4" />
+                            Live
+                          </button>
+                          <button
+                            onClick={() => { setActiveTab("preview"); startEditAgent(lastNaz.id); }}
                             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 text-white text-sm font-semibold hover:bg-white/15 border border-white/10"
                           >
-                            <Copy className="h-4 w-4 text-cyan-300" />
-                            Copy Spec
+                            <Pencil className="h-4 w-4 text-purple-300" />
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => { removeAgent(lastNaz.id); removeSavedAgent(lastNaz.id); }}
+                            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 text-red-300 text-sm font-semibold hover:bg-red-500/10 border border-white/10"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            Remove
                           </button>
                           <button
                             onClick={deployAgentPreview}
                             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 to-cyan-400 text-black text-sm font-semibold hover:opacity-90"
                           >
                             <Rocket className="h-4 w-4" />
-                            Deploy Preview
+                            Deploy
                           </button>
                           <button
-                            onClick={() => saveAgent(lastNaz)}
+                            onClick={() => void copyAgentSpec(finalSpec)}
                             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 text-white text-sm font-semibold hover:bg-white/15 border border-white/10"
                           >
-                            <Save className="h-4 w-4 text-emerald-300" />
-                            Save Agent
+                            <Copy className="h-4 w-4 text-cyan-300" />
+                            Copy
                           </button>
                         </div>
                       </div>
                     </div>
+
+                    {savedAgents.length > 1 && (
+                      <div className="max-w-4xl mx-auto mt-8">
+                        <div className="text-xs uppercase tracking-[0.2em] text-zinc-500 mb-3">Your Agents</div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                          {savedAgents.map((a) => (
+                            <button
+                              key={a.id}
+                              onClick={() => { setSelectedSavedId(a.id); setActiveTab("dashboard"); }}
+                              className="text-left rounded-xl border border-white/10 bg-black/40 p-4 hover:border-purple-400/50 transition"
+                            >
+                              <div className="text-sm font-bold text-white truncate">{a.name}</div>
+                              <div className="text-[10px] font-mono text-zinc-500 mt-1">{new Date(a.savedAt).toLocaleString()}</div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               }
