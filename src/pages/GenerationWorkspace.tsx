@@ -131,8 +131,20 @@ export default function GenerationWorkspace() {
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const modeMenuRef = useRef<HTMLDivElement>(null);
   const initialized = useRef(false);
-  // Selected generation type from /generator-home ("business" === AI Agent)
   const forcedAgentRef = useRef<boolean>(false);
+
+  type SavedAgent = { id: string; name: string; spec: string; systemPrompt?: string; savedAt: string };
+  const [savedAgents, setSavedAgents] = useState<SavedAgent[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("nazai_saved_agents") || "[]") as SavedAgent[];
+    } catch { return []; }
+  });
+  const [selectedSavedId, setSelectedSavedId] = useState<string | null>(null);
+
+  const persistSaved = (next: SavedAgent[]) => {
+    setSavedAgents(next);
+    localStorage.setItem("nazai_saved_agents", JSON.stringify(next));
+  };
 
   useEffect(() => {
     const onClickOutside = (e: MouseEvent) => {
