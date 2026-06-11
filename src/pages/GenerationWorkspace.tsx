@@ -708,17 +708,20 @@ export default function GenerationWorkspace() {
 
         {/* Center tabs */}
         <div className="flex items-center gap-1 p-1 rounded-xl border border-white/10 bg-white/[0.03]">
-          {(["preview", "dashboard"] as const).map((t) => (
+          {([
+            { id: "preview" as const, label: "Preview" },
+            { id: "dashboard" as const, label: "Chat" },
+          ]).map((t) => (
             <button
-              key={t}
-              onClick={() => setActiveTab(t)}
-              className={`px-4 py-1.5 rounded-lg text-sm capitalize transition-colors ${
-                activeTab === t
+              key={t.id}
+              onClick={() => setActiveTab(t.id)}
+              className={`px-4 py-1.5 rounded-lg text-sm transition-colors ${
+                activeTab === t.id
                   ? "bg-white/10 text-white"
                   : "text-zinc-400 hover:text-white"
               }`}
             >
-              {t}
+              {t.label}
             </button>
           ))}
         </div>
