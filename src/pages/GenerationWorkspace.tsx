@@ -537,7 +537,22 @@ export default function GenerationWorkspace() {
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : "Could not build agent.";
       toast.error(errMsg);
-      updateMsg(id, { content: sourceSpec, agentStatus: "pending", agentError: errMsg });
+      // Preserve whatever spec we already have so the card never flashes away.
+      const salvaged = cleanAgentSpecOutput(sourceSpec, { final: true }) || sourceSpec;
+      const salvagedName = parseAgentSpec(salvaged).name || "AI Agent";
+      updateMsg(id, {
+        content: salvaged,
+        agentStatus: "approved",
+        agentName: salvagedName,
+        agentFinalSpec: salvaged,
+        agentError: errMsg,
+      });
+      try {
+        const current = JSON.parse(localStorage.getItem("nazai_saved_agents") || "[]") as SavedAgent[];
+        if (!current.some((a) => a.id === id)) {
+          persistSaved([{ id, name: salvagedName, spec: salvaged, savedAt: new Date().toISOString() }, ...current]);
+        }
+      } catch { /* ignore */ }
     } finally {
       buildingRef.current.delete(id);
     }
