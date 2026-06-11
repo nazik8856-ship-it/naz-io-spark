@@ -254,8 +254,11 @@ export default function GenerationWorkspace() {
     setIsStreaming(true);
     const assistantId = crypto.randomUUID();
     const lastUser = [...history].reverse().find((m) => m.role === "user")?.content ?? "";
-    const agentMode = forcedAgentRef.current || isAgentIntent(lastUser);
-    const planMode = !agentMode && chatMode === "plan";
+    // This workspace IS the Agent Generator — every prompt produces an agent spec.
+    // Scoped to GenerationWorkspace only; does not affect /dashboard, /workflower, etc.
+    const agentMode = true;
+    forcedAgentRef.current = true;
+    const planMode = false;
 
     setMessages((m) => [
       ...m,
