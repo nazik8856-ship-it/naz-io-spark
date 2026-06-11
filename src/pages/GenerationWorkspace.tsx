@@ -1061,6 +1061,119 @@ export default function GenerationWorkspace() {
               }}
             />
             {(() => {
+              // CHAT TAB → live chat with the selected (or latest) built agent
+              if (activeTab === "dashboard") {
+                const approvedMsgs = messages.filter(
+                  (m) => m.role === "nazai" && m.kind === "agent-spec" && m.agentStatus === "approved",
+                );
+                const lastApproved = approvedMsgs[approvedMsgs.length - 1];
+                const selected = selectedSavedId
+                  ? savedAgents.find((a) => a.id === selectedSavedId)
+                  : null;
+
+                // Prefer in-session approved (has live agentChat); else hydrate from saved
+                let chatMsg = lastApproved;
+                if (selected && (!chatMsg || chatMsg.id !== selected.id)) {
+                  chatMsg = messages.find((m) => m.id === selected.id) || {
+                    id: selected.id,
+                    role: "nazai",
+                    content: selected.spec,
+                    time: "saved",
+                    kind: "agent-spec",
+                    agentStatus: "approved",
+                    agentName: selected.name,
+                    agentFinalSpec: selected.spec,
+                    agentSystemPrompt: selected.systemPrompt,
+                    agentChat: [],
+                  };
+                }
+
+                if (!chatMsg && savedAgents.length === 0) {
+                  return (
+                    <div className="relative h-full flex flex-col items-center justify-center text-center px-6">
+                      <h2 className="text-xl font-bold">No agent yet</h2>
+                      <p className="text-zinc-500 text-sm mt-2">Build an agent in the Preview tab to start chatting.</p>
+                    </div>
+                  );
+                }
+
+                if (!chatMsg) {
+                  // Pick first saved if nothing in-session
+                  const fallback = savedAgents[0];
+                  chatMsg = {
+                    id: fallback.id,
+                    role: "nazai",
+                    content: fallback.spec,
+                    time: "saved",
+                    kind: "agent-spec",
+                    agentStatus: "approved",
+                    agentName: fallback.name,
+                    agentFinalSpec: fallback.spec,
+                    agentSystemPrompt: fallback.systemPrompt,
+                    agentChat: [],
+                  };
+                }
+
+                const parsed = parseAgentSpec(chatMsg.agentFinalSpec || chatMsg.content);
+                const name = chatMsg.agentName || parsed.name || "AI Agent";
+
+                // Ensure live message exists in messages array so sendAgentTurn works
+                const liveMsg = messages.find((m) => m.id === chatMsg!.id);
+                if (!liveMsg) {
+                  // Inject into messages on first chat-open so streaming works
+                  setTimeout(() => {
+                    setMessages((m) => (m.find((x) => x.id === chatMsg!.id) ? m : [...m, chatMsg!]));
+                  }, 0);
+                }
+                const turns = liveMsg?.agentChat ?? chatMsg.agentChat ?? [];
+                const streaming = !!liveMsg?.agentStreaming;
+
+                return (
+                  <div className="relative h-full flex">
+                    {savedAgents.length > 0 && (
+                      <div className="w-56 border-r border-white/10 overflow-y-auto p-3 space-y-1.5 hidden md:block">
+                        <div className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 px-2 mb-1">Agents</div>
+                        {savedAgents.map((a) => {
+                          const active = (selectedSavedId ?? lastApproved?.id) === a.id;
+                          return (
+                            <div
+                              key={a.id}
+                              className={`group flex items-center gap-1 rounded-lg ${active ? "bg-white/10" : "hover:bg-white/5"}`}
+                            >
+                              <button
+                                onClick={() => setSelectedSavedId(a.id)}
+                                className="flex-1 text-left px-2.5 py-2 text-xs text-white truncate"
+                              >
+                                {a.name}
+                              </button>
+                              <button
+                                onClick={() => removeSavedAgent(a.id)}
+                                className="opacity-0 group-hover:opacity-100 p-1.5 text-zinc-500 hover:text-red-300"
+                                title="Remove"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <LiveAgentChat
+                        agentId={chatMsg.id}
+                        name={name}
+                        goal={parsed.goal}
+                        turns={turns}
+                        suggestions={chatMsg.agentSuggestions ?? []}
+                        streaming={streaming}
+                        fullSpec={chatMsg.agentFinalSpec || chatMsg.content}
+                        onSend={(text) => void sendAgentTurn(chatMsg!.id, text)}
+                      />
+                    </div>
+                  </div>
+                );
+              }
+
               const lastNaz = [...messages].reverse().find((m) => {
                 if (m.role !== "nazai") return false;
                 if (m.kind === "agent-spec") return !!m.content || m.agentStatus === "approved" || m.agentStatus === "building";
