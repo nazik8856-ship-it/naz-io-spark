@@ -1136,29 +1136,61 @@ export default function GenerationWorkspace() {
                         </div>
                         <div className="mt-6 pt-5 border-t border-white/10 flex flex-wrap gap-2">
                           <button
-                            onClick={() => void copyAgentSpec(finalSpec)}
+                            onClick={() => setActiveTab("dashboard")}
+                            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-emerald-400 to-cyan-400 text-black text-sm font-semibold hover:opacity-90"
+                          >
+                            <Play className="h-4 w-4" />
+                            Live
+                          </button>
+                          <button
+                            onClick={() => { setActiveTab("preview"); startEditAgent(lastNaz.id); }}
                             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 text-white text-sm font-semibold hover:bg-white/15 border border-white/10"
                           >
-                            <Copy className="h-4 w-4 text-cyan-300" />
-                            Copy Spec
+                            <Pencil className="h-4 w-4 text-purple-300" />
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => { removeAgent(lastNaz.id); removeSavedAgent(lastNaz.id); }}
+                            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 text-red-300 text-sm font-semibold hover:bg-red-500/10 border border-white/10"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            Remove
                           </button>
                           <button
                             onClick={deployAgentPreview}
                             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 to-cyan-400 text-black text-sm font-semibold hover:opacity-90"
                           >
                             <Rocket className="h-4 w-4" />
-                            Deploy Preview
+                            Deploy
                           </button>
                           <button
-                            onClick={() => saveAgent(lastNaz)}
+                            onClick={() => void copyAgentSpec(finalSpec)}
                             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 text-white text-sm font-semibold hover:bg-white/15 border border-white/10"
                           >
-                            <Save className="h-4 w-4 text-emerald-300" />
-                            Save Agent
+                            <Copy className="h-4 w-4 text-cyan-300" />
+                            Copy
                           </button>
                         </div>
                       </div>
                     </div>
+
+                    {savedAgents.length > 1 && (
+                      <div className="max-w-4xl mx-auto mt-8">
+                        <div className="text-xs uppercase tracking-[0.2em] text-zinc-500 mb-3">Your Agents</div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                          {savedAgents.map((a) => (
+                            <button
+                              key={a.id}
+                              onClick={() => { setSelectedSavedId(a.id); setActiveTab("dashboard"); }}
+                              className="text-left rounded-xl border border-white/10 bg-black/40 p-4 hover:border-purple-400/50 transition"
+                            >
+                              <div className="text-sm font-bold text-white truncate">{a.name}</div>
+                              <div className="text-[10px] font-mono text-zinc-500 mt-1">{new Date(a.savedAt).toLocaleString()}</div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               }
