@@ -519,7 +519,18 @@ export default function GenerationWorkspace() {
         agentSystemPrompt: finalPayload?.systemPrompt,
         agentError: undefined,
       });
-      toast.success("Agent successfully built!");
+      // Auto-save to Dashboard
+      const entry: SavedAgent = {
+        id,
+        name,
+        spec: finalSpec,
+        systemPrompt: finalPayload?.systemPrompt,
+        savedAt: new Date().toISOString(),
+      };
+      const current = JSON.parse(localStorage.getItem("nazai_saved_agents") || "[]") as SavedAgent[];
+      const next = [entry, ...current.filter((a) => a.id !== id)];
+      persistSaved(next);
+      toast.success("Agent successfully built & saved!");
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : "Could not build agent.";
       toast.error(errMsg);
@@ -527,6 +538,12 @@ export default function GenerationWorkspace() {
     } finally {
       buildingRef.current.delete(id);
     }
+  };
+
+  const removeSavedAgent = (id: string) => {
+    persistSaved(savedAgents.filter((a) => a.id !== id));
+    if (selectedSavedId === id) setSelectedSavedId(null);
+    toast.success("Agent removed.");
   };
 
   const removeAgent = (id: string) => updateMsg(id, { agentStatus: "removed", editing: false });
