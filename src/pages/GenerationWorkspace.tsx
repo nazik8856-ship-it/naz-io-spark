@@ -73,19 +73,20 @@ function cleanAgentSpecOutput(text: string, opts: { final?: boolean } = {}): str
     if (start > 0) cleaned = cleaned.slice(start);
   }
 
-  cleaned = cleaned
-    .split("\n")
-    .filter((line) => {
-      const trimmed = line.trim();
-      if (!trimmed) return true;
-      if (/^>/.test(trimmed)) return false;
-      if (/^(sure|here(?:'s| is)|nazai|output|final output|draft agent|offline fallback)\b/i.test(trimmed)) return false;
-      if (/^(generating|building|identified)\b.*(?:agent|request|intent|plan)/i.test(trimmed)) return false;
-      return true;
-    })
-    .join("\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  if (opts.final) {
+    cleaned = cleaned
+      .split("\n")
+      .filter((line) => {
+        const trimmed = line.trim();
+        if (!trimmed) return true;
+        if (/^>/.test(trimmed)) return false;
+        if (/^(sure|here(?:'s| is)|nazai|output|final output|draft agent|offline fallback)\b/i.test(trimmed)) return false;
+        if (/^(generating|building|identified)\b.*(?:agent|request|intent|plan)/i.test(trimmed)) return false;
+        return true;
+      })
+      .join("\n");
+  }
+  cleaned = cleaned.replace(/\n{3,}/g, "\n\n").trim();
 
   return cleaned;
 }
