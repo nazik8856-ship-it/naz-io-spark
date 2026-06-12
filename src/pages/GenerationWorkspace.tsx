@@ -548,7 +548,35 @@ export default function GenerationWorkspace() {
       const current = JSON.parse(localStorage.getItem("nazai_saved_agents") || "[]") as SavedAgent[];
       const next = [entry, ...current.filter((a) => a.id !== id)];
       persistSaved(next);
-      toast.success("Agent successfully built & saved!");
+      toast.success("Agent built — bringing it to life…");
+
+      // BRING THE AGENT TO LIFE: bootstrap greeting + suggested prompts via INIT mode
+      try {
+        const initUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/run-ai-agent`;
+        const initResp = await fetch(initUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+          },
+          body: JSON.stringify({ spec: finalSpec, messages: [] }),
+        });
+        if (initResp.ok) {
+          const initData = await initResp.json();
+          const greeting: string = initData.greeting || `Hi, I'm ${name}. How can I help?`;
+          const suggestions: string[] = Array.isArray(initData.suggestedPrompts) ? initData.suggestedPrompts : [];
+          updateMsg(id, {
+            agentGreeting: greeting,
+            agentSuggestions: suggestions,
+            agentChat: [{ role: "assistant", content: greeting }],
+          });
+          setSelectedSavedId(id);
+          setActiveTab("dashboard");
+          toast.success("Agent is live — start chatting!");
+        }
+      } catch (initErr) {
+        console.warn("agent init failed", initErr);
+      }
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : "Could not build agent.";
       toast.error(errMsg);
