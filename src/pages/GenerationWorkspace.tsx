@@ -364,7 +364,8 @@ export default function GenerationWorkspace() {
         throw new Error("No agent output received");
       }
       if (agentMode) {
-        const finalClean = cleanAgentSpecOutput(acc, { final: true }) || createAgentFallback(lastUser);
+        // Keep the model's full spec — never replace with the generic short summary.
+        const finalClean = cleanAgentSpecOutput(acc, { final: true }) || cleanAgentSpecOutput(acc) || acc;
         setMessages((m) =>
           m.map((x) =>
             x.id === assistantId ? { ...x, content: finalClean } : x,
@@ -1193,12 +1194,13 @@ export default function GenerationWorkspace() {
                 );
               }
 
-              const lastNaz = [...messages].reverse().find((m) => {
-                if (m.role !== "nazai") return false;
-                if (m.kind === "agent-spec") return !!m.content || m.agentStatus === "approved" || m.agentStatus === "building";
-                return !!m.content;
-              });
+              // PREVIEW TAB: always prefer the latest agent-spec message (pending, building, approved)
+              const lastAgent = [...messages].reverse().find(
+                (m) => m.role === "nazai" && m.kind === "agent-spec",
+              );
+              const lastNaz = lastAgent ?? [...messages].reverse().find((m) => m.role === "nazai" && !!m.content);
               const lastUser = [...messages].reverse().find((m) => m.role === "user");
+
               if (!lastNaz) {
                 return (
                   <div className="relative h-full flex flex-col items-center justify-center text-center px-6">
@@ -1212,97 +1214,135 @@ export default function GenerationWorkspace() {
                 );
               }
 
-              // BUILDING: live-streaming spec preview (no flash, no closing window)
-              if (lastNaz.kind === "agent-spec" && lastNaz.agentStatus === "building") {
-                const spec = parseAgentSpec(lastNaz.content);
-                const liveText = lastNaz.content || "Booting agent…";
-                return (
-                  <div className="relative h-full overflow-y-auto px-6 md:px-10 py-8">
-                    <div className="max-w-4xl mx-auto rounded-xl border border-cyan-400/40 bg-black/55 backdrop-blur-sm overflow-hidden shadow-2xl shadow-cyan-500/10">
-                      <div className="flex items-center justify-between gap-3 p-5 border-b border-white/10 bg-cyan-400/5">
-                        <div className="min-w-0">
-                          <div className="text-[10px] uppercase tracking-[0.22em] text-cyan-300 font-mono mb-2 animate-pulse">
-                            ▮ Building agent live…
-                          </div>
-                          <h1 className="text-2xl md:text-3xl font-bold text-white truncate">{spec.name || "AI Agent"}</h1>
-                        </div>
-                        <span className="shrink-0 text-[10px] uppercase tracking-wider px-2.5 py-1 rounded bg-cyan-400/15 text-cyan-300 border border-cyan-400/30 inline-flex items-center gap-1">
-                          <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" />
-                          Booting
-                        </span>
-                      </div>
-                      <div className="p-5 md:p-7">
-                        <div className="prose prose-invert prose-sm md:prose-base max-w-none prose-headings:text-white prose-pre:bg-black/60 prose-pre:border prose-pre:border-white/10 prose-code:text-cyan-300">
-                          <ReactMarkdown>{liveText}</ReactMarkdown>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              }
-
-              // APPROVED agent-spec → final built agent card
-              if (lastNaz.kind === "agent-spec" && lastNaz.agentStatus === "approved") {
-                const finalSpec = cleanAgentSpecOutput(lastNaz.agentFinalSpec || lastNaz.content);
-                const spec = parseAgentSpec(finalSpec);
+              // UNIFIED AGENT CARD — pending / building / approved all share one rich layout
+              if (lastNaz.kind === "agent-spec") {
+                const status = lastNaz.agentStatus || "pending";
+                const dismissed = status === "removed";
+                const sourceSpec = lastNaz.agentFinalSpec || lastNaz.content || "";
+                const cleaned = cleanAgentSpecOutput(sourceSpec, { final: status === "approved" }) || sourceSpec;
+                const spec = parseAgentSpec(cleaned);
                 const agentName = lastNaz.agentName || spec.name || "AI Agent";
+                const isStreamingNow = !!lastNaz.streaming || status === "building";
+                const showBody = cleaned.trim().length > 0;
+
+                const accent =
+                  status === "approved"
+                    ? { ring: "border-emerald-400/30", glow: "shadow-emerald-500/10", chipBg: "bg-emerald-400/15", chipText: "text-emerald-300", chipBorder: "border-emerald-400/30", dot: "bg-emerald-400", banner: "bg-emerald-400/5", label: "Agent successfully built!", chipLabel: "Built" }
+                    : status === "building"
+                    ? { ring: "border-cyan-400/40", glow: "shadow-cyan-500/10", chipBg: "bg-cyan-400/15", chipText: "text-cyan-300", chipBorder: "border-cyan-400/30", dot: "bg-cyan-400 animate-pulse", banner: "bg-cyan-400/5", label: "Building agent live…", chipLabel: "Booting" }
+                    : { ring: "border-purple-400/30", glow: "shadow-purple-500/10", chipBg: "bg-purple-400/15", chipText: "text-purple-300", chipBorder: "border-purple-400/30", dot: "bg-purple-400 animate-pulse", banner: "bg-purple-400/5", label: isStreamingNow ? "Generating agent…" : "Agent plan ready", chipLabel: isStreamingNow ? "Drafting" : "Pending" };
+
                 return (
                   <div className="relative h-full overflow-y-auto px-6 md:px-10 py-8">
-                    <div className="max-w-4xl mx-auto rounded-xl border border-emerald-400/30 bg-black/50 backdrop-blur-sm shadow-2xl shadow-emerald-500/10 overflow-hidden">
-                      <div className="flex items-start justify-between gap-4 p-5 border-b border-white/10 bg-emerald-400/5">
+                    <div className={`max-w-4xl mx-auto rounded-xl border bg-black/55 backdrop-blur-sm overflow-hidden shadow-2xl ${accent.ring} ${accent.glow} ${dismissed ? "opacity-50" : ""}`}>
+                      <div className={`flex items-start justify-between gap-4 p-5 border-b border-white/10 ${accent.banner}`}>
                         <div className="min-w-0">
-                          <div className="text-[10px] uppercase tracking-[0.22em] text-emerald-300 font-mono mb-2">
-                            Agent successfully built!
+                          <div className={`text-[10px] uppercase tracking-[0.22em] font-mono mb-2 ${accent.chipText} ${isStreamingNow ? "animate-pulse" : ""}`}>
+                            {isStreamingNow ? "▮ " : ""}{accent.label}
                           </div>
                           <h1 className="text-2xl md:text-3xl font-bold text-white truncate">{agentName}</h1>
-                          {spec.goal && <p className="text-sm text-cyan-200/90 mt-2 line-clamp-2">{spec.goal}</p>}
+                          {spec.goal && <p className="text-sm text-cyan-200/90 mt-2 line-clamp-2">🎯 {spec.goal}</p>}
                         </div>
-                        <span className="shrink-0 text-[10px] uppercase tracking-wider px-2.5 py-1 rounded bg-emerald-400/15 text-emerald-300 border border-emerald-400/30 inline-flex items-center gap-1">
-                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                          Built
+                        <span className={`shrink-0 text-[10px] uppercase tracking-wider px-2.5 py-1 rounded inline-flex items-center gap-1 ${accent.chipBg} ${accent.chipText} border ${accent.chipBorder}`}>
+                          <span className={`h-1.5 w-1.5 rounded-full ${accent.dot}`} />
+                          {accent.chipLabel}
                         </span>
                       </div>
+
                       <div className="p-5 md:p-7">
-                        <div className="prose prose-invert prose-sm md:prose-base max-w-none prose-headings:text-white prose-pre:bg-black/60 prose-pre:border prose-pre:border-white/10 prose-code:text-cyan-300">
-                          <ReactMarkdown>{finalSpec}</ReactMarkdown>
-                        </div>
-                        <div className="mt-6 pt-5 border-t border-white/10 flex flex-wrap gap-2">
-                          <button
-                            onClick={() => setActiveTab("dashboard")}
-                            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-emerald-400 to-cyan-400 text-black text-sm font-semibold hover:opacity-90"
-                          >
-                            <Play className="h-4 w-4" />
-                            Live
-                          </button>
-                          <button
-                            onClick={() => { setActiveTab("preview"); startEditAgent(lastNaz.id); }}
-                            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 text-white text-sm font-semibold hover:bg-white/15 border border-white/10"
-                          >
-                            <Pencil className="h-4 w-4 text-purple-300" />
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => { removeAgent(lastNaz.id); removeSavedAgent(lastNaz.id); }}
-                            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 text-red-300 text-sm font-semibold hover:bg-red-500/10 border border-white/10"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                            Remove
-                          </button>
-                          <button
-                            onClick={deployAgentPreview}
-                            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 to-cyan-400 text-black text-sm font-semibold hover:opacity-90"
-                          >
-                            <Rocket className="h-4 w-4" />
-                            Deploy
-                          </button>
-                          <button
-                            onClick={() => void copyAgentSpec(finalSpec)}
-                            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 text-white text-sm font-semibold hover:bg-white/15 border border-white/10"
-                          >
-                            <Copy className="h-4 w-4 text-cyan-300" />
-                            Copy
-                          </button>
-                        </div>
+                        {lastNaz.editing ? (
+                          <div className="rounded-xl border border-purple-400/30 bg-black/40 p-3 space-y-2">
+                            <div className="text-[10px] uppercase tracking-[0.18em] text-purple-300">Editing agent spec</div>
+                            <textarea
+                              defaultValue={cleaned}
+                              rows={18}
+                              id={`edit-preview-${lastNaz.id}`}
+                              className="w-full bg-black/60 border border-white/10 rounded-lg p-3 text-xs font-mono text-zinc-100 outline-none focus:border-purple-400/60"
+                            />
+                            <div className="flex gap-2 justify-end">
+                              <button
+                                onClick={() => updateMsg(lastNaz.id, { editing: false })}
+                                className="px-3 py-1.5 rounded-md text-xs text-zinc-300 hover:bg-white/5"
+                              >Cancel</button>
+                              <button
+                                onClick={() => {
+                                  const el = document.getElementById(`edit-preview-${lastNaz.id}`) as HTMLTextAreaElement | null;
+                                  if (el) saveEditAgent(lastNaz.id, el.value);
+                                }}
+                                className="px-3 py-1.5 rounded-md text-xs font-semibold text-black bg-gradient-to-r from-purple-500 to-cyan-400"
+                              >Save &amp; Build</button>
+                            </div>
+                          </div>
+                        ) : showBody ? (
+                          <div className="prose prose-invert prose-sm md:prose-base max-w-none prose-headings:text-white prose-pre:bg-black/60 prose-pre:border prose-pre:border-white/10 prose-code:text-cyan-300">
+                            <ReactMarkdown>{cleaned}</ReactMarkdown>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2 text-sm text-zinc-400">
+                            <span className="h-1.5 w-1.5 rounded-full bg-purple-400 animate-pulse" />
+                            Generating your agent…
+                          </div>
+                        )}
+
+                        {lastNaz.agentError && (
+                          <div className="mt-4 text-[11px] text-amber-300/90 bg-amber-400/5 border border-amber-400/20 rounded-md px-3 py-2">
+                            {lastNaz.agentError}
+                          </div>
+                        )}
+
+                        {!lastNaz.editing && (
+                          <div className="mt-6 pt-5 border-t border-white/10 flex flex-wrap gap-2">
+                            <button
+                              onClick={() => void buildAgent(lastNaz.id)}
+                              disabled={isStreamingNow || status === "approved" || !showBody}
+                              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 to-cyan-400 text-black text-sm font-semibold hover:opacity-90 disabled:opacity-40"
+                            >
+                              <Hammer className="h-4 w-4" />
+                              {status === "approved" ? "Built" : status === "building" ? "Booting…" : "Approve & Build"}
+                            </button>
+                            <button
+                              onClick={() => setActiveTab("dashboard")}
+                              disabled={status !== "approved"}
+                              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-emerald-400 to-cyan-400 text-black text-sm font-semibold hover:opacity-90 disabled:opacity-40"
+                            >
+                              <Play className="h-4 w-4" />
+                              Live
+                            </button>
+                            <button
+                              onClick={() => startEditAgent(lastNaz.id)}
+                              disabled={isStreamingNow || !showBody}
+                              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 text-white text-sm font-semibold hover:bg-white/15 border border-white/10 disabled:opacity-40"
+                            >
+                              <Pencil className="h-4 w-4 text-purple-300" />
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => { removeAgent(lastNaz.id); removeSavedAgent(lastNaz.id); }}
+                              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 text-red-300 text-sm font-semibold hover:bg-red-500/10 border border-white/10"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                              Remove
+                            </button>
+                            {status === "approved" && (
+                              <>
+                                <button
+                                  onClick={deployAgentPreview}
+                                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 to-cyan-400 text-black text-sm font-semibold hover:opacity-90"
+                                >
+                                  <Rocket className="h-4 w-4" />
+                                  Deploy
+                                </button>
+                                <button
+                                  onClick={() => void copyAgentSpec(cleaned)}
+                                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 text-white text-sm font-semibold hover:bg-white/15 border border-white/10"
+                                >
+                                  <Copy className="h-4 w-4 text-cyan-300" />
+                                  Copy
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -1327,10 +1367,11 @@ export default function GenerationWorkspace() {
                 );
               }
 
+              // Non-agent NazAI reply fallback
               return (
                 <div className="relative h-full overflow-y-auto px-6 md:px-10 py-8">
                   <div className="max-w-3xl mx-auto">
-                    {lastUser && !lastNaz.isAgent && (
+                    {lastUser && (
                       <div className="mb-6">
                         <div className="text-[10px] uppercase tracking-[0.2em] text-purple-300 mb-1">
                           Generating for
@@ -1341,54 +1382,22 @@ export default function GenerationWorkspace() {
                       </div>
                     )}
                     <div className="rounded-2xl border border-white/10 bg-black/40 backdrop-blur-sm p-6 md:p-8 shadow-2xl">
-                      {!lastNaz.isAgent && (
-                        <div className="flex items-center gap-2 mb-4 pb-3 border-b border-white/5">
-                          <div className="h-6 w-6 rounded-md bg-gradient-to-br from-purple-500 to-cyan-400 flex items-center justify-center text-[10px] font-bold text-black">
-                            N
-                          </div>
-                          <div className="text-xs font-mono uppercase tracking-[0.2em] text-zinc-400">
-                            NazAI · {chatMode}
-                          </div>
-                          {isStreaming && (
-                            <span className="ml-auto text-[10px] font-mono text-purple-300 animate-pulse">
-                              generating…
-                            </span>
-                          )}
+                      <div className="flex items-center gap-2 mb-4 pb-3 border-b border-white/5">
+                        <div className="h-6 w-6 rounded-md bg-gradient-to-br from-purple-500 to-cyan-400 flex items-center justify-center text-[10px] font-bold text-black">
+                          N
                         </div>
-                      )}
+                        <div className="text-xs font-mono uppercase tracking-[0.2em] text-zinc-400">
+                          NazAI · {chatMode}
+                        </div>
+                        {isStreaming && (
+                          <span className="ml-auto text-[10px] font-mono text-purple-300 animate-pulse">
+                            generating…
+                          </span>
+                        )}
+                      </div>
                       <div className="prose prose-invert prose-sm md:prose-base max-w-none prose-headings:text-white prose-pre:bg-black/60 prose-pre:border prose-pre:border-white/10 prose-code:text-cyan-300">
                         <ReactMarkdown>{lastNaz.content}</ReactMarkdown>
                       </div>
-                      {lastNaz.kind === "agent-spec" && !lastNaz.streaming && lastNaz.agentStatus === "pending" && (
-                        <div className="mt-6 pt-5 border-t border-white/10 flex items-center justify-between gap-3 flex-wrap">
-                          <div className="text-xs text-zinc-400">
-                            Plan ready. Approve it to build the final clean agent.
-                          </div>
-                          <button
-                            onClick={() => void buildAgent(lastNaz.id)}
-                            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 to-cyan-400 text-black text-sm font-semibold hover:opacity-90"
-                          >
-                            <Hammer className="h-4 w-4" />
-                            Approve &amp; Build
-                          </button>
-                        </div>
-                      )}
-                      {lastNaz.isPlan && !lastNaz.streaming && (
-                        <div className="mt-6 pt-5 border-t border-white/10 flex items-center justify-between gap-3 flex-wrap">
-                          <div className="text-xs text-zinc-400">
-                            Plan ready. Build the AI agent based on it.
-                          </div>
-                          <button
-                            onClick={buildAgentFromPlan}
-                            disabled={isStreaming}
-                            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 to-cyan-400 text-black text-sm font-semibold hover:opacity-90 disabled:opacity-40"
-                          >
-                            <Hammer className="h-4 w-4" />
-                            Build Agent from this plan
-                          </button>
-                        </div>
-                      )}
-
                     </div>
                   </div>
                 </div>
