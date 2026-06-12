@@ -1287,8 +1287,84 @@ export default function GenerationWorkspace() {
                             </div>
                           </div>
                         ) : showBody ? (
-                          <div className="prose prose-invert prose-sm md:prose-base max-w-none prose-headings:text-white prose-pre:bg-black/60 prose-pre:border prose-pre:border-white/10 prose-code:text-cyan-300">
-                            <ReactMarkdown>{cleaned}</ReactMarkdown>
+                          <div className="space-y-5">
+                            {spec.description && (
+                              <section>
+                                <div className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 mb-1.5 font-mono">Description</div>
+                                <p className="text-sm md:text-base text-zinc-100 leading-relaxed">{spec.description}</p>
+                              </section>
+                            )}
+                            {spec.goal && (
+                              <section className="rounded-lg border border-cyan-400/20 bg-cyan-400/5 px-4 py-3">
+                                <div className="text-[10px] uppercase tracking-[0.2em] text-cyan-300 mb-1 font-mono">🎯 Primary Goal</div>
+                                <p className="text-sm md:text-base text-white">{spec.goal}</p>
+                              </section>
+                            )}
+                            {spec.capabilities && (
+                              <section>
+                                <div className="text-[10px] uppercase tracking-[0.2em] text-purple-300 mb-2 font-mono">⚡ Autonomous Capabilities</div>
+                                <ul className="space-y-1.5">
+                                  {toBullets(spec.capabilities).map((b, i) => (
+                                    <li key={i} className="text-sm text-zinc-200 flex gap-2">
+                                      <span className="text-purple-400 mt-0.5">▸</span>
+                                      <span className="flex-1">{b}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </section>
+                            )}
+                            {spec.workflow && (
+                              <section>
+                                <div className="text-[10px] uppercase tracking-[0.2em] text-emerald-300 mb-2 font-mono">🔄 Step-by-Step Workflow</div>
+                                <ol className="space-y-1.5 list-none">
+                                  {toBullets(spec.workflow).map((b, i) => (
+                                    <li key={i} className="text-sm text-zinc-200 flex gap-3">
+                                      <span className="shrink-0 h-5 w-5 rounded-md bg-emerald-400/15 text-emerald-300 text-[10px] font-bold flex items-center justify-center font-mono">{i + 1}</span>
+                                      <span className="flex-1 pt-0.5">{b}</span>
+                                    </li>
+                                  ))}
+                                </ol>
+                              </section>
+                            )}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              {spec.guardrails && (
+                                <section className="rounded-lg border border-amber-400/20 bg-amber-400/5 px-4 py-3">
+                                  <div className="text-[10px] uppercase tracking-[0.2em] text-amber-300 mb-1.5 font-mono">🛡 Guardrails & Safety</div>
+                                  <ul className="space-y-1">
+                                    {toBullets(spec.guardrails).map((b, i) => (
+                                      <li key={i} className="text-xs text-zinc-200">• {b}</li>
+                                    ))}
+                                  </ul>
+                                </section>
+                              )}
+                              {spec.deployment && (
+                                <section className="rounded-lg border border-white/10 bg-white/[0.03] px-4 py-3">
+                                  <div className="text-[10px] uppercase tracking-[0.2em] text-zinc-400 mb-1.5 font-mono">🚀 Deployment Options</div>
+                                  <ul className="space-y-1">
+                                    {toBullets(spec.deployment).map((b, i) => (
+                                      <li key={i} className="text-xs text-zinc-200">• {b}</li>
+                                    ))}
+                                  </ul>
+                                </section>
+                              )}
+                            </div>
+                            {spec.impact && (
+                              <section className="rounded-lg border border-emerald-400/20 bg-emerald-400/5 px-4 py-3">
+                                <div className="text-[10px] uppercase tracking-[0.2em] text-emerald-300 mb-1 font-mono">📈 Expected Impact</div>
+                                <p className="text-sm text-white">{spec.impact}</p>
+                              </section>
+                            )}
+                            {!spec.description && !spec.goal && !spec.capabilities && (
+                              <div className="prose prose-invert prose-sm md:prose-base max-w-none prose-headings:text-white prose-pre:bg-black/60 prose-pre:border prose-pre:border-white/10 prose-code:text-cyan-300">
+                                <ReactMarkdown>{cleaned}</ReactMarkdown>
+                              </div>
+                            )}
+                            {isStreamingNow && (
+                              <div className="flex items-center gap-2 text-xs text-zinc-500 pt-2">
+                                <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                                {status === "building" ? "Compiling final agent…" : "Streaming agent spec…"}
+                              </div>
+                            )}
                           </div>
                         ) : (
                           <div className="flex items-center gap-2 text-sm text-zinc-400">
