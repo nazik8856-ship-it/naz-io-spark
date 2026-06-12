@@ -364,7 +364,8 @@ export default function GenerationWorkspace() {
         throw new Error("No agent output received");
       }
       if (agentMode) {
-        const finalClean = cleanAgentSpecOutput(acc, { final: true }) || createAgentFallback(lastUser);
+        // Keep the model's full spec — never replace with the generic short summary.
+        const finalClean = cleanAgentSpecOutput(acc, { final: true }) || cleanAgentSpecOutput(acc) || acc;
         setMessages((m) =>
           m.map((x) =>
             x.id === assistantId ? { ...x, content: finalClean } : x,
