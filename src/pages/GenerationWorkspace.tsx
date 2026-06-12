@@ -95,16 +95,29 @@ function parseAgentSpec(text: string) {
   const clean = cleanAgentSpecOutput(text);
   const get = (re: RegExp) => {
     const m = clean.match(re);
-    return m ? m[1].trim() : "";
+    return m ? m[1].trim().replace(/\*\*/g, "") : "";
   };
-  const name = get(/1\.\s*(?:\*\*)?Agent Name(?:\*\*)?\s*:\s*([^\n]+)/i).replace(/\*\*/g, "");
+  const name = get(/1\.\s*(?:\*\*)?Agent Name(?:\*\*)?\s*:\s*([^\n]+)/i);
   const description = get(/2\.\s*(?:\*\*)?Description(?:\*\*)?\s*:\s*([\s\S]*?)(?=\n\s*3\.|$)/i);
   const goal = get(/3\.\s*(?:\*\*)?Primary Goal(?:\*\*)?\s*:\s*([\s\S]*?)(?=\n\s*4\.|$)/i);
-  const capsBlock = get(/4\.\s*(?:\*\*)?Autonomous Capabilities(?:\*\*)?\s*:\s*([\s\S]*?)(?=\n\s*5\.|$)/i);
-  const capCount = capsBlock
-    ? capsBlock.split("\n").filter((l) => /^\s*(?:[•\-*]|\d+\.)\s+\S/.test(l)).length
+  const capabilities = get(/4\.\s*(?:\*\*)?Autonomous Capabilities(?:\*\*)?\s*:\s*([\s\S]*?)(?=\n\s*5\.|$)/i);
+  const workflow = get(/5\.\s*(?:\*\*)?Step-by-Step Workflow(?:\*\*)?\s*:\s*([\s\S]*?)(?=\n\s*6\.|$)/i);
+  const guardrails = get(/6\.\s*(?:\*\*)?Guardrails(?:\s*&\s*Safety)?(?:\*\*)?\s*:\s*([\s\S]*?)(?=\n\s*7\.|$)/i);
+  const deployment = get(/7\.\s*(?:\*\*)?Deployment Options(?:\*\*)?\s*:\s*([\s\S]*?)(?=\n\s*8\.|$)/i);
+  const impact = get(/8\.\s*(?:\*\*)?Expected Impact(?:\*\*)?\s*:\s*([\s\S]*?)$/i);
+  const capCount = capabilities
+    ? capabilities.split("\n").filter((l) => /^\s*(?:[•\-*]|\d+\.)\s+\S/.test(l)).length
     : 0;
-  return { name, description, goal, capCount };
+  return { name, description, goal, capabilities, workflow, guardrails, deployment, impact, capCount };
+}
+
+function toBullets(block: string): string[] {
+  if (!block) return [];
+  const lines = block.split("\n").map((l) => l.trim()).filter(Boolean);
+  const bullets = lines
+    .map((l) => l.replace(/^(?:[•\-*]|\d+[.)])\s+/, "").trim())
+    .filter(Boolean);
+  return bullets.length ? bullets : [block.trim()];
 }
 
 
