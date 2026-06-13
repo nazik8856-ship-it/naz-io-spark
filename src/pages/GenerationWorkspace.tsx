@@ -257,6 +257,11 @@ export default function GenerationWorkspace() {
     ]);
 
 
+    // Cancel any in-flight generation so a new prompt doesn't race the previous one.
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
       const endpoint = agentMode ? "generate-ai-agent" : "nazai-chat";
       const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${endpoint}`;
@@ -271,17 +276,25 @@ export default function GenerationWorkspace() {
           Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
         },
         body: JSON.stringify(body),
+        signal: controller.signal,
       });
 
       if (resp.status === 429) {
-        toast.error("Rate limit hit. Try again in a moment.");
-        throw new Error("rate limit");
+        toast.error("Rate limited — try again in a moment.");
+        throw new Error("Rate limited. Please retry shortly.");
       }
       if (resp.status === 402) {
-        toast.error("AI credits exhausted.");
-        throw new Error("credits");
+        toast.error("Out of AI credits.");
+        throw new Error("AI credits exhausted.");
       }
-      if (!resp.ok || !resp.body) throw new Error("Stream failed");
+      if (resp.status === 401 || resp.status === 403) {
+        toast.error("Session expired — please sign in again.");
+        throw new Error("Not authorized. Please sign in again.");
+      }
+      if (!resp.ok || !resp.body) {
+        const detail = await resp.text().catch(() => "");
+        throw new Error(`Generation failed (${resp.status}). ${detail.slice(0, 200)}`);
+      }
 
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
@@ -341,7 +354,7 @@ export default function GenerationWorkspace() {
       }
 
       if (!acc.trim()) {
-        throw new Error("No agent output received");
+        throw new Error("No agent output received — try again.");
       }
       if (agentMode) {
         // Keep the model's full spec — never replace with the generic short summary.
@@ -351,15 +364,29 @@ export default function GenerationWorkspace() {
             x.id === assistantId ? { ...x, content: finalClean } : x,
           ),
         );
+
+        // Auto-chain: plan stream finished → immediately compile + activate the agent.
+        // No "Approve & Build" click required. buildAgent handles save + init.
+        if (!controller.signal.aborted) {
+          void buildAgent(assistantId, finalClean);
+        }
       }
     } catch (e) {
+      if (controller.signal.aborted) {
+        // Superseded by a newer prompt — silent.
+        return;
+      }
       console.error(e);
+      const errMsg = e instanceof Error ? e.message : "Generation failed. Please try again.";
+      toast.error(errMsg);
       setMessages((m) =>
         m.map((x) =>
           x.id === assistantId
             ? {
                 ...x,
-                content: x.content || (agentMode ? createAgentFallback(lastUser) : "Something went wrong reaching NazAI. Try again."),
+                content: x.content,
+                agentStatus: agentMode ? "removed" : x.agentStatus,
+                agentError: errMsg,
               }
             : x,
         ),
@@ -367,8 +394,11 @@ export default function GenerationWorkspace() {
     } finally {
       setMessages((m) => m.map((x) => (x.id === assistantId ? { ...x, streaming: false } : x)));
       setIsStreaming(false);
+      if (abortRef.current === controller) abortRef.current = null;
     }
   };
+
+
 
   const sendPrompt = () => {
     const text = prompt.trim();
