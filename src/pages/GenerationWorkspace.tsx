@@ -151,14 +151,16 @@ export default function GenerationWorkspace() {
   type SavedAgent = { id: string; name: string; spec: string; systemPrompt?: string; savedAt: string };
   const [savedAgents, setSavedAgents] = useState<SavedAgent[]>(() => {
     try {
-      return JSON.parse(localStorage.getItem("nazai_saved_agents") || "[]") as SavedAgent[];
+      // One-time migration: drop stale agents written by the old createAgentFallback build.
+      if (typeof window !== "undefined") localStorage.removeItem("nazai_saved_agents");
+      return JSON.parse(localStorage.getItem("nazai_saved_agents_v2") || "[]") as SavedAgent[];
     } catch { return []; }
   });
   const [selectedSavedId, setSelectedSavedId] = useState<string | null>(null);
 
   const persistSaved = (next: SavedAgent[]) => {
     setSavedAgents(next);
-    localStorage.setItem("nazai_saved_agents", JSON.stringify(next));
+    localStorage.setItem("nazai_saved_agents_v2", JSON.stringify(next));
   };
 
   useEffect(() => {
@@ -542,7 +544,7 @@ export default function GenerationWorkspace() {
         systemPrompt: finalPayload?.systemPrompt,
         savedAt: new Date().toISOString(),
       };
-      const current = JSON.parse(localStorage.getItem("nazai_saved_agents") || "[]") as SavedAgent[];
+      const current = JSON.parse(localStorage.getItem("nazai_saved_agents_v2") || "[]") as SavedAgent[];
       const next = [entry, ...current.filter((a) => a.id !== id)];
       persistSaved(next);
       toast.success("Agent built — bringing it to life…");
@@ -588,7 +590,7 @@ export default function GenerationWorkspace() {
         agentError: errMsg,
       });
       try {
-        const current = JSON.parse(localStorage.getItem("nazai_saved_agents") || "[]") as SavedAgent[];
+        const current = JSON.parse(localStorage.getItem("nazai_saved_agents_v2") || "[]") as SavedAgent[];
         if (!current.some((a) => a.id === id)) {
           persistSaved([{ id, name: salvagedName, spec: salvaged, savedAt: new Date().toISOString() }, ...current]);
         }
@@ -623,10 +625,10 @@ export default function GenerationWorkspace() {
   };
 
   const saveAgent = (msg: ChatMessage) => {
-    const saved = JSON.parse(localStorage.getItem("nazai_saved_agents") || "[]") as unknown[];
+    const saved = JSON.parse(localStorage.getItem("nazai_saved_agents_v2") || "[]") as unknown[];
     const finalSpec = cleanAgentSpecOutput(msg.agentFinalSpec || msg.content);
     localStorage.setItem(
-      "nazai_saved_agents",
+      "nazai_saved_agents_v2",
       JSON.stringify([
         { id: msg.id, name: msg.agentName || parseAgentSpec(finalSpec).name || "AI Agent", spec: finalSpec, savedAt: new Date().toISOString() },
         ...saved.filter((item: any) => item?.id !== msg.id),
@@ -841,10 +843,11 @@ export default function GenerationWorkspace() {
                             </div>
                           );
                         }
+                        const expanded = !dismissed && (m.agentStatus === "approved" || !!m.agentFinalSpec);
                         return (
-                          <div className={`not-prose rounded-xl border bg-black/40 p-3 space-y-2 ${dismissed ? "border-white/5 opacity-60" : "border-purple-400/30"}`}>
+                          <div className={`not-prose rounded-xl border bg-black/40 p-4 space-y-3 ${dismissed ? "border-white/5 opacity-60" : "border-purple-400/30"}`}>
                             <div className="flex items-center justify-between gap-2">
-                              <div className={`text-sm font-bold ${dismissed ? "line-through text-zinc-500" : "text-white"}`}>
+                              <div className={`text-base font-bold ${dismissed ? "line-through text-zinc-500" : "text-white"}`}>
                                 {spec.name || "AI Agent"}
                               </div>
                               {m.agentStatus === "approved" && (
@@ -857,15 +860,74 @@ export default function GenerationWorkspace() {
                                 <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-purple-400/15 text-purple-300 border border-purple-400/30">Pending</span>
                               )}
                             </div>
-                            {spec.description && (
-                              <div className="text-[12px] text-zinc-300 leading-relaxed line-clamp-2">{spec.description}</div>
+
+                            {expanded ? (
+                              <div className="space-y-3">
+                                {spec.description && (
+                                  <section>
+                                    <div className="text-[9px] uppercase tracking-[0.2em] text-zinc-500 mb-1 font-mono">Description</div>
+                                    <p className="text-[12px] text-zinc-200 leading-relaxed">{spec.description}</p>
+                                  </section>
+                                )}
+                                {spec.goal && (
+                                  <section className="rounded-lg border border-cyan-400/20 bg-cyan-400/5 px-3 py-2">
+                                    <div className="text-[9px] uppercase tracking-[0.2em] text-cyan-300 mb-0.5 font-mono">🎯 Primary Goal</div>
+                                    <p className="text-[12px] text-white">{spec.goal}</p>
+                                  </section>
+                                )}
+                                {spec.capabilities && (
+                                  <section>
+                                    <div className="text-[9px] uppercase tracking-[0.2em] text-purple-300 mb-1.5 font-mono">⚡ Autonomous Capabilities</div>
+                                    <ul className="space-y-1">
+                                      {toBullets(spec.capabilities).map((b, i) => (
+                                        <li key={i} className="text-[12px] text-zinc-200 flex gap-2"><span className="text-purple-400">▸</span><span className="flex-1">{b}</span></li>
+                                      ))}
+                                    </ul>
+                                  </section>
+                                )}
+                                {spec.workflow && (
+                                  <section>
+                                    <div className="text-[9px] uppercase tracking-[0.2em] text-emerald-300 mb-1.5 font-mono">🔄 Step-by-Step Workflow</div>
+                                    <ol className="space-y-1 list-none">
+                                      {toBullets(spec.workflow).map((b, i) => (
+                                        <li key={i} className="text-[12px] text-zinc-200 flex gap-2"><span className="shrink-0 h-4 w-4 rounded bg-emerald-400/15 text-emerald-300 text-[9px] font-bold flex items-center justify-center font-mono">{i + 1}</span><span className="flex-1">{b}</span></li>
+                                      ))}
+                                    </ol>
+                                  </section>
+                                )}
+                                {spec.guardrails && (
+                                  <section className="rounded-lg border border-amber-400/20 bg-amber-400/5 px-3 py-2">
+                                    <div className="text-[9px] uppercase tracking-[0.2em] text-amber-300 mb-1 font-mono">🛡 Guardrails & Safety</div>
+                                    <ul className="space-y-0.5">{toBullets(spec.guardrails).map((b, i) => (<li key={i} className="text-[11px] text-zinc-200">• {b}</li>))}</ul>
+                                  </section>
+                                )}
+                                {spec.deployment && (
+                                  <section className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
+                                    <div className="text-[9px] uppercase tracking-[0.2em] text-zinc-400 mb-1 font-mono">🚀 Deployment Options</div>
+                                    <ul className="space-y-0.5">{toBullets(spec.deployment).map((b, i) => (<li key={i} className="text-[11px] text-zinc-200">• {b}</li>))}</ul>
+                                  </section>
+                                )}
+                                {spec.impact && (
+                                  <section className="rounded-lg border border-emerald-400/20 bg-emerald-400/5 px-3 py-2">
+                                    <div className="text-[9px] uppercase tracking-[0.2em] text-emerald-300 mb-0.5 font-mono">📈 Expected Impact</div>
+                                    <p className="text-[12px] text-white">{spec.impact}</p>
+                                  </section>
+                                )}
+                              </div>
+                            ) : (
+                              <>
+                                {spec.description && (
+                                  <div className="text-[12px] text-zinc-300 leading-relaxed line-clamp-2">{spec.description}</div>
+                                )}
+                                {spec.goal && (
+                                  <div className="text-[11px] text-cyan-300/90 line-clamp-1">🎯 {spec.goal}</div>
+                                )}
+                                <div className="text-[10px] font-mono text-zinc-500">
+                                  {spec.capCount || 6} capabilities · workflow ready
+                                </div>
+                              </>
                             )}
-                            {spec.goal && (
-                              <div className="text-[11px] text-cyan-300/90 line-clamp-1">🎯 {spec.goal}</div>
-                            )}
-                            <div className="text-[10px] font-mono text-zinc-500">
-                              {spec.capCount || 6} capabilities · workflow ready
-                            </div>
+
                             {!m.streaming && (
                               <div className="flex gap-1.5 pt-1">
                                 {dismissed ? (
