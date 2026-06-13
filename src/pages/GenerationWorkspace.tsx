@@ -146,6 +146,7 @@ export default function GenerationWorkspace() {
   const modeMenuRef = useRef<HTMLDivElement>(null);
   const initialized = useRef(false);
   const forcedAgentRef = useRef<boolean>(false);
+  const abortRef = useRef<AbortController | null>(null);
 
   type SavedAgent = { id: string; name: string; spec: string; systemPrompt?: string; savedAt: string };
   const [savedAgents, setSavedAgents] = useState<SavedAgent[]>(() => {
