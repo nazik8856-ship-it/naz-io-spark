@@ -151,14 +151,14 @@ export default function GenerationWorkspace() {
   type SavedAgent = { id: string; name: string; spec: string; systemPrompt?: string; savedAt: string };
   const [savedAgents, setSavedAgents] = useState<SavedAgent[]>(() => {
     try {
-      return JSON.parse(localStorage.getItem("nazai_saved_agents") || "[]") as SavedAgent[];
+      return JSON.parse(localStorage.getItem("nazai_saved_agents_v2") || "[]") as SavedAgent[];
     } catch { return []; }
   });
   const [selectedSavedId, setSelectedSavedId] = useState<string | null>(null);
 
   const persistSaved = (next: SavedAgent[]) => {
     setSavedAgents(next);
-    localStorage.setItem("nazai_saved_agents", JSON.stringify(next));
+    localStorage.setItem("nazai_saved_agents_v2", JSON.stringify(next));
   };
 
   useEffect(() => {
@@ -542,7 +542,7 @@ export default function GenerationWorkspace() {
         systemPrompt: finalPayload?.systemPrompt,
         savedAt: new Date().toISOString(),
       };
-      const current = JSON.parse(localStorage.getItem("nazai_saved_agents") || "[]") as SavedAgent[];
+      const current = JSON.parse(localStorage.getItem("nazai_saved_agents_v2") || "[]") as SavedAgent[];
       const next = [entry, ...current.filter((a) => a.id !== id)];
       persistSaved(next);
       toast.success("Agent built — bringing it to life…");
@@ -588,7 +588,7 @@ export default function GenerationWorkspace() {
         agentError: errMsg,
       });
       try {
-        const current = JSON.parse(localStorage.getItem("nazai_saved_agents") || "[]") as SavedAgent[];
+        const current = JSON.parse(localStorage.getItem("nazai_saved_agents_v2") || "[]") as SavedAgent[];
         if (!current.some((a) => a.id === id)) {
           persistSaved([{ id, name: salvagedName, spec: salvaged, savedAt: new Date().toISOString() }, ...current]);
         }
@@ -623,10 +623,10 @@ export default function GenerationWorkspace() {
   };
 
   const saveAgent = (msg: ChatMessage) => {
-    const saved = JSON.parse(localStorage.getItem("nazai_saved_agents") || "[]") as unknown[];
+    const saved = JSON.parse(localStorage.getItem("nazai_saved_agents_v2") || "[]") as unknown[];
     const finalSpec = cleanAgentSpecOutput(msg.agentFinalSpec || msg.content);
     localStorage.setItem(
-      "nazai_saved_agents",
+      "nazai_saved_agents_v2",
       JSON.stringify([
         { id: msg.id, name: msg.agentName || parseAgentSpec(finalSpec).name || "AI Agent", spec: finalSpec, savedAt: new Date().toISOString() },
         ...saved.filter((item: any) => item?.id !== msg.id),
