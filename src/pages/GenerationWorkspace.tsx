@@ -151,6 +151,8 @@ export default function GenerationWorkspace() {
   type SavedAgent = { id: string; name: string; spec: string; systemPrompt?: string; savedAt: string };
   const [savedAgents, setSavedAgents] = useState<SavedAgent[]>(() => {
     try {
+      // One-time migration: drop stale agents written by the old createAgentFallback build.
+      if (typeof window !== "undefined") localStorage.removeItem("nazai_saved_agents");
       return JSON.parse(localStorage.getItem("nazai_saved_agents_v2") || "[]") as SavedAgent[];
     } catch { return []; }
   });
