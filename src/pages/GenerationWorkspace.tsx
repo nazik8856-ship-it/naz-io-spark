@@ -146,6 +146,7 @@ export default function GenerationWorkspace() {
   const modeMenuRef = useRef<HTMLDivElement>(null);
   const initialized = useRef(false);
   const forcedAgentRef = useRef<boolean>(false);
+  const abortRef = useRef<AbortController | null>(null);
 
   type SavedAgent = { id: string; name: string; spec: string; systemPrompt?: string; savedAt: string };
   const [savedAgents, setSavedAgents] = useState<SavedAgent[]>(() => {
@@ -227,42 +228,8 @@ export default function GenerationWorkspace() {
     return patterns.some((re) => re.test(t));
   };
 
-  const createAgentFallback = (request: string): string => {
-    const cleanRequest = request.trim() || "an AI agent for improving business resilience";
-    const hasSales = /sales|lead|crm|pipeline|revenue/i.test(cleanRequest);
-    const hasSupport = /support|customer|ticket|service|helpdesk/i.test(cleanRequest);
-    const focus = hasSales ? "Revenue Resilience" : hasSupport ? "Customer Continuity" : "Business Resilience";
+  // Fake fallback removed — real errors must surface so we never ship a fabricated agent.
 
-    return `1. **Agent Name**: ${focus} Agent
-
-
-2. **Description**: This autonomous agent is designed around the request: ${cleanRequest}. It helps the business protect revenue, reduce operational drag, and make faster decisions during uncertain market conditions.
-
-3. **Primary Goal**: Improve business resilience by turning the user's stated need into monitored actions, prioritized decisions, and measurable outcomes.
-
-4. **Autonomous Capabilities**:
-- Interprets incoming business signals and classifies urgency, risk, and opportunity.
-- Monitors relevant workflows, customer inputs, operational data, and task queues.
-- Recommends or triggers next-best actions based on business value and downside risk.
-- Drafts messages, reports, plans, and follow-up actions for human review when needed.
-- Escalates high-risk decisions, unusual patterns, or financial-impact actions to a human owner.
-- Learns from approved outcomes to improve prioritization and response quality over time.
-
-5. **Step-by-Step Workflow**:
-1. Receives the user's request, business context, or connected workflow event.
-2. Extracts the goal, stakeholders, constraints, risks, and success metrics.
-3. Checks available data sources for relevant context and recent changes.
-4. Produces a prioritized action plan with confidence levels and expected impact.
-5. Executes low-risk automations such as drafts, summaries, routing, reminders, and updates.
-6. Requests human approval for sensitive, costly, customer-facing, or irreversible actions.
-7. Tracks results and updates future recommendations based on measurable outcomes.
-
-6. **Guardrails & Safety**: The agent must not make financial commitments, legal claims, hiring decisions, customer refunds, or destructive system changes without human approval. It should protect private data, cite uncertainty clearly, log every action, and escalate when confidence is low or business risk is high.
-
-7. **Deployment Options**: Deploy it as a dashboard assistant, embedded chat agent, scheduled background worker, CRM/helpdesk automation, internal API endpoint, or operations copilot connected to business tools.
-
-8. **Expected Impact**: The business gets faster response cycles, clearer prioritization, lower manual workload, and better protection against revenue leakage. Over time, the agent should improve resilience by helping teams act earlier on risks and capture opportunities with less operational friction.`;
-  };
 
   const streamFromNazAI = async (history: { role: "user" | "assistant"; content: string }[]) => {
     setIsStreaming(true);
@@ -290,6 +257,11 @@ export default function GenerationWorkspace() {
     ]);
 
 
+    // Cancel any in-flight generation so a new prompt doesn't race the previous one.
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
       const endpoint = agentMode ? "generate-ai-agent" : "nazai-chat";
       const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${endpoint}`;
@@ -304,17 +276,25 @@ export default function GenerationWorkspace() {
           Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
         },
         body: JSON.stringify(body),
+        signal: controller.signal,
       });
 
       if (resp.status === 429) {
-        toast.error("Rate limit hit. Try again in a moment.");
-        throw new Error("rate limit");
+        toast.error("Rate limited — try again in a moment.");
+        throw new Error("Rate limited. Please retry shortly.");
       }
       if (resp.status === 402) {
-        toast.error("AI credits exhausted.");
-        throw new Error("credits");
+        toast.error("Out of AI credits.");
+        throw new Error("AI credits exhausted.");
       }
-      if (!resp.ok || !resp.body) throw new Error("Stream failed");
+      if (resp.status === 401 || resp.status === 403) {
+        toast.error("Session expired — please sign in again.");
+        throw new Error("Not authorized. Please sign in again.");
+      }
+      if (!resp.ok || !resp.body) {
+        const detail = await resp.text().catch(() => "");
+        throw new Error(`Generation failed (${resp.status}). ${detail.slice(0, 200)}`);
+      }
 
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
@@ -374,7 +354,7 @@ export default function GenerationWorkspace() {
       }
 
       if (!acc.trim()) {
-        throw new Error("No agent output received");
+        throw new Error("No agent output received — try again.");
       }
       if (agentMode) {
         // Keep the model's full spec — never replace with the generic short summary.
@@ -384,15 +364,29 @@ export default function GenerationWorkspace() {
             x.id === assistantId ? { ...x, content: finalClean } : x,
           ),
         );
+
+        // Auto-chain: plan stream finished → immediately compile + activate the agent.
+        // No "Approve & Build" click required. buildAgent handles save + init.
+        if (!controller.signal.aborted) {
+          void buildAgent(assistantId, finalClean);
+        }
       }
     } catch (e) {
+      if (controller.signal.aborted) {
+        // Superseded by a newer prompt — silent.
+        return;
+      }
       console.error(e);
+      const errMsg = e instanceof Error ? e.message : "Generation failed. Please try again.";
+      toast.error(errMsg);
       setMessages((m) =>
         m.map((x) =>
           x.id === assistantId
             ? {
                 ...x,
-                content: x.content || (agentMode ? createAgentFallback(lastUser) : "Something went wrong reaching NazAI. Try again."),
+                content: x.content,
+                agentStatus: agentMode ? "removed" : x.agentStatus,
+                agentError: errMsg,
               }
             : x,
         ),
@@ -400,8 +394,11 @@ export default function GenerationWorkspace() {
     } finally {
       setMessages((m) => m.map((x) => (x.id === assistantId ? { ...x, streaming: false } : x)));
       setIsStreaming(false);
+      if (abortRef.current === controller) abortRef.current = null;
     }
   };
+
+
 
   const sendPrompt = () => {
     const text = prompt.trim();
