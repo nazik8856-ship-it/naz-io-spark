@@ -1564,22 +1564,50 @@ export default function GenerationWorkspace() {
                               <pre className="px-3 pb-3 pt-1 text-[11px] leading-relaxed text-zinc-300 whitespace-pre-wrap font-mono overflow-x-auto">{cleaned}</pre>
                             </details>
                             {isStreamingNow && (
-                              <div className="flex items-center gap-2 text-xs text-zinc-500 pt-2">
-                                <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" />
-                                {status === "building" ? "Compiling final agent…" : "Streaming agent spec…"}
+                              <div className="pt-2 space-y-1.5">
+                                <div className="flex items-center justify-between text-xs text-zinc-400">
+                                  <span className="flex items-center gap-2">
+                                    <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                                    {status === "building" ? "Compiling final agent…" : "Streaming agent spec…"}
+                                  </span>
+                                  <span className="font-mono text-[10px] text-zinc-500">
+                                    {lastNaz.agentDebug?.rawChars ?? cleaned.length} chars
+                                  </span>
+                                </div>
+                                <div className="h-1 w-full overflow-hidden rounded-full bg-white/5">
+                                  <div
+                                    className="h-full bg-gradient-to-r from-purple-500 to-cyan-400 transition-all duration-300"
+                                    style={{ width: `${Math.min(100, Math.round(((lastNaz.agentDebug?.rawChars ?? cleaned.length) / 1400) * 100))}%` }}
+                                  />
+                                </div>
                               </div>
                             )}
                           </div>
                         ) : (
-                          <div className="flex items-center gap-2 text-sm text-zinc-400">
-                            <span className="h-1.5 w-1.5 rounded-full bg-purple-400 animate-pulse" />
-                            Generating your agent…
+                          <div className="space-y-3">
+                            <div className="flex items-center gap-2 text-sm text-zinc-300">
+                              <span className="h-2 w-2 rounded-full bg-purple-400 animate-pulse" />
+                              NazAI is generating your agent…
+                            </div>
+                            <div className="h-1 w-full overflow-hidden rounded-full bg-white/5">
+                              <div className="h-full w-1/3 bg-gradient-to-r from-purple-500 to-cyan-400 animate-pulse" />
+                            </div>
+                            <div className="text-[11px] text-zinc-500 font-mono">
+                              Streaming the 8-section spec live. First tokens usually arrive within 3–6 seconds.
+                            </div>
                           </div>
                         )}
 
                         {lastNaz.agentError && (
-                          <div className="mt-4 text-[11px] text-amber-300/90 bg-amber-400/5 border border-amber-400/20 rounded-md px-3 py-2">
-                            {lastNaz.agentError}
+                          <div className="mt-4 flex items-center justify-between gap-3 text-[12px] text-amber-200 bg-amber-400/5 border border-amber-400/20 rounded-md px-3 py-2">
+                            <span>{lastNaz.agentError}</span>
+                            <button
+                              onClick={retryLastGeneration}
+                              disabled={isStreaming}
+                              className="shrink-0 px-3 py-1.5 rounded-md text-[11px] font-semibold text-black bg-gradient-to-r from-purple-500 to-cyan-400 disabled:opacity-50"
+                            >
+                              Retry
+                            </button>
                           </div>
                         )}
 
