@@ -156,6 +156,7 @@ export default function GenerationWorkspace() {
   const initialized = useRef(false);
   const forcedAgentRef = useRef<boolean>(false);
   const abortRef = useRef<AbortController | null>(null);
+  const lastPromptRef = useRef<string>("");
 
   type SavedAgent = { id: string; name: string; spec: string; systemPrompt?: string; savedAt: string };
   const [savedAgents, setSavedAgents] = useState<SavedAgent[]>(() => {
@@ -246,6 +247,7 @@ export default function GenerationWorkspace() {
     setIsStreaming(true);
     const assistantId = crypto.randomUUID();
     const lastUser = [...history].reverse().find((m) => m.role === "user")?.content ?? "";
+    if (lastUser) lastPromptRef.current = lastUser;
     // This workspace IS the Agent Generator — every prompt produces an agent spec.
     // Scoped to GenerationWorkspace only; does not affect /dashboard, /workflower, etc.
     const agentMode = true;
@@ -272,6 +274,25 @@ export default function GenerationWorkspace() {
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
+
+    // Hard overall timeout + stall watchdog so the UI never hangs on "thinking".
+    const TIMEOUT_MS = 45_000;
+    const STALL_MS = 15_000;
+    let timedOut = false;
+    let lastChunkAt = Date.now();
+    const overallTimer = setTimeout(() => {
+      if (!controller.signal.aborted) {
+        timedOut = true;
+        controller.abort();
+      }
+    }, TIMEOUT_MS);
+    const stallTimer = setInterval(() => {
+      if (controller.signal.aborted) return;
+      if (Date.now() - lastChunkAt > STALL_MS) {
+        timedOut = true;
+        controller.abort();
+      }
+    }, 2_000);
 
     try {
       const endpoint = agentMode ? "generate-ai-agent" : "nazai-chat";
@@ -340,9 +361,10 @@ export default function GenerationWorkspace() {
             const delta = parsed.choices?.[0]?.delta?.content;
             if (delta) {
               acc += delta;
+              lastChunkAt = Date.now();
               const nextContent = agentMode ? cleanAgentSpecOutput(acc) : acc;
               setMessages((m) =>
-                m.map((x) => (x.id === assistantId ? { ...x, content: nextContent } : x)),
+                m.map((x) => (x.id === assistantId ? { ...x, content: nextContent, agentDebug: { ...(x.agentDebug ?? {}), rawChars: acc.length } } : x)),
               );
             }
           } catch {
@@ -436,30 +458,44 @@ export default function GenerationWorkspace() {
       }
 
     } catch (e) {
-      if (controller.signal.aborted) {
+      if (controller.signal.aborted && !timedOut) {
         // Superseded by a newer prompt — silent.
         return;
       }
       console.error("[NazAI Agent Gen] FAILED", e);
-      const errMsg = e instanceof Error ? e.message : "Generation failed. Please try again.";
-      toast.error(errMsg);
+      const errMsg = timedOut
+        ? "Generation timed out. Tap Retry to try again."
+        : e instanceof Error ? e.message : "Generation failed. Please try again.";
+      if (timedOut) toast.error("Generation timed out — tap Retry."); else toast.error(errMsg);
       setMessages((m) =>
         m.map((x) =>
           x.id === assistantId
             ? {
                 ...x,
                 content: x.content,
-                agentStatus: agentMode ? "removed" : x.agentStatus,
+                // Keep the card visible (pending) so the Retry button is in reach.
+                agentStatus: agentMode ? "pending" : x.agentStatus,
+                kind: agentMode ? "agent-spec" : x.kind,
                 agentError: errMsg,
               }
             : x,
         ),
       );
     } finally {
+      clearTimeout(overallTimer);
+      clearInterval(stallTimer);
       setMessages((m) => m.map((x) => (x.id === assistantId ? { ...x, streaming: false } : x)));
       setIsStreaming(false);
       if (abortRef.current === controller) abortRef.current = null;
     }
+  };
+
+  const retryLastGeneration = () => {
+    const last = lastPromptRef.current;
+    if (!last || isStreaming) return;
+    // Strip any prior failed assistant card so the new one renders cleanly.
+    setMessages((m) => m.filter((x) => !(x.role === "nazai" && x.agentError)));
+    void streamFromNazAI([{ role: "user", content: last }]);
   };
 
 
@@ -1528,22 +1564,50 @@ export default function GenerationWorkspace() {
                               <pre className="px-3 pb-3 pt-1 text-[11px] leading-relaxed text-zinc-300 whitespace-pre-wrap font-mono overflow-x-auto">{cleaned}</pre>
                             </details>
                             {isStreamingNow && (
-                              <div className="flex items-center gap-2 text-xs text-zinc-500 pt-2">
-                                <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" />
-                                {status === "building" ? "Compiling final agent…" : "Streaming agent spec…"}
+                              <div className="pt-2 space-y-1.5">
+                                <div className="flex items-center justify-between text-xs text-zinc-400">
+                                  <span className="flex items-center gap-2">
+                                    <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                                    {status === "building" ? "Compiling final agent…" : "Streaming agent spec…"}
+                                  </span>
+                                  <span className="font-mono text-[10px] text-zinc-500">
+                                    {lastNaz.agentDebug?.rawChars ?? cleaned.length} chars
+                                  </span>
+                                </div>
+                                <div className="h-1 w-full overflow-hidden rounded-full bg-white/5">
+                                  <div
+                                    className="h-full bg-gradient-to-r from-purple-500 to-cyan-400 transition-all duration-300"
+                                    style={{ width: `${Math.min(100, Math.round(((lastNaz.agentDebug?.rawChars ?? cleaned.length) / 1400) * 100))}%` }}
+                                  />
+                                </div>
                               </div>
                             )}
                           </div>
                         ) : (
-                          <div className="flex items-center gap-2 text-sm text-zinc-400">
-                            <span className="h-1.5 w-1.5 rounded-full bg-purple-400 animate-pulse" />
-                            Generating your agent…
+                          <div className="space-y-3">
+                            <div className="flex items-center gap-2 text-sm text-zinc-300">
+                              <span className="h-2 w-2 rounded-full bg-purple-400 animate-pulse" />
+                              NazAI is generating your agent…
+                            </div>
+                            <div className="h-1 w-full overflow-hidden rounded-full bg-white/5">
+                              <div className="h-full w-1/3 bg-gradient-to-r from-purple-500 to-cyan-400 animate-pulse" />
+                            </div>
+                            <div className="text-[11px] text-zinc-500 font-mono">
+                              Streaming the 8-section spec live. First tokens usually arrive within 3–6 seconds.
+                            </div>
                           </div>
                         )}
 
                         {lastNaz.agentError && (
-                          <div className="mt-4 text-[11px] text-amber-300/90 bg-amber-400/5 border border-amber-400/20 rounded-md px-3 py-2">
-                            {lastNaz.agentError}
+                          <div className="mt-4 flex items-center justify-between gap-3 text-[12px] text-amber-200 bg-amber-400/5 border border-amber-400/20 rounded-md px-3 py-2">
+                            <span>{lastNaz.agentError}</span>
+                            <button
+                              onClick={retryLastGeneration}
+                              disabled={isStreaming}
+                              className="shrink-0 px-3 py-1.5 rounded-md text-[11px] font-semibold text-black bg-gradient-to-r from-purple-500 to-cyan-400 disabled:opacity-50"
+                            >
+                              Retry
+                            </button>
                           </div>
                         )}
 

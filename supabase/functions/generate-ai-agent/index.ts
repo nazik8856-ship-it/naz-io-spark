@@ -86,7 +86,8 @@ Design ONE autonomous AI agent that directly fulfills the request above. Every s
         model: aiModel,
         messages: finalMessages,
         stream: true,
-        temperature: 0.7,
+        temperature: 0.5,
+        max_tokens: 1400,
       }),
     });
 
