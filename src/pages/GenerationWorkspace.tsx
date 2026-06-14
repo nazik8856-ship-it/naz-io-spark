@@ -275,6 +275,25 @@ export default function GenerationWorkspace() {
     const controller = new AbortController();
     abortRef.current = controller;
 
+    // Hard overall timeout + stall watchdog so the UI never hangs on "thinking".
+    const TIMEOUT_MS = 45_000;
+    const STALL_MS = 15_000;
+    let timedOut = false;
+    let lastChunkAt = Date.now();
+    const overallTimer = setTimeout(() => {
+      if (!controller.signal.aborted) {
+        timedOut = true;
+        controller.abort();
+      }
+    }, TIMEOUT_MS);
+    const stallTimer = setInterval(() => {
+      if (controller.signal.aborted) return;
+      if (Date.now() - lastChunkAt > STALL_MS) {
+        timedOut = true;
+        controller.abort();
+      }
+    }, 2_000);
+
     try {
       const endpoint = agentMode ? "generate-ai-agent" : "nazai-chat";
       const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${endpoint}`;
