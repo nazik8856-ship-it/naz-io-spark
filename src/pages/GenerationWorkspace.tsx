@@ -581,8 +581,9 @@ export default function GenerationWorkspace() {
             agentChat: [{ role: "assistant", content: greeting }],
           });
           setSelectedSavedId(id);
-          setActiveTab("dashboard");
-          toast.success("Agent is live — start chatting!");
+          // Keep Preview active so the complete 8-section card stays visible.
+          // User can click "Live" to switch to Chat.
+          toast.success("Agent is live — open Chat to talk to it.");
         }
       } catch (initErr) {
         console.warn("agent init failed", initErr);
@@ -590,14 +591,11 @@ export default function GenerationWorkspace() {
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : "Could not build agent.";
       toast.error(errMsg);
-      // Preserve whatever spec we already have so the card never flashes away.
+      // Preserve generated spec visibly but DO NOT fake approval — show real error and allow retry.
       const salvaged = cleanAgentSpecOutput(sourceSpec, { final: true }) || sourceSpec;
-      const salvagedName = parseAgentSpec(salvaged).name || "AI Agent";
       updateMsg(id, {
         content: salvaged,
-        agentStatus: "approved",
-        agentName: salvagedName,
-        agentFinalSpec: salvaged,
+        agentStatus: "pending",
         agentError: errMsg,
       });
       try {
