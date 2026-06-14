@@ -290,6 +290,16 @@ export default function GenerationWorkspace() {
         signal: controller.signal,
       });
 
+      console.info("[NazAI Agent Gen] response", { endpoint, status: resp.status, ok: resp.ok });
+      setMessages((m) =>
+        m.map((x) =>
+          x.id === assistantId
+            ? { ...x, agentDebug: { ...(x.agentDebug ?? {}), endpoint, status: resp.status } }
+            : x,
+        ),
+      );
+
+
       if (resp.status === 429) {
         toast.error("Rate limited — try again in a moment.");
         throw new Error("Rate limited. Please retry shortly.");
