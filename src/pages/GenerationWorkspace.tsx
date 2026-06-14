@@ -156,6 +156,7 @@ export default function GenerationWorkspace() {
   const initialized = useRef(false);
   const forcedAgentRef = useRef<boolean>(false);
   const abortRef = useRef<AbortController | null>(null);
+  const lastPromptRef = useRef<string>("");
 
   type SavedAgent = { id: string; name: string; spec: string; systemPrompt?: string; savedAt: string };
   const [savedAgents, setSavedAgents] = useState<SavedAgent[]>(() => {
