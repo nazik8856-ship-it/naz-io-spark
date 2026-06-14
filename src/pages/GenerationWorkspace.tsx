@@ -379,9 +379,17 @@ export default function GenerationWorkspace() {
       }
       if (agentMode) {
         // Keep the model's full spec — never replace with the generic short summary.
-        const finalClean = cleanAgentSpecOutput(acc, { final: true }) || cleanAgentSpecOutput(acc) || acc;
+        // If slicing on "1. Agent Name" yields LESS content than the raw clean,
+        // we keep the raw clean to guarantee nothing is dropped from the UI.
+        const cleanedNoSlice = cleanAgentSpecOutput(acc);
+        const cleanedSliced = cleanAgentSpecOutput(acc, { final: true });
+        const finalClean =
+          cleanedSliced && cleanedSliced.length >= cleanedNoSlice.length * 0.6
+            ? cleanedSliced
+            : cleanedNoSlice || acc;
         const parsed = parseAgentSpec(finalClean);
         const sectionsFound = [parsed.name, parsed.description, parsed.goal, parsed.capabilities, parsed.workflow, parsed.guardrails, parsed.deployment, parsed.impact].filter(Boolean).length;
+        const agentName = parsed.name || "AI Agent";
         console.info("[NazAI Agent Gen] stream complete", {
           rawChars: acc.length,
           cleanedChars: finalClean.length,
@@ -394,6 +402,12 @@ export default function GenerationWorkspace() {
               ? {
                   ...x,
                   content: finalClean,
+                  // Mark approved immediately so the full 8-section card is shown
+                  // without waiting on the secondary run-ai-agent compile step,
+                  // which was occasionally clobbering or shortening the content.
+                  agentStatus: "approved",
+                  agentName,
+                  agentFinalSpec: finalClean,
                   agentDebug: {
                     ...(x.agentDebug ?? {}),
                     rawChars: acc.length,
@@ -406,10 +420,18 @@ export default function GenerationWorkspace() {
           ),
         );
 
-        // Auto-chain: plan stream finished → immediately compile + activate the agent.
-        // No "Approve & Build" click required. buildAgent handles save + init.
-        if (!controller.signal.aborted) {
-          void buildAgent(assistantId, finalClean);
+        // Auto-save the streamed spec so it's available in Dashboard immediately.
+        try {
+          const entry: SavedAgent = {
+            id: assistantId,
+            name: agentName,
+            spec: finalClean,
+            savedAt: new Date().toISOString(),
+          };
+          const current = JSON.parse(localStorage.getItem("nazai_saved_agents_v2") || "[]") as SavedAgent[];
+          persistSaved([entry, ...current.filter((a) => a.id !== assistantId)]);
+        } catch (saveErr) {
+          console.warn("[NazAI Agent Gen] save failed", saveErr);
         }
       }
 
