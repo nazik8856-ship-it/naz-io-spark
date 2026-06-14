@@ -458,30 +458,44 @@ export default function GenerationWorkspace() {
       }
 
     } catch (e) {
-      if (controller.signal.aborted) {
+      if (controller.signal.aborted && !timedOut) {
         // Superseded by a newer prompt — silent.
         return;
       }
       console.error("[NazAI Agent Gen] FAILED", e);
-      const errMsg = e instanceof Error ? e.message : "Generation failed. Please try again.";
-      toast.error(errMsg);
+      const errMsg = timedOut
+        ? "Generation timed out. Tap Retry to try again."
+        : e instanceof Error ? e.message : "Generation failed. Please try again.";
+      if (timedOut) toast.error("Generation timed out — tap Retry."); else toast.error(errMsg);
       setMessages((m) =>
         m.map((x) =>
           x.id === assistantId
             ? {
                 ...x,
                 content: x.content,
-                agentStatus: agentMode ? "removed" : x.agentStatus,
+                // Keep the card visible (pending) so the Retry button is in reach.
+                agentStatus: agentMode ? "pending" : x.agentStatus,
+                kind: agentMode ? "agent-spec" : x.kind,
                 agentError: errMsg,
               }
             : x,
         ),
       );
     } finally {
+      clearTimeout(overallTimer);
+      clearInterval(stallTimer);
       setMessages((m) => m.map((x) => (x.id === assistantId ? { ...x, streaming: false } : x)));
       setIsStreaming(false);
       if (abortRef.current === controller) abortRef.current = null;
     }
+  };
+
+  const retryLastGeneration = () => {
+    const last = lastPromptRef.current;
+    if (!last || isStreaming) return;
+    // Strip any prior failed assistant card so the new one renders cleanly.
+    setMessages((m) => m.filter((x) => !(x.role === "nazai" && x.agentError)));
+    void streamFromNazAI([{ role: "user", content: last }]);
   };
 
 
