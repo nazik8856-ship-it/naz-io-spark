@@ -247,6 +247,7 @@ export default function GenerationWorkspace() {
     setIsStreaming(true);
     const assistantId = crypto.randomUUID();
     const lastUser = [...history].reverse().find((m) => m.role === "user")?.content ?? "";
+    if (lastUser) lastPromptRef.current = lastUser;
     // This workspace IS the Agent Generator — every prompt produces an agent spec.
     // Scoped to GenerationWorkspace only; does not affect /dashboard, /workflower, etc.
     const agentMode = true;
