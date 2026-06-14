@@ -1,68 +1,132 @@
-## What's actually wrong
+## Accurate bottleneck diagnosis
 
-Two separate problems are stacking on top of each other:
+The main blocker is in `src/pages/GenerationWorkspace.tsx`:
 
-### 1. The screenshot is from the published site (`spark.lovable.app`), not the preview
+1. User submits prompt from `GeneratorHome`.
+2. `/generation-workspace` calls `streamFromNazAI`.
+3. `streamFromNazAI` creates a new assistant message and streams the 8-section spec from `generate-ai-agent`.
+4. After streaming finishes, it calls:
 
-The card in your screenshot says **"Business Resilience Agent"** with a description that mentions *"retail cash..."* — but your prompt was about *Braddy financial insights*. That text does not exist anywhere in the current codebase (I searched). It is coming from **`localStorage["nazai_saved_agents"]`** which was written by the **old `createAgentFallback` build** that is still live on `spark.lovable.app`. The preview branch already has the fallback removed; the published branch does not.
+```ts
+void buildAgent(assistantId, finalClean);
+```
 
-So fix #1 is just: **republish**. Until you do, every visitor to `spark.lovable.app` keeps seeing whatever fallback agent their browser saved last week.
+5. But `buildAgent` immediately does:
 
-### 2. The Preview tab agent card never actually renders the 8 sections
+```ts
+const msg = messages.find((x) => x.id === id);
+...
+if (!msg || !sourceSpec) return;
+```
 
-This is the real code bug. The previous summary claimed the Preview tab renders all 8 sections — it does not. Lines 844–895 of `src/pages/GenerationWorkspace.tsx` render only:
+Because React state is stale inside that async closure, `messages` often does not yet contain the just-created assistant message. So `msg` is `undefined`, and `buildAgent` returns early. That means the streamed plan/spec never becomes:
 
-- Agent name
-- 2-line truncated description (`line-clamp-2`)
-- 1-line truncated goal (`line-clamp-1`)
-- A literal hard-coded string: `"6 capabilities · workflow ready"`
-- Live / Edit / Remove buttons
+- `agentStatus: "approved"`
+- `agentFinalSpec`
+- saved in `nazai_saved_agents_v2`
+- available as the live chat agent
 
-That is why after Approve & Build flips to "Live", you still see no real agent. The full structured render with Workflow / Guardrails / Deployment bullets only exists on the **Chat** tab side panel (lines ~1261–1370), not in the Preview tab message stream.
+This is the highest-impact cause of “generation happened but no generated agent appeared.”
 
-## Fix plan
+## Secondary blockers / confusing behavior
 
-### A. Render the full structured agent card inside the Preview tab message (the real fix)
+### 1. Successful build switches away from Preview
 
-In `src/pages/GenerationWorkspace.tsx`, replace the collapsed card at lines 844–895 with an expanded card that uses the existing `parseAgentSpec(m.content)` result and shows all 8 sections inline once `m.agentStatus === "approved"`:
+After the agent initializes, the code runs:
 
-- **Header:** Name + Live/Booting/Pending badge (keep).
-- **Description:** remove `line-clamp-2`, render full text.
-- **Primary Goal:** remove `line-clamp-1`, render full text with the 🎯 prefix.
-- **Autonomous Capabilities:** render `toBullets(spec.capabilities)` as a real `<ul>` (not the hardcoded "6 capabilities" string).
-- **Step-by-Step Workflow:** numbered list from `toBullets(spec.workflow)`.
-- **Guardrails & Safety:** bullet list from `toBullets(spec.guardrails)`.
-- **Deployment Options:** bullet list from `toBullets(spec.deployment)`.
-- **Expected Impact:** paragraph from `spec.impact`.
-- Keep the existing Live / Edit / Remove action row underneath.
+```ts
+setActiveTab("dashboard");
+```
 
-While streaming or before approval, keep a compact view (current collapsed card is fine for the in-flight state); switch to the full 8-section view as soon as `m.agentStatus === "approved"` and `m.agentFinalSpec` is set.
+So even if the build succeeds, the user is moved to Chat instead of seeing the complete 8-section card in Preview. This conflicts with the desired behavior: “Show the complete agent card immediately in Preview tab after generation.”
 
-The parser and bullet helpers already exist (`parseAgentSpec` line 94, the JSX render at lines 1341–1370 shows the bullet pattern to copy). No new edge function work, no schema changes — purely presentational.
+### 2. Build errors are still partially masked
 
-### B. Invalidate stale localStorage cache so old fallback agents disappear
+`buildAgent` catches build failure and marks the salvaged source spec as approved:
 
-Bump the localStorage key from `"nazai_saved_agents"` to `"nazai_saved_agents_v2"` (and same for `nazai_pending_prompt` if it carries stale state). A one-time migration on mount can delete the old key. This guarantees nobody — including current users on the published site — keeps seeing the `Business Resilience Agent` ghost row after we ship.
+```ts
+agentStatus: "approved"
+agentFinalSpec: salvaged
+```
 
-### C. Republish to `spark.lovable.app`
+That is not the old fake generic fallback, but it still hides a real build failure by presenting the agent as built. It should instead preserve the generated spec visibly, show the real error, and not mark it as `approved` unless the build actually completed.
 
-After A + B land in preview, publish. The preview URL already works correctly with the current backend; the published URL is the one stuck on the old build.
+### 3. Raw function fetches are brittle
 
-### D. (Optional, not required to close this) Move saved agents off localStorage
+The frontend manually builds function URLs from:
 
-`localStorage` is per-device. If a client logs in from a second browser they will see no saved agents. A small `public.agents` table (`id`, `user_id`, `name`, `spec`, `system_prompt`, `created_at`) with RLS scoped to `auth.uid()` would fix that. Skip for this round if you only want the visible bug closed.
+```ts
+import.meta.env.VITE_SUPABASE_URL
+import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
+```
 
-## Files to edit
+If either env var name differs or is unavailable in a deployment, generation fails before reaching the AI function. The app already has a backend client wrapper; this flow should use the existing client/function invocation pattern or a shared helper that supports both publishable/anon env names.
 
-- `src/pages/GenerationWorkspace.tsx` — replace the collapsed agent card render (lines ~844–895) with the full 8-section structured render, and bump the localStorage key.
+### 4. “Dashboard save” is only local workspace storage
 
-## Out of scope
+The current save path writes to:
 
-- No edge function changes. `generate-ai-agent` and `run-ai-agent` already return the full structured spec; the UI just wasn't displaying it.
-- No removal of the Chat-tab side-panel render — keep it as-is.
+```ts
+localStorage["nazai_saved_agents_v2"]
+```
 
-## Acceptance check
+That powers the workspace Chat tab, but it does not persist to the main dashboard/project database. If the requirement means the main dashboard should show generated agents, this needs a database/project persistence step too.
 
-1. New prompt → plan streams → auto-build fires → Preview card expands into all 8 sections with real bullets (not "6 capabilities · workflow ready").
-2. Hard refresh `spark.lovable.app` → no "Business Resilience Agent" ghost row from old cache.
-3. Stop button mid-generation cancels cleanly (already wired via `abortRef`).
+## Implementation plan to close AI Agent generation today
+
+### Step 1: Fix the auto-build stale-state bug
+
+Change `buildAgent` so it accepts a full spec override without requiring the message to already exist in the closed-over `messages` array.
+
+Target behavior:
+
+- If `specOverride` is provided, build from that spec even when `messages.find(...)` is stale.
+- Use functional `setMessages` updates to find/update the latest message state.
+- Never silently return after generation when the final spec exists.
+
+### Step 2: Keep the completed agent in Preview
+
+Remove the automatic `setActiveTab("dashboard")` after init.
+
+Target behavior:
+
+- Preview remains active.
+- The 8-section complete card shows immediately.
+- The user can click `Live` to chat with the agent.
+
+### Step 3: Make errors truthful
+
+Update `buildAgent` failure handling:
+
+- Do not mark failed builds as `approved`.
+- Preserve the generated spec/card on screen.
+- Show the exact error in the Preview card.
+- Allow retry via `Approve & Build` / `Build` button.
+
+### Step 4: Harden function calls
+
+Replace repeated raw `fetch(`${VITE_SUPABASE_URL}/functions/v1/...`)` usage with a small helper or existing backend client call that consistently handles:
+
+- URL resolution
+- publishable/anon key mismatch
+- status-specific errors: 429, 402, 401/403, 500
+- readable error details from function responses
+
+### Step 5: Verify the final flow
+
+Validate this exact path:
+
+```text
+GeneratorHome prompt
+→ GenerationWorkspace opens
+→ generate-ai-agent streams strict 8-section spec
+→ run-ai-agent mode=build auto-runs
+→ Preview shows complete approved 8-section card
+→ localStorage saves agent
+→ Live chat can open and respond
+→ failures show real error without fake fallback
+```
+
+## Bottom line
+
+The bottleneck is not the AI prompt or the edge function structure. The main bottleneck is frontend state timing: `buildAgent` depends on stale `messages` immediately after streaming, so auto-approval/build can exit before saving or showing the full live agent.

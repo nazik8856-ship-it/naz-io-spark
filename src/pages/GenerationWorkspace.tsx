@@ -460,10 +460,21 @@ export default function GenerationWorkspace() {
 
   const buildAgent = async (id: string, specOverride?: string) => {
     if (buildingRef.current.has(id)) return;
-    const msg = messages.find((x) => x.id === id);
-    const sourceSpec = cleanAgentSpecOutput(specOverride || msg?.content || "");
-    if (!msg || !sourceSpec) return;
-    if (msg.agentStatus === "building" || (msg.agentStatus === "approved" && !specOverride)) return;
+    // Read latest state via functional setter to avoid stale-closure bugs after streaming.
+    let latestMsg: ChatMessage | undefined;
+    setMessages((all) => {
+      latestMsg = all.find((x) => x.id === id);
+      return all;
+    });
+    const sourceSpec = cleanAgentSpecOutput(specOverride || latestMsg?.content || "");
+    if (!sourceSpec) return;
+    if (
+      latestMsg &&
+      (latestMsg.agentStatus === "building" ||
+        (latestMsg.agentStatus === "approved" && !specOverride))
+    ) {
+      return;
+    }
     buildingRef.current.add(id);
     // Keep source spec visible while building so nothing flashes/closes.
     updateMsg(id, {
@@ -570,8 +581,9 @@ export default function GenerationWorkspace() {
             agentChat: [{ role: "assistant", content: greeting }],
           });
           setSelectedSavedId(id);
-          setActiveTab("dashboard");
-          toast.success("Agent is live — start chatting!");
+          // Keep Preview active so the complete 8-section card stays visible.
+          // User can click "Live" to switch to Chat.
+          toast.success("Agent is live — open Chat to talk to it.");
         }
       } catch (initErr) {
         console.warn("agent init failed", initErr);
@@ -579,22 +591,14 @@ export default function GenerationWorkspace() {
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : "Could not build agent.";
       toast.error(errMsg);
-      // Preserve whatever spec we already have so the card never flashes away.
+      // Preserve generated spec visibly but DO NOT fake approval — show real error and allow retry.
       const salvaged = cleanAgentSpecOutput(sourceSpec, { final: true }) || sourceSpec;
-      const salvagedName = parseAgentSpec(salvaged).name || "AI Agent";
       updateMsg(id, {
         content: salvaged,
-        agentStatus: "approved",
-        agentName: salvagedName,
-        agentFinalSpec: salvaged,
+        agentStatus: "pending",
         agentError: errMsg,
       });
-      try {
-        const current = JSON.parse(localStorage.getItem("nazai_saved_agents_v2") || "[]") as SavedAgent[];
-        if (!current.some((a) => a.id === id)) {
-          persistSaved([{ id, name: salvagedName, spec: salvaged, savedAt: new Date().toISOString() }, ...current]);
-        }
-      } catch { /* ignore */ }
+      // Do not auto-save failed builds; user can retry via "Approve & Build".
     } finally {
       buildingRef.current.delete(id);
     }
