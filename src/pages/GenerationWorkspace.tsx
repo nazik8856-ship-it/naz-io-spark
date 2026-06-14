@@ -1510,6 +1510,36 @@ export default function GenerationWorkspace() {
                           </div>
                         )}
 
+                        {(() => {
+                          const dbg = lastNaz.agentDebug;
+                          if (!dbg) return null;
+                          const parseLow =
+                            typeof dbg.sectionsFound === "number" && dbg.sectionsFound < 4;
+                          const tiny =
+                            typeof dbg.cleanedChars === "number" && dbg.cleanedChars < 80;
+                          const show = lastNaz.agentError || parseLow || tiny;
+                          if (!show) return null;
+                          return (
+                            <details className="mt-4 text-[11px] bg-black/40 border border-white/10 rounded-md px-3 py-2 text-zinc-300">
+                              <summary className="cursor-pointer font-mono text-zinc-400">
+                                🔬 Generation diagnostics
+                              </summary>
+                              <div className="mt-2 space-y-1 font-mono">
+                                <div>endpoint: <span className="text-cyan-300">{dbg.endpoint}</span></div>
+                                <div>status: <span className={dbg.status === 200 ? "text-emerald-300" : "text-amber-300"}>{dbg.status ?? "—"}</span></div>
+                                <div>raw chars: {dbg.rawChars ?? 0}</div>
+                                <div>cleaned chars: {dbg.cleanedChars ?? 0}</div>
+                                <div>sections parsed: {dbg.sectionsFound ?? 0}/8</div>
+                                {dbg.firstChunk && (
+                                  <div className="mt-1">first chunk: <pre className="whitespace-pre-wrap break-all bg-black/60 p-2 rounded text-[10px] text-zinc-400">{dbg.firstChunk}</pre></div>
+                                )}
+                                {dbg.error && <div className="text-amber-300">error: {dbg.error}</div>}
+                              </div>
+                            </details>
+                          );
+                        })()}
+
+
                         {!lastNaz.editing && (
                           <div className="mt-6 pt-5 border-t border-white/10 flex flex-wrap gap-2">
                             <button
