@@ -418,7 +418,7 @@ export default function GenerationWorkspace() {
         // Superseded by a newer prompt — silent.
         return;
       }
-      console.error(e);
+      console.error("[NazAI Agent Gen] FAILED", e);
       const errMsg = e instanceof Error ? e.message : "Generation failed. Please try again.";
       toast.error(errMsg);
       setMessages((m) =>
