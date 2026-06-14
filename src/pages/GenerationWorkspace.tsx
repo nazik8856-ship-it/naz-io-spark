@@ -54,6 +54,15 @@ type ChatMessage = {
   agentChat?: AgentTurn[];
   agentStreaming?: boolean;
   agentError?: string;
+  agentDebug?: {
+    endpoint?: string;
+    status?: number;
+    firstChunk?: string;
+    rawChars?: number;
+    cleanedChars?: number;
+    sectionsFound?: number;
+    error?: string;
+  };
 };
 
 function cleanAgentSpecOutput(text: string, opts: { final?: boolean } = {}): string {
