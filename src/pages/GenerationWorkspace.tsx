@@ -460,10 +460,21 @@ export default function GenerationWorkspace() {
 
   const buildAgent = async (id: string, specOverride?: string) => {
     if (buildingRef.current.has(id)) return;
-    const msg = messages.find((x) => x.id === id);
-    const sourceSpec = cleanAgentSpecOutput(specOverride || msg?.content || "");
-    if (!msg || !sourceSpec) return;
-    if (msg.agentStatus === "building" || (msg.agentStatus === "approved" && !specOverride)) return;
+    // Read latest state via functional setter to avoid stale-closure bugs after streaming.
+    let latestMsg: ChatMessage | undefined;
+    setMessages((all) => {
+      latestMsg = all.find((x) => x.id === id);
+      return all;
+    });
+    const sourceSpec = cleanAgentSpecOutput(specOverride || latestMsg?.content || "");
+    if (!sourceSpec) return;
+    if (
+      latestMsg &&
+      (latestMsg.agentStatus === "building" ||
+        (latestMsg.agentStatus === "approved" && !specOverride))
+    ) {
+      return;
+    }
     buildingRef.current.add(id);
     // Keep source spec visible while building so nothing flashes/closes.
     updateMsg(id, {
