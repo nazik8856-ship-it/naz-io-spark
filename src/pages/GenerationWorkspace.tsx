@@ -598,12 +598,7 @@ export default function GenerationWorkspace() {
         agentStatus: "pending",
         agentError: errMsg,
       });
-      try {
-        const current = JSON.parse(localStorage.getItem("nazai_saved_agents_v2") || "[]") as SavedAgent[];
-        if (!current.some((a) => a.id === id)) {
-          persistSaved([{ id, name: salvagedName, spec: salvaged, savedAt: new Date().toISOString() }, ...current]);
-        }
-      } catch { /* ignore */ }
+      // Do not auto-save failed builds; user can retry via "Approve & Build".
     } finally {
       buildingRef.current.delete(id);
     }
