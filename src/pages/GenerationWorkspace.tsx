@@ -380,9 +380,29 @@ export default function GenerationWorkspace() {
       if (agentMode) {
         // Keep the model's full spec — never replace with the generic short summary.
         const finalClean = cleanAgentSpecOutput(acc, { final: true }) || cleanAgentSpecOutput(acc) || acc;
+        const parsed = parseAgentSpec(finalClean);
+        const sectionsFound = [parsed.name, parsed.description, parsed.goal, parsed.capabilities, parsed.workflow, parsed.guardrails, parsed.deployment, parsed.impact].filter(Boolean).length;
+        console.info("[NazAI Agent Gen] stream complete", {
+          rawChars: acc.length,
+          cleanedChars: finalClean.length,
+          sectionsFound,
+          firstChunk: acc.slice(0, 120),
+        });
         setMessages((m) =>
           m.map((x) =>
-            x.id === assistantId ? { ...x, content: finalClean } : x,
+            x.id === assistantId
+              ? {
+                  ...x,
+                  content: finalClean,
+                  agentDebug: {
+                    ...(x.agentDebug ?? {}),
+                    rawChars: acc.length,
+                    cleanedChars: finalClean.length,
+                    sectionsFound,
+                    firstChunk: acc.slice(0, 200),
+                  },
+                }
+              : x,
           ),
         );
 
@@ -392,6 +412,7 @@ export default function GenerationWorkspace() {
           void buildAgent(assistantId, finalClean);
         }
       }
+
     } catch (e) {
       if (controller.signal.aborted) {
         // Superseded by a newer prompt — silent.
