@@ -1507,11 +1507,26 @@ export default function GenerationWorkspace() {
                                 <p className="text-sm text-white">{spec.impact}</p>
                               </section>
                             )}
-                            {!spec.description && !spec.goal && !spec.capabilities && (
-                              <div className="prose prose-invert prose-sm md:prose-base max-w-none prose-headings:text-white prose-pre:bg-black/60 prose-pre:border prose-pre:border-white/10 prose-code:text-cyan-300">
-                                <ReactMarkdown>{cleaned}</ReactMarkdown>
-                              </div>
-                            )}
+                            {(() => {
+                              const sectionsCount = [spec.description, spec.goal, spec.capabilities, spec.workflow, spec.guardrails, spec.deployment, spec.impact].filter(Boolean).length;
+                              // If fewer than 4 of the 7 body sections parsed, render
+                              // the full cleaned markdown so nothing is dropped.
+                              if (sectionsCount >= 4) return null;
+                              return (
+                                <section>
+                                  <div className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 mb-2 font-mono">Full Agent Spec</div>
+                                  <div className="prose prose-invert prose-sm md:prose-base max-w-none prose-headings:text-white prose-pre:bg-black/60 prose-pre:border prose-pre:border-white/10 prose-code:text-cyan-300">
+                                    <ReactMarkdown>{cleaned}</ReactMarkdown>
+                                  </div>
+                                </section>
+                              );
+                            })()}
+                            <details className="mt-2 rounded-lg border border-white/10 bg-white/[0.02]">
+                              <summary className="cursor-pointer select-none px-3 py-2 text-[10px] uppercase tracking-[0.2em] text-zinc-500 font-mono hover:text-zinc-300">
+                                View raw output
+                              </summary>
+                              <pre className="px-3 pb-3 pt-1 text-[11px] leading-relaxed text-zinc-300 whitespace-pre-wrap font-mono overflow-x-auto">{cleaned}</pre>
+                            </details>
                             {isStreamingNow && (
                               <div className="flex items-center gap-2 text-xs text-zinc-500 pt-2">
                                 <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" />
