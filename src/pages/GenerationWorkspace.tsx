@@ -458,6 +458,18 @@ export default function GenerationWorkspace() {
         return;
       }
       console.error("[NazAI Agent Gen] FAILED", e);
+
+      // First failure (timeout or network) → silently retry once with the same prompt.
+      if (attempt === 1 && lastUser) {
+        console.info("[NazAI Agent Gen] silent retry (attempt 2)");
+        clearTimeout(overallTimer);
+        // Remove the failed placeholder so the retry renders a fresh card.
+        setMessages((m) => m.filter((x) => x.id !== assistantId));
+        if (abortRef.current === controller) abortRef.current = null;
+        void streamFromNazAI(history, 2);
+        return;
+      }
+
       const errMsg = timedOut
         ? "Generation timed out. Tap Retry to try again."
         : e instanceof Error ? e.message : "Generation failed. Please try again.";
@@ -478,12 +490,12 @@ export default function GenerationWorkspace() {
       );
     } finally {
       clearTimeout(overallTimer);
-      clearInterval(stallTimer);
       setMessages((m) => m.map((x) => (x.id === assistantId ? { ...x, streaming: false } : x)));
       setIsStreaming(false);
       if (abortRef.current === controller) abortRef.current = null;
     }
   };
+
 
   const retryLastGeneration = () => {
     const last = lastPromptRef.current;
