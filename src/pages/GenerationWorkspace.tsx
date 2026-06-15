@@ -278,8 +278,8 @@ export default function GenerationWorkspace() {
     const controller = new AbortController();
     abortRef.current = controller;
 
-    // Hard 20s timeout — on first attempt we silently retry once before showing error.
-    const TIMEOUT_MS = 20_000;
+    // Hard 35s timeout — on first attempt we silently retry once before showing error.
+    const TIMEOUT_MS = 35_000;
     let timedOut = false;
     const overallTimer = setTimeout(() => {
       if (!controller.signal.aborted) {
