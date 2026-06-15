@@ -71,25 +71,22 @@ Design ONE autonomous AI agent that directly fulfills the request above. Every s
     ];
 
 
-    const useOpenAI = Boolean(OPENAI_API_KEY);
-    const aiUrl = useOpenAI
-      ? "https://api.openai.com/v1/chat/completions"
-      : "https://ai.gateway.lovable.dev/v1/chat/completions";
-    const aiKey = OPENAI_API_KEY || LOVABLE_API_KEY;
-    const aiModel = useOpenAI ? "gpt-4o-mini" : "google/gemini-3-flash-preview";
+    // Force OpenAI gpt-4o-mini for every agent generation — no fallbacks.
+    const aiUrl = "https://api.openai.com/v1/chat/completions";
+    const aiModel = "gpt-4o-mini";
 
     const response = await fetch(aiUrl, {
       method: "POST",
       headers: {
-        ...(useOpenAI ? { Authorization: `Bearer ${aiKey}` } : { "Lovable-API-Key": aiKey }),
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
         model: aiModel,
         messages: finalMessages,
         stream: true,
-        temperature: 0.5,
-        max_tokens: 1400,
+        temperature: 0.55,
+        max_tokens: 1600,
       }),
     });
 
