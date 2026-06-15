@@ -1,87 +1,61 @@
 ## Goal
 
-Confirm whether NazAI's AI agent generation issue is caused by the model not producing a real agent, the stream/parser dropping output, or the UI hiding/parsing it incorrectly.
+Fix three issues on `/generation-workspace`:
 
-Test prompt to use:
+1. NazAI sometimes hangs on "thinking…" with no output.
+2. The top toggle should show **Chat on the LEFT** and **Preview on the RIGHT**.
+3. When generation completes, the workspace should **auto-switch to Preview** so the generated AI agent card is always visible.
 
-```text
-Generate an AI agent for retail cash flow and economic uncertainty.
+## Scope
+
+Frontend-only changes in `src/pages/GenerationWorkspace.tsx`. No edge function, schema, or auth changes.
+
+## Changes
+
+### 1. Swap tab order (Chat ↔ Preview)
+
+In the center tab toggle (around line 871-880), reorder the array so the visible order becomes:
+
+```
+[ Chat ] [ Preview ]
 ```
 
-## Plan
+The internal tab ids (`"preview"` and `"dashboard"`) stay the same to avoid touching every conditional downstream — only the rendered order in the toggle changes.
 
-### 1. Add generation diagnostics to the frontend
+### 2. Auto-switch to Preview when agent generation finishes
 
-In `src/pages/GenerationWorkspace.tsx`, add a small internal debug object per agent message that records:
+In `buildAgent` / stream-completion path (where `agentStatus` becomes `approved` and `agentFinalSpec` is set), call `setActiveTab("preview")` so the user is taken straight to the generated agent card. Update the existing toast from "open Chat to talk to it" to a neutral "Agent ready — preview below."
 
-- endpoint called: `generate-ai-agent` / `run-ai-agent`
-- HTTP status
-- first SSE chunk preview
-- total raw characters accumulated
-- cleaned spec length
-- parsed section count
-- final error text, if any
+### 3. Hang fix: 20s hard timeout + one silent auto-retry
 
-This will tell us exactly where output disappears.
+In `streamFromNazAI` (the function that calls the `generate-ai-agent` edge function):
 
-### 2. Add browser console logs for the exact generation path
+- Replace the current 45s hard timeout / 15s stall watchdog with a single **20s hard timeout** using `AbortController`.
+- On timeout (or network error), if it is the first attempt for this prompt, **silently re-invoke the stream once** with the same prompt. Track this with a `retryCount` local variable so only one retry happens.
+- If the retry also fails, keep the existing failed-card + visible Retry button so the user can tap retry manually.
+- Keep the live progress bar/char counter that already exists.
 
-Add focused `console.info` / `console.warn` logs around:
+### 4. Loading clarity
 
-- function response status
-- first chunk received
-- every final stream completion
-- empty-output failure
-- parse result after cleaning
-- auto-build start/success/failure
+Keep the existing "NazAI is thinking…" indicator but replace it with a more specific label sequence driven by stream state:
 
-Keep logs namespaced as `[NazAI Agent Gen]` so they are easy to find and remove later.
+- `submitted` → "Designing your agent…"
+- first chunk received → "Streaming agent spec…"
+- on timeout/retry → "Retrying…"
 
-### 3. Show a raw-output debug panel only when needed
+No new components, no schema changes.
 
-In the Preview agent card, show an expandable diagnostic panel when either:
+## Out of scope
 
-- `agentError` exists
-- the raw output exists but `parseAgentSpec` finds no useful sections
-- the final cleaned spec length is suspiciously small
+- Edge function changes (already verified to work).
+- Queue-based architecture (not needed at 20s budget; current direct streaming is fine).
+- Renaming internal tab ids.
+- Any backend / Supabase work.
 
-The panel should display:
+## Verification
 
-- status
-- raw output preview
-- cleaned output preview
-- parsed fields present/missing
-- error message
-
-This avoids clutter during normal successful generation.
-
-### 4. Preserve current generation behavior
-
-Do not change models, prompts, edge functions, or storage yet.
-
-This pass is diagnostic-only so we can accurately answer whether NazAI:
-
-- generated a real 8-section agent but UI failed
-- generated malformed text
-- returned no stream content
-- hit an HTTP / AI provider error
-- failed during auto-build
-
-### 5. Verify with your retail cash-flow prompt
-
-After implementation, run the prompt through the app and inspect:
-
-```text
-Generate an AI agent for retail cash flow and economic uncertainty.
-```
-
-Expected proof:
-
-- If raw output is a full 8-section agent, the model knows what to generate and the bottleneck is parser/UI/build.
-- If raw output is empty, the bottleneck is streaming/function/provider.
-- If raw output is generic or malformed, the bottleneck is prompt/model compliance.
-- If HTTP status is 402/429/500, the bottleneck is credits/rate/provider config.
-
-## Important note
-
-Based on current code, NazAI does have a real AI generation function and a strict 8-section agent prompt. The unproven part is whether that output survives streaming, parsing, auto-build, and rendering. This diagnostic will make that visible instead of guessing.
+- Submit the test prompt: `Generate an AI agent for retail cash flow and economic uncertainty.`
+- Generates an AI Agent based on the prompt
+- Confirm the toggle reads **Chat | Preview** (Chat on left).
+- Confirm that on completion the view switches to the Preview tab automatically and shows nothing for now.
+- Simulate a hang (throttle network) and confirm: it aborts at 20s, retries once silently, and only after the retry fails does the Retry button appear.
