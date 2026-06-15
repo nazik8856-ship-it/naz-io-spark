@@ -356,7 +356,7 @@ export default function GenerationWorkspace() {
             const delta = parsed.choices?.[0]?.delta?.content;
             if (delta) {
               acc += delta;
-              lastChunkAt = Date.now();
+
               const nextContent = agentMode ? cleanAgentSpecOutput(acc) : acc;
               setMessages((m) =>
                 m.map((x) => (x.id === assistantId ? { ...x, content: nextContent, agentDebug: { ...(x.agentDebug ?? {}), rawChars: acc.length } } : x)),
