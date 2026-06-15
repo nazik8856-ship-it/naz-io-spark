@@ -871,8 +871,8 @@ export default function GenerationWorkspace() {
         {/* Center tabs */}
         <div className="flex items-center gap-1 p-1 rounded-xl border border-white/10 bg-white/[0.03]">
           {([
-            { id: "preview" as const, label: "Preview" },
             { id: "dashboard" as const, label: "Chat" },
+            { id: "preview" as const, label: "Preview" },
           ]).map((t) => (
             <button
               key={t.id}
