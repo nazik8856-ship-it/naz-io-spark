@@ -1073,9 +1073,16 @@ export default function GenerationWorkspace() {
                     ) : m.content ? (
                       <ReactMarkdown>{m.content}</ReactMarkdown>
                     ) : (
-                      <span className="inline-flex gap-1 items-center text-zinc-500 text-xs">
-                        <span className="h-1.5 w-1.5 rounded-full bg-purple-400 animate-pulse" />
-                        NazAI is thinking…
+                      <span className="inline-flex gap-2 items-center text-zinc-400 text-xs font-mono">
+                        <span className="relative flex h-2 w-2">
+                          <span className="absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75 animate-ping" />
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-400" />
+                        </span>
+                        <span className="bg-gradient-to-r from-purple-300 via-cyan-300 to-purple-300 bg-clip-text text-transparent animate-pulse">
+                          {m.agentDebug?.rawChars
+                            ? `Composing agent blueprint · ${m.agentDebug.rawChars} chars`
+                            : "Decoding your idea · architecting agent…"}
+                        </span>
                       </span>
                     )}
                   </div>
