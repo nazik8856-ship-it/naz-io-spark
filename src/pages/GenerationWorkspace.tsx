@@ -243,7 +243,10 @@ export default function GenerationWorkspace() {
   // Fake fallback removed — real errors must surface so we never ship a fabricated agent.
 
 
-  const streamFromNazAI = async (history: { role: "user" | "assistant"; content: string }[]) => {
+  const streamFromNazAI = async (
+    history: { role: "user" | "assistant"; content: string }[],
+    attempt = 1,
+  ) => {
     setIsStreaming(true);
     const assistantId = crypto.randomUUID();
     const lastUser = [...history].reverse().find((m) => m.role === "user")?.content ?? "";
@@ -275,24 +278,16 @@ export default function GenerationWorkspace() {
     const controller = new AbortController();
     abortRef.current = controller;
 
-    // Hard overall timeout + stall watchdog so the UI never hangs on "thinking".
-    const TIMEOUT_MS = 45_000;
-    const STALL_MS = 15_000;
+    // Hard 20s timeout — on first attempt we silently retry once before showing error.
+    const TIMEOUT_MS = 20_000;
     let timedOut = false;
-    let lastChunkAt = Date.now();
     const overallTimer = setTimeout(() => {
       if (!controller.signal.aborted) {
         timedOut = true;
         controller.abort();
       }
     }, TIMEOUT_MS);
-    const stallTimer = setInterval(() => {
-      if (controller.signal.aborted) return;
-      if (Date.now() - lastChunkAt > STALL_MS) {
-        timedOut = true;
-        controller.abort();
-      }
-    }, 2_000);
+
 
     try {
       const endpoint = agentMode ? "generate-ai-agent" : "nazai-chat";
