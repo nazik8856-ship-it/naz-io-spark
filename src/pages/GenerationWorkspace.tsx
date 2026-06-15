@@ -243,7 +243,10 @@ export default function GenerationWorkspace() {
   // Fake fallback removed — real errors must surface so we never ship a fabricated agent.
 
 
-  const streamFromNazAI = async (history: { role: "user" | "assistant"; content: string }[]) => {
+  const streamFromNazAI = async (
+    history: { role: "user" | "assistant"; content: string }[],
+    attempt = 1,
+  ) => {
     setIsStreaming(true);
     const assistantId = crypto.randomUUID();
     const lastUser = [...history].reverse().find((m) => m.role === "user")?.content ?? "";
@@ -275,24 +278,16 @@ export default function GenerationWorkspace() {
     const controller = new AbortController();
     abortRef.current = controller;
 
-    // Hard overall timeout + stall watchdog so the UI never hangs on "thinking".
-    const TIMEOUT_MS = 45_000;
-    const STALL_MS = 15_000;
+    // Hard 20s timeout — on first attempt we silently retry once before showing error.
+    const TIMEOUT_MS = 20_000;
     let timedOut = false;
-    let lastChunkAt = Date.now();
     const overallTimer = setTimeout(() => {
       if (!controller.signal.aborted) {
         timedOut = true;
         controller.abort();
       }
     }, TIMEOUT_MS);
-    const stallTimer = setInterval(() => {
-      if (controller.signal.aborted) return;
-      if (Date.now() - lastChunkAt > STALL_MS) {
-        timedOut = true;
-        controller.abort();
-      }
-    }, 2_000);
+
 
     try {
       const endpoint = agentMode ? "generate-ai-agent" : "nazai-chat";
@@ -361,7 +356,7 @@ export default function GenerationWorkspace() {
             const delta = parsed.choices?.[0]?.delta?.content;
             if (delta) {
               acc += delta;
-              lastChunkAt = Date.now();
+
               const nextContent = agentMode ? cleanAgentSpecOutput(acc) : acc;
               setMessages((m) =>
                 m.map((x) => (x.id === assistantId ? { ...x, content: nextContent, agentDebug: { ...(x.agentDebug ?? {}), rawChars: acc.length } } : x)),
@@ -455,7 +450,11 @@ export default function GenerationWorkspace() {
         } catch (saveErr) {
           console.warn("[NazAI Agent Gen] save failed", saveErr);
         }
+        // Auto-switch to Preview so the user sees the full 8-section agent card immediately.
+        setActiveTab("preview");
+        toast.success("Agent ready — preview below.");
       }
+
 
     } catch (e) {
       if (controller.signal.aborted && !timedOut) {
@@ -463,6 +462,18 @@ export default function GenerationWorkspace() {
         return;
       }
       console.error("[NazAI Agent Gen] FAILED", e);
+
+      // First failure (timeout or network) → silently retry once with the same prompt.
+      if (attempt === 1 && lastUser) {
+        console.info("[NazAI Agent Gen] silent retry (attempt 2)");
+        clearTimeout(overallTimer);
+        // Remove the failed placeholder so the retry renders a fresh card.
+        setMessages((m) => m.filter((x) => x.id !== assistantId));
+        if (abortRef.current === controller) abortRef.current = null;
+        void streamFromNazAI(history, 2);
+        return;
+      }
+
       const errMsg = timedOut
         ? "Generation timed out. Tap Retry to try again."
         : e instanceof Error ? e.message : "Generation failed. Please try again.";
@@ -483,12 +494,12 @@ export default function GenerationWorkspace() {
       );
     } finally {
       clearTimeout(overallTimer);
-      clearInterval(stallTimer);
       setMessages((m) => m.map((x) => (x.id === assistantId ? { ...x, streaming: false } : x)));
       setIsStreaming(false);
       if (abortRef.current === controller) abortRef.current = null;
     }
   };
+
 
   const retryLastGeneration = () => {
     const last = lastPromptRef.current;
@@ -871,8 +882,8 @@ export default function GenerationWorkspace() {
         {/* Center tabs */}
         <div className="flex items-center gap-1 p-1 rounded-xl border border-white/10 bg-white/[0.03]">
           {([
-            { id: "preview" as const, label: "Preview" },
             { id: "dashboard" as const, label: "Chat" },
+            { id: "preview" as const, label: "Preview" },
           ]).map((t) => (
             <button
               key={t.id}
