@@ -450,7 +450,11 @@ export default function GenerationWorkspace() {
         } catch (saveErr) {
           console.warn("[NazAI Agent Gen] save failed", saveErr);
         }
+        // Auto-switch to Preview so the user sees the full 8-section agent card immediately.
+        setActiveTab("preview");
+        toast.success("Agent ready — preview below.");
       }
+
 
     } catch (e) {
       if (controller.signal.aborted && !timedOut) {
