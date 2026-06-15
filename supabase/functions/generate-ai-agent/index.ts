@@ -32,9 +32,11 @@ serve(async (req) => {
   try {
     const { prompt, messages, industry, challenges } = await req.json();
     const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!OPENAI_API_KEY && !LOVABLE_API_KEY) {
-      throw new Error("AI generation key not configured");
+    if (!OPENAI_API_KEY) {
+      return new Response(
+        JSON.stringify({ error: "OPENAI_API_KEY not configured. Add it in project secrets." }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
 
     const rawPrompt: string =
