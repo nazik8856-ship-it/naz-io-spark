@@ -4,6 +4,7 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Expose-Headers": "X-Agent-Provider",
 };
 
 const SYSTEM_PROMPT = `You design ONE complete autonomous AI agent that directly solves the EXACT request the user wrote.
@@ -16,7 +17,7 @@ Hard rules:
 - Never use these words: "forging", "detected", "brand-new", "draft", "offline fallback".
 - Keep it concrete and practical for 2026 conditions.
 
-Required structure (exact headings, in this order):
+Required structure (use these EXACT headings verbatim, including the \`**\` markers and the trailing colon — do not renumber, rename, merge, or add sections):
 
 1. **Agent Name**: <name that reflects the actual use case>
 2. **Description**: <2-4 sentences. If prompt was sparse, lead with one "Assumed: …" sentence, then describe what this agent does>
@@ -27,18 +28,16 @@ Required structure (exact headings, in this order):
 7. **Deployment Options**: <where this specific agent runs / integrates>
 8. **Expected Impact**: <measurable outcomes for the scenario>`;
 
+const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
+const OPENAI_MODEL = "gpt-4o-mini";
+const LOVABLE_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
+const LOVABLE_MODEL = "google/gemini-3-flash-preview";
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
     const { prompt, messages, industry, challenges } = await req.json();
-    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
-    if (!OPENAI_API_KEY) {
-      return new Response(
-        JSON.stringify({ error: "OPENAI_API_KEY not configured. Add it in project secrets." }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
 
     const rawPrompt: string =
       (typeof prompt === "string" && prompt.trim()) ||
@@ -64,56 +63,97 @@ ${rawPrompt}
 ${industryLine}
 ${challengesLine}
 
-Design ONE autonomous AI agent that directly fulfills the request above. Every section must explicitly reflect the user's wording, domain, and desired outcome — do not output a generic template. Return ONLY the 8 numbered sections.`;
+Design ONE autonomous AI agent that directly fulfills the request above. Every section must explicitly reflect the user's wording, domain, and desired outcome — do not output a generic template. Use the exact 8 numbered headings verbatim (with \`**\` and trailing colons). Return ONLY the 8 sections.`;
 
     const finalMessages = [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: composedUserPrompt },
     ];
 
+    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
+    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
 
-    // Force OpenAI gpt-4o-mini for every agent generation — no fallbacks.
-    const aiUrl = "https://api.openai.com/v1/chat/completions";
-    const aiModel = "gpt-4o-mini";
+    async function tryProvider(
+      kind: "openai" | "lovable",
+    ): Promise<{ ok: true; resp: Response } | { ok: false; status: number; detail: string }> {
+      const isOpenAI = kind === "openai";
+      const url = isOpenAI ? OPENAI_URL : LOVABLE_URL;
+      const model = isOpenAI ? OPENAI_MODEL : LOVABLE_MODEL;
+      const key = isOpenAI ? OPENAI_API_KEY : LOVABLE_API_KEY;
+      if (!key) return { ok: false, status: 0, detail: `${kind} key missing` };
 
-    const response = await fetch(aiUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: aiModel,
-        messages: finalMessages,
-        stream: true,
-        temperature: 0.5,
-        max_tokens: 1600,
-      }),
-    });
-
-    if (!response.ok) {
-      const t = await response.text();
-      console.error("AI gateway error", response.status, t);
-      if (response.status === 429) {
-        return new Response(
-          JSON.stringify({ error: "Rate limit hit. Try again shortly." }),
-          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
+      try {
+        const resp = await fetch(url, {
+          method: "POST",
+          headers: {
+            ...(isOpenAI
+              ? { Authorization: `Bearer ${key}` }
+              : { "Lovable-API-Key": key, "X-Lovable-AIG-SDK": "edge-function" }),
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model,
+            messages: finalMessages,
+            stream: true,
+            temperature: 0.5,
+            max_tokens: 1600,
+          }),
+        });
+        if (!resp.ok) {
+          const detail = await resp.text().catch(() => "");
+          console.error(`[generate-ai-agent] ${kind} error`, resp.status, detail.slice(0, 300));
+          return { ok: false, status: resp.status, detail };
+        }
+        return { ok: true, resp };
+      } catch (err) {
+        console.error(`[generate-ai-agent] ${kind} network error`, err);
+        return { ok: false, status: 0, detail: String(err) };
       }
-      if (response.status === 402) {
-        return new Response(
-          JSON.stringify({ error: "AI credits exhausted." }),
-          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
-      }
-      return new Response(JSON.stringify({ error: "AI error", detail: t }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
     }
 
-    return new Response(response.body, {
-      headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
+    // Primary: OpenAI gpt-4o-mini. Fallback (on 401/429/5xx/network): Lovable AI Gemini.
+    let providerUsed: "openai" | "lovable" = "openai";
+    let result = await tryProvider("openai");
+
+    const shouldFallback =
+      !result.ok &&
+      (result.status === 0 ||
+        result.status === 401 ||
+        result.status === 403 ||
+        result.status === 429 ||
+        result.status >= 500);
+
+    if (shouldFallback && LOVABLE_API_KEY) {
+      console.info("[generate-ai-agent] falling back to Lovable AI");
+      providerUsed = "lovable";
+      result = await tryProvider("lovable");
+    }
+
+    if (!result.ok) {
+      if (result.status === 429) {
+        return new Response(JSON.stringify({ error: "Rate limit hit. Try again shortly." }), {
+          status: 429,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      if (result.status === 402) {
+        return new Response(JSON.stringify({ error: "AI credits exhausted." }), {
+          status: 402,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      return new Response(
+        JSON.stringify({ error: "AI error", detail: result.detail?.slice(0, 300) }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    return new Response(result.resp.body, {
+      headers: {
+        ...corsHeaders,
+        "Content-Type": "text/event-stream",
+        "X-Agent-Provider": providerUsed,
+      },
     });
   } catch (e) {
     console.error("generate-ai-agent error", e);

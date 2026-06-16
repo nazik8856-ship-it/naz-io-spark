@@ -1,32 +1,46 @@
 ## Goal
 
-Guarantee that NazAI **always** produces a complete 8-section AI Agent in the Preview tab, even when the user prompt is vague, one-word, or missing context. The agent must never stall,  ask clarifying questions if needed, and never return empty — NazAI fills the gaps itself with sensible assumptions that the user can later refine through Chat.
+Make NazAI's agent generation truly reliable: prove it works with both vague and detailed prompts, fall back to Lovable AI silently if OpenAI fails (with one tiny notice — no repeated banners), and guarantee the Preview always renders a real card even if the model returns imperfect formatting.
 
 ## Changes
 
-### 1. Edge function (`supabase/functions/generate-ai-agent/index.ts`)
+### 1. Edge function `generate-ai-agent` — add quiet fallback
 
-Strengthen the system prompt so the model treats sparse input as a creative brief rather than a blocker:
+- Keep OpenAI `gpt-4o-mini` as the primary path (user has balance).
+- On `401`, `429`, `5xx`, or network failure from OpenAI, automatically retry once against the Lovable AI Gateway (`google/gemini-3-flash-preview`) using `LOVABLE_API_KEY` (already in secrets).
+- Same system prompt, same streaming SSE shape, so the frontend doesn't need to know which provider answered.
+- Add one header on the response: `X-Agent-Provider: openai | lovable`. No body change.
+- No new error surfaces unless **both** providers fail — then return the existing JSON error.
 
-- Add an explicit rule: **"If the user prompt is short, vague, or missing context, you MUST invent a reasonable domain, audience, and feature set yourself. Never refuse, never ask questions, never return placeholder text. Always output the full 8 sections."**
-- Add: **"State any assumptions you made inside the Description section (one short sentence prefixed with 'Assumed:'), so the user can correct them later via chat."**
-- Keep the existing 8-section structure, OpenAI gpt-4o-mini wiring, and streaming response unchanged.
-- Lower `temperature` slightly (0.5) and keep `max_tokens: 1600` so short prompts still get full output.
+### 2. Edge function `generate-ai-agent` — parser-friendly output contract
 
-### 2. Frontend (`src/pages/GenerationWorkspace.tsx`)
+- Tighten the system prompt's heading rule to force exactly `1. **Agent Name**:` style (bold inside the number, colon outside), matching what `cleanAgentSpecOutput` / `parseAgentSpec` already expect.
+- Add a one-line reminder at the end of the prompt: *"Use these exact headings verbatim, including the `**` and the trailing `:`. Do not renumber, rename, or merge sections."*
+- This is the single most common reason sections get dropped — fixing it at the prompt is cheaper than rewriting the parser.
 
-- In `buildAgent`, before calling the edge function, **do not block on prompt length**. Remove/relax any "prompt too short" guards if present so even a 2-word prompt streams through.
-- When the stream finishes, if the parsed result is missing any of the 8 sections, **do not show a failure card** — instead surface what came back and let the auto-retry (already in place) run once. After retry, always render whatever sections exist in the Preview tab so the user sees a real agent card, never a blank state.
-- Keep the existing 25s timeout, one silent retry, auto-switch to Preview, and animated "Composing agent blueprint…" indicator.
-- Add a small hint line under the agent card: *"NazAI filled in missing details. Use Chat to refine."* — shown only when the original prompt was under ~15 words.
+### 3. Frontend `GenerationWorkspace.tsx` — preview safety net + quiet provider notice
 
-### 3. No other changes
+- In the stream-complete handler, if fewer than 8 sections parsed: render whatever sections came back inside the existing agent card (don't blank the Preview, don't show a failure state). The auto-retry already covers true failures.
+- Read the `X-Agent-Provider` response header. If it equals `lovable`, show **one** small muted line under the agent card: *"Generated via backup model."* — shown once per generation, never as a toast, never repeated on chat replies. If header is `openai` or missing, show nothing.
+- Keep the existing "NazAI filled in missing details. Use Chat to refine." hint for short prompts.
+- No changes to tab order, timeout (20s + one retry), or Chat behavior.
 
-- No schema, auth, routing, tab-order, or component-tree changes.
-- Chat tab behavior unchanged.
+### 4. Verification (actually run it this time)
 
-## Verification
+After deploy, hit the function via `supabase--curl_edge_functions` with two payloads and read the streamed output:
 
-- Submit a vague prompt like `fitness` or `make me something cool`. Confirm a full 8-section agent renders in Preview within ~20s, with an "Assumed: …" line inside Description.
-- Submit a detailed prompt (retail cash flow). Confirm output still reflects the specifics and no "Assumed:" line is forced.
-- Confirm no "thinking…" hang and no empty Preview state in either case.
+1. Vague: `{ "prompt": "fitness" }` — expect 8 sections, an `Assumed:` line, no "thinking" hang.
+2. Detailed: `{ "prompt": "AI agent that monitors retail cash flow daily and flags anomalies" }` — expect 8 sections, no `Assumed:` line, domain-specific wording.
+
+Then check `supabase--edge_function_logs` for any 401/429 to confirm whether the fallback path activated.
+
+### Out of scope (per user — discussed later)
+
+- Persisting agents to the database (still `localStorage` only).
+- Deducting a credit on generation (still free).
+
+## Technical notes
+
+- Lovable AI fallback uses the existing OpenAI-compatible shape, so only the URL, model, and auth header swap. Streaming response body is forwarded unchanged.
+- No schema, auth, routing, or component-tree changes.
+- No new dependencies, no new secrets (both keys already present).

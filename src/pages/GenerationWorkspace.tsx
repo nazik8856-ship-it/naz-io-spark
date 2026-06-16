@@ -54,6 +54,7 @@ type ChatMessage = {
   agentChat?: AgentTurn[];
   agentStreaming?: boolean;
   agentError?: string;
+  agentProvider?: "openai" | "lovable";
   agentDebug?: {
     endpoint?: string;
     status?: number;
@@ -306,11 +307,13 @@ export default function GenerationWorkspace() {
         signal: controller.signal,
       });
 
-      console.info("[NazAI Agent Gen] response", { endpoint, status: resp.status, ok: resp.ok });
+      const agentProvider =
+        (resp.headers.get("X-Agent-Provider") as "openai" | "lovable" | null) || undefined;
+      console.info("[NazAI Agent Gen] response", { endpoint, status: resp.status, ok: resp.ok, provider: agentProvider });
       setMessages((m) =>
         m.map((x) =>
           x.id === assistantId
-            ? { ...x, agentDebug: { ...(x.agentDebug ?? {}), endpoint, status: resp.status } }
+            ? { ...x, agentProvider, agentDebug: { ...(x.agentDebug ?? {}), endpoint, status: resp.status } }
             : x,
         ),
       );
@@ -1666,6 +1669,12 @@ export default function GenerationWorkspace() {
                               NazAI filled in missing details. Use Chat to refine the agent.
                             </div>
                           )}
+
+                        {status === "approved" && lastNaz.agentProvider === "lovable" && (
+                          <div className="mt-2 text-[10px] text-white/40 font-mono">
+                            Generated via backup model.
+                          </div>
+                        )}
 
                         {!lastNaz.editing && (
                           <div className="mt-6 pt-5 border-t border-white/10 flex flex-wrap gap-2">
