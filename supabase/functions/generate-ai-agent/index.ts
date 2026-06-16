@@ -233,8 +233,8 @@ Design ONE autonomous AI agent that directly fulfills the request above. Every s
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
 
     async function tryProvider(
-      kind: "openai" | "lovable",
-    ): Promise<{ ok: true; resp: Response } | { ok: false; status: number; detail: string }> {
+      kind: Provider,
+    ): Promise<{ ok: true; text: string } | { ok: false; status: number; detail: string }> {
       const isOpenAI = kind === "openai";
       const url = isOpenAI ? OPENAI_URL : LOVABLE_URL;
       const model = isOpenAI ? OPENAI_MODEL : LOVABLE_MODEL;
@@ -242,6 +242,8 @@ Design ONE autonomous AI agent that directly fulfills the request above. Every s
       if (!key) return { ok: false, status: 0, detail: `${kind} key missing` };
 
       try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 18_000);
         const resp = await fetch(url, {
           method: "POST",
           headers: {
@@ -253,17 +255,22 @@ Design ONE autonomous AI agent that directly fulfills the request above. Every s
           body: JSON.stringify({
             model,
             messages: finalMessages,
-            stream: true,
+            stream: false,
             temperature: 0.5,
-            max_tokens: 1600,
+            max_tokens: 2200,
           }),
+          signal: controller.signal,
         });
+        clearTimeout(timer);
         if (!resp.ok) {
           const detail = await resp.text().catch(() => "");
           console.error(`[generate-ai-agent] ${kind} error`, resp.status, detail.slice(0, 300));
           return { ok: false, status: resp.status, detail };
         }
-        return { ok: true, resp };
+        const data = await resp.json().catch(() => null);
+        const text = data?.choices?.[0]?.message?.content || "";
+        if (!String(text).trim()) return { ok: false, status: 502, detail: `${kind} returned empty content` };
+        return { ok: true, text: String(text) };
       } catch (err) {
         console.error(`[generate-ai-agent] ${kind} network error`, err);
         return { ok: false, status: 0, detail: String(err) };
@@ -307,7 +314,9 @@ Design ONE autonomous AI agent that directly fulfills the request above. Every s
       );
     }
 
-    return new Response(result.resp.body, {
+    const finalSpec = toCompleteSpec(result.text, rawPrompt, industry, challenges);
+
+    return new Response(sseFromText(finalSpec), {
       headers: {
         ...corsHeaders,
         "Content-Type": "text/event-stream",
