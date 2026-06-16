@@ -307,11 +307,13 @@ export default function GenerationWorkspace() {
         signal: controller.signal,
       });
 
-      console.info("[NazAI Agent Gen] response", { endpoint, status: resp.status, ok: resp.ok });
+      const agentProvider =
+        (resp.headers.get("X-Agent-Provider") as "openai" | "lovable" | null) || undefined;
+      console.info("[NazAI Agent Gen] response", { endpoint, status: resp.status, ok: resp.ok, provider: agentProvider });
       setMessages((m) =>
         m.map((x) =>
           x.id === assistantId
-            ? { ...x, agentDebug: { ...(x.agentDebug ?? {}), endpoint, status: resp.status } }
+            ? { ...x, agentProvider, agentDebug: { ...(x.agentDebug ?? {}), endpoint, status: resp.status } }
             : x,
         ),
       );
