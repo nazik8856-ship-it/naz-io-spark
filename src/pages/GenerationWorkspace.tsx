@@ -1670,6 +1670,12 @@ export default function GenerationWorkspace() {
                             </div>
                           )}
 
+                        {status === "approved" && lastNaz.agentProvider === "lovable" && (
+                          <div className="mt-2 text-[10px] text-white/40 font-mono">
+                            Generated via backup model.
+                          </div>
+                        )}
+
                         {!lastNaz.editing && (
                           <div className="mt-6 pt-5 border-t border-white/10 flex flex-wrap gap-2">
                             <button
