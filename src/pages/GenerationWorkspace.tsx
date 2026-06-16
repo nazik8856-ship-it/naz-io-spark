@@ -66,6 +66,22 @@ type ChatMessage = {
   };
 };
 
+const FUNCTIONS_BASE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`;
+const FUNCTIONS_AUTH_KEY =
+  import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+const functionUrl = (name: string) => `${FUNCTIONS_BASE_URL}/${name}`;
+
+const functionHeaders = () => {
+  if (!import.meta.env.VITE_SUPABASE_URL || !FUNCTIONS_AUTH_KEY) {
+    throw new Error("Backend connection is not ready. Reload and try again.");
+  }
+  return {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${FUNCTIONS_AUTH_KEY}`,
+  };
+};
+
 function cleanAgentSpecOutput(text: string, opts: { final?: boolean } = {}): string {
   if (!text) return "";
   let cleaned = text
