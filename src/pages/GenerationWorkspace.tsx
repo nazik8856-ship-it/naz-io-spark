@@ -308,17 +308,14 @@ export default function GenerationWorkspace() {
 
     try {
       const endpoint = agentMode ? "generate-ai-agent" : "nazai-chat";
-      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${endpoint}`;
+      const url = functionUrl(endpoint);
       const body = agentMode
         ? { prompt: lastUser, messages: history }
         : { messages: history, mode: chatMode };
 
       const resp = await fetch(url, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-        },
+        headers: functionHeaders(),
         body: JSON.stringify(body),
         signal: controller.signal,
       });
@@ -613,13 +610,10 @@ export default function GenerationWorkspace() {
     });
 
     try {
-      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/run-ai-agent`;
+      const url = functionUrl("run-ai-agent");
       const resp = await fetch(url, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-        },
+        headers: functionHeaders(),
         body: JSON.stringify({ spec: sourceSpec, mode: "build" }),
       });
       if (resp.status === 429) throw new Error("Rate limit hit. Try again in a moment.");
@@ -690,13 +684,10 @@ export default function GenerationWorkspace() {
 
       // BRING THE AGENT TO LIFE: bootstrap greeting + suggested prompts via INIT mode
       try {
-        const initUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/run-ai-agent`;
+        const initUrl = functionUrl("run-ai-agent");
         const initResp = await fetch(initUrl, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-          },
+          headers: functionHeaders(),
           body: JSON.stringify({ spec: finalSpec, messages: [] }),
         });
         if (initResp.ok) {
@@ -784,13 +775,10 @@ export default function GenerationWorkspace() {
     updateMsg(id, { agentChat: nextChat, agentStreaming: true });
 
     try {
-      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/run-ai-agent`;
+      const url = functionUrl("run-ai-agent");
       const resp = await fetch(url, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-        },
+        headers: functionHeaders(),
         body: JSON.stringify({
           spec: msg.content,
           messages: nextChat
