@@ -1,61 +1,32 @@
 ## Goal
 
-Fix three issues on `/generation-workspace`:
-
-1. NazAI sometimes hangs on "thinking…" with no output.
-2. The top toggle should show **Chat on the LEFT** and **Preview on the RIGHT**.
-3. When generation completes, the workspace should **auto-switch to Preview** so the generated AI agent card is always visible.
-
-## Scope
-
-Frontend-only changes in `src/pages/GenerationWorkspace.tsx`. No edge function, schema, or auth changes.
+Guarantee that NazAI **always** produces a complete 8-section AI Agent in the Preview tab, even when the user prompt is vague, one-word, or missing context. The agent must never stall,  ask clarifying questions if needed, and never return empty — NazAI fills the gaps itself with sensible assumptions that the user can later refine through Chat.
 
 ## Changes
 
-### 1. Swap tab order (Chat ↔ Preview)
+### 1. Edge function (`supabase/functions/generate-ai-agent/index.ts`)
 
-In the center tab toggle (around line 871-880), reorder the array so the visible order becomes:
+Strengthen the system prompt so the model treats sparse input as a creative brief rather than a blocker:
 
-```
-[ Chat ] [ Preview ]
-```
+- Add an explicit rule: **"If the user prompt is short, vague, or missing context, you MUST invent a reasonable domain, audience, and feature set yourself. Never refuse, never ask questions, never return placeholder text. Always output the full 8 sections."**
+- Add: **"State any assumptions you made inside the Description section (one short sentence prefixed with 'Assumed:'), so the user can correct them later via chat."**
+- Keep the existing 8-section structure, OpenAI gpt-4o-mini wiring, and streaming response unchanged.
+- Lower `temperature` slightly (0.5) and keep `max_tokens: 1600` so short prompts still get full output.
 
-The internal tab ids (`"preview"` and `"dashboard"`) stay the same to avoid touching every conditional downstream — only the rendered order in the toggle changes.
+### 2. Frontend (`src/pages/GenerationWorkspace.tsx`)
 
-### 2. Auto-switch to Preview when agent generation finishes
+- In `buildAgent`, before calling the edge function, **do not block on prompt length**. Remove/relax any "prompt too short" guards if present so even a 2-word prompt streams through.
+- When the stream finishes, if the parsed result is missing any of the 8 sections, **do not show a failure card** — instead surface what came back and let the auto-retry (already in place) run once. After retry, always render whatever sections exist in the Preview tab so the user sees a real agent card, never a blank state.
+- Keep the existing 25s timeout, one silent retry, auto-switch to Preview, and animated "Composing agent blueprint…" indicator.
+- Add a small hint line under the agent card: *"NazAI filled in missing details. Use Chat to refine."* — shown only when the original prompt was under ~15 words.
 
-In `buildAgent` / stream-completion path (where `agentStatus` becomes `approved` and `agentFinalSpec` is set), call `setActiveTab("preview")` so the user is taken straight to the generated agent card. Update the existing toast from "open Chat to talk to it" to a neutral "Agent ready — preview below."
+### 3. No other changes
 
-### 3. Hang fix: 20s hard timeout + one silent auto-retry
-
-In `streamFromNazAI` (the function that calls the `generate-ai-agent` edge function):
-
-- Replace the current 45s hard timeout / 15s stall watchdog with a single **20s hard timeout** using `AbortController`.
-- On timeout (or network error), if it is the first attempt for this prompt, **silently re-invoke the stream once** with the same prompt. Track this with a `retryCount` local variable so only one retry happens.
-- If the retry also fails, keep the existing failed-card + visible Retry button so the user can tap retry manually.
-- Keep the live progress bar/char counter that already exists.
-
-### 4. Loading clarity
-
-Keep the existing "NazAI is thinking…" indicator but replace it with a more specific label sequence driven by stream state:
-
-- `submitted` → "Designing your agent…"
-- first chunk received → "Streaming agent spec…"
-- on timeout/retry → "Retrying…"
-
-No new components, no schema changes.
-
-## Out of scope
-
-- Edge function changes (already verified to work).
-- Queue-based architecture (not needed at 20s budget; current direct streaming is fine).
-- Renaming internal tab ids.
-- Any backend / Supabase work.
+- No schema, auth, routing, tab-order, or component-tree changes.
+- Chat tab behavior unchanged.
 
 ## Verification
 
-- Submit the test prompt: `Generate an AI agent for retail cash flow and economic uncertainty.`
-- Generates an AI Agent based on the prompt
-- Confirm the toggle reads **Chat | Preview** (Chat on left).
-- Confirm that on completion the view switches to the Preview tab automatically and shows nothing for now.
-- Simulate a hang (throttle network) and confirm: it aborts at 20s, retries once silently, and only after the retry fails does the Retry button appear.
+- Submit a vague prompt like `fitness` or `make me something cool`. Confirm a full 8-section agent renders in Preview within ~20s, with an "Assumed: …" line inside Description.
+- Submit a detailed prompt (retail cash flow). Confirm output still reflects the specifics and no "Assumed:" line is forced.
+- Confirm no "thinking…" hang and no empty Preview state in either case.

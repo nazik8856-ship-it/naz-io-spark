@@ -1659,6 +1659,14 @@ export default function GenerationWorkspace() {
                         })()}
 
 
+                        {status === "approved" &&
+                          lastPromptRef.current &&
+                          lastPromptRef.current.trim().split(/\s+/).length < 15 && (
+                            <div className="mt-4 text-[11px] text-cyan-200/80 bg-cyan-400/5 border border-cyan-400/20 rounded-md px-3 py-2 font-mono">
+                              NazAI filled in missing details. Use Chat to refine the agent.
+                            </div>
+                          )}
+
                         {!lastNaz.editing && (
                           <div className="mt-6 pt-5 border-t border-white/10 flex flex-wrap gap-2">
                             <button
