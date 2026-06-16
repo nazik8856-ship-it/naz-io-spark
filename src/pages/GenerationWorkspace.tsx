@@ -54,6 +54,7 @@ type ChatMessage = {
   agentChat?: AgentTurn[];
   agentStreaming?: boolean;
   agentError?: string;
+  agentProvider?: "openai" | "lovable";
   agentDebug?: {
     endpoint?: string;
     status?: number;
