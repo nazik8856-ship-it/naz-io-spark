@@ -30,6 +30,7 @@ import { useAuth } from "@/hooks/useAuth";
 import ReactMarkdown from "react-markdown";
 import { toast } from "sonner";
 import LiveAgentChat from "@/components/agents/LiveAgentChat";
+import { SUPABASE_FUNCTIONS_URL, SUPABASE_ANON } from "@/integrations/supabase/client";
 
 type AgentStatus = "pending" | "building" | "approved" | "removed";
 
