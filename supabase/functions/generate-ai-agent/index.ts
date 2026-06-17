@@ -196,7 +196,7 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { prompt, messages, industry, challenges } = await req.json();
+    const { prompt, messages, industry, challenges, previousSpec } = await req.json();
 
     const rawPrompt: string =
       (typeof prompt === "string" && prompt.trim()) ||
@@ -212,10 +212,24 @@ serve(async (req) => {
       });
     }
 
+    const isRefinement = typeof previousSpec === "string" && previousSpec.trim().length > 50;
+
     const industryLine = industry ? `Industry: ${industry}` : "Industry: (infer from request)";
     const challengesLine = challenges ? `Challenges: ${challenges}` : "Challenges: (infer reasonable challenges)";
 
-    const composedUserPrompt = `USER REQUEST (verbatim, treat as source of truth):
+    const composedUserPrompt = isRefinement
+      ? `EXISTING AGENT SPECIFICATION (verbatim — this is the agent you must update):
+"""
+${String(previousSpec).trim()}
+"""
+
+USER'S REQUESTED CHANGE (apply this to the existing spec):
+"""
+${rawPrompt}
+"""
+
+Return the SAME 8-section specification with the user's requested change applied. Keep every unchanged section the same. Do NOT start over, do NOT change the Agent Name unless the user explicitly asked. Use the exact 8 numbered headings verbatim (with \`**\` and trailing colons). Return ONLY the 8 sections.`
+      : `USER REQUEST (verbatim, treat as source of truth):
 """
 ${rawPrompt}
 """

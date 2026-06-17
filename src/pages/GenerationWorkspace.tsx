@@ -309,8 +309,14 @@ export default function GenerationWorkspace() {
     try {
       const endpoint = agentMode ? "generate-ai-agent" : "nazai-chat";
       const url = functionUrl(endpoint);
+      // If an approved agent already exists, treat the new prompt as a refinement
+      // so the model edits the existing 8-section spec instead of starting over.
+      const lastApproved = [...messages].reverse().find(
+        (x) => x.role === "nazai" && x.kind === "agent-spec" && x.agentStatus === "approved",
+      );
+      const previousSpec = lastApproved?.agentFinalSpec || lastApproved?.content || "";
       const body = agentMode
-        ? { prompt: lastUser, messages: history }
+        ? { prompt: lastUser, messages: history, ...(previousSpec ? { previousSpec } : {}) }
         : { messages: history, mode: chatMode };
 
       const resp = await fetch(url, {
