@@ -1467,7 +1467,7 @@ export default function GenerationWorkspace() {
 
                 const accent =
                   status === "approved"
-                    ? { ring: "border-emerald-400/30", glow: "shadow-emerald-500/10", chipBg: "bg-emerald-400/15", chipText: "text-emerald-300", chipBorder: "border-emerald-400/30", dot: "bg-emerald-400", banner: "bg-emerald-400/5", label: "Agent successfully built!", chipLabel: "Built" }
+                    ? { ring: "border-emerald-400/30", glow: "shadow-emerald-500/10", chipBg: "bg-emerald-400/15", chipText: "text-emerald-300", chipBorder: "border-emerald-400/30", dot: "bg-emerald-400", banner: "bg-emerald-400/5", label: "AI Agent Planned!", chipLabel: "Planned" }
                     : status === "building"
                     ? { ring: "border-cyan-400/40", glow: "shadow-cyan-500/10", chipBg: "bg-cyan-400/15", chipText: "text-cyan-300", chipBorder: "border-cyan-400/30", dot: "bg-cyan-400 animate-pulse", banner: "bg-cyan-400/5", label: "Building agent live…", chipLabel: "Booting" }
                     : { ring: "border-purple-400/30", glow: "shadow-purple-500/10", chipBg: "bg-purple-400/15", chipText: "text-purple-300", chipBorder: "border-purple-400/30", dot: "bg-purple-400 animate-pulse", banner: "bg-purple-400/5", label: isStreamingNow ? "Generating agent…" : "Agent plan ready", chipLabel: isStreamingNow ? "Drafting" : "Pending" };
