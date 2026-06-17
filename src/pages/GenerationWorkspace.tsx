@@ -67,21 +67,25 @@ type ChatMessage = {
   };
 };
 
-const FUNCTIONS_BASE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`;
+// Always resolve a working backend URL + key, even on stale builds where
+// import.meta.env was not populated at build time. Falls back to the constants
+// exported from the supabase client (which point at the current project).
+const FUNCTIONS_BASE_URL =
+  (import.meta.env.VITE_SUPABASE_URL
+    ? `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`
+    : SUPABASE_FUNCTIONS_URL);
 const FUNCTIONS_AUTH_KEY =
-  import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+  import.meta.env.VITE_SUPABASE_ANON_KEY ||
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+  SUPABASE_ANON;
 
 const functionUrl = (name: string) => `${FUNCTIONS_BASE_URL}/${name}`;
 
-const functionHeaders = () => {
-  if (!import.meta.env.VITE_SUPABASE_URL || !FUNCTIONS_AUTH_KEY) {
-    throw new Error("Backend connection is not ready. Reload and try again.");
-  }
-  return {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${FUNCTIONS_AUTH_KEY}`,
-  };
-};
+const functionHeaders = () => ({
+  "Content-Type": "application/json",
+  Authorization: `Bearer ${FUNCTIONS_AUTH_KEY}`,
+  apikey: FUNCTIONS_AUTH_KEY,
+});
 
 function cleanAgentSpecOutput(text: string, opts: { final?: boolean } = {}): string {
   if (!text) return "";
