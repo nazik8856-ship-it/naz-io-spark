@@ -30,6 +30,7 @@ import { useAuth } from "@/hooks/useAuth";
 import ReactMarkdown from "react-markdown";
 import { toast } from "sonner";
 import LiveAgentChat from "@/components/agents/LiveAgentChat";
+import { SUPABASE_FUNCTIONS_URL, SUPABASE_ANON } from "@/integrations/supabase/client";
 
 type AgentStatus = "pending" | "building" | "approved" | "removed";
 
@@ -66,21 +67,25 @@ type ChatMessage = {
   };
 };
 
-const FUNCTIONS_BASE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`;
+// Always resolve a working backend URL + key, even on stale builds where
+// import.meta.env was not populated at build time. Falls back to the constants
+// exported from the supabase client (which point at the current project).
+const FUNCTIONS_BASE_URL =
+  (import.meta.env.VITE_SUPABASE_URL
+    ? `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`
+    : SUPABASE_FUNCTIONS_URL);
 const FUNCTIONS_AUTH_KEY =
-  import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+  import.meta.env.VITE_SUPABASE_ANON_KEY ||
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+  SUPABASE_ANON;
 
 const functionUrl = (name: string) => `${FUNCTIONS_BASE_URL}/${name}`;
 
-const functionHeaders = () => {
-  if (!import.meta.env.VITE_SUPABASE_URL || !FUNCTIONS_AUTH_KEY) {
-    throw new Error("Backend connection is not ready. Reload and try again.");
-  }
-  return {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${FUNCTIONS_AUTH_KEY}`,
-  };
-};
+const functionHeaders = () => ({
+  "Content-Type": "application/json",
+  Authorization: `Bearer ${FUNCTIONS_AUTH_KEY}`,
+  apikey: FUNCTIONS_AUTH_KEY,
+});
 
 function cleanAgentSpecOutput(text: string, opts: { final?: boolean } = {}): string {
   if (!text) return "";
@@ -485,14 +490,16 @@ export default function GenerationWorkspace() {
       }
       console.error("[NazAI Agent Gen] FAILED", e);
 
-      // First failure (timeout or network) → silently retry once with the same prompt.
-      if (attempt === 1 && lastUser) {
-        console.info("[NazAI Agent Gen] silent retry (attempt 2)");
+      // Silent retries (up to 3) with backoff before showing any error card.
+      const MAX_ATTEMPTS = 3;
+      if (attempt < MAX_ATTEMPTS && lastUser) {
+        const delayMs = attempt === 1 ? 800 : attempt === 2 ? 1600 : 3200;
+        console.info(`[NazAI Agent Gen] silent retry (attempt ${attempt + 1}) in ${delayMs}ms`);
+        if (attempt === 2) toast.message("Reconnecting…");
         clearTimeout(overallTimer);
-        // Remove the failed placeholder so the retry renders a fresh card.
         setMessages((m) => m.filter((x) => x.id !== assistantId));
         if (abortRef.current === controller) abortRef.current = null;
-        void streamFromNazAI(history, 2);
+        setTimeout(() => void streamFromNazAI(history, attempt + 1), delayMs);
         return;
       }
 
