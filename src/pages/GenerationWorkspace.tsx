@@ -490,14 +490,16 @@ export default function GenerationWorkspace() {
       }
       console.error("[NazAI Agent Gen] FAILED", e);
 
-      // First failure (timeout or network) → silently retry once with the same prompt.
-      if (attempt === 1 && lastUser) {
-        console.info("[NazAI Agent Gen] silent retry (attempt 2)");
+      // Silent retries (up to 3) with backoff before showing any error card.
+      const MAX_ATTEMPTS = 3;
+      if (attempt < MAX_ATTEMPTS && lastUser) {
+        const delayMs = attempt === 1 ? 800 : attempt === 2 ? 1600 : 3200;
+        console.info(`[NazAI Agent Gen] silent retry (attempt ${attempt + 1}) in ${delayMs}ms`);
+        if (attempt === 2) toast.message("Reconnecting…");
         clearTimeout(overallTimer);
-        // Remove the failed placeholder so the retry renders a fresh card.
         setMessages((m) => m.filter((x) => x.id !== assistantId));
         if (abortRef.current === controller) abortRef.current = null;
-        void streamFromNazAI(history, 2);
+        setTimeout(() => void streamFromNazAI(history, attempt + 1), delayMs);
         return;
       }
 
