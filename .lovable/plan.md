@@ -1,46 +1,59 @@
-## Goal
+## Reality check
 
-Make NazAI's agent generation truly reliable: prove it works with both vague and detailed prompts, fall back to Lovable AI silently if OpenAI fails (with one tiny notice — no repeated banners), and guarantee the Preview always renders a real card even if the model returns imperfect formatting.
+The edge function `generate-ai-agent` is working: I just hit it with `{"prompt":"fitness"}` and it streamed back a clean 8-section spec with `X-Agent-Provider: openai`. So "generation doesn't work" is no longer a model/backend problem — it's an **agent lifecycle** problem. Below are the only things blocking you from saying "NazAI generates AI Agents" and meaning it.
 
-## Changes
+## Top 5, in order
 
-### 1. Edge function `generate-ai-agent` — add quiet fallback
+### 1. Make the generated agent actually runnable (highest priority)
 
-- Keep OpenAI `gpt-4o-mini` as the primary path (user has balance).
-- On `401`, `429`, `5xx`, or network failure from OpenAI, automatically retry once against the Lovable AI Gateway (`google/gemini-3-flash-preview`) using `LOVABLE_API_KEY` (already in secrets).
-- Same system prompt, same streaming SSE shape, so the frontend doesn't need to know which provider answered.
-- Add one header on the response: `X-Agent-Provider: openai | lovable`. No body change.
-- No new error surfaces unless **both** providers fail — then return the existing JSON error.
+Right now `generate-ai-agent` only produces a *spec*. There's a `run-ai-agent` edge function and a `LiveAgentChat` component, but the spec → live-chat handoff is fragile. Lock down:
 
-### 2. Edge function `generate-ai-agent` — parser-friendly output contract
+- After generation completes, auto-build a **system prompt** from the 8 sections (Name + Description + Goal + Capabilities + Guardrails) and store it on the message as `agentSystemPrompt`.
+- Wire a single **"Talk to agent"** button on the spec card that opens `LiveAgentChat` using that system prompt and calls `run-ai-agent` with the same OpenAI → Lovable fallback the generator uses.
+- Confirm `run-ai-agent` streams, handles 429/402, and renders messages. If it doesn't, fix it the same way `generate-ai-agent` was fixed (non-streaming upstream + `sseFromText`).
 
-- Tighten the system prompt's heading rule to force exactly `1. **Agent Name**:` style (bold inside the number, colon outside), matching what `cleanAgentSpecOutput` / `parseAgentSpec` already expect.
-- Add a one-line reminder at the end of the prompt: *"Use these exact headings verbatim, including the `**` and the trailing `:`. Do not renumber, rename, or merge sections."*
-- This is the single most common reason sections get dropped — fixing it at the prompt is cheaper than rewriting the parser.
+Without this, the user generates beautiful text and can't do anything with it.
 
-### 3. Frontend `GenerationWorkspace.tsx` — preview safety net + quiet provider notice
+### 2. Persist agents so they survive a reload
 
-- In the stream-complete handler, if fewer than 8 sections parsed: render whatever sections came back inside the existing agent card (don't blank the Preview, don't show a failure state). The auto-retry already covers true failures.
-- Read the `X-Agent-Provider` response header. If it equals `lovable`, show **one** small muted line under the agent card: *"Generated via backup model."* — shown once per generation, never as a toast, never repeated on chat replies. If header is `openai` or missing, show nothing.
-- Keep the existing "NazAI filled in missing details. Use Chat to refine." hint for short prompts.
-- No changes to tab order, timeout (20s + one retry), or Chat behavior.
+Today agents live only in `localStorage` under `nazai_saved_agents_v2`, and only when the user clicks Save. Minimum viable persistence:
 
-### 4. Verification (actually run it this time)
+- New table `public.ai_agents` (id, user_id, name, spec, system_prompt, created_at, updated_at) with RLS scoped to `auth.uid()` and the standard GRANTs.
+- Auto-save the agent the moment generation finishes (status = `draft`), then flip to `approved` when the user keeps it.
+- Load the user's agents into the left sidebar of `GenerationWorkspace` instead of (or alongside) the localStorage list.
 
-After deploy, hit the function via `supabase--curl_edge_functions` with two payloads and read the streamed output:
+This is what turns "a demo" into "a product."
 
-1. Vague: `{ "prompt": "fitness" }` — expect 8 sections, an `Assumed:` line, no "thinking" hang.
-2. Detailed: `{ "prompt": "AI agent that monitors retail cash flow daily and flags anomalies" }` — expect 8 sections, no `Assumed:` line, domain-specific wording.
+### 3. Edit-in-chat that actually edits the agent
 
-Then check `supabase--edge_function_logs` for any 401/429 to confirm whether the fallback path activated.
+The memory note says users should be able to refine via chat. Right now follow-up messages just stream a brand-new spec and overwrite the card. Needed:
 
-### Out of scope (per user — discussed later)
+- When a spec card already exists, follow-up user messages go to `generate-ai-agent` with `{ prompt, previousSpec, instruction }` and the system prompt instructs the model to **return the same 8 sections with the requested change applied** — not start over.
+- Frontend replaces the existing card in place and shows a small "Updated: <what changed>" line.
 
-- Persisting agents to the database (still `localStorage` only).
-- Deducting a credit on generation (still free).
+### 4. Deduct 1 credit per generation (and per edit)
+
+Per project memory, AI actions cost 1 credit via `deduct_credit` RPC. The generator currently runs free, which both violates the rule and hides the "out of credits" failure mode from QA. Add:
+
+- Call `deduct_credit` from `generate-ai-agent` before the model call; on `false`, return 402 and let the existing 402 toast fire.
+- Same call inside `run-ai-agent` per user turn (or per session, your call — pick one and document it).
+
+### 5. One-screen QA pass on the failure modes that actually bite users
+
+Before calling this done, run these four scenarios and fix whatever breaks — no new features until they all pass:
+
+1. Prompt: `"fitness"` → spec card renders 8 sections, "Talk to agent" works, reload keeps the agent.
+2. Prompt: `"AI agent that monitors retail cash flow daily and flags anomalies"` → no `Assumed:` line, domain-specific wording, live chat answers a follow-up question.
+3. Edit: after #1, send `"make it for senior users and add a weekly progress email"` → same card updates, name/description reflect the change.
+4. Force failure: temporarily unset `OPENAI_API_KEY` in the function env → Lovable fallback kicks in, header reads `X-Agent-Provider: lovable`, the small "Generated via backup model." line shows once.
+
+## Out of scope for this pass
+
+- Multi-agent orchestration, tool calling, MCP, scheduled runs, deployment to external surfaces. All of that is post-MVP and we should not touch it until 1–5 above are solid.
 
 ## Technical notes
 
-- Lovable AI fallback uses the existing OpenAI-compatible shape, so only the URL, model, and auth header swap. Streaming response body is forwarded unchanged.
-- No schema, auth, routing, or component-tree changes.
-- No new dependencies, no new secrets (both keys already present).
+- Keep using the existing `generate-ai-agent` and `run-ai-agent` functions; do not introduce a new AI SDK provider mid-flight — the OpenAI-compatible Lovable fallback already in place is enough for now.
+- New table needs `GRANT SELECT, INSERT, UPDATE, DELETE ON public.ai_agents TO authenticated;` plus `GRANT ALL ... TO service_role;` in the same migration, then RLS policies on `auth.uid() = user_id`.
+- Credit deduction must happen server-side in the edge function, never from the client.
+- Do not change tab order, the streaming protocol, or `cleanAgentSpecOutput` — those are stable and any churn there will reopen the parser bugs we just closed.
