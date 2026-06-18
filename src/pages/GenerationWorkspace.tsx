@@ -1697,7 +1697,7 @@ export default function GenerationWorkspace() {
                           <div className="mt-6 pt-5 border-t border-white/10 flex flex-wrap gap-2">
                             <button
                               onClick={() => void buildAgent(lastNaz.id)}
-                              disabled={isStreamingNow || status === "approved" || status === "building" || !showBody}
+                              disabled={isStreamingNow || status !== "pending" || !showBody}
                               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 to-cyan-400 text-black text-sm font-semibold hover:opacity-90 disabled:opacity-40 shadow-[0_0_24px_rgba(168,85,247,0.35)]"
                               title={status === "approved" ? "Agent already deployed" : "Generate a working AI Agent from this plan"}
                             >
