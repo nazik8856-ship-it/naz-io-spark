@@ -1697,27 +1697,29 @@ export default function GenerationWorkspace() {
                           <div className="mt-6 pt-5 border-t border-white/10 flex flex-wrap gap-2">
                             <button
                               onClick={() => void buildAgent(lastNaz.id)}
-                              disabled={isStreamingNow || status === "approved" || !showBody}
-                              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 to-cyan-400 text-black text-sm font-semibold hover:opacity-90 disabled:opacity-40"
+                              disabled={isStreamingNow || status !== "pending" || !showBody}
+                              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 to-cyan-400 text-black text-sm font-semibold hover:opacity-90 disabled:opacity-40 shadow-[0_0_24px_rgba(168,85,247,0.35)]"
+                              title={status === "approved" ? "Agent already deployed" : "Generate a working AI Agent from this plan"}
                             >
-                              <Hammer className="h-4 w-4" />
-                              {status === "approved" ? "Built" : status === "building" ? "Booting…" : "Approve & Build"}
+                              <Rocket className="h-4 w-4" />
+                              {status === "approved" ? "Deployed" : status === "building" ? "Deploying…" : "Deploy"}
                             </button>
-                            <button
-                              onClick={() => setActiveTab("dashboard")}
-                              disabled={status !== "approved"}
-                              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-emerald-400 to-cyan-400 text-black text-sm font-semibold hover:opacity-90 disabled:opacity-40"
-                            >
-                              <Play className="h-4 w-4" />
-                              Live
-                            </button>
+                            {status === "approved" && (
+                              <button
+                                onClick={() => setActiveTab("dashboard")}
+                                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-emerald-400 to-cyan-400 text-black text-sm font-semibold hover:opacity-90"
+                              >
+                                <Play className="h-4 w-4" />
+                                Live
+                              </button>
+                            )}
                             <button
                               onClick={() => startEditAgent(lastNaz.id)}
                               disabled={isStreamingNow || !showBody}
                               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 text-white text-sm font-semibold hover:bg-white/15 border border-white/10 disabled:opacity-40"
                             >
                               <Pencil className="h-4 w-4 text-purple-300" />
-                              Edit
+                              Edit Plan
                             </button>
                             <button
                               onClick={() => { removeAgent(lastNaz.id); removeSavedAgent(lastNaz.id); }}
@@ -1726,24 +1728,13 @@ export default function GenerationWorkspace() {
                               <Trash2 className="h-4 w-4" />
                               Remove
                             </button>
-                            {status === "approved" && (
-                              <>
-                                <button
-                                  onClick={deployAgentPreview}
-                                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 to-cyan-400 text-black text-sm font-semibold hover:opacity-90"
-                                >
-                                  <Rocket className="h-4 w-4" />
-                                  Deploy
-                                </button>
-                                <button
-                                  onClick={() => void copyAgentSpec(cleaned)}
-                                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 text-white text-sm font-semibold hover:bg-white/15 border border-white/10"
-                                >
-                                  <Copy className="h-4 w-4 text-cyan-300" />
-                                  Copy
-                                </button>
-                              </>
-                            )}
+                            <button
+                              onClick={() => void copyAgentSpec(cleaned)}
+                              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 text-white text-sm font-semibold hover:bg-white/15 border border-white/10"
+                            >
+                              <Copy className="h-4 w-4 text-cyan-300" />
+                              Copy
+                            </button>
                           </div>
                         )}
                       </div>
