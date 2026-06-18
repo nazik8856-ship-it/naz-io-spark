@@ -1699,10 +1699,10 @@ export default function GenerationWorkspace() {
                               onClick={() => void buildAgent(lastNaz.id)}
                               disabled={isStreamingNow || status !== "pending" || !showBody}
                               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 to-cyan-400 text-black text-sm font-semibold hover:opacity-90 disabled:opacity-40 shadow-[0_0_24px_rgba(168,85,247,0.35)]"
-                              title={status === "approved" ? "Agent already deployed" : "Generate a working AI Agent from this plan"}
+                              title={status === "approved" ? "AI Agent already generated" : "Generate a working AI Agent from this plan"}
                             >
                               <Rocket className="h-4 w-4" />
-                              {status === "approved" ? "Deployed" : status === "building" ? "Deploying…" : "Deploy"}
+                              {status === "approved" ? "Generated" : status === "building" ? "Generating…" : "Generate"}
                             </button>
                             {status === "approved" && (
                               <button
