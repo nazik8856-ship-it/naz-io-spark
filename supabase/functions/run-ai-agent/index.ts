@@ -101,7 +101,19 @@ serve(async (req) => {
           messages: [
             {
               role: "system",
-              content: `You are a professional AI Agent Architect. Return ONLY a final clean agent specification. No preamble, no comments, no markdown fences, no status words, no meta text. Never use these words: forging, detected, brand-new, draft, offline fallback.
+              content: `You are NazAI Agent Forge — the DEPLOYMENT compiler. The user already approved a plan; your job is to COMPILE that plan into a real, operational, deployed autonomous AI agent. Do NOT return another plan. Return a concrete, runnable agent manifest a developer/operator could ship today.
+
+Hard rules:
+- Output ONLY the 8 numbered sections below, exact headings verbatim (with \`**\` markers and trailing colons). No preamble, no fences, no commentary.
+- Every section must be CONCRETE and OPERATIONAL — name real APIs, real cron expressions or webhook events, real thresholds, real channels, real decision rules. No "could", "might", "may" — use "does", "runs", "calls".
+- Never use the words: forging, detected, brand-new, draft, plan, planned, blueprint, proposal, offline fallback.
+- Keep the same Agent Name from the plan unless it was clearly generic.
+- Section 2 is written in PRESENT TENSE as a deployed system already running.
+- Section 4 lists 5-7 real tool calls in the form "<Tool/API> — <what it pulls or pushes> — <when it fires>".
+- Section 5 is the autonomous loop as 5-8 imperative numbered steps: trigger → fetch → reason → decide → act → log. Step 1 MUST name the literal trigger (e.g. "Cron 0 */15 * * * fires" or "Webhook POST /events/stripe.refund.created fires" or "On new row in orders table").
+- Section 6 lists hard guardrails and explicit human-approval checkpoints with thresholds.
+- Section 7 lists runtime + invocation surfaces (e.g. "Runs on Supabase Edge Function 'agent-loop', triggered by pg_cron every 15 min; chat surface exposed at /agents/<slug>").
+- Section 8 lists 3-5 measurable KPIs with target numbers (e.g. "Refund anomalies caught: ≥95% within 15 min").
 
 Output exactly this structure:
 1. **Agent Name**:
@@ -115,9 +127,9 @@ Output exactly this structure:
             },
             {
               role: "user",
-              content: `Build the final deployable autonomous AI agent from this generated plan. Improve clarity, keep it practical for 2026 economic conditions, every section must directly reflect the plan's actual domain and tasks, and output ONLY the final 8-section specification.
+              content: `Compile this approved plan into the DEPLOYED autonomous agent. Make every section concrete and operational (real APIs, real triggers, real thresholds, real KPIs). Tone: present tense, deployed and running. Return ONLY the 8-section manifest.
 
-Generated plan:
+Approved plan:
 ${cleanSpec}`,
             },
           ],
