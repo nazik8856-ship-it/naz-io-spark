@@ -1763,32 +1763,32 @@ export default function GenerationWorkspace() {
 
                         {!lastNaz.editing && (
                           <div className="mt-6 pt-5 border-t border-white/10 flex flex-wrap gap-2">
-                            <button
-                              onClick={retryLastGeneration}
-                              disabled={isStreamingNow || !lastPromptRef.current}
-                              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 text-white text-sm font-semibold hover:bg-white/15 border border-white/10 disabled:opacity-40"
-                              title="Regenerate the AI Agent Plan from your last prompt"
-                            >
-                              <Sparkles className="h-4 w-4 text-cyan-300" />
-                              {isStreamingNow ? "Generating…" : "Generate"}
-                            </button>
-                            <button
-                              onClick={() => void buildAgent(lastNaz.id)}
-                              disabled={isStreamingNow || status !== "pending" || !showBody}
-                              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 to-cyan-400 text-black text-sm font-semibold hover:opacity-90 disabled:opacity-40 shadow-[0_0_24px_rgba(168,85,247,0.35)]"
-                              title={status === "approved" ? "AI Agent already deployed" : "Compile this plan into a deployed autonomous AI Agent"}
-                            >
-                              <Rocket className="h-4 w-4" />
-                              {status === "approved" ? "Deployed" : status === "building" ? "Deploying…" : "Deploy AI Agent"}
-                            </button>
-                            {status === "approved" && (
+                            {status !== "approved" && (
                               <button
-                                onClick={() => setActiveTab("dashboard")}
-                                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-emerald-400 to-cyan-400 text-black text-sm font-semibold hover:opacity-90"
+                                onClick={retryLastGeneration}
+                                disabled={isStreamingNow || !lastPromptRef.current}
+                                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 text-white text-sm font-semibold hover:bg-white/15 border border-white/10 disabled:opacity-40"
+                                title="Regenerate the AI Agent Plan from your last prompt"
                               >
-                                <Play className="h-4 w-4" />
-                                Live
+                                <Sparkles className="h-4 w-4 text-cyan-300" />
+                                {isStreamingNow ? "Generating…" : "Generate"}
                               </button>
+                            )}
+                            {status !== "approved" ? (
+                              <button
+                                onClick={() => void buildAgent(lastNaz.id)}
+                                disabled={isStreamingNow || status !== "pending" || !showBody}
+                                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 to-cyan-400 text-black text-sm font-semibold hover:opacity-90 disabled:opacity-40 shadow-[0_0_24px_rgba(168,85,247,0.35)]"
+                                title="Compile this plan into a deployed autonomous AI Agent"
+                              >
+                                <Rocket className="h-4 w-4" />
+                                {status === "building" ? "Deploying…" : "Deploy AI Agent"}
+                              </button>
+                            ) : (
+                              <span className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-400/15 text-emerald-300 text-sm font-semibold border border-emerald-400/30">
+                                <Rocket className="h-4 w-4" />
+                                Deployed ✓
+                              </span>
                             )}
                             <button
                               onClick={() => startEditAgent(lastNaz.id)}
