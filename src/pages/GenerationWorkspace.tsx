@@ -1564,6 +1564,25 @@ export default function GenerationWorkspace() {
                           </div>
                         ) : showBody ? (
                           <div className="space-y-5">
+                            {status === "approved" && (
+                              <section className="rounded-xl border border-emerald-400/30 bg-gradient-to-br from-emerald-400/10 via-cyan-400/5 to-transparent p-5 flex items-center gap-4">
+                                <div className="shrink-0 h-14 w-14 rounded-xl bg-gradient-to-br from-emerald-400 to-cyan-400 flex items-center justify-center text-black text-2xl font-black shadow-[0_0_30px_-5px_rgba(16,185,129,0.6)]">
+                                  {agentName.charAt(0).toUpperCase()}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="text-[10px] uppercase tracking-[0.22em] text-emerald-300 font-mono mb-0.5">Your AI Agent is live</div>
+                                  <div className="text-base md:text-lg font-bold text-white truncate">{agentName}</div>
+                                  {spec.goal && <div className="text-xs text-zinc-300 truncate">{spec.goal}</div>}
+                                </div>
+                                <button
+                                  onClick={() => { setSelectedSavedId(lastNaz.id); setActiveTab("dashboard"); }}
+                                  className="shrink-0 inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gradient-to-r from-emerald-400 to-cyan-400 text-black text-sm font-bold hover:opacity-90 shadow-[0_0_24px_rgba(16,185,129,0.4)]"
+                                >
+                                  <Play className="h-4 w-4" />
+                                  Open Chat
+                                </button>
+                              </section>
+                            )}
                             {spec.description && (
                               <section>
                                 <div className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 mb-1.5 font-mono">Description</div>
