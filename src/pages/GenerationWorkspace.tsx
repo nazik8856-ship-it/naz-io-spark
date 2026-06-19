@@ -1655,7 +1655,7 @@ export default function GenerationWorkspace() {
                                 <div className="flex items-center justify-between text-xs text-zinc-400">
                                   <span className="flex items-center gap-2">
                                     <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" />
-                                    {status === "building" ? "Compiling final agent…" : "Streaming agent spec…"}
+                                    Streaming agent spec…
                                   </span>
                                   <span className="font-mono text-[10px] text-zinc-500">
                                     {lastNaz.agentDebug?.rawChars ?? cleaned.length} chars
