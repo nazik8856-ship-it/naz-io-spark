@@ -1467,10 +1467,20 @@ export default function GenerationWorkspace() {
 
                 const accent =
                   status === "approved"
-                    ? { ring: "border-emerald-400/30", glow: "shadow-emerald-500/10", chipBg: "bg-emerald-400/15", chipText: "text-emerald-300", chipBorder: "border-emerald-400/30", dot: "bg-emerald-400", banner: "bg-emerald-400/5", label: "AI Agent Planned!", chipLabel: "Planned" }
+                    ? { ring: "border-emerald-400/50", glow: "shadow-[0_0_60px_-15px_rgba(16,185,129,0.5)]", chipBg: "bg-emerald-400/15", chipText: "text-emerald-300", chipBorder: "border-emerald-400/40", dot: "bg-emerald-400", banner: "bg-gradient-to-r from-emerald-400/10 via-cyan-400/5 to-transparent", label: "AI Agent Generated!", chipLabel: "LIVE AGENT" }
                     : status === "building"
-                    ? { ring: "border-cyan-400/40", glow: "shadow-cyan-500/10", chipBg: "bg-cyan-400/15", chipText: "text-cyan-300", chipBorder: "border-cyan-400/30", dot: "bg-cyan-400 animate-pulse", banner: "bg-cyan-400/5", label: "Building agent live…", chipLabel: "Booting" }
-                    : { ring: "border-purple-400/30", glow: "shadow-purple-500/10", chipBg: "bg-purple-400/15", chipText: "text-purple-300", chipBorder: "border-purple-400/30", dot: "bg-purple-400 animate-pulse", banner: "bg-purple-400/5", label: isStreamingNow ? "Generating agent…" : "Agent plan ready", chipLabel: isStreamingNow ? "Drafting" : "Pending" };
+                    ? { ring: "border-cyan-400/40", glow: "shadow-cyan-500/10", chipBg: "bg-cyan-400/15", chipText: "text-cyan-300", chipBorder: "border-cyan-400/30", dot: "bg-cyan-400 animate-pulse", banner: "bg-cyan-400/5", label: "Generating AI Agent…", chipLabel: "BUILDING" }
+                    : { ring: "border-purple-400/30", glow: "shadow-purple-500/10", chipBg: "bg-purple-400/15", chipText: "text-purple-300", chipBorder: "border-purple-400/30", dot: "bg-purple-400 animate-pulse", banner: "bg-purple-400/5", label: isStreamingNow ? "Generating plan…" : "AI Agent Plan Ready", chipLabel: isStreamingNow ? "Drafting" : "PLAN" };
+
+                // Streaming checkpoints — light up as section headings appear
+                const rawForCheckpoints = (lastNaz.content || "") + " " + cleaned;
+                const hasHeading = (re: RegExp) => re.test(rawForCheckpoints);
+                const checkpoints = [
+                  { label: "Compiling identity", done: hasHeading(/Agent Name/i) },
+                  { label: "Wiring triggers & tools", done: hasHeading(/Autonomous Capabilities/i) },
+                  { label: "Defining autonomous loop", done: hasHeading(/Step-by-Step Workflow/i) },
+                  { label: "Setting guardrails & KPIs", done: hasHeading(/Guardrails/i) },
+                ];
 
                 return (
                   <div className="relative h-full overflow-y-auto px-6 md:px-10 py-8">
