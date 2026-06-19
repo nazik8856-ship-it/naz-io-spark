@@ -1,50 +1,66 @@
-## Goal
+# Show the Generated AI Agent in Preview after Deploy
 
-Make AI Agent generation almost never fail. Kill the "Backend connection is not ready" wall, fall back to known-good Supabase constants, and silently retry harder before showing any error card.
+Right now: pressing **Deploy AI Agent** streams the compiled spec into the same card that earlier held the plan, and the header still reads "AI Agent Planned!" even after deployment. The content does update to the deployed manifest, but visually it looks identical to the plan, so it doesn't feel like "the AI Agent appeared".
 
-## Root cause of the screenshot
+This plan makes the three phases visually distinct, so the user clearly sees: **Plan → Generation Process → Generated AI Agent**.
 
-`src/pages/GenerationWorkspace.tsx` throws `"Backend connection is not ready"` whenever `import.meta.env.VITE_SUPABASE_URL` or the publishable key is undefined in the loaded bundle (most likely on a stale published build of `naz-io-spark.lovable.app`). The thrown error is caught and rendered as the yellow banner before any network call is even attempted.
+## What changes
 
-Additionally:
+All edits happen in `src/pages/GenerationWorkspace.tsx` (the unified agent card around lines 1458–1740). No backend/system-prompt changes — NazAI already knows how to compile the deployed agent (confirmed in `run-ai-agent` build mode).
 
-- `src/integrations/supabase/client.ts` has stale fallback constants pointing at a different project (`gowbbsqwkciicsxyndyq`), so even the safety net is broken.
-- Only **1** silent retry happens on failure, then the error card is shown. Transient network blips therefore become user-visible failures.
+### 1. Phase: Plan (status = `pending`)
 
-## Changes
+- Header label stays **"AI Agent Plan Ready"** (purple accent).
+- Buttons: `Generate` (regenerate plan) + `Deploy AI Agent` (primary).
+- Card title prefix: small chip "PLAN".
 
-### 1. `src/integrations/supabase/client.ts`
+### 2. Phase: Generation Process (status = `building`)
 
-- Replace the stale fallback `SUPABASE_URL` with the current project URL `https://qaeduinfirtljnbecyzq.supabase.co`.
-- Replace the stale fallback anon key with the current project's publishable anon key.
-- Export two new constants used elsewhere:
-  ```ts
-  export const SUPABASE_FUNCTIONS_URL = `${SUPABASE_URL}/functions/v1`;
-  export const SUPABASE_ANON = SUPABASE_ANON_KEY;
-  ```
+Replace the spec body with a dedicated **Generation Console** while streaming, so the user actually sees the agent being built instead of plan text mutating in place:
 
-### 2. `src/pages/GenerationWorkspace.tsx`
+- Header label: **"Generating AI Agent…"** with animated cyan dot.
+- Top of card: live progress strip with 4 ordered checkpoints that light up as the stream progresses (detected by which `**Section**:` headings have appeared in `acc` so far):
+  1. Compiling identity
+  2. Wiring triggers & tools
+  3. Defining autonomous loop
+  4. Setting guardrails & KPIs
+- Below: terminal-style streaming pane that renders the incoming tokens as monospace text with a blinking caret (uses the same `acc` buffer already accumulated in `buildAgent`).
+- Deploy button shows "Deploying…" and is disabled.
 
-- Import `SUPABASE_FUNCTIONS_URL` and `SUPABASE_ANON` from the client module.
-- Remove the env-var check from `functionHeaders()` (never throw). Compute base URL and key from env first, fall back to the exported constants.
-- Bump the auto-retry from 1 attempt to 5 silent retries with 800ms/1600ms/3200ms backoff. Only after the 3rd failure do we render the yellow `agentError` card. Show a small toast on the 2nd retry ("Reconnecting...") so the user knows it's working.
-- Do the same change in the `run-ai-agent` and init paths (lines 619, 693, 784) — never throw on missing env, never give up after one network blip.
+### 3. Phase: Generated AI Agent (status = `approved`)
 
-### 3. (No backend changes)
+Swap the card identity so it visually reads as a *delivered* agent, not a plan:
 
-The edge function already provider-falls-back (OpenAI → Lovable Gemini) and is verified working. We're only hardening the client.
+- Header chip changes from "PLAN" to **"LIVE AGENT"** with emerald accent + subtle glow.
+- Top label changes to **"AI Agent Generated!"** (currently "AI Agent Planned!").
+- Add a hero strip directly under the title:
+  - Agent avatar/initial badge, agent name, one-line goal.
+  - Primary CTA: **"Open Chat"** (switches `activeTab` to `dashboard` and selects this agent in `LiveAgentChat`).
+  - Secondary: **"View Spec"** toggles the 8-section breakdown (collapsed by default in this phase so the agent feels like a product, not a document).
+- The 8-section spec moves into a collapsible "Agent Blueprint" section underneath the hero — still available, no longer the headline.
+- Replace the `Deploy AI Agent` button with a disabled "Deployed ✓" pill; keep `Edit Plan`, `Remove`, `Copy`.
+
+### 4. Buttons row consistency
+
+- Hide `Generate` (regenerate plan) once status = `approved` — regenerating a plan after the agent is live is misleading. Offer it again only if the user clicks `Edit Plan`.
+
+## Technical details
+
+- All state already exists: `agentStatus`, `agentName`, `agentFinalSpec`, `agentGreeting`, `agentSuggestions`, `agentChat` are populated by the existing `buildAgent` flow (lines 599–737). No new state needed.
+- Checkpoint detection during streaming: derive from `lastNaz.content` by counting how many of `Agent Name`, `Autonomous Capabilities`, `Step-by-Step Workflow`, `Guardrails` headings appear. Pure render-time computation, no extra effects.
+- "Open Chat" CTA: `setActiveTab("dashboard"); setSelectedSavedId(lastNaz.id);` — both setters already used elsewhere in the file.
+- Visual tokens reuse existing `accent` object pattern (lines 1468–1473); add a new `approved` variant styled as live/emerald with a stronger glow + "LIVE AGENT" chip label.
 
 ## Out of scope
 
-- DB persistence of agents (still localStorage as before).
-- Credit deduction (still off).
-- Any UI/layout change to the Preview card itself.
+- No edge function changes. The `run-ai-agent` build prompt is already correct (compiles a deployed manifest, forbids "plan"/"draft"/"blueprint" words).
+- No new routes, no DB changes.
+- Chat surface itself (`LiveAgentChat`) is unchanged — we just route the user to it more prominently.
 
-## QA after build
+## Answer to your question
 
-1. Load `/generation-workspace`, type "fitness" → full 8-section card streams in.
-2. Throttle network in devtools to slow 3G → no yellow banner; card eventually streams.
-3. Block the function URL once via devtools request blocking → silent retry kicks in, second attempt succeeds, no banner.
-4. Block 3 times in a row → banner finally shows with Retry button (existing behaviour).
+Yes — NazAI already knows how to generate a real AI Agent (the `run-ai-agent` "build" mode compiles the approved plan into a deployed, operational manifest with real triggers, tools, KPIs). What was missing is the **UI signaling** that the deployment actually happened. This plan fixes that: live generation console while it builds, then a clearly different "Generated AI Agent" view replacing the plan card.
 
-After approval and build, re-publish so the live `naz-io-spark.lovable.app` ships these fixes.
+&nbsp;
+
+**That AI Agent is like an AI-built AI tool**
