@@ -1467,10 +1467,20 @@ export default function GenerationWorkspace() {
 
                 const accent =
                   status === "approved"
-                    ? { ring: "border-emerald-400/30", glow: "shadow-emerald-500/10", chipBg: "bg-emerald-400/15", chipText: "text-emerald-300", chipBorder: "border-emerald-400/30", dot: "bg-emerald-400", banner: "bg-emerald-400/5", label: "AI Agent Planned!", chipLabel: "Planned" }
+                    ? { ring: "border-emerald-400/50", glow: "shadow-[0_0_60px_-15px_rgba(16,185,129,0.5)]", chipBg: "bg-emerald-400/15", chipText: "text-emerald-300", chipBorder: "border-emerald-400/40", dot: "bg-emerald-400", banner: "bg-gradient-to-r from-emerald-400/10 via-cyan-400/5 to-transparent", label: "AI Agent Generated!", chipLabel: "LIVE AGENT" }
                     : status === "building"
-                    ? { ring: "border-cyan-400/40", glow: "shadow-cyan-500/10", chipBg: "bg-cyan-400/15", chipText: "text-cyan-300", chipBorder: "border-cyan-400/30", dot: "bg-cyan-400 animate-pulse", banner: "bg-cyan-400/5", label: "Building agent live…", chipLabel: "Booting" }
-                    : { ring: "border-purple-400/30", glow: "shadow-purple-500/10", chipBg: "bg-purple-400/15", chipText: "text-purple-300", chipBorder: "border-purple-400/30", dot: "bg-purple-400 animate-pulse", banner: "bg-purple-400/5", label: isStreamingNow ? "Generating agent…" : "Agent plan ready", chipLabel: isStreamingNow ? "Drafting" : "Pending" };
+                    ? { ring: "border-cyan-400/40", glow: "shadow-cyan-500/10", chipBg: "bg-cyan-400/15", chipText: "text-cyan-300", chipBorder: "border-cyan-400/30", dot: "bg-cyan-400 animate-pulse", banner: "bg-cyan-400/5", label: "Generating AI Agent…", chipLabel: "BUILDING" }
+                    : { ring: "border-purple-400/30", glow: "shadow-purple-500/10", chipBg: "bg-purple-400/15", chipText: "text-purple-300", chipBorder: "border-purple-400/30", dot: "bg-purple-400 animate-pulse", banner: "bg-purple-400/5", label: isStreamingNow ? "Generating plan…" : "AI Agent Plan Ready", chipLabel: isStreamingNow ? "Drafting" : "PLAN" };
+
+                // Streaming checkpoints — light up as section headings appear
+                const rawForCheckpoints = (lastNaz.content || "") + " " + cleaned;
+                const hasHeading = (re: RegExp) => re.test(rawForCheckpoints);
+                const checkpoints = [
+                  { label: "Compiling identity", done: hasHeading(/Agent Name/i) },
+                  { label: "Wiring triggers & tools", done: hasHeading(/Autonomous Capabilities/i) },
+                  { label: "Defining autonomous loop", done: hasHeading(/Step-by-Step Workflow/i) },
+                  { label: "Setting guardrails & KPIs", done: hasHeading(/Guardrails/i) },
+                ];
 
                 return (
                   <div className="relative h-full overflow-y-auto px-6 md:px-10 py-8">
@@ -1513,8 +1523,66 @@ export default function GenerationWorkspace() {
                               >Save &amp; Build</button>
                             </div>
                           </div>
+                        ) : status === "building" ? (
+                          <div className="space-y-5">
+                            <div className="text-[10px] uppercase tracking-[0.22em] text-cyan-300 font-mono flex items-center gap-2">
+                              <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                              Generation Console
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              {checkpoints.map((cp, i) => (
+                                <div
+                                  key={i}
+                                  className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 text-xs font-mono transition-all ${
+                                    cp.done
+                                      ? "border-emerald-400/40 bg-emerald-400/5 text-emerald-200"
+                                      : "border-white/10 bg-white/[0.02] text-zinc-500"
+                                  }`}
+                                >
+                                  <span className={`h-2 w-2 rounded-full ${cp.done ? "bg-emerald-400" : "bg-zinc-600 animate-pulse"}`} />
+                                  <span className="shrink-0 text-[10px] opacity-60">[{String(i + 1).padStart(2, "0")}]</span>
+                                  <span className="truncate">{cp.label}</span>
+                                  {cp.done && <span className="ml-auto text-emerald-400">✓</span>}
+                                </div>
+                              ))}
+                            </div>
+                            <div className="rounded-lg border border-cyan-400/20 bg-black/70 p-4 max-h-[420px] overflow-y-auto">
+                              <div className="text-[10px] uppercase tracking-[0.2em] text-cyan-400/70 mb-2 font-mono flex items-center justify-between">
+                                <span>▮ nazai@agent-forge:~$ compile --deploy</span>
+                                <span className="text-zinc-500">{(lastNaz.content || "").length} chars</span>
+                              </div>
+                              <pre className="text-[11px] leading-relaxed text-cyan-100/90 whitespace-pre-wrap font-mono break-words">
+{cleaned || "Booting compiler…"}<span className="inline-block w-2 h-3.5 ml-0.5 bg-cyan-400 align-middle animate-pulse" />
+                              </pre>
+                            </div>
+                            <div className="h-1 w-full overflow-hidden rounded-full bg-white/5">
+                              <div
+                                className="h-full bg-gradient-to-r from-purple-500 via-cyan-400 to-emerald-400 transition-all duration-300"
+                                style={{ width: `${Math.min(100, Math.round((checkpoints.filter((c) => c.done).length / checkpoints.length) * 100))}%` }}
+                              />
+                            </div>
+                          </div>
                         ) : showBody ? (
                           <div className="space-y-5">
+                            {status === "approved" && (
+                              <section className="rounded-xl border border-emerald-400/30 bg-gradient-to-br from-emerald-400/10 via-cyan-400/5 to-transparent p-5 flex items-center gap-4">
+                                <div className="shrink-0 h-14 w-14 rounded-xl bg-gradient-to-br from-emerald-400 to-cyan-400 flex items-center justify-center text-black text-2xl font-black shadow-[0_0_30px_-5px_rgba(16,185,129,0.6)]">
+                                  {agentName.charAt(0).toUpperCase()}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="text-[10px] uppercase tracking-[0.22em] text-emerald-300 font-mono mb-0.5">Your AI Agent is live</div>
+                                  <div className="text-base md:text-lg font-bold text-white truncate">{agentName}</div>
+                                  {spec.goal && <div className="text-xs text-zinc-300 truncate">{spec.goal}</div>}
+                                </div>
+                                <button
+                                  onClick={() => { setSelectedSavedId(lastNaz.id); setActiveTab("dashboard"); }}
+                                  className="shrink-0 inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gradient-to-r from-emerald-400 to-cyan-400 text-black text-sm font-bold hover:opacity-90 shadow-[0_0_24px_rgba(16,185,129,0.4)]"
+                                >
+                                  <Play className="h-4 w-4" />
+                                  Open Chat
+                                </button>
+                              </section>
+                            )}
                             {spec.description && (
                               <section>
                                 <div className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 mb-1.5 font-mono">Description</div>
@@ -1606,7 +1674,7 @@ export default function GenerationWorkspace() {
                                 <div className="flex items-center justify-between text-xs text-zinc-400">
                                   <span className="flex items-center gap-2">
                                     <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" />
-                                    {status === "building" ? "Compiling final agent…" : "Streaming agent spec…"}
+                                    Streaming agent spec…
                                   </span>
                                   <span className="font-mono text-[10px] text-zinc-500">
                                     {lastNaz.agentDebug?.rawChars ?? cleaned.length} chars
@@ -1695,32 +1763,32 @@ export default function GenerationWorkspace() {
 
                         {!lastNaz.editing && (
                           <div className="mt-6 pt-5 border-t border-white/10 flex flex-wrap gap-2">
-                            <button
-                              onClick={retryLastGeneration}
-                              disabled={isStreamingNow || !lastPromptRef.current}
-                              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 text-white text-sm font-semibold hover:bg-white/15 border border-white/10 disabled:opacity-40"
-                              title="Regenerate the AI Agent Plan from your last prompt"
-                            >
-                              <Sparkles className="h-4 w-4 text-cyan-300" />
-                              {isStreamingNow ? "Generating…" : "Generate"}
-                            </button>
-                            <button
-                              onClick={() => void buildAgent(lastNaz.id)}
-                              disabled={isStreamingNow || status !== "pending" || !showBody}
-                              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 to-cyan-400 text-black text-sm font-semibold hover:opacity-90 disabled:opacity-40 shadow-[0_0_24px_rgba(168,85,247,0.35)]"
-                              title={status === "approved" ? "AI Agent already deployed" : "Compile this plan into a deployed autonomous AI Agent"}
-                            >
-                              <Rocket className="h-4 w-4" />
-                              {status === "approved" ? "Deployed" : status === "building" ? "Deploying…" : "Deploy AI Agent"}
-                            </button>
-                            {status === "approved" && (
+                            {status !== "approved" && (
                               <button
-                                onClick={() => setActiveTab("dashboard")}
-                                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-emerald-400 to-cyan-400 text-black text-sm font-semibold hover:opacity-90"
+                                onClick={retryLastGeneration}
+                                disabled={isStreamingNow || !lastPromptRef.current}
+                                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 text-white text-sm font-semibold hover:bg-white/15 border border-white/10 disabled:opacity-40"
+                                title="Regenerate the AI Agent Plan from your last prompt"
                               >
-                                <Play className="h-4 w-4" />
-                                Live
+                                <Sparkles className="h-4 w-4 text-cyan-300" />
+                                {isStreamingNow ? "Generating…" : "Generate"}
                               </button>
+                            )}
+                            {status !== "approved" ? (
+                              <button
+                                onClick={() => void buildAgent(lastNaz.id)}
+                                disabled={isStreamingNow || status !== "pending" || !showBody}
+                                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 to-cyan-400 text-black text-sm font-semibold hover:opacity-90 disabled:opacity-40 shadow-[0_0_24px_rgba(168,85,247,0.35)]"
+                                title="Compile this plan into a deployed autonomous AI Agent"
+                              >
+                                <Rocket className="h-4 w-4" />
+                                {status === "building" ? "Deploying…" : "Deploy AI Agent"}
+                              </button>
+                            ) : (
+                              <span className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-400/15 text-emerald-300 text-sm font-semibold border border-emerald-400/30">
+                                <Rocket className="h-4 w-4" />
+                                Deployed ✓
+                              </span>
                             )}
                             <button
                               onClick={() => startEditAgent(lastNaz.id)}
