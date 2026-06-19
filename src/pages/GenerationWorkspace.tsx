@@ -1523,6 +1523,45 @@ export default function GenerationWorkspace() {
                               >Save &amp; Build</button>
                             </div>
                           </div>
+                        ) : status === "building" ? (
+                          <div className="space-y-5">
+                            <div className="text-[10px] uppercase tracking-[0.22em] text-cyan-300 font-mono flex items-center gap-2">
+                              <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                              Generation Console
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              {checkpoints.map((cp, i) => (
+                                <div
+                                  key={i}
+                                  className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 text-xs font-mono transition-all ${
+                                    cp.done
+                                      ? "border-emerald-400/40 bg-emerald-400/5 text-emerald-200"
+                                      : "border-white/10 bg-white/[0.02] text-zinc-500"
+                                  }`}
+                                >
+                                  <span className={`h-2 w-2 rounded-full ${cp.done ? "bg-emerald-400" : "bg-zinc-600 animate-pulse"}`} />
+                                  <span className="shrink-0 text-[10px] opacity-60">[{String(i + 1).padStart(2, "0")}]</span>
+                                  <span className="truncate">{cp.label}</span>
+                                  {cp.done && <span className="ml-auto text-emerald-400">✓</span>}
+                                </div>
+                              ))}
+                            </div>
+                            <div className="rounded-lg border border-cyan-400/20 bg-black/70 p-4 max-h-[420px] overflow-y-auto">
+                              <div className="text-[10px] uppercase tracking-[0.2em] text-cyan-400/70 mb-2 font-mono flex items-center justify-between">
+                                <span>▮ nazai@agent-forge:~$ compile --deploy</span>
+                                <span className="text-zinc-500">{(lastNaz.content || "").length} chars</span>
+                              </div>
+                              <pre className="text-[11px] leading-relaxed text-cyan-100/90 whitespace-pre-wrap font-mono break-words">
+{cleaned || "Booting compiler…"}<span className="inline-block w-2 h-3.5 ml-0.5 bg-cyan-400 align-middle animate-pulse" />
+                              </pre>
+                            </div>
+                            <div className="h-1 w-full overflow-hidden rounded-full bg-white/5">
+                              <div
+                                className="h-full bg-gradient-to-r from-purple-500 via-cyan-400 to-emerald-400 transition-all duration-300"
+                                style={{ width: `${Math.min(100, Math.round((checkpoints.filter((c) => c.done).length / checkpoints.length) * 100))}%` }}
+                              />
+                            </div>
+                          </div>
                         ) : showBody ? (
                           <div className="space-y-5">
                             {spec.description && (
