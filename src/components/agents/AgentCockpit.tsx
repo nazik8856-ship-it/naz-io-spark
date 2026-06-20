@@ -56,12 +56,27 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
     if (!error && data) setEvents(data as AgentEvent[]);
   }, [agentId]);
 
-  // Poll while running (every 1.5s), otherwise every 6s.
+  // Initial load + realtime subscription on this agent's events.
   useEffect(() => {
     loadEvents();
-    const iv = setInterval(loadEvents, running ? 1500 : 6000);
-    return () => clearInterval(iv);
-  }, [loadEvents, running]);
+    const channel = supabase
+      .channel(`agent_events:${agentId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "agent_events", filter: `agent_id=eq.${agentId}` },
+        (payload) => {
+          const row = payload.new as AgentEvent;
+          setEvents((prev) => (prev.find((e) => e.id === row.id) ? prev : [...prev, row]));
+        },
+      )
+      .subscribe();
+    // Lightweight safety-net poll (in case realtime drops a message).
+    const iv = setInterval(loadEvents, 8000);
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(iv);
+    };
+  }, [agentId, loadEvents]);
 
   // Auto-scroll feed
   useEffect(() => {
