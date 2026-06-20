@@ -272,6 +272,71 @@ export default function GenerationWorkspace() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Auto-heal: rehydrate any approved agent messages with stored linkage,
+  // and recompile manifest for legacy approved messages that never made it through Stage A.
+  useEffect(() => {
+    const links = loadAgentLinks();
+    setMessages((all) => {
+      let changed = false;
+      const next = all.map((m) => {
+        if (m.kind === "agent-spec" && m.agentStatus === "approved" && !m.agentManifest && links[m.id]) {
+          changed = true;
+          return {
+            ...m,
+            agentManifest: links[m.id].manifest,
+            agentDbId: links[m.id].agentDbId,
+            agentName: links[m.id].name,
+            agentFinalSpec: links[m.id].spec,
+          };
+        }
+        return m;
+      });
+      return changed ? next : all;
+    });
+  }, [messages.length === 0 ? 0 : 1]);
+
+  // Recompile manifest for approved messages still missing one (no link in storage either).
+  useEffect(() => {
+    const target = messages.find(
+      (m) =>
+        m.kind === "agent-spec" &&
+        m.agentStatus === "approved" &&
+        !m.agentManifest &&
+        !healingRef.current.has(m.id) &&
+        (m.content || m.agentFinalSpec),
+    );
+    if (!target) return;
+    healingRef.current.add(target.id);
+    const spec = target.agentFinalSpec || target.content;
+    void (async () => {
+      try {
+        const resp = await fetch(functionUrl("compile-agent-manifest"), {
+          method: "POST",
+          headers: functionHeaders(),
+          body: JSON.stringify({ plan: spec, save: true }),
+        });
+        if (!resp.ok) return;
+        const { manifest, agentId } = (await resp.json()) as { manifest: AgentManifest; agentId: string | null };
+        if (!manifest || !agentId) return;
+        setMessages((m) => m.map((x) => x.id === target.id ? {
+          ...x,
+          agentManifest: manifest,
+          agentDbId: agentId,
+          agentName: manifest.name,
+          agentSystemPrompt: manifest.systemPrompt,
+        } : x));
+        saveAgentLink(target.id, { agentDbId: agentId, manifest, name: manifest.name, spec });
+        void fetch(functionUrl("agent-runtime"), {
+          method: "POST",
+          headers: functionHeaders(),
+          body: JSON.stringify({ agentId, trigger: "manual" }),
+        }).catch(() => {});
+      } catch (e) {
+        console.warn("auto-heal compile failed", e);
+      }
+    })();
+  }, [messages]);
+
   const [isStreaming, setIsStreaming] = useState(false);
 
   // Detect if user prompt is asking for an AI agent
