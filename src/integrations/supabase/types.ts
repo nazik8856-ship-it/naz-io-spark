@@ -14,6 +14,131 @@ export type Database = {
   }
   public: {
     Tables: {
+      agent_events: {
+        Row: {
+          agent_id: string
+          created_at: string
+          id: string
+          kind: string
+          payload: Json
+          run_id: string
+          user_id: string
+        }
+        Insert: {
+          agent_id: string
+          created_at?: string
+          id?: string
+          kind: string
+          payload?: Json
+          run_id: string
+          user_id: string
+        }
+        Update: {
+          agent_id?: string
+          created_at?: string
+          id?: string
+          kind?: string
+          payload?: Json
+          run_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_events_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_events_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "agent_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      agent_runs: {
+        Row: {
+          agent_id: string
+          finished_at: string | null
+          id: string
+          started_at: string
+          status: string
+          summary: string | null
+          trigger: string
+          user_id: string
+        }
+        Insert: {
+          agent_id: string
+          finished_at?: string | null
+          id?: string
+          started_at?: string
+          status?: string
+          summary?: string | null
+          trigger?: string
+          user_id: string
+        }
+        Update: {
+          agent_id?: string
+          finished_at?: string | null
+          id?: string
+          started_at?: string
+          status?: string
+          summary?: string | null
+          trigger?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_runs_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      agents: {
+        Row: {
+          created_at: string
+          goal: string | null
+          id: string
+          manifest: Json
+          name: string
+          slug: string
+          source_plan: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          goal?: string | null
+          id?: string
+          manifest: Json
+          name: string
+          slug: string
+          source_plan?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          goal?: string | null
+          id?: string
+          manifest?: Json
+          name?: string
+          slug?: string
+          source_plan?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       credit_transactions: {
         Row: {
           amount: number
