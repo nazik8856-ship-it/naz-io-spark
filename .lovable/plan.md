@@ -1,74 +1,59 @@
-# Make Deploy actually produce a running autonomous Agent (not a second spec)
+## Goal
 
-You're right — today both phases output text documents (plan, then a more detailed plan). To deliver "the AI Agent itself" as an autonomous software entity, the Deploy step has to compile the plan into a **structured manifest** and then **stand up a real runtime** that reasons, calls tools, makes decisions, and runs on a schedule.
+The screenshot shows the post-deploy fallback card ("YOUR AI AGENT IS LIVE / Open Chat" + description) instead of the real Agent Cockpit. That means the deploy pipeline (compile manifest → persist agent row → start runtime → render cockpit) isn't completing — the message has `agentStatus: "approved"` but no `agentManifest` / `agentDbId`, so the UI silently falls back to the description doc.
 
-## Two-phase split
+This plan wires the post-deploy view to the **real** autonomous-agent pipeline so pressing Deploy actually produces a running agent and the preview swaps to the live Cockpit.
 
-**Phase 1 — Plan (unchanged):** `generate-ai-agent` produces the 8-section human-readable plan. User reviews it.
+## What changes
 
-**Phase 2 — Build the Agent (new):** `Deploy AI Agent` no longer asks the model for another document. Instead it runs a 3-stage compile → instantiate → activate pipeline.
+### 1. Make the Deploy pipeline visible and verifiable
 
-### Stage A: Compile manifest (structured, not prose)
-- New edge function `compile-agent-manifest` calls the AI SDK with `Output.object` (Zod schema) to convert the plan into a strict JSON `AgentManifest`:
-  ```ts
-  {
-    id, name, goal,
-    systemPrompt,            // in-character operating prompt
-    tools: [{ name, description, kind: "http"|"web_search"|"db_query"|"calc"|"notify"|"custom", config }],
-    triggers: [{ kind: "cron"|"webhook"|"manual", spec }],
-    decisionPolicy: string,  // when to act vs. ask
-    guardrails: [{ rule, requiresApproval: boolean }],
-    kpis: [{ name, target }]
-  }
-  ```
-- No prose output. If the schema doesn't validate, retry once, then surface a real error.
+- In `GenerationWorkspace.tsx > buildAgent`: stop hiding failure modes. If `compile-agent-manifest` returns no `agentId` (not signed in, RLS denied, etc.), keep `agentStatus = "pending"`, show the inline error (`agentError`) on the spec card, and surface a Retry button. Today the toast fires once and the card silently slides into "approved" with no manifest.
+- Add a small "Compiling manifest…" / "Booting runtime…" / "First run dispatched" sub-state in the deploy progress strip so the user sees the two real stages (manifest compile, runtime kick-off), not just a generic "compile --deploy" terminal.
+- Log compile/runtime errors to console with the function name so they're visible in network panel debugging.
 
-### Stage B: Instantiate (persist + register tools)
-- New table `agents` (id, user_id, manifest jsonb, status, created_at) + `agent_runs` (id, agent_id, trigger, started_at, finished_at, status, summary) + `agent_events` (id, run_id, kind: "reason"|"tool_call"|"decision"|"action"|"guardrail_block", payload jsonb, ts). Full RLS per user, GRANTs included.
-- Save manifest. Assign a stable agent slug.
+### 2. Render the real Cockpit whenever deploy succeeded
 
-### Stage C: Activate the runtime
-- New generic edge function `agent-runtime` (the actual agent loop, reused by every agent):
-  - Loads manifest by id.
-  - Uses AI SDK `streamText` with the manifest's `systemPrompt`, the goal as the user message, and a **real tool registry** built from `manifest.tools`.
-  - `stopWhen: stepCountIs(50)`.
-  - Tools mapped to real `execute` fns:
-    - `http` — `fetch()` to a whitelisted URL (returns JSON/text).
-    - `web_search` — Lovable AI web search.
-    - `db_query` — read-only SELECT on this project's tables the user owns.
-    - `calc` — math eval.
-    - `notify` — writes an `agent_events` row (and later: email via Resend / webhook).
-    - `custom` — if the tool needs an external API key the user hasn't added, mark it `needsApproval` and pause until configured.
-  - Each step writes an `agent_events` row so the UI can show the reasoning chain in real time.
-- Triggers:
-  - `manual` — works immediately ("Run Now" button).
-  - `cron` — register a pg_cron job that POSTs to `agent-runtime` on schedule.
-  - `webhook` — agent exposes a unique POST URL.
+- Cockpit currently only renders when `agentManifest && agentDbId` both exist on the in-memory message. Two fixes:
+  - **Auto-heal legacy approved messages**: on mount, for every message with `agentStatus = "approved"` missing `agentManifest`/`agentDbId`, call `compile-agent-manifest` once with `save: true` and patch the message. This fixes the user's current screenshot without them re-deploying.
+  - **Persist agent linkage**: store `{ messageId → agentDbId }` in localStorage so reloads restore the Cockpit instead of dropping back to the fallback card.
+- Remove the "Open Chat" fallback section from the approved branch — once a real agent exists, the Cockpit (with built-in chat tab) is the single source of truth. Keep "Open Chat" only as a button inside the Cockpit header.
 
-### Stage D: Replace the preview card with the Agent Cockpit
-Once Stage A-C succeed, the preview swaps from the spec doc to an **Agent Cockpit**:
-- Header: agent name, status pill (`ACTIVE` / `IDLE` / `PAUSED`), next-scheduled-run countdown, manual **Run Now** button.
-- **Live activity feed** (left, ~60%): streams `agent_events` in real time — "Reasoning…", "→ http GET …", "← 200 OK", "Decision: alert user (threshold exceeded)", "Action: notify". This is the proof it's an autonomous entity, not a chatbot.
-- **Tools panel** (right): each tool with status (ready / needs-secret), config, last-call timestamp.
-- **Guardrails panel**: shows rules, any approval requests queued for the user.
-- **KPIs panel**: live counters.
-- **Chat** moves to a secondary tab. The agent's primary mode is autonomous; chat is for ad-hoc instructions.
-- Original plan + manifest JSON viewable in a "Blueprint" tab (collapsed by default).
+### 3. Confirm the runtime actually runs
 
-## Honest constraints I want to flag before building
+- `compile-agent-manifest`: re-verify it returns `{ manifest, agentId }` and that the `agents` insert uses the caller's `auth.uid()` (RLS). If not, switch it to read `Authorization: Bearer <user-jwt>` and create a per-request Supabase client so the row belongs to the user.
+- `agent-runtime`: confirm it creates an `agent_runs` row and streams reasoning into `agent_events` in real time. Add a startup `reason` event ("Agent booted, planning first action…") so the Cockpit's Live Activity feed is never blank for new agents.
+- Cockpit's polling: switch from interval polling to a Supabase realtime subscription on `agent_events` filtered by `run_id`, so reasoning steps appear instantly.
 
-- **Real external integrations need real secrets.** If the plan says "Polls Stripe for refund anomalies," the agent can't poll Stripe until a Stripe key exists. The runtime will detect this, mark the tool as `needs-secret`, and prompt the user to add it (via the standard secret flow). Until then that specific tool is inert — but the rest of the agent runs.
-- **`pg_cron` scheduling** requires the extension enabled in this project. If it's not, scheduled triggers fall back to "Run Now" + a UI nudge.
-- **This is a big build.** Conservatively: 1 schema migration, 2 edge functions (`compile-agent-manifest`, `agent-runtime`), 1 cockpit React surface (~600 LOC), rewrite of the deploy handler in `GenerationWorkspace.tsx`. I'll keep the existing plan-card flow intact and only replace the post-deploy branch.
+### 4. Cockpit UI polish for mobile (matches the screenshot's viewport) and don't forget about Form-Computer view
 
-## Out of scope (call out if you want them added)
+- Stack panels vertically below ~640px width; the current 2-column layout cuts off the activity feed on mobile.
+- Header: agent name truncates to one line with full name in tooltip; status pill ("LIVE", "RUNNING", "IDLE"); a single primary "Run Now" button; secondary "Blueprint" and "Chat" buttons.
+- Live Activity feed is the largest panel — render `reason`, `tool_call`, `tool_result`, `decision`, `action` events with distinct icons and a monospace timestamp.
+- Tools panel: each tool with kind badge; tools flagged `needs-secret` show an "Add secret" CTA that opens the secrets flow for that key.
+- KPIs panel: shows targets from the manifest with a "—" placeholder until the runtime emits a metric event.
 
-- Multi-agent orchestration (agents calling other agents).
-- A visual tool-builder UI for the user to author custom tools.
-- Long-term memory / vector store. Agent memory will be limited to recent `agent_events`.
+### 5. Out of scope (call out, don't build)
 
-## Answer to the underlying question
+- Real Stripe/Coinbase/exchange integrations for the crypto example agent — those need user-provided API keys. The agent will run with `web_search`, `http_get`, `calc`, `notify` only until secrets are added. The Cockpit will say so explicitly.
+- Scheduled triggers (`cron`) — `pg_cron` extension setup deferred. UI shows "Manual" only for now.
+- Multi-agent / long-term memory.
 
-Yes — to make Deploy produce "the agent itself" rather than a second spec, NazAI has to stop generating prose at that stage and instead **compile a structured manifest, persist it, and boot a generic runtime that actually executes the loop**. The UI proof is the live activity feed showing real tool calls and decisions, not another document.
+## Technical summary
 
-Want me to build this end-to-end as described, or trim it down (e.g., manifest + manual-run cockpit first, scheduling and webhooks later)?
+
+| File                                                 | Change                                                                                                                                                   |
+| ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/pages/GenerationWorkspace.tsx`                  | Robust `buildAgent` error surfacing; auto-heal effect for legacy approved messages; persist `messageId → agentDbId`; remove "Open Chat" fallback section |
+| `src/components/agents/AgentCockpit.tsx`             | Realtime subscription on `agent_events`; mobile-stacked layout; Tools/KPIs/Activity panels; needs-secret CTAs; embedded Chat tab                         |
+| `supabase/functions/compile-agent-manifest/index.ts` | Verify auth-context insert into `agents`; clearer error JSON                                                                                             |
+| `supabase/functions/agent-runtime/index.ts`          | Emit boot `reason` event; ensure `agent_runs` row created before tool loop; structured event payloads                                                    |
+
+
+## Acceptance test
+
+1. From a fresh plan, click Deploy.
+2. Progress strip shows "Compiling manifest" → "Booting runtime" → "First run live".
+3. Preview replaces the spec doc with the Cockpit: agent name + LIVE pill, "Run Now" button, Live Activity feed showing real reasoning steps streaming in within ~3s, Tools panel listing `web_search`/`http_get`/etc., KPIs panel, Blueprint tab still accessible.
+4. Reload the page — Cockpit is restored, not the fallback card.
+5. For an agent whose plan references an external service (e.g. Coinbase API), the relevant tool shows `needs-secret` with an "Add API key" CTA.

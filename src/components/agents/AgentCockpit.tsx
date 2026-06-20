@@ -56,12 +56,27 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
     if (!error && data) setEvents(data as AgentEvent[]);
   }, [agentId]);
 
-  // Poll while running (every 1.5s), otherwise every 6s.
+  // Initial load + realtime subscription on this agent's events.
   useEffect(() => {
     loadEvents();
-    const iv = setInterval(loadEvents, running ? 1500 : 6000);
-    return () => clearInterval(iv);
-  }, [loadEvents, running]);
+    const channel = supabase
+      .channel(`agent_events:${agentId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "agent_events", filter: `agent_id=eq.${agentId}` },
+        (payload) => {
+          const row = payload.new as AgentEvent;
+          setEvents((prev) => (prev.find((e) => e.id === row.id) ? prev : [...prev, row]));
+        },
+      )
+      .subscribe();
+    // Lightweight safety-net poll (in case realtime drops a message).
+    const iv = setInterval(loadEvents, 8000);
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(iv);
+    };
+  }, [agentId, loadEvents]);
 
   // Auto-scroll feed
   useEffect(() => {
@@ -106,28 +121,40 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
 
   return (
     <div className="space-y-5">
-      {/* Hero header */}
-      <header className="rounded-xl border border-emerald-400/30 bg-gradient-to-br from-emerald-400/10 via-cyan-400/5 to-transparent p-5 flex items-center gap-4 shadow-[0_0_60px_-15px_rgba(16,185,129,0.4)]">
-        <div className="shrink-0 h-14 w-14 rounded-xl bg-gradient-to-br from-emerald-400 to-cyan-400 flex items-center justify-center text-black text-2xl font-black">
-          {manifest.name.charAt(0).toUpperCase()}
+      {/* Hero header — stacks on mobile */}
+      <header className="rounded-xl border border-emerald-400/30 bg-gradient-to-br from-emerald-400/10 via-cyan-400/5 to-transparent p-4 sm:p-5 shadow-[0_0_60px_-15px_rgba(16,185,129,0.4)]">
+        <div className="flex items-start gap-3 sm:gap-4">
+          <div className="shrink-0 h-12 w-12 sm:h-14 sm:w-14 rounded-xl bg-gradient-to-br from-emerald-400 to-cyan-400 flex items-center justify-center text-black text-xl sm:text-2xl font-black">
+            {manifest.name.charAt(0).toUpperCase()}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-[10px] uppercase tracking-[0.22em] text-emerald-300 font-mono mb-0.5">Live Autonomous Agent</div>
+            <div title={manifest.name} className="text-base sm:text-lg md:text-xl font-bold text-white truncate">{manifest.name}</div>
+            <div className="text-xs text-zinc-300 line-clamp-2 sm:truncate">{manifest.goal}</div>
+          </div>
+          <span className={`shrink-0 inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-mono font-bold border ${statusPill.bg} ${statusPill.text} ${statusPill.border}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${statusPill.text.replace("text-", "bg-")} ${statusPill.pulse ? "animate-pulse" : ""}`} />
+            {statusPill.label}
+          </span>
         </div>
-        <div className="min-w-0 flex-1">
-          <div className="text-[10px] uppercase tracking-[0.22em] text-emerald-300 font-mono mb-0.5">Live Autonomous Agent</div>
-          <div className="text-lg md:text-xl font-bold text-white truncate">{manifest.name}</div>
-          <div className="text-xs text-zinc-300 truncate">{manifest.goal}</div>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button
+            onClick={runNow}
+            disabled={running}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gradient-to-r from-emerald-400 to-cyan-400 text-black text-sm font-bold hover:opacity-90 disabled:opacity-50"
+          >
+            {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+            {running ? "Running…" : "Run Now"}
+          </button>
+          {onOpenBlueprint && (
+            <button
+              onClick={onOpenBlueprint}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-white/10 bg-white/[0.03] text-xs text-zinc-300 hover:bg-white/10 hover:text-white"
+            >
+              Blueprint
+            </button>
+          )}
         </div>
-        <span className={`shrink-0 inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-[10px] font-mono font-bold border ${statusPill.bg} ${statusPill.text} ${statusPill.border}`}>
-          <span className={`h-1.5 w-1.5 rounded-full ${statusPill.text.replace("text-", "bg-")} ${statusPill.pulse ? "animate-pulse" : ""}`} />
-          {statusPill.label}
-        </span>
-        <button
-          onClick={runNow}
-          disabled={running}
-          className="shrink-0 inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gradient-to-r from-emerald-400 to-cyan-400 text-black text-sm font-bold hover:opacity-90 disabled:opacity-50"
-        >
-          {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-          {running ? "Running…" : "Run Now"}
-        </button>
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
@@ -226,14 +253,6 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
             </ul>
           </Panel>
 
-          {onOpenBlueprint && (
-            <button
-              onClick={onOpenBlueprint}
-              className="w-full px-3 py-2 rounded-md border border-white/10 bg-white/[0.03] text-xs text-zinc-400 hover:bg-white/10 hover:text-white transition"
-            >
-              View Original Plan & Blueprint
-            </button>
-          )}
         </aside>
       </div>
     </div>

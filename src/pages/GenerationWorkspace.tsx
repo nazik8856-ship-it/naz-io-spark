@@ -25,6 +25,7 @@ import {
   Save,
   Trash2,
   Play,
+  Loader2,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import ReactMarkdown from "react-markdown";
@@ -214,6 +215,21 @@ export default function GenerationWorkspace() {
     localStorage.setItem("nazai_saved_agents_v2", JSON.stringify(next));
   };
 
+  // Per-message-id record of compiled agent linkage so reloads/swaps restore the Cockpit
+  // instead of dropping back to the static spec doc.
+  type AgentLink = { agentDbId: string; manifest: AgentManifest; name: string; spec: string };
+  const AGENT_LINK_KEY = "nazai_agent_links_v1";
+  const loadAgentLinks = (): Record<string, AgentLink> => {
+    try { return JSON.parse(localStorage.getItem(AGENT_LINK_KEY) || "{}"); } catch { return {}; }
+  };
+  const saveAgentLink = (msgId: string, link: AgentLink) => {
+    const all = loadAgentLinks();
+    all[msgId] = link;
+    try { localStorage.setItem(AGENT_LINK_KEY, JSON.stringify(all)); } catch { /* quota */ }
+  };
+  const healingRef = useRef<Set<string>>(new Set());
+  const [blueprintOpenId, setBlueprintOpenId] = useState<string | null>(null);
+
   useEffect(() => {
     const onClickOutside = (e: MouseEvent) => {
       if (modeMenuRef.current && !modeMenuRef.current.contains(e.target as Node)) {
@@ -256,6 +272,71 @@ export default function GenerationWorkspace() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Auto-heal: rehydrate any approved agent messages with stored linkage,
+  // and recompile manifest for legacy approved messages that never made it through Stage A.
+  useEffect(() => {
+    const links = loadAgentLinks();
+    setMessages((all) => {
+      let changed = false;
+      const next = all.map((m) => {
+        if (m.kind === "agent-spec" && m.agentStatus === "approved" && !m.agentManifest && links[m.id]) {
+          changed = true;
+          return {
+            ...m,
+            agentManifest: links[m.id].manifest,
+            agentDbId: links[m.id].agentDbId,
+            agentName: links[m.id].name,
+            agentFinalSpec: links[m.id].spec,
+          };
+        }
+        return m;
+      });
+      return changed ? next : all;
+    });
+  }, [messages.length === 0 ? 0 : 1]);
+
+  // Recompile manifest for approved messages still missing one (no link in storage either).
+  useEffect(() => {
+    const target = messages.find(
+      (m) =>
+        m.kind === "agent-spec" &&
+        m.agentStatus === "approved" &&
+        !m.agentManifest &&
+        !healingRef.current.has(m.id) &&
+        (m.content || m.agentFinalSpec),
+    );
+    if (!target) return;
+    healingRef.current.add(target.id);
+    const spec = target.agentFinalSpec || target.content;
+    void (async () => {
+      try {
+        const resp = await fetch(functionUrl("compile-agent-manifest"), {
+          method: "POST",
+          headers: functionHeaders(),
+          body: JSON.stringify({ plan: spec, save: true }),
+        });
+        if (!resp.ok) return;
+        const { manifest, agentId } = (await resp.json()) as { manifest: AgentManifest; agentId: string | null };
+        if (!manifest || !agentId) return;
+        setMessages((m) => m.map((x) => x.id === target.id ? {
+          ...x,
+          agentManifest: manifest,
+          agentDbId: agentId,
+          agentName: manifest.name,
+          agentSystemPrompt: manifest.systemPrompt,
+        } : x));
+        saveAgentLink(target.id, { agentDbId: agentId, manifest, name: manifest.name, spec });
+        void fetch(functionUrl("agent-runtime"), {
+          method: "POST",
+          headers: functionHeaders(),
+          body: JSON.stringify({ agentId, trigger: "manual" }),
+        }).catch(() => {});
+      } catch (e) {
+        console.warn("auto-heal compile failed", e);
+      }
+    })();
+  }, [messages]);
 
   const [isStreaming, setIsStreaming] = useState(false);
 
@@ -681,6 +762,7 @@ export default function GenerationWorkspace() {
       const current = JSON.parse(localStorage.getItem("nazai_saved_agents_v2") || "[]") as SavedAgent[];
       const next = [entry, ...current.filter((a) => a.id !== id)];
       persistSaved(next);
+      saveAgentLink(id, { agentDbId: agentId, manifest, name, spec: sourceSpec });
       toast.success(`${name} is live — launching first autonomous run…`);
 
       // STAGE C — Kick off the first autonomous run. The cockpit will poll agent_events
@@ -1535,29 +1617,20 @@ export default function GenerationWorkspace() {
                           <AgentCockpit
                             agentId={lastNaz.agentDbId}
                             manifest={lastNaz.agentManifest}
+                            onOpenBlueprint={() => setBlueprintOpenId(lastNaz.id)}
                           />
+                        ) : status === "approved" ? (
+                          <div className="rounded-xl border border-cyan-400/30 bg-black/60 p-6 text-center space-y-3">
+                            <div className="inline-flex items-center gap-2 text-cyan-300 font-mono text-xs uppercase tracking-[0.2em]">
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              Booting autonomous runtime…
+                            </div>
+                            <p className="text-sm text-zinc-300">Compiling the manifest and spawning the first run. The cockpit will appear here in a moment.</p>
+                          </div>
                         ) : showBody ? (
                           <div className="space-y-5">
 
-                            {status === "approved" && (
-                              <section className="rounded-xl border border-emerald-400/30 bg-gradient-to-br from-emerald-400/10 via-cyan-400/5 to-transparent p-5 flex items-center gap-4">
-                                <div className="shrink-0 h-14 w-14 rounded-xl bg-gradient-to-br from-emerald-400 to-cyan-400 flex items-center justify-center text-black text-2xl font-black shadow-[0_0_30px_-5px_rgba(16,185,129,0.6)]">
-                                  {agentName.charAt(0).toUpperCase()}
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                  <div className="text-[10px] uppercase tracking-[0.22em] text-emerald-300 font-mono mb-0.5">Your AI Agent is live</div>
-                                  <div className="text-base md:text-lg font-bold text-white truncate">{agentName}</div>
-                                  {spec.goal && <div className="text-xs text-zinc-300 truncate">{spec.goal}</div>}
-                                </div>
-                                <button
-                                  onClick={() => { setSelectedSavedId(lastNaz.id); setActiveTab("dashboard"); }}
-                                  className="shrink-0 inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gradient-to-r from-emerald-400 to-cyan-400 text-black text-sm font-bold hover:opacity-90 shadow-[0_0_24px_rgba(16,185,129,0.4)]"
-                                >
-                                  <Play className="h-4 w-4" />
-                                  Open Chat
-                                </button>
-                              </section>
-                            )}
+
                             {spec.description && (
                               <section>
                                 <div className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 mb-1.5 font-mono">Description</div>
@@ -1852,6 +1925,26 @@ export default function GenerationWorkspace() {
           </div>
         </section>
       </div>
+
+      {/* Blueprint modal — original human-readable plan for a deployed agent */}
+      {blueprintOpenId && (() => {
+        const m = messages.find((x) => x.id === blueprintOpenId);
+        if (!m) return null;
+        const blueprint = m.agentFinalSpec || m.content || "";
+        return (
+          <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setBlueprintOpenId(null)}>
+            <div onClick={(e) => e.stopPropagation()} className="w-full max-w-3xl max-h-[85vh] rounded-2xl border border-white/10 bg-zinc-950 overflow-hidden flex flex-col">
+              <div className="flex items-center justify-between px-5 py-3 border-b border-white/10">
+                <div className="text-xs font-mono uppercase tracking-[0.2em] text-cyan-300">Agent Blueprint</div>
+                <button onClick={() => setBlueprintOpenId(null)} className="text-zinc-400 hover:text-white text-sm">Close</button>
+              </div>
+              <div className="overflow-y-auto p-5 prose prose-invert prose-sm max-w-none">
+                <ReactMarkdown>{blueprint}</ReactMarkdown>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

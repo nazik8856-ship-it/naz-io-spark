@@ -60,6 +60,7 @@ serve(async (req) => {
       });
 
     await logEvent("run_started", { trigger, goal: manifest.goal });
+    await logEvent("reason", { thought: `Agent booted. Planning first action toward goal: ${manifest.goal}` });
 
     // Build tool list & detect missing secrets
     const missingSecrets: string[] = [];
