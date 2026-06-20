@@ -214,6 +214,21 @@ export default function GenerationWorkspace() {
     localStorage.setItem("nazai_saved_agents_v2", JSON.stringify(next));
   };
 
+  // Per-message-id record of compiled agent linkage so reloads/swaps restore the Cockpit
+  // instead of dropping back to the static spec doc.
+  type AgentLink = { agentDbId: string; manifest: AgentManifest; name: string; spec: string };
+  const AGENT_LINK_KEY = "nazai_agent_links_v1";
+  const loadAgentLinks = (): Record<string, AgentLink> => {
+    try { return JSON.parse(localStorage.getItem(AGENT_LINK_KEY) || "{}"); } catch { return {}; }
+  };
+  const saveAgentLink = (msgId: string, link: AgentLink) => {
+    const all = loadAgentLinks();
+    all[msgId] = link;
+    try { localStorage.setItem(AGENT_LINK_KEY, JSON.stringify(all)); } catch { /* quota */ }
+  };
+  const healingRef = useRef<Set<string>>(new Set());
+  const [blueprintOpenId, setBlueprintOpenId] = useState<string | null>(null);
+
   useEffect(() => {
     const onClickOutside = (e: MouseEvent) => {
       if (modeMenuRef.current && !modeMenuRef.current.contains(e.target as Node)) {
