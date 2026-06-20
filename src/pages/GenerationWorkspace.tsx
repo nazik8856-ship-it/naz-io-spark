@@ -1530,8 +1530,14 @@ export default function GenerationWorkspace() {
                               />
                             </div>
                           </div>
+                        ) : status === "approved" && lastNaz.agentManifest && lastNaz.agentDbId ? (
+                          <AgentCockpit
+                            agentId={lastNaz.agentDbId}
+                            manifest={lastNaz.agentManifest}
+                          />
                         ) : showBody ? (
                           <div className="space-y-5">
+
                             {status === "approved" && (
                               <section className="rounded-xl border border-emerald-400/30 bg-gradient-to-br from-emerald-400/10 via-cyan-400/5 to-transparent p-5 flex items-center gap-4">
                                 <div className="shrink-0 h-14 w-14 rounded-xl bg-gradient-to-br from-emerald-400 to-cyan-400 flex items-center justify-center text-black text-2xl font-black shadow-[0_0_30px_-5px_rgba(16,185,129,0.6)]">
