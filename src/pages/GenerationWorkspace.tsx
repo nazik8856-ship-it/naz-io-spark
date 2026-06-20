@@ -33,6 +33,22 @@ import LiveAgentChat from "@/components/agents/LiveAgentChat";
 import { SUPABASE_FUNCTIONS_URL, SUPABASE_ANON } from "@/integrations/supabase/client";
 
 type AgentStatus = "pending" | "building" | "approved" | "removed";
+type AgentManifest = {
+  name: string;
+  goal: string;
+  systemPrompt: string;
+  decisionPolicy: string;
+  tools: { name: string; description: string; kind: string; config: Record<string, unknown> }[];
+  triggers: { kind: string; spec: string }[];
+  guardrails: { rule: string; requiresApproval: boolean }[];
+  kpis: { name: string; target: string }[];
+};
+type AgentEvent = {
+  id: string;
+  kind: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+};
 
 type AgentTurn = { role: "user" | "assistant"; content: string };
 
