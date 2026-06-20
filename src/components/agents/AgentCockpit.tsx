@@ -85,17 +85,11 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
     setRunning(true);
     setLastRunStatus("running");
     try {
-      const resp = await fetch(functionUrl("agent-runtime"), {
-        method: "POST",
-        headers: functionHeaders(),
-        body: JSON.stringify({ agentId, trigger: "manual" }),
+      const { data, error } = await supabase.functions.invoke("agent-runtime", {
+        body: { agentId, trigger: "manual" },
       });
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({}));
-        throw new Error(err?.error || `Run failed (${resp.status})`);
-      }
-      const data = await resp.json();
-      toast.success(`Run finished: ${data.summary || "ok"}`);
+      if (error) throw new Error(error.message || "Run failed");
+      toast.success(`Run finished: ${(data as { summary?: string })?.summary || "ok"}`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Run failed");
     } finally {
