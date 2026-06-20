@@ -25,6 +25,7 @@ import {
   Save,
   Trash2,
   Play,
+  Loader2,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import ReactMarkdown from "react-markdown";
