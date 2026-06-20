@@ -1,66 +1,74 @@
-# Show the Generated AI Agent in Preview after Deploy
+# Make Deploy actually produce a running autonomous Agent (not a second spec)
 
-Right now: pressing **Deploy AI Agent** streams the compiled spec into the same card that earlier held the plan, and the header still reads "AI Agent Planned!" even after deployment. The content does update to the deployed manifest, but visually it looks identical to the plan, so it doesn't feel like "the AI Agent appeared".
+You're right — today both phases output text documents (plan, then a more detailed plan). To deliver "the AI Agent itself" as an autonomous software entity, the Deploy step has to compile the plan into a **structured manifest** and then **stand up a real runtime** that reasons, calls tools, makes decisions, and runs on a schedule.
 
-This plan makes the three phases visually distinct, so the user clearly sees: **Plan → Generation Process → Generated AI Agent**.
+## Two-phase split
 
-## What changes
+**Phase 1 — Plan (unchanged):** `generate-ai-agent` produces the 8-section human-readable plan. User reviews it.
 
-All edits happen in `src/pages/GenerationWorkspace.tsx` (the unified agent card around lines 1458–1740). No backend/system-prompt changes — NazAI already knows how to compile the deployed agent (confirmed in `run-ai-agent` build mode).
+**Phase 2 — Build the Agent (new):** `Deploy AI Agent` no longer asks the model for another document. Instead it runs a 3-stage compile → instantiate → activate pipeline.
 
-### 1. Phase: Plan (status = `pending`)
+### Stage A: Compile manifest (structured, not prose)
+- New edge function `compile-agent-manifest` calls the AI SDK with `Output.object` (Zod schema) to convert the plan into a strict JSON `AgentManifest`:
+  ```ts
+  {
+    id, name, goal,
+    systemPrompt,            // in-character operating prompt
+    tools: [{ name, description, kind: "http"|"web_search"|"db_query"|"calc"|"notify"|"custom", config }],
+    triggers: [{ kind: "cron"|"webhook"|"manual", spec }],
+    decisionPolicy: string,  // when to act vs. ask
+    guardrails: [{ rule, requiresApproval: boolean }],
+    kpis: [{ name, target }]
+  }
+  ```
+- No prose output. If the schema doesn't validate, retry once, then surface a real error.
 
-- Header label stays **"AI Agent Plan Ready"** (purple accent).
-- Buttons: `Generate` (regenerate plan) + `Deploy AI Agent` (primary).
-- Card title prefix: small chip "PLAN".
+### Stage B: Instantiate (persist + register tools)
+- New table `agents` (id, user_id, manifest jsonb, status, created_at) + `agent_runs` (id, agent_id, trigger, started_at, finished_at, status, summary) + `agent_events` (id, run_id, kind: "reason"|"tool_call"|"decision"|"action"|"guardrail_block", payload jsonb, ts). Full RLS per user, GRANTs included.
+- Save manifest. Assign a stable agent slug.
 
-### 2. Phase: Generation Process (status = `building`)
+### Stage C: Activate the runtime
+- New generic edge function `agent-runtime` (the actual agent loop, reused by every agent):
+  - Loads manifest by id.
+  - Uses AI SDK `streamText` with the manifest's `systemPrompt`, the goal as the user message, and a **real tool registry** built from `manifest.tools`.
+  - `stopWhen: stepCountIs(50)`.
+  - Tools mapped to real `execute` fns:
+    - `http` — `fetch()` to a whitelisted URL (returns JSON/text).
+    - `web_search` — Lovable AI web search.
+    - `db_query` — read-only SELECT on this project's tables the user owns.
+    - `calc` — math eval.
+    - `notify` — writes an `agent_events` row (and later: email via Resend / webhook).
+    - `custom` — if the tool needs an external API key the user hasn't added, mark it `needsApproval` and pause until configured.
+  - Each step writes an `agent_events` row so the UI can show the reasoning chain in real time.
+- Triggers:
+  - `manual` — works immediately ("Run Now" button).
+  - `cron` — register a pg_cron job that POSTs to `agent-runtime` on schedule.
+  - `webhook` — agent exposes a unique POST URL.
 
-Replace the spec body with a dedicated **Generation Console** while streaming, so the user actually sees the agent being built instead of plan text mutating in place:
+### Stage D: Replace the preview card with the Agent Cockpit
+Once Stage A-C succeed, the preview swaps from the spec doc to an **Agent Cockpit**:
+- Header: agent name, status pill (`ACTIVE` / `IDLE` / `PAUSED`), next-scheduled-run countdown, manual **Run Now** button.
+- **Live activity feed** (left, ~60%): streams `agent_events` in real time — "Reasoning…", "→ http GET …", "← 200 OK", "Decision: alert user (threshold exceeded)", "Action: notify". This is the proof it's an autonomous entity, not a chatbot.
+- **Tools panel** (right): each tool with status (ready / needs-secret), config, last-call timestamp.
+- **Guardrails panel**: shows rules, any approval requests queued for the user.
+- **KPIs panel**: live counters.
+- **Chat** moves to a secondary tab. The agent's primary mode is autonomous; chat is for ad-hoc instructions.
+- Original plan + manifest JSON viewable in a "Blueprint" tab (collapsed by default).
 
-- Header label: **"Generating AI Agent…"** with animated cyan dot.
-- Top of card: live progress strip with 4 ordered checkpoints that light up as the stream progresses (detected by which `**Section**:` headings have appeared in `acc` so far):
-  1. Compiling identity
-  2. Wiring triggers & tools
-  3. Defining autonomous loop
-  4. Setting guardrails & KPIs
-- Below: terminal-style streaming pane that renders the incoming tokens as monospace text with a blinking caret (uses the same `acc` buffer already accumulated in `buildAgent`).
-- Deploy button shows "Deploying…" and is disabled.
+## Honest constraints I want to flag before building
 
-### 3. Phase: Generated AI Agent (status = `approved`)
+- **Real external integrations need real secrets.** If the plan says "Polls Stripe for refund anomalies," the agent can't poll Stripe until a Stripe key exists. The runtime will detect this, mark the tool as `needs-secret`, and prompt the user to add it (via the standard secret flow). Until then that specific tool is inert — but the rest of the agent runs.
+- **`pg_cron` scheduling** requires the extension enabled in this project. If it's not, scheduled triggers fall back to "Run Now" + a UI nudge.
+- **This is a big build.** Conservatively: 1 schema migration, 2 edge functions (`compile-agent-manifest`, `agent-runtime`), 1 cockpit React surface (~600 LOC), rewrite of the deploy handler in `GenerationWorkspace.tsx`. I'll keep the existing plan-card flow intact and only replace the post-deploy branch.
 
-Swap the card identity so it visually reads as a *delivered* agent, not a plan:
+## Out of scope (call out if you want them added)
 
-- Header chip changes from "PLAN" to **"LIVE AGENT"** with emerald accent + subtle glow.
-- Top label changes to **"AI Agent Generated!"** (currently "AI Agent Planned!").
-- Add a hero strip directly under the title:
-  - Agent avatar/initial badge, agent name, one-line goal.
-  - Primary CTA: **"Open Chat"** (switches `activeTab` to `dashboard` and selects this agent in `LiveAgentChat`).
-  - Secondary: **"View Spec"** toggles the 8-section breakdown (collapsed by default in this phase so the agent feels like a product, not a document).
-- The 8-section spec moves into a collapsible "Agent Blueprint" section underneath the hero — still available, no longer the headline.
-- Replace the `Deploy AI Agent` button with a disabled "Deployed ✓" pill; keep `Edit Plan`, `Remove`, `Copy`.
+- Multi-agent orchestration (agents calling other agents).
+- A visual tool-builder UI for the user to author custom tools.
+- Long-term memory / vector store. Agent memory will be limited to recent `agent_events`.
 
-### 4. Buttons row consistency
+## Answer to the underlying question
 
-- Hide `Generate` (regenerate plan) once status = `approved` — regenerating a plan after the agent is live is misleading. Offer it again only if the user clicks `Edit Plan`.
+Yes — to make Deploy produce "the agent itself" rather than a second spec, NazAI has to stop generating prose at that stage and instead **compile a structured manifest, persist it, and boot a generic runtime that actually executes the loop**. The UI proof is the live activity feed showing real tool calls and decisions, not another document.
 
-## Technical details
-
-- All state already exists: `agentStatus`, `agentName`, `agentFinalSpec`, `agentGreeting`, `agentSuggestions`, `agentChat` are populated by the existing `buildAgent` flow (lines 599–737). No new state needed.
-- Checkpoint detection during streaming: derive from `lastNaz.content` by counting how many of `Agent Name`, `Autonomous Capabilities`, `Step-by-Step Workflow`, `Guardrails` headings appear. Pure render-time computation, no extra effects.
-- "Open Chat" CTA: `setActiveTab("dashboard"); setSelectedSavedId(lastNaz.id);` — both setters already used elsewhere in the file.
-- Visual tokens reuse existing `accent` object pattern (lines 1468–1473); add a new `approved` variant styled as live/emerald with a stronger glow + "LIVE AGENT" chip label.
-
-## Out of scope
-
-- No edge function changes. The `run-ai-agent` build prompt is already correct (compiles a deployed manifest, forbids "plan"/"draft"/"blueprint" words).
-- No new routes, no DB changes.
-- Chat surface itself (`LiveAgentChat`) is unchanged — we just route the user to it more prominently.
-
-## Answer to your question
-
-Yes — NazAI already knows how to generate a real AI Agent (the `run-ai-agent` "build" mode compiles the approved plan into a deployed, operational manifest with real triggers, tools, KPIs). What was missing is the **UI signaling** that the deployment actually happened. This plan fixes that: live generation console while it builds, then a clearly different "Generated AI Agent" view replacing the plan card.
-
-&nbsp;
-
-**That AI Agent is like an AI-built AI tool**
+Want me to build this end-to-end as described, or trim it down (e.g., manifest + manual-run cockpit first, scheduling and webhooks later)?
