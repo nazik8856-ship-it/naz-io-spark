@@ -616,7 +616,6 @@ export default function GenerationWorkspace() {
 
   const buildAgent = async (id: string, specOverride?: string) => {
     if (buildingRef.current.has(id)) return;
-    // Read latest state via functional setter to avoid stale-closure bugs after streaming.
     let latestMsg: ChatMessage | undefined;
     setMessages((all) => {
       latestMsg = all.find((x) => x.id === id);
@@ -632,7 +631,6 @@ export default function GenerationWorkspace() {
       return;
     }
     buildingRef.current.add(id);
-    // Keep source spec visible while building so nothing flashes/closes.
     updateMsg(id, {
       content: sourceSpec,
       agentStatus: "building",
@@ -641,118 +639,70 @@ export default function GenerationWorkspace() {
     });
 
     try {
-      const url = functionUrl("run-ai-agent");
-      const resp = await fetch(url, {
+      // STAGE A — Compile the plan into a strict, executable manifest (also persists `agents` row).
+      const compileResp = await fetch(functionUrl("compile-agent-manifest"), {
         method: "POST",
         headers: functionHeaders(),
-        body: JSON.stringify({ spec: sourceSpec, mode: "build" }),
+        body: JSON.stringify({ plan: sourceSpec, save: true }),
       });
-      if (resp.status === 429) throw new Error("Rate limit hit. Try again in a moment.");
-      if (resp.status === 402) throw new Error("AI credits exhausted.");
-      if (!resp.ok || !resp.body) throw new Error("Could not build agent.");
-
-      const reader = resp.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = "";
-      let acc = "";
-      let finalPayload: { name?: string; finalSpec?: string; systemPrompt?: string } | null = null;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        let nl: number;
-        while ((nl = buf.indexOf("\n")) !== -1) {
-          let line = buf.slice(0, nl);
-          buf = buf.slice(nl + 1);
-          if (line.endsWith("\r")) line = line.slice(0, -1);
-          if (!line.startsWith("data: ")) continue;
-          const json = line.slice(6).trim();
-          if (!json || json === "[DONE]") continue;
-          try {
-            const evt = JSON.parse(json);
-            if (evt.type === "delta" && typeof evt.content === "string") {
-              acc += evt.content;
-              const partial = cleanAgentSpecOutput(acc) || sourceSpec;
-              updateMsg(id, { content: partial, agentStatus: "building" });
-            } else if (evt.type === "final") {
-              finalPayload = evt;
-            } else if (evt.type === "error") {
-              throw new Error(evt.message || "Stream interrupted");
-            }
-          } catch (err) {
-            if (err instanceof Error && err.message === "Stream interrupted") throw err;
-            // partial JSON — re-buffer
-            buf = line + "\n" + buf;
-            break;
-          }
-        }
+      if (compileResp.status === 429) throw new Error("Rate limit hit. Try again in a moment.");
+      if (compileResp.status === 402) throw new Error("AI credits exhausted.");
+      if (!compileResp.ok) {
+        const errBody = await compileResp.json().catch(() => ({}));
+        throw new Error(errBody?.error || "Could not compile agent manifest.");
       }
+      const { manifest, agentId } = (await compileResp.json()) as {
+        manifest: AgentManifest;
+        agentId: string | null;
+      };
+      if (!manifest || !manifest.name) throw new Error("Manifest missing.");
+      if (!agentId) throw new Error("Could not persist agent (not signed in?).");
 
-      const finalSpec =
-        cleanAgentSpecOutput(finalPayload?.finalSpec || acc, { final: true }) || sourceSpec;
-      const name = finalPayload?.name || parseAgentSpec(finalSpec).name || "AI Agent";
+      const name = manifest.name;
       updateMsg(id, {
-        content: finalSpec,
         agentStatus: "approved",
         agentName: name,
-        agentFinalSpec: finalSpec,
-        agentSystemPrompt: finalPayload?.systemPrompt,
+        agentFinalSpec: sourceSpec,
+        agentManifest: manifest,
+        agentDbId: agentId,
+        agentSystemPrompt: manifest.systemPrompt,
         agentError: undefined,
       });
-      // Auto-save to Dashboard
+
+      // Save into the legacy local list so existing surfaces (Dashboard, sidebar) still see it.
       const entry: SavedAgent = {
         id,
         name,
-        spec: finalSpec,
-        systemPrompt: finalPayload?.systemPrompt,
+        spec: sourceSpec,
+        systemPrompt: manifest.systemPrompt,
         savedAt: new Date().toISOString(),
       };
       const current = JSON.parse(localStorage.getItem("nazai_saved_agents_v2") || "[]") as SavedAgent[];
       const next = [entry, ...current.filter((a) => a.id !== id)];
       persistSaved(next);
-      toast.success("Agent built — bringing it to life…");
+      toast.success(`${name} is live — launching first autonomous run…`);
 
-      // BRING THE AGENT TO LIFE: bootstrap greeting + suggested prompts via INIT mode
-      try {
-        const initUrl = functionUrl("run-ai-agent");
-        const initResp = await fetch(initUrl, {
-          method: "POST",
-          headers: functionHeaders(),
-          body: JSON.stringify({ spec: finalSpec, messages: [] }),
-        });
-        if (initResp.ok) {
-          const initData = await initResp.json();
-          const greeting: string = initData.greeting || `Hi, I'm ${name}. How can I help?`;
-          const suggestions: string[] = Array.isArray(initData.suggestedPrompts) ? initData.suggestedPrompts : [];
-          updateMsg(id, {
-            agentGreeting: greeting,
-            agentSuggestions: suggestions,
-            agentChat: [{ role: "assistant", content: greeting }],
-          });
-          setSelectedSavedId(id);
-          // Keep Preview active so the complete 8-section card stays visible.
-          // User can click "Live" to switch to Chat.
-          toast.success("Agent is live — open Chat to talk to it.");
-        }
-      } catch (initErr) {
-        console.warn("agent init failed", initErr);
-      }
+      // STAGE C — Kick off the first autonomous run. The cockpit will poll agent_events
+      // for live activity, so we don't await this fully here.
+      void fetch(functionUrl("agent-runtime"), {
+        method: "POST",
+        headers: functionHeaders(),
+        body: JSON.stringify({ agentId, trigger: "manual" }),
+      }).catch((err) => console.warn("initial agent run failed", err));
     } catch (e) {
-      const errMsg = e instanceof Error ? e.message : "Could not build agent.";
+      const errMsg = e instanceof Error ? e.message : "Could not deploy agent.";
       toast.error(errMsg);
-      // Preserve generated spec visibly but DO NOT fake approval — show real error and allow retry.
       const salvaged = cleanAgentSpecOutput(sourceSpec, { final: true }) || sourceSpec;
       updateMsg(id, {
         content: salvaged,
         agentStatus: "pending",
         agentError: errMsg,
       });
-      // Do not auto-save failed builds; user can retry via "Approve & Build".
     } finally {
       buildingRef.current.delete(id);
     }
   };
+
 
   const removeSavedAgent = (id: string) => {
     persistSaved(savedAgents.filter((a) => a.id !== id));
