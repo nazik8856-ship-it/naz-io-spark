@@ -1925,6 +1925,26 @@ export default function GenerationWorkspace() {
           </div>
         </section>
       </div>
+
+      {/* Blueprint modal — original human-readable plan for a deployed agent */}
+      {blueprintOpenId && (() => {
+        const m = messages.find((x) => x.id === blueprintOpenId);
+        if (!m) return null;
+        const blueprint = m.agentFinalSpec || m.content || "";
+        return (
+          <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setBlueprintOpenId(null)}>
+            <div onClick={(e) => e.stopPropagation()} className="w-full max-w-3xl max-h-[85vh] rounded-2xl border border-white/10 bg-zinc-950 overflow-hidden flex flex-col">
+              <div className="flex items-center justify-between px-5 py-3 border-b border-white/10">
+                <div className="text-xs font-mono uppercase tracking-[0.2em] text-cyan-300">Agent Blueprint</div>
+                <button onClick={() => setBlueprintOpenId(null)} className="text-zinc-400 hover:text-white text-sm">Close</button>
+              </div>
+              <div className="overflow-y-auto p-5 prose prose-invert prose-sm max-w-none">
+                <ReactMarkdown>{blueprint}</ReactMarkdown>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
