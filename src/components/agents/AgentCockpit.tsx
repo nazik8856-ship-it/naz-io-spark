@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Activity, Loader2, Play, ShieldCheck, Wrench, Zap, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { Activity, Loader2, Play, ShieldCheck, Wrench, Zap, CheckCircle2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { functionUrl, functionHeaders } from "@/constants";
 import { toast } from "sonner";
 
 export type AgentManifest = {
