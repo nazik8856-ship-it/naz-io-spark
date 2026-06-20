@@ -761,6 +761,7 @@ export default function GenerationWorkspace() {
       const current = JSON.parse(localStorage.getItem("nazai_saved_agents_v2") || "[]") as SavedAgent[];
       const next = [entry, ...current.filter((a) => a.id !== id)];
       persistSaved(next);
+      saveAgentLink(id, { agentDbId: agentId, manifest, name, spec: sourceSpec });
       toast.success(`${name} is live — launching first autonomous run…`);
 
       // STAGE C — Kick off the first autonomous run. The cockpit will poll agent_events
