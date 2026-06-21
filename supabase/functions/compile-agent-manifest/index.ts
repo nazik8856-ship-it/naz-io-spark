@@ -41,7 +41,29 @@ Shape:
   ],
   "kpis": [
     { "name": string, "target": string }
-  ]
+  ],
+  "ui": {
+    "theme": "obsidian" | "cyber" | "terminal" | "market" | "command" | "lab",
+    "accent": string,           // hex color tuned to the agent's domain (e.g. "#f59e0b" for finance, "#22d3ee" for ops)
+    "accentSecondary": string,  // complementary hex
+    "hero": { "title": string, "tagline": string, "icon": string },  // icon = one of: brain, activity, wallet, gauge, signal, radar, terminal, rocket, eye, crosshair, shield, flame, sparkles, cpu, globe, line, bars, trending, zap, alert, check, wrench
+    "layout": "command-deck" | "market-board" | "lab-console" | "stacked" | "two-col",
+    "widgets": [
+      // 6-10 widgets that together form a domain-specific dashboard for THIS agent.
+      // Choose, order, and title them so the screen feels purpose-built (e.g. a crypto agent gets metric tiles + decision log + tool-call stream + guardrails; a research agent gets thought stream + decision log + KPI radar).
+      // Allowed widget kinds:
+      //   { "kind": "hero_metric", "title": string, "valueFrom": "events_count"|"decisions_count"|"actions_count"|"tool_calls_count"|"thoughts_count"|"errors_count", "subtitle"?: string, "span"?: 1|2|3 }
+      //   { "kind": "live_thoughts", "title": string, "limit"?: number, "span"?: 2|3|4 }
+      //   { "kind": "decision_log", "title": string, "limit"?: number, "span"?: 2|3|4 }
+      //   { "kind": "action_timeline", "title": string, "limit"?: number, "span"?: 2|3|4 }
+      //   { "kind": "tool_call_stream", "title": string, "limit"?: number, "span"?: 2|3|4 }
+      //   { "kind": "alert_feed", "title": string, "severity"?: "warn"|"alert"|"info"|"all", "span"?: 2|3|4 }
+      //   { "kind": "tool_grid", "title": string, "span"?: 2|3 }
+      //   { "kind": "kpi_radar", "title": string, "span"?: 2|3 }
+      //   { "kind": "guardrail_panel", "title": string, "span"?: 2|3 }
+      //   { "kind": "status_grid", "title": string, "items": [{ "label": string, "valueFrom": "events_count"|"decisions_count"|"actions_count"|"tool_calls_count"|"thoughts_count"|"errors_count" }], "span"?: 2|3 }
+    ]
+  }
 }
 
 Rules:
@@ -50,6 +72,8 @@ Rules:
 - At least one trigger. Prefer "manual" if the plan doesn't specify a schedule.
 - 2-4 guardrails. Mark requiresApproval=true for anything that spends money, sends external messages, or mutates external systems.
 - 2-4 KPIs with concrete numeric targets.
+- ui MUST feel domain-specific: titles, theme/accent, widget choice and order should evoke the agent's actual job (crypto, ops, research, sales, support, security, growth, etc.). Don't return a generic dashboard.
+- Title widgets with verbs/domain language ("Market scans", "Approvals queued", "Alpha leads found", "Anomalies caught"), not "Activity feed".
 - systemPrompt must make the model behave AS the agent — "You are <name>. You autonomously …". Never reveal it is an LLM.`;
 
 serve(async (req) => {
@@ -186,7 +210,64 @@ type Manifest = {
   triggers: Trigger[];
   guardrails: Guardrail[];
   kpis: Kpi[];
+  ui?: Record<string, unknown>;
 };
+
+const ALLOWED_WIDGETS = new Set([
+  "hero_metric", "live_thoughts", "decision_log", "action_timeline",
+  "tool_call_stream", "alert_feed", "tool_grid", "kpi_radar",
+  "guardrail_panel", "status_grid",
+]);
+const ALLOWED_VALUE_FROM = new Set([
+  "events_count", "decisions_count", "actions_count",
+  "tool_calls_count", "thoughts_count", "errors_count",
+]);
+const ALLOWED_ICONS = new Set([
+  "brain","activity","wallet","gauge","signal","radar","terminal","rocket","eye","crosshair",
+  "shield","flame","sparkles","cpu","globe","line","bars","trending","zap","alert","check","wrench",
+]);
+
+function normalizeUi(raw: unknown): Record<string, unknown> | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const u = raw as Record<string, unknown>;
+  const widgetsIn = Array.isArray(u.widgets) ? (u.widgets as Record<string, unknown>[]) : [];
+  const widgets = widgetsIn
+    .filter((w) => w && ALLOWED_WIDGETS.has(String(w.kind)))
+    .slice(0, 12)
+    .map((w) => {
+      const out: Record<string, unknown> = {
+        kind: String(w.kind),
+        title: String(w.title || "Panel").slice(0, 60),
+      };
+      if (typeof w.span === "number") out.span = Math.max(1, Math.min(6, Math.round(w.span)));
+      if (typeof w.limit === "number") out.limit = Math.max(1, Math.min(20, Math.round(w.limit)));
+      if (typeof w.subtitle === "string") out.subtitle = w.subtitle.slice(0, 80);
+      if (typeof w.severity === "string") out.severity = w.severity;
+      if (typeof w.valueFrom === "string" && ALLOWED_VALUE_FROM.has(w.valueFrom)) out.valueFrom = w.valueFrom;
+      if (Array.isArray(w.items)) {
+        out.items = (w.items as Record<string, unknown>[])
+          .slice(0, 6)
+          .map((it) => ({
+            label: String(it.label || "").slice(0, 40),
+            valueFrom: ALLOWED_VALUE_FROM.has(String(it.valueFrom)) ? String(it.valueFrom) : "events_count",
+          }));
+      }
+      return out;
+    });
+  const hero = (u.hero && typeof u.hero === "object") ? (u.hero as Record<string, unknown>) : {};
+  return {
+    theme: typeof u.theme === "string" ? u.theme : "command",
+    accent: typeof u.accent === "string" ? u.accent : "#34d399",
+    accentSecondary: typeof u.accentSecondary === "string" ? u.accentSecondary : "#22d3ee",
+    hero: {
+      title: typeof hero.title === "string" ? hero.title.slice(0, 80) : undefined,
+      tagline: typeof hero.tagline === "string" ? hero.tagline.slice(0, 160) : undefined,
+      icon: typeof hero.icon === "string" && ALLOWED_ICONS.has((hero.icon as string).toLowerCase()) ? (hero.icon as string).toLowerCase() : "sparkles",
+    },
+    layout: typeof u.layout === "string" ? u.layout : "command-deck",
+    widgets,
+  };
+}
 
 function normalizeManifest(m: Record<string, unknown>): Manifest {
   const tools = Array.isArray(m.tools) ? (m.tools as Record<string, unknown>[]) : [];
@@ -216,6 +297,7 @@ function normalizeManifest(m: Record<string, unknown>): Manifest {
       name: String(k.name || "").slice(0, 80),
       target: String(k.target || "").slice(0, 120),
     })),
+    ui: normalizeUi(m.ui),
   };
 }
 
