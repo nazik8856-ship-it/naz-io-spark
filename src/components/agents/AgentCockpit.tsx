@@ -165,18 +165,3 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
     </div>
   );
 }
-
-
-function renderPayload(kind: string, p: Record<string, unknown>): string {
-  if (kind === "run_started") return `Trigger: ${p.trigger ?? "?"} · Goal: ${p.goal ?? ""}`;
-  if (kind === "reason") return String(p.thought ?? "");
-  if (kind === "tool_call") return `${p.tool}(${JSON.stringify(p.input ?? {})})`;
-  if (kind === "tool_result") return String(p.summary ?? "");
-  if (kind === "tool_error") return `${p.tool}: ${p.message ?? "error"}`;
-  if (kind === "decision") return `${p.decision ?? ""}${p.rationale ? ` — ${p.rationale}` : ""}`;
-  if (kind === "action") return `${p.type ?? "action"} [${p.severity ?? "info"}] ${p.message ?? ""}`;
-  if (kind === "guardrail_block") return String(p.message ?? p.reason ?? "");
-  if (kind === "finished") return `${p.summary ?? "done"}${p.partial ? " (partial)" : ""}`;
-  if (kind === "error") return String(p.message ?? "");
-  return JSON.stringify(p);
-}
