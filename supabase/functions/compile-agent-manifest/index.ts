@@ -41,7 +41,29 @@ Shape:
   ],
   "kpis": [
     { "name": string, "target": string }
-  ]
+  ],
+  "ui": {
+    "theme": "obsidian" | "cyber" | "terminal" | "market" | "command" | "lab",
+    "accent": string,           // hex color tuned to the agent's domain (e.g. "#f59e0b" for finance, "#22d3ee" for ops)
+    "accentSecondary": string,  // complementary hex
+    "hero": { "title": string, "tagline": string, "icon": string },  // icon = one of: brain, activity, wallet, gauge, signal, radar, terminal, rocket, eye, crosshair, shield, flame, sparkles, cpu, globe, line, bars, trending, zap, alert, check, wrench
+    "layout": "command-deck" | "market-board" | "lab-console" | "stacked" | "two-col",
+    "widgets": [
+      // 6-10 widgets that together form a domain-specific dashboard for THIS agent.
+      // Choose, order, and title them so the screen feels purpose-built (e.g. a crypto agent gets metric tiles + decision log + tool-call stream + guardrails; a research agent gets thought stream + decision log + KPI radar).
+      // Allowed widget kinds:
+      //   { "kind": "hero_metric", "title": string, "valueFrom": "events_count"|"decisions_count"|"actions_count"|"tool_calls_count"|"thoughts_count"|"errors_count", "subtitle"?: string, "span"?: 1|2|3 }
+      //   { "kind": "live_thoughts", "title": string, "limit"?: number, "span"?: 2|3|4 }
+      //   { "kind": "decision_log", "title": string, "limit"?: number, "span"?: 2|3|4 }
+      //   { "kind": "action_timeline", "title": string, "limit"?: number, "span"?: 2|3|4 }
+      //   { "kind": "tool_call_stream", "title": string, "limit"?: number, "span"?: 2|3|4 }
+      //   { "kind": "alert_feed", "title": string, "severity"?: "warn"|"alert"|"info"|"all", "span"?: 2|3|4 }
+      //   { "kind": "tool_grid", "title": string, "span"?: 2|3 }
+      //   { "kind": "kpi_radar", "title": string, "span"?: 2|3 }
+      //   { "kind": "guardrail_panel", "title": string, "span"?: 2|3 }
+      //   { "kind": "status_grid", "title": string, "items": [{ "label": string, "valueFrom": "events_count"|"decisions_count"|"actions_count"|"tool_calls_count"|"thoughts_count"|"errors_count" }], "span"?: 2|3 }
+    ]
+  }
 }
 
 Rules:
@@ -50,6 +72,8 @@ Rules:
 - At least one trigger. Prefer "manual" if the plan doesn't specify a schedule.
 - 2-4 guardrails. Mark requiresApproval=true for anything that spends money, sends external messages, or mutates external systems.
 - 2-4 KPIs with concrete numeric targets.
+- ui MUST feel domain-specific: titles, theme/accent, widget choice and order should evoke the agent's actual job (crypto, ops, research, sales, support, security, growth, etc.). Don't return a generic dashboard.
+- Title widgets with verbs/domain language ("Market scans", "Approvals queued", "Alpha leads found", "Anomalies caught"), not "Activity feed".
 - systemPrompt must make the model behave AS the agent — "You are <name>. You autonomously …". Never reveal it is an LLM.`;
 
 serve(async (req) => {
