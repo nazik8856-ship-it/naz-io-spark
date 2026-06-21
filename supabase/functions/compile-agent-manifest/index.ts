@@ -102,6 +102,7 @@ serve(async (req) => {
     }
 
     let agentId: string | null = null;
+    let persistError: string | null = null;
     if (save) {
       const authHeader = req.headers.get("Authorization") ?? "";
       const supabase = createClient(
@@ -109,29 +110,44 @@ serve(async (req) => {
         Deno.env.get("SUPABASE_ANON_KEY")!,
         { global: { headers: { Authorization: authHeader } } },
       );
-      const { data: userData } = await supabase.auth.getUser();
+      const { data: userData, error: userErr } = await supabase.auth.getUser();
       const user = userData?.user;
-      if (user) {
-        const slug = slugify(normalized.name);
-        const { data: inserted, error: insErr } = await supabase
-          .from("agents")
-          .insert({
-            user_id: user.id,
-            name: normalized.name,
-            slug,
-            goal: normalized.goal,
-            manifest: normalized,
-            source_plan: plan.slice(0, 8000),
-            status: "active",
-          })
-          .select("id")
-          .single();
-        if (insErr) {
-          console.error("agent insert error", insErr);
-        } else {
-          agentId = inserted?.id ?? null;
-        }
+      if (!user) {
+        console.error("compile: no user from Authorization header", userErr?.message);
+        return json({
+          error: "Not authenticated — sign in to deploy a real autonomous agent.",
+          manifest: normalized,
+          agentId: null,
+        }, 401);
       }
+      const slug = slugify(normalized.name);
+      const { data: inserted, error: insErr } = await supabase
+        .from("agents")
+        .insert({
+          user_id: user.id,
+          name: normalized.name,
+          slug,
+          goal: normalized.goal,
+          manifest: normalized,
+          source_plan: plan.slice(0, 8000),
+          status: "active",
+        })
+        .select("id")
+        .single();
+      if (insErr) {
+        console.error("agent insert error", insErr);
+        persistError = insErr.message;
+      } else {
+        agentId = inserted?.id ?? null;
+      }
+    }
+
+    if (save && !agentId) {
+      return json({
+        error: persistError || "Could not persist agent.",
+        manifest: normalized,
+        agentId: null,
+      }, 500);
     }
 
     return json({ manifest: normalized, agentId });
