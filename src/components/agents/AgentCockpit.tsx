@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Activity, Loader2, Play, ShieldCheck, Wrench, Zap, CheckCircle2 } from "lucide-react";
+import { Loader2, Play } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import GeneratedAgentDashboard, { type AgentUiSpec } from "./GeneratedAgentDashboard";
 
 export type AgentManifest = {
   name: string;
@@ -12,6 +13,7 @@ export type AgentManifest = {
   triggers: { kind: string; spec: string }[];
   guardrails: { rule: string; requiresApproval: boolean }[];
   kpis: { name: string; target: string }[];
+  ui?: AgentUiSpec;
 };
 
 type AgentEvent = {
