@@ -559,10 +559,11 @@ export default function GenerationWorkspace() {
               ? {
                   ...x,
                   content: finalClean,
-                  // Mark approved immediately so the full 8-section card is shown
-                  // without waiting on the secondary run-ai-agent compile step,
-                  // which was occasionally clobbering or shortening the content.
-                  agentStatus: "approved",
+                  // Plan is READY but not deployed. The user must press
+                  // "Deploy AI Agent" to compile + persist + start runtime.
+                  // Setting "approved" here without a real agentDbId is what
+                  // caused the infinite "Booting autonomous runtime…" screen.
+                  agentStatus: "pending",
                   agentName,
                   agentFinalSpec: finalClean,
                   agentDebug: {
