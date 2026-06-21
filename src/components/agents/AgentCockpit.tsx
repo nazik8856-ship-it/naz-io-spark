@@ -29,18 +29,8 @@ interface Props {
   onOpenBlueprint?: () => void;
 }
 
-const EVENT_META: Record<string, { color: string; icon: string; label: string }> = {
-  run_started:    { color: "text-cyan-300",    icon: "▶",  label: "Run started" },
-  reason:         { color: "text-zinc-300",    icon: "🧠", label: "Reasoning" },
-  tool_call:      { color: "text-purple-300",  icon: "→",  label: "Tool call" },
-  tool_result:    { color: "text-emerald-300", icon: "←",  label: "Tool result" },
-  tool_error:     { color: "text-amber-300",   icon: "⚠",  label: "Tool error" },
-  decision:       { color: "text-cyan-200",    icon: "◆",  label: "Decision" },
-  action:         { color: "text-emerald-400", icon: "✔",  label: "Action taken" },
-  guardrail_block:{ color: "text-amber-300",   icon: "🛡", label: "Guardrail" },
-  finished:       { color: "text-emerald-400", icon: "✓",  label: "Finished" },
-  error:          { color: "text-red-300",     icon: "✖",  label: "Error" },
-};
+
+
 
 export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Props) {
   const [events, setEvents] = useState<AgentEvent[]>([]);
