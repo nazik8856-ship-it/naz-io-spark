@@ -83,15 +83,26 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
     if (feedRef.current) feedRef.current.scrollTop = feedRef.current.scrollHeight;
   }, [events.length]);
 
-  // Watch for finished/error events to flip status
+  // Derive status from the most recent run's events.
+  // A run that contained ANY error/tool_error stays flagged as ERROR even after it "finishes",
+  // so transient failures don't silently flip the pill back to ACTIVE.
   useEffect(() => {
+    if (!events.length) return;
+    // Find boundary of the latest run
+    let startIdx = 0;
+    for (let i = events.length - 1; i >= 0; i--) {
+      if (events[i].kind === "run_started") { startIdx = i; break; }
+    }
+    const slice = events.slice(startIdx);
+    const hasError = slice.some((e) => e.kind === "error" || e.kind === "tool_error" || e.kind === "guardrail_block");
+    const finished = slice.some((e) => e.kind === "finished");
     const last = events[events.length - 1];
-    if (!last) return;
-    if (last.kind === "finished" || last.kind === "error") {
-      setRunning(false);
-      setLastRunStatus(last.kind === "finished" ? "completed" : "error");
-    } else if (last.kind === "run_started") {
+    if (last.kind === "run_started" || (!finished && slice.length > 0)) {
       setRunning(true);
+      if (hasError) setLastRunStatus("error");
+    } else if (finished) {
+      setRunning(false);
+      setLastRunStatus(hasError ? "error" : "completed");
     }
   }, [events]);
 
