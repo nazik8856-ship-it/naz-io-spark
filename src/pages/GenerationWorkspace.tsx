@@ -751,26 +751,43 @@ export default function GenerationWorkspace() {
     });
 
     try {
-      // STAGE A — Compile the plan into a strict, executable manifest (also persists `agents` row).
+      // Require a signed-in user — without it, the edge function can't insert
+      // under RLS and agentId comes back null (silent failure that produced
+      // the infinite "Booting autonomous runtime…" screen).
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session?.access_token) {
+        throw new Error("Sign in to deploy a real autonomous agent.");
+      }
+      const headers = await authedFunctionHeaders();
+
+      // STAGE A — Compile the plan into a strict, executable manifest AND persist
+      // the `agents` row in one round trip (server-side, scoped to auth.uid()).
+      console.info("[Deploy] Stage A: compiling manifest…");
       const compileResp = await fetch(functionUrl("compile-agent-manifest"), {
         method: "POST",
-        headers: functionHeaders(),
+        headers,
         body: JSON.stringify({ plan: sourceSpec, save: true }),
       });
       if (compileResp.status === 429) throw new Error("Rate limit hit. Try again in a moment.");
       if (compileResp.status === 402) throw new Error("AI credits exhausted.");
+      if (compileResp.status === 401 || compileResp.status === 403) {
+        throw new Error("Session expired — sign in again to deploy.");
+      }
       if (!compileResp.ok) {
         const errBody = await compileResp.json().catch(() => ({}));
-        throw new Error(errBody?.error || "Could not compile agent manifest.");
+        throw new Error(`Compile failed (${compileResp.status}): ${errBody?.error || "unknown"}`);
       }
-      const { manifest, agentId } = (await compileResp.json()) as {
+      const compileBody = (await compileResp.json()) as {
         manifest: AgentManifest;
         agentId: string | null;
+        error?: string;
       };
-      if (!manifest || !manifest.name) throw new Error("Manifest missing.");
-      if (!agentId) throw new Error("Could not persist agent (not signed in?).");
+      const { manifest, agentId } = compileBody;
+      if (!manifest || !manifest.name) throw new Error("Manifest did not parse.");
+      if (!agentId) throw new Error(compileBody.error || "Could not persist agent — backend rejected the row.");
 
       const name = manifest.name;
+      console.info("[Deploy] Stage B: agent persisted", { agentId, name });
       updateMsg(id, {
         agentStatus: "approved",
         agentName: name,
@@ -795,12 +812,18 @@ export default function GenerationWorkspace() {
       saveAgentLink(id, { agentDbId: agentId, manifest, name, spec: sourceSpec });
       toast.success(`${name} is live — launching first autonomous run…`);
 
-      // STAGE C — Kick off the first autonomous run. The cockpit will poll agent_events
-      // for live activity, so we don't await this fully here.
+      // STAGE C — Fire-and-forget the first autonomous run. The cockpit subscribes
+      // to agent_events via realtime, so live reasoning will appear as it streams.
+      console.info("[Deploy] Stage C: starting runtime…");
       void fetch(functionUrl("agent-runtime"), {
         method: "POST",
-        headers: functionHeaders(),
+        headers,
         body: JSON.stringify({ agentId, trigger: "manual" }),
+      }).then(async (r) => {
+        if (!r.ok) {
+          const t = await r.text().catch(() => "");
+          console.warn("[Deploy] runtime start non-OK", r.status, t);
+        }
       }).catch((err) => console.warn("initial agent run failed", err));
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : "Could not deploy agent.";
