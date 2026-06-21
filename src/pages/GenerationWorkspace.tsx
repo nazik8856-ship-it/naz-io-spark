@@ -593,7 +593,7 @@ export default function GenerationWorkspace() {
         }
         // Auto-switch to Preview so the user sees the full 8-section agent card immediately.
         setActiveTab("preview");
-        toast.success("Agent ready — preview below.");
+        toast.success("Agent plan ready — press Deploy to launch the autonomous runtime.");
       }
 
 
