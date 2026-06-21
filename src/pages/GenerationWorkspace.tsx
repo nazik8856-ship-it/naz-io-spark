@@ -324,14 +324,25 @@ export default function GenerationWorkspace() {
     const spec = target.agentFinalSpec || target.content;
     void (async () => {
       try {
+        const headers = await authedFunctionHeaders();
         const resp = await fetch(functionUrl("compile-agent-manifest"), {
           method: "POST",
-          headers: functionHeaders(),
+          headers,
           body: JSON.stringify({ plan: spec, save: true }),
         });
-        if (!resp.ok) return;
-        const { manifest, agentId } = (await resp.json()) as { manifest: AgentManifest; agentId: string | null };
-        if (!manifest || !agentId) return;
+        const body = await resp.json().catch(() => ({}));
+        if (!resp.ok || !body?.manifest || !body?.agentId) {
+          console.warn("auto-heal compile failed", resp.status, body);
+          // Fall back to pending with a clear error so the booting fallback
+          // doesn't stay on screen forever.
+          setMessages((m) => m.map((x) => x.id === target.id ? {
+            ...x,
+            agentStatus: "pending",
+            agentError: body?.error || `Deploy incomplete (${resp.status}). Sign in and press Deploy again.`,
+          } : x));
+          return;
+        }
+        const { manifest, agentId } = body as { manifest: AgentManifest; agentId: string };
         setMessages((m) => m.map((x) => x.id === target.id ? {
           ...x,
           agentManifest: manifest,
@@ -342,11 +353,16 @@ export default function GenerationWorkspace() {
         saveAgentLink(target.id, { agentDbId: agentId, manifest, name: manifest.name, spec });
         void fetch(functionUrl("agent-runtime"), {
           method: "POST",
-          headers: functionHeaders(),
+          headers,
           body: JSON.stringify({ agentId, trigger: "manual" }),
         }).catch(() => {});
       } catch (e) {
         console.warn("auto-heal compile failed", e);
+        setMessages((m) => m.map((x) => x.id === target.id ? {
+          ...x,
+          agentStatus: "pending",
+          agentError: e instanceof Error ? e.message : "Deploy failed.",
+        } : x));
       }
     })();
   }, [messages]);
