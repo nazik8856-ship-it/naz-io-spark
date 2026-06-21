@@ -32,7 +32,7 @@ import ReactMarkdown from "react-markdown";
 import { toast } from "sonner";
 import LiveAgentChat from "@/components/agents/LiveAgentChat";
 import AgentCockpit from "@/components/agents/AgentCockpit";
-import { SUPABASE_FUNCTIONS_URL, SUPABASE_ANON } from "@/integrations/supabase/client";
+import { SUPABASE_FUNCTIONS_URL, SUPABASE_ANON, supabase } from "@/integrations/supabase/client";
 
 type AgentStatus = "pending" | "building" | "approved" | "removed";
 type AgentManifest = {
@@ -101,11 +101,24 @@ const FUNCTIONS_AUTH_KEY =
 
 const functionUrl = (name: string) => `${FUNCTIONS_BASE_URL}/${name}`;
 
+// Default headers (anon — for unauthenticated stream endpoints like generate-ai-agent).
 const functionHeaders = () => ({
   "Content-Type": "application/json",
   Authorization: `Bearer ${FUNCTIONS_AUTH_KEY}`,
   apikey: FUNCTIONS_AUTH_KEY,
 });
+
+// Authenticated headers — uses the signed-in user's access token so edge
+// functions can resolve auth.uid() and write rows under RLS (compile / runtime).
+const authedFunctionHeaders = async (): Promise<Record<string, string>> => {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  return {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${token ?? FUNCTIONS_AUTH_KEY}`,
+    apikey: FUNCTIONS_AUTH_KEY,
+  };
+};
 
 function cleanAgentSpecOutput(text: string, opts: { final?: boolean } = {}): string {
   if (!text) return "";
