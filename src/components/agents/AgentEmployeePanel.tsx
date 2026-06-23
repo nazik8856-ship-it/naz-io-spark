@@ -107,23 +107,6 @@ export default function AgentEmployeePanel({ agentId, events }: { agentId: strin
   };
 
 
-  const respondApproval = async (eventId: string, granted: boolean) => {
-    const userId = (await supabase.auth.getUser()).data.user?.id;
-    const ev = events.find((e) => e.id === eventId);
-    const { error } = await supabase.from("agent_events").insert({
-      agent_id: agentId,
-      user_id: userId,
-      run_id: (ev?.payload as { runId?: string })?.runId ??
-        (events.slice().reverse().find((e) => e.kind === "run_started")?.id),
-      kind: granted ? "approval_granted" : "approval_rejected",
-      payload: { ref: eventId },
-    } as never);
-    if (error) { toast.error(error.message); return; }
-    toast.success(granted ? "Approved — agent will execute on next run." : "Rejected.");
-    if (granted) {
-      void supabase.functions.invoke("agent-runtime", { body: { agentId, trigger: "manual", userInstruction: `Operator approved action: ${JSON.stringify(ev?.payload || {}).slice(0, 400)}` } });
-    }
-  };
 
   const setSchedule = async (cron: string, label: string) => {
     const next = computeNext(cron);
