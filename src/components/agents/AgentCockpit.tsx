@@ -3,6 +3,7 @@ import { Loader2, Play } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import GeneratedAgentDashboard, { type AgentUiSpec } from "./GeneratedAgentDashboard";
+import AgentEmployeePanel from "./AgentEmployeePanel";
 
 export type AgentManifest = {
   name: string;
@@ -152,6 +153,10 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
       <div ref={feedRef}>
         <GeneratedAgentDashboard manifest={manifest} events={events} />
       </div>
+
+      {/* Digital-employee surfaces: business sync, schedule, approvals, clarifications, memory */}
+      <AgentEmployeePanel agentId={agentId} events={events} />
+
     </div>
   );
 }
