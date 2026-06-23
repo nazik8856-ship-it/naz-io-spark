@@ -24,7 +24,7 @@ type BusinessProfile = {
   source_url: string | null;
 };
 type MemoryRow = { id: string; key: string; value: string; source: string; created_at: string };
-type EventRow = { id: string; kind: string; payload: Record<string, unknown>; created_at: string };
+type EventRow = { id: string; run_id: string; kind: string; payload: Record<string, unknown>; created_at: string };
 
 const SCHEDULE_PRESETS: { label: string; cron: string }[] = [
   { label: "Every 10 min", cron: "*/10 * * * *" },
@@ -74,26 +74,38 @@ export default function AgentEmployeePanel({ agentId, events }: { agentId: strin
 
   const answerClarification = async (eventId: string, answer: string) => {
     if (!answer.trim()) return;
+    const userId = (await supabase.auth.getUser()).data.user?.id;
+    const ev = events.find((e) => e.id === eventId);
+    if (!ev || !userId) return;
     const { error } = await supabase.from("agent_events").insert({
-      agent_id: agentId,
-      user_id: (await supabase.auth.getUser()).data.user?.id,
-      run_id: events.find((e) => e.id === eventId)?.payload?.runId ??
-        (events.slice().reverse().find((e) => e.kind === "run_started")?.id),
-      kind: "clarification_answer",
-      payload: { ref: eventId, answer },
+      agent_id: agentId, user_id: userId, run_id: ev.run_id,
+      kind: "clarification_answer", payload: { ref: eventId, answer },
     } as never);
     if (error) { toast.error(error.message); return; }
     await supabase.from("agent_memory").insert({
-      agent_id: agentId,
-      user_id: (await supabase.auth.getUser()).data.user?.id,
-      key: `operator.answer.${Date.now()}`,
-      value: answer.slice(0, 600),
-      source: "operator",
+      agent_id: agentId, user_id: userId,
+      key: `operator.answer.${Date.now()}`, value: answer.slice(0, 600), source: "operator",
     } as never);
-    toast.success("Answer sent — agent will resume on next run.");
-    // Kick a run immediately
+    toast.success("Answer sent — agent will resume.");
     void supabase.functions.invoke("agent-runtime", { body: { agentId, trigger: "manual", userInstruction: `Operator answered: ${answer}` } });
   };
+
+  const respondApproval = async (eventId: string, granted: boolean) => {
+    const userId = (await supabase.auth.getUser()).data.user?.id;
+    const ev = events.find((e) => e.id === eventId);
+    if (!ev || !userId) return;
+    const { error } = await supabase.from("agent_events").insert({
+      agent_id: agentId, user_id: userId, run_id: ev.run_id,
+      kind: granted ? "approval_granted" : "approval_rejected",
+      payload: { ref: eventId },
+    } as never);
+    if (error) { toast.error(error.message); return; }
+    toast.success(granted ? "Approved — agent will execute on next run." : "Rejected.");
+    if (granted) {
+      void supabase.functions.invoke("agent-runtime", { body: { agentId, trigger: "manual", userInstruction: `Operator approved action: ${JSON.stringify(ev.payload).slice(0, 400)}` } });
+    }
+  };
+
 
   const respondApproval = async (eventId: string, granted: boolean) => {
     const userId = (await supabase.auth.getUser()).data.user?.id;
