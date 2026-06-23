@@ -59,6 +59,44 @@ export type Database = {
           },
         ]
       }
+      agent_memory: {
+        Row: {
+          agent_id: string
+          created_at: string
+          id: string
+          key: string
+          source: string
+          user_id: string
+          value: string
+        }
+        Insert: {
+          agent_id: string
+          created_at?: string
+          id?: string
+          key: string
+          source?: string
+          user_id: string
+          value: string
+        }
+        Update: {
+          agent_id?: string
+          created_at?: string
+          id?: string
+          key?: string
+          source?: string
+          user_id?: string
+          value?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_memory_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       agent_runs: {
         Row: {
           agent_id: string
@@ -102,11 +140,17 @@ export type Database = {
       }
       agents: {
         Row: {
+          autonomy: string
+          business_profile_id: string | null
           created_at: string
           goal: string | null
           id: string
           manifest: Json
           name: string
+          next_run_at: string | null
+          role: string | null
+          schedule_cron: string | null
+          schedule_label: string | null
           slug: string
           source_plan: string | null
           status: string
@@ -114,11 +158,17 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          autonomy?: string
+          business_profile_id?: string | null
           created_at?: string
           goal?: string | null
           id?: string
           manifest: Json
           name: string
+          next_run_at?: string | null
+          role?: string | null
+          schedule_cron?: string | null
+          schedule_label?: string | null
           slug: string
           source_plan?: string | null
           status?: string
@@ -126,16 +176,84 @@ export type Database = {
           user_id: string
         }
         Update: {
+          autonomy?: string
+          business_profile_id?: string | null
           created_at?: string
           goal?: string | null
           id?: string
           manifest?: Json
           name?: string
+          next_run_at?: string | null
+          role?: string | null
+          schedule_cron?: string | null
+          schedule_label?: string | null
           slug?: string
           source_plan?: string | null
           status?: string
           updated_at?: string
           user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agents_business_profile_id_fkey"
+            columns: ["business_profile_id"]
+            isOneToOne: false
+            referencedRelation: "business_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      business_profiles: {
+        Row: {
+          audience: string | null
+          channels: Json
+          company_name: string | null
+          created_at: string
+          id: string
+          industry: string | null
+          inferred_kpis: Json
+          offers: Json
+          one_liner: string | null
+          raw_research: Json
+          source_url: string | null
+          tone: string | null
+          updated_at: string
+          user_id: string
+          version: number
+        }
+        Insert: {
+          audience?: string | null
+          channels?: Json
+          company_name?: string | null
+          created_at?: string
+          id?: string
+          industry?: string | null
+          inferred_kpis?: Json
+          offers?: Json
+          one_liner?: string | null
+          raw_research?: Json
+          source_url?: string | null
+          tone?: string | null
+          updated_at?: string
+          user_id: string
+          version?: number
+        }
+        Update: {
+          audience?: string | null
+          channels?: Json
+          company_name?: string | null
+          created_at?: string
+          id?: string
+          industry?: string | null
+          inferred_kpis?: Json
+          offers?: Json
+          one_liner?: string | null
+          raw_research?: Json
+          source_url?: string | null
+          tone?: string | null
+          updated_at?: string
+          user_id?: string
+          version?: number
         }
         Relationships: []
       }
