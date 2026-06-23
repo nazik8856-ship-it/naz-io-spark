@@ -3,6 +3,7 @@ import { Loader2, Play } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import GeneratedAgentDashboard, { type AgentUiSpec } from "./GeneratedAgentDashboard";
+import AgentEmployeePanel from "./AgentEmployeePanel";
 
 export type AgentManifest = {
   name: string;
@@ -18,10 +19,12 @@ export type AgentManifest = {
 
 type AgentEvent = {
   id: string;
+  run_id: string;
   kind: string;
   payload: Record<string, unknown>;
   created_at: string;
 };
+
 
 interface Props {
   agentId: string;
@@ -41,12 +44,13 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
   const loadEvents = useCallback(async () => {
     const { data, error } = await supabase
       .from("agent_events")
-      .select("id, kind, payload, created_at")
+      .select("id, run_id, kind, payload, created_at")
       .eq("agent_id", agentId)
       .order("created_at", { ascending: true })
       .limit(200);
     if (!error && data) setEvents(data as AgentEvent[]);
   }, [agentId]);
+
 
   // Initial load + realtime subscription on this agent's events.
   useEffect(() => {
@@ -152,6 +156,10 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
       <div ref={feedRef}>
         <GeneratedAgentDashboard manifest={manifest} events={events} />
       </div>
+
+      {/* Digital-employee surfaces: business sync, schedule, approvals, clarifications, memory */}
+      <AgentEmployeePanel agentId={agentId} events={events} />
+
     </div>
   );
 }

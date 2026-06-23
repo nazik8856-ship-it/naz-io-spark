@@ -1,6 +1,8 @@
 // Compile an approved AI Agent plan into a strict, executable manifest.
-// Input: { plan: string }
-// Output: { manifest: AgentManifest }
+// Now business-aware: pulls/creates a Business Profile, picks a role blueprint,
+// assigns a default schedule, and persists the agent with all of it.
+// Input: { plan: string, businessProfileId?: string, userPrompt?: string,
+//          intakeAnswers?: Record<string,string>, role?: string }
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -12,79 +14,171 @@ const corsHeaders = {
 const LOVABLE_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 const MODEL = "google/gemini-3-flash-preview";
 
-const MANIFEST_SCHEMA_DOC = `Return STRICT JSON only — no markdown fences, no commentary.
+const ROLE_LIBRARY: Record<string, {
+  goal: string;
+  decisionPolicy: string;
+  schedule_cron: string;
+  schedule_label: string;
+  kpis: { name: string; target: string }[];
+  guardrails: { rule: string; requiresApproval: boolean }[];
+  tools: string[]; // hint
+}> = {
+  sales_ops: {
+    goal: "Find qualified prospects, draft personalized outreach, follow up on cadence, and keep a clean pipeline log.",
+    decisionPolicy: "Draft and queue all outbound for approval; only research and log autonomously.",
+    schedule_cron: "0 9 * * *", schedule_label: "Daily at 09:00 UTC",
+    kpis: [
+      { name: "Qualified prospects/day", target: "10" },
+      { name: "Reply rate", target: ">= 8%" },
+      { name: "Pipeline updates/week", target: ">= 20" },
+    ],
+    guardrails: [
+      { rule: "Never send outbound emails without explicit approval.", requiresApproval: true },
+      { rule: "Never promise discounts above policy.", requiresApproval: true },
+    ],
+    tools: ["web_search", "http_get", "notify", "remember", "request_approval", "ask_user"],
+  },
+  support: {
+    goal: "Triage inbound issues, classify urgency, draft brand-tone replies, escalate when needed.",
+    decisionPolicy: "Draft replies autonomously; require approval before any external send.",
+    schedule_cron: "*/10 * * * *", schedule_label: "Every 10 minutes",
+    kpis: [
+      { name: "First-touch latency", target: "< 5 min (draft)" },
+      { name: "Escalation precision", target: ">= 90%" },
+      { name: "Backlog", target: "< 10 open" },
+    ],
+    guardrails: [
+      { rule: "Do not send replies externally without approval.", requiresApproval: true },
+      { rule: "Escalate anything mentioning refunds, legal, or churn.", requiresApproval: true },
+    ],
+    tools: ["web_search", "notify", "remember", "request_approval", "ask_user"],
+  },
+  marketing: {
+    goal: "Maintain a content calendar, draft posts in brand tone, monitor mentions and SEO, and publish a weekly brief.",
+    decisionPolicy: "Generate drafts and weekly briefs autonomously; require approval before posting publicly.",
+    schedule_cron: "0 8 * * 1", schedule_label: "Mondays at 08:00 UTC",
+    kpis: [
+      { name: "Drafts/week", target: ">= 5" },
+      { name: "Mentions tracked", target: ">= 20/week" },
+      { name: "Weekly brief", target: "delivered every Mon" },
+    ],
+    guardrails: [
+      { rule: "Never publish to social/blog without approval.", requiresApproval: true },
+      { rule: "Stay within stated brand tone and forbidden-topics list.", requiresApproval: false },
+    ],
+    tools: ["web_search", "http_get", "notify", "remember", "request_approval", "ask_user"],
+  },
+  ops_finance: {
+    goal: "Compute daily KPI digest, surface anomalies, send invoice/renewal reminders to the user.",
+    decisionPolicy: "Compute and report autonomously; require approval before any external billing action.",
+    schedule_cron: "0 7 * * *", schedule_label: "Daily at 07:00 UTC",
+    kpis: [
+      { name: "Daily digest", target: "delivered every day" },
+      { name: "Anomaly precision", target: ">= 85%" },
+      { name: "Invoices nudged", target: "all overdue" },
+    ],
+    guardrails: [
+      { rule: "Never charge customers or move funds without approval.", requiresApproval: true },
+      { rule: "Flag any KPI change > 25% as an anomaly.", requiresApproval: false },
+    ],
+    tools: ["calc", "http_get", "notify", "remember", "request_approval", "ask_user"],
+  },
+  custom: {
+    goal: "Execute the operator's stated objective autonomously, asking the user only when essential.",
+    decisionPolicy: "Act on internal/read-only tasks autonomously; queue external actions for approval.",
+    schedule_cron: "0 */6 * * *", schedule_label: "Every 6 hours",
+    kpis: [{ name: "Goal progress", target: "measurable per run" }],
+    guardrails: [
+      { rule: "Never perform irreversible external actions without approval.", requiresApproval: true },
+    ],
+    tools: ["web_search", "http_get", "calc", "notify", "remember", "request_approval", "ask_user"],
+  },
+};
 
-Shape:
-{
-  "name": string,
-  "goal": string,
-  "systemPrompt": string,        // <= 1200 chars, written in second person, makes it act in-character as the autonomous agent
-  "decisionPolicy": string,      // short rule for when to act vs. ask the user
-  "tools": [
-    {
-      "name": string,            // snake_case
-      "description": string,
-      "kind": "web_search" | "http_get" | "calc" | "notify" | "custom",
-      "config": {                // shape depends on kind
-        "url"?: string,          // for http_get
-        "query"?: string,        // for web_search default
-        "channel"?: string,      // for notify: "log" | "email" | "webhook"
-        "needsSecret"?: string   // env var name required for custom tools
-      }
-    }
-  ],
-  "triggers": [
-    { "kind": "manual" | "cron" | "webhook", "spec": string }   // spec is cron expression, webhook event name, or "on-demand"
-  ],
-  "guardrails": [
-    { "rule": string, "requiresApproval": boolean }
-  ],
-  "kpis": [
-    { "name": string, "target": string }
-  ],
-  "ui": {
-    "theme": "obsidian" | "cyber" | "terminal" | "market" | "command" | "lab",
-    "accent": string,           // hex color tuned to the agent's domain (e.g. "#f59e0b" for finance, "#22d3ee" for ops)
-    "accentSecondary": string,  // complementary hex
-    "hero": { "title": string, "tagline": string, "icon": string },  // icon = one of: brain, activity, wallet, gauge, signal, radar, terminal, rocket, eye, crosshair, shield, flame, sparkles, cpu, globe, line, bars, trending, zap, alert, check, wrench
-    "layout": "command-deck" | "market-board" | "lab-console" | "stacked" | "two-col",
-    "widgets": [
-      // 6-10 widgets that together form a domain-specific dashboard for THIS agent.
-      // Choose, order, and title them so the screen feels purpose-built (e.g. a crypto agent gets metric tiles + decision log + tool-call stream + guardrails; a research agent gets thought stream + decision log + KPI radar).
-      // Allowed widget kinds:
-      //   { "kind": "hero_metric", "title": string, "valueFrom": "events_count"|"decisions_count"|"actions_count"|"tool_calls_count"|"thoughts_count"|"errors_count", "subtitle"?: string, "span"?: 1|2|3 }
-      //   { "kind": "live_thoughts", "title": string, "limit"?: number, "span"?: 2|3|4 }
-      //   { "kind": "decision_log", "title": string, "limit"?: number, "span"?: 2|3|4 }
-      //   { "kind": "action_timeline", "title": string, "limit"?: number, "span"?: 2|3|4 }
-      //   { "kind": "tool_call_stream", "title": string, "limit"?: number, "span"?: 2|3|4 }
-      //   { "kind": "alert_feed", "title": string, "severity"?: "warn"|"alert"|"info"|"all", "span"?: 2|3|4 }
-      //   { "kind": "tool_grid", "title": string, "span"?: 2|3 }
-      //   { "kind": "kpi_radar", "title": string, "span"?: 2|3 }
-      //   { "kind": "guardrail_panel", "title": string, "span"?: 2|3 }
-      //   { "kind": "status_grid", "title": string, "items": [{ "label": string, "valueFrom": "events_count"|"decisions_count"|"actions_count"|"tool_calls_count"|"thoughts_count"|"errors_count" }], "span"?: 2|3 }
-    ]
-  }
+function pickRole(plan: string, hinted?: string): keyof typeof ROLE_LIBRARY {
+  if (hinted && hinted in ROLE_LIBRARY) return hinted as keyof typeof ROLE_LIBRARY;
+  const p = plan.toLowerCase();
+  if (/\b(support|ticket|inbox|helpdesk|customer service|complaint)\b/.test(p)) return "support";
+  if (/\b(sales|lead|prospect|outreach|sdr|crm|pipeline|cold email)\b/.test(p)) return "sales_ops";
+  if (/\b(market|content|seo|social|blog|post|brand|campaign|mention)\b/.test(p)) return "marketing";
+  if (/\b(finance|invoice|kpi|report|anomaly|revenue|metric|dashboard|ops|operations)\b/.test(p)) return "ops_finance";
+  return "custom";
 }
 
+const MANIFEST_SCHEMA_DOC = `Return STRICT JSON only — no markdown fences, no commentary.
+
+Shape: {
+  "name": string, "goal": string,
+  "systemPrompt": string,        // <= 1400 chars, in-character, references the business
+  "decisionPolicy": string,
+  "tools": [ { "name": string, "description": string, "kind": "web_search"|"http_get"|"calc"|"notify"|"remember"|"ask_user"|"request_approval"|"custom", "config": object } ],
+  "triggers": [ { "kind": "manual"|"cron"|"webhook", "spec": string } ],
+  "guardrails": [ { "rule": string, "requiresApproval": boolean } ],
+  "kpis": [ { "name": string, "target": string } ],
+  "ui": { "theme": "obsidian"|"cyber"|"terminal"|"market"|"command"|"lab", "accent": string, "accentSecondary": string,
+    "hero": { "title": string, "tagline": string, "icon": string },
+    "layout": "command-deck"|"market-board"|"lab-console"|"stacked"|"two-col",
+    "widgets": [ /* 6-10 widgets, see allowed kinds */ ] }
+}
+
+Allowed widget kinds: hero_metric, live_thoughts, decision_log, action_timeline, tool_call_stream, alert_feed, tool_grid, kpi_radar, guardrail_panel, status_grid.
+Allowed icons: brain, activity, wallet, gauge, signal, radar, terminal, rocket, eye, crosshair, shield, flame, sparkles, cpu, globe, line, bars, trending, zap, alert, check, wrench.
+
 Rules:
-- 3-6 tools maximum. Prefer "web_search", "http_get", "calc", "notify" over "custom".
-- If the plan mentions an external SaaS (Stripe, Slack, Shopify, etc.) and a built-in kind doesn't cover it, use "custom" with config.needsSecret = the env var name (e.g. "STRIPE_API_KEY").
-- At least one trigger. Prefer "manual" if the plan doesn't specify a schedule.
-- 2-4 guardrails. Mark requiresApproval=true for anything that spends money, sends external messages, or mutates external systems.
-- 2-4 KPIs with concrete numeric targets.
-- ui MUST feel domain-specific: titles, theme/accent, widget choice and order should evoke the agent's actual job (crypto, ops, research, sales, support, security, growth, etc.). Don't return a generic dashboard.
-- Title widgets with verbs/domain language ("Market scans", "Approvals queued", "Alpha leads found", "Anomalies caught"), not "Activity feed".
-- systemPrompt must make the model behave AS the agent — "You are <name>. You autonomously …". Never reveal it is an LLM.`;
+- The agent MUST behave like a real digital employee of the given business — reference its name, industry, tone, audience in systemPrompt.
+- Include the role's required tools (remember, ask_user, request_approval) so the agent can persist learnings, ask the operator essentials, and queue approvals.
+- 2-4 guardrails. Mark requiresApproval=true for anything external/spend/messages.
+- 6-10 widgets tuned to the role's day-to-day surface (Sales: pipeline + approvals; Support: queue + drafts + escalations; etc.).
+- Never reveal it is an LLM. Always act in-character.`;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
-
   try {
     const key = Deno.env.get("LOVABLE_API_KEY");
     if (!key) return json({ error: "Missing LOVABLE_API_KEY" }, 500);
 
-    const { plan, save = true } = await req.json();
+    const body = await req.json();
+    const { plan, save = true, businessProfileId, userPrompt = "", intakeAnswers = {}, role: roleHint } = body || {};
     if (!plan || typeof plan !== "string") return json({ error: "plan required" }, 400);
+
+    const authHeader = req.headers.get("Authorization") ?? "";
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_ANON_KEY")!,
+      { global: { headers: { Authorization: authHeader } } },
+    );
+    const { data: userData } = await supabase.auth.getUser();
+    const user = userData?.user;
+
+    // Resolve business profile (optional)
+    let profile: Record<string, unknown> | null = null;
+    if (businessProfileId && user) {
+      const { data } = await supabase.from("business_profiles").select("*").eq("id", businessProfileId).eq("user_id", user.id).maybeSingle();
+      profile = data ?? null;
+    }
+
+    const role = pickRole(plan + " " + userPrompt, roleHint);
+    const blueprint = ROLE_LIBRARY[role];
+
+    const intakeBlock = Object.keys(intakeAnswers).length
+      ? `\n\nUSER ANSWERED INTAKE QUESTIONS:\n${Object.entries(intakeAnswers).map(([k, v]) => `- ${k}: ${v}`).join("\n")}`
+      : "";
+
+    const profileBlock = profile
+      ? `\n\nBUSINESS PROFILE (use it!):\n${JSON.stringify({
+          company_name: profile.company_name, one_liner: profile.one_liner, industry: profile.industry,
+          tone: profile.tone, audience: profile.audience, offers: profile.offers,
+          channels: profile.channels, inferred_kpis: profile.inferred_kpis,
+        }).slice(0, 2500)}`
+      : "";
+
+    const blueprintBlock = `\n\nROLE BLUEPRINT (${role}) — use as a strong starting point, tailored to the business:
+goal: ${blueprint.goal}
+decisionPolicy: ${blueprint.decisionPolicy}
+default KPIs: ${JSON.stringify(blueprint.kpis)}
+default guardrails: ${JSON.stringify(blueprint.guardrails)}
+required tools include: ${blueprint.tools.join(", ")}
+default schedule: ${blueprint.schedule_label} (cron ${blueprint.schedule_cron})`;
 
     const resp = await fetch(LOVABLE_URL, {
       method: "POST",
@@ -92,19 +186,12 @@ serve(async (req) => {
       body: JSON.stringify({
         model: MODEL,
         messages: [
-          {
-            role: "system",
-            content: `You are NazAI Agent Compiler. You convert an approved AI agent plan into a strict, executable Agent Manifest.\n\n${MANIFEST_SCHEMA_DOC}`,
-          },
-          {
-            role: "user",
-            content: `Compile this plan into the Agent Manifest JSON. Return only the JSON object.\n\nPLAN:\n${plan}`,
-          },
+          { role: "system", content: `You are NazAI Agent Compiler.\n\n${MANIFEST_SCHEMA_DOC}` },
+          { role: "user", content: `Compile this plan into the Agent Manifest JSON. Return only the JSON object.${profileBlock}${blueprintBlock}${intakeBlock}\n\nPLAN:\n${plan}` },
         ],
         temperature: 0.2,
       }),
     });
-
     if (resp.status === 429) return json({ error: "Rate limit hit. Try again shortly." }, 429);
     if (resp.status === 402) return json({ error: "AI credits exhausted." }, 402);
     if (!resp.ok) {
@@ -112,148 +199,135 @@ serve(async (req) => {
       console.error("compile gateway error", resp.status, t);
       return json({ error: "AI error" }, 500);
     }
-
     const data = await resp.json();
     const raw: string = data?.choices?.[0]?.message?.content ?? "";
     const manifest = extractJson(raw);
-    if (!manifest || typeof manifest !== "object") {
-      return json({ error: "Manifest did not parse", raw }, 422);
-    }
-
+    if (!manifest) return json({ error: "Manifest did not parse", raw }, 422);
     const normalized = normalizeManifest(manifest);
+
+    // Ensure required tools exist
+    const needed = new Set(["remember", "ask_user", "request_approval"]);
+    for (const t of normalized.tools) needed.delete(t.kind);
+    for (const k of needed) {
+      normalized.tools.push({
+        name: k, kind: k,
+        description: k === "remember"
+          ? "Persist a fact about the business or its operations for future runs."
+          : k === "ask_user"
+          ? "Ask the operator a focused question when essential information is missing."
+          : "Queue a drafted external action for the operator's approval.",
+        config: {},
+      });
+    }
+    // Ensure cron trigger exists
+    if (!normalized.triggers.some((t) => t.kind === "cron")) {
+      normalized.triggers.push({ kind: "cron", spec: blueprint.schedule_cron });
+    }
+    if (!normalized.kpis.length) normalized.kpis = blueprint.kpis;
+    if (!normalized.guardrails.length) normalized.guardrails = blueprint.guardrails;
+
     if (!normalized.name || !normalized.tools.length) {
       return json({ error: "Manifest missing required fields", manifest: normalized }, 422);
     }
 
     let agentId: string | null = null;
-    let persistError: string | null = null;
     if (save) {
-      const authHeader = req.headers.get("Authorization") ?? "";
-      const supabase = createClient(
-        Deno.env.get("SUPABASE_URL")!,
-        Deno.env.get("SUPABASE_ANON_KEY")!,
-        { global: { headers: { Authorization: authHeader } } },
-      );
-      const { data: userData, error: userErr } = await supabase.auth.getUser();
-      const user = userData?.user;
-      if (!user) {
-        console.error("compile: no user from Authorization header", userErr?.message);
-        return json({
-          error: "Not authenticated — sign in to deploy a real autonomous agent.",
-          manifest: normalized,
-          agentId: null,
-        }, 401);
-      }
+      if (!user) return json({ error: "Not authenticated — sign in to deploy.", manifest: normalized, agentId: null }, 401);
       const slug = slugify(normalized.name);
+      const next_run_at = nextRunFromCron(blueprint.schedule_cron);
       const { data: inserted, error: insErr } = await supabase
         .from("agents")
         .insert({
-          user_id: user.id,
-          name: normalized.name,
-          slug,
-          goal: normalized.goal,
-          manifest: normalized,
-          source_plan: plan.slice(0, 8000),
-          status: "active",
+          user_id: user.id, name: normalized.name, slug, goal: normalized.goal,
+          manifest: normalized, source_plan: plan.slice(0, 8000),
+          status: "active", role,
+          schedule_cron: blueprint.schedule_cron, schedule_label: blueprint.schedule_label,
+          next_run_at, business_profile_id: businessProfileId ?? null,
+          autonomy: "guarded",
         })
-        .select("id")
-        .single();
-      if (insErr) {
-        console.error("agent insert error", insErr);
-        persistError = insErr.message;
-      } else {
-        agentId = inserted?.id ?? null;
+        .select("id").single();
+      if (insErr) return json({ error: insErr.message, manifest: normalized, agentId: null }, 500);
+      agentId = inserted?.id ?? null;
+
+      // Seed memory from intake answers + business essentials so the agent starts informed
+      const memRows: Record<string, unknown>[] = [];
+      for (const [k, v] of Object.entries(intakeAnswers || {})) {
+        memRows.push({ agent_id: agentId, user_id: user.id, key: `intake.${k}`, value: String(v).slice(0, 600), source: "intake" });
       }
+      if (profile) {
+        if (profile.company_name) memRows.push({ agent_id: agentId, user_id: user.id, key: "business.name", value: String(profile.company_name), source: "research" });
+        if (profile.tone) memRows.push({ agent_id: agentId, user_id: user.id, key: "business.tone", value: String(profile.tone), source: "research" });
+        if (profile.audience) memRows.push({ agent_id: agentId, user_id: user.id, key: "business.audience", value: String(profile.audience), source: "research" });
+      }
+      if (memRows.length) await supabase.from("agent_memory").insert(memRows);
     }
 
-    if (save && !agentId) {
-      return json({
-        error: persistError || "Could not persist agent.",
-        manifest: normalized,
-        agentId: null,
-      }, 500);
-    }
-
-    return json({ manifest: normalized, agentId });
+    return json({ manifest: normalized, agentId, role, schedule_cron: blueprint.schedule_cron, schedule_label: blueprint.schedule_label });
   } catch (e) {
     console.error("compile-agent-manifest error", e);
     return json({ error: e instanceof Error ? e.message : "unknown" }, 500);
   }
 });
 
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
+function nextRunFromCron(cron: string): string {
+  const now = new Date();
+  let m = cron.match(/^\*\/(\d+)\s+\*\s+\*\s+\*\s+\*$/);
+  if (m) { now.setMinutes(now.getMinutes() + parseInt(m[1], 10)); return now.toISOString(); }
+  m = cron.match(/^(\d+)\s+(\d+)\s+\*\s+\*\s+\*$/);
+  if (m) {
+    const next = new Date(now);
+    next.setUTCHours(parseInt(m[2], 10), parseInt(m[1], 10), 0, 0);
+    if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
+    return next.toISOString();
+  }
+  m = cron.match(/^(\d+)\s+\*\/(\d+)\s+\*\s+\*\s+\*$/);
+  if (m) { now.setHours(now.getHours() + parseInt(m[2], 10)); return now.toISOString(); }
+  now.setHours(now.getHours() + 1);
+  return now.toISOString();
 }
 
+function json(b: unknown, s = 200) { return new Response(JSON.stringify(b), { status: s, headers: { ...corsHeaders, "Content-Type": "application/json" } }); }
 function extractJson(raw: string): Record<string, unknown> | null {
   if (!raw) return null;
-  const cleaned = raw.replace(/```(?:json)?/gi, "").replace(/```/g, "").trim();
-  try { return JSON.parse(cleaned); } catch { /* fallthrough */ }
-  const match = cleaned.match(/\{[\s\S]*\}/);
-  if (!match) return null;
-  try { return JSON.parse(match[0]); } catch { return null; }
+  const c = raw.replace(/```(?:json)?/gi, "").replace(/```/g, "").trim();
+  try { return JSON.parse(c); } catch { /* */ }
+  const m = c.match(/\{[\s\S]*\}/);
+  if (!m) return null;
+  try { return JSON.parse(m[0]); } catch { return null; }
 }
 
 type Tool = { name: string; description: string; kind: string; config: Record<string, unknown> };
-type Trigger = { kind: string; spec: string };
-type Guardrail = { rule: string; requiresApproval: boolean };
-type Kpi = { name: string; target: string };
 type Manifest = {
-  name: string;
-  goal: string;
-  systemPrompt: string;
-  decisionPolicy: string;
-  tools: Tool[];
-  triggers: Trigger[];
-  guardrails: Guardrail[];
-  kpis: Kpi[];
-  ui?: Record<string, unknown>;
+  name: string; goal: string; systemPrompt: string; decisionPolicy: string;
+  tools: Tool[]; triggers: { kind: string; spec: string }[];
+  guardrails: { rule: string; requiresApproval: boolean }[];
+  kpis: { name: string; target: string }[]; ui?: Record<string, unknown>;
 };
 
-const ALLOWED_WIDGETS = new Set([
-  "hero_metric", "live_thoughts", "decision_log", "action_timeline",
-  "tool_call_stream", "alert_feed", "tool_grid", "kpi_radar",
-  "guardrail_panel", "status_grid",
-]);
-const ALLOWED_VALUE_FROM = new Set([
-  "events_count", "decisions_count", "actions_count",
-  "tool_calls_count", "thoughts_count", "errors_count",
-]);
-const ALLOWED_ICONS = new Set([
-  "brain","activity","wallet","gauge","signal","radar","terminal","rocket","eye","crosshair",
-  "shield","flame","sparkles","cpu","globe","line","bars","trending","zap","alert","check","wrench",
-]);
+const ALLOWED_WIDGETS = new Set(["hero_metric","live_thoughts","decision_log","action_timeline","tool_call_stream","alert_feed","tool_grid","kpi_radar","guardrail_panel","status_grid"]);
+const ALLOWED_VALUE_FROM = new Set(["events_count","decisions_count","actions_count","tool_calls_count","thoughts_count","errors_count"]);
+const ALLOWED_ICONS = new Set(["brain","activity","wallet","gauge","signal","radar","terminal","rocket","eye","crosshair","shield","flame","sparkles","cpu","globe","line","bars","trending","zap","alert","check","wrench"]);
+const ALLOWED_KINDS = ["web_search", "http_get", "calc", "notify", "remember", "ask_user", "request_approval", "custom"];
 
 function normalizeUi(raw: unknown): Record<string, unknown> | undefined {
   if (!raw || typeof raw !== "object") return undefined;
   const u = raw as Record<string, unknown>;
-  const widgetsIn = Array.isArray(u.widgets) ? (u.widgets as Record<string, unknown>[]) : [];
-  const widgets = widgetsIn
-    .filter((w) => w && ALLOWED_WIDGETS.has(String(w.kind)))
-    .slice(0, 12)
-    .map((w) => {
-      const out: Record<string, unknown> = {
-        kind: String(w.kind),
-        title: String(w.title || "Panel").slice(0, 60),
-      };
-      if (typeof w.span === "number") out.span = Math.max(1, Math.min(6, Math.round(w.span)));
-      if (typeof w.limit === "number") out.limit = Math.max(1, Math.min(20, Math.round(w.limit)));
-      if (typeof w.subtitle === "string") out.subtitle = w.subtitle.slice(0, 80);
-      if (typeof w.severity === "string") out.severity = w.severity;
-      if (typeof w.valueFrom === "string" && ALLOWED_VALUE_FROM.has(w.valueFrom)) out.valueFrom = w.valueFrom;
-      if (Array.isArray(w.items)) {
-        out.items = (w.items as Record<string, unknown>[])
-          .slice(0, 6)
-          .map((it) => ({
-            label: String(it.label || "").slice(0, 40),
-            valueFrom: ALLOWED_VALUE_FROM.has(String(it.valueFrom)) ? String(it.valueFrom) : "events_count",
-          }));
-      }
-      return out;
-    });
+  const wIn = Array.isArray(u.widgets) ? (u.widgets as Record<string, unknown>[]) : [];
+  const widgets = wIn.filter((w) => w && ALLOWED_WIDGETS.has(String(w.kind))).slice(0, 12).map((w) => {
+    const out: Record<string, unknown> = { kind: String(w.kind), title: String(w.title || "Panel").slice(0, 60) };
+    if (typeof w.span === "number") out.span = Math.max(1, Math.min(6, Math.round(w.span)));
+    if (typeof w.limit === "number") out.limit = Math.max(1, Math.min(20, Math.round(w.limit)));
+    if (typeof w.subtitle === "string") out.subtitle = w.subtitle.slice(0, 80);
+    if (typeof w.severity === "string") out.severity = w.severity;
+    if (typeof w.valueFrom === "string" && ALLOWED_VALUE_FROM.has(w.valueFrom)) out.valueFrom = w.valueFrom;
+    if (Array.isArray(w.items)) {
+      out.items = (w.items as Record<string, unknown>[]).slice(0, 6).map((it) => ({
+        label: String(it.label || "").slice(0, 40),
+        valueFrom: ALLOWED_VALUE_FROM.has(String(it.valueFrom)) ? String(it.valueFrom) : "events_count",
+      }));
+    }
+    return out;
+  });
   const hero = (u.hero && typeof u.hero === "object") ? (u.hero as Record<string, unknown>) : {};
   return {
     theme: typeof u.theme === "string" ? u.theme : "command",
@@ -279,24 +353,18 @@ function normalizeManifest(m: Record<string, unknown>): Manifest {
     goal: String(m.goal || "").slice(0, 400),
     systemPrompt: String(m.systemPrompt || "").slice(0, 2000),
     decisionPolicy: String(m.decisionPolicy || "Act when confident; otherwise log and pause for review.").slice(0, 400),
-    tools: tools.slice(0, 8).map((t) => ({
+    tools: tools.slice(0, 10).map((t) => ({
       name: String(t.name || "tool").slice(0, 60),
       description: String(t.description || "").slice(0, 300),
-      kind: ["web_search", "http_get", "calc", "notify", "custom"].includes(String(t.kind)) ? String(t.kind) : "custom",
+      kind: ALLOWED_KINDS.includes(String(t.kind)) ? String(t.kind) : "custom",
       config: (t.config && typeof t.config === "object") ? (t.config as Record<string, unknown>) : {},
     })),
     triggers: (triggers.length ? triggers : [{ kind: "manual", spec: "on-demand" }]).slice(0, 4).map((t) => ({
       kind: ["manual", "cron", "webhook"].includes(String(t.kind)) ? String(t.kind) : "manual",
       spec: String(t.spec || "on-demand").slice(0, 120),
     })),
-    guardrails: guardrails.slice(0, 6).map((g) => ({
-      rule: String(g.rule || "").slice(0, 300),
-      requiresApproval: !!g.requiresApproval,
-    })),
-    kpis: kpis.slice(0, 6).map((k) => ({
-      name: String(k.name || "").slice(0, 80),
-      target: String(k.target || "").slice(0, 120),
-    })),
+    guardrails: guardrails.slice(0, 6).map((g) => ({ rule: String(g.rule || "").slice(0, 300), requiresApproval: !!g.requiresApproval })),
+    kpis: kpis.slice(0, 6).map((k) => ({ name: String(k.name || "").slice(0, 80), target: String(k.target || "").slice(0, 120) })),
     ui: normalizeUi(m.ui),
   };
 }
