@@ -760,14 +760,33 @@ export default function GenerationWorkspace() {
       }
       const headers = await authedFunctionHeaders();
 
+      // STAGE 0 — Auto-research the business so the agent ships pre-synced.
+      let businessProfileId: string | null = null;
+      try {
+        const researchResp = await fetch(functionUrl("business-context-researcher"), {
+          method: "POST", headers,
+          body: JSON.stringify({ prompt: sourceSpec, reuseLatest: true }),
+        });
+        if (researchResp.ok) {
+          const r = await researchResp.json();
+          businessProfileId = r?.profileId ?? null;
+          if (r?.profile?.company_name) {
+            toast.message(`Synced with ${r.profile.company_name}`);
+          }
+        }
+      } catch (e) {
+        console.warn("business research failed (non-fatal)", e);
+      }
+
       // STAGE A — Compile the plan into a strict, executable manifest AND persist
       // the `agents` row in one round trip (server-side, scoped to auth.uid()).
       console.info("[Deploy] Stage A: compiling manifest…");
       const compileResp = await fetch(functionUrl("compile-agent-manifest"), {
         method: "POST",
         headers,
-        body: JSON.stringify({ plan: sourceSpec, save: true }),
+        body: JSON.stringify({ plan: sourceSpec, save: true, businessProfileId, userPrompt: sourceSpec }),
       });
+
       if (compileResp.status === 429) throw new Error("Rate limit hit. Try again in a moment.");
       if (compileResp.status === 402) throw new Error("AI credits exhausted.");
       if (compileResp.status === 401 || compileResp.status === 403) {
