@@ -19,10 +19,12 @@ export type AgentManifest = {
 
 type AgentEvent = {
   id: string;
+  run_id: string;
   kind: string;
   payload: Record<string, unknown>;
   created_at: string;
 };
+
 
 interface Props {
   agentId: string;
@@ -42,12 +44,13 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
   const loadEvents = useCallback(async () => {
     const { data, error } = await supabase
       .from("agent_events")
-      .select("id, kind, payload, created_at")
+      .select("id, run_id, kind, payload, created_at")
       .eq("agent_id", agentId)
       .order("created_at", { ascending: true })
       .limit(200);
     if (!error && data) setEvents(data as AgentEvent[]);
   }, [agentId]);
+
 
   // Initial load + realtime subscription on this agent's events.
   useEffect(() => {
