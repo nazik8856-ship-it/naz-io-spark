@@ -262,7 +262,7 @@ default schedule: ${blueprint.schedule_label} (cron ${blueprint.schedule_cron})`
       if (memRows.length) await supabase.from("agent_memory").insert(memRows);
     }
 
-    return json({ manifest: normalized, agentId, role, schedule_cron: blueprint.schedule_cron, schedule_label: blueprint.schedule_label });
+    return json({ manifest: normalized, agentId, role, schedule_cron: blueprint.schedule_cron, schedule_label: blueprint.schedule_label, usedFallback });
   } catch (e) {
     console.error("compile-agent-manifest error", e);
     return json({ error: e instanceof Error ? e.message : "unknown" }, 500);
