@@ -244,6 +244,18 @@ export default function GenerationWorkspace() {
   const healingRef = useRef<Set<string>>(new Set());
   const [blueprintOpenId, setBlueprintOpenId] = useState<string | null>(null);
 
+  // Intake modal state — used to ask the user for essentials before deploy.
+  const [intake, setIntake] = useState<{
+    open: boolean;
+    questions: IntakeQuestion[];
+    agentName?: string;
+    resolve?: (answers: Record<string, string> | null) => void;
+  }>({ open: false, questions: [] });
+  const askIntake = (questions: IntakeQuestion[], agentName?: string) =>
+    new Promise<Record<string, string> | null>((resolve) => {
+      setIntake({ open: true, questions, agentName, resolve });
+    });
+
   useEffect(() => {
     const onClickOutside = (e: MouseEvent) => {
       if (modeMenuRef.current && !modeMenuRef.current.contains(e.target as Node)) {
