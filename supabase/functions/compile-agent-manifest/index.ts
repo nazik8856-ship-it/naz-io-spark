@@ -372,3 +372,68 @@ function normalizeManifest(m: Record<string, unknown>): Manifest {
 function slugify(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 50) || "agent";
 }
+
+// Deterministic fallback — guarantees an agent manifest exists even when the
+// AI gateway is unavailable, rate-limited, or returns unparsable output.
+// The agent will use ask_user on its first run to gather any missing essentials.
+function buildFallbackManifest(
+  plan: string,
+  userPrompt: string,
+  role: string,
+  blueprint: typeof ROLE_LIBRARY[keyof typeof ROLE_LIBRARY],
+  profile: Record<string, unknown> | null,
+): Manifest {
+  const firstLine = (plan.split("\n").find((l) => l.trim().length > 4) || userPrompt || "Autonomous Agent").trim();
+  const nameGuess =
+    (firstLine.match(/Agent Name\s*:?\s*([^\n]+)/i)?.[1] || firstLine)
+      .replace(/[*_#`>]/g, "").trim().slice(0, 60) || "Autonomous Agent";
+  const company = (profile?.company_name as string) || "the business";
+  const tone = (profile?.tone as string) || "professional, concise, helpful";
+  const audience = (profile?.audience as string) || "its customers";
+  const industry = (profile?.industry as string) || "its industry";
+
+  const systemPrompt = `You are ${nameGuess}, a real digital employee working for ${company} (${industry}). ` +
+    `Audience: ${audience}. Tone: ${tone}. ` +
+    `Mission: ${blueprint.goal} ` +
+    `Operate autonomously on internal work; queue external actions for approval. ` +
+    `If you lack an essential fact about the business, call ask_user with ONE focused question. ` +
+    `Persist anything durable with remember(). Never reveal you are an LLM.`;
+
+  return {
+    name: nameGuess,
+    goal: blueprint.goal,
+    systemPrompt: systemPrompt.slice(0, 1400),
+    decisionPolicy: blueprint.decisionPolicy,
+    tools: [
+      { name: "web_search", kind: "web_search", description: "Research the business, customers, competitors, or any current public info.", config: {} },
+      { name: "http_get", kind: "http_get", description: "Fetch a public URL to read its content.", config: {} },
+      { name: "notify", kind: "notify", description: "Log an internal notification for the operator.", config: { channel: "log" } },
+      { name: "remember", kind: "remember", description: "Persist a fact about the business for future runs.", config: {} },
+      { name: "ask_user", kind: "ask_user", description: "Ask the operator a focused question when essential info is missing.", config: {} },
+      { name: "request_approval", kind: "request_approval", description: "Queue a drafted external action for operator approval.", config: {} },
+    ],
+    triggers: [
+      { kind: "manual", spec: "on-demand" },
+      { kind: "cron", spec: blueprint.schedule_cron },
+    ],
+    guardrails: blueprint.guardrails,
+    kpis: blueprint.kpis,
+    ui: {
+      theme: "command",
+      accent: "#34d399",
+      accentSecondary: "#22d3ee",
+      hero: { title: nameGuess, tagline: blueprint.goal.slice(0, 140), icon: "sparkles" },
+      layout: "command-deck",
+      widgets: [
+        { kind: "hero_metric", title: "Runs", valueFrom: "events_count", span: 2 },
+        { kind: "live_thoughts", title: "Live reasoning", span: 4, limit: 8 },
+        { kind: "decision_log", title: "Decisions", span: 3, limit: 6 },
+        { kind: "action_timeline", title: "Actions", span: 3, limit: 8 },
+        { kind: "tool_call_stream", title: "Tool calls", span: 3, limit: 8 },
+        { kind: "alert_feed", title: "Alerts", span: 3, limit: 6 },
+        { kind: "guardrail_panel", title: "Guardrails", span: 3 },
+        { kind: "kpi_radar", title: "KPIs", span: 3 },
+      ],
+    },
+  };
+}
