@@ -775,6 +775,7 @@ export default function GenerationWorkspace() {
 
       // STAGE 0 — Auto-research the business so the agent ships pre-synced.
       let businessProfileId: string | null = null;
+      let businessProfile: Record<string, unknown> | null = null;
       try {
         const researchResp = await fetch(functionUrl("business-context-researcher"), {
           method: "POST", headers,
@@ -783,6 +784,7 @@ export default function GenerationWorkspace() {
         if (researchResp.ok) {
           const r = await researchResp.json();
           businessProfileId = r?.profileId ?? null;
+          businessProfile = r?.profile ?? null;
           if (r?.profile?.company_name) {
             toast.message(`Synced with ${r.profile.company_name}`);
           }
@@ -791,13 +793,36 @@ export default function GenerationWorkspace() {
         console.warn("business research failed (non-fatal)", e);
       }
 
+      // STAGE 0.5 — Ask the user only the essentials the agent can't infer.
+      // Non-blocking failure: if intake fails for any reason, deploy with defaults
+      // so the agent ALWAYS becomes visible.
+      let intakeAnswers: Record<string, string> = {};
+      try {
+        const intakeResp = await fetch(functionUrl("agent-intake"), {
+          method: "POST", headers,
+          body: JSON.stringify({ prompt: sourceSpec, profile: businessProfile ?? {} }),
+        });
+        if (intakeResp.ok) {
+          const { questions = [] } = (await intakeResp.json()) as { questions: IntakeQuestion[] };
+          if (Array.isArray(questions) && questions.length > 0) {
+            const nameGuess =
+              (businessProfile as { company_name?: string } | null)?.company_name ||
+              latestMsg?.agentName;
+            const answers = await askIntake(questions, nameGuess);
+            if (answers) intakeAnswers = answers;
+          }
+        }
+      } catch (e) {
+        console.warn("agent-intake failed (non-fatal)", e);
+      }
+
       // STAGE A — Compile the plan into a strict, executable manifest AND persist
       // the `agents` row in one round trip (server-side, scoped to auth.uid()).
       console.info("[Deploy] Stage A: compiling manifest…");
       const compileResp = await fetch(functionUrl("compile-agent-manifest"), {
         method: "POST",
         headers,
-        body: JSON.stringify({ plan: sourceSpec, save: true, businessProfileId, userPrompt: sourceSpec }),
+        body: JSON.stringify({ plan: sourceSpec, save: true, businessProfileId, userPrompt: sourceSpec, intakeAnswers }),
       });
 
       if (compileResp.status === 429) throw new Error("Rate limit hit. Try again in a moment.");
