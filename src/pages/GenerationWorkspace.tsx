@@ -2059,6 +2059,21 @@ export default function GenerationWorkspace() {
           </div>
         );
       })()}
+      <AgentIntakeModal
+        open={intake.open}
+        questions={intake.questions}
+        agentName={intake.agentName}
+        onSubmit={(answers) => {
+          const r = intake.resolve;
+          setIntake({ open: false, questions: [] });
+          r?.(answers);
+        }}
+        onSkip={() => {
+          const r = intake.resolve;
+          setIntake({ open: false, questions: [] });
+          r?.(null);
+        }}
+      />
     </div>
   );
 }
