@@ -180,30 +180,35 @@ default guardrails: ${JSON.stringify(blueprint.guardrails)}
 required tools include: ${blueprint.tools.join(", ")}
 default schedule: ${blueprint.schedule_label} (cron ${blueprint.schedule_cron})`;
 
-    const resp = await fetch(LOVABLE_URL, {
-      method: "POST",
-      headers: { "Lovable-API-Key": key, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: MODEL,
-        messages: [
-          { role: "system", content: `You are NazAI Agent Compiler.\n\n${MANIFEST_SCHEMA_DOC}` },
-          { role: "user", content: `Compile this plan into the Agent Manifest JSON. Return only the JSON object.${profileBlock}${blueprintBlock}${intakeBlock}\n\nPLAN:\n${plan}` },
-        ],
-        temperature: 0.2,
-      }),
-    });
-    if (resp.status === 429) return json({ error: "Rate limit hit. Try again shortly." }, 429);
-    if (resp.status === 402) return json({ error: "AI credits exhausted." }, 402);
-    if (!resp.ok) {
-      const t = await resp.text().catch(() => "");
-      console.error("compile gateway error", resp.status, t);
-      return json({ error: "AI error" }, 500);
+    // Try the AI compile; if anything goes wrong, fall back to a deterministic
+    // manifest built from the role blueprint so the agent ALWAYS appears.
+    let normalized: Manifest;
+    let usedFallback = false;
+    try {
+      const resp = await fetch(LOVABLE_URL, {
+        method: "POST",
+        headers: { "Lovable-API-Key": key, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: MODEL,
+          messages: [
+            { role: "system", content: `You are NazAI Agent Compiler.\n\n${MANIFEST_SCHEMA_DOC}` },
+            { role: "user", content: `Compile this plan into the Agent Manifest JSON. Return only the JSON object.${profileBlock}${blueprintBlock}${intakeBlock}\n\nPLAN:\n${plan}` },
+          ],
+          temperature: 0.2,
+        }),
+      });
+      if (!resp.ok) throw new Error(`gateway ${resp.status}`);
+      const data = await resp.json();
+      const raw: string = data?.choices?.[0]?.message?.content ?? "";
+      const manifest = extractJson(raw);
+      if (!manifest) throw new Error("parse failed");
+      normalized = normalizeManifest(manifest);
+      if (!normalized.name || !normalized.tools.length) throw new Error("missing fields");
+    } catch (aiErr) {
+      console.warn("compile AI failed, using deterministic fallback:", aiErr);
+      usedFallback = true;
+      normalized = buildFallbackManifest(plan, userPrompt, role, blueprint, profile);
     }
-    const data = await resp.json();
-    const raw: string = data?.choices?.[0]?.message?.content ?? "";
-    const manifest = extractJson(raw);
-    if (!manifest) return json({ error: "Manifest did not parse", raw }, 422);
-    const normalized = normalizeManifest(manifest);
 
     // Ensure required tools exist
     const needed = new Set(["remember", "ask_user", "request_approval"]);
@@ -219,16 +224,11 @@ default schedule: ${blueprint.schedule_label} (cron ${blueprint.schedule_cron})`
         config: {},
       });
     }
-    // Ensure cron trigger exists
     if (!normalized.triggers.some((t) => t.kind === "cron")) {
       normalized.triggers.push({ kind: "cron", spec: blueprint.schedule_cron });
     }
     if (!normalized.kpis.length) normalized.kpis = blueprint.kpis;
     if (!normalized.guardrails.length) normalized.guardrails = blueprint.guardrails;
-
-    if (!normalized.name || !normalized.tools.length) {
-      return json({ error: "Manifest missing required fields", manifest: normalized }, 422);
-    }
 
     let agentId: string | null = null;
     if (save) {
@@ -262,7 +262,7 @@ default schedule: ${blueprint.schedule_label} (cron ${blueprint.schedule_cron})`
       if (memRows.length) await supabase.from("agent_memory").insert(memRows);
     }
 
-    return json({ manifest: normalized, agentId, role, schedule_cron: blueprint.schedule_cron, schedule_label: blueprint.schedule_label });
+    return json({ manifest: normalized, agentId, role, schedule_cron: blueprint.schedule_cron, schedule_label: blueprint.schedule_label, usedFallback });
   } catch (e) {
     console.error("compile-agent-manifest error", e);
     return json({ error: e instanceof Error ? e.message : "unknown" }, 500);
@@ -371,4 +371,69 @@ function normalizeManifest(m: Record<string, unknown>): Manifest {
 
 function slugify(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 50) || "agent";
+}
+
+// Deterministic fallback — guarantees an agent manifest exists even when the
+// AI gateway is unavailable, rate-limited, or returns unparsable output.
+// The agent will use ask_user on its first run to gather any missing essentials.
+function buildFallbackManifest(
+  plan: string,
+  userPrompt: string,
+  role: string,
+  blueprint: typeof ROLE_LIBRARY[keyof typeof ROLE_LIBRARY],
+  profile: Record<string, unknown> | null,
+): Manifest {
+  const firstLine = (plan.split("\n").find((l) => l.trim().length > 4) || userPrompt || "Autonomous Agent").trim();
+  const nameGuess =
+    (firstLine.match(/Agent Name\s*:?\s*([^\n]+)/i)?.[1] || firstLine)
+      .replace(/[*_#`>]/g, "").trim().slice(0, 60) || "Autonomous Agent";
+  const company = (profile?.company_name as string) || "the business";
+  const tone = (profile?.tone as string) || "professional, concise, helpful";
+  const audience = (profile?.audience as string) || "its customers";
+  const industry = (profile?.industry as string) || "its industry";
+
+  const systemPrompt = `You are ${nameGuess}, a real digital employee working for ${company} (${industry}). ` +
+    `Audience: ${audience}. Tone: ${tone}. ` +
+    `Mission: ${blueprint.goal} ` +
+    `Operate autonomously on internal work; queue external actions for approval. ` +
+    `If you lack an essential fact about the business, call ask_user with ONE focused question. ` +
+    `Persist anything durable with remember(). Never reveal you are an LLM.`;
+
+  return {
+    name: nameGuess,
+    goal: blueprint.goal,
+    systemPrompt: systemPrompt.slice(0, 1400),
+    decisionPolicy: blueprint.decisionPolicy,
+    tools: [
+      { name: "web_search", kind: "web_search", description: "Research the business, customers, competitors, or any current public info.", config: {} },
+      { name: "http_get", kind: "http_get", description: "Fetch a public URL to read its content.", config: {} },
+      { name: "notify", kind: "notify", description: "Log an internal notification for the operator.", config: { channel: "log" } },
+      { name: "remember", kind: "remember", description: "Persist a fact about the business for future runs.", config: {} },
+      { name: "ask_user", kind: "ask_user", description: "Ask the operator a focused question when essential info is missing.", config: {} },
+      { name: "request_approval", kind: "request_approval", description: "Queue a drafted external action for operator approval.", config: {} },
+    ],
+    triggers: [
+      { kind: "manual", spec: "on-demand" },
+      { kind: "cron", spec: blueprint.schedule_cron },
+    ],
+    guardrails: blueprint.guardrails,
+    kpis: blueprint.kpis,
+    ui: {
+      theme: "command",
+      accent: "#34d399",
+      accentSecondary: "#22d3ee",
+      hero: { title: nameGuess, tagline: blueprint.goal.slice(0, 140), icon: "sparkles" },
+      layout: "command-deck",
+      widgets: [
+        { kind: "hero_metric", title: "Runs", valueFrom: "events_count", span: 2 },
+        { kind: "live_thoughts", title: "Live reasoning", span: 4, limit: 8 },
+        { kind: "decision_log", title: "Decisions", span: 3, limit: 6 },
+        { kind: "action_timeline", title: "Actions", span: 3, limit: 8 },
+        { kind: "tool_call_stream", title: "Tool calls", span: 3, limit: 8 },
+        { kind: "alert_feed", title: "Alerts", span: 3, limit: 6 },
+        { kind: "guardrail_panel", title: "Guardrails", span: 3 },
+        { kind: "kpi_radar", title: "KPIs", span: 3 },
+      ],
+    },
+  };
 }

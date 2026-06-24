@@ -846,7 +846,11 @@ export default function GenerationWorkspace() {
       }).catch((err) => console.warn("initial agent run failed", err));
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : "Could not deploy agent.";
-      toast.error(errMsg);
+      // Generation must ALWAYS appear. If the backend failed, surface a local
+      // pending card with the spec + a clear retry, so the user never sees a
+      // dead-end "Booting…" screen.
+      console.warn("[Deploy] failed, surfacing local pending card:", errMsg);
+      toast.error(`${errMsg} — tap Deploy to retry.`);
       const salvaged = cleanAgentSpecOutput(sourceSpec, { final: true }) || sourceSpec;
       updateMsg(id, {
         content: salvaged,
