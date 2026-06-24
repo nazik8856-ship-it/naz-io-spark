@@ -180,30 +180,35 @@ default guardrails: ${JSON.stringify(blueprint.guardrails)}
 required tools include: ${blueprint.tools.join(", ")}
 default schedule: ${blueprint.schedule_label} (cron ${blueprint.schedule_cron})`;
 
-    const resp = await fetch(LOVABLE_URL, {
-      method: "POST",
-      headers: { "Lovable-API-Key": key, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: MODEL,
-        messages: [
-          { role: "system", content: `You are NazAI Agent Compiler.\n\n${MANIFEST_SCHEMA_DOC}` },
-          { role: "user", content: `Compile this plan into the Agent Manifest JSON. Return only the JSON object.${profileBlock}${blueprintBlock}${intakeBlock}\n\nPLAN:\n${plan}` },
-        ],
-        temperature: 0.2,
-      }),
-    });
-    if (resp.status === 429) return json({ error: "Rate limit hit. Try again shortly." }, 429);
-    if (resp.status === 402) return json({ error: "AI credits exhausted." }, 402);
-    if (!resp.ok) {
-      const t = await resp.text().catch(() => "");
-      console.error("compile gateway error", resp.status, t);
-      return json({ error: "AI error" }, 500);
+    // Try the AI compile; if anything goes wrong, fall back to a deterministic
+    // manifest built from the role blueprint so the agent ALWAYS appears.
+    let normalized: Manifest;
+    let usedFallback = false;
+    try {
+      const resp = await fetch(LOVABLE_URL, {
+        method: "POST",
+        headers: { "Lovable-API-Key": key, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: MODEL,
+          messages: [
+            { role: "system", content: `You are NazAI Agent Compiler.\n\n${MANIFEST_SCHEMA_DOC}` },
+            { role: "user", content: `Compile this plan into the Agent Manifest JSON. Return only the JSON object.${profileBlock}${blueprintBlock}${intakeBlock}\n\nPLAN:\n${plan}` },
+          ],
+          temperature: 0.2,
+        }),
+      });
+      if (!resp.ok) throw new Error(`gateway ${resp.status}`);
+      const data = await resp.json();
+      const raw: string = data?.choices?.[0]?.message?.content ?? "";
+      const manifest = extractJson(raw);
+      if (!manifest) throw new Error("parse failed");
+      normalized = normalizeManifest(manifest);
+      if (!normalized.name || !normalized.tools.length) throw new Error("missing fields");
+    } catch (aiErr) {
+      console.warn("compile AI failed, using deterministic fallback:", aiErr);
+      usedFallback = true;
+      normalized = buildFallbackManifest(plan, userPrompt, role, blueprint, profile);
     }
-    const data = await resp.json();
-    const raw: string = data?.choices?.[0]?.message?.content ?? "";
-    const manifest = extractJson(raw);
-    if (!manifest) return json({ error: "Manifest did not parse", raw }, 422);
-    const normalized = normalizeManifest(manifest);
 
     // Ensure required tools exist
     const needed = new Set(["remember", "ask_user", "request_approval"]);
@@ -219,16 +224,11 @@ default schedule: ${blueprint.schedule_label} (cron ${blueprint.schedule_cron})`
         config: {},
       });
     }
-    // Ensure cron trigger exists
     if (!normalized.triggers.some((t) => t.kind === "cron")) {
       normalized.triggers.push({ kind: "cron", spec: blueprint.schedule_cron });
     }
     if (!normalized.kpis.length) normalized.kpis = blueprint.kpis;
     if (!normalized.guardrails.length) normalized.guardrails = blueprint.guardrails;
-
-    if (!normalized.name || !normalized.tools.length) {
-      return json({ error: "Manifest missing required fields", manifest: normalized }, 422);
-    }
 
     let agentId: string | null = null;
     if (save) {
