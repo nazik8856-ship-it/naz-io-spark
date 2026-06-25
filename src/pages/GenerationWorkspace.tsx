@@ -854,6 +854,9 @@ export default function GenerationWorkspace() {
         agentSystemPrompt: manifest.systemPrompt,
         agentError: undefined,
       });
+      // Force the preview pane forward so the user IMMEDIATELY sees the agent
+      // cockpit — especially on mobile where the chat & preview don't coexist.
+      setActiveTab("preview");
 
       // Save into the legacy local list so existing surfaces (Dashboard, sidebar) still see it.
       const entry: SavedAgent = {
@@ -884,20 +887,54 @@ export default function GenerationWorkspace() {
       }).catch((err) => console.warn("initial agent run failed", err));
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : "Could not deploy agent.";
-      // Generation must ALWAYS appear. If the backend failed, surface a local
-      // pending card with the spec + a clear retry, so the user never sees a
-      // dead-end "Booting…" screen.
-      console.warn("[Deploy] failed, surfacing local pending card:", errMsg);
-      toast.error(`${errMsg} — tap Deploy to retry.`);
+      // Generation must ALWAYS appear. If the backend failed, build a fully
+      // local manifest from the spec so the AI Agent cockpit still renders —
+      // the user never sees a blank/dead-end screen.
+      console.warn("[Deploy] backend failed, rendering local agent:", errMsg);
+      toast.error(`Backend unavailable — showing local agent preview. (${errMsg})`);
       const salvaged = cleanAgentSpecOutput(sourceSpec, { final: true }) || sourceSpec;
+      const localManifest = buildLocalManifest(salvaged);
       updateMsg(id, {
         content: salvaged,
-        agentStatus: "pending",
+        agentStatus: "approved",
+        agentName: localManifest.name,
+        agentFinalSpec: salvaged,
+        agentManifest: localManifest,
+        agentDbId: `local-${id}`,
+        agentSystemPrompt: localManifest.systemPrompt,
         agentError: errMsg,
       });
+      setActiveTab("preview");
     } finally {
       buildingRef.current.delete(id);
     }
+  };
+
+  // Deterministic, fully-client fallback manifest. Used only when the backend
+  // refuses to compile — guarantees the user always sees an agent.
+  const buildLocalManifest = (spec: string): AgentManifest => {
+    const parsed = parseAgentSpec(spec);
+    const name = parsed.name || "Autonomous AI Agent";
+    const goal = parsed.goal || "Operate autonomously to deliver the user's outcome.";
+    const caps = toBullets(parsed.capabilities).slice(0, 6);
+    return {
+      name,
+      goal,
+      systemPrompt:
+        `You are ${name}, an autonomous digital employee. Goal: ${goal}\n\n` +
+        `Operate proactively. When essential information is missing, ask the user via ask_user. ` +
+        `Request human approval for anything that touches external systems or money.`,
+      decisionPolicy: "Bias toward small, reversible, observable steps. Escalate when uncertain.",
+      tools: [
+        { name: "web_search", description: "Search the public web.", kind: "web_search", config: {} },
+        { name: "remember", description: "Store a long-term fact.", kind: "memory_write", config: {} },
+        { name: "ask_user", description: "Pause and ask the user a question.", kind: "ask_user", config: {} },
+        { name: "request_approval", description: "Queue an external action for human approval.", kind: "approval", config: {} },
+      ],
+      triggers: [{ kind: "manual", spec: "User runs the agent" }],
+      guardrails: (toBullets(parsed.guardrails).slice(0, 4) || []).map((rule) => ({ rule, requiresApproval: false })),
+      kpis: caps.slice(0, 3).map((c) => ({ name: c.slice(0, 40), target: "weekly" })),
+    };
   };
 
 
