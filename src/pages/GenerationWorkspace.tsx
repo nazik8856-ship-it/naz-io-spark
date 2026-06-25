@@ -1766,18 +1766,22 @@ export default function GenerationWorkspace() {
                             </div>
                           </div>
                         ) : status === "approved" && lastNaz.agentManifest && lastNaz.agentDbId ? (
-                          <AgentCockpit
-                            agentId={lastNaz.agentDbId}
-                            manifest={lastNaz.agentManifest}
-                            onOpenBlueprint={() => setBlueprintOpenId(lastNaz.id)}
-                          />
+                          <AgentRenderBoundary agentName={agentName} goal={spec.goal}>
+                            <AgentCockpit
+                              agentId={lastNaz.agentDbId}
+                              manifest={lastNaz.agentManifest}
+                              onOpenBlueprint={() => setBlueprintOpenId(lastNaz.id)}
+                            />
+                          </AgentRenderBoundary>
                         ) : status === "approved" ? (
-                          <div className="rounded-xl border border-cyan-400/30 bg-black/60 p-6 text-center space-y-3">
-                            <div className="inline-flex items-center gap-2 text-cyan-300 font-mono text-xs uppercase tracking-[0.2em]">
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              Booting autonomous runtime…
+                          <div className="rounded-2xl border border-emerald-400/30 bg-gradient-to-br from-emerald-400/10 via-cyan-400/5 to-transparent p-5 space-y-3">
+                            <div className="flex items-center gap-2">
+                              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                              <span className="text-[10px] uppercase tracking-[0.22em] text-emerald-300 font-mono">Agent Live</span>
                             </div>
-                            <p className="text-sm text-zinc-300">Compiling the manifest and spawning the first run. The cockpit will appear here in a moment.</p>
+                            <h2 className="text-xl font-bold text-white">{agentName}</h2>
+                            {spec.goal && <p className="text-sm text-zinc-200 leading-relaxed">🎯 {spec.goal}</p>}
+                            <p className="text-[11px] text-cyan-300/80 font-mono">Cockpit warming up — first autonomous run starting…</p>
                           </div>
                         ) : showBody ? (
                           <div className="space-y-5">
