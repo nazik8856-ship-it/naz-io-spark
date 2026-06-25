@@ -32,6 +32,7 @@ import ReactMarkdown from "react-markdown";
 import { toast } from "sonner";
 import LiveAgentChat from "@/components/agents/LiveAgentChat";
 import AgentCockpit from "@/components/agents/AgentCockpit";
+import AgentRenderBoundary from "@/components/agents/AgentRenderBoundary";
 import AgentIntakeModal, { type IntakeQuestion } from "@/components/agents/AgentIntakeModal";
 import { SUPABASE_FUNCTIONS_URL, SUPABASE_ANON, supabase } from "@/integrations/supabase/client";
 
