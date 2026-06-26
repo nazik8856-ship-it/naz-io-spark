@@ -216,67 +216,69 @@ export default function AgentIntegrationsPanel({
         {spec.integrations.map((it) => {
           const isConnected = connectedNames.has(it.name);
           return (
-          <button
-            type="button"
-            key={it.name}
-            onClick={() => setOpenIntegration(it)}
-            className="text-left rounded-2xl border border-white/10 bg-white/[0.02] p-4 hover:border-white/30 hover:bg-white/[0.04] transition-all hover:-translate-y-0.5 cursor-pointer">
-            <div className="flex items-center justify-between gap-2 mb-2">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <div className="text-sm font-semibold text-white truncate">{it.name}</div>
-                  {isConnected && (
-                    <span className="inline-flex items-center gap-1 text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded"
-                      style={{ background: `${accent}22`, color: accent, border: `1px solid ${accent}55` }}>
-                      <CheckCircle2 className="h-2.5 w-2.5" /> Connected
-                    </span>
-                  )}
-                  {!isConnected && it.status === "recommended" && (
-            <div className="flex items-center justify-between gap-2 mb-2">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <div className="text-sm font-semibold text-white truncate">{it.name}</div>
-                  {it.status === "recommended" && (
-                    <span className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded"
-                      style={{ background: `${accent}22`, color: accent, border: `1px solid ${accent}44` }}>
-                      Recommended
-                    </span>
-                  )}
+            <button
+              type="button"
+              key={it.name}
+              onClick={() => setOpenIntegration(it)}
+              className="text-left rounded-2xl border border-white/10 bg-white/[0.02] p-4 hover:border-white/30 hover:bg-white/[0.04] transition-all hover:-translate-y-0.5 cursor-pointer w-full"
+            >
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="text-sm font-semibold text-white truncate">{it.name}</div>
+                    {isConnected ? (
+                      <span className="inline-flex items-center gap-1 text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded"
+                        style={{ background: `${accent}22`, color: accent, border: `1px solid ${accent}55` }}>
+                        <CheckCircle2 className="h-2.5 w-2.5" /> Connected
+                      </span>
+                    ) : it.status === "recommended" && (
+                      <span className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded"
+                        style={{ background: `${accent}22`, color: accent, border: `1px solid ${accent}44` }}>
+                        Recommended
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[10px] uppercase tracking-wider font-mono text-zinc-500 mt-0.5">{it.category}</div>
                 </div>
-                <div className="text-[10px] uppercase tracking-wider font-mono text-zinc-500 mt-0.5">{it.category}</div>
+                <span className="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-1 rounded border border-white/10 bg-black/30 text-zinc-300 shrink-0">
+                  {it.method.includes("OAuth") ? <KeyRound className="h-3 w-3" /> :
+                   it.method.includes("Webhook") ? <Webhook className="h-3 w-3" /> :
+                   <Lock className="h-3 w-3" />}
+                  {it.method}
+                </span>
               </div>
-              <span className="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-1 rounded border border-white/10 bg-black/30 text-zinc-300 shrink-0">
-                {it.method.includes("OAuth") ? <KeyRound className="h-3 w-3" /> :
-                 it.method.includes("Webhook") ? <Webhook className="h-3 w-3" /> :
-                 <Lock className="h-3 w-3" />}
-                {it.method}
-              </span>
-            </div>
-            {it.scopes && (
-              <div className="text-[10px] text-zinc-500 font-mono mb-2">scopes: {it.scopes}</div>
-            )}
-            <div className="mb-2">
-              <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-mono text-zinc-400 mb-1">
-                <Sparkles className="h-3 w-3" style={{ color: accent }} /> What it automates
+              {it.scopes && (
+                <div className="text-[10px] text-zinc-500 font-mono mb-2">scopes: {it.scopes}</div>
+              )}
+              <div className="mb-2">
+                <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-mono text-zinc-400 mb-1">
+                  <Sparkles className="h-3 w-3" style={{ color: accent }} /> What it automates
+                </div>
+                <ul className="space-y-0.5 pl-1">
+                  {it.examples.map((e, i) => <li key={i} className="text-xs text-zinc-300">• {e}</li>)}
+                </ul>
               </div>
-              <ul className="space-y-0.5 pl-1">
-                {it.examples.map((e, i) => <li key={i} className="text-xs text-zinc-300">• {e}</li>)}
-              </ul>
-            </div>
-            <div>
-              <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-mono text-zinc-400 mb-1">
-                <ListChecks className="h-3 w-3" style={{ color: accent }} /> Setup
+              <div className="mb-3">
+                <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-mono text-zinc-400 mb-1">
+                  <ListChecks className="h-3 w-3" style={{ color: accent }} /> Setup
+                </div>
+                <ol className="space-y-0.5 pl-1">
+                  {it.steps.map((s, i) => (
+                    <li key={i} className="text-xs text-zinc-300">
+                      <span className="text-zinc-500 font-mono mr-1">{i + 1}.</span>{s}
+                    </li>
+                  ))}
+                </ol>
               </div>
-              <ol className="space-y-0.5 pl-1">
-                {it.steps.map((s, i) => (
-                  <li key={i} className="text-xs text-zinc-300">
-                    <span className="text-zinc-500 font-mono mr-1">{i + 1}.</span>{s}
-                  </li>
-                ))}
-              </ol>
-            </div>
-          </div>
-        ))}
+              <div
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-black"
+                style={{ background: `linear-gradient(135deg, ${accent}, #22d3ee)`, boxShadow: `0 6px 18px -8px ${accent}99` }}
+              >
+                {isConnected ? "Manage connection" : `Connect ${it.name}`}
+              </div>
+            </button>
+          );
+        })}
       </div>
 
       {spec.security && spec.security.length > 0 && (
