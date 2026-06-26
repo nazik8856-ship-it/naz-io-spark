@@ -213,9 +213,25 @@ export default function AgentIntegrationsPanel({
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        {spec.integrations.map((it) => (
-          <div key={it.name}
-            className="rounded-2xl border border-white/10 bg-white/[0.02] p-4 hover:border-white/20 transition-colors">
+        {spec.integrations.map((it) => {
+          const isConnected = connectedNames.has(it.name);
+          return (
+          <button
+            type="button"
+            key={it.name}
+            onClick={() => setOpenIntegration(it)}
+            className="text-left rounded-2xl border border-white/10 bg-white/[0.02] p-4 hover:border-white/30 hover:bg-white/[0.04] transition-all hover:-translate-y-0.5 cursor-pointer">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="text-sm font-semibold text-white truncate">{it.name}</div>
+                  {isConnected && (
+                    <span className="inline-flex items-center gap-1 text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded"
+                      style={{ background: `${accent}22`, color: accent, border: `1px solid ${accent}55` }}>
+                      <CheckCircle2 className="h-2.5 w-2.5" /> Connected
+                    </span>
+                  )}
+                  {!isConnected && it.status === "recommended" && (
             <div className="flex items-center justify-between gap-2 mb-2">
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
