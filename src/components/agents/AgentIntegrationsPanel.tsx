@@ -1,8 +1,9 @@
 // Business Integrations & Setup — shown on every generated agent so the
 // operator knows exactly which of THEIR real business systems the agent can
 // plug into, how to connect them, what it will automate, and the safety rails.
-import { useMemo } from "react";
-import { Plug, KeyRound, Webhook, ShieldCheck, ListChecks, Sparkles, Lock } from "lucide-react";
+import { useMemo, useState, useEffect } from "react";
+import { Plug, KeyRound, Webhook, ShieldCheck, ListChecks, Sparkles, Lock, CheckCircle2 } from "lucide-react";
+import IntegrationConnectModal from "./IntegrationConnectModal";
 
 type Integration = {
   name: string;
