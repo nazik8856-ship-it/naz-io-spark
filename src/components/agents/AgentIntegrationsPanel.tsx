@@ -7,7 +7,7 @@ import { Plug, KeyRound, Webhook, ShieldCheck, ListChecks, Sparkles, Lock } from
 type Integration = {
   name: string;
   category: string;        // CRM, Payments, Email, Analytics, Commerce, Accounting, Bank, Support, Social
-  method: "OAuth" | "API key" | "Webhook" | "OAuth + Webhook";
+  method: string;
   scopes?: string;         // suggested permission scope (read-only / read-write)
   examples: string[];      // what the agent will do once connected
   steps: string[];         // step-by-step user-facing setup
