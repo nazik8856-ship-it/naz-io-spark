@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import GeneratedAgentDashboard, { type AgentUiSpec } from "./GeneratedAgentDashboard";
 import AgentEmployeePanel from "./AgentEmployeePanel";
+import AgentIntegrationsPanel from "./AgentIntegrationsPanel";
 
 export type AgentManifest = {
   name: string;
@@ -159,6 +160,12 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
 
       {/* Digital-employee surfaces: business sync, schedule, approvals, clarifications, memory */}
       <AgentEmployeePanel agentId={agentId} events={events} />
+
+      {/* Business Integrations & Setup — every agent ships with concrete connect-your-tools guidance */}
+      <AgentIntegrationsPanel
+        manifest={manifest as unknown as { name?: string; goal?: string; integrations?: import("./AgentIntegrationsPanel").IntegrationsSpec; role?: string }}
+        accent={(manifest as unknown as { ui?: { accent?: string } })?.ui?.accent || "#34d399"}
+      />
 
     </div>
   );
