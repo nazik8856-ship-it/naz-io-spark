@@ -295,6 +295,14 @@ export default function AgentIntegrationsPanel({
           </ul>
         </div>
       )}
+
+      {openIntegration && (
+        <IntegrationConnectModal
+          integration={openIntegration}
+          accent={accent}
+          onClose={() => setOpenIntegration(null)}
+        />
+      )}
     </section>
   );
 }
