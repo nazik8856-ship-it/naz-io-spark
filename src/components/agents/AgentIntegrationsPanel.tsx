@@ -175,6 +175,22 @@ export default function AgentIntegrationsPanel({
     return ROLE_DEFAULTS[role];
   }, [manifest]);
 
+  const [openIntegration, setOpenIntegration] = useState<Integration | null>(null);
+  const [connectedNames, setConnectedNames] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const refresh = () => {
+      const s = new Set<string>();
+      for (const it of spec.integrations) {
+        if (localStorage.getItem(`nazai:integration:${it.name}`)) s.add(it.name);
+      }
+      setConnectedNames(s);
+    };
+    refresh();
+    window.addEventListener("storage", refresh);
+    return () => window.removeEventListener("storage", refresh);
+  }, [spec.integrations, openIntegration]);
+
   return (
     <section
       className="relative overflow-hidden rounded-3xl p-5 sm:p-6 mt-4"
