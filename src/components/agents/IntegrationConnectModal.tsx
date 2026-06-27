@@ -1,10 +1,13 @@
 // Interactive connection modal for a single integration. Renders the right
-// fields based on the integration's auth method + category (API key, store URL,
-// access token, webhook URL, OAuth one-click). Saves to localStorage so the
-// agent UI can show a "Connected" state across sessions.
+// fields based on the integration's auth method + category. On submit, calls
+// the `integration-connect` edge function which (a) verifies credentials
+// against the real provider API and (b) stores them in `agent_integrations`
+// (RLS-scoped to the owner). Displays the live sample we got back so the user
+// can see the connection is real.
 import { useEffect, useMemo, useState } from "react";
-import { X, KeyRound, Link2, ShieldCheck, Webhook, Loader2, CheckCircle2 } from "lucide-react";
+import { X, KeyRound, Link2, ShieldCheck, Webhook, Loader2, CheckCircle2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
 type Integration = {
   name: string;
@@ -41,18 +44,22 @@ function fieldsFor(it: Integration): Field[] {
     { key: "api_key", label: "Restricted API key", placeholder: "rk_live_xxx (read-only recommended)", type: "password", help: "Stripe → Developers → API keys → Create restricted key" },
     { key: "webhook_url", label: "Webhook endpoint (optional)", placeholder: "https://your-app/webhooks/stripe", type: "url" },
   ];
-  if (name.includes("hubspot") || name.includes("salesforce") || name.includes("pipedrive")) return [
-    { key: "access_token", label: "Private app / access token", placeholder: "pat-xxxxxxxx or OAuth access token", type: "password", help: "Or click the OAuth button below for a guided sign-in." },
+  if (name.includes("hubspot")) return [
+    { key: "access_token", label: "Private app access token", placeholder: "pat-xxxxxxxx", type: "password", help: "HubSpot → Settings → Integrations → Private Apps → Create" },
+  ];
+  if (name.includes("salesforce") || name.includes("pipedrive")) return [
+    { key: "access_token", label: "Access token / API key", placeholder: "Paste token", type: "password" },
   ];
   if (name.includes("gmail") || name.includes("outlook")) return [
     { key: "access_token", label: "Account email", placeholder: "you@company.com", type: "text", help: "OAuth handles the rest — token is stored encrypted." },
   ];
   if (name.includes("slack") || name.includes("teams")) return [
-    { key: "webhook_url", label: "Incoming webhook URL", placeholder: "https://hooks.slack.com/services/T0/B0/XXXX", type: "url", help: "Slack → Apps → Incoming Webhooks → Add to channel" },
+    { key: "webhook_url", label: "Incoming webhook URL", placeholder: "https://hooks.slack.com/services/T0/B0/XXXX", type: "url", help: "Slack → Apps → Incoming Webhooks → Add to channel. We'll send a test ping." },
+    { key: "access_token", label: "Bot token (optional)", placeholder: "xoxb-…", type: "password" },
   ];
   if (name.includes("ga4") || cat.includes("analytics")) return [
     { key: "store_url", label: "Property ID", placeholder: "e.g. 123456789", help: "GA4 → Admin → Property Settings" },
-    { key: "access_token", label: "Service account JSON or OAuth token", placeholder: "Paste credentials", type: "password" },
+    { key: "access_token", label: "OAuth access token", placeholder: "ya29.…", type: "password" },
   ];
   if (name.includes("plaid") || name.includes("truelayer")) return [
     { key: "client_id", label: "Client ID", placeholder: "Client ID", type: "password" },
@@ -65,42 +72,58 @@ function fieldsFor(it: Integration): Field[] {
   if (method.includes("api key") || method.includes("api-key")) return [
     { key: "api_key", label: "API key", placeholder: `${it.name} API key`, type: "password" },
   ];
-  // OAuth fallback — just a one-click connect, no fields.
-  return [];
+  return [
+    { key: "access_token", label: "Access token", placeholder: `${it.name} access token`, type: "password" },
+  ];
 }
-
-const STORAGE_PREFIX = "nazai:integration:";
 
 export default function IntegrationConnectModal({
   integration,
+  agentId,
   accent = "#34d399",
   onClose,
+  onChange,
 }: {
   integration: Integration;
+  agentId?: string | null;
   accent?: string;
   onClose: () => void;
+  onChange?: () => void;
 }) {
   const fields = useMemo(() => fieldsFor(integration), [integration]);
-  const storageKey = `${STORAGE_PREFIX}${integration.name}`;
   const [values, setValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [connected, setConnected] = useState(false);
+  const [sample, setSample] = useState<Record<string, unknown> | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
+  // Load existing saved row (if any) from Supabase
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(storageKey);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        setValues(parsed.values || {});
-        setConnected(true);
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setLoading(false); return; }
+      let q = supabase
+        .from("agent_integrations")
+        .select("status, credentials, metadata, last_error")
+        .eq("user_id", user.id)
+        .eq("provider", integration.name);
+      q = agentId ? q.eq("agent_id", agentId) : q.is("agent_id", null);
+      const { data } = await q.maybeSingle();
+      if (!cancelled && data) {
+        setValues((data.credentials as Record<string, string>) || {});
+        setConnected(data.status === "connected");
+        setSample((data.metadata as Record<string, unknown>) || null);
+        if (data.status !== "connected") setError(data.last_error || null);
       }
-    } catch { /* ignore */ }
-  }, [storageKey]);
-
-  const isOAuth = fields.length === 0 || integration.method.toLowerCase().includes("oauth");
+      if (!cancelled) setLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [integration.name, agentId]);
 
   const handleConnect = async () => {
-    // Basic validation
     for (const f of fields) {
       if (!values[f.key]?.trim() && !f.label.toLowerCase().includes("optional")) {
         toast.error(`${f.label} is required`);
@@ -108,25 +131,48 @@ export default function IntegrationConnectModal({
       }
     }
     setSaving(true);
+    setError(null);
     try {
-      await new Promise((r) => setTimeout(r, 700));
-      localStorage.setItem(
-        storageKey,
-        JSON.stringify({ name: integration.name, values, connectedAt: new Date().toISOString() }),
-      );
+      const { data, error: fnErr } = await supabase.functions.invoke("integration-connect", {
+        body: { action: "verify", provider: integration.name, agentId: agentId || null, credentials: values },
+      });
+      if (fnErr) throw new Error(fnErr.message || "Connection failed");
+      const res = data as { ok: boolean; sample?: Record<string, unknown>; error?: string };
+      if (!res.ok) {
+        setError(typeof res.error === "string" ? res.error : JSON.stringify(res.error));
+        setConnected(false);
+        toast.error(`${integration.name} failed to connect`);
+        return;
+      }
       setConnected(true);
-      toast.success(`${integration.name} connected`);
-      setTimeout(onClose, 600);
+      setSample(res.sample || null);
+      toast.success(`${integration.name} connected — live data verified`);
+      onChange?.();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Connection failed");
+      toast.error(e instanceof Error ? e.message : "Connection failed");
     } finally {
       setSaving(false);
     }
   };
 
-  const handleDisconnect = () => {
-    localStorage.removeItem(storageKey);
-    setValues({});
-    setConnected(false);
-    toast.message(`${integration.name} disconnected`);
+  const handleDisconnect = async () => {
+    setSaving(true);
+    try {
+      const { error: fnErr } = await supabase.functions.invoke("integration-connect", {
+        body: { action: "disconnect", provider: integration.name, agentId: agentId || null },
+      });
+      if (fnErr) throw new Error(fnErr.message);
+      setConnected(false);
+      setSample(null);
+      setValues({});
+      toast.message(`${integration.name} disconnected`);
+      onChange?.();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Disconnect failed");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -157,7 +203,7 @@ export default function IntegrationConnectModal({
             {connected && (
               <div className="mt-1 inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded"
                 style={{ background: `${accent}22`, color: accent, border: `1px solid ${accent}55` }}>
-                <CheckCircle2 className="h-3 w-3" /> CONNECTED
+                <CheckCircle2 className="h-3 w-3" /> CONNECTED · LIVE
               </div>
             )}
           </div>
@@ -167,7 +213,13 @@ export default function IntegrationConnectModal({
         </header>
 
         <div className="p-5 space-y-4 max-h-[60vh] overflow-y-auto">
-          {fields.map((f) => (
+          {loading && (
+            <div className="flex items-center justify-center py-6 text-zinc-500">
+              <Loader2 className="h-5 w-5 animate-spin" />
+            </div>
+          )}
+
+          {!loading && fields.map((f) => (
             <div key={f.key}>
               <label className="block text-[11px] uppercase tracking-wider font-mono text-zinc-400 mb-1">
                 {f.label}
@@ -177,15 +229,38 @@ export default function IntegrationConnectModal({
                 value={values[f.key] || ""}
                 onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
                 placeholder={f.placeholder}
+                autoComplete="off"
                 className="w-full px-3 py-2.5 rounded-lg bg-black/40 border border-white/10 text-sm text-white placeholder:text-zinc-600 font-mono focus:outline-none focus:border-white/30"
               />
               {f.help && <div className="mt-1 text-[10px] text-zinc-500">{f.help}</div>}
             </div>
           ))}
 
-          {isOAuth && (
-            <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3 text-xs text-zinc-300">
-              This integration uses OAuth. Clicking <span className="font-semibold text-white">Connect</span> opens a secure sign-in window with {integration.name}. Only minimum required scopes are requested.
+          {error && (
+            <div className="rounded-xl border border-red-400/40 bg-red-500/10 p-3 text-xs text-red-200">
+              <div className="flex items-center gap-1.5 mb-1 font-mono uppercase tracking-wider">
+                <AlertTriangle className="h-3.5 w-3.5" /> Connection rejected
+              </div>
+              <div className="break-words">{error}</div>
+            </div>
+          )}
+
+          {connected && sample && Object.keys(sample).length > 0 && (
+            <div className="rounded-xl border p-3" style={{ borderColor: `${accent}55`, background: `${accent}11` }}>
+              <div className="flex items-center gap-1.5 mb-2">
+                <CheckCircle2 className="h-3.5 w-3.5" style={{ color: accent }} />
+                <div className="text-[10px] uppercase tracking-wider font-mono font-semibold" style={{ color: accent }}>
+                  Live data pulled from {integration.name}
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-[11px] font-mono">
+                {Object.entries(sample).map(([k, v]) => (
+                  <div key={k} className="min-w-0">
+                    <div className="text-[9px] uppercase tracking-wider text-zinc-500">{k}</div>
+                    <div className="text-white truncate">{Array.isArray(v) ? v.join(", ") : String(v ?? "—")}</div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -197,15 +272,15 @@ export default function IntegrationConnectModal({
               </div>
             </div>
             <div className="text-[11px] text-zinc-400 leading-relaxed">
-              Credentials are encrypted at rest and only used by this agent. You can disconnect at any time.
+              Credentials live in your private workspace (row-level secured) and are only used by this agent.
             </div>
           </div>
         </div>
 
         <footer className="flex items-center justify-end gap-2 p-4 border-t border-white/5 bg-black/30">
           {connected && (
-            <button onClick={handleDisconnect}
-              className="px-3 py-2 rounded-lg text-xs font-semibold text-red-300 border border-red-400/30 hover:bg-red-400/10">
+            <button onClick={handleDisconnect} disabled={saving}
+              className="px-3 py-2 rounded-lg text-xs font-semibold text-red-300 border border-red-400/30 hover:bg-red-400/10 disabled:opacity-50">
               Disconnect
             </button>
           )}
@@ -215,12 +290,12 @@ export default function IntegrationConnectModal({
           </button>
           <button
             onClick={handleConnect}
-            disabled={saving}
+            disabled={saving || loading}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold text-black disabled:opacity-50"
             style={{ background: `linear-gradient(135deg, ${accent}, #22d3ee)`, boxShadow: `0 8px 24px -8px ${accent}99` }}
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
-            {connected ? "Update connection" : `Connect ${integration.name}`}
+            {connected ? "Re-verify connection" : `Connect ${integration.name}`}
           </button>
         </footer>
       </div>
