@@ -3,11 +3,12 @@
 // supported integrations (Shopify, QuickBooks, Xero, Stripe, GA4, …). From the
 // hub, each row opens the per-integration connect form (API keys, store URLs,
 // tokens, OAuth one-clicks).
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Plug, KeyRound, Webhook, ShieldCheck, Lock, CheckCircle2, X, Search, Sparkles,
 } from "lucide-react";
 import IntegrationConnectModal from "./IntegrationConnectModal";
+import { supabase } from "@/integrations/supabase/client";
 
 type Integration = {
   name: string;
