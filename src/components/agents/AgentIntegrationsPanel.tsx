@@ -108,9 +108,11 @@ function methodIcon(method: string) {
 
 export default function AgentIntegrationsPanel({
   manifest,
+  agentId,
   accent = "#34d399",
 }: {
   manifest: { name?: string; goal?: string; integrations?: IntegrationsSpec; role?: string };
+  agentId?: string | null;
   accent?: string;
 }) {
   const spec = useMemo<IntegrationsSpec>(() => {
@@ -126,18 +128,18 @@ export default function AgentIntegrationsPanel({
   const [query, setQuery] = useState("");
   const [connectedNames, setConnectedNames] = useState<Set<string>>(new Set());
 
-  useEffect(() => {
-    const refresh = () => {
-      const s = new Set<string>();
-      for (const it of spec.integrations) {
-        if (localStorage.getItem(`nazai:integration:${it.name}`)) s.add(it.name);
-      }
-      setConnectedNames(s);
-    };
-    refresh();
-    window.addEventListener("storage", refresh);
-    return () => window.removeEventListener("storage", refresh);
-  }, [spec.integrations, openIntegration, hubOpen]);
+  const refresh = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setConnectedNames(new Set()); return; }
+    const { data, error } = await supabase.functions.invoke("integration-connect", {
+      body: { action: "list", agentId: agentId || null },
+    });
+    if (error || !data) return;
+    const rows = ((data as { integrations?: { provider: string; status: string }[] }).integrations) || [];
+    setConnectedNames(new Set(rows.filter((r) => r.status === "connected").map((r) => r.provider)));
+  }, [agentId]);
+
+  useEffect(() => { refresh(); }, [refresh, openIntegration, hubOpen]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
