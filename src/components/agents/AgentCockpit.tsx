@@ -164,6 +164,7 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
       {/* Business Integrations & Setup — every agent ships with concrete connect-your-tools guidance */}
       <AgentIntegrationsPanel
         manifest={manifest as unknown as { name?: string; goal?: string; integrations?: import("./AgentIntegrationsPanel").IntegrationsSpec; role?: string }}
+        agentId={agentId}
         accent={(manifest as unknown as { ui?: { accent?: string } })?.ui?.accent || "#34d399"}
       />
 

@@ -59,6 +59,48 @@ export type Database = {
           },
         ]
       }
+      agent_integrations: {
+        Row: {
+          agent_id: string | null
+          created_at: string
+          credentials: Json
+          id: string
+          last_error: string | null
+          last_verified_at: string | null
+          metadata: Json
+          provider: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          agent_id?: string | null
+          created_at?: string
+          credentials?: Json
+          id?: string
+          last_error?: string | null
+          last_verified_at?: string | null
+          metadata?: Json
+          provider: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          agent_id?: string | null
+          created_at?: string
+          credentials?: Json
+          id?: string
+          last_error?: string | null
+          last_verified_at?: string | null
+          metadata?: Json
+          provider?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       agent_memory: {
         Row: {
           agent_id: string
