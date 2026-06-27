@@ -308,8 +308,10 @@ export default function AgentIntegrationsPanel({
       {openIntegration && (
         <IntegrationConnectModal
           integration={openIntegration}
+          agentId={agentId || null}
           accent={accent}
           onClose={() => setOpenIntegration(null)}
+          onChange={refresh}
         />
       )}
     </section>
