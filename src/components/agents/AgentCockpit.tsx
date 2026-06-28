@@ -103,8 +103,28 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
     }
   }, [events]);
 
+  const [needsIntegrations, setNeedsIntegrations] = useState(false);
+
+  const checkIntegrations = useCallback(async (): Promise<boolean> => {
+    try {
+      const { data, error } = await supabase.functions.invoke("integration-connect", {
+        body: { action: "list", agentId },
+      });
+      if (error) return false;
+      const rows = ((data as { integrations?: { status: string }[] }).integrations) || [];
+      return rows.some((r) => r.status === "connected");
+    } catch {
+      return false;
+    }
+  }, [agentId]);
+
   const runNow = async () => {
     if (running) return;
+    const hasIntegrations = await checkIntegrations();
+    if (!hasIntegrations) {
+      setNeedsIntegrations(true);
+      return;
+    }
     setRunning(true);
     setLastRunStatus("running");
     try {
