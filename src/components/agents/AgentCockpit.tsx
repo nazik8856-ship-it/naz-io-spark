@@ -153,7 +153,7 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
   const statusPill = running
     ? { bg: "bg-cyan-400/15", text: "text-cyan-300", border: "border-cyan-400/40", label: "RUNNING", pulse: true }
     : lastRunStatus === "error"
-    ? { bg: "bg-red-400/15", text: "text-red-300", border: "border-red-400/40", label: "ERROR", pulse: false }
+    ? { bg: "bg-amber-400/15", text: "text-amber-300", border: "border-amber-400/40", label: "NEEDS SETUP", pulse: false }
     : { bg: "bg-emerald-400/15", text: "text-emerald-300", border: "border-emerald-400/40", label: "ACTIVE", pulse: false };
 
   return (
