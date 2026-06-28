@@ -188,6 +188,58 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
         accent={(manifest as unknown as { ui?: { accent?: string } })?.ui?.accent || "#34d399"}
       />
 
+      {needsIntegrations && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.75)", backdropFilter: "blur(10px)" }}
+          onClick={() => setNeedsIntegrations(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="relative w-full max-w-md rounded-3xl overflow-hidden p-6"
+            style={{
+              background: "linear-gradient(135deg, rgba(52,211,153,0.08), rgba(34,211,238,0.04)), #08090c",
+              border: "1px solid rgba(52,211,153,0.35)",
+              boxShadow: "0 40px 120px -40px rgba(52,211,153,0.5)",
+            }}
+          >
+            <button
+              onClick={() => setNeedsIntegrations(false)}
+              className="absolute top-3 right-3 text-zinc-400 hover:text-white p-1 rounded-md hover:bg-white/5"
+            >
+              <X className="h-5 w-5" />
+            </button>
+            <div className="h-12 w-12 rounded-2xl flex items-center justify-center mb-4"
+              style={{ background: "linear-gradient(135deg, #34d399, #22d3ee)", boxShadow: "0 8px 24px -8px rgba(52,211,153,0.6)" }}>
+              <Plug className="h-6 w-6 text-black" />
+            </div>
+            <div className="text-[10px] uppercase tracking-[0.24em] font-mono text-emerald-300 mb-1">Action required</div>
+            <h3 className="text-xl font-bold text-white mb-2">Connect a business tool first</h3>
+            <p className="text-sm text-zinc-400 leading-relaxed mb-5">
+              This agent needs at least one connected system (CRM, mailbox, store, payments, analytics…) to run against real data. Pick one below and paste your credentials — takes under a minute.
+            </p>
+            <button
+              onClick={() => {
+                setNeedsIntegrations(false);
+                window.dispatchEvent(
+                  new CustomEvent("nazai:open-integrations-hub", { detail: { agentId } }),
+                );
+              }}
+              className="w-full inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-sm font-bold text-black"
+              style={{ background: "linear-gradient(135deg, #34d399, #22d3ee)", boxShadow: "0 14px 36px -12px rgba(52,211,153,0.6)" }}
+            >
+              <Plug className="h-4 w-4" />
+              Choose tools to connect
+            </button>
+            <button
+              onClick={() => setNeedsIntegrations(false)}
+              className="w-full mt-2 px-4 py-2 rounded-lg text-xs text-zinc-400 hover:text-white"
+            >
+              Not now
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
