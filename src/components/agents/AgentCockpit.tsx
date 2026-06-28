@@ -81,25 +81,34 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
   }, [events.length]);
 
   // Derive status from the most recent run's events.
-  // A run that contained ANY error/tool_error stays flagged as ERROR even after it "finishes",
-  // so transient failures don't silently flip the pill back to ACTIVE.
+  // We only flag ERROR when the latest run finished AND produced no usable output
+  // (i.e. errored before any reasoning/action/finished step). Transient tool
+  // errors during an otherwise-successful run no longer stick the pill on ERROR.
   useEffect(() => {
-    if (!events.length) return;
-    // Find boundary of the latest run
+    if (!events.length) {
+      setRunning(false);
+      setLastRunStatus("");
+      return;
+    }
     let startIdx = 0;
     for (let i = events.length - 1; i >= 0; i--) {
       if (events[i].kind === "run_started") { startIdx = i; break; }
     }
     const slice = events.slice(startIdx);
-    const hasError = slice.some((e) => e.kind === "error" || e.kind === "tool_error" || e.kind === "guardrail_block");
     const finished = slice.some((e) => e.kind === "finished");
+    const hasProgress = slice.some((e) =>
+      ["reasoning", "tool_call", "tool_result", "action", "finished"].includes(e.kind),
+    );
+    const hardError = slice.some((e) => e.kind === "error" || e.kind === "guardrail_block");
     const last = events[events.length - 1];
-    if (last.kind === "run_started" || (!finished && slice.length > 0)) {
+
+    if (last.kind === "run_started" || (!finished && slice.length > 0 && last.kind !== "error")) {
       setRunning(true);
-      if (hasError) setLastRunStatus("error");
-    } else if (finished) {
+    } else {
       setRunning(false);
-      setLastRunStatus(hasError ? "error" : "completed");
+      if (finished && hasProgress) setLastRunStatus("completed");
+      else if (hardError && !hasProgress) setLastRunStatus("error");
+      else setLastRunStatus("completed");
     }
   }, [events]);
 
