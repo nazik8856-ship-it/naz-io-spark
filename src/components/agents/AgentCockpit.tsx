@@ -176,10 +176,14 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
             Blueprint
           </button>
         )}
-        <span className={`ml-auto inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-mono font-bold border ${statusPill.bg} ${statusPill.text} ${statusPill.border}`}>
+        <button
+          onClick={() => lastRunStatus === "error" && setLastRunStatus("")}
+          className={`ml-auto inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-mono font-bold border ${statusPill.bg} ${statusPill.text} ${statusPill.border} ${lastRunStatus === "error" ? "cursor-pointer hover:opacity-80" : "cursor-default"}`}
+          title={lastRunStatus === "error" ? "Click to dismiss. Connect a business tool, then Run Now." : undefined}
+        >
           <span className={`h-1.5 w-1.5 rounded-full ${statusPill.text.replace("text-", "bg-")} ${statusPill.pulse ? "animate-pulse" : ""}`} />
           {statusPill.label}
-        </span>
+        </button>
       </div>
 
       {/* Bespoke per-agent generated dashboard */}
