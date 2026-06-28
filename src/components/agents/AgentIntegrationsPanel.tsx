@@ -141,6 +141,18 @@ export default function AgentIntegrationsPanel({
 
   useEffect(() => { refresh(); }, [refresh, openIntegration, hubOpen]);
 
+  // Allow other components (e.g. AgentCockpit's "Run Now" gating modal) to open
+  // the hub via a window event, so users can jump straight from a runtime
+  // prompt into the connect flow.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ agentId?: string }>).detail;
+      if (!detail?.agentId || detail.agentId === agentId) setHubOpen(true);
+    };
+    window.addEventListener("nazai:open-integrations-hub", handler as EventListener);
+    return () => window.removeEventListener("nazai:open-integrations-hub", handler as EventListener);
+  }, [agentId]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return spec.integrations;
