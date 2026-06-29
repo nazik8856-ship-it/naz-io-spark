@@ -57,6 +57,14 @@ export default function GeneratedAgentDashboard({
   const stats = useMemo(() => deriveStats(events), [events]);
   const isLive = events.length > 0 && !events.some((e) => e.kind === "finished");
 
+  // Live demo pulse — rotates synthetic activity every 6s so empty sections feel alive.
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 6000);
+    return () => clearInterval(id);
+  }, []);
+  const demo = useMemo(() => buildDemoEvents(manifest, tick), [manifest, tick]);
+
   return (
     <div
       className="space-y-5"
