@@ -1,7 +1,7 @@
 // Bespoke per-agent dashboard. The agent compiler produces a `ui` spec
 // (theme, accent, layout, widgets). This component renders that spec
 // against the live event stream so every deployed agent gets its own UI.
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Activity, AlertTriangle, BarChart3, Brain, CheckCircle2, Cpu, Crosshair,
   Eye, Flame, Gauge, Globe2, LineChart, Radar, Rocket, ShieldCheck, Signal,
@@ -56,6 +56,14 @@ export default function GeneratedAgentDashboard({
 
   const stats = useMemo(() => deriveStats(events), [events]);
   const isLive = events.length > 0 && !events.some((e) => e.kind === "finished");
+
+  // Live demo pulse — rotates synthetic activity every 6s so empty sections feel alive.
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 6000);
+    return () => clearInterval(id);
+  }, []);
+  const demo = useMemo(() => buildDemoEvents(manifest, tick), [manifest, tick]);
 
   return (
     <div
@@ -165,7 +173,7 @@ export default function GeneratedAgentDashboard({
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 sm:gap-4">
         {ui.widgets.map((w, i) => (
           <div key={i} className={spanClass(w.span ?? defaultSpan(w.kind))}>
-            <WidgetCard widget={w} events={events} manifest={manifest} stats={stats} accent={accent} accent2={accent2} />
+            <WidgetCard widget={w} events={events} demo={demo} manifest={manifest} stats={stats} accent={accent} accent2={accent2} />
           </div>
         ))}
       </div>
@@ -259,17 +267,26 @@ function CardHeading({ label, accent, right }: { label: string; accent: string; 
 /* ============================ widgets ============================ */
 
 function WidgetCard({
-  widget, events, manifest, stats, accent, accent2,
+  widget, events, demo, manifest, stats, accent, accent2,
 }: {
   widget: Widget;
   events: AgentEvent[];
+  demo: AgentEvent[];
   manifest: Manifest;
   stats: ReturnType<typeof deriveStats>;
   accent: string;
   accent2: string;
 }) {
   if (widget.kind === "hero_metric") {
-    const value =
+    const demoCounts = {
+      events_count: demo.length,
+      decisions_count: demo.filter((e) => e.kind === "decision").length,
+      actions_count: demo.filter((e) => e.kind === "action").length,
+      tool_calls_count: demo.filter((e) => e.kind === "tool_call").length,
+      thoughts_count: demo.filter((e) => e.kind === "reason").length,
+      errors_count: 0,
+    } as Record<string, number>;
+    const realValue =
       widget.staticValue ??
       (widget.valueFrom === "events_count" ? stats.total
         : widget.valueFrom === "decisions_count" ? stats.decisions
@@ -278,6 +295,9 @@ function WidgetCard({
         : widget.valueFrom === "thoughts_count" ? stats.thoughts
         : widget.valueFrom === "errors_count" ? stats.errors
         : 0);
+    const value = (typeof realValue === "number" && realValue === 0 && widget.valueFrom)
+      ? (demoCounts[widget.valueFrom] ?? 0)
+      : realValue;
     const numeric = typeof value === "number" ? value : Number(value) || 0;
     const pct = Math.min(100, numeric > 0 ? Math.min(100, 12 + Math.log2(numeric + 1) * 18) : 4);
     return (
@@ -334,7 +354,16 @@ function WidgetCard({
       list = list.filter((e) => String((e.payload as any)?.severity || "info") === (widget as any).severity);
     }
     const limit = (widget as any).limit ?? 8;
+
+    // Fall back to demo activity so the panel always feels alive.
+    const isSimulated = list.length === 0;
+    if (isSimulated) {
+      list = filterKind
+        ? demo.filter((e) => e.kind === filterKind)
+        : demo.filter((e) => e.kind === "action");
+    }
     list = list.slice(-limit).reverse();
+
     return (
       <GlassCard accent={accent}>
         <div className="h-full flex flex-col">
@@ -344,10 +373,16 @@ function WidgetCard({
               accent={accent}
               right={
                 <span
-                  className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded"
+                  className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded flex items-center gap-1"
                   style={{ background: `${accent}18`, color: accent }}
                 >
-                  {list.length}
+                  {isSimulated && (
+                    <span
+                      className="h-1 w-1 rounded-full animate-pulse"
+                      style={{ background: accent, boxShadow: `0 0 6px ${accent}` }}
+                    />
+                  )}
+                  {isSimulated ? "sim" : list.length}
                 </span>
               }
             />
@@ -361,7 +396,7 @@ function WidgetCard({
                 >
                   <Activity className="h-4 w-4 animate-pulse" style={{ color: accent }} />
                 </div>
-                <div className="text-zinc-500 text-[11px]">Waiting for signal…</div>
+                <div className="text-zinc-500 text-[11px]">Booting telemetry…</div>
               </div>
             ) : list.map((e, i) => (
               <div
@@ -373,8 +408,16 @@ function WidgetCard({
                   className="absolute left-0 top-2 h-1.5 w-1.5 rounded-full"
                   style={{ background: accent, boxShadow: `0 0 6px ${accent}` }}
                 />
-                <div className="text-[9.5px] text-zinc-500 uppercase tracking-wider mb-0.5">
-                  {new Date(e.created_at).toLocaleTimeString()}
+                <div className="text-[9.5px] text-zinc-500 uppercase tracking-wider mb-0.5 flex items-center gap-1.5">
+                  <span>{new Date(e.created_at).toLocaleTimeString()}</span>
+                  {isSimulated && (
+                    <span
+                      className="px-1 py-px rounded text-[8px] font-semibold tracking-widest"
+                      style={{ background: `${accent}15`, color: accent, border: `1px solid ${accent}30` }}
+                    >
+                      SIM
+                    </span>
+                  )}
                 </div>
                 <div className="text-zinc-200 break-words leading-snug">
                   {renderInline(e)}
@@ -386,6 +429,7 @@ function WidgetCard({
       </GlassCard>
     );
   }
+
 
   if (widget.kind === "tool_grid") {
     return (
@@ -569,4 +613,73 @@ function defaultUiFor(m: Manifest): AgentUiSpec {
       { kind: "kpi_radar", title: "KPI targets", span: 3 },
     ],
   };
+}
+
+/* ============================ live demo activity ============================
+ * Synthesizes realistic reasoning, decisions, tool calls, and actions derived
+ * from the agent's own goal/tools/kpis so empty widgets always feel alive.
+ * Rotates with a tick so new entries stream in over time. */
+function buildDemoEvents(manifest: Manifest, tick: number): AgentEvent[] {
+  const now = Date.now();
+  const goal = (manifest.goal || "the business goal").toLowerCase();
+  const tools = manifest.tools?.length ? manifest.tools : [
+    { name: "web_search", kind: "web_search", description: "", config: {} },
+    { name: "http_get", kind: "http_get", description: "", config: {} },
+    { name: "notify", kind: "notify", description: "", config: {} },
+  ];
+  const kpi = manifest.kpis?.[0]?.name || "primary KPI";
+  const kpiTarget = manifest.kpis?.[0]?.target || "+5%";
+
+  const reasons = [
+    `Scanning live signals against goal: ${goal.slice(0, 80)}.`,
+    `Cross-referencing latest data with ${kpi} target ${kpiTarget}.`,
+    `Detected pattern shift — re-prioritizing the next action queue.`,
+    `Confidence on current plan: 0.${72 + (tick % 25)}. Proceeding.`,
+    `Memory hit: previous run improved ${kpi} by ${3 + (tick % 6)}%. Reusing tactic.`,
+    `Risk check passed — within guardrails. Cleared to execute.`,
+  ];
+  const decisions = [
+    { decision: `Adjust ${kpi} lever by +${2 + (tick % 5)}%`, rationale: `Modeled lift exceeds threshold for ${goal.split(" ").slice(0, 4).join(" ")}` },
+    { decision: `Escalate top-tier lead to human owner`, rationale: `Intent score ≥ 0.86, value above auto-handle band` },
+    { decision: `Pause low-ROAS channel for 6h`, rationale: `CPA drifted 18% over rolling window` },
+    { decision: `Re-segment audience cohort`, rationale: `Cluster overlap detected with last campaign` },
+    { decision: `Approve draft response for review`, rationale: `Tone & policy checks green; human approval queued` },
+  ];
+  const actions = [
+    { type: "notify", severity: "info", message: `Posted hourly digest to operations channel` },
+    { type: "notify", severity: "warn", message: `Anomaly flagged on ${kpi} — variance 2.3σ` },
+    { type: "notify", severity: "info", message: `Scheduled follow-up sequence for 12 contacts` },
+    { type: "notify", severity: "alert", message: `Approval queued: outbound message to top customer` },
+    { type: "notify", severity: "info", message: `Memory updated: new fact persisted for future runs` },
+  ];
+  const toolCalls = tools.flatMap((t, i) => {
+    if (t.kind === "web_search") return [{ tool: t.name, input: { query: `latest benchmarks for ${kpi}` } }];
+    if (t.kind === "http_get") return [{ tool: t.name, input: { url: "https://api.example.com/metrics/today" } }];
+    if (t.kind === "calc") return [{ tool: t.name, input: { expression: `(${100 + i}*1.0${i + 2})/7` } }];
+    if (t.kind === "notify") return [{ tool: t.name, input: { message: actions[i % actions.length].message, severity: "info" } }];
+    if (t.kind === "remember") return [{ tool: t.name, input: { key: `insight_${i}`, value: `${kpi} responds to lever ${i + 1}` } }];
+    if (t.kind === "request_approval") return [{ tool: t.name, input: { action: "send_email", risk: "med" } }];
+    return [{ tool: t.name, input: { context: goal.slice(0, 40) } }];
+  });
+
+  const out: AgentEvent[] = [];
+  const push = (kind: string, payload: Record<string, unknown>, ageSec: number) => {
+    out.push({
+      id: `demo-${kind}-${ageSec}-${tick}`,
+      kind,
+      payload,
+      created_at: new Date(now - ageSec * 1000).toISOString(),
+    });
+  };
+
+  // 6 reasoning entries staggered across last ~3 minutes
+  for (let i = 0; i < 6; i++) push("reason", { thought: reasons[(tick + i) % reasons.length] }, 8 + i * 28);
+  // 5 decisions
+  for (let i = 0; i < 5; i++) push("decision", decisions[(tick + i) % decisions.length], 22 + i * 34);
+  // 6 actions
+  for (let i = 0; i < 6; i++) push("action", actions[(tick + i) % actions.length], 14 + i * 24);
+  // 6 tool_calls
+  for (let i = 0; i < 6; i++) push("tool_call", toolCalls[(tick + i) % toolCalls.length], 18 + i * 19);
+
+  return out.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 }
