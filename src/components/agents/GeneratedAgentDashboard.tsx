@@ -267,10 +267,11 @@ function CardHeading({ label, accent, right }: { label: string; accent: string; 
 /* ============================ widgets ============================ */
 
 function WidgetCard({
-  widget, events, manifest, stats, accent, accent2,
+  widget, events, demo, manifest, stats, accent, accent2,
 }: {
   widget: Widget;
   events: AgentEvent[];
+  demo: AgentEvent[];
   manifest: Manifest;
   stats: ReturnType<typeof deriveStats>;
   accent: string;
