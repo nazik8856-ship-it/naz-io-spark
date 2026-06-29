@@ -652,7 +652,7 @@ function buildDemoEvents(manifest: Manifest, tick: number): AgentEvent[] {
     { type: "notify", severity: "alert", message: `Approval queued: outbound message to top customer` },
     { type: "notify", severity: "info", message: `Memory updated: new fact persisted for future runs` },
   ];
-  const toolCalls = tools.flatMap((t, i) => {
+  const toolCalls: { tool: string; input: Record<string, unknown> }[] = tools.flatMap((t, i) => {
     if (t.kind === "web_search") return [{ tool: t.name, input: { query: `latest benchmarks for ${kpi}` } }];
     if (t.kind === "http_get") return [{ tool: t.name, input: { url: "https://api.example.com/metrics/today" } }];
     if (t.kind === "calc") return [{ tool: t.name, input: { expression: `(${100 + i}*1.0${i + 2})/7` } }];
