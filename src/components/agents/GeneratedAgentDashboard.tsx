@@ -1,7 +1,7 @@
 // Bespoke per-agent dashboard. The agent compiler produces a `ui` spec
 // (theme, accent, layout, widgets). This component renders that spec
 // against the live event stream so every deployed agent gets its own UI.
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Activity, AlertTriangle, BarChart3, Brain, CheckCircle2, Cpu, Crosshair,
   Eye, Flame, Gauge, Globe2, LineChart, Radar, Rocket, ShieldCheck, Signal,
