@@ -614,3 +614,72 @@ function defaultUiFor(m: Manifest): AgentUiSpec {
     ],
   };
 }
+
+/* ============================ live demo activity ============================
+ * Synthesizes realistic reasoning, decisions, tool calls, and actions derived
+ * from the agent's own goal/tools/kpis so empty widgets always feel alive.
+ * Rotates with a tick so new entries stream in over time. */
+function buildDemoEvents(manifest: Manifest, tick: number): AgentEvent[] {
+  const now = Date.now();
+  const goal = (manifest.goal || "the business goal").toLowerCase();
+  const tools = manifest.tools?.length ? manifest.tools : [
+    { name: "web_search", kind: "web_search", description: "", config: {} },
+    { name: "http_get", kind: "http_get", description: "", config: {} },
+    { name: "notify", kind: "notify", description: "", config: {} },
+  ];
+  const kpi = manifest.kpis?.[0]?.name || "primary KPI";
+  const kpiTarget = manifest.kpis?.[0]?.target || "+5%";
+
+  const reasons = [
+    `Scanning live signals against goal: ${goal.slice(0, 80)}.`,
+    `Cross-referencing latest data with ${kpi} target ${kpiTarget}.`,
+    `Detected pattern shift — re-prioritizing the next action queue.`,
+    `Confidence on current plan: 0.${72 + (tick % 25)}. Proceeding.`,
+    `Memory hit: previous run improved ${kpi} by ${3 + (tick % 6)}%. Reusing tactic.`,
+    `Risk check passed — within guardrails. Cleared to execute.`,
+  ];
+  const decisions = [
+    { decision: `Adjust ${kpi} lever by +${2 + (tick % 5)}%`, rationale: `Modeled lift exceeds threshold for ${goal.split(" ").slice(0, 4).join(" ")}` },
+    { decision: `Escalate top-tier lead to human owner`, rationale: `Intent score ≥ 0.86, value above auto-handle band` },
+    { decision: `Pause low-ROAS channel for 6h`, rationale: `CPA drifted 18% over rolling window` },
+    { decision: `Re-segment audience cohort`, rationale: `Cluster overlap detected with last campaign` },
+    { decision: `Approve draft response for review`, rationale: `Tone & policy checks green; human approval queued` },
+  ];
+  const actions = [
+    { type: "notify", severity: "info", message: `Posted hourly digest to operations channel` },
+    { type: "notify", severity: "warn", message: `Anomaly flagged on ${kpi} — variance 2.3σ` },
+    { type: "notify", severity: "info", message: `Scheduled follow-up sequence for 12 contacts` },
+    { type: "notify", severity: "alert", message: `Approval queued: outbound message to top customer` },
+    { type: "notify", severity: "info", message: `Memory updated: new fact persisted for future runs` },
+  ];
+  const toolCalls = tools.flatMap((t, i) => {
+    if (t.kind === "web_search") return [{ tool: t.name, input: { query: `latest benchmarks for ${kpi}` } }];
+    if (t.kind === "http_get") return [{ tool: t.name, input: { url: "https://api.example.com/metrics/today" } }];
+    if (t.kind === "calc") return [{ tool: t.name, input: { expression: `(${100 + i}*1.0${i + 2})/7` } }];
+    if (t.kind === "notify") return [{ tool: t.name, input: { message: actions[i % actions.length].message, severity: "info" } }];
+    if (t.kind === "remember") return [{ tool: t.name, input: { key: `insight_${i}`, value: `${kpi} responds to lever ${i + 1}` } }];
+    if (t.kind === "request_approval") return [{ tool: t.name, input: { action: "send_email", risk: "med" } }];
+    return [{ tool: t.name, input: { context: goal.slice(0, 40) } }];
+  });
+
+  const out: AgentEvent[] = [];
+  const push = (kind: string, payload: Record<string, unknown>, ageSec: number) => {
+    out.push({
+      id: `demo-${kind}-${ageSec}-${tick}`,
+      kind,
+      payload,
+      created_at: new Date(now - ageSec * 1000).toISOString(),
+    });
+  };
+
+  // 6 reasoning entries staggered across last ~3 minutes
+  for (let i = 0; i < 6; i++) push("reason", { thought: reasons[(tick + i) % reasons.length] }, 8 + i * 28);
+  // 5 decisions
+  for (let i = 0; i < 5; i++) push("decision", decisions[(tick + i) % decisions.length], 22 + i * 34);
+  // 6 actions
+  for (let i = 0; i < 6; i++) push("action", actions[(tick + i) % actions.length], 14 + i * 24);
+  // 6 tool_calls
+  for (let i = 0; i < 6; i++) push("tool_call", toolCalls[(tick + i) % toolCalls.length], 18 + i * 19);
+
+  return out.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+}
