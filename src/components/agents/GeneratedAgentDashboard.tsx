@@ -354,7 +354,16 @@ function WidgetCard({
       list = list.filter((e) => String((e.payload as any)?.severity || "info") === (widget as any).severity);
     }
     const limit = (widget as any).limit ?? 8;
+
+    // Fall back to demo activity so the panel always feels alive.
+    const isSimulated = list.length === 0;
+    if (isSimulated) {
+      list = filterKind
+        ? demo.filter((e) => e.kind === filterKind)
+        : demo.filter((e) => e.kind === "action");
+    }
     list = list.slice(-limit).reverse();
+
     return (
       <GlassCard accent={accent}>
         <div className="h-full flex flex-col">
@@ -364,10 +373,16 @@ function WidgetCard({
               accent={accent}
               right={
                 <span
-                  className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded"
+                  className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded flex items-center gap-1"
                   style={{ background: `${accent}18`, color: accent }}
                 >
-                  {list.length}
+                  {isSimulated && (
+                    <span
+                      className="h-1 w-1 rounded-full animate-pulse"
+                      style={{ background: accent, boxShadow: `0 0 6px ${accent}` }}
+                    />
+                  )}
+                  {isSimulated ? "sim" : list.length}
                 </span>
               }
             />
@@ -381,7 +396,7 @@ function WidgetCard({
                 >
                   <Activity className="h-4 w-4 animate-pulse" style={{ color: accent }} />
                 </div>
-                <div className="text-zinc-500 text-[11px]">Waiting for signal…</div>
+                <div className="text-zinc-500 text-[11px]">Booting telemetry…</div>
               </div>
             ) : list.map((e, i) => (
               <div
@@ -393,8 +408,16 @@ function WidgetCard({
                   className="absolute left-0 top-2 h-1.5 w-1.5 rounded-full"
                   style={{ background: accent, boxShadow: `0 0 6px ${accent}` }}
                 />
-                <div className="text-[9.5px] text-zinc-500 uppercase tracking-wider mb-0.5">
-                  {new Date(e.created_at).toLocaleTimeString()}
+                <div className="text-[9.5px] text-zinc-500 uppercase tracking-wider mb-0.5 flex items-center gap-1.5">
+                  <span>{new Date(e.created_at).toLocaleTimeString()}</span>
+                  {isSimulated && (
+                    <span
+                      className="px-1 py-px rounded text-[8px] font-semibold tracking-widest"
+                      style={{ background: `${accent}15`, color: accent, border: `1px solid ${accent}30` }}
+                    >
+                      SIM
+                    </span>
+                  )}
                 </div>
                 <div className="text-zinc-200 break-words leading-snug">
                   {renderInline(e)}
@@ -406,6 +429,7 @@ function WidgetCard({
       </GlassCard>
     );
   }
+
 
   if (widget.kind === "tool_grid") {
     return (
