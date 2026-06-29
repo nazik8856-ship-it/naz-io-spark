@@ -173,7 +173,7 @@ export default function GeneratedAgentDashboard({
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 sm:gap-4">
         {ui.widgets.map((w, i) => (
           <div key={i} className={spanClass(w.span ?? defaultSpan(w.kind))}>
-            <WidgetCard widget={w} events={events} manifest={manifest} stats={stats} accent={accent} accent2={accent2} />
+            <WidgetCard widget={w} events={events} demo={demo} manifest={manifest} stats={stats} accent={accent} accent2={accent2} />
           </div>
         ))}
       </div>
