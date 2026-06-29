@@ -278,7 +278,15 @@ function WidgetCard({
   accent2: string;
 }) {
   if (widget.kind === "hero_metric") {
-    const value =
+    const demoCounts = {
+      events_count: demo.length,
+      decisions_count: demo.filter((e) => e.kind === "decision").length,
+      actions_count: demo.filter((e) => e.kind === "action").length,
+      tool_calls_count: demo.filter((e) => e.kind === "tool_call").length,
+      thoughts_count: demo.filter((e) => e.kind === "reason").length,
+      errors_count: 0,
+    } as Record<string, number>;
+    const realValue =
       widget.staticValue ??
       (widget.valueFrom === "events_count" ? stats.total
         : widget.valueFrom === "decisions_count" ? stats.decisions
@@ -287,6 +295,9 @@ function WidgetCard({
         : widget.valueFrom === "thoughts_count" ? stats.thoughts
         : widget.valueFrom === "errors_count" ? stats.errors
         : 0);
+    const value = (typeof realValue === "number" && realValue === 0 && widget.valueFrom)
+      ? (demoCounts[widget.valueFrom] ?? 0)
+      : realValue;
     const numeric = typeof value === "number" ? value : Number(value) || 0;
     const pct = Math.min(100, numeric > 0 ? Math.min(100, 12 + Math.log2(numeric + 1) * 18) : 4);
     return (
