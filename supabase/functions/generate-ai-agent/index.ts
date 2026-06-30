@@ -32,11 +32,11 @@ Required structure (use these EXACT headings verbatim, including the \`**\` mark
 1. **Agent Name**: <name that reflects the actual use case>
 2. **Description**: <2-4 sentences. If prompt was sparse, lead with one "Assumed: …" sentence, then describe what this autonomous agent does end-to-end>
 3. **Primary Goal**: <one sentence tied to the desired outcome the agent autonomously pursues>
-4. **Autonomous Capabilities**: <5-7 bullets. Each bullet names a concrete tool, API, data source, or action the agent uses on its own (e.g. "Polls Stripe API every 15 min for refund anomalies", "Posts to Slack #ops when inventory < 10 units")>
-5. **Step-by-Step Workflow**: <numbered 5-8 steps showing the autonomous loop: trigger → reasoning → tool call → decision → action → logging. Include the trigger type (schedule/webhook/event) in step 1>
+4. **Autonomous Capabilities**: <5-7 bullets of REAL workflow automation. Each bullet MUST follow the pattern "MONITORS <data source> → IF <rule/condition> → THEN <action via integration>". Use concrete tools the business uses (Shopify, Stripe, QuickBooks, HubSpot, Google Analytics, Slack, Gmail, Xero, WooCommerce, Klaviyo, Meta Ads, etc.). Examples: "MONITORS Shopify orders every 10 min → IF inventory of any SKU < reorder point → THEN draft PO in QuickBooks and Slack #ops for approval"; "MONITORS Stripe payouts daily → IF cash runway < 60 days → THEN pause Meta Ads campaigns and alert founder">
+5. **Step-by-Step Workflow**: <numbered 5-8 steps describing the daily/weekly automated workflow end-to-end. Each step names a concrete trigger (cron / webhook / event), the integration it touches, the decision rule, and the executed action. Step 1 = trigger + integration polled. Final step = log/notify outcome. This must read like a real ops runbook a client could hand to a junior employee.>
 6. **Guardrails & Safety**: <what it must never do without approval, data/privacy rules, human-in-the-loop checkpoints>
-7. **Deployment Options**: <where this specific agent runs / integrates: cron, webhook listener, chat surface, embedded widget, etc.>
-8. **Expected Impact**: <measurable outcomes for the scenario (time saved, alerts caught, conversions lifted)>
+7. **Deployment Options**: <where this specific agent runs / integrates: cron, webhook listener, chat surface, embedded widget, etc. Name the configurable triggers/schedules the user can set>
+8. **Expected Impact**: <measurable outcomes for the scenario (time saved per week, alerts caught, conversions lifted, $ recovered)>
 
 Use these exact headings verbatim, including the ** markers and the trailing colon. Do not renumber, rename, or merge sections.`;
 
