@@ -287,6 +287,15 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
     }
     if (!normalized.kpis.length) normalized.kpis = blueprint.kpis;
     if (!normalized.guardrails.length) normalized.guardrails = blueprint.guardrails;
+    if (!normalized.automations || normalized.automations.length === 0) normalized.automations = blueprint.automations;
+    if (!normalized.workflowSummary) normalized.workflowSummary = blueprint.workflowSummary;
+    // Ensure automation widgets are present in the UI spec
+    if (normalized.ui && Array.isArray((normalized.ui as Record<string, unknown>).widgets)) {
+      const widgets = (normalized.ui as Record<string, unknown>).widgets as Record<string, unknown>[];
+      const kinds = new Set(widgets.map((w) => String(w.kind)));
+      if (!kinds.has("workflow_summary")) widgets.unshift({ kind: "workflow_summary", title: "How this agent automates your workflow", span: 6 });
+      if (!kinds.has("automation_rules")) widgets.splice(1, 0, { kind: "automation_rules", title: "Active automations", span: 6 });
+    }
 
     let agentId: string | null = null;
     if (save) {
