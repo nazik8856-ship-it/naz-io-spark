@@ -88,9 +88,103 @@ serve(async (req) => {
     const cfg = pickGateway();
     if (!cfg) return errorResponse(500, "No AI key configured (OPENAI_API_KEY or LOVABLE_API_KEY)");
 
-    const { spec, messages, mode } = await req.json();
+    const { spec, messages, mode, instruction } = await req.json();
     const cleanSpec = cleanAgentSpecOutput(String(spec || ""));
     if (!cleanSpec) return errorResponse(400, "spec required");
+
+    // EDIT mode: NazAI analyzes the request and rewrites the agent spec.
+    if (mode === "edit") {
+      const userInstruction = String(instruction || "").trim();
+      if (!userInstruction) return errorResponse(400, "instruction required for edit mode");
+
+      const recentTurns = Array.isArray(messages)
+        ? messages.slice(-6).map((m: { role: string; content: string }) =>
+            `${m.role === "assistant" ? "Agent" : "User"}: ${String(m.content ?? "").slice(0, 600)}`
+          ).join("\n")
+        : "";
+
+      const editResp = await callGateway(
+        {
+          model: cfg.model,
+          messages: [
+            {
+              role: "system",
+              content: `You are NazAI Agent Forge — the AGENT EDITOR. The user is chatting with their deployed AI agent and has asked NazAI to IMPROVE/MODIFY the agent itself (not to perform a task as the agent).
+
+Your job:
+1. Read the current 8-section agent specification carefully.
+2. Apply the user's requested change precisely — improve capabilities, tighten guardrails, add tools, change KPIs, rename, broaden scope, etc.
+3. Return STRICT JSON only (no fences, no commentary) with these keys:
+   - "finalSpec": the COMPLETE revised 8-section spec (same exact 8 numbered headings with ** markers and trailing colons). Keep every section concrete and operational. Preserve the original agent's identity unless the user explicitly asked to change it.
+   - "name": short agent name from section 1.
+   - "summary": 1-3 short bullet points (markdown) describing exactly what you changed.
+
+Hard rules:
+- Output ONLY the JSON object.
+- Never use the words: forging, detected, brand-new, draft, plan, planned, blueprint, proposal, offline fallback.
+- The spec stays in present tense as a deployed system already running.
+- The 8 headings must appear verbatim:
+1. **Agent Name**:
+2. **Description**:
+3. **Primary Goal**:
+4. **Autonomous Capabilities**:
+5. **Step-by-Step Workflow**:
+6. **Guardrails & Safety**:
+7. **Deployment Options**:
+8. **Expected Impact**:`,
+            },
+            {
+              role: "user",
+              content: `CURRENT AGENT SPEC:
+${cleanSpec}
+
+RECENT CHAT WITH THE AGENT (for context):
+${recentTurns || "(none)"}
+
+USER'S IMPROVEMENT REQUEST:
+${userInstruction}
+
+Return the JSON object with the fully revised spec.`,
+            },
+          ],
+          temperature: 0.4,
+          ...(cfg.supportsJsonObject ? { response_format: { type: "json_object" } } : {}),
+        },
+        cfg,
+      );
+
+      if (editResp.status === 429) return errorResponse(429, "Rate limit hit. Try again shortly.");
+      if (editResp.status === 402) return errorResponse(402, "AI credits exhausted.");
+      if (!editResp.ok) {
+        const t = await editResp.text().catch(() => "");
+        console.error("edit gateway error", editResp.status, t);
+        return errorResponse(500, "AI error");
+      }
+
+      const data = await editResp.json();
+      const raw = data?.choices?.[0]?.message?.content ?? "{}";
+      let parsed: { finalSpec?: string; name?: string; summary?: string } = {};
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        const m = raw.match(/\{[\s\S]*\}/);
+        if (m) {
+          try { parsed = JSON.parse(m[0]); } catch { /* noop */ }
+        }
+      }
+
+      const finalSpec = cleanAgentSpecOutput(String(parsed.finalSpec || ""));
+      if (!finalSpec) return errorResponse(500, "Editor returned no spec");
+      const name = (parsed.name || extractAgentName(finalSpec)).toString().slice(0, 60);
+      const summary = String(parsed.summary || "Updated the agent.").slice(0, 1200);
+
+      return new Response(
+        JSON.stringify({ finalSpec, name, summary, systemPrompt: deriveSystemPrompt(finalSpec) }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+
 
     const systemPrompt = deriveSystemPrompt(cleanSpec);
 
