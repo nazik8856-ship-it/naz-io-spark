@@ -173,14 +173,16 @@ Shape: {
     "widgets": [ /* 6-10 widgets, see allowed kinds */ ] }
 }
 
-Allowed widget kinds: hero_metric, live_thoughts, decision_log, action_timeline, tool_call_stream, alert_feed, tool_grid, kpi_radar, guardrail_panel, status_grid.
+Allowed widget kinds: hero_metric, live_thoughts, decision_log, action_timeline, tool_call_stream, alert_feed, tool_grid, kpi_radar, guardrail_panel, status_grid, automation_rules, workflow_summary.
 Allowed icons: brain, activity, wallet, gauge, signal, radar, terminal, rocket, eye, crosshair, shield, flame, sparkles, cpu, globe, line, bars, trending, zap, alert, check, wrench.
 
 Rules:
 - The agent MUST behave like a real digital employee of the given business — reference its name, industry, tone, audience in systemPrompt.
 - Include the role's required tools (remember, ask_user, request_approval) so the agent can persist learnings, ask the operator essentials, and queue approvals.
 - 2-4 guardrails. Mark requiresApproval=true for anything external/spend/messages.
-- 6-10 widgets tuned to the role's day-to-day surface (Sales: pipeline + approvals; Support: queue + drafts + escalations; etc.).
+- 6-10 widgets tuned to the role's day-to-day surface (Sales: pipeline + approvals; Support: queue + drafts + escalations; etc.). ALWAYS include one automation_rules widget and one workflow_summary widget so the operator sees how their workflow is automated.
+- workflowSummary: 2-4 sentences in plain English describing how the agent automates the operator's daily/weekly workflow end-to-end.
+- automations: 3-6 entries. Each is a real "MONITORS source → IF condition → THEN action" rule with concrete integrations (Shopify, Stripe, QuickBooks, HubSpot, Gmail, Slack, GA4, Meta Ads, Xero, Klaviyo, WooCommerce, Notion, etc.). Mark requiresApproval=true for anything that sends/charges/posts externally.
 - Never reveal it is an LLM. Always act in-character.`;
 
 serve(async (req) => {
