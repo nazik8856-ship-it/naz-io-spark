@@ -230,7 +230,9 @@ decisionPolicy: ${blueprint.decisionPolicy}
 default KPIs: ${JSON.stringify(blueprint.kpis)}
 default guardrails: ${JSON.stringify(blueprint.guardrails)}
 required tools include: ${blueprint.tools.join(", ")}
-default schedule: ${blueprint.schedule_label} (cron ${blueprint.schedule_cron})`;
+default schedule: ${blueprint.schedule_label} (cron ${blueprint.schedule_cron})
+workflow summary: ${blueprint.workflowSummary}
+default automations (REUSE these patterns, adapted to the business): ${JSON.stringify(blueprint.automations)}`;
 
     // Try the AI compile; if anything goes wrong, fall back to a deterministic
     // manifest built from the role blueprint so the agent ALWAYS appears.
