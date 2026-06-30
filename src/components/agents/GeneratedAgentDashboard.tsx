@@ -18,7 +18,9 @@ export type Widget =
   | { kind: "kpi_radar"; title: string; span?: number }
   | { kind: "status_grid"; title: string; items: { label: string; valueFrom: string }[]; span?: number }
   | { kind: "guardrail_panel"; title: string; span?: number }
-  | { kind: "tool_call_stream"; title: string; limit?: number; span?: number };
+  | { kind: "tool_call_stream"; title: string; limit?: number; span?: number }
+  | { kind: "automation_rules"; title: string; span?: number }
+  | { kind: "workflow_summary"; title: string; span?: number };
 
 export type AgentUiSpec = {
   theme?: "obsidian" | "cyber" | "terminal" | "market" | "command" | "lab";
@@ -29,12 +31,24 @@ export type AgentUiSpec = {
   widgets: Widget[];
 };
 
+export type Automation = {
+  name: string;
+  trigger: string;
+  source: string;
+  condition: string;
+  action: string;
+  integrations: string[];
+  requiresApproval?: boolean;
+};
+
 type AgentEvent = { id: string; kind: string; payload: Record<string, unknown>; created_at: string };
 type Manifest = {
   name: string; goal: string;
   tools: { name: string; description: string; kind: string; config: Record<string, unknown> }[];
   guardrails: { rule: string; requiresApproval: boolean }[];
   kpis: { name: string; target: string }[];
+  workflowSummary?: string;
+  automations?: Automation[];
   ui?: AgentUiSpec;
 };
 
