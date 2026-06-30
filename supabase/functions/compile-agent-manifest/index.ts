@@ -14,6 +14,16 @@ const corsHeaders = {
 const LOVABLE_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 const MODEL = "google/gemini-3-flash-preview";
 
+type Automation = {
+  name: string;
+  trigger: string;     // e.g. "Every 15 min" / "On Stripe webhook" / "Daily 07:00"
+  source: string;      // integration/data source it monitors
+  condition: string;   // the rule
+  action: string;      // what it executes
+  integrations: string[]; // tools touched
+  requiresApproval?: boolean;
+};
+
 const ROLE_LIBRARY: Record<string, {
   goal: string;
   decisionPolicy: string;
@@ -22,6 +32,8 @@ const ROLE_LIBRARY: Record<string, {
   kpis: { name: string; target: string }[];
   guardrails: { rule: string; requiresApproval: boolean }[];
   tools: string[]; // hint
+  workflowSummary: string;
+  automations: Automation[];
 }> = {
   sales_ops: {
     goal: "Find qualified prospects, draft personalized outreach, follow up on cadence, and keep a clean pipeline log.",
@@ -37,6 +49,14 @@ const ROLE_LIBRARY: Record<string, {
       { rule: "Never promise discounts above policy.", requiresApproval: true },
     ],
     tools: ["web_search", "http_get", "notify", "remember", "request_approval", "ask_user"],
+    workflowSummary:
+      "Every morning the agent pulls fresh prospect signals, scores them, drafts personalized outreach, and queues it for one-click approval. Throughout the day it watches replies and pipeline events, advances stages in your CRM, and nudges stalled deals — so the rep only handles humans, not data entry.",
+    automations: [
+      { name: "Daily prospect refresh", trigger: "Daily 09:00", source: "HubSpot / Apollo", condition: "New companies match ICP filters", action: "Enrich, score, and add 10 to today's outreach queue", integrations: ["HubSpot", "Apollo"] },
+      { name: "Reply-triggered stage move", trigger: "On Gmail webhook", source: "Gmail / Outlook", condition: "Positive intent reply detected", action: "Move deal to 'Engaged', notify owner in Slack", integrations: ["Gmail", "HubSpot", "Slack"] },
+      { name: "Stalled deal nudge", trigger: "Every 4h", source: "HubSpot deals", condition: "Deal idle > 7 days in stage", action: "Draft follow-up email for approval", integrations: ["HubSpot", "Gmail"], requiresApproval: true },
+      { name: "Pipeline hygiene", trigger: "Daily 18:00", source: "HubSpot", condition: "Missing close date or amount", action: "Patch fields from email thread + flag exceptions", integrations: ["HubSpot"] },
+    ],
   },
   support: {
     goal: "Triage inbound issues, classify urgency, draft brand-tone replies, escalate when needed.",
@@ -52,6 +72,14 @@ const ROLE_LIBRARY: Record<string, {
       { rule: "Escalate anything mentioning refunds, legal, or churn.", requiresApproval: true },
     ],
     tools: ["web_search", "notify", "remember", "request_approval", "ask_user"],
+    workflowSummary:
+      "The agent watches your inbox and helpdesk in real time. Every new ticket gets classified, tagged, and a brand-tone draft reply within minutes. Refund, legal, and churn signals jump straight to a human; everything else moves through one-click approval — keeping first-response times under 5 minutes around the clock.",
+    automations: [
+      { name: "Inbox triage", trigger: "Every 10 min", source: "Gmail / Zendesk / Intercom", condition: "New unread customer message", action: "Classify intent + urgency, draft reply, attach to ticket", integrations: ["Gmail", "Zendesk", "Intercom"] },
+      { name: "Refund risk escalation", trigger: "On new ticket", source: "Helpdesk", condition: "Keywords: refund, chargeback, lawyer, cancel", action: "Flag P1, notify on-call in Slack, draft empathetic hold reply", integrations: ["Slack", "Zendesk"], requiresApproval: true },
+      { name: "SLA breach watch", trigger: "Every 15 min", source: "Helpdesk", condition: "Ticket open > SLA target", action: "Re-prioritize queue and ping owner", integrations: ["Slack", "Zendesk"] },
+      { name: "Macro tuning", trigger: "Weekly Mon 08:00", source: "Resolved tickets", condition: "Repeated question (≥3 last week)", action: "Propose new macro/help-doc for approval", integrations: ["Notion", "Zendesk"], requiresApproval: true },
+    ],
   },
   marketing: {
     goal: "Maintain a content calendar, draft posts in brand tone, monitor mentions and SEO, and publish a weekly brief.",
@@ -67,6 +95,14 @@ const ROLE_LIBRARY: Record<string, {
       { rule: "Stay within stated brand tone and forbidden-topics list.", requiresApproval: false },
     ],
     tools: ["web_search", "http_get", "notify", "remember", "request_approval", "ask_user"],
+    workflowSummary:
+      "The agent runs your content engine on autopilot: it watches mentions and SEO movement daily, drafts 5+ posts per week in your brand tone, monitors ad performance, and pauses underperformers. Every Monday it ships a one-page brief with what shipped, what worked, and what's queued for approval.",
+    automations: [
+      { name: "Underperforming ad pause", trigger: "Every 1h", source: "Meta Ads / Google Ads", condition: "ROAS < target for 24h", action: "Pause adset, notify with diagnosis", integrations: ["Meta Ads", "Google Ads", "Slack"], requiresApproval: true },
+      { name: "Mention sweep", trigger: "Every 2h", source: "Web + X/Twitter", condition: "Brand mentioned", action: "Log sentiment, draft response for review", integrations: ["X", "Slack"] },
+      { name: "Content drafts", trigger: "Daily 07:00", source: "Calendar + trend feed", condition: "Empty slot in next 7 days", action: "Generate post draft in brand tone", integrations: ["Notion", "Buffer"], requiresApproval: true },
+      { name: "Weekly performance brief", trigger: "Mon 08:00", source: "GA4 + Ads + Social", condition: "Always", action: "Ship 1-page brief to founder", integrations: ["GA4", "Meta Ads", "Email"] },
+    ],
   },
   ops_finance: {
     goal: "Compute daily KPI digest, surface anomalies, send invoice/renewal reminders to the user.",
@@ -82,6 +118,15 @@ const ROLE_LIBRARY: Record<string, {
       { rule: "Flag any KPI change > 25% as an anomaly.", requiresApproval: false },
     ],
     tools: ["calc", "http_get", "notify", "remember", "request_approval", "ask_user"],
+    workflowSummary:
+      "Every morning the agent reconciles yesterday's sales, payouts, refunds, and inventory across Stripe, Shopify, and QuickBooks. It catches anomalies (>25% swings, low cash runway, overdue invoices, low stock) and either fixes them inside policy or drafts the action for one-click approval — closing the loop on daily ops without you opening a spreadsheet.",
+    automations: [
+      { name: "Daily cash & sales reconcile", trigger: "Daily 07:00", source: "Stripe + Shopify + QuickBooks", condition: "Always", action: "Post digest with revenue, refunds, top SKUs, anomalies", integrations: ["Stripe", "Shopify", "QuickBooks", "Slack"] },
+      { name: "Low stock reorder", trigger: "Every 30 min", source: "Shopify inventory", condition: "SKU < reorder point", action: "Draft PO in QuickBooks, ping ops", integrations: ["Shopify", "QuickBooks"], requiresApproval: true },
+      { name: "Overdue invoice nudge", trigger: "Daily 10:00", source: "QuickBooks / Xero", condition: "Invoice 7+ days overdue", action: "Draft polite reminder email", integrations: ["QuickBooks", "Gmail"], requiresApproval: true },
+      { name: "Cash-runway guardrail", trigger: "Daily 08:00", source: "Bank + Stripe", condition: "Runway < 60 days", action: "Pause discretionary ad spend, alert founder", integrations: ["Meta Ads", "Slack"], requiresApproval: true },
+      { name: "Price-elasticity nudge", trigger: "Weekly Sun 22:00", source: "Shopify + GA4", condition: "Conversion ↓ & margin headroom", action: "Propose ±5% price test for approval", integrations: ["Shopify", "GA4"], requiresApproval: true },
+    ],
   },
   custom: {
     goal: "Execute the operator's stated objective autonomously, asking the user only when essential.",
@@ -92,6 +137,13 @@ const ROLE_LIBRARY: Record<string, {
       { rule: "Never perform irreversible external actions without approval.", requiresApproval: true },
     ],
     tools: ["web_search", "http_get", "calc", "notify", "remember", "request_approval", "ask_user"],
+    workflowSummary:
+      "The agent runs on the schedule you set, monitors the data sources you connect, applies your rules, and either acts inside policy or queues the action for approval — turning manual checks into a hands-free loop.",
+    automations: [
+      { name: "Signal sweep", trigger: "Every 6h", source: "Connected tools", condition: "New events since last run", action: "Summarize, score, and route to the right next step", integrations: ["Slack", "Email"] },
+      { name: "Threshold alert", trigger: "Every 1h", source: "Connected KPIs", condition: "Metric crosses user-set threshold", action: "Notify operator with context + recommended action", integrations: ["Slack"] },
+      { name: "Weekly recap", trigger: "Mon 08:00", source: "Run history", condition: "Always", action: "Ship recap of decisions, actions, and wins", integrations: ["Email"] },
+    ],
   },
 };
 
