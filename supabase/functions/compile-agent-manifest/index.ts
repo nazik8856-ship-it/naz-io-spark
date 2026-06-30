@@ -441,6 +441,8 @@ function normalizeManifest(m: Record<string, unknown>): Manifest {
     })),
     guardrails: guardrails.slice(0, 6).map((g) => ({ rule: String(g.rule || "").slice(0, 300), requiresApproval: !!g.requiresApproval })),
     kpis: kpis.slice(0, 6).map((k) => ({ name: String(k.name || "").slice(0, 80), target: String(k.target || "").slice(0, 120) })),
+    workflowSummary: typeof m.workflowSummary === "string" ? (m.workflowSummary as string).slice(0, 600) : undefined,
+    automations: normalizeAutomations(m.automations),
     ui: normalizeUi(m.ui),
   };
 }
