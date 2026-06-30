@@ -594,6 +594,120 @@ function WidgetCard({
     );
   }
 
+  if (widget.kind === "workflow_summary") {
+    const summary = manifest.workflowSummary
+      || `${manifest.name} runs autonomously on a schedule you set, monitors the data sources you connect, applies your rules, and either acts inside policy or queues the action for one-click approval.`;
+    const triggers = manifest.automations?.map((a) => a.trigger) ?? [];
+    const uniqTriggers = Array.from(new Set(triggers)).slice(0, 4);
+    return (
+      <GlassCard accent={accent}>
+        <div className="p-4 sm:p-5 h-full flex flex-col gap-3">
+          <CardHeading
+            label={widget.title}
+            accent={accent}
+            right={
+              <span
+                className="text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded uppercase tracking-widest"
+                style={{ background: `${accent}18`, color: accent, border: `1px solid ${accent}33` }}
+              >
+                workflow
+              </span>
+            }
+          />
+          <p className="text-[12.5px] sm:text-sm text-zinc-200 leading-relaxed">
+            {summary}
+          </p>
+          {uniqTriggers.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              {uniqTriggers.map((t, i) => (
+                <span
+                  key={i}
+                  className="text-[10px] font-mono px-2 py-0.5 rounded-full"
+                  style={{
+                    background: `${accent2}14`, color: accent2, border: `1px solid ${accent2}33`,
+                  }}
+                >
+                  ⏱ {t}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      </GlassCard>
+    );
+  }
+
+  if (widget.kind === "automation_rules") {
+    const rules = manifest.automations ?? [];
+    return (
+      <GlassCard accent={accent}>
+        <div className="p-4 h-full flex flex-col">
+          <CardHeading
+            label={widget.title}
+            accent={accent}
+            right={
+              <span
+                className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded"
+                style={{ background: `${accent}18`, color: accent }}
+              >
+                {rules.length} active
+              </span>
+            }
+          />
+          {rules.length === 0 ? (
+            <div className="text-[11px] text-zinc-500">No automation rules configured yet.</div>
+          ) : (
+            <ul className="space-y-2.5 overflow-y-auto custom-scroll max-h-[420px] pr-1">
+              {rules.map((r, i) => (
+                <li
+                  key={i}
+                  className="rounded-xl p-3 relative overflow-hidden"
+                  style={{
+                    background: "linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.01))",
+                    border: `1px solid ${accent}22`,
+                  }}
+                >
+                  <div className="flex items-start justify-between gap-2 mb-1.5">
+                    <div className="text-[12px] font-semibold text-white leading-tight">{r.name}</div>
+                    {r.requiresApproval && (
+                      <span
+                        className="shrink-0 text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded"
+                        style={{ background: "rgba(251,191,36,0.15)", color: "#fbbf24", border: "1px solid rgba(251,191,36,0.3)" }}
+                      >
+                        approval
+                      </span>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-[64px_1fr] gap-x-2 gap-y-1 text-[11px] leading-snug">
+                    <span className="font-mono text-[9.5px] uppercase tracking-widest text-zinc-500 pt-px">When</span>
+                    <span className="text-zinc-300"><span style={{ color: accent2 }}>{r.trigger}</span> · monitors <span className="text-zinc-200">{r.source}</span></span>
+                    <span className="font-mono text-[9.5px] uppercase tracking-widest text-zinc-500 pt-px">If</span>
+                    <span className="text-zinc-300">{r.condition}</span>
+                    <span className="font-mono text-[9.5px] uppercase tracking-widest text-zinc-500 pt-px">Then</span>
+                    <span className="text-zinc-100">{r.action}</span>
+                  </div>
+                  {r.integrations.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {r.integrations.map((it, j) => (
+                        <span
+                          key={j}
+                          className="text-[9.5px] font-mono px-1.5 py-0.5 rounded"
+                          style={{ background: `${accent}10`, color: accent, border: `1px solid ${accent}26` }}
+                        >
+                          {it}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </GlassCard>
+    );
+  }
+
   return null;
 }
 
