@@ -167,6 +167,8 @@ Shape: {
   "triggers": [ { "kind": "manual"|"cron"|"webhook", "spec": string } ],
   "guardrails": [ { "rule": string, "requiresApproval": boolean } ],
   "kpis": [ { "name": string, "target": string } ],
+  "workflowSummary": string,    // 2-4 sentences, plain English, how this agent automates the operator's daily/weekly workflow
+  "automations": [ { "name": string, "trigger": string, "source": string, "condition": string, "action": string, "integrations": string[], "requiresApproval": boolean } ],
   "ui": { "theme": "obsidian"|"cyber"|"terminal"|"market"|"command"|"lab", "accent": string, "accentSecondary": string,
     "hero": { "title": string, "tagline": string, "icon": string },
     "layout": "command-deck"|"market-board"|"lab-console"|"stacked"|"two-col",
