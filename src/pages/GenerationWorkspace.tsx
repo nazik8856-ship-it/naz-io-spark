@@ -976,6 +976,17 @@ export default function GenerationWorkspace() {
     toast.success("Agent saved.");
   };
 
+  const isAgentEditIntent = (text: string): boolean => {
+    const t = text.toLowerCase().trim();
+    // Explicit meta-references to the agent itself
+    if (/\b(your|this|the)\s+(agent|spec|config(uration)?|setup|workflow|capabilit|guardrail|kpi|trigger|deployment|prompt|persona|name|goal)/i.test(text)) return true;
+    if (/\b(improve|upgrade|enhance|refactor|rebuild|redesign|optimi[sz]e|extend|expand|tweak|adjust|tune|harden|simplif|shorten|rewrite|regenerate|update|edit|modify|change|fix|rename|reconfigure|reposition|repurpose)\b/.test(t)
+        && /\b(agent|yourself|self|capabilit|workflow|goal|name|kpi|guardrail|trigger|schedule|tool|integration|deployment|spec|prompt|persona|behaviou?r)\b/.test(t)) return true;
+    if (/^(make|let|have)\s+(you|yourself|this|the agent|it)\b/.test(t)) return true;
+    if (/\b(add|remove|drop|include|require)\b.*\b(capabilit|tool|integration|guardrail|kpi|trigger|step|workflow|approval)\b/.test(t)) return true;
+    return false;
+  };
+
   const sendAgentTurn = async (id: string, text: string) => {
     const trimmed = text.trim();
     if (!trimmed) return;
@@ -990,6 +1001,8 @@ export default function GenerationWorkspace() {
     ];
     updateMsg(id, { agentChat: nextChat, agentStreaming: true });
 
+    const editMode = isAgentEditIntent(trimmed);
+
     try {
       const url = functionUrl("run-ai-agent");
       const resp = await fetch(url, {
@@ -997,15 +1010,46 @@ export default function GenerationWorkspace() {
         headers: functionHeaders(),
         body: JSON.stringify({
           spec: msg.content,
+          mode: editMode ? "edit" : undefined,
+          instruction: editMode ? trimmed : undefined,
           messages: nextChat
-            .slice(0, -1) // drop the empty assistant placeholder
+            .slice(0, -1)
             .map((t) => ({ role: t.role, content: t.content })),
         }),
       });
       if (resp.status === 429) throw new Error("Rate limit hit. Try again in a moment.");
       if (resp.status === 402) throw new Error("AI credits exhausted.");
-      if (!resp.ok || !resp.body) throw new Error("Agent failed to respond.");
+      if (!resp.ok) throw new Error("Agent failed to respond.");
 
+      // Edit mode: JSON response with revised spec + summary
+      if (editMode) {
+        const data = await resp.json().catch(() => null) as
+          | { finalSpec?: string; name?: string; summary?: string }
+          | null;
+        if (!data?.finalSpec) throw new Error("Could not revise the agent.");
+        const summary = (data.summary || "Updated your agent.").trim();
+        setMessages((all) =>
+          all.map((x) => {
+            if (x.id !== id) return x;
+            const copy = [...(x.agentChat ?? [])];
+            copy[copy.length - 1] = {
+              role: "assistant",
+              content: `🛠️ **NazAI updated this agent.**\n\n${summary}\n\n_The agent's spec, dashboard and runtime have been refreshed._`,
+            };
+            return {
+              ...x,
+              content: data.finalSpec!,
+              agentFinalSpec: data.finalSpec!,
+              agentName: data.name || x.agentName,
+              agentChat: copy,
+            };
+          }),
+        );
+        toast.success("Agent improved by NazAI.");
+        return;
+      }
+
+      if (!resp.body) throw new Error("Agent failed to respond.");
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
       let buf = "";
@@ -1067,6 +1111,7 @@ export default function GenerationWorkspace() {
       updateMsg(id, { agentStreaming: false });
     }
   };
+
 
   return (
     <div
