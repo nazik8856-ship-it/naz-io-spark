@@ -359,13 +359,31 @@ type Manifest = {
   name: string; goal: string; systemPrompt: string; decisionPolicy: string;
   tools: Tool[]; triggers: { kind: string; spec: string }[];
   guardrails: { rule: string; requiresApproval: boolean }[];
-  kpis: { name: string; target: string }[]; ui?: Record<string, unknown>;
+  kpis: { name: string; target: string }[];
+  workflowSummary?: string;
+  automations?: Automation[];
+  ui?: Record<string, unknown>;
 };
 
-const ALLOWED_WIDGETS = new Set(["hero_metric","live_thoughts","decision_log","action_timeline","tool_call_stream","alert_feed","tool_grid","kpi_radar","guardrail_panel","status_grid"]);
+const ALLOWED_WIDGETS = new Set(["hero_metric","live_thoughts","decision_log","action_timeline","tool_call_stream","alert_feed","tool_grid","kpi_radar","guardrail_panel","status_grid","automation_rules","workflow_summary"]);
 const ALLOWED_VALUE_FROM = new Set(["events_count","decisions_count","actions_count","tool_calls_count","thoughts_count","errors_count"]);
 const ALLOWED_ICONS = new Set(["brain","activity","wallet","gauge","signal","radar","terminal","rocket","eye","crosshair","shield","flame","sparkles","cpu","globe","line","bars","trending","zap","alert","check","wrench"]);
 const ALLOWED_KINDS = ["web_search", "http_get", "calc", "notify", "remember", "ask_user", "request_approval", "custom"];
+
+function normalizeAutomations(raw: unknown): Automation[] {
+  if (!Array.isArray(raw)) return [];
+  return (raw as Record<string, unknown>[]).slice(0, 8).map((a) => ({
+    name: String(a.name || "Automation").slice(0, 80),
+    trigger: String(a.trigger || "On schedule").slice(0, 80),
+    source: String(a.source || "Connected data").slice(0, 80),
+    condition: String(a.condition || "Always").slice(0, 200),
+    action: String(a.action || "Notify operator").slice(0, 240),
+    integrations: Array.isArray(a.integrations)
+      ? (a.integrations as unknown[]).map((s) => String(s).slice(0, 40)).slice(0, 6)
+      : [],
+    requiresApproval: !!a.requiresApproval,
+  })).filter((a) => a.name && a.action);
+}
 
 function normalizeUi(raw: unknown): Record<string, unknown> | undefined {
   if (!raw || typeof raw !== "object") return undefined;
