@@ -92,7 +92,7 @@ serve(async (req) => {
     const cleanSpec = cleanAgentSpecOutput(String(spec || ""));
     if (!cleanSpec) return errorResponse(400, "spec required");
 
-    // EDIT mode: NazAI analyzes the request and rewrites the agent spec.
+    // EDIT mode: NazAI applies a SURGICAL edit to the existing agent spec (no regeneration).
     if (mode === "edit") {
       const userInstruction = String(instruction || "").trim();
       if (!userInstruction) return errorResponse(400, "instruction required for edit mode");
