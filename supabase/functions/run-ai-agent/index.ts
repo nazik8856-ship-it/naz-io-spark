@@ -150,10 +150,10 @@ ${recentTurns || "(none)"}
 USER'S IMPROVEMENT REQUEST:
 ${userInstruction}
 
-Return the JSON object with the fully revised spec.`,
+Return the JSON object. Copy the spec verbatim and change only the minimum needed.`,
             },
           ],
-          temperature: 0.4,
+          temperature: 0.15,
           ...(cfg.supportsJsonObject ? { response_format: { type: "json_object" } } : {}),
         },
         cfg,
