@@ -509,21 +509,21 @@ export type Database = {
           html: string
           id: string
           title: string | null
-          user_id: string | null
+          user_id: string
         }
         Insert: {
           created_at?: string
           html: string
           id?: string
           title?: string | null
-          user_id?: string | null
+          user_id: string
         }
         Update: {
           created_at?: string
           html?: string
           id?: string
           title?: string | null
-          user_id?: string | null
+          user_id?: string
         }
         Relationships: []
       }
@@ -566,7 +566,7 @@ export type Database = {
           id?: string
           prompt?: string | null
           title?: string
-          user_id?: string
+          user_id: string
         }
         Update: {
           created_at?: string
@@ -589,6 +589,7 @@ export type Database = {
         Args: { message_id: number; queue_name: string }
         Returns: boolean
       }
+      email_queue_dispatch: { Args: never; Returns: undefined }
       enqueue_email: {
         Args: { payload: Json; queue_name: string }
         Returns: number
