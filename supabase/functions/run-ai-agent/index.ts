@@ -92,7 +92,7 @@ serve(async (req) => {
     const cleanSpec = cleanAgentSpecOutput(String(spec || ""));
     if (!cleanSpec) return errorResponse(400, "spec required");
 
-    // EDIT mode: NazAI analyzes the request and rewrites the agent spec.
+    // EDIT mode: NazAI applies a SURGICAL edit to the existing agent spec (no regeneration).
     if (mode === "edit") {
       const userInstruction = String(instruction || "").trim();
       if (!userInstruction) return errorResponse(400, "instruction required for edit mode");
@@ -109,21 +109,27 @@ serve(async (req) => {
           messages: [
             {
               role: "system",
-              content: `You are NazAI Agent Forge — the AGENT EDITOR. The user is chatting with their deployed AI agent and has asked NazAI to IMPROVE/MODIFY the agent itself (not to perform a task as the agent).
+              content: `You are NazAI Agent Forge — the AGENT EDITOR. The user is chatting with their already-deployed AI agent and asked NazAI to tweak it.
 
-Your job:
-1. Read the current 8-section agent specification carefully.
-2. Apply the user's requested change precisely — improve capabilities, tighten guardrails, add tools, change KPIs, rename, broaden scope, etc.
-3. Return STRICT JSON only (no fences, no commentary) with these keys:
-   - "finalSpec": the COMPLETE revised 8-section spec (same exact 8 numbered headings with ** markers and trailing colons). Keep every section concrete and operational. Preserve the original agent's identity unless the user explicitly asked to change it.
-   - "name": short agent name from section 1.
-   - "summary": 1-3 short bullet points (markdown) describing exactly what you changed.
+CRITICAL RULE — SURGICAL EDIT, NOT REGENERATION:
+- You are editing an EXISTING agent, never creating a new one.
+- Preserve the current spec VERBATIM. Copy every section, sentence, bullet, tool line, threshold, KPI and wording exactly as-is.
+- Change ONLY the smallest slice needed to satisfy the user's request (one bullet, one threshold, one KPI, one tool, one sentence, or the name — whatever they literally asked for).
+- Do NOT rephrase, "improve", reorder, re-polish, expand, or shorten sections the user did not mention.
+- Do NOT invent new capabilities, tools, guardrails or KPIs the user didn't ask for.
+- Do NOT change the Agent Name unless the user explicitly asked to rename.
+- If the request is ambiguous, make the minimal reasonable change and describe it in the summary.
+
+Return STRICT JSON only (no fences, no commentary) with these keys:
+- "finalSpec": the FULL 8-section spec with your surgical edit applied. Every UNMODIFIED section must be byte-for-byte identical to the input.
+- "name": the agent name from section 1 (unchanged unless the user asked to rename).
+- "summary": 1-3 short markdown bullets stating ONLY what you changed (e.g. "- Raised refund alert threshold from $500 to $1,000"). Never describe unchanged sections.
 
 Hard rules:
 - Output ONLY the JSON object.
-- Never use the words: forging, detected, brand-new, draft, plan, planned, blueprint, proposal, offline fallback.
-- The spec stays in present tense as a deployed system already running.
-- The 8 headings must appear verbatim:
+- Never use the words: forging, detected, brand-new, draft, plan, planned, blueprint, proposal, offline fallback, regenerated, rebuilt, from scratch.
+- Present tense — this agent is already deployed and running.
+- The 8 headings must appear verbatim in this order:
 1. **Agent Name**:
 2. **Description**:
 3. **Primary Goal**:
@@ -144,10 +150,10 @@ ${recentTurns || "(none)"}
 USER'S IMPROVEMENT REQUEST:
 ${userInstruction}
 
-Return the JSON object with the fully revised spec.`,
+Return the JSON object. Copy the spec verbatim and change only the minimum needed.`,
             },
           ],
-          temperature: 0.4,
+          temperature: 0.15,
           ...(cfg.supportsJsonObject ? { response_format: { type: "json_object" } } : {}),
         },
         cfg,
