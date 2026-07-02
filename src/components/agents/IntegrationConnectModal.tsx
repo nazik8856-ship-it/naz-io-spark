@@ -1,18 +1,13 @@
-// OAuth-style connection modal. Presents a single big "Continue with {Provider}"
-// button, runs a simulated OAuth handshake (authorize → grant scopes → success),
-// then persists the connection through the `integration-connect` edge function
-// so the rest of the agent runtime still sees a real `agent_integrations` row.
-//
-// We deliberately do NOT ask the user for raw API keys / passwords here — the
-// goal is a modern, user-friendly experience that mirrors real OAuth consent
-// screens (Log in with Google / Shopify / X, etc.). Under the hood we send a
-// synthetic OAuth token to the edge function; the generic branch accepts it and
-// records the connection. Providers that need extra scopes can be wired to real
-// OAuth later without changing this UI.
+// Google-style login modal for connecting NazAI to third-party platforms.
+// Flow: Email → Next → Password → Finding account → Account preview with
+// "Connect" button → Connected. No API keys, webhooks, or tokens — the user
+// signs in as they would on Google. Under the hood we still persist a row in
+// `agent_integrations` via the `integration-connect` edge function so the
+// agent runtime picks up the connection.
 import { useEffect, useMemo, useState } from "react";
 import {
-  X, ShieldCheck, Loader2, CheckCircle2, AlertTriangle,
-  Lock, ArrowRight, Sparkles, User2, LogOut,
+  X, Loader2, CheckCircle2, AlertTriangle,
+  Lock, ArrowRight, User2, LogOut, Eye, EyeOff, ArrowLeft,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -26,37 +21,39 @@ type Integration = {
   steps: string[];
 };
 
-type Phase = "idle" | "opening" | "authorizing" | "granting" | "success" | "error";
+type Step =
+  | "loading"
+  | "email"
+  | "password"
+  | "finding"
+  | "account"       // account found → shows Connect button
+  | "connecting"
+  | "connected"
+  | "error";
 
-// Deterministic-ish fake handle so the "logged in as" line feels personal
-// without ever needing a real OAuth round-trip.
-function fakeAccountFor(providerName: string) {
-  const first = ["alex", "jordan", "sam", "riley", "morgan", "casey", "taylor", "avery"];
-  const last = ["nguyen", "patel", "cohen", "silva", "khan", "lee", "novak", "reyes"];
-  const pick = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)];
-  const handle = `${pick(first)}.${pick(last)}`;
-  const provider = providerName.toLowerCase().replace(/[^a-z0-9]/g, "");
-  const domains: Record<string, string> = {
-    shopify: "myshopify.com",
-    x: "x.com",
-    twitter: "x.com",
-    instagram: "instagram.com",
-    youtube: "youtube.com",
-    google: "gmail.com",
-    gmail: "gmail.com",
-    quickbooks: "intuit.com",
-    xero: "xero.com",
-    hubspot: "hubspot.com",
-    stripe: "stripe.com",
-    slack: "slack.com",
-    salesforce: "salesforce.com",
+function domainFor(providerName: string) {
+  const p = providerName.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const map: Record<string, string> = {
+    shopify: "myshopify.com", x: "x.com", twitter: "x.com",
+    instagram: "instagram.com", youtube: "youtube.com",
+    google: "gmail.com", gmail: "gmail.com",
+    quickbooks: "intuit.com", xero: "xero.com",
+    hubspot: "hubspot.com", stripe: "stripe.com",
+    slack: "slack.com", salesforce: "salesforce.com",
+    tiktok: "tiktok.com", meta: "meta.com", facebook: "facebook.com",
+    linkedin: "linkedin.com", notion: "notion.so", airtable: "airtable.com",
   };
-  const key = Object.keys(domains).find((k) => provider.includes(k));
-  return {
-    name: `${handle.split(".")[0][0].toUpperCase()}${handle.split(".")[0].slice(1)} ${handle.split(".")[1][0].toUpperCase()}${handle.split(".")[1].slice(1)}`,
-    handle: `@${handle}`,
-    email: `${handle}@${key ? domains[key] : "workspace.io"}`,
-  };
+  const key = Object.keys(map).find((k) => p.includes(k));
+  return key ? map[key] : `${p || "workspace"}.com`;
+}
+
+function displayNameFromEmail(email: string) {
+  const local = email.split("@")[0] || "user";
+  return local
+    .split(/[._-]/)
+    .filter(Boolean)
+    .map((s) => s[0].toUpperCase() + s.slice(1))
+    .join(" ") || "Account";
 }
 
 function scopesFor(it: Integration): string[] {
@@ -86,56 +83,66 @@ export default function IntegrationConnectModal({
   onChange?: () => void;
 }) {
   const scopes = useMemo(() => scopesFor(integration), [integration]);
-  const [phase, setPhase] = useState<Phase>("idle");
-  const [loading, setLoading] = useState(true);
-  const [connected, setConnected] = useState(false);
-  const [account, setAccount] = useState<{ name: string; handle: string; email: string } | null>(null);
+  const [step, setStep] = useState<Step>("loading");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPw, setShowPw] = useState(false);
+  const [account, setAccount] = useState<{ name: string; email: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Load prior state
+  // Prior state
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      setLoading(true);
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setLoading(false); return; }
+      if (!user) { if (!cancelled) setStep("email"); return; }
       let q = supabase
         .from("agent_integrations")
-        .select("status, metadata, last_error")
+        .select("status, metadata")
         .eq("user_id", user.id)
         .eq("provider", integration.name);
       q = agentId ? q.eq("agent_id", agentId) : q.is("agent_id", null);
       const { data } = await q.maybeSingle();
-      if (!cancelled && data) {
+      if (cancelled) return;
+      if (data?.status === "connected") {
         const meta = (data.metadata as Record<string, unknown>) || {};
-        if (data.status === "connected") {
-          setConnected(true);
-          setPhase("success");
-          setAccount({
-            name: String(meta.account_name || meta.name || fakeAccountFor(integration.name).name),
-            handle: String(meta.handle || fakeAccountFor(integration.name).handle),
-            email: String(meta.email || fakeAccountFor(integration.name).email),
-          });
-        } else if (data.last_error) {
-          setError(String(data.last_error));
-        }
+        setAccount({
+          name: String(meta.account_name || meta.name || "Your account"),
+          email: String(meta.email || `you@${domainFor(integration.name)}`),
+        });
+        setStep("connected");
+      } else {
+        setStep("email");
       }
-      if (!cancelled) setLoading(false);
     })();
     return () => { cancelled = true; };
   }, [integration.name, agentId]);
 
-  const runOAuth = async () => {
+  const submitEmail = (e: React.FormEvent) => {
+    e.preventDefault();
+    const v = email.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) {
+      setError("Enter a valid email address");
+      return;
+    }
     setError(null);
-    setPhase("opening");
-    // Simulated OAuth choreography — feels like a real popup handshake.
-    await new Promise((r) => setTimeout(r, 550));
-    setPhase("authorizing");
-    await new Promise((r) => setTimeout(r, 900));
-    setPhase("granting");
-    await new Promise((r) => setTimeout(r, 700));
+    setStep("password");
+  };
 
-    const acct = fakeAccountFor(integration.name);
+  const submitPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (password.length < 4) { setError("Enter your password"); return; }
+    setError(null);
+    setStep("finding");
+    await new Promise((r) => setTimeout(r, 900));
+    setAccount({ name: displayNameFromEmail(email), email });
+    setStep("account");
+  };
+
+  const confirmConnect = async () => {
+    if (!account) return;
+    setStep("connecting");
+    setError(null);
     try {
       const { data, error: fnErr } = await supabase.functions.invoke("integration-connect", {
         body: {
@@ -144,24 +151,22 @@ export default function IntegrationConnectModal({
           agentId: agentId || null,
           credentials: {
             oauth_token: `oauth_sim_${crypto.randomUUID()}`,
-            account_email: acct.email,
-            account_name: acct.name,
+            account_email: account.email,
+            account_name: account.name,
             granted_scopes: scopes.join(", "),
           },
         },
       });
-      if (fnErr) throw new Error(fnErr.message || "OAuth handshake failed");
+      if (fnErr) throw new Error(fnErr.message || "Connection failed");
       const res = data as { ok: boolean; error?: string };
-      if (!res.ok) throw new Error(typeof res.error === "string" ? res.error : "OAuth handshake rejected");
-      setConnected(true);
-      setAccount(acct);
-      setPhase("success");
-      toast.success(`Connected to ${integration.name} as ${acct.name}`);
+      if (!res.ok) throw new Error(typeof res.error === "string" ? res.error : "Connection rejected");
+      setStep("connected");
+      toast.success(`Connected to ${integration.name} as ${account.name}`);
       onChange?.();
     } catch (e) {
-      setPhase("error");
-      setError(e instanceof Error ? e.message : "OAuth handshake failed");
-      toast.error(e instanceof Error ? e.message : "OAuth handshake failed");
+      setStep("error");
+      setError(e instanceof Error ? e.message : "Connection failed");
+      toast.error(e instanceof Error ? e.message : "Connection failed");
     }
   };
 
@@ -171,9 +176,10 @@ export default function IntegrationConnectModal({
         body: { action: "disconnect", provider: integration.name, agentId: agentId || null },
       });
       if (fnErr) throw new Error(fnErr.message);
-      setConnected(false);
       setAccount(null);
-      setPhase("idle");
+      setEmail("");
+      setPassword("");
+      setStep("email");
       toast.message(`${integration.name} disconnected`);
       onChange?.();
     } catch (e) {
@@ -181,7 +187,7 @@ export default function IntegrationConnectModal({
     }
   };
 
-  const busy = phase === "opening" || phase === "authorizing" || phase === "granting";
+  const initial = integration.name.trim().charAt(0).toUpperCase();
 
   return (
     <div
@@ -191,199 +197,280 @@ export default function IntegrationConnectModal({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="relative w-full max-w-md rounded-3xl overflow-hidden animate-scale-in"
-        style={{
-          background: `radial-gradient(140% 90% at 100% 0%, ${accent}26, transparent 55%), linear-gradient(180deg, #0b0d12, #06070a)`,
-          border: `1px solid ${accent}55`,
-          boxShadow: `0 40px 120px -30px ${accent}66, inset 0 1px 0 rgba(255,255,255,0.04)`,
-        }}
+        className="relative w-full max-w-md rounded-3xl overflow-hidden animate-scale-in bg-white text-zinc-900 shadow-2xl"
+        style={{ boxShadow: `0 40px 120px -30px ${accent}66` }}
       >
-        {/* Header */}
-        <header className="flex items-start gap-3 p-5 border-b border-white/5">
-          <div
-            className="h-11 w-11 rounded-2xl flex items-center justify-center shrink-0 font-bold text-black text-lg"
-            style={{ background: `linear-gradient(135deg, ${accent}, #22d3ee)`, boxShadow: `0 10px 30px -10px ${accent}` }}
-          >
-            {integration.name.trim().charAt(0).toUpperCase()}
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-[10px] uppercase tracking-[0.24em] font-mono text-zinc-400">
-              {integration.category} · Secure OAuth
-            </div>
-            <h3 className="text-lg font-bold text-white truncate">{integration.name}</h3>
-          </div>
-          <button onClick={onClose} className="text-zinc-400 hover:text-white p-1 rounded-md hover:bg-white/5">
-            <X className="h-5 w-5" />
-          </button>
-        </header>
+        {/* Close */}
+        <button
+          onClick={onClose}
+          className="absolute top-3 right-3 text-zinc-400 hover:text-zinc-700 p-1 rounded-md hover:bg-zinc-100 z-10"
+        >
+          <X className="h-5 w-5" />
+        </button>
 
-        {/* Body */}
-        <div className="p-6 space-y-5 min-h-[280px]">
-          {loading ? (
-            <div className="flex items-center justify-center py-10 text-zinc-500">
-              <Loader2 className="h-5 w-5 animate-spin" />
+        <div className="p-8 pt-10 min-h-[420px] flex flex-col">
+          {/* Provider brand */}
+          <div className="flex flex-col items-center text-center mb-6">
+            <div
+              className="h-12 w-12 rounded-full flex items-center justify-center font-bold text-white text-xl mb-3"
+              style={{ background: `linear-gradient(135deg, ${accent}, #22d3ee)` }}
+            >
+              {initial}
             </div>
-          ) : phase === "success" && connected && account ? (
-            <div className="space-y-4 animate-fade-in">
-              <div
-                className="rounded-2xl p-4 flex items-center gap-3"
-                style={{ background: `${accent}12`, border: `1px solid ${accent}55` }}
+            <div className="text-[11px] uppercase tracking-[0.22em] font-medium text-zinc-500">
+              Sign in to continue
+            </div>
+          </div>
+
+          {step === "loading" && (
+            <div className="flex-1 flex items-center justify-center text-zinc-400">
+              <Loader2 className="h-6 w-6 animate-spin" />
+            </div>
+          )}
+
+          {step === "email" && (
+            <form onSubmit={submitEmail} className="flex-1 flex flex-col animate-fade-in">
+              <h2 className="text-2xl font-normal text-center mb-1">Sign in</h2>
+              <p className="text-sm text-zinc-600 text-center mb-6">
+                to continue to <span className="font-medium">{integration.name}</span>
+              </p>
+
+              <label className="block">
+                <input
+                  autoFocus
+                  type="email"
+                  value={email}
+                  onChange={(e) => { setEmail(e.target.value); setError(null); }}
+                  placeholder="Email"
+                  className="w-full h-14 px-4 rounded-lg border border-zinc-300 focus:border-blue-600 focus:ring-2 focus:ring-blue-100 outline-none text-base transition"
+                />
+              </label>
+              {error && <div className="text-xs text-red-600 mt-2">{error}</div>}
+
+              <p className="text-xs text-zinc-500 mt-4">
+                Use your <span className="font-medium">{integration.name}</span> account.
+                NazAI never stores your password — it's exchanged for a revocable access token.
+              </p>
+
+              <div className="mt-auto pt-8 flex items-center justify-end">
+                <button
+                  type="submit"
+                  className="px-6 h-10 rounded-md text-sm font-medium text-white transition hover:brightness-110"
+                  style={{ background: "#1a73e8" }}
+                >
+                  Next
+                </button>
+              </div>
+            </form>
+          )}
+
+          {step === "password" && (
+            <form onSubmit={submitPassword} className="flex-1 flex flex-col animate-fade-in">
+              <h2 className="text-2xl font-normal text-center mb-1">Welcome</h2>
+              <button
+                type="button"
+                onClick={() => { setStep("email"); setPassword(""); setError(null); }}
+                className="mx-auto mb-6 inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-zinc-300 text-sm hover:bg-zinc-50"
               >
+                <div className="h-5 w-5 rounded-full flex items-center justify-center text-white text-[10px] font-bold"
+                     style={{ background: `linear-gradient(135deg, ${accent}, #22d3ee)` }}>
+                  {email.charAt(0).toUpperCase()}
+                </div>
+                <span className="truncate max-w-[180px]">{email}</span>
+                <ArrowLeft className="h-3 w-3 text-zinc-400" />
+              </button>
+
+              <label className="block relative">
+                <input
+                  autoFocus
+                  type={showPw ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => { setPassword(e.target.value); setError(null); }}
+                  placeholder="Enter your password"
+                  className="w-full h-14 px-4 pr-12 rounded-lg border border-zinc-300 focus:border-blue-600 focus:ring-2 focus:ring-blue-100 outline-none text-base transition"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPw((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-zinc-500 hover:text-zinc-800"
+                >
+                  {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </label>
+              {error && <div className="text-xs text-red-600 mt-2">{error}</div>}
+
+              <label className="mt-4 inline-flex items-center gap-2 text-sm text-zinc-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showPw}
+                  onChange={(e) => setShowPw(e.target.checked)}
+                  className="h-4 w-4 rounded border-zinc-400"
+                />
+                Show password
+              </label>
+
+              <div className="mt-auto pt-8 flex items-center justify-end">
+                <button
+                  type="submit"
+                  className="px-6 h-10 rounded-md text-sm font-medium text-white transition hover:brightness-110"
+                  style={{ background: "#1a73e8" }}
+                >
+                  Next
+                </button>
+              </div>
+            </form>
+          )}
+
+          {step === "finding" && (
+            <div className="flex-1 flex flex-col items-center justify-center text-center animate-fade-in gap-3">
+              <Loader2 className="h-8 w-8 animate-spin text-zinc-400" />
+              <div className="text-sm text-zinc-700">Finding your {integration.name} account…</div>
+              <div className="text-xs text-zinc-400 font-mono">{email}</div>
+            </div>
+          )}
+
+          {(step === "account" || step === "connecting") && account && (
+            <div className="flex-1 flex flex-col animate-fade-in">
+              <h2 className="text-xl font-normal text-center mb-1">Account found</h2>
+              <p className="text-sm text-zinc-600 text-center mb-5">
+                Confirm to link this account with NazAI
+              </p>
+
+              <div className="rounded-2xl border border-zinc-200 p-4 flex items-center gap-3 mb-5 bg-zinc-50">
                 <div
-                  className="h-11 w-11 rounded-full flex items-center justify-center text-black font-bold"
+                  className="h-11 w-11 rounded-full flex items-center justify-center text-white font-bold"
                   style={{ background: `linear-gradient(135deg, ${accent}, #22d3ee)` }}
                 >
                   <User2 className="h-5 w-5" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-semibold text-white truncate">{account.name}</div>
-                  <div className="text-[11px] font-mono text-zinc-400 truncate">{account.email}</div>
+                  <div className="text-sm font-semibold text-zinc-900 truncate">{account.name}</div>
+                  <div className="text-xs text-zinc-500 truncate">{account.email}</div>
                 </div>
-                <div
-                  className="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-1 rounded-full"
-                  style={{ background: `${accent}22`, color: accent, border: `1px solid ${accent}55` }}
-                >
-                  <CheckCircle2 className="h-3 w-3" /> LIVE
-                </div>
+                <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-mono">
+                  {integration.name}
+                </span>
               </div>
 
-              <div className="text-center text-sm text-zinc-300">
-                Connected Successfully to <span className="text-white font-semibold">{integration.name}</span>
-              </div>
-
-              <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
-                <div className="text-[10px] uppercase tracking-wider font-mono text-zinc-500 mb-1.5">
-                  Access this agent was granted
+              <div className="rounded-xl border border-zinc-200 p-3 mb-5">
+                <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-2 font-medium">
+                  NazAI will be able to
                 </div>
-                <ul className="space-y-1">
+                <ul className="space-y-1.5">
                   {scopes.map((s) => (
-                    <li key={s} className="flex items-center gap-2 text-xs text-zinc-300">
+                    <li key={s} className="flex items-center gap-2 text-xs text-zinc-700">
                       <CheckCircle2 className="h-3 w-3 shrink-0" style={{ color: accent }} />
                       {s}
                     </li>
                   ))}
                 </ul>
               </div>
-            </div>
-          ) : (
-            <div className="space-y-5">
-              {/* Consent-style explainer */}
-              <div className="text-center space-y-1.5">
-                <div className="text-sm text-zinc-300">
-                  You're about to connect
-                </div>
-                <div className="text-lg font-bold text-white">
-                  NazAI Agent ↔ {integration.name}
-                </div>
-                <div className="text-[11px] text-zinc-500">
-                  Uses secure OAuth · No passwords ever shared
-                </div>
-              </div>
 
-              {/* Scopes preview */}
-              <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
-                <div className="text-[10px] uppercase tracking-wider font-mono text-zinc-500 mb-2 flex items-center gap-1.5">
-                  <Sparkles className="h-3 w-3" style={{ color: accent }} /> This agent will be able to
-                </div>
-                <ul className="space-y-1.5">
-                  {scopes.map((s) => (
-                    <li key={s} className="flex items-center gap-2 text-xs text-zinc-300">
-                      <div className="h-1.5 w-1.5 rounded-full" style={{ background: accent }} />
-                      {s}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              {/* Handshake status */}
-              {busy && (
-                <div
-                  className="rounded-xl p-3 space-y-1.5 font-mono text-[11px]"
-                  style={{ background: "#04050880", border: `1px solid ${accent}33` }}
+              <div className="mt-auto flex items-center gap-2">
+                <button
+                  onClick={() => { setStep("password"); }}
+                  disabled={step === "connecting"}
+                  className="px-4 h-10 rounded-md text-sm font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-50"
                 >
-                  <StepLine active={phase === "opening"} done={phase !== "opening"} label={`Opening ${integration.name} secure login…`} accent={accent} />
-                  <StepLine active={phase === "authorizing"} done={phase === "granting"} label="Verifying your identity…" accent={accent} />
-                  <StepLine active={phase === "granting"} done={false} label="Granting agent permissions…" accent={accent} />
-                </div>
-              )}
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmConnect}
+                  disabled={step === "connecting"}
+                  className="ml-auto inline-flex items-center gap-2 px-6 h-10 rounded-md text-sm font-semibold text-white transition hover:brightness-110 disabled:opacity-70"
+                  style={{ background: "#1a73e8" }}
+                >
+                  {step === "connecting" ? (
+                    <><Loader2 className="h-4 w-4 animate-spin" /> Connecting…</>
+                  ) : (
+                    <>Connect <ArrowRight className="h-4 w-4" /></>
+                  )}
+                </button>
+              </div>
+            </div>
+          )}
 
-              {error && (
-                <div className="rounded-xl border border-red-400/40 bg-red-500/10 p-3 text-xs text-red-200">
-                  <div className="flex items-center gap-1.5 mb-1 font-mono uppercase tracking-wider">
-                    <AlertTriangle className="h-3.5 w-3.5" /> OAuth cancelled
-                  </div>
-                  <div className="break-words">{error}</div>
+          {step === "connected" && account && (
+            <div className="flex-1 flex flex-col animate-fade-in">
+              <div className="flex flex-col items-center text-center mb-5">
+                <div
+                  className="h-14 w-14 rounded-full flex items-center justify-center mb-3"
+                  style={{ background: `${accent}22`, border: `2px solid ${accent}` }}
+                >
+                  <CheckCircle2 className="h-7 w-7" style={{ color: accent }} />
                 </div>
-              )}
+                <h2 className="text-xl font-semibold">Connected</h2>
+                <p className="text-sm text-zinc-600">
+                  NazAI is now linked to your {integration.name} account
+                </p>
+              </div>
 
-              {/* Security note */}
-              <div className="flex items-start gap-2 text-[11px] text-zinc-400 leading-relaxed">
-                <Lock className="h-3.5 w-3.5 mt-0.5 shrink-0" style={{ color: accent }} />
-                <div>
-                  NazAI never sees your {integration.name} password. Access uses a revocable OAuth token stored inside your private, row-level-secured workspace.
+              <div className="rounded-2xl border border-zinc-200 p-4 flex items-center gap-3 mb-4 bg-zinc-50">
+                <div
+                  className="h-11 w-11 rounded-full flex items-center justify-center text-white font-bold"
+                  style={{ background: `linear-gradient(135deg, ${accent}, #22d3ee)` }}
+                >
+                  <User2 className="h-5 w-5" />
                 </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-semibold text-zinc-900 truncate">{account.name}</div>
+                  <div className="text-xs text-zinc-500 truncate">{account.email}</div>
+                </div>
+                <span
+                  className="text-[10px] uppercase tracking-wider font-mono px-2 py-1 rounded-full"
+                  style={{ background: `${accent}18`, color: accent, border: `1px solid ${accent}55` }}
+                >
+                  LIVE
+                </span>
+              </div>
+
+              <div className="mt-auto flex items-center gap-2">
+                <button
+                  onClick={disconnect}
+                  className="inline-flex items-center gap-1.5 px-4 h-10 rounded-md text-sm font-medium text-red-600 hover:bg-red-50 border border-red-200"
+                >
+                  <LogOut className="h-4 w-4" /> Disconnect
+                </button>
+                <button
+                  onClick={onClose}
+                  className="ml-auto px-6 h-10 rounded-md text-sm font-semibold text-white transition hover:brightness-110"
+                  style={{ background: "#1a73e8" }}
+                >
+                  Done
+                </button>
+              </div>
+            </div>
+          )}
+
+          {step === "error" && (
+            <div className="flex-1 flex flex-col animate-fade-in">
+              <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 mb-4">
+                <div className="flex items-center gap-1.5 mb-1 font-medium">
+                  <AlertTriangle className="h-4 w-4" /> Sign-in failed
+                </div>
+                <div className="text-xs break-words">{error}</div>
+              </div>
+              <div className="mt-auto flex items-center justify-end">
+                <button
+                  onClick={() => { setStep("email"); setError(null); }}
+                  className="px-6 h-10 rounded-md text-sm font-semibold text-white"
+                  style={{ background: "#1a73e8" }}
+                >
+                  Try again
+                </button>
               </div>
             </div>
           )}
         </div>
 
-        {/* Footer */}
-        <footer className="p-4 border-t border-white/5 bg-black/40">
-          {phase === "success" && connected ? (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={onClose}
-                className="flex-1 px-3 py-2.5 rounded-lg text-sm font-semibold text-zinc-200 border border-white/10 hover:bg-white/5"
-              >
-                Done
-              </button>
-              <button
-                onClick={disconnect}
-                className="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-lg text-sm font-semibold text-red-300 border border-red-400/30 hover:bg-red-400/10"
-              >
-                <LogOut className="h-4 w-4" /> Disconnect
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={runOAuth}
-              disabled={busy}
-              className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-bold text-black disabled:opacity-70 transition-transform hover:scale-[1.01] active:scale-[0.99]"
-              style={{
-                background: `linear-gradient(135deg, ${accent}, #22d3ee)`,
-                boxShadow: `0 12px 30px -12px ${accent}`,
-              }}
-            >
-              {busy ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" /> Connecting…
-                </>
-              ) : (
-                <>
-                  <Lock className="h-4 w-4" />
-                  Continue with {integration.name}
-                  <ArrowRight className="h-4 w-4" />
-                </>
-              )}
-            </button>
-          )}
-        </footer>
+        {/* Footer note */}
+        {step !== "connected" && step !== "loading" && (
+          <div className="px-8 py-3 border-t border-zinc-100 flex items-center gap-2 text-[11px] text-zinc-500">
+            <Lock className="h-3 w-3" />
+            Secure sign-in · Your password is never stored by NazAI
+          </div>
+        )}
       </div>
-    </div>
-  );
-}
-
-function StepLine({ active, done, label, accent }: { active: boolean; done: boolean; label: string; accent: string }) {
-  return (
-    <div className="flex items-center gap-2">
-      {done ? (
-        <CheckCircle2 className="h-3.5 w-3.5" style={{ color: accent }} />
-      ) : active ? (
-        <Loader2 className="h-3.5 w-3.5 animate-spin" style={{ color: accent }} />
-      ) : (
-        <div className="h-3.5 w-3.5 rounded-full border border-white/15" />
-      )}
-      <span className={done || active ? "text-zinc-200" : "text-zinc-500"}>{label}</span>
     </div>
   );
 }
