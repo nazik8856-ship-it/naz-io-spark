@@ -240,12 +240,30 @@ export default function AgentIntegrationsPanel({
   accent?: string;
 }) {
   const spec = useMemo<IntegrationsSpec>(() => {
-    if (manifest?.integrations?.integrations?.length) return manifest.integrations;
-    const role = (manifest as { role?: string })?.role && manifest.role! in ROLE_DEFAULTS
-      ? (manifest.role as keyof typeof ROLE_DEFAULTS)
-      : pickRoleFromManifest(manifest);
-    return ROLE_DEFAULTS[role];
+    const roleSpec = manifest?.integrations?.integrations?.length
+      ? manifest.integrations!
+      : ROLE_DEFAULTS[
+          ((manifest as { role?: string })?.role && manifest.role! in ROLE_DEFAULTS
+            ? (manifest.role as keyof typeof ROLE_DEFAULTS)
+            : pickRoleFromManifest(manifest))
+        ];
+    // Merge role-driven picks with the master catalog so the user always sees
+    // every major platform, without losing role-specific summaries/security.
+    const seen = new Set<string>();
+    const merged: Integration[] = [];
+    [...(roleSpec.integrations || []), ...MASTER_CATALOG].forEach((it) => {
+      const key = it.name.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      merged.push(it);
+    });
+    return { ...roleSpec, integrations: merged };
   }, [manifest]);
+
+  const { names: recommendedNames, reason: recommendedReason } = useMemo(
+    () => recommendFor(manifest, spec.integrations),
+    [manifest, spec.integrations],
+  );
 
   const [hubOpen, setHubOpen] = useState(false);
   const [openIntegration, setOpenIntegration] = useState<Integration | null>(null);
@@ -265,9 +283,6 @@ export default function AgentIntegrationsPanel({
 
   useEffect(() => { refresh(); }, [refresh, openIntegration, hubOpen]);
 
-  // Allow other components (e.g. AgentCockpit's "Run Now" gating modal) to open
-  // the hub via a window event, so users can jump straight from a runtime
-  // prompt into the connect flow.
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent<{ agentId?: string }>).detail;
@@ -279,14 +294,23 @@ export default function AgentIntegrationsPanel({
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return spec.integrations;
-    return spec.integrations.filter((i) =>
-      i.name.toLowerCase().includes(q) || i.category.toLowerCase().includes(q),
-    );
-  }, [query, spec.integrations]);
+    const base = q
+      ? spec.integrations.filter(
+          (i) => i.name.toLowerCase().includes(q) || i.category.toLowerCase().includes(q),
+        )
+      : spec.integrations;
+    // Sort: connected → recommended → alphabetical
+    return [...base].sort((a, b) => {
+      const ac = connectedNames.has(a.name) ? 0 : recommendedNames.has(a.name) ? 1 : 2;
+      const bc = connectedNames.has(b.name) ? 0 : recommendedNames.has(b.name) ? 1 : 2;
+      if (ac !== bc) return ac - bc;
+      return a.name.localeCompare(b.name);
+    });
+  }, [query, spec.integrations, connectedNames, recommendedNames]);
 
   const connectedCount = connectedNames.size;
   const total = spec.integrations.length;
+
 
   return (
     <section
