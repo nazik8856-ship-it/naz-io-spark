@@ -223,6 +223,12 @@ function recommendFor(
   return { names, reason };
 }
 
+function methodIcon(method: string) {
+  if (method.toLowerCase().includes("oauth") || method.toLowerCase().includes("sign in")) return <KeyRound className="h-3 w-3" />;
+  if (method.toLowerCase().includes("webhook")) return <Webhook className="h-3 w-3" />;
+  return <Lock className="h-3 w-3" />;
+}
+
 
 export default function AgentIntegrationsPanel({
   manifest,
