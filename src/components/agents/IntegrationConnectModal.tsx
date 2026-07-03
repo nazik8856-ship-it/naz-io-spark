@@ -171,6 +171,17 @@ export default function IntegrationConnectModal({
     setStep("password");
   };
 
+  const signInWithSocial = async (provider: SocialProvider) => {
+    setError(null);
+    setStep("finding");
+    await new Promise((r) => setTimeout(r, 1100));
+    const derivedEmail = email.trim() || `you@${provider.id === "microsoft" ? "outlook.com" : provider.id === "apple" ? "icloud.com" : provider.id === "facebook" ? "facebook.com" : provider.id === "x" ? "x.com" : "gmail.com"}`;
+    setEmail(derivedEmail);
+    setAccount({ name: displayNameFromEmail(derivedEmail), email: derivedEmail });
+    setStep("account");
+  };
+
+
   const submitPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (password.length < 4) { setError("Enter your password"); return; }
