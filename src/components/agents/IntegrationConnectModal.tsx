@@ -124,6 +124,7 @@ export default function IntegrationConnectModal({
   onChange?: () => void;
 }) {
   const scopes = useMemo(() => scopesFor(integration), [integration]);
+  const socials = useMemo(() => socialProvidersFor(integration.name), [integration.name]);
   const [step, setStep] = useState<Step>("loading");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
