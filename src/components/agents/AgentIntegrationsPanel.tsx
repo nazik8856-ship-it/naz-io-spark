@@ -385,13 +385,40 @@ export default function AgentIntegrationsPanel({
               </button>
             </header>
 
-            <div className="px-5 pt-4">
+            <div className="px-5 pt-4 space-y-3">
+              <div
+                className="rounded-2xl p-3 flex items-start gap-3"
+                style={{ background: `${accent}12`, border: `1px solid ${accent}44` }}
+              >
+                <Wand2 className="h-4 w-4 mt-0.5 shrink-0" style={{ color: accent }} />
+                <div className="min-w-0">
+                  <div className="text-[10px] uppercase tracking-[0.24em] font-mono font-semibold" style={{ color: accent }}>
+                    NazAI recommends for you
+                  </div>
+                  <p className="text-[11px] text-zinc-300 mt-0.5">{recommendedReason}</p>
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {[...recommendedNames].map((n) => (
+                      <button
+                        key={n}
+                        onClick={() => {
+                          const it = spec.integrations.find((i) => i.name === n);
+                          if (it) setOpenIntegration(it);
+                        }}
+                        className="text-[11px] px-2 py-1 rounded-full border border-white/10 bg-black/30 text-white hover:border-white/30"
+                      >
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
                 <input
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search Shopify, Stripe, QuickBooks…"
+                  placeholder="Search Instagram, Shopify, Stripe, QuickBooks…"
                   className="w-full pl-9 pr-3 py-2.5 rounded-lg bg-black/40 border border-white/10 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-white/30"
                 />
               </div>
@@ -400,6 +427,7 @@ export default function AgentIntegrationsPanel({
             <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-3 overflow-y-auto">
               {filtered.map((it) => {
                 const isConnected = connectedNames.has(it.name);
+                const isRecommended = recommendedNames.has(it.name);
                 return (
                   <div key={it.name}
                     className="rounded-2xl border border-white/10 bg-white/[0.02] p-4 hover:border-white/20 hover:bg-white/[0.04] transition-all flex flex-col">
@@ -412,10 +440,10 @@ export default function AgentIntegrationsPanel({
                               style={{ background: `${accent}22`, color: accent, border: `1px solid ${accent}55` }}>
                               <CheckCircle2 className="h-2.5 w-2.5" /> Connected
                             </span>
-                          ) : it.status === "recommended" && (
-                            <span className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded"
+                          ) : isRecommended && (
+                            <span className="inline-flex items-center gap-1 text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded"
                               style={{ background: `${accent}22`, color: accent, border: `1px solid ${accent}44` }}>
-                              Recommended
+                              <Wand2 className="h-2.5 w-2.5" /> NazAI pick
                             </span>
                           )}
                         </div>
