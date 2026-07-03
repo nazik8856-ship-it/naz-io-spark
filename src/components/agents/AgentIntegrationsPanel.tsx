@@ -5,7 +5,7 @@
 // tokens, OAuth one-clicks).
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Plug, KeyRound, Webhook, ShieldCheck, Lock, CheckCircle2, X, Search, Sparkles,
+  Plug, KeyRound, Webhook, ShieldCheck, Lock, CheckCircle2, X, Search, Sparkles, Wand2,
 } from "lucide-react";
 import IntegrationConnectModal from "./IntegrationConnectModal";
 import { supabase } from "@/integrations/supabase/client";
@@ -91,20 +91,144 @@ const ROLE_DEFAULTS: Record<string, IntegrationsSpec> = {
   },
 };
 
+// ---------- MASTER CATALOG ----------
+// Every major consumer + business platform NazAI can log into. All entries use
+// user-facing sign-in (email + password + native social login on the modal
+// side — e.g. "Continue with Facebook" for Instagram). No API keys shown.
+const MASTER_CATALOG: Integration[] = [
+  // Social & Content
+  { name: "Instagram", category: "Social", method: "Sign in", examples: ["Reply to DMs & comments", "Draft & schedule posts/reels", "Track follower growth"], steps: ["Sign in with Instagram or Facebook", "Pick business account", "Approve posting scope"] },
+  { name: "Facebook", category: "Social", method: "Sign in", examples: ["Manage Page posts & comments", "Reply to Messenger DMs", "Insights digest"], steps: ["Sign in with Facebook", "Pick Page", "Approve scopes"] },
+  { name: "TikTok", category: "Social", method: "Sign in", examples: ["Draft & schedule videos", "Reply to comments", "Track views & followers"], steps: ["Sign in with TikTok", "Approve posting"] },
+  { name: "YouTube", category: "Social", method: "Sign in", examples: ["Draft titles/descriptions", "Reply to comments", "Track subs & watch time"], steps: ["Sign in with Google", "Pick channel", "Approve scopes"] },
+  { name: "X / Twitter", category: "Social", method: "Sign in", examples: ["Draft & schedule tweets", "Reply to mentions", "Track impressions"], steps: ["Sign in with X", "Approve posting"] },
+  { name: "LinkedIn", category: "Social", method: "Sign in", examples: ["Draft company posts", "Reply to DMs", "Track post reach"], steps: ["Sign in with LinkedIn", "Pick Page", "Approve scopes"] },
+  { name: "Pinterest", category: "Social", method: "Sign in", examples: ["Publish pins", "Track saves & clicks"], steps: ["Sign in with Pinterest", "Pick board"] },
+  { name: "Snapchat", category: "Social", method: "Sign in", examples: ["Schedule spotlights", "Track story views"], steps: ["Sign in with Snapchat"] },
+  { name: "Reddit", category: "Social", method: "Sign in", examples: ["Monitor brand mentions", "Draft subreddit replies"], steps: ["Sign in with Reddit"] },
+  { name: "Threads", category: "Social", method: "Sign in", examples: ["Draft & schedule threads"], steps: ["Sign in with Instagram"] },
+
+  // Messaging
+  { name: "WhatsApp Business", category: "Messaging", method: "Sign in", examples: ["Reply to customer chats", "Send order updates"], steps: ["Sign in with WhatsApp Business", "Pick number"] },
+  { name: "Messenger", category: "Messaging", method: "Sign in", examples: ["Auto-reply to Page DMs"], steps: ["Sign in with Facebook"] },
+  { name: "Telegram", category: "Messaging", method: "Sign in", examples: ["Broadcast to channels", "Reply to DMs"], steps: ["Sign in with Telegram"] },
+  { name: "Discord", category: "Messaging", method: "Sign in", examples: ["Moderate server", "Post announcements"], steps: ["Sign in with Discord", "Pick server"] },
+  { name: "Slack", category: "Messaging", method: "Sign in", examples: ["Post digests to channels", "Reply in threads"], steps: ["Sign in with Slack", "Pick workspace + channel"] },
+  { name: "Microsoft Teams", category: "Messaging", method: "Sign in", examples: ["Post updates", "Meeting summaries"], steps: ["Sign in with Microsoft"] },
+
+  // Commerce
+  { name: "Shopify", category: "Commerce", method: "Sign in", examples: ["Read orders/products", "Adjust inventory", "Daily AOV & low-stock alerts"], steps: ["Sign in with Shopify", "Pick store"] },
+  { name: "WooCommerce", category: "Commerce", method: "Sign in", examples: ["Orders + refunds", "Restock alerts"], steps: ["Sign in with WordPress account"] },
+  { name: "Amazon Seller", category: "Commerce", method: "Sign in", examples: ["Track orders + BSR", "Buy Box alerts"], steps: ["Sign in with Amazon", "Pick marketplace"] },
+  { name: "eBay", category: "Commerce", method: "Sign in", examples: ["Manage listings", "Reply to messages"], steps: ["Sign in with eBay"] },
+  { name: "Etsy", category: "Commerce", method: "Sign in", examples: ["Manage listings", "Reply to buyers"], steps: ["Sign in with Etsy"] },
+  { name: "BigCommerce", category: "Commerce", method: "Sign in", examples: ["Orders + inventory"], steps: ["Sign in with BigCommerce"] },
+
+  // Payments & Finance
+  { name: "Stripe", category: "Payments", method: "Sign in", examples: ["MRR / churn / failed-payment digest", "Refund anomaly alerts"], steps: ["Sign in with Stripe"] },
+  { name: "PayPal", category: "Payments", method: "Sign in", examples: ["Payout digest", "Dispute alerts"], steps: ["Sign in with PayPal"] },
+  { name: "Square", category: "Payments", method: "Sign in", examples: ["Daily sales report", "Inventory sync"], steps: ["Sign in with Square"] },
+  { name: "QuickBooks", category: "Accounting", method: "Sign in", examples: ["Nudge overdue invoices", "Monthly P&L snapshot"], steps: ["Sign in with Intuit"] },
+  { name: "Xero", category: "Accounting", method: "Sign in", examples: ["Reconcile invoices", "Cashflow brief"], steps: ["Sign in with Xero"] },
+  { name: "FreshBooks", category: "Accounting", method: "Sign in", examples: ["Invoice reminders"], steps: ["Sign in with FreshBooks"] },
+
+  // CRM & Sales
+  { name: "HubSpot", category: "CRM", method: "Sign in", examples: ["Create/update contacts", "Move deals", "Score leads vs ICP"], steps: ["Sign in with HubSpot"] },
+  { name: "Salesforce", category: "CRM", method: "Sign in", examples: ["Sync accounts + opps", "Run reports"], steps: ["Sign in with Salesforce"] },
+  { name: "Pipedrive", category: "CRM", method: "Sign in", examples: ["Sync deals + activities"], steps: ["Sign in with Pipedrive"] },
+  { name: "Zoho CRM", category: "CRM", method: "Sign in", examples: ["Contacts + pipeline sync"], steps: ["Sign in with Zoho"] },
+
+  // Support
+  { name: "Zendesk", category: "Support", method: "Sign in", examples: ["Triage tickets", "Draft brand-tone replies"], steps: ["Sign in with Zendesk"] },
+  { name: "Intercom", category: "Support", method: "Sign in", examples: ["Reply suggestions", "Tag conversations"], steps: ["Sign in with Intercom"] },
+  { name: "Freshdesk", category: "Support", method: "Sign in", examples: ["Auto-triage tickets"], steps: ["Sign in with Freshdesk"] },
+
+  // Email & Marketing
+  { name: "Gmail", category: "Email", method: "Sign in", examples: ["Read inbox", "Draft & send", "Send digests"], steps: ["Sign in with Google"] },
+  { name: "Outlook", category: "Email", method: "Sign in", examples: ["Read inbox", "Draft replies"], steps: ["Sign in with Microsoft"] },
+  { name: "Mailchimp", category: "Marketing", method: "Sign in", examples: ["Draft campaigns", "Segment audiences"], steps: ["Sign in with Mailchimp"] },
+  { name: "Klaviyo", category: "Marketing", method: "Sign in", examples: ["Draft flows & campaigns", "Track revenue per email"], steps: ["Sign in with Klaviyo"] },
+  { name: "ConvertKit", category: "Marketing", method: "Sign in", examples: ["Broadcast + sequences"], steps: ["Sign in with ConvertKit"] },
+  { name: "SendGrid", category: "Email", method: "Sign in", examples: ["Transactional email health"], steps: ["Sign in with SendGrid"] },
+
+  // Analytics & Ads
+  { name: "Google Analytics 4", category: "Analytics", method: "Sign in", examples: ["Weekly traffic + conversion brief"], steps: ["Sign in with Google", "Pick property"] },
+  { name: "Google Ads", category: "Ads", method: "Sign in", examples: ["Pause underperforming ads", "Budget alerts"], steps: ["Sign in with Google", "Pick account"] },
+  { name: "Meta Ads", category: "Ads", method: "Sign in", examples: ["Pause underperformers", "ROAS alerts"], steps: ["Sign in with Facebook"] },
+  { name: "TikTok Ads", category: "Ads", method: "Sign in", examples: ["Track ROAS", "Pause bad creatives"], steps: ["Sign in with TikTok"] },
+  { name: "LinkedIn Ads", category: "Ads", method: "Sign in", examples: ["Pipeline attribution"], steps: ["Sign in with LinkedIn"] },
+
+  // Productivity & Storage
+  { name: "Notion", category: "Productivity", method: "Sign in", examples: ["Log decisions", "Update wiki"], steps: ["Sign in with Notion"] },
+  { name: "Airtable", category: "Productivity", method: "Sign in", examples: ["Read/write bases"], steps: ["Sign in with Airtable"] },
+  { name: "Google Drive", category: "Storage", method: "Sign in", examples: ["Read docs & sheets", "Save reports"], steps: ["Sign in with Google"] },
+  { name: "Dropbox", category: "Storage", method: "Sign in", examples: ["Save reports", "Read shared files"], steps: ["Sign in with Dropbox"] },
+  { name: "OneDrive", category: "Storage", method: "Sign in", examples: ["Read shared files"], steps: ["Sign in with Microsoft"] },
+  { name: "Google Calendar", category: "Calendar", method: "Sign in", examples: ["Auto-book meetings", "Send daily agenda"], steps: ["Sign in with Google"] },
+  { name: "Calendly", category: "Calendar", method: "Sign in", examples: ["Route inbound leads"], steps: ["Sign in with Calendly"] },
+  { name: "Zoom", category: "Meetings", method: "Sign in", examples: ["Meeting summaries", "Auto-recordings"], steps: ["Sign in with Zoom"] },
+
+  // Project mgmt
+  { name: "Trello", category: "Project", method: "Sign in", examples: ["Create cards from tickets"], steps: ["Sign in with Atlassian"] },
+  { name: "Asana", category: "Project", method: "Sign in", examples: ["Create tasks", "Weekly progress digest"], steps: ["Sign in with Asana"] },
+  { name: "Monday", category: "Project", method: "Sign in", examples: ["Create items", "Sync statuses"], steps: ["Sign in with Monday"] },
+  { name: "ClickUp", category: "Project", method: "Sign in", examples: ["Create tasks + docs"], steps: ["Sign in with ClickUp"] },
+  { name: "Jira", category: "Project", method: "Sign in", examples: ["Create issues from tickets"], steps: ["Sign in with Atlassian"] },
+  { name: "Linear", category: "Project", method: "Sign in", examples: ["Create issues from bug reports"], steps: ["Sign in with Linear"] },
+  { name: "GitHub", category: "Dev", method: "Sign in", examples: ["Summarise PRs", "Triage issues"], steps: ["Sign in with GitHub"] },
+];
+
 function pickRoleFromManifest(manifest: { goal?: string; name?: string }): keyof typeof ROLE_DEFAULTS {
   const p = `${manifest?.name || ""} ${manifest?.goal || ""}`.toLowerCase();
   if (/support|ticket|inbox|helpdesk/.test(p)) return "support";
   if (/sales|lead|prospect|outreach|crm|pipeline/.test(p)) return "sales_ops";
-  if (/market|content|seo|social|blog|brand/.test(p)) return "marketing";
-  if (/finance|invoice|kpi|revenue|ops|operations|report/.test(p)) return "ops_finance";
+  if (/market|content|seo|social|blog|brand|instagram|tiktok|youtube|reels/.test(p)) return "marketing";
+  if (/finance|invoice|kpi|revenue|ops|operations|report|cash/.test(p)) return "ops_finance";
   return "custom";
 }
 
+// NazAI recommendation engine: scores every catalog entry against the user's
+// agent context (goal + name + role) and returns the top few names.
+function recommendFor(
+  manifest: { name?: string; goal?: string; role?: string },
+  catalog: Integration[],
+): { names: Set<string>; reason: string } {
+  const text = `${manifest?.name || ""} ${manifest?.goal || ""} ${manifest?.role || ""}`.toLowerCase();
+  const signals: Array<{ kw: RegExp; boost: string[] }> = [
+    { kw: /shop|ecom|store|product|order|inventory|dtc|brand/, boost: ["Shopify", "Stripe", "Klaviyo", "Instagram", "Meta Ads", "Google Analytics 4"] },
+    { kw: /support|ticket|inbox|helpdesk|customer/, boost: ["Zendesk", "Gmail", "Intercom", "Slack", "WhatsApp Business"] },
+    { kw: /sales|lead|prospect|outreach|crm|pipeline|b2b/, boost: ["HubSpot", "Gmail", "LinkedIn", "Slack", "Calendly"] },
+    { kw: /market|content|social|blog|seo|creator|influenc|reels|posts?/, boost: ["Instagram", "TikTok", "YouTube", "X / Twitter", "LinkedIn", "Google Analytics 4"] },
+    { kw: /finance|invoice|kpi|revenue|cash|book|accounting|ops|operations/, boost: ["Stripe", "QuickBooks", "Xero", "Google Analytics 4", "Slack"] },
+    { kw: /restaurant|local|booking|appointment/, boost: ["Google Calendar", "Instagram", "WhatsApp Business", "Square"] },
+    { kw: /saas|product|dev|engineer/, boost: ["GitHub", "Linear", "Slack", "Stripe", "HubSpot"] },
+    { kw: /agenc|freelanc|client/, boost: ["Notion", "Gmail", "Slack", "Stripe", "Calendly"] },
+  ];
+  const picks = new Set<string>();
+  const matched: string[] = [];
+  for (const s of signals) {
+    if (s.kw.test(text)) {
+      s.boost.forEach((n) => picks.add(n));
+      matched.push(s.kw.source.split("|")[0]);
+    }
+  }
+  // Sensible defaults if we couldn't infer anything
+  if (picks.size === 0) ["Gmail", "Slack", "Google Analytics 4", "Stripe", "Instagram"].forEach((n) => picks.add(n));
+  // Filter to items actually present in catalog
+  const inCatalog = new Set(catalog.map((c) => c.name));
+  const names = new Set([...picks].filter((n) => inCatalog.has(n)));
+  const reason = matched.length
+    ? `Based on your agent's focus (${matched.slice(0, 3).join(", ")}), NazAI recommends these first.`
+    : `NazAI's top picks to get your agent live fast.`;
+  return { names, reason };
+}
+
 function methodIcon(method: string) {
-  if (method.toLowerCase().includes("oauth")) return <KeyRound className="h-3 w-3" />;
+  if (method.toLowerCase().includes("oauth") || method.toLowerCase().includes("sign in")) return <KeyRound className="h-3 w-3" />;
   if (method.toLowerCase().includes("webhook")) return <Webhook className="h-3 w-3" />;
   return <Lock className="h-3 w-3" />;
 }
+
 
 export default function AgentIntegrationsPanel({
   manifest,
@@ -116,12 +240,30 @@ export default function AgentIntegrationsPanel({
   accent?: string;
 }) {
   const spec = useMemo<IntegrationsSpec>(() => {
-    if (manifest?.integrations?.integrations?.length) return manifest.integrations;
-    const role = (manifest as { role?: string })?.role && manifest.role! in ROLE_DEFAULTS
-      ? (manifest.role as keyof typeof ROLE_DEFAULTS)
-      : pickRoleFromManifest(manifest);
-    return ROLE_DEFAULTS[role];
+    const roleSpec = manifest?.integrations?.integrations?.length
+      ? manifest.integrations!
+      : ROLE_DEFAULTS[
+          ((manifest as { role?: string })?.role && manifest.role! in ROLE_DEFAULTS
+            ? (manifest.role as keyof typeof ROLE_DEFAULTS)
+            : pickRoleFromManifest(manifest))
+        ];
+    // Merge role-driven picks with the master catalog so the user always sees
+    // every major platform, without losing role-specific summaries/security.
+    const seen = new Set<string>();
+    const merged: Integration[] = [];
+    [...(roleSpec.integrations || []), ...MASTER_CATALOG].forEach((it) => {
+      const key = it.name.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      merged.push(it);
+    });
+    return { ...roleSpec, integrations: merged };
   }, [manifest]);
+
+  const { names: recommendedNames, reason: recommendedReason } = useMemo(
+    () => recommendFor(manifest, spec.integrations),
+    [manifest, spec.integrations],
+  );
 
   const [hubOpen, setHubOpen] = useState(false);
   const [openIntegration, setOpenIntegration] = useState<Integration | null>(null);
@@ -141,9 +283,6 @@ export default function AgentIntegrationsPanel({
 
   useEffect(() => { refresh(); }, [refresh, openIntegration, hubOpen]);
 
-  // Allow other components (e.g. AgentCockpit's "Run Now" gating modal) to open
-  // the hub via a window event, so users can jump straight from a runtime
-  // prompt into the connect flow.
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent<{ agentId?: string }>).detail;
@@ -155,14 +294,23 @@ export default function AgentIntegrationsPanel({
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return spec.integrations;
-    return spec.integrations.filter((i) =>
-      i.name.toLowerCase().includes(q) || i.category.toLowerCase().includes(q),
-    );
-  }, [query, spec.integrations]);
+    const base = q
+      ? spec.integrations.filter(
+          (i) => i.name.toLowerCase().includes(q) || i.category.toLowerCase().includes(q),
+        )
+      : spec.integrations;
+    // Sort: connected → recommended → alphabetical
+    return [...base].sort((a, b) => {
+      const ac = connectedNames.has(a.name) ? 0 : recommendedNames.has(a.name) ? 1 : 2;
+      const bc = connectedNames.has(b.name) ? 0 : recommendedNames.has(b.name) ? 1 : 2;
+      if (ac !== bc) return ac - bc;
+      return a.name.localeCompare(b.name);
+    });
+  }, [query, spec.integrations, connectedNames, recommendedNames]);
 
   const connectedCount = connectedNames.size;
   const total = spec.integrations.length;
+
 
   return (
     <section
@@ -237,13 +385,40 @@ export default function AgentIntegrationsPanel({
               </button>
             </header>
 
-            <div className="px-5 pt-4">
+            <div className="px-5 pt-4 space-y-3">
+              <div
+                className="rounded-2xl p-3 flex items-start gap-3"
+                style={{ background: `${accent}12`, border: `1px solid ${accent}44` }}
+              >
+                <Wand2 className="h-4 w-4 mt-0.5 shrink-0" style={{ color: accent }} />
+                <div className="min-w-0">
+                  <div className="text-[10px] uppercase tracking-[0.24em] font-mono font-semibold" style={{ color: accent }}>
+                    NazAI recommends for you
+                  </div>
+                  <p className="text-[11px] text-zinc-300 mt-0.5">{recommendedReason}</p>
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {[...recommendedNames].map((n) => (
+                      <button
+                        key={n}
+                        onClick={() => {
+                          const it = spec.integrations.find((i) => i.name === n);
+                          if (it) setOpenIntegration(it);
+                        }}
+                        className="text-[11px] px-2 py-1 rounded-full border border-white/10 bg-black/30 text-white hover:border-white/30"
+                      >
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
                 <input
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search Shopify, Stripe, QuickBooks…"
+                  placeholder="Search Instagram, Shopify, Stripe, QuickBooks…"
                   className="w-full pl-9 pr-3 py-2.5 rounded-lg bg-black/40 border border-white/10 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-white/30"
                 />
               </div>
@@ -252,6 +427,7 @@ export default function AgentIntegrationsPanel({
             <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-3 overflow-y-auto">
               {filtered.map((it) => {
                 const isConnected = connectedNames.has(it.name);
+                const isRecommended = recommendedNames.has(it.name);
                 return (
                   <div key={it.name}
                     className="rounded-2xl border border-white/10 bg-white/[0.02] p-4 hover:border-white/20 hover:bg-white/[0.04] transition-all flex flex-col">
@@ -264,10 +440,10 @@ export default function AgentIntegrationsPanel({
                               style={{ background: `${accent}22`, color: accent, border: `1px solid ${accent}55` }}>
                               <CheckCircle2 className="h-2.5 w-2.5" /> Connected
                             </span>
-                          ) : it.status === "recommended" && (
-                            <span className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded"
+                          ) : isRecommended && (
+                            <span className="inline-flex items-center gap-1 text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded"
                               style={{ background: `${accent}22`, color: accent, border: `1px solid ${accent}44` }}>
-                              Recommended
+                              <Wand2 className="h-2.5 w-2.5" /> NazAI pick
                             </span>
                           )}
                         </div>
