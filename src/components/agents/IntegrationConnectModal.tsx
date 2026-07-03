@@ -69,6 +69,47 @@ function scopesFor(it: Integration): string[] {
   return ["Read your account profile", "Access data required by this agent"];
 }
 
+// Native sign-in options the real platform offers on its own login page.
+// e.g. Instagram → Facebook; YouTube/Gmail/Google Ads → Google; etc.
+type SocialProvider = { id: "google" | "facebook" | "apple" | "x" | "microsoft"; label: string };
+function socialProvidersFor(providerName: string): SocialProvider[] {
+  const n = providerName.toLowerCase();
+  const google: SocialProvider = { id: "google", label: "Continue with Google" };
+  const facebook: SocialProvider = { id: "facebook", label: "Continue with Facebook" };
+  const apple: SocialProvider = { id: "apple", label: "Continue with Apple" };
+  const microsoft: SocialProvider = { id: "microsoft", label: "Continue with Microsoft" };
+  const x: SocialProvider = { id: "x", label: "Continue with X" };
+  if (/instagram|threads|meta|facebook|messenger|whatsapp/.test(n)) return [facebook];
+  if (/google|gmail|youtube|drive|calendar|ga4|analytics/.test(n)) return [google];
+  if (/microsoft|outlook|teams|onedrive/.test(n)) return [microsoft];
+  if (/apple|icloud/.test(n)) return [apple];
+  if (/tiktok/.test(n)) return [google, apple, facebook];
+  if (/linkedin/.test(n)) return [google, apple];
+  if (/shopify|stripe|square|paypal|klaviyo|mailchimp|hubspot|salesforce|pipedrive|zendesk|intercom|notion|airtable|asana|monday|clickup|trello|calendly|zoom|figma|slack|discord|github|dropbox|reddit|pinterest|snapchat/.test(n)) return [google, apple];
+  if (/^x$|twitter/.test(n)) return [apple, google];
+  return [google];
+}
+
+function SocialIcon({ id }: { id: SocialProvider["id"] }) {
+  const common = "h-4 w-4";
+  if (id === "google") return (
+    <svg className={common} viewBox="0 0 48 48" aria-hidden><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.6l6.7-6.7C35.7 2.7 30.2.5 24 .5 14.8.5 6.9 5.8 3 13.4l7.9 6.1C12.7 13.7 17.9 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.7-.2-3.4-.5-5H24v9.5h12.7c-.6 3-2.3 5.5-4.9 7.2l7.6 5.9c4.4-4.1 7.1-10.1 7.1-17.6z"/><path fill="#FBBC05" d="M10.9 28.5a14.5 14.5 0 010-9L3 13.4a24 24 0 000 21.2l7.9-6.1z"/><path fill="#34A853" d="M24 47.5c6.2 0 11.4-2 15.2-5.4l-7.6-5.9c-2.1 1.4-4.8 2.3-7.6 2.3-6.1 0-11.3-4.2-13.1-9.9l-7.9 6.1C6.9 42.2 14.8 47.5 24 47.5z"/></svg>
+  );
+  if (id === "facebook") return (
+    <svg className={common} viewBox="0 0 24 24" aria-hidden><path fill="#1877F2" d="M22 12a10 10 0 10-11.6 9.9v-7H7.9V12h2.5V9.8c0-2.5 1.5-3.9 3.8-3.9 1.1 0 2.2.2 2.2.2v2.5h-1.3c-1.2 0-1.6.8-1.6 1.6V12h2.8l-.5 2.9h-2.3v7A10 10 0 0022 12z"/></svg>
+  );
+  if (id === "apple") return (
+    <svg className={common} viewBox="0 0 24 24" aria-hidden><path fill="#000" d="M16.4 12.7c0-2.6 2.1-3.9 2.2-4-1.2-1.8-3.1-2-3.8-2-1.6-.2-3.1.9-3.9.9-.8 0-2-.9-3.4-.9-1.7 0-3.3 1-4.2 2.6-1.8 3.1-.5 7.7 1.3 10.2.9 1.2 1.9 2.6 3.3 2.5 1.3-.1 1.8-.9 3.4-.9 1.5 0 2 .9 3.4.8 1.4 0 2.3-1.2 3.2-2.5 1-1.4 1.4-2.8 1.4-2.9-.1 0-2.7-1-2.7-4zM14 4.6c.7-.9 1.2-2.1 1.1-3.3-1 0-2.3.7-3 1.6-.7.8-1.3 2-1.1 3.2 1.2.1 2.3-.6 3-1.5z"/></svg>
+  );
+  if (id === "microsoft") return (
+    <svg className={common} viewBox="0 0 24 24" aria-hidden><rect width="10" height="10" x="1" y="1" fill="#F25022"/><rect width="10" height="10" x="13" y="1" fill="#7FBA00"/><rect width="10" height="10" x="1" y="13" fill="#00A4EF"/><rect width="10" height="10" x="13" y="13" fill="#FFB900"/></svg>
+  );
+  return (
+    <svg className={common} viewBox="0 0 24 24" aria-hidden><path fill="#000" d="M18.9 2H22l-7.5 8.6L23 22h-6.8l-5.3-6.9L4.8 22H1.7l8-9.2L1 2h7l4.8 6.3L18.9 2z"/></svg>
+  );
+}
+
+
 export default function IntegrationConnectModal({
   integration,
   agentId,
