@@ -288,22 +288,44 @@ export default function IntegrationConnectModal({
                 to continue to <span className="font-medium">{integration.name}</span>
               </p>
 
+              {socials.length > 0 && (
+                <div className="space-y-2 mb-4">
+                  {socials.map((s) => (
+                    <button
+                      type="button"
+                      key={s.id}
+                      onClick={() => signInWithSocial(s)}
+                      className="w-full h-11 rounded-full border border-zinc-300 bg-white hover:bg-zinc-50 flex items-center justify-center gap-3 text-sm font-medium text-zinc-800 transition"
+                    >
+                      <SocialIcon id={s.id} />
+                      {s.label}
+                    </button>
+                  ))}
+                  <div className="flex items-center gap-3 py-1">
+                    <div className="flex-1 h-px bg-zinc-200" />
+                    <span className="text-[11px] uppercase tracking-widest text-zinc-400">or</span>
+                    <div className="flex-1 h-px bg-zinc-200" />
+                  </div>
+                </div>
+              )}
+
               <label className="block">
                 <input
                   autoFocus
                   type="email"
                   value={email}
                   onChange={(e) => { setEmail(e.target.value); setError(null); }}
-                  placeholder="Email"
+                  placeholder={`Email or ${integration.name} username`}
                   className="w-full h-14 px-4 rounded-lg border border-zinc-300 focus:border-blue-600 focus:ring-2 focus:ring-blue-100 outline-none text-base transition"
                 />
               </label>
               {error && <div className="text-xs text-red-600 mt-2">{error}</div>}
 
               <p className="text-xs text-zinc-500 mt-4">
-                Use your <span className="font-medium">{integration.name}</span> account.
+                Use the same login you use on <span className="font-medium">{integration.name}</span>.
                 NazAI never stores your password — it's exchanged for a revocable access token.
               </p>
+
 
               <div className="mt-auto pt-8 flex items-center justify-end">
                 <button
