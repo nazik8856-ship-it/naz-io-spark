@@ -5,7 +5,7 @@
 // tokens, OAuth one-clicks).
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Plug, KeyRound, Webhook, ShieldCheck, Lock, CheckCircle2, X, Search, Sparkles,
+  Plug, KeyRound, Webhook, ShieldCheck, Lock, CheckCircle2, X, Search, Sparkles, Wand2,
 } from "lucide-react";
 import IntegrationConnectModal from "./IntegrationConnectModal";
 import { supabase } from "@/integrations/supabase/client";
