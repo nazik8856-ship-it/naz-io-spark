@@ -142,7 +142,10 @@ export default function IntegrationConnectModal({
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
-  const [account, setAccount] = useState<{ name: string; email: string } | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [results, setResults] = useState<FoundAccount[]>([]);
+  const [account, setAccount] = useState<FoundAccount | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Prior state
