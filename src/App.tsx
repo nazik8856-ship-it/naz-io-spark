@@ -19,6 +19,7 @@ const GenerationWorkspace = lazy(() => import("./pages/GenerationWorkspace"));
 const Generating = lazy(() => import("./pages/Generating"));
 const Pricing = lazy(() => import("./pages/Pricing"));
 const Unsubscribe = lazy(() => import("./pages/Unsubscribe"));
+const OAuthConsent = lazy(() => import("./pages/OAuthConsent"));
 
 const queryClient = new QueryClient();
 
@@ -57,6 +58,9 @@ const App = () => (
                 <Route path="/generation-workspace" element={<GenerationWorkspace />} />
                 <Route path="/pricing" element={<Pricing />} />
                 <Route path="/unsubscribe" element={<Unsubscribe />} />
+
+                {/* OAuth 2.1 consent screen for MCP clients (ChatGPT, Claude, etc.) */}
+                <Route path="/.lovable/oauth/consent" element={<OAuthConsent />} />
 
                 {/* Nested Dashboard Routes */}
                 <Route path="/dashboard/*" element={<Dashboard />} />
