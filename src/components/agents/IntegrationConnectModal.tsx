@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   X, Loader2, CheckCircle2, AlertTriangle,
   Lock, ArrowRight, User2, LogOut, Eye, EyeOff, ArrowLeft,
+  Search, Building2, UserCircle2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -26,10 +27,22 @@ type Step =
   | "email"
   | "password"
   | "finding"
+  | "search"        // enter handle / store / business name to find real account
+  | "no_match"     // search returned nothing — prompt to try again
   | "account"       // account found → shows Connect button
   | "connecting"
   | "connected"
   | "error";
+
+type FoundAccount = {
+  id: string;
+  handle: string;
+  name: string;
+  kind: "personal" | "business";
+  avatar?: string | null;
+  verified?: boolean;
+  url?: string;
+};
 
 function domainFor(providerName: string) {
   const p = providerName.toLowerCase().replace(/[^a-z0-9]/g, "");
