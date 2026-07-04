@@ -590,7 +590,7 @@ export default function IntegrationConnectModal({
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-semibold text-zinc-900 truncate">{account.name}</div>
-                  <div className="text-xs text-zinc-500 truncate">{account.email}</div>
+                  <div className="text-xs text-zinc-500 truncate">{account.handle}</div>
                 </div>
                 <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-mono">
                   {integration.name}
