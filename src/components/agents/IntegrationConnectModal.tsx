@@ -165,8 +165,11 @@ export default function IntegrationConnectModal({
       if (data?.status === "connected") {
         const meta = (data.metadata as Record<string, unknown>) || {};
         setAccount({
+          id: String(meta.account_id || meta.account_name || "connected"),
+          handle: String(meta.handle || meta.account_name || "Your account"),
           name: String(meta.account_name || meta.name || "Your account"),
-          email: String(meta.email || `you@${domainFor(integration.name)}`),
+          kind: (meta.account_kind === "business" ? "business" : "personal") as "personal" | "business",
+          avatar: (meta.avatar as string) || null,
         });
         setStep("connected");
       } else {
@@ -190,11 +193,12 @@ export default function IntegrationConnectModal({
   const signInWithSocial = async (provider: SocialProvider) => {
     setError(null);
     setStep("finding");
-    await new Promise((r) => setTimeout(r, 1100));
+    await new Promise((r) => setTimeout(r, 900));
     const derivedEmail = email.trim() || `you@${provider.id === "microsoft" ? "outlook.com" : provider.id === "apple" ? "icloud.com" : provider.id === "facebook" ? "facebook.com" : provider.id === "x" ? "x.com" : "gmail.com"}`;
     setEmail(derivedEmail);
-    setAccount({ name: displayNameFromEmail(derivedEmail), email: derivedEmail });
-    setStep("account");
+    setSearchQuery("");
+    setResults([]);
+    setStep("search");
   };
 
 
@@ -203,8 +207,40 @@ export default function IntegrationConnectModal({
     if (password.length < 4) { setError("Enter your password"); return; }
     setError(null);
     setStep("finding");
-    await new Promise((r) => setTimeout(r, 900));
-    setAccount({ name: displayNameFromEmail(email), email });
+    await new Promise((r) => setTimeout(r, 700));
+    setSearchQuery("");
+    setResults([]);
+    setStep("search");
+  };
+
+  const runSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const q = searchQuery.trim();
+    if (!q) { setError("Enter your handle, username, or business name"); return; }
+    setError(null);
+    setSearching(true);
+    try {
+      const { data, error: fnErr } = await supabase.functions.invoke("integration-account-search", {
+        body: { provider: integration.name, query: q },
+      });
+      if (fnErr) throw new Error(fnErr.message || "Search failed");
+      const res = data as { found: boolean; accounts: FoundAccount[]; error?: string };
+      if (!res.found || !res.accounts?.length) {
+        setResults([]);
+        setStep("no_match");
+        setError(res.error || `We couldn't find a ${integration.name} account for "${q}".`);
+        return;
+      }
+      setResults(res.accounts);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Search failed");
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const pickAccount = (a: FoundAccount) => {
+    setAccount(a);
     setStep("account");
   };
 
@@ -220,8 +256,12 @@ export default function IntegrationConnectModal({
           agentId: agentId || null,
           credentials: {
             oauth_token: `oauth_sim_${crypto.randomUUID()}`,
-            account_email: account.email,
+            account_id: account.id,
+            account_email: email || `you@${domainFor(integration.name)}`,
             account_name: account.name,
+            handle: account.handle,
+            account_kind: account.kind,
+            avatar: account.avatar || "",
             granted_scopes: scopes.join(", "),
           },
         },
@@ -248,6 +288,8 @@ export default function IntegrationConnectModal({
       setAccount(null);
       setEmail("");
       setPassword("");
+      setSearchQuery("");
+      setResults([]);
       setStep("email");
       toast.message(`${integration.name} disconnected`);
       onChange?.();
