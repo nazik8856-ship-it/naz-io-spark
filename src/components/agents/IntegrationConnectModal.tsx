@@ -462,6 +462,118 @@ export default function IntegrationConnectModal({
             </div>
           )}
 
+          {step === "search" && (
+            <form onSubmit={runSearch} className="flex-1 flex flex-col animate-fade-in">
+              <h2 className="text-xl font-normal text-center mb-1">Find your account</h2>
+              <p className="text-sm text-zinc-600 text-center mb-5">
+                Search your real <span className="font-medium">{integration.name}</span> handle or business
+              </p>
+
+              <label className="block relative mb-3">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
+                <input
+                  autoFocus
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => { setSearchQuery(e.target.value); setError(null); }}
+                  placeholder={
+                    /shopify/i.test(integration.name) ? "your-store-name (my-store.myshopify.com)" :
+                    /instagram|tiktok|youtube|twitter|^x$/i.test(integration.name) ? "@yourhandle" :
+                    /quickbooks|xero|stripe|hubspot|salesforce|slack|notion/i.test(integration.name) ? "Your business or workspace name" :
+                    "Your username or business name"
+                  }
+                  className="w-full h-12 pl-10 pr-3 rounded-lg border border-zinc-300 focus:border-blue-600 focus:ring-2 focus:ring-blue-100 outline-none text-sm transition"
+                />
+              </label>
+
+              {error && <div className="text-xs text-red-600 mb-2">{error}</div>}
+
+              {results.length > 0 && (
+                <div className="space-y-2 mb-2">
+                  <div className="text-[10px] uppercase tracking-widest text-zinc-500 font-medium px-1">
+                    {results.length} match{results.length > 1 ? "es" : ""} · pick one
+                  </div>
+                  {results.map((a) => (
+                    <button
+                      type="button"
+                      key={a.id}
+                      onClick={() => pickAccount(a)}
+                      className="w-full rounded-xl border border-zinc-200 hover:border-blue-500 hover:bg-blue-50/40 p-3 flex items-center gap-3 text-left transition group"
+                    >
+                      {a.avatar ? (
+                        <img src={a.avatar} alt="" className="h-10 w-10 rounded-full object-cover bg-zinc-100" />
+                      ) : (
+                        <div
+                          className="h-10 w-10 rounded-full flex items-center justify-center text-white"
+                          style={{ background: `linear-gradient(135deg, ${accent}, #22d3ee)` }}
+                        >
+                          {a.kind === "business" ? <Building2 className="h-5 w-5" /> : <UserCircle2 className="h-5 w-5" />}
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-semibold text-zinc-900 truncate flex items-center gap-1.5">
+                          {a.name}
+                          {a.verified && <CheckCircle2 className="h-3.5 w-3.5 text-blue-500 shrink-0" />}
+                        </div>
+                        <div className="text-xs text-zinc-500 truncate">{a.handle}</div>
+                      </div>
+                      <span className="text-[9px] uppercase tracking-wider font-mono px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-600">
+                        {a.kind}
+                      </span>
+                      <ArrowRight className="h-4 w-4 text-zinc-300 group-hover:text-blue-600 shrink-0" />
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <p className="text-[11px] text-zinc-500 mt-3">
+                We only match against your real, existing account on {integration.name}.
+                Fake or non-existent handles will be rejected.
+              </p>
+
+              <div className="mt-auto pt-6 flex items-center justify-end">
+                <button
+                  type="submit"
+                  disabled={searching}
+                  className="inline-flex items-center gap-2 px-6 h-10 rounded-md text-sm font-medium text-white transition hover:brightness-110 disabled:opacity-70"
+                  style={{ background: "#1a73e8" }}
+                >
+                  {searching ? <><Loader2 className="h-4 w-4 animate-spin" /> Searching…</> : <><Search className="h-4 w-4" /> Search</>}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {step === "no_match" && (
+            <div className="flex-1 flex flex-col animate-fade-in">
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 mb-4">
+                <div className="flex items-center gap-1.5 mb-1 font-medium">
+                  <AlertTriangle className="h-4 w-4" /> Account not found
+                </div>
+                <div className="text-xs break-words">{error || `We couldn't find a ${integration.name} account matching that handle.`}</div>
+                <div className="text-xs mt-2 text-amber-700">
+                  Check for typos, remove any leading <span className="font-mono">@</span>, or try the exact
+                  username you use to sign in on {integration.name}.
+                </div>
+              </div>
+              <div className="mt-auto flex items-center justify-end gap-2">
+                <button
+                  onClick={() => { setStep("email"); setError(null); setSearchQuery(""); }}
+                  className="px-4 h-10 rounded-md text-sm text-zinc-700 hover:bg-zinc-100"
+                >
+                  Start over
+                </button>
+                <button
+                  onClick={() => { setStep("search"); setError(null); }}
+                  className="px-6 h-10 rounded-md text-sm font-semibold text-white"
+                  style={{ background: "#1a73e8" }}
+                >
+                  Try another handle
+                </button>
+              </div>
+            </div>
+          )}
+
           {(step === "account" || step === "connecting") && account && (
             <div className="flex-1 flex flex-col animate-fade-in">
               <h2 className="text-xl font-normal text-center mb-1">Account found</h2>
@@ -547,8 +659,11 @@ export default function IntegrationConnectModal({
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-semibold text-zinc-900 truncate">{account.name}</div>
-                  <div className="text-xs text-zinc-500 truncate">{account.email}</div>
+                  <div className="text-xs text-zinc-500 truncate">{account.handle}</div>
                 </div>
+                <span className="text-[9px] uppercase tracking-wider font-mono px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-600">
+                  {account.kind}
+                </span>
                 <span
                   className="text-[10px] uppercase tracking-wider font-mono px-2 py-1 rounded-full"
                   style={{ background: `${accent}18`, color: accent, border: `1px solid ${accent}55` }}
