@@ -318,6 +318,59 @@ Rules:
           continue;
         }
 
+        if (tool.kind === "sync_integrations") {
+          const providerFilter = String(input.provider || "").trim() || null;
+          try {
+            const svc = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+            const r = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/integration-sync`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${svc}` },
+              body: JSON.stringify({ cron: true }),
+            });
+            const body = await r.json().catch(() => ({}));
+            // Re-read the latest snapshots for THIS user so the agent has fresh numbers.
+            const { data: fresh } = await supabase.from("integration_snapshots")
+              .select("provider, kind, data, error, fetched_at")
+              .eq("user_id", userId)
+              .order("fetched_at", { ascending: false }).limit(50);
+            const seen = new Set<string>();
+            const summary = (fresh || [])
+              .filter((s) => {
+                if (seen.has(s.provider as string)) return false;
+                if (providerFilter && s.provider !== providerFilter) return false;
+                seen.add(s.provider as string); return true;
+              })
+              .map((s) => `${s.provider} [${s.kind}] ${s.error ? `ERROR: ${s.error}` : JSON.stringify(s.data)}`)
+              .join("\n");
+            await logEvent("action", { type: "sync_integrations", ok: r.ok, providers: seen.size, cron_result: body });
+            await logEvent("tool_result", { tool: tool.name, ok: r.ok, summary: summary || "No connected tools to sync." });
+            messages.push({ role: "user", content: `Live data refreshed:\n${summary || "(none)"}\n\nContinue.` });
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : "sync failed";
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            messages.push({ role: "user", content: `sync_now failed: ${msg}. Continue with what you have.` });
+          }
+          continue;
+        }
+        if (tool.kind === "integration_query") {
+          const providerFilter = String(input.provider || "").trim();
+          if (!providerFilter) {
+            messages.push({ role: "user", content: `read_data requires a "provider" string.` });
+            continue;
+          }
+          const { data: rows } = await supabase.from("integration_snapshots")
+            .select("kind, data, error, fetched_at")
+            .eq("user_id", userId).eq("provider", providerFilter)
+            .order("fetched_at", { ascending: false }).limit(1);
+          const snap = rows?.[0];
+          const summary = snap
+            ? `${providerFilter} [${snap.kind}] fetched ${snap.fetched_at}: ${snap.error ? `ERROR ${snap.error}` : JSON.stringify(snap.data)}`
+            : `No snapshot yet for ${providerFilter}. Call sync_now first.`;
+          await logEvent("tool_result", { tool: tool.name, ok: !!snap && !snap.error, summary });
+          messages.push({ role: "user", content: `${summary}\n\nContinue.` });
+          continue;
+        }
+
         const result = await executeTool(tool, input, supabase, agentId, runId, userId, logEvent);
         await logEvent("tool_result", { tool: tool.name, ok: !result.error, summary: result.summary });
         messages.push({ role: "user", content: `Tool "${tool.name}" returned:\n${result.summary}\n\nContinue.` });
