@@ -174,6 +174,16 @@ export default function IntegrationConnectModal({
           avatar: (meta.avatar as string) || null,
         });
         setStep("connected");
+        // Load latest live snapshot
+        const { data: snap } = await supabase
+          .from("integration_snapshots")
+          .select("kind, data, error, fetched_at")
+          .eq("user_id", user.id)
+          .eq("provider", integration.name)
+          .order("fetched_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (!cancelled && snap) setLiveData(snap);
       } else {
         setStep("email");
       }
