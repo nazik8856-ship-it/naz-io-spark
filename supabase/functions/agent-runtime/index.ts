@@ -144,6 +144,18 @@ serve(async (req) => {
       ? `\n# What you remember about this business (recent facts)\n${memory.map((m) => `- [${m.source}] ${m.key} = ${m.value}`).join("\n")}`
       : "";
 
+    const integrationsBlock = connectedIntegrations.length
+      ? `\n# Connected business tools (${connectedIntegrations.length}) — you must cite them by name in your reasoning\n${connectedIntegrations.map((i) => {
+          const snap = latestByProvider.get(i.provider as string);
+          const meta = (i.metadata as Record<string, unknown>) || {};
+          const account = meta.handle || meta.account_name || meta.account_email || "connected account";
+          if (!snap) return `- ${i.provider} (account: ${account}) — no live snapshot yet, call sync_now to pull data.`;
+          const age = Math.round((Date.now() - new Date(snap.fetched_at).getTime()) / 60000);
+          if (snap.error) return `- ${i.provider} (account: ${account}) — LAST SYNC FAILED ${age}m ago: ${snap.error}`;
+          return `- ${i.provider} (account: ${account}) — live ${snap.kind} data (synced ${age}m ago):\n    ${JSON.stringify(snap.data)}`;
+        }).join("\n")}`
+      : "";
+
     const toolDescriptions = manifest.tools.map((t) => {
       let usage = "";
       switch (t.kind) {
