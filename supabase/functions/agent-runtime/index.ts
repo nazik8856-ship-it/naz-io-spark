@@ -156,7 +156,19 @@ serve(async (req) => {
         }).join("\n")}`
       : "";
 
-    const toolDescriptions = manifest.tools.map((t) => {
+    // Inject built-in integration tools so EVERY agent (old or new) can
+    // refresh and query live data from connected accounts without needing
+    // them to be listed in the manifest.
+    const builtInTools: Tool[] = [
+      { name: "sync_now", kind: "sync_integrations", description: "Pull the freshest live data from every connected business tool. Call this when your snapshots look stale or missing.", config: {} },
+      { name: "read_data", kind: "integration_query", description: "Look up the most recent synced snapshot for one connected tool. Use before making claims about numbers.", config: {} },
+    ];
+    const effectiveTools: Tool[] = [
+      ...manifest.tools,
+      ...builtInTools.filter((b) => !manifest.tools.some((t) => t.name === b.name || t.kind === b.kind)),
+    ];
+
+    const toolDescriptions = effectiveTools.map((t) => {
       let usage = "";
       switch (t.kind) {
         case "web_search": usage = `web_search(query: string)`; break;
@@ -166,6 +178,8 @@ serve(async (req) => {
         case "remember": usage = `remember(key: string, value: string)  // persist a fact for future runs`; break;
         case "ask_user": usage = `ask_user(question: string, options?: string[])  // pauses the agent until the operator answers`; break;
         case "request_approval": usage = `request_approval(action: string, payload: object, risk?: "low"|"med"|"high")  // queue an external action`; break;
+        case "sync_integrations": usage = `sync_now(provider?: string)  // refreshes live data from connected tools`; break;
+        case "integration_query": usage = `read_data(provider: string)  // returns the latest synced snapshot for a connected tool`; break;
         default: usage = `${t.name}(...)  // CUSTOM — currently inert`;
       }
       return `- ${t.name} (${t.kind}): ${t.description}\n  Usage: ${usage}`;
