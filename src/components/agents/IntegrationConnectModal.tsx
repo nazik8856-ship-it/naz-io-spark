@@ -8,7 +8,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   X, Loader2, CheckCircle2, AlertTriangle,
   Lock, ArrowRight, User2, LogOut, Eye, EyeOff, ArrowLeft,
-  Search, Building2, UserCircle2,
+  Search, Building2, UserCircle2, RefreshCw, Activity,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
