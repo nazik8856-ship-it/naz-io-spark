@@ -193,7 +193,13 @@ serve(async (req) => {
 - Guardrails: ${manifest.guardrails.map((g) => `${g.rule}${g.requiresApproval ? " [REQUIRES APPROVAL]" : ""}`).join("; ")}
 - KPIs: ${manifest.kpis.map((k) => `${k.name}=${k.target}`).join(", ")}
 ${profileBlock}
+${integrationsBlock}
 ${memoryBlock}
+
+# Live-data contract
+- Whenever you cite a number, name the connected tool it came from (e.g. "Shopify: 47 orders in the last 24h").
+- If a connected tool has no fresh snapshot, call sync_now BEFORE reasoning about it.
+- If any snapshot shows an error, mention the failing tool by name and either call sync_now once to retry or ask_user for updated credentials.
 
 # Autonomy rules — you are a real digital employee, not a chatbot
 - Internal work (research, drafting, computing, reasoning, logging) → DO IT, don't ask permission.
