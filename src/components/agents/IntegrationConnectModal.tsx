@@ -183,7 +183,12 @@ export default function IntegrationConnectModal({
           .order("fetched_at", { ascending: false })
           .limit(1)
           .maybeSingle();
-        if (!cancelled && snap) setLiveData(snap);
+        if (!cancelled && snap) setLiveData({
+          kind: snap.kind as string,
+          data: (snap.data as Record<string, unknown>) || {},
+          error: (snap.error as string | null) ?? null,
+          fetched_at: snap.fetched_at as string,
+        });
       } else {
         setStep("email");
       }
