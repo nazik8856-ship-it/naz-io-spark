@@ -712,6 +712,46 @@ export default function IntegrationConnectModal({
                 </span>
               </div>
 
+              {/* Live data preview */}
+              <div className="rounded-2xl border border-zinc-200 bg-white p-4 mb-4">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider font-mono font-semibold text-zinc-700">
+                    <Activity className="h-3.5 w-3.5" style={{ color: accent }} />
+                    Live data
+                    {liveData?.fetched_at && (
+                      <span className="text-zinc-400 font-normal normal-case tracking-normal">
+                        · synced {timeAgo(liveData.fetched_at)}
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    onClick={syncNow}
+                    disabled={syncing}
+                    className="inline-flex items-center gap-1 text-[11px] font-medium px-2.5 py-1 rounded-md border border-zinc-200 text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                  >
+                    {syncing ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                    Sync now
+                  </button>
+                </div>
+                {liveData?.error ? (
+                  <div className="text-[12px] text-red-600 flex items-start gap-1.5">
+                    <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                    <span className="break-words">{liveData.error}</span>
+                  </div>
+                ) : liveData?.data && Object.keys(liveData.data).length ? (
+                  <ul className="grid grid-cols-2 gap-x-3 gap-y-1 text-[12px]">
+                    {Object.entries(liveData.data).slice(0, 8).map(([k, v]) => (
+                      <li key={k} className="min-w-0">
+                        <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-mono truncate">{k.replace(/_/g, " ")}</div>
+                        <div className="text-zinc-900 font-medium truncate">{formatVal(v)}</div>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-[12px] text-zinc-500">No snapshot yet — press <em>Sync now</em> to pull live data. Automatic hourly sync is already scheduled.</p>
+                )}
+              </div>
+
               <div className="mt-auto flex items-center gap-2">
                 <button
                   onClick={disconnect}
