@@ -8,7 +8,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   X, Loader2, CheckCircle2, AlertTriangle,
   Lock, ArrowRight, User2, LogOut, Eye, EyeOff, ArrowLeft,
-  Search, Building2, UserCircle2,
+  Search, Building2, UserCircle2, RefreshCw, Activity,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -58,6 +58,23 @@ function domainFor(providerName: string) {
   };
   const key = Object.keys(map).find((k) => p.includes(k));
   return key ? map[key] : `${p || "workspace"}.com`;
+}
+
+function timeAgo(iso: string) {
+  const ms = Date.now() - new Date(iso).getTime();
+  const m = Math.round(ms / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.round(h / 24)}d ago`;
+}
+
+function formatVal(v: unknown): string {
+  if (v == null) return "—";
+  if (Array.isArray(v)) return v.slice(0, 3).map((x) => String(x)).join(", ") + (v.length > 3 ? "…" : "");
+  if (typeof v === "object") return JSON.stringify(v).slice(0, 60);
+  return String(v);
 }
 
 function displayNameFromEmail(email: string) {
@@ -147,6 +164,8 @@ export default function IntegrationConnectModal({
   const [results, setResults] = useState<FoundAccount[]>([]);
   const [account, setAccount] = useState<FoundAccount | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [liveData, setLiveData] = useState<{ kind?: string; data?: Record<string, unknown>; error?: string | null; fetched_at?: string } | null>(null);
+  const [syncing, setSyncing] = useState(false);
 
   // Prior state
   useEffect(() => {
@@ -172,6 +191,21 @@ export default function IntegrationConnectModal({
           avatar: (meta.avatar as string) || null,
         });
         setStep("connected");
+        // Load latest live snapshot
+        const { data: snap } = await supabase
+          .from("integration_snapshots")
+          .select("kind, data, error, fetched_at")
+          .eq("user_id", user.id)
+          .eq("provider", integration.name)
+          .order("fetched_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (!cancelled && snap) setLiveData({
+          kind: snap.kind as string,
+          data: (snap.data as Record<string, unknown>) || {},
+          error: (snap.error as string | null) ?? null,
+          fetched_at: snap.fetched_at as string,
+        });
       } else {
         setStep("email");
       }
@@ -295,6 +329,29 @@ export default function IntegrationConnectModal({
       onChange?.();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Disconnect failed");
+    }
+  };
+
+  const syncNow = async () => {
+    setSyncing(true);
+    try {
+      const { data, error: fnErr } = await supabase.functions.invoke("integration-sync", {
+        body: { provider: integration.name, agentId: agentId || null },
+      });
+      if (fnErr) throw new Error(fnErr.message);
+      const res = (data as { synced?: Array<{ ok: boolean; kind: string; data: Record<string, unknown>; error?: string }> }).synced || [];
+      const hit = res[0];
+      if (hit) {
+        setLiveData({ kind: hit.kind, data: hit.data, error: hit.ok ? null : (hit.error || "sync failed"), fetched_at: new Date().toISOString() });
+        hit.ok ? toast.success(`${integration.name} synced`) : toast.error(`${integration.name}: ${hit.error || "sync failed"}`);
+      } else {
+        toast.message("Nothing to sync yet.");
+      }
+      onChange?.();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Sync failed");
+    } finally {
+      setSyncing(false);
     }
   };
 
@@ -670,6 +727,46 @@ export default function IntegrationConnectModal({
                 >
                   LIVE
                 </span>
+              </div>
+
+              {/* Live data preview */}
+              <div className="rounded-2xl border border-zinc-200 bg-white p-4 mb-4">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider font-mono font-semibold text-zinc-700">
+                    <Activity className="h-3.5 w-3.5" style={{ color: accent }} />
+                    Live data
+                    {liveData?.fetched_at && (
+                      <span className="text-zinc-400 font-normal normal-case tracking-normal">
+                        · synced {timeAgo(liveData.fetched_at)}
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    onClick={syncNow}
+                    disabled={syncing}
+                    className="inline-flex items-center gap-1 text-[11px] font-medium px-2.5 py-1 rounded-md border border-zinc-200 text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                  >
+                    {syncing ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                    Sync now
+                  </button>
+                </div>
+                {liveData?.error ? (
+                  <div className="text-[12px] text-red-600 flex items-start gap-1.5">
+                    <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                    <span className="break-words">{liveData.error}</span>
+                  </div>
+                ) : liveData?.data && Object.keys(liveData.data).length ? (
+                  <ul className="grid grid-cols-2 gap-x-3 gap-y-1 text-[12px]">
+                    {Object.entries(liveData.data).slice(0, 8).map(([k, v]) => (
+                      <li key={k} className="min-w-0">
+                        <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-mono truncate">{k.replace(/_/g, " ")}</div>
+                        <div className="text-zinc-900 font-medium truncate">{formatVal(v)}</div>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-[12px] text-zinc-500">No snapshot yet — press <em>Sync now</em> to pull live data. Automatic hourly sync is already scheduled.</p>
+                )}
               </div>
 
               <div className="mt-auto flex items-center gap-2">

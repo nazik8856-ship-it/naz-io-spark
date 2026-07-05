@@ -422,6 +422,50 @@ export type Database = {
         }
         Relationships: []
       }
+      integration_snapshots: {
+        Row: {
+          agent_id: string | null
+          created_at: string
+          data: Json
+          error: string | null
+          fetched_at: string
+          id: string
+          kind: string
+          provider: string
+          user_id: string
+        }
+        Insert: {
+          agent_id?: string | null
+          created_at?: string
+          data?: Json
+          error?: string | null
+          fetched_at?: string
+          id?: string
+          kind?: string
+          provider: string
+          user_id: string
+        }
+        Update: {
+          agent_id?: string | null
+          created_at?: string
+          data?: Json
+          error?: string | null
+          fetched_at?: string
+          id?: string
+          kind?: string
+          provider?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "integration_snapshots_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       missions: {
         Row: {
           attachment_urls: string[] | null

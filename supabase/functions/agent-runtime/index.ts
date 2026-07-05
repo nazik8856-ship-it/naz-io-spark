@@ -71,6 +71,48 @@ serve(async (req) => {
       .select("key, value, source").eq("agent_id", agentId).eq("user_id", userId)
       .order("created_at", { ascending: false }).limit(40);
 
+    // Load connected integrations + their most recent synced snapshot so the
+    // agent grounds its reasoning in real business data instead of guessing.
+    const { data: integrations } = await supabase.from("agent_integrations")
+      .select("provider, status, metadata, last_verified_at, last_error")
+      .eq("user_id", userId)
+      .or(agent.id ? `agent_id.eq.${agent.id},agent_id.is.null` : `agent_id.is.null`);
+    const connectedIntegrations = (integrations || []).filter((i) => i.status === "connected");
+    const { data: snapshots } = await supabase.from("integration_snapshots")
+      .select("provider, kind, data, error, fetched_at")
+      .eq("user_id", userId)
+      .order("fetched_at", { ascending: false })
+      .limit(200);
+    const latestByProvider = new Map<string, { kind: string; data: Record<string, unknown>; error: string | null; fetched_at: string }>();
+    for (const s of snapshots || []) {
+      if (!latestByProvider.has(s.provider as string)) {
+        latestByProvider.set(s.provider as string, {
+          kind: s.kind as string,
+          data: (s.data as Record<string, unknown>) || {},
+          error: (s.error as string | null) ?? null,
+          fetched_at: s.fetched_at as string,
+        });
+      }
+    }
+
+    // Trigger a fresh sync in the background if the newest snapshot is stale
+    // (> 30 min) or missing entirely for any connected integration. This keeps
+    // agent reasoning current without blocking the run.
+    const staleMs = 30 * 60 * 1000;
+    const needsSync = connectedIntegrations.some((i) => {
+      const snap = latestByProvider.get(i.provider as string);
+      if (!snap) return true;
+      return Date.now() - new Date(snap.fetched_at).getTime() > staleMs;
+    });
+    if (needsSync) {
+      const svc = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/integration-sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${svc}` },
+        body: JSON.stringify({ cron: false, userId, agentId }),
+      }).catch(() => {});
+    }
+
     // Pause if there's an unresolved clarification waiting
     const { data: lastClarify } = await supabase.from("agent_events")
       .select("id, kind, payload, created_at")
@@ -102,7 +144,31 @@ serve(async (req) => {
       ? `\n# What you remember about this business (recent facts)\n${memory.map((m) => `- [${m.source}] ${m.key} = ${m.value}`).join("\n")}`
       : "";
 
-    const toolDescriptions = manifest.tools.map((t) => {
+    const integrationsBlock = connectedIntegrations.length
+      ? `\n# Connected business tools (${connectedIntegrations.length}) — you must cite them by name in your reasoning\n${connectedIntegrations.map((i) => {
+          const snap = latestByProvider.get(i.provider as string);
+          const meta = (i.metadata as Record<string, unknown>) || {};
+          const account = meta.handle || meta.account_name || meta.account_email || "connected account";
+          if (!snap) return `- ${i.provider} (account: ${account}) — no live snapshot yet, call sync_now to pull data.`;
+          const age = Math.round((Date.now() - new Date(snap.fetched_at).getTime()) / 60000);
+          if (snap.error) return `- ${i.provider} (account: ${account}) — LAST SYNC FAILED ${age}m ago: ${snap.error}`;
+          return `- ${i.provider} (account: ${account}) — live ${snap.kind} data (synced ${age}m ago):\n    ${JSON.stringify(snap.data)}`;
+        }).join("\n")}`
+      : "";
+
+    // Inject built-in integration tools so EVERY agent (old or new) can
+    // refresh and query live data from connected accounts without needing
+    // them to be listed in the manifest.
+    const builtInTools: Tool[] = [
+      { name: "sync_now", kind: "sync_integrations", description: "Pull the freshest live data from every connected business tool. Call this when your snapshots look stale or missing.", config: {} },
+      { name: "read_data", kind: "integration_query", description: "Look up the most recent synced snapshot for one connected tool. Use before making claims about numbers.", config: {} },
+    ];
+    const effectiveTools: Tool[] = [
+      ...manifest.tools,
+      ...builtInTools.filter((b) => !manifest.tools.some((t) => t.name === b.name || t.kind === b.kind)),
+    ];
+
+    const toolDescriptions = effectiveTools.map((t) => {
       let usage = "";
       switch (t.kind) {
         case "web_search": usage = `web_search(query: string)`; break;
@@ -112,6 +178,8 @@ serve(async (req) => {
         case "remember": usage = `remember(key: string, value: string)  // persist a fact for future runs`; break;
         case "ask_user": usage = `ask_user(question: string, options?: string[])  // pauses the agent until the operator answers`; break;
         case "request_approval": usage = `request_approval(action: string, payload: object, risk?: "low"|"med"|"high")  // queue an external action`; break;
+        case "sync_integrations": usage = `sync_now(provider?: string)  // refreshes live data from connected tools`; break;
+        case "integration_query": usage = `read_data(provider: string)  // returns the latest synced snapshot for a connected tool`; break;
         default: usage = `${t.name}(...)  // CUSTOM — currently inert`;
       }
       return `- ${t.name} (${t.kind}): ${t.description}\n  Usage: ${usage}`;
@@ -125,7 +193,13 @@ serve(async (req) => {
 - Guardrails: ${manifest.guardrails.map((g) => `${g.rule}${g.requiresApproval ? " [REQUIRES APPROVAL]" : ""}`).join("; ")}
 - KPIs: ${manifest.kpis.map((k) => `${k.name}=${k.target}`).join(", ")}
 ${profileBlock}
+${integrationsBlock}
 ${memoryBlock}
+
+# Live-data contract
+- Whenever you cite a number, name the connected tool it came from (e.g. "Shopify: 47 orders in the last 24h").
+- If a connected tool has no fresh snapshot, call sync_now BEFORE reasoning about it.
+- If any snapshot shows an error, mention the failing tool by name and either call sync_now once to retry or ask_user for updated credentials.
 
 # Autonomy rules — you are a real digital employee, not a chatbot
 - Internal work (research, drafting, computing, reasoning, logging) → DO IT, don't ask permission.
@@ -204,10 +278,10 @@ Rules:
         finished = true; break;
       } else if (parsed.action === "tool") {
         const toolName = String(parsed.tool || "");
-        const tool = manifest.tools.find((t) => t.name === toolName) || manifest.tools.find((t) => t.kind === toolName);
+        const tool = effectiveTools.find((t) => t.name === toolName) || effectiveTools.find((t) => t.kind === toolName);
         if (!tool) {
           await logEvent("tool_error", { tool: toolName, message: "Unknown tool" });
-          messages.push({ role: "user", content: `Unknown tool "${toolName}". Available: ${manifest.tools.map((t) => t.name).join(", ")}` });
+          messages.push({ role: "user", content: `Unknown tool "${toolName}". Available: ${effectiveTools.map((t) => t.name).join(", ")}` });
           continue;
         }
         const input = (parsed.input && typeof parsed.input === "object") ? parsed.input as Record<string, unknown> : {};
@@ -241,6 +315,59 @@ Rules:
           } else {
             messages.push({ role: "user", content: `remember requires non-empty key and value.` });
           }
+          continue;
+        }
+
+        if (tool.kind === "sync_integrations") {
+          const providerFilter = String(input.provider || "").trim() || null;
+          try {
+            const svc = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+            const r = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/integration-sync`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${svc}` },
+              body: JSON.stringify({ cron: true }),
+            });
+            const body = await r.json().catch(() => ({}));
+            // Re-read the latest snapshots for THIS user so the agent has fresh numbers.
+            const { data: fresh } = await supabase.from("integration_snapshots")
+              .select("provider, kind, data, error, fetched_at")
+              .eq("user_id", userId)
+              .order("fetched_at", { ascending: false }).limit(50);
+            const seen = new Set<string>();
+            const summary = (fresh || [])
+              .filter((s) => {
+                if (seen.has(s.provider as string)) return false;
+                if (providerFilter && s.provider !== providerFilter) return false;
+                seen.add(s.provider as string); return true;
+              })
+              .map((s) => `${s.provider} [${s.kind}] ${s.error ? `ERROR: ${s.error}` : JSON.stringify(s.data)}`)
+              .join("\n");
+            await logEvent("action", { type: "sync_integrations", ok: r.ok, providers: seen.size, cron_result: body });
+            await logEvent("tool_result", { tool: tool.name, ok: r.ok, summary: summary || "No connected tools to sync." });
+            messages.push({ role: "user", content: `Live data refreshed:\n${summary || "(none)"}\n\nContinue.` });
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : "sync failed";
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            messages.push({ role: "user", content: `sync_now failed: ${msg}. Continue with what you have.` });
+          }
+          continue;
+        }
+        if (tool.kind === "integration_query") {
+          const providerFilter = String(input.provider || "").trim();
+          if (!providerFilter) {
+            messages.push({ role: "user", content: `read_data requires a "provider" string.` });
+            continue;
+          }
+          const { data: rows } = await supabase.from("integration_snapshots")
+            .select("kind, data, error, fetched_at")
+            .eq("user_id", userId).eq("provider", providerFilter)
+            .order("fetched_at", { ascending: false }).limit(1);
+          const snap = rows?.[0];
+          const summary = snap
+            ? `${providerFilter} [${snap.kind}] fetched ${snap.fetched_at}: ${snap.error ? `ERROR ${snap.error}` : JSON.stringify(snap.data)}`
+            : `No snapshot yet for ${providerFilter}. Call sync_now first.`;
+          await logEvent("tool_result", { tool: tool.name, ok: !!snap && !snap.error, summary });
+          messages.push({ role: "user", content: `${summary}\n\nContinue.` });
           continue;
         }
 
