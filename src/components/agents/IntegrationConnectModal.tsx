@@ -315,6 +315,29 @@ export default function IntegrationConnectModal({
     }
   };
 
+  const syncNow = async () => {
+    setSyncing(true);
+    try {
+      const { data, error: fnErr } = await supabase.functions.invoke("integration-sync", {
+        body: { provider: integration.name, agentId: agentId || null },
+      });
+      if (fnErr) throw new Error(fnErr.message);
+      const res = (data as { synced?: Array<{ ok: boolean; kind: string; data: Record<string, unknown>; error?: string }> }).synced || [];
+      const hit = res[0];
+      if (hit) {
+        setLiveData({ kind: hit.kind, data: hit.data, error: hit.ok ? null : (hit.error || "sync failed"), fetched_at: new Date().toISOString() });
+        hit.ok ? toast.success(`${integration.name} synced`) : toast.error(`${integration.name}: ${hit.error || "sync failed"}`);
+      } else {
+        toast.message("Nothing to sync yet.");
+      }
+      onChange?.();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Sync failed");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const initial = integration.name.trim().charAt(0).toUpperCase();
 
   return (
