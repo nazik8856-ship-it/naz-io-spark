@@ -278,10 +278,10 @@ Rules:
         finished = true; break;
       } else if (parsed.action === "tool") {
         const toolName = String(parsed.tool || "");
-        const tool = manifest.tools.find((t) => t.name === toolName) || manifest.tools.find((t) => t.kind === toolName);
+        const tool = effectiveTools.find((t) => t.name === toolName) || effectiveTools.find((t) => t.kind === toolName);
         if (!tool) {
           await logEvent("tool_error", { tool: toolName, message: "Unknown tool" });
-          messages.push({ role: "user", content: `Unknown tool "${toolName}". Available: ${manifest.tools.map((t) => t.name).join(", ")}` });
+          messages.push({ role: "user", content: `Unknown tool "${toolName}". Available: ${effectiveTools.map((t) => t.name).join(", ")}` });
           continue;
         }
         const input = (parsed.input && typeof parsed.input === "object") ? parsed.input as Record<string, unknown> : {};
