@@ -147,6 +147,8 @@ export default function IntegrationConnectModal({
   const [results, setResults] = useState<FoundAccount[]>([]);
   const [account, setAccount] = useState<FoundAccount | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [liveData, setLiveData] = useState<{ kind?: string; data?: Record<string, unknown>; error?: string | null; fetched_at?: string } | null>(null);
+  const [syncing, setSyncing] = useState(false);
 
   // Prior state
   useEffect(() => {
