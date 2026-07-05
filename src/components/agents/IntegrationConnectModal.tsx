@@ -60,6 +60,23 @@ function domainFor(providerName: string) {
   return key ? map[key] : `${p || "workspace"}.com`;
 }
 
+function timeAgo(iso: string) {
+  const ms = Date.now() - new Date(iso).getTime();
+  const m = Math.round(ms / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.round(h / 24)}d ago`;
+}
+
+function formatVal(v: unknown): string {
+  if (v == null) return "—";
+  if (Array.isArray(v)) return v.slice(0, 3).map((x) => String(x)).join(", ") + (v.length > 3 ? "…" : "");
+  if (typeof v === "object") return JSON.stringify(v).slice(0, 60);
+  return String(v);
+}
+
 function displayNameFromEmail(email: string) {
   const local = email.split("@")[0] || "user";
   return local
