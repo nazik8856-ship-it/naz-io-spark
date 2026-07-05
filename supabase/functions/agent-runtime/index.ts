@@ -71,6 +71,48 @@ serve(async (req) => {
       .select("key, value, source").eq("agent_id", agentId).eq("user_id", userId)
       .order("created_at", { ascending: false }).limit(40);
 
+    // Load connected integrations + their most recent synced snapshot so the
+    // agent grounds its reasoning in real business data instead of guessing.
+    const { data: integrations } = await supabase.from("agent_integrations")
+      .select("provider, status, metadata, last_verified_at, last_error")
+      .eq("user_id", userId)
+      .or(agent.id ? `agent_id.eq.${agent.id},agent_id.is.null` : `agent_id.is.null`);
+    const connectedIntegrations = (integrations || []).filter((i) => i.status === "connected");
+    const { data: snapshots } = await supabase.from("integration_snapshots")
+      .select("provider, kind, data, error, fetched_at")
+      .eq("user_id", userId)
+      .order("fetched_at", { ascending: false })
+      .limit(200);
+    const latestByProvider = new Map<string, { kind: string; data: Record<string, unknown>; error: string | null; fetched_at: string }>();
+    for (const s of snapshots || []) {
+      if (!latestByProvider.has(s.provider as string)) {
+        latestByProvider.set(s.provider as string, {
+          kind: s.kind as string,
+          data: (s.data as Record<string, unknown>) || {},
+          error: (s.error as string | null) ?? null,
+          fetched_at: s.fetched_at as string,
+        });
+      }
+    }
+
+    // Trigger a fresh sync in the background if the newest snapshot is stale
+    // (> 30 min) or missing entirely for any connected integration. This keeps
+    // agent reasoning current without blocking the run.
+    const staleMs = 30 * 60 * 1000;
+    const needsSync = connectedIntegrations.some((i) => {
+      const snap = latestByProvider.get(i.provider as string);
+      if (!snap) return true;
+      return Date.now() - new Date(snap.fetched_at).getTime() > staleMs;
+    });
+    if (needsSync) {
+      const svc = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/integration-sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${svc}` },
+        body: JSON.stringify({ cron: false, userId, agentId }),
+      }).catch(() => {});
+    }
+
     // Pause if there's an unresolved clarification waiting
     const { data: lastClarify } = await supabase.from("agent_events")
       .select("id, kind, payload, created_at")
