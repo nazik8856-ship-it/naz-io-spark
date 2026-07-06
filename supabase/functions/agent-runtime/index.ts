@@ -472,11 +472,84 @@ async function executeTool(
       }
       return { summary: `Custom tool "${tool.name}" stub — no executor wired. Treat as inert and continue.`, error: true };
     }
+    if (tool.kind === "deep_analyze") {
+      const subject = String(input.subject || "").slice(0, 800);
+      const ctx = String(input.context || "").slice(0, 4000);
+      const focus = String(input.focus || "").slice(0, 300);
+      if (!subject) return { summary: "deep_analyze requires a 'subject'.", error: true };
+      const key = Deno.env.get("LOVABLE_API_KEY")!;
+      const resp = await fetch(LOVABLE_URL, {
+        method: "POST",
+        headers: { "Lovable-API-Key": key, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: DEEP_MODEL,
+          messages: [
+            { role: "system", content: "You are a senior operator (strategy + engineering + ops). Produce a rigorous structured diagnosis. Sections: 1) Findings (bullet list, evidence-based), 2) Root causes, 3) Risks / blast radius, 4) Prioritized fixes (P0/P1/P2 with owner + expected impact + effort), 5) Success metrics. Be concrete, name numbers/URLs when given, never vague." },
+            { role: "user", content: `Subject: ${subject}\nFocus: ${focus || "(none — decide what matters)"}\nContext:\n${ctx || "(none provided)"}` },
+          ],
+          temperature: 0.3,
+        }),
+      });
+      if (!resp.ok) return { summary: `deep_analyze gateway ${resp.status}`, error: true };
+      const data = await resp.json();
+      return { summary: (data?.choices?.[0]?.message?.content ?? "(empty)").slice(0, 3500) };
+    }
+    if (tool.kind === "audit_url") {
+      const url = String(input.url || "");
+      const focus = String(input.focus || "").slice(0, 300);
+      if (!/^https?:\/\//.test(url)) return { summary: "audit_url requires a valid http(s) URL.", error: true };
+      let pageText = "";
+      try {
+        const r = await fetch(url, { headers: { "User-Agent": "NazAI-Agent/1.0" } });
+        const t = await r.text();
+        pageText = stripHtml(t).slice(0, 8000);
+      } catch (e) {
+        return { summary: `Fetch failed: ${e instanceof Error ? e.message : "unknown"}`, error: true };
+      }
+      const key = Deno.env.get("LOVABLE_API_KEY")!;
+      const resp = await fetch(LOVABLE_URL, {
+        method: "POST",
+        headers: { "Lovable-API-Key": key, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: DEEP_MODEL,
+          messages: [
+            { role: "system", content: "You audit web pages / documents. Produce: 1) What the page is trying to do (1 line), 2) What's WRONG (specific — copy, structure, clarity, CTA, credibility, SEO, technical), 3) What's MISSING, 4) Prioritized fixes (P0/P1/P2, each with exact suggested change), 5) One-paragraph rewrite of the hero if applicable. Cite quoted text from the page as evidence. Be blunt and useful." },
+            { role: "user", content: `URL: ${url}\nFocus: ${focus || "(none — full audit)"}\n\nPAGE CONTENT (stripped):\n${pageText}` },
+          ],
+          temperature: 0.3,
+        }),
+      });
+      if (!resp.ok) return { summary: `audit_url gateway ${resp.status}`, error: true };
+      const data = await resp.json();
+      return { summary: (data?.choices?.[0]?.message?.content ?? "(empty)").slice(0, 3500) };
+    }
+    if (tool.kind === "make_plan") {
+      const objective = String(input.objective || "").slice(0, 600);
+      const constraints = String(input.constraints || "").slice(0, 800);
+      if (!objective) return { summary: "make_plan requires an 'objective'.", error: true };
+      const key = Deno.env.get("LOVABLE_API_KEY")!;
+      const resp = await fetch(LOVABLE_URL, {
+        method: "POST",
+        headers: { "Lovable-API-Key": key, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: DEEP_MODEL,
+          messages: [
+            { role: "system", content: "You produce concrete execution plans. Output a numbered list. Each step: [Owner] Action → Tool/how → Success criterion. End with a Kickoff step the agent will execute right now. No fluff, no restating the objective." },
+            { role: "user", content: `Objective: ${objective}\nConstraints: ${constraints || "(none)"}` },
+          ],
+          temperature: 0.3,
+        }),
+      });
+      if (!resp.ok) return { summary: `make_plan gateway ${resp.status}`, error: true };
+      const data = await resp.json();
+      return { summary: (data?.choices?.[0]?.message?.content ?? "(empty)").slice(0, 3000) };
+    }
     return { summary: `Unknown tool kind ${tool.kind}.`, error: true };
   } catch (e) {
     return { summary: `Tool exception: ${e instanceof Error ? e.message : "unknown"}`, error: true };
   }
 }
+
 
 function stripHtml(s: string): string {
   return s.replace(/<script[\s\S]*?<\/script>/gi, " ")
