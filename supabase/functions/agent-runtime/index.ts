@@ -11,7 +11,9 @@ const corsHeaders = {
 
 const LOVABLE_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 const MODEL = "google/gemini-3-flash-preview";
-const MAX_STEPS = 14;
+const DEEP_MODEL = "google/gemini-3.1-pro-preview"; // stronger reasoning for deep analysis / audits / plans
+const MAX_STEPS = 24;
+
 
 type Tool = { name: string; description: string; kind: string; config: Record<string, unknown> };
 type Manifest = {
@@ -162,6 +164,9 @@ serve(async (req) => {
     const builtInTools: Tool[] = [
       { name: "sync_now", kind: "sync_integrations", description: "Pull the freshest live data from every connected business tool. Call this when your snapshots look stale or missing.", config: {} },
       { name: "read_data", kind: "integration_query", description: "Look up the most recent synced snapshot for one connected tool. Use before making claims about numbers.", config: {} },
+      { name: "deep_analyze", kind: "deep_analyze", description: "Run deep multi-step reasoning on a subject using a stronger model. Returns a structured diagnosis: findings, root causes, risks, concrete fixes with priority. Use for audits, debugging, competitive analysis, or any problem needing serious thinking.", config: {} },
+      { name: "audit_url", kind: "audit_url", description: "Fetch a webpage/document URL and produce a concrete audit: what's wrong, what's missing, prioritized fixes with rationale. Use for website reviews, landing-page audits, doc reviews, competitor teardowns.", config: {} },
+      { name: "make_plan", kind: "make_plan", description: "Produce a concrete, numbered execution plan for a stated objective. Each step includes owner, tool/action to take, success criteria. Use before large multi-step work.", config: {} },
     ];
     const effectiveTools: Tool[] = [
       ...manifest.tools,
@@ -180,10 +185,14 @@ serve(async (req) => {
         case "request_approval": usage = `request_approval(action: string, payload: object, risk?: "low"|"med"|"high")  // queue an external action`; break;
         case "sync_integrations": usage = `sync_now(provider?: string)  // refreshes live data from connected tools`; break;
         case "integration_query": usage = `read_data(provider: string)  // returns the latest synced snapshot for a connected tool`; break;
+        case "deep_analyze": usage = `deep_analyze(subject: string, context?: string, focus?: string)  // deep structured diagnosis using a stronger reasoning model`; break;
+        case "audit_url": usage = `audit_url(url: string, focus?: string)  // fetches the page and returns a concrete prioritized audit`; break;
+        case "make_plan": usage = `make_plan(objective: string, constraints?: string)  // returns a numbered execution plan with success criteria`; break;
         default: usage = `${t.name}(...)  // CUSTOM — currently inert`;
       }
       return `- ${t.name} (${t.kind}): ${t.description}\n  Usage: ${usage}`;
     }).join("\n");
+
 
     const systemPrompt = `${manifest.systemPrompt}
 
@@ -201,14 +210,17 @@ ${memoryBlock}
 - If a connected tool has no fresh snapshot, call sync_now BEFORE reasoning about it.
 - If any snapshot shows an error, mention the failing tool by name and either call sync_now once to retry or ask_user for updated credentials.
 
-# Autonomy rules — you are a real digital employee who COMPLETES work end-to-end
-- You are hired to FINISH the task, not narrate it. Every run must produce concrete delivered output (a sent message, an updated record, a published report, an adjusted price, a dispatched reminder) — not just observations, plans, or "I would…" statements.
+# Autonomy rules — you are a real digital employee who COMPLETES serious work end-to-end
+- You are hired to FINISH the task, not narrate it. Every run must produce concrete delivered output (a diagnosis with evidence, an audit with prioritized fixes, an executed plan, a sent message, an updated record, a published report, an adjusted price) — not just observations or "I would…" statements.
+- For serious analytical tasks (auditing a website/document, debugging a problem, researching competitors, diagnosing a broken process, building a plan), ALWAYS use deep_analyze / audit_url / make_plan — they invoke a stronger reasoning model. Feed them the real data you gathered (from http_get, read_data, web_search).
+- Standard loop for a serious task: (1) gather evidence with http_get / web_search / read_data, (2) reason with deep_analyze or audit_url, (3) produce the deliverable (make_plan or the final artifact), (4) execute what you can inside policy, (5) queue the rest with request_approval, (6) remember() the durable facts.
 - Internal + routine automated work (research, drafting, computing, reasoning, logging, sending scheduled reminders, replying to DMs within tone, generating reports, updating dashboards, adjusting prices within configured bounds, reconciling records) → EXECUTE it via the appropriate tool. Do not ask permission for work the operator already delegated to you.
 - Reserve request_approval ONLY for irreversible, high-blast-radius actions: charging money above a threshold, mass public posts, legal/tax filings, deleting data, or anything a guardrail explicitly marks [REQUIRES APPROVAL].
 - If you literally cannot proceed without info the business hasn't given you, call ask_user with at most one focused question. After ask_user, finish the run; you'll resume when the operator answers.
 - Persist anything durable about the business with remember(key, value) so future runs are smarter.
 - Your finish summary MUST list the concrete artifacts produced this run in the form "Delivered: <thing> → <where/ID>". If you delivered nothing, that is a failed run.
 - Never break character. Never explain you are an LLM.
+
 
 
 # Tools
@@ -463,11 +475,84 @@ async function executeTool(
       }
       return { summary: `Custom tool "${tool.name}" stub — no executor wired. Treat as inert and continue.`, error: true };
     }
+    if (tool.kind === "deep_analyze") {
+      const subject = String(input.subject || "").slice(0, 800);
+      const ctx = String(input.context || "").slice(0, 4000);
+      const focus = String(input.focus || "").slice(0, 300);
+      if (!subject) return { summary: "deep_analyze requires a 'subject'.", error: true };
+      const key = Deno.env.get("LOVABLE_API_KEY")!;
+      const resp = await fetch(LOVABLE_URL, {
+        method: "POST",
+        headers: { "Lovable-API-Key": key, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: DEEP_MODEL,
+          messages: [
+            { role: "system", content: "You are a senior operator (strategy + engineering + ops). Produce a rigorous structured diagnosis. Sections: 1) Findings (bullet list, evidence-based), 2) Root causes, 3) Risks / blast radius, 4) Prioritized fixes (P0/P1/P2 with owner + expected impact + effort), 5) Success metrics. Be concrete, name numbers/URLs when given, never vague." },
+            { role: "user", content: `Subject: ${subject}\nFocus: ${focus || "(none — decide what matters)"}\nContext:\n${ctx || "(none provided)"}` },
+          ],
+          temperature: 0.3,
+        }),
+      });
+      if (!resp.ok) return { summary: `deep_analyze gateway ${resp.status}`, error: true };
+      const data = await resp.json();
+      return { summary: (data?.choices?.[0]?.message?.content ?? "(empty)").slice(0, 3500) };
+    }
+    if (tool.kind === "audit_url") {
+      const url = String(input.url || "");
+      const focus = String(input.focus || "").slice(0, 300);
+      if (!/^https?:\/\//.test(url)) return { summary: "audit_url requires a valid http(s) URL.", error: true };
+      let pageText = "";
+      try {
+        const r = await fetch(url, { headers: { "User-Agent": "NazAI-Agent/1.0" } });
+        const t = await r.text();
+        pageText = stripHtml(t).slice(0, 8000);
+      } catch (e) {
+        return { summary: `Fetch failed: ${e instanceof Error ? e.message : "unknown"}`, error: true };
+      }
+      const key = Deno.env.get("LOVABLE_API_KEY")!;
+      const resp = await fetch(LOVABLE_URL, {
+        method: "POST",
+        headers: { "Lovable-API-Key": key, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: DEEP_MODEL,
+          messages: [
+            { role: "system", content: "You audit web pages / documents. Produce: 1) What the page is trying to do (1 line), 2) What's WRONG (specific — copy, structure, clarity, CTA, credibility, SEO, technical), 3) What's MISSING, 4) Prioritized fixes (P0/P1/P2, each with exact suggested change), 5) One-paragraph rewrite of the hero if applicable. Cite quoted text from the page as evidence. Be blunt and useful." },
+            { role: "user", content: `URL: ${url}\nFocus: ${focus || "(none — full audit)"}\n\nPAGE CONTENT (stripped):\n${pageText}` },
+          ],
+          temperature: 0.3,
+        }),
+      });
+      if (!resp.ok) return { summary: `audit_url gateway ${resp.status}`, error: true };
+      const data = await resp.json();
+      return { summary: (data?.choices?.[0]?.message?.content ?? "(empty)").slice(0, 3500) };
+    }
+    if (tool.kind === "make_plan") {
+      const objective = String(input.objective || "").slice(0, 600);
+      const constraints = String(input.constraints || "").slice(0, 800);
+      if (!objective) return { summary: "make_plan requires an 'objective'.", error: true };
+      const key = Deno.env.get("LOVABLE_API_KEY")!;
+      const resp = await fetch(LOVABLE_URL, {
+        method: "POST",
+        headers: { "Lovable-API-Key": key, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: DEEP_MODEL,
+          messages: [
+            { role: "system", content: "You produce concrete execution plans. Output a numbered list. Each step: [Owner] Action → Tool/how → Success criterion. End with a Kickoff step the agent will execute right now. No fluff, no restating the objective." },
+            { role: "user", content: `Objective: ${objective}\nConstraints: ${constraints || "(none)"}` },
+          ],
+          temperature: 0.3,
+        }),
+      });
+      if (!resp.ok) return { summary: `make_plan gateway ${resp.status}`, error: true };
+      const data = await resp.json();
+      return { summary: (data?.choices?.[0]?.message?.content ?? "(empty)").slice(0, 3000) };
+    }
     return { summary: `Unknown tool kind ${tool.kind}.`, error: true };
   } catch (e) {
     return { summary: `Tool exception: ${e instanceof Error ? e.message : "unknown"}`, error: true };
   }
 }
+
 
 function stripHtml(s: string): string {
   return s.replace(/<script[\s\S]*?<\/script>/gi, " ")
