@@ -11,7 +11,9 @@ const corsHeaders = {
 
 const LOVABLE_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 const MODEL = "google/gemini-3-flash-preview";
-const MAX_STEPS = 14;
+const DEEP_MODEL = "google/gemini-3.1-pro-preview"; // stronger reasoning for deep analysis / audits / plans
+const MAX_STEPS = 24;
+
 
 type Tool = { name: string; description: string; kind: string; config: Record<string, unknown> };
 type Manifest = {
