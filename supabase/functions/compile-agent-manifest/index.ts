@@ -296,6 +296,13 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
       if (!kinds.has("workflow_summary")) widgets.unshift({ kind: "workflow_summary", title: "How this agent automates your workflow", span: 6 });
       if (!kinds.has("automation_rules")) widgets.splice(1, 0, { kind: "automation_rules", title: "Active automations", span: 6 });
     }
+    // Stamp role onto the manifest so the Integrations panel picks the right
+    // platform recommendations even when it only receives the manifest.
+    (normalized as unknown as Record<string, unknown>).role = role;
+    (normalized as unknown as Record<string, unknown>).schedule_label = blueprint.schedule_label;
+    (normalized as unknown as Record<string, unknown>).schedule_cron = blueprint.schedule_cron;
+
+
 
     let agentId: string | null = null;
     if (save) {
