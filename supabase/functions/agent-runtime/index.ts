@@ -485,7 +485,28 @@ Rules:
         if (tool.kind === "http_post") {
           const url = String(input.url || "").trim();
           const bodyObj = (input.body && typeof input.body === "object") ? input.body : {};
+          // Approval-required by default: only skip approval if an explicit
+          // guardrail permits http_post/webhook auto-send (requiresApproval:false).
+          const httpGuard = (manifest.guardrails || []).find((g) => {
+            const r = (g.rule || "").toLowerCase();
+            return r.includes("http_post") || r.includes("webhook") || r.includes("external") || r.includes("adjust");
+          });
+          const autoAllowed = !!httpGuard && httpGuard.requiresApproval === false;
+          if (!autoAllowed) {
+            await logEvent("pending_approval", {
+              action: "http_post",
+              payload: { url, body: bodyObj },
+              risk: "med",
+              guardrail: httpGuard?.rule ?? "default: approval required for external POSTs",
+            });
+            const msg = "Queued for approval; not sent.";
+            await logEvent("tool_result", { tool: tool.name, ok: true, summary: msg });
+            await logEvent("action", { type: "http_post", target: url, ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue with other work or finish.` });
+            continue;
+          }
           const check = await validateHttpPostUrl(url, supabase, userId, agentId);
+
           if (!check.ok) {
             await logEvent("tool_error", { tool: tool.name, message: check.reason, url });
             await logEvent("action", { type: "http_post", target: url, ok: false, result_ref: null, summary: `Blocked: ${check.reason}` });
