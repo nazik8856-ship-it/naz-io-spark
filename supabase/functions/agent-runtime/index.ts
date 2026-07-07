@@ -86,8 +86,14 @@ serve(async (req) => {
       userId = schedulerUserId;
     } else if (trigger === "webhook") {
       const { data: ownerRow } = await adminClient
-        .from("agents").select("user_id").eq("id", agentId).maybeSingle();
-      userId = (ownerRow?.user_id as string | undefined) ?? "";
+        .from("agents").select("user_id, webhook_secret").eq("id", agentId).maybeSingle();
+      if (!ownerRow) return json({ error: "Unauthorized" }, 401);
+      const provided = req.headers.get("x-webhook-secret") ?? "";
+      const expected = (ownerRow as { webhook_secret?: string }).webhook_secret ?? "";
+      if (!expected || provided !== expected) {
+        return json({ error: "Unauthorized" }, 401);
+      }
+      userId = (ownerRow.user_id as string | undefined) ?? "";
     } else {
       const { data: userData } = await userScopedClient.auth.getUser();
       userId = userData?.user?.id ?? "";
