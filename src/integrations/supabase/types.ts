@@ -236,6 +236,7 @@ export type Database = {
       }
       agents: {
         Row: {
+          auto_approve_low_risk: boolean
           autonomy: string
           business_profile_id: string | null
           created_at: string
@@ -255,6 +256,7 @@ export type Database = {
           webhook_secret: string
         }
         Insert: {
+          auto_approve_low_risk?: boolean
           autonomy?: string
           business_profile_id?: string | null
           created_at?: string
@@ -274,6 +276,7 @@ export type Database = {
           webhook_secret?: string
         }
         Update: {
+          auto_approve_low_risk?: boolean
           autonomy?: string
           business_profile_id?: string | null
           created_at?: string
