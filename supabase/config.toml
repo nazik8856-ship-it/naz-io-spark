@@ -39,3 +39,7 @@ verify_jwt = false
 [functions.integration-sync]
 verify_jwt = false
 
+[functions.agent-runtime]
+verify_jwt = false
+
+
