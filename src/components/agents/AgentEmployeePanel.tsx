@@ -330,6 +330,16 @@ export default function AgentEmployeePanel({ agentId, events }: { agentId: strin
 
       {/* Approvals queue */}
       <Card title={`Approvals · ${approvals.length}`} icon={<CheckCircle2 className="h-4 w-4" />}>
+        <button
+          onClick={toggleAutoApprove}
+          className={`w-full mb-2 flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg border text-[11px] ${agent?.auto_approve_low_risk ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200" : "border-white/10 bg-white/[0.02] text-zinc-300 hover:text-white hover:border-white/30"}`}
+          title="When ON, low-risk send_email and http_post skip the queue and execute immediately. Guardrails marked [REQUIRES APPROVAL] still queue."
+        >
+          <span className="flex items-center gap-1.5"><Zap className="h-3 w-3" /> Auto-approve low-risk sends</span>
+          <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold ${agent?.auto_approve_low_risk ? "bg-emerald-400 text-black" : "bg-white/10 text-zinc-400"}`}>
+            {agent?.auto_approve_low_risk ? "ON" : "OFF"}
+          </span>
+        </button>
         {approvals.length === 0 ? (
           <div className="text-xs text-zinc-500">No pending approvals. Agent will queue external actions here.</div>
         ) : (
@@ -357,6 +367,7 @@ export default function AgentEmployeePanel({ agentId, events }: { agentId: strin
           </div>
         )}
       </Card>
+
 
       {/* Clarifications inbox */}
       <Card title={`Clarifications · ${clarifications.length}`} icon={<MessageCircleQuestion className="h-4 w-4" />}>
