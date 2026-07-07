@@ -167,6 +167,11 @@ serve(async (req) => {
       { name: "deep_analyze", kind: "deep_analyze", description: "Run deep multi-step reasoning on a subject using a stronger model. Returns a structured diagnosis: findings, root causes, risks, concrete fixes with priority. Use for audits, debugging, competitive analysis, or any problem needing serious thinking.", config: {} },
       { name: "audit_url", kind: "audit_url", description: "Fetch a webpage/document URL and produce a concrete audit: what's wrong, what's missing, prioritized fixes with rationale. Use for website reviews, landing-page audits, doc reviews, competitor teardowns.", config: {} },
       { name: "make_plan", kind: "make_plan", description: "Produce a concrete, numbered execution plan for a stated objective. Each step includes owner, tool/action to take, success criteria. Use before large multi-step work.", config: {} },
+      { name: "send_email", kind: "send_email", description: "Send a real email via the agent-notification template. Requires an explicit guardrail allowing external sends; otherwise it will be queued for approval instead of sent.", config: {} },
+      { name: "generate_report", kind: "generate_report", description: "Write a markdown report/digest/audit/plan as a durable artifact the operator can open later.", config: {} },
+      { name: "http_post", kind: "http_post", description: "POST a JSON payload to an allow-listed URL to trigger or adjust an external system. URL must be https and either match this agent's configured webhook_url or a whitelisted domain.", config: {} },
+      { name: "webhook", kind: "http_post", description: "Alias for http_post — POST a JSON payload to an allow-listed URL.", config: {} },
+      { name: "schedule_followup", kind: "schedule_followup", description: "Schedule this agent to run again at a specific future time, carrying an instruction forward.", config: {} },
     ];
     const effectiveTools: Tool[] = [
       ...manifest.tools,
@@ -188,6 +193,10 @@ serve(async (req) => {
         case "deep_analyze": usage = `deep_analyze(subject: string, context?: string, focus?: string)  // deep structured diagnosis using a stronger reasoning model`; break;
         case "audit_url": usage = `audit_url(url: string, focus?: string)  // fetches the page and returns a concrete prioritized audit`; break;
         case "make_plan": usage = `make_plan(objective: string, constraints?: string)  // returns a numbered execution plan with success criteria`; break;
+        case "send_email": usage = `send_email(to: string, subject: string, body: string)  // actually delivers an email unless guardrails require approval`; break;
+        case "generate_report": usage = `generate_report(title: string, kind: "report"|"digest"|"audit"|"plan", body_markdown: string)  // saves a durable artifact`; break;
+        case "http_post": usage = `http_post(url: string, body: object)  // POSTs JSON to an allow-listed https URL (per-agent webhook_url or whitelisted domain)`; break;
+        case "schedule_followup": usage = `schedule_followup(run_at_iso: string, instruction: string)  // queues a future run of this same agent`; break;
         default: usage = `${t.name}(...)  // CUSTOM — currently inert`;
       }
       return `- ${t.name} (${t.kind}): ${t.description}\n  Usage: ${usage}`;
@@ -386,6 +395,174 @@ Rules:
           continue;
         }
 
+        if (tool.kind === "send_email") {
+          const to = String(input.to || "").trim();
+          const subject = String(input.subject || "").slice(0, 200);
+          const body = String(input.body || "").slice(0, 6000);
+          if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to) || !subject || !body) {
+            const msg = "send_email requires valid to, subject, body.";
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: "send_email", target: to, ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue.` });
+            continue;
+          }
+          const emailGuard = (manifest.guardrails || []).find((g) => {
+            const r = (g.rule || "").toLowerCase();
+            return g.requiresApproval && (r.includes("email") || r.includes("send") || r.includes("external"));
+          });
+          if (emailGuard) {
+            await logEvent("pending_approval", {
+              action: "send_email",
+              payload: { to, subject, body },
+              risk: "med",
+              guardrail: emailGuard.rule,
+            });
+            const msg = `Queued for approval (guardrail: ${emailGuard.rule}); NOT sent.`;
+            await logEvent("tool_result", { tool: tool.name, ok: true, summary: msg });
+            await logEvent("action", { type: "send_email", target: to, ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue with other work or finish.` });
+            continue;
+          }
+          try {
+            const svc = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+            const r = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${svc}` },
+              body: JSON.stringify({
+                templateName: "agent-notification",
+                recipientEmail: to,
+                idempotencyKey: `agent-${agentId}-${runId}-${Date.now()}`,
+                templateData: { subject, body, agentName: manifest.name },
+              }),
+            });
+            const respBody = await r.json().catch(() => ({}));
+            const ok = r.ok && (respBody?.success !== false);
+            const summary = ok
+              ? `Email queued for delivery to ${to} — subject "${subject}".`
+              : `Send failed: ${respBody?.error || respBody?.reason || `HTTP ${r.status}`}`;
+            await logEvent("tool_result", { tool: tool.name, ok, summary });
+            await logEvent("action", { type: "send_email", target: to, ok, result_ref: respBody?.messageId ?? null, summary });
+            messages.push({ role: "user", content: `${summary}\n\nContinue.` });
+          } catch (e) {
+            const msg = `send_email exception: ${e instanceof Error ? e.message : "unknown"}`;
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: "send_email", target: to, ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg}\n\nContinue.` });
+          }
+          continue;
+        }
+
+        if (tool.kind === "generate_report") {
+          const title = String(input.title || "").slice(0, 200);
+          const kind = String(input.kind || "report");
+          const bodyMd = String(input.body_markdown || input.body || "").slice(0, 30000);
+          if (!title || !bodyMd || !["report","digest","audit","plan"].includes(kind)) {
+            const msg = "generate_report requires title, valid kind (report|digest|audit|plan), and body_markdown.";
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: "generate_report", target: title, ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue.` });
+            continue;
+          }
+          const { data: rep, error: repErr } = await supabase
+            .from("agent_reports")
+            .insert({ agent_id: agentId, run_id: runId, user_id: userId, title, kind, body_markdown: bodyMd })
+            .select("id").single();
+          const preview = bodyMd.slice(0, 200);
+          if (repErr || !rep) {
+            const msg = `Failed to save report: ${repErr?.message || "unknown"}`;
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: "generate_report", target: title, ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg}\n\nContinue.` });
+            continue;
+          }
+          const summary = `Saved ${kind} "${title}" (id ${rep.id}). Preview: ${preview}`;
+          await logEvent("tool_result", { tool: tool.name, ok: true, summary });
+          await logEvent("action", { type: "generate_report", target: title, ok: true, result_ref: rep.id, summary: preview });
+          messages.push({ role: "user", content: `Report saved: id=${rep.id} title="${title}" kind=${kind}. Preview:\n${preview}\n\nContinue.` });
+          continue;
+        }
+
+        if (tool.kind === "http_post") {
+          const url = String(input.url || "").trim();
+          const bodyObj = (input.body && typeof input.body === "object") ? input.body : {};
+          const check = await validateHttpPostUrl(url, supabase, userId, agentId);
+          if (!check.ok) {
+            await logEvent("tool_error", { tool: tool.name, message: check.reason, url });
+            await logEvent("action", { type: "http_post", target: url, ok: false, result_ref: null, summary: `Blocked: ${check.reason}` });
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: `Blocked: ${check.reason}` });
+            messages.push({ role: "user", content: `http_post blocked: ${check.reason}\n\nContinue.` });
+            continue;
+          }
+          let lastErr = "";
+          let done = false;
+          for (let attempt = 0; attempt < 2 && !done; attempt++) {
+            try {
+              const ctrl = new AbortController();
+              const to = setTimeout(() => ctrl.abort(), 5000);
+              const r = await fetch(url, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "User-Agent": "NazAI-Agent/1.0" },
+                body: JSON.stringify(bodyObj),
+                signal: ctrl.signal,
+              });
+              clearTimeout(to);
+              const respText = (await r.text().catch(() => "")).slice(0, 200);
+              const summary = `${r.status} ${respText}`;
+              await logEvent("tool_result", { tool: tool.name, ok: r.ok, summary });
+              await logEvent("action", { type: "http_post", target: url, ok: r.ok, result_ref: null, summary });
+              messages.push({ role: "user", content: `http_post → ${summary}\n\nContinue.` });
+              done = true;
+            } catch (e) {
+              lastErr = e instanceof Error ? e.message : "unknown";
+            }
+          }
+          if (!done) {
+            const msg = `http_post failed after retry: ${lastErr}`;
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: "http_post", target: url, ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg}\n\nContinue.` });
+          }
+          continue;
+        }
+
+        if (tool.kind === "schedule_followup") {
+          const runAtIso = String(input.run_at_iso || input.at || "").trim();
+          const instruction = String(input.instruction || "").slice(0, 1000);
+          const when = new Date(runAtIso);
+          const now = Date.now();
+          const maxMs = 90 * 24 * 60 * 60 * 1000;
+          if (isNaN(when.getTime()) || when.getTime() <= now || when.getTime() - now > maxMs || !instruction) {
+            const msg = "schedule_followup requires run_at_iso (valid ISO, in the future, ≤90 days out) and a non-empty instruction.";
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: "schedule_followup", target: runAtIso, ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue.` });
+            continue;
+          }
+          const { data: newRun, error: newRunErr } = await supabase
+            .from("agent_runs")
+            .insert({
+              agent_id: agentId,
+              user_id: userId,
+              trigger: "scheduled",
+              status: "scheduled",
+              scheduled_for: when.toISOString(),
+              instruction,
+            })
+            .select("id").single();
+          if (newRunErr || !newRun) {
+            const msg = `schedule_followup failed: ${newRunErr?.message || "unknown"}`;
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: "schedule_followup", target: when.toISOString(), ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg}\n\nContinue.` });
+            continue;
+          }
+          const summary = `Follow-up scheduled at ${when.toISOString()} (run_id ${newRun.id}).`;
+          await logEvent("tool_result", { tool: tool.name, ok: true, summary });
+          await logEvent("action", { type: "schedule_followup", target: when.toISOString(), ok: true, result_ref: newRun.id, summary: instruction });
+          messages.push({ role: "user", content: `${summary}\n\nContinue.` });
+          continue;
+        }
+
         const result = await executeTool(tool, input, supabase, agentId, runId, userId, logEvent);
         await logEvent("tool_result", { tool: tool.name, ok: !result.error, summary: result.summary });
         messages.push({ role: "user", content: `Tool "${tool.name}" returned:\n${result.summary}\n\nContinue.` });
@@ -558,4 +735,79 @@ function stripHtml(s: string): string {
   return s.replace(/<script[\s\S]*?<\/script>/gi, " ")
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
     .replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+}
+
+// Hostnames explicitly permitted for http_post beyond a per-agent
+// metadata.webhook_url. START EMPTY — operator must add trusted domains here
+// before generic http_post calls will resolve for anything except an exact
+// match to an integration's configured webhook_url.
+const WEBHOOK_DOMAIN_ALLOWLIST: string[] = [];
+
+async function validateHttpPostUrl(
+  rawUrl: string,
+  supabase: SupabaseClient,
+  userId: string,
+  agentId: string,
+): Promise<{ ok: boolean; reason: string }> {
+  if (!rawUrl) return { ok: false, reason: "empty url" };
+  let u: URL;
+  try { u = new URL(rawUrl); } catch { return { ok: false, reason: "invalid url" }; }
+  if (u.protocol !== "https:") return { ok: false, reason: "only https is allowed" };
+  const host = u.hostname.toLowerCase();
+  if (["localhost", "127.0.0.1", "0.0.0.0", "::1", "169.254.169.254"].includes(host)) {
+    return { ok: false, reason: `blocked host ${host}` };
+  }
+  // Resolve DNS and check every A/AAAA against private/loopback/link-local ranges.
+  try {
+    const addrs = await Promise.allSettled([
+      Deno.resolveDns(host, "A"),
+      Deno.resolveDns(host, "AAAA"),
+    ]);
+    const ips: string[] = [];
+    for (const r of addrs) if (r.status === "fulfilled") ips.push(...r.value);
+    for (const ip of ips) {
+      if (isPrivateOrLoopbackIp(ip)) return { ok: false, reason: `resolved to private/loopback ip ${ip}` };
+    }
+  } catch (_) {
+    return { ok: false, reason: "dns resolution failed" };
+  }
+  // Allow if the host matches this agent's configured webhook_url in agent_integrations.metadata.webhook_url.
+  const { data: integrations } = await supabase.from("agent_integrations")
+    .select("metadata")
+    .eq("user_id", userId)
+    .or(`agent_id.eq.${agentId},agent_id.is.null`);
+  for (const row of integrations || []) {
+    const wh = (row.metadata as Record<string, unknown> | null)?.webhook_url;
+    if (typeof wh === "string") {
+      try {
+        const whHost = new URL(wh).hostname.toLowerCase();
+        if (whHost === host) return { ok: true, reason: "matched agent integration webhook_url" };
+      } catch { /* skip */ }
+    }
+  }
+  if (WEBHOOK_DOMAIN_ALLOWLIST.some((d) => host === d.toLowerCase() || host.endsWith(`.${d.toLowerCase()}`))) {
+    return { ok: true, reason: "matched WEBHOOK_DOMAIN_ALLOWLIST" };
+  }
+  return { ok: false, reason: `host ${host} not in per-agent webhook_url and not in WEBHOOK_DOMAIN_ALLOWLIST` };
+}
+
+function isPrivateOrLoopbackIp(ip: string): boolean {
+  if (ip.includes(":")) {
+    // IPv6: loopback ::1, link-local fe80::/10, unique-local fc00::/7
+    const lower = ip.toLowerCase();
+    if (lower === "::1" || lower === "::") return true;
+    if (lower.startsWith("fe8") || lower.startsWith("fe9") || lower.startsWith("fea") || lower.startsWith("feb")) return true;
+    if (lower.startsWith("fc") || lower.startsWith("fd")) return true;
+    return false;
+  }
+  const parts = ip.split(".").map((n) => parseInt(n, 10));
+  if (parts.length !== 4 || parts.some((n) => isNaN(n) || n < 0 || n > 255)) return true;
+  const [a, b] = parts;
+  if (a === 10) return true;
+  if (a === 127) return true;
+  if (a === 0) return true;
+  if (a === 169 && b === 254) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  return false;
 }

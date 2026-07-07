@@ -139,11 +139,61 @@ export type Database = {
           },
         ]
       }
+      agent_reports: {
+        Row: {
+          agent_id: string
+          body_markdown: string
+          created_at: string
+          id: string
+          kind: string
+          run_id: string | null
+          title: string
+          user_id: string
+        }
+        Insert: {
+          agent_id: string
+          body_markdown: string
+          created_at?: string
+          id?: string
+          kind: string
+          run_id?: string | null
+          title: string
+          user_id: string
+        }
+        Update: {
+          agent_id?: string
+          body_markdown?: string
+          created_at?: string
+          id?: string
+          kind?: string
+          run_id?: string | null
+          title?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_reports_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_reports_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "agent_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       agent_runs: {
         Row: {
           agent_id: string
           finished_at: string | null
           id: string
+          instruction: string | null
+          scheduled_for: string | null
           started_at: string
           status: string
           summary: string | null
@@ -154,6 +204,8 @@ export type Database = {
           agent_id: string
           finished_at?: string | null
           id?: string
+          instruction?: string | null
+          scheduled_for?: string | null
           started_at?: string
           status?: string
           summary?: string | null
@@ -164,6 +216,8 @@ export type Database = {
           agent_id?: string
           finished_at?: string | null
           id?: string
+          instruction?: string | null
+          scheduled_for?: string | null
           started_at?: string
           status?: string
           summary?: string | null
