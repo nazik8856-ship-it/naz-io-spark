@@ -242,17 +242,38 @@ export default function AgentEmployeePanel({ agentId, events }: { agentId: strin
       <Card title="Triggers" icon={<Webhook className="h-4 w-4" />}>
         <div className="space-y-3">
           <div>
-            <div className="text-[10px] uppercase tracking-wider font-mono text-zinc-500 mb-1">Webhook URL</div>
-            <div className="flex items-center gap-1.5">
-              <code className="flex-1 min-w-0 truncate px-2 py-1 text-[10px] rounded border border-white/10 bg-black/30 text-cyan-200 font-mono">
-                {webhookUrl}
-              </code>
-              <button onClick={copyWebhook} className="p-1.5 rounded border border-white/10 bg-white/[0.03] text-zinc-300 hover:text-white hover:border-white/30" title="Copy">
-                <Copy className="h-3 w-3" />
+            <div className="flex items-center justify-between mb-1">
+              <div className="text-[10px] uppercase tracking-wider font-mono text-zinc-500">Webhook trigger</div>
+              <button
+                onClick={regenerateSecret}
+                className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-amber-400/30 bg-amber-400/5 text-amber-300 hover:border-amber-400/60 hover:bg-amber-400/10"
+                title="Rotate the webhook secret (breaks old integrations)"
+              >
+                Regenerate secret
               </button>
             </div>
-            <div className="mt-1 text-[10px] text-zinc-500">POST any JSON — it's forwarded to the agent as an instruction.</div>
+            <div className="text-[10px] text-zinc-500 mb-1">
+              Requires header <code className="text-amber-300 font-mono">x-webhook-secret</code>. Keep this secret private.
+            </div>
+            <div className="flex items-start gap-1.5">
+              <pre className="flex-1 min-w-0 overflow-x-auto px-2 py-1.5 text-[10px] rounded border border-white/10 bg-black/40 text-cyan-200 font-mono whitespace-pre">
+{curlCommand}
+              </pre>
+              <div className="flex flex-col gap-1">
+                <button onClick={() => copyText(curlCommand, "curl command")} className="p-1.5 rounded border border-white/10 bg-white/[0.03] text-zinc-300 hover:text-white hover:border-white/30" title="Copy full curl command">
+                  <Copy className="h-3 w-3" />
+                </button>
+                <button onClick={() => copyText(webhookSecret, "Secret")} className="p-1.5 rounded border border-white/10 bg-white/[0.03] text-zinc-300 hover:text-white hover:border-white/30 text-[9px] font-mono" title="Copy just the secret">
+                  key
+                </button>
+                <button onClick={() => copyText(webhookUrl, "URL")} className="p-1.5 rounded border border-white/10 bg-white/[0.03] text-zinc-300 hover:text-white hover:border-white/30 text-[9px] font-mono" title="Copy just the URL">
+                  url
+                </button>
+              </div>
+            </div>
+            <div className="mt-1 text-[10px] text-zinc-500">POST body JSON is forwarded to the agent as its instruction.</div>
           </div>
+
 
           <div className="border-t border-white/5 pt-3">
             <div className="text-[10px] uppercase tracking-wider font-mono text-zinc-500 mb-1 flex items-center gap-1"><Clock className="h-3 w-3" /> Run once at…</div>
