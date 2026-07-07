@@ -238,6 +238,8 @@ function spanClass(n: number) {
 
 function defaultSpan(kind: string): number {
   if (kind === "decision_log" || kind === "action_timeline" || kind === "live_thoughts" || kind === "tool_call_stream") return 4;
+  if (kind === "execution_flow") return 6;
+  if (kind === "artifacts_panel") return 3;
   if (kind === "tool_grid" || kind === "guardrail_panel" || kind === "kpi_radar") return 2;
   return 2;
 }
