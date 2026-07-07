@@ -858,3 +858,300 @@ function buildDemoEvents(manifest: Manifest, tick: number): AgentEvent[] {
 
   return out.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 }
+
+/* ============================ execution_flow & artifacts_panel ============================ */
+
+type RunRow = {
+  id: string;
+  trigger: string | null;
+  status: string | null;
+  started_at: string;
+  instruction: string | null;
+};
+type ReportRow = {
+  id: string;
+  title: string;
+  kind: string;
+  body_markdown: string;
+  created_at: string;
+  run_id: string | null;
+};
+
+function shortId(id: string) {
+  return id.replace(/-/g, "").slice(0, 6);
+}
+function relTime(iso: string) {
+  const d = new Date(iso).getTime();
+  const s = Math.max(1, Math.floor((Date.now() - d) / 1000));
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+
+function ExecutionFlowWidget({
+  widget, events, accent, accent2, agentId, onOpen,
+}: {
+  widget: Extract<Widget, { kind: "execution_flow" }>;
+  events: AgentEvent[];
+  accent: string;
+  accent2: string;
+  agentId?: string;
+  onOpen: (m: ModalPayload) => void;
+}) {
+  const limit = widget.limit ?? 3;
+  const [runs, setRuns] = useState<RunRow[]>([]);
+  const [reportsById, setReportsById] = useState<Record<string, ReportRow>>({});
+
+  // Derive latest N run_ids from events (newest first).
+  const runIds = useMemo(() => {
+    const seen: string[] = [];
+    for (let i = events.length - 1; i >= 0; i--) {
+      const rid = events[i].run_id;
+      if (rid && !seen.includes(rid)) {
+        seen.push(rid);
+        if (seen.length >= limit) break;
+      }
+    }
+    return seen;
+  }, [events, limit]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!agentId) return;
+      // Runs: prefer the run_ids seen in events, fall back to latest by agent.
+      const q = supabase.from("agent_runs")
+        .select("id, trigger, status, started_at, instruction")
+        .eq("agent_id", agentId)
+        .order("started_at", { ascending: false })
+        .limit(limit);
+      const { data: r } = runIds.length
+        ? await supabase.from("agent_runs")
+            .select("id, trigger, status, started_at, instruction")
+            .in("id", runIds)
+        : await q;
+      if (cancelled) return;
+      const sorted = (r ?? []).slice().sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime());
+      setRuns(sorted as RunRow[]);
+
+      const { data: reps } = await supabase.from("agent_reports")
+        .select("id, title, kind, body_markdown, created_at, run_id")
+        .eq("agent_id", agentId)
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (cancelled) return;
+      const map: Record<string, ReportRow> = {};
+      for (const rep of (reps ?? []) as ReportRow[]) map[rep.id] = rep;
+      setReportsById(map);
+    })();
+    return () => { cancelled = true; };
+  }, [agentId, runIds, limit]);
+
+  return (
+    <GlassCard accent={accent}>
+      <div className="p-4 h-full flex flex-col">
+        <CardHeading
+          label={widget.title}
+          accent={accent}
+          right={
+            <span
+              className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded"
+              style={{ background: `${accent}18`, color: accent }}
+            >
+              {runs.length ? `${runs.length} recent` : "waiting"}
+            </span>
+          }
+        />
+        {runs.length === 0 ? (
+          <div className="text-[11px] text-zinc-500 py-4">No runs yet. Trigger the agent manually, on schedule, or via webhook.</div>
+        ) : (
+          <ul className="space-y-3">
+            {runs.map((run) => {
+              const runEvents = events.filter((e) => e.run_id === run.id);
+              const decisionEvt = [...runEvents].reverse().find((e) => e.kind === "decision");
+              const actionEvts = runEvents.filter((e) => e.kind === "action");
+              const decisionText = decisionEvt
+                ? String((decisionEvt.payload as { decision?: string; rationale?: string })?.decision ?? "")
+                : "";
+              const triggerLabel = run.trigger === "cron"
+                ? `cron${run.instruction ? ` · ${run.instruction.slice(0, 32)}` : ""}`
+                : (run.trigger ?? "manual");
+              return (
+                <li
+                  key={run.id}
+                  className="rounded-xl p-3"
+                  style={{
+                    background: "linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.01))",
+                    border: `1px solid ${accent}22`,
+                  }}
+                >
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <div className="text-[9.5px] font-mono uppercase tracking-widest text-zinc-500">
+                      Run <span className="text-zinc-300">#{shortId(run.id)}</span> · {relTime(run.started_at)}
+                    </div>
+                    <span
+                      className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded"
+                      style={{
+                        background: run.status === "error" ? "rgba(244,63,94,0.15)" : `${accent}15`,
+                        color: run.status === "error" ? "#fb7185" : accent,
+                        border: `1px solid ${run.status === "error" ? "rgba(244,63,94,0.3)" : `${accent}30`}`,
+                      }}
+                    >
+                      {run.status ?? "?"}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-[70px_1fr] gap-x-2 gap-y-1.5 text-[11px] leading-snug items-start">
+                    <span className="font-mono text-[9.5px] uppercase tracking-widest text-zinc-500 pt-1">Trigger</span>
+                    <span className="text-zinc-200 font-mono text-[11px]" style={{ color: accent2 }}>{triggerLabel}</span>
+
+                    <span className="font-mono text-[9.5px] uppercase tracking-widest text-zinc-500 pt-1">Decision</span>
+                    <span className="text-zinc-300 truncate" title={decisionText}>
+                      {decisionText ? `◆ ${decisionText.slice(0, 140)}${decisionText.length > 140 ? "…" : ""}` : <span className="text-zinc-600">—</span>}
+                    </span>
+
+                    <span className="font-mono text-[9.5px] uppercase tracking-widest text-zinc-500 pt-1">Actions</span>
+                    <span className="flex flex-wrap gap-1.5">
+                      {actionEvts.length === 0 && <span className="text-zinc-600 text-[11px]">—</span>}
+                      {actionEvts.map((a) => {
+                        const p = a.payload as { type?: string; target?: string; ok?: boolean; result_ref?: string; summary?: string };
+                        const type = p.type ?? "action";
+                        const ok = p.ok !== false;
+                        const target = p.target ?? "";
+                        const report = p.result_ref ? reportsById[p.result_ref] : undefined;
+                        return (
+                          <button
+                            key={a.id}
+                            onClick={() => {
+                              if (report) {
+                                onOpen({ kind: "report", title: report.title, body: report.body_markdown });
+                              } else {
+                                onOpen({ kind: "payload", title: `${type} · ${relTime(a.created_at)}`, payload: a.payload });
+                              }
+                            }}
+                            className="text-[10px] font-mono px-1.5 py-0.5 rounded transition-colors hover:brightness-125"
+                            style={{
+                              background: ok ? `${accent}12` : "rgba(244,63,94,0.12)",
+                              color: ok ? accent : "#fb7185",
+                              border: `1px solid ${ok ? `${accent}30` : "rgba(244,63,94,0.3)"}`,
+                            }}
+                            title={p.summary ?? type}
+                          >
+                            {ok ? "✓" : "✗"} {type}{target ? ` · ${String(target).slice(0, 24)}` : ""}
+                            {report && <span className="ml-1 opacity-70">→ report #{shortId(report.id)}</span>}
+                          </button>
+                        );
+                      })}
+                    </span>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    </GlassCard>
+  );
+}
+
+function ArtifactsPanelWidget({
+  widget, accent, agentId, onOpen,
+}: {
+  widget: Extract<Widget, { kind: "artifacts_panel" }>;
+  accent: string;
+  agentId?: string;
+  onOpen: (m: ModalPayload) => void;
+}) {
+  const limit = widget.limit ?? 10;
+  const [reports, setReports] = useState<ReportRow[]>([]);
+  const [total, setTotal] = useState<number>(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!agentId) return;
+      const { data, count } = await supabase.from("agent_reports")
+        .select("id, title, kind, body_markdown, created_at, run_id", { count: "exact" })
+        .eq("agent_id", agentId)
+        .order("created_at", { ascending: false })
+        .limit(limit);
+      if (cancelled) return;
+      setReports((data ?? []) as ReportRow[]);
+      setTotal(count ?? (data?.length ?? 0));
+    })();
+    // Simple periodic refresh so new artifacts appear without a page reload.
+    const id = setInterval(async () => {
+      if (!agentId) return;
+      const { data, count } = await supabase.from("agent_reports")
+        .select("id, title, kind, body_markdown, created_at, run_id", { count: "exact" })
+        .eq("agent_id", agentId)
+        .order("created_at", { ascending: false })
+        .limit(limit);
+      if (cancelled) return;
+      setReports((data ?? []) as ReportRow[]);
+      setTotal(count ?? (data?.length ?? 0));
+    }, 15000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [agentId, limit]);
+
+  const extra = Math.max(0, total - reports.length);
+
+  return (
+    <GlassCard accent={accent}>
+      <div className="p-4 h-full flex flex-col">
+        <CardHeading
+          label={widget.title}
+          accent={accent}
+          right={
+            <span
+              className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded"
+              style={{ background: `${accent}18`, color: accent }}
+            >
+              {total}
+            </span>
+          }
+        />
+        {reports.length === 0 ? (
+          <div className="text-[11px] text-zinc-500 py-4">No artifacts yet. Reports, audits, digests, and plans the agent generates will appear here.</div>
+        ) : (
+          <ul className="space-y-2 max-h-[420px] overflow-y-auto custom-scroll pr-1">
+            {reports.map((r) => (
+              <li
+                key={r.id}
+                className="group/artifact flex items-start justify-between gap-2 rounded-lg p-2.5"
+                style={{
+                  background: "linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.01))",
+                  border: `1px solid ${accent}22`,
+                }}
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <FileText className="h-3 w-3 shrink-0" style={{ color: accent }} />
+                    <span
+                      className="text-[9px] font-mono uppercase tracking-wider px-1 py-px rounded"
+                      style={{ background: `${accent}18`, color: accent, border: `1px solid ${accent}30` }}
+                    >
+                      {r.kind}
+                    </span>
+                    <span className="text-[9.5px] text-zinc-500 font-mono">{relTime(r.created_at)}</span>
+                  </div>
+                  <div className="text-[12px] text-white leading-snug truncate" title={r.title}>{r.title}</div>
+                </div>
+                <button
+                  onClick={() => onOpen({ kind: "report", title: r.title, body: r.body_markdown })}
+                  className="shrink-0 text-[10px] font-mono px-2 py-1 rounded transition-colors"
+                  style={{ background: `${accent}15`, color: accent, border: `1px solid ${accent}40` }}
+                >
+                  Open
+                </button>
+              </li>
+            ))}
+            {extra > 0 && (
+              <li className="text-[10px] text-zinc-500 font-mono text-center py-1">+{extra} more</li>
+            )}
+          </ul>
+        )}
+      </div>
+    </GlassCard>
+  );
+}
