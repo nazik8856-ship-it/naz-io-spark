@@ -122,6 +122,51 @@ export default function AgentEmployeePanel({ agentId, events }: { agentId: strin
     load();
   };
 
+  const [customCron, setCustomCron] = useState("");
+  const cronValid = useMemo(
+    () => /^(\*|[0-9,\-/]+)(\s+(\*|[0-9,\-/]+)){4}$/.test(customCron.trim()),
+    [customCron],
+  );
+
+  const webhookUrl = useMemo(
+    () => `${SUPABASE_FUNCTIONS_URL}/agent-runtime?agentId=${agentId}&trigger=webhook`,
+    [agentId],
+  );
+  const copyWebhook = async () => {
+    try {
+      await navigator.clipboard.writeText(webhookUrl);
+      toast.success("Webhook URL copied");
+    } catch {
+      toast.error("Copy failed — select and copy manually.");
+    }
+  };
+
+  const [runOnceDate, setRunOnceDate] = useState<Date | undefined>(undefined);
+  const [runOnceTime, setRunOnceTime] = useState<string>("");
+  const scheduleRunOnce = async () => {
+    if (!runOnceDate || !runOnceTime) { toast.error("Pick a date and a time."); return; }
+    const [hh, mm] = runOnceTime.split(":").map((n) => parseInt(n, 10));
+    if (isNaN(hh) || isNaN(mm)) { toast.error("Invalid time."); return; }
+    const when = new Date(runOnceDate);
+    when.setHours(hh, mm, 0, 0);
+    if (when.getTime() <= Date.now()) { toast.error("Pick a time in the future."); return; }
+    const userId = (await supabase.auth.getUser()).data.user?.id;
+    if (!userId) { toast.error("Not signed in."); return; }
+    const { error } = await supabase.from("agent_runs").insert({
+      agent_id: agentId,
+      user_id: userId,
+      trigger: "scheduled",
+      status: "scheduled",
+      scheduled_for: when.toISOString(),
+      instruction: "One-off run scheduled by operator",
+    } as never);
+    if (error) { toast.error(error.message); return; }
+    toast.success(`Scheduled one-off run at ${when.toLocaleString()}`);
+    setRunOnceDate(undefined); setRunOnceTime("");
+  };
+
+
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
       {/* Business Sync */}
