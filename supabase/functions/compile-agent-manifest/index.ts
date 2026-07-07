@@ -78,7 +78,7 @@ const ROLE_LIBRARY: Record<string, {
       { name: "Inbox triage", trigger: "Every 10 min", source: "Gmail / Zendesk / Intercom", condition: "New unread customer message", action: "Classify intent + urgency, draft reply, attach to ticket", integrations: ["Gmail", "Zendesk", "Intercom"] },
       { name: "Refund risk escalation", trigger: "On new ticket", source: "Helpdesk", condition: "Keywords: refund, chargeback, lawyer, cancel", action: "Flag P1, notify on-call in Slack, draft empathetic hold reply", integrations: ["Slack", "Zendesk"], requiresApproval: true },
       { name: "SLA breach watch", trigger: "Every 15 min", source: "Helpdesk", condition: "Ticket open > SLA target", action: "Re-prioritize queue and ping owner", integrations: ["Slack", "Zendesk"] },
-      { name: "Macro tuning", trigger: "Weekly Mon 08:00", source: "Resolved tickets", condition: "Repeated question (≥3 last week)", action: "Propose new macro/help-doc for approval", integrations: ["Notion", "Zendesk"], requiresApproval: true },
+      { name: "Macro tuning", trigger: "Weekly Mon 08:00", source: "Resolved tickets", condition: "Repeated question (≥3 last week)", action: "generate_report weekly macro proposals + send_email summary to team lead", integrations: ["Notion", "Zendesk"], requiresApproval: true },
     ],
   },
   marketing: {
