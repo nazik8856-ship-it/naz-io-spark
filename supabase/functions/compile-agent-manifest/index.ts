@@ -163,7 +163,7 @@ Shape: {
   "name": string, "goal": string,
   "systemPrompt": string,        // <= 1400 chars, in-character, references the business
   "decisionPolicy": string,
-  "tools": [ { "name": string, "description": string, "kind": "web_search"|"http_get"|"calc"|"notify"|"remember"|"ask_user"|"request_approval"|"custom", "config": object } ],
+  "tools": [ { "name": string, "description": string, "kind": "web_search"|"http_get"|"http_post"|"calc"|"notify"|"remember"|"ask_user"|"request_approval"|"send_email"|"generate_report"|"sync_now"|"schedule_followup"|"custom", "config": object } ],
   "triggers": [ { "kind": "manual"|"cron"|"webhook", "spec": string } ],
   "guardrails": [ { "rule": string, "requiresApproval": boolean } ],
   "kpis": [ { "name": string, "target": string } ],
