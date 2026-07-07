@@ -4,9 +4,12 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Activity, AlertTriangle, BarChart3, Brain, CheckCircle2, Cpu, Crosshair,
-  Eye, Flame, Gauge, Globe2, LineChart, Radar, Rocket, ShieldCheck, Signal,
+  Eye, FileText, Flame, Gauge, Globe2, LineChart, Radar, Rocket, ShieldCheck, Signal,
   Sparkles, Terminal, TrendingUp, Wallet, Wrench, Zap,
 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import RichMarkdown from "@/components/chat/RichMarkdown";
 
 export type Widget =
   | { kind: "hero_metric"; title: string; valueFrom?: string; staticValue?: string; subtitle?: string; accent?: string; span?: number }
