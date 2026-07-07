@@ -22,6 +22,32 @@ export default function GeneratorHome() {
   const [prompt, setPrompt] = useState("");
   const [activeType, setActiveType] = useState("website");
 
+  // Recent AI Agents — surfaced here (previously shown inside the generation
+  // workspace's "Your Agents" tab). Everything the user has generated lands in
+  // this Recent section now.
+  type RecentAgent = { id: string; name: string; goal: string | null; created_at: string };
+  const [recentAgents, setRecentAgents] = useState<RecentAgent[]>([]);
+  const [agentsLoading, setAgentsLoading] = useState(false);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    (async () => {
+      setAgentsLoading(true);
+      const { data } = await supabase
+        .from("agents")
+        .select("id, name, goal, created_at")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(6);
+      if (!cancelled) {
+        setRecentAgents((data as RecentAgent[]) || []);
+        setAgentsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id]);
+
   const handleGenerate = () => {
     if (!prompt.trim()) return;
     sessionStorage.setItem("nazai_pending_prompt", prompt.trim());
