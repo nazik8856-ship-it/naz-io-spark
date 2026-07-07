@@ -133,13 +133,29 @@ export default function AgentEmployeePanel({ agentId, events }: { agentId: strin
     () => `${SUPABASE_FUNCTIONS_URL}/agent-runtime?agentId=${agentId}&trigger=webhook`,
     [agentId],
   );
-  const copyWebhook = async () => {
+  const webhookSecret = agent?.webhook_secret ?? "";
+  const curlCommand = useMemo(
+    () => `curl -X POST '${webhookUrl}' \\\n  -H 'x-webhook-secret: ${webhookSecret}' \\\n  -H 'Content-Type: application/json' \\\n  -d '{"note":"triggered from external system"}'`,
+    [webhookUrl, webhookSecret],
+  );
+  const copyText = async (text: string, label: string) => {
     try {
-      await navigator.clipboard.writeText(webhookUrl);
-      toast.success("Webhook URL copied");
+      await navigator.clipboard.writeText(text);
+      toast.success(`${label} copied`);
     } catch {
       toast.error("Copy failed — select and copy manually.");
     }
+  };
+  const regenerateSecret = async () => {
+    if (!confirm("Regenerate webhook secret? Any external system using the current secret will stop working until updated.")) return;
+    // 24 random bytes → 48 hex chars, matching the DB default shape.
+    const bytes = new Uint8Array(24);
+    crypto.getRandomValues(bytes);
+    const newSecret = Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+    const { error } = await supabase.from("agents").update({ webhook_secret: newSecret } as never).eq("id", agentId);
+    if (error) { toast.error(error.message); return; }
+    toast.warning("Webhook secret rotated. Update any external integrations with the new secret.");
+    load();
   };
 
   const [runOnceDate, setRunOnceDate] = useState<Date | undefined>(undefined);
