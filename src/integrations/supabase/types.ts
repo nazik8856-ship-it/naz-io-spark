@@ -252,6 +252,7 @@ export type Database = {
           status: string
           updated_at: string
           user_id: string
+          webhook_secret: string
         }
         Insert: {
           autonomy?: string
@@ -270,6 +271,7 @@ export type Database = {
           status?: string
           updated_at?: string
           user_id: string
+          webhook_secret?: string
         }
         Update: {
           autonomy?: string
@@ -288,6 +290,7 @@ export type Database = {
           status?: string
           updated_at?: string
           user_id?: string
+          webhook_secret?: string
         }
         Relationships: [
           {
