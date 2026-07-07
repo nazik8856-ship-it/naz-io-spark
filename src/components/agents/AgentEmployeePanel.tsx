@@ -18,6 +18,7 @@ type AgentRow = {
   business_profile_id: string | null;
   autonomy: string | null;
   webhook_secret: string | null;
+  auto_approve_low_risk: boolean | null;
 };
 type BusinessProfile = {
   company_name: string | null;
