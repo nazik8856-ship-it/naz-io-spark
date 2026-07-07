@@ -745,6 +745,14 @@ function WidgetCard({
     );
   }
 
+  if (widget.kind === "execution_flow") {
+    return <ExecutionFlowWidget widget={widget} events={events} accent={accent} accent2={accent2} agentId={agentId} onOpen={onOpen} />;
+  }
+
+  if (widget.kind === "artifacts_panel") {
+    return <ArtifactsPanelWidget widget={widget} accent={accent} agentId={agentId} onOpen={onOpen} />;
+  }
+
   return null;
 }
 
