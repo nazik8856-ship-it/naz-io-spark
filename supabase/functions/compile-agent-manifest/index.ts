@@ -54,7 +54,7 @@ const ROLE_LIBRARY: Record<string, {
     automations: [
       { name: "Daily prospect refresh", trigger: "Daily 09:00", source: "HubSpot / Apollo", condition: "New companies match ICP filters", action: "Enrich, score, and add 10 to today's outreach queue", integrations: ["HubSpot", "Apollo"] },
       { name: "Reply-triggered stage move", trigger: "On Gmail webhook", source: "Gmail / Outlook", condition: "Positive intent reply detected", action: "Move deal to 'Engaged', notify owner in Slack", integrations: ["Gmail", "HubSpot", "Slack"] },
-      { name: "Stalled deal nudge", trigger: "Every 4h", source: "HubSpot deals", condition: "Deal idle > 7 days in stage", action: "Draft follow-up email for approval", integrations: ["HubSpot", "Gmail"], requiresApproval: true },
+      { name: "Stalled deal nudge", trigger: "Every 4h", source: "HubSpot deals", condition: "Deal idle > 7 days in stage", action: "send_email follow-up draft (queued for approval) + schedule_followup for 48h", integrations: ["HubSpot", "Gmail"], requiresApproval: true },
       { name: "Pipeline hygiene", trigger: "Daily 18:00", source: "HubSpot", condition: "Missing close date or amount", action: "Patch fields from email thread + flag exceptions", integrations: ["HubSpot"] },
     ],
   },
@@ -78,7 +78,7 @@ const ROLE_LIBRARY: Record<string, {
       { name: "Inbox triage", trigger: "Every 10 min", source: "Gmail / Zendesk / Intercom", condition: "New unread customer message", action: "Classify intent + urgency, draft reply, attach to ticket", integrations: ["Gmail", "Zendesk", "Intercom"] },
       { name: "Refund risk escalation", trigger: "On new ticket", source: "Helpdesk", condition: "Keywords: refund, chargeback, lawyer, cancel", action: "Flag P1, notify on-call in Slack, draft empathetic hold reply", integrations: ["Slack", "Zendesk"], requiresApproval: true },
       { name: "SLA breach watch", trigger: "Every 15 min", source: "Helpdesk", condition: "Ticket open > SLA target", action: "Re-prioritize queue and ping owner", integrations: ["Slack", "Zendesk"] },
-      { name: "Macro tuning", trigger: "Weekly Mon 08:00", source: "Resolved tickets", condition: "Repeated question (≥3 last week)", action: "Propose new macro/help-doc for approval", integrations: ["Notion", "Zendesk"], requiresApproval: true },
+      { name: "Macro tuning", trigger: "Weekly Mon 08:00", source: "Resolved tickets", condition: "Repeated question (≥3 last week)", action: "generate_report weekly macro proposals + send_email summary to team lead", integrations: ["Notion", "Zendesk"], requiresApproval: true },
     ],
   },
   marketing: {
@@ -101,7 +101,7 @@ const ROLE_LIBRARY: Record<string, {
       { name: "Underperforming ad pause", trigger: "Every 1h", source: "Meta Ads / Google Ads", condition: "ROAS < target for 24h", action: "Pause adset, notify with diagnosis", integrations: ["Meta Ads", "Google Ads", "Slack"], requiresApproval: true },
       { name: "Mention sweep", trigger: "Every 2h", source: "Web + X/Twitter", condition: "Brand mentioned", action: "Log sentiment, draft response for review", integrations: ["X", "Slack"] },
       { name: "Content drafts", trigger: "Daily 07:00", source: "Calendar + trend feed", condition: "Empty slot in next 7 days", action: "Generate post draft in brand tone", integrations: ["Notion", "Buffer"], requiresApproval: true },
-      { name: "Weekly performance brief", trigger: "Mon 08:00", source: "GA4 + Ads + Social", condition: "Always", action: "Ship 1-page brief to founder", integrations: ["GA4", "Meta Ads", "Email"] },
+      { name: "Weekly performance brief", trigger: "Mon 08:00", source: "GA4 + Ads + Social", condition: "Always", action: "generate_report 1-page brief + send_email to founder", integrations: ["GA4", "Meta Ads", "Email"] },
     ],
   },
   ops_finance: {
@@ -123,7 +123,7 @@ const ROLE_LIBRARY: Record<string, {
     automations: [
       { name: "Daily cash & sales reconcile", trigger: "Daily 07:00", source: "Stripe + Shopify + QuickBooks", condition: "Always", action: "Post digest with revenue, refunds, top SKUs, anomalies", integrations: ["Stripe", "Shopify", "QuickBooks", "Slack"] },
       { name: "Low stock reorder", trigger: "Every 30 min", source: "Shopify inventory", condition: "SKU < reorder point", action: "Draft PO in QuickBooks, ping ops", integrations: ["Shopify", "QuickBooks"], requiresApproval: true },
-      { name: "Overdue invoice nudge", trigger: "Daily 10:00", source: "QuickBooks / Xero", condition: "Invoice 7+ days overdue", action: "Draft polite reminder email", integrations: ["QuickBooks", "Gmail"], requiresApproval: true },
+      { name: "Overdue invoice nudge", trigger: "Daily 10:00", source: "QuickBooks / Xero", condition: "Invoice 7+ days overdue", action: "send_email reminder (queued for approval) + generate_report weekly cashflow digest", integrations: ["QuickBooks", "Gmail"], requiresApproval: true },
       { name: "Cash-runway guardrail", trigger: "Daily 08:00", source: "Bank + Stripe", condition: "Runway < 60 days", action: "Pause discretionary ad spend, alert founder", integrations: ["Meta Ads", "Slack"], requiresApproval: true },
       { name: "Price-elasticity nudge", trigger: "Weekly Sun 22:00", source: "Shopify + GA4", condition: "Conversion ↓ & margin headroom", action: "Propose ±5% price test for approval", integrations: ["Shopify", "GA4"], requiresApproval: true },
     ],
@@ -142,7 +142,7 @@ const ROLE_LIBRARY: Record<string, {
     automations: [
       { name: "Signal sweep", trigger: "Every 6h", source: "Connected tools", condition: "New events since last run", action: "Summarize, score, and route to the right next step", integrations: ["Slack", "Email"] },
       { name: "Threshold alert", trigger: "Every 1h", source: "Connected KPIs", condition: "Metric crosses user-set threshold", action: "Notify operator with context + recommended action", integrations: ["Slack"] },
-      { name: "Weekly recap", trigger: "Mon 08:00", source: "Run history", condition: "Always", action: "Ship recap of decisions, actions, and wins", integrations: ["Email"] },
+      { name: "Weekly recap", trigger: "Mon 08:00", source: "Run history", condition: "Always", action: "generate_report recap of decisions, actions, wins + send_email to operator", integrations: ["Email"] },
     ],
   },
 };
@@ -163,7 +163,7 @@ Shape: {
   "name": string, "goal": string,
   "systemPrompt": string,        // <= 1400 chars, in-character, references the business
   "decisionPolicy": string,
-  "tools": [ { "name": string, "description": string, "kind": "web_search"|"http_get"|"calc"|"notify"|"remember"|"ask_user"|"request_approval"|"custom", "config": object } ],
+  "tools": [ { "name": string, "description": string, "kind": "web_search"|"http_get"|"http_post"|"calc"|"notify"|"remember"|"ask_user"|"request_approval"|"send_email"|"generate_report"|"sync_now"|"schedule_followup"|"custom", "config": object } ],
   "triggers": [ { "kind": "manual"|"cron"|"webhook", "spec": string } ],
   "guardrails": [ { "rule": string, "requiresApproval": boolean } ],
   "kpis": [ { "name": string, "target": string } ],
@@ -437,7 +437,7 @@ type Manifest = {
 const ALLOWED_WIDGETS = new Set(["hero_metric","live_thoughts","decision_log","action_timeline","tool_call_stream","alert_feed","tool_grid","kpi_radar","guardrail_panel","status_grid","automation_rules","workflow_summary","execution_flow","artifacts_panel"]);
 const ALLOWED_VALUE_FROM = new Set(["events_count","decisions_count","actions_count","tool_calls_count","thoughts_count","errors_count"]);
 const ALLOWED_ICONS = new Set(["brain","activity","wallet","gauge","signal","radar","terminal","rocket","eye","crosshair","shield","flame","sparkles","cpu","globe","line","bars","trending","zap","alert","check","wrench"]);
-const ALLOWED_KINDS = ["web_search", "http_get", "calc", "notify", "remember", "ask_user", "request_approval", "custom"];
+const ALLOWED_KINDS = ["web_search", "http_get", "calc", "notify", "remember", "ask_user", "request_approval", "send_email", "generate_report", "http_post", "sync_now", "schedule_followup", "custom"];
 
 function normalizeAutomations(raw: unknown): Automation[] {
   if (!Array.isArray(raw)) return [];
