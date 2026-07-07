@@ -101,7 +101,7 @@ const ROLE_LIBRARY: Record<string, {
       { name: "Underperforming ad pause", trigger: "Every 1h", source: "Meta Ads / Google Ads", condition: "ROAS < target for 24h", action: "Pause adset, notify with diagnosis", integrations: ["Meta Ads", "Google Ads", "Slack"], requiresApproval: true },
       { name: "Mention sweep", trigger: "Every 2h", source: "Web + X/Twitter", condition: "Brand mentioned", action: "Log sentiment, draft response for review", integrations: ["X", "Slack"] },
       { name: "Content drafts", trigger: "Daily 07:00", source: "Calendar + trend feed", condition: "Empty slot in next 7 days", action: "Generate post draft in brand tone", integrations: ["Notion", "Buffer"], requiresApproval: true },
-      { name: "Weekly performance brief", trigger: "Mon 08:00", source: "GA4 + Ads + Social", condition: "Always", action: "Ship 1-page brief to founder", integrations: ["GA4", "Meta Ads", "Email"] },
+      { name: "Weekly performance brief", trigger: "Mon 08:00", source: "GA4 + Ads + Social", condition: "Always", action: "generate_report 1-page brief + send_email to founder", integrations: ["GA4", "Meta Ads", "Email"] },
     ],
   },
   ops_finance: {
