@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Globe, Building2, ShoppingBag, Palette, Code2, FileText, Zap, Clock, ChevronRight } from "lucide-react";
+import { ArrowLeft, Globe, Building2, ShoppingBag, Palette, Code2, FileText, Zap, Clock, ChevronRight, Sparkles } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useProjects } from "@/hooks/useProjects";
+import { supabase } from "@/integrations/supabase/client";
 import { formatDistanceToNow } from "date-fns";
 
 const TYPES = [
@@ -20,6 +21,32 @@ export default function GeneratorHome() {
   const { recentProjects, loading } = useProjects(user?.id);
   const [prompt, setPrompt] = useState("");
   const [activeType, setActiveType] = useState("website");
+
+  // Recent AI Agents — surfaced here (previously shown inside the generation
+  // workspace's "Your Agents" tab). Everything the user has generated lands in
+  // this Recent section now.
+  type RecentAgent = { id: string; name: string; goal: string | null; created_at: string };
+  const [recentAgents, setRecentAgents] = useState<RecentAgent[]>([]);
+  const [agentsLoading, setAgentsLoading] = useState(false);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    (async () => {
+      setAgentsLoading(true);
+      const { data } = await supabase
+        .from("agents")
+        .select("id, name, goal, created_at")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(6);
+      if (!cancelled) {
+        setRecentAgents((data as RecentAgent[]) || []);
+        setAgentsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id]);
 
   const handleGenerate = () => {
     if (!prompt.trim()) return;
@@ -140,7 +167,7 @@ export default function GeneratorHome() {
         <div className="mt-16">
           <div className="flex items-center justify-between mb-5">
             <div className="text-[11px] font-mono tracking-[0.3em] text-zinc-500">RECENT</div>
-            {recentProjects.length > 0 && (
+            {(recentProjects.length > 0 || recentAgents.length > 0) && (
               <button
                 onClick={() => navigate("/dashboard/all-projects")}
                 className="flex items-center gap-1 text-sm text-purple-300 hover:text-purple-200"
@@ -150,17 +177,42 @@ export default function GeneratorHome() {
             )}
           </div>
 
-          {loading ? (
+          {loading || agentsLoading ? (
             <div className="text-sm text-zinc-600">Loading…</div>
-          ) : recentProjects.length === 0 ? (
+          ) : recentProjects.length === 0 && recentAgents.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-white/10 p-10 text-center">
               <p className="text-zinc-500 text-sm">
-                Your recent projects will appear here once you start creating.
+                Your recent projects and AI agents will appear here once you start creating.
               </p>
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-              {recentProjects.slice(0, 6).map((p) => {
+              {recentAgents.map((a) => {
+                const ago = formatDistanceToNow(new Date(a.created_at), { addSuffix: true });
+                return (
+                  <button
+                    key={`agent-${a.id}`}
+                    onClick={() => navigate("/generation-workspace")}
+                    className="text-left rounded-2xl border border-emerald-400/20 bg-gradient-to-br from-emerald-400/[0.05] to-cyan-400/[0.02] hover:border-emerald-400/50 transition-all p-5"
+                  >
+                    <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-400 to-cyan-400 flex items-center justify-center mb-4 shadow-[0_8px_24px_-8px_rgba(52,211,153,0.6)]">
+                      <Sparkles className="h-5 w-5 text-black" />
+                    </div>
+                    <div className="text-[9px] uppercase tracking-[0.24em] font-mono text-emerald-300 mb-1">AI Agent</div>
+                    <div className="font-semibold truncate text-white">
+                      {(a.name || "Agent").slice(0, 40)}
+                    </div>
+                    {a.goal && (
+                      <div className="text-xs text-zinc-400 line-clamp-2 mt-1">{a.goal}</div>
+                    )}
+                    <div className="flex items-center gap-1.5 mt-2 text-xs text-zinc-500">
+                      <Clock className="h-3 w-3" />
+                      {ago}
+                    </div>
+                  </button>
+                );
+              })}
+              {recentProjects.slice(0, Math.max(0, 6 - recentAgents.length)).map((p) => {
                 const initial = (p.directive || "?").trim()[0]?.toUpperCase() || "N";
                 const ago = formatDistanceToNow(new Date(p.updated_at || p.created_at), { addSuffix: true });
                 return (

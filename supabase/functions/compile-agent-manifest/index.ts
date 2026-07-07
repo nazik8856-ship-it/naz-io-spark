@@ -289,12 +289,58 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
     if (!normalized.guardrails.length) normalized.guardrails = blueprint.guardrails;
     if (!normalized.automations || normalized.automations.length === 0) normalized.automations = blueprint.automations;
     if (!normalized.workflowSummary) normalized.workflowSummary = blueprint.workflowSummary;
-    // Ensure automation widgets are present in the UI spec
-    if (normalized.ui && Array.isArray((normalized.ui as Record<string, unknown>).widgets)) {
-      const widgets = (normalized.ui as Record<string, unknown>).widgets as Record<string, unknown>[];
-      const kinds = new Set(widgets.map((w) => String(w.kind)));
-      if (!kinds.has("workflow_summary")) widgets.unshift({ kind: "workflow_summary", title: "How this agent automates your workflow", span: 6 });
-      if (!kinds.has("automation_rules")) widgets.splice(1, 0, { kind: "automation_rules", title: "Active automations", span: 6 });
+    // Ensure the UI always renders in its FULL expanded form. Every generated
+    // agent gets the same rich, always-visible surface: workflow, automations,
+    // hero metrics, reasoning stream, decisions, actions, tool calls, alerts,
+    // guardrails, and KPIs. Missing widgets are filled in so newly generated
+    // agents never look condensed compared to older ones.
+    const REQUIRED_WIDGETS: Record<string, Record<string, unknown>> = {
+      workflow_summary: { kind: "workflow_summary", title: "How this agent automates your workflow", span: 6 },
+      automation_rules: { kind: "automation_rules", title: "Active automations", span: 6 },
+      hero_runs:        { kind: "hero_metric", title: "Runs",      valueFrom: "events_count",     span: 2 },
+      hero_decisions:   { kind: "hero_metric", title: "Decisions", valueFrom: "decisions_count",  span: 2 },
+      hero_actions:     { kind: "hero_metric", title: "Actions",   valueFrom: "actions_count",    span: 2 },
+      live_thoughts:    { kind: "live_thoughts",    title: "Live reasoning", limit: 8, span: 3 },
+      decision_log:     { kind: "decision_log",     title: "Decisions",      limit: 6, span: 3 },
+      action_timeline:  { kind: "action_timeline",  title: "Actions",        limit: 8, span: 3 },
+      tool_call_stream: { kind: "tool_call_stream", title: "Tool calls",     limit: 8, span: 3 },
+      alert_feed:       { kind: "alert_feed",       title: "Alerts",                    span: 3 },
+      guardrail_panel:  { kind: "guardrail_panel",  title: "Guardrails",                span: 3 },
+      kpi_radar:        { kind: "kpi_radar",        title: "KPIs",                      span: 3 },
+    };
+    if (!normalized.ui) {
+      (normalized as unknown as Record<string, unknown>).ui = {
+        theme: "command", accent: "#34d399", accentSecondary: "#22d3ee",
+        hero: { title: normalized.name, tagline: normalized.goal, icon: "sparkles" },
+        layout: "command-deck", widgets: [],
+      };
+    }
+    {
+      const uiObj = (normalized.ui as Record<string, unknown>);
+      const existing = Array.isArray(uiObj.widgets) ? (uiObj.widgets as Record<string, unknown>[]) : [];
+      const kinds = new Set(existing.map((w) => String(w.kind)));
+      // Prepend workflow + automations, then add every other required widget
+      // that isn't already present so the dashboard is never sparse.
+      const ordered: Record<string, unknown>[] = [];
+      ordered.push(REQUIRED_WIDGETS.workflow_summary);
+      ordered.push(REQUIRED_WIDGETS.automation_rules);
+      const heroOrder = ["hero_runs", "hero_decisions", "hero_actions"];
+      const heroExisting = existing.filter((w) => String(w.kind) === "hero_metric");
+      // Keep first three hero_metric widgets the model chose; pad with defaults.
+      for (let i = 0; i < 3; i++) ordered.push(heroExisting[i] ?? REQUIRED_WIDGETS[heroOrder[i]]);
+      const streamOrder = ["live_thoughts", "decision_log", "action_timeline", "tool_call_stream", "alert_feed", "guardrail_panel", "kpi_radar"];
+      for (const key of streamOrder) {
+        const present = existing.find((w) => String(w.kind) === key);
+        ordered.push(present ?? REQUIRED_WIDGETS[key]);
+      }
+      // Preserve any additional widgets the compiler produced that weren't yet included
+      for (const w of existing) {
+        if (!ordered.includes(w) && !["hero_metric","workflow_summary","automation_rules", ...streamOrder].includes(String(w.kind))) {
+          ordered.push(w);
+        }
+      }
+      uiObj.widgets = ordered;
+      void kinds;
     }
     // Stamp role onto the manifest so the Integrations panel picks the right
     // platform recommendations even when it only receives the manifest.
@@ -530,6 +576,7 @@ function buildFallbackManifest(
         { kind: "decision_log", title: "Decisions", span: 3, limit: 6 },
         { kind: "action_timeline", title: "Actions", span: 3, limit: 8 },
         { kind: "tool_call_stream", title: "Tool calls", span: 3, limit: 8 },
+        { kind: "alert_feed", title: "Alerts", span: 3 },
         { kind: "guardrail_panel", title: "Guardrails", span: 3 },
         { kind: "kpi_radar", title: "KPIs", span: 3 },
       ],
