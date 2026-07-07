@@ -576,6 +576,7 @@ function buildFallbackManifest(
         { kind: "decision_log", title: "Decisions", span: 3, limit: 6 },
         { kind: "action_timeline", title: "Actions", span: 3, limit: 8 },
         { kind: "tool_call_stream", title: "Tool calls", span: 3, limit: 8 },
+        { kind: "alert_feed", title: "Alerts", span: 3 },
         { kind: "guardrail_panel", title: "Guardrails", span: 3 },
         { kind: "kpi_radar", title: "KPIs", span: 3 },
       ],
