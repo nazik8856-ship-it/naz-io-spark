@@ -167,17 +167,13 @@ serve(async (req) => {
       .eq("agent_id", agentId).eq("user_id", userId)
       .in("kind", ["clarification_request", "clarification_answer"])
       .order("created_at", { ascending: false }).limit(1).maybeSingle();
+    let expiredClarificationId: string | null = null;
     if (lastClarify && lastClarify.kind === "clarification_request") {
       const ageMs = Date.now() - new Date(lastClarify.created_at as string).getTime();
       if (ageMs < 24 * 60 * 60 * 1000) {
         return json({ skipped: true, reason: "awaiting clarification" });
       }
-      // Expired: log and proceed with next run.
-      await supabase.from("agent_events").insert({
-        agent_id: agentId, user_id: userId, run_id: null,
-        kind: "clarification_expired",
-        payload: { original_event_id: lastClarify.id, expired_after_hours: 24 },
-      });
+      expiredClarificationId = lastClarify.id as string;
     }
 
     const { data: run, error: runErr } = await supabase
@@ -191,6 +187,9 @@ serve(async (req) => {
       supabase.from("agent_events").insert({ run_id: runId, agent_id: agentId, user_id: userId, kind, payload });
 
     await logEvent("run_started", { trigger, goal: manifest.goal });
+    if (expiredClarificationId) {
+      await logEvent("clarification_expired", { original_event_id: expiredClarificationId, expired_after_hours: 24 });
+    }
     await logEvent("reason", { thought: `Agent activated (${trigger}). Reviewing business context and memory before acting.` });
 
     // Build system prompt with business + memory context
