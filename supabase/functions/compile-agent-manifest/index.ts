@@ -54,7 +54,7 @@ const ROLE_LIBRARY: Record<string, {
     automations: [
       { name: "Daily prospect refresh", trigger: "Daily 09:00", source: "HubSpot / Apollo", condition: "New companies match ICP filters", action: "Enrich, score, and add 10 to today's outreach queue", integrations: ["HubSpot", "Apollo"] },
       { name: "Reply-triggered stage move", trigger: "On Gmail webhook", source: "Gmail / Outlook", condition: "Positive intent reply detected", action: "Move deal to 'Engaged', notify owner in Slack", integrations: ["Gmail", "HubSpot", "Slack"] },
-      { name: "Stalled deal nudge", trigger: "Every 4h", source: "HubSpot deals", condition: "Deal idle > 7 days in stage", action: "Draft follow-up email for approval", integrations: ["HubSpot", "Gmail"], requiresApproval: true },
+      { name: "Stalled deal nudge", trigger: "Every 4h", source: "HubSpot deals", condition: "Deal idle > 7 days in stage", action: "send_email follow-up draft (queued for approval) + schedule_followup for 48h", integrations: ["HubSpot", "Gmail"], requiresApproval: true },
       { name: "Pipeline hygiene", trigger: "Daily 18:00", source: "HubSpot", condition: "Missing close date or amount", action: "Patch fields from email thread + flag exceptions", integrations: ["HubSpot"] },
     ],
   },
