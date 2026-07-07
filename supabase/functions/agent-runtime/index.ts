@@ -540,7 +540,10 @@ Rules:
             const r = (g.rule || "").toLowerCase();
             return r.includes("http_post") || r.includes("webhook") || r.includes("external") || r.includes("adjust");
           });
-          const autoAllowed = !!httpGuard && httpGuard.requiresApproval === false;
+          const guardAutoAllowed = !!httpGuard && httpGuard.requiresApproval === false;
+          const hardBlockHttp = !!httpGuard && /\[requires approval\]/i.test(httpGuard.rule || "");
+          const autoApproveHttp = (agent as { auto_approve_low_risk?: boolean }).auto_approve_low_risk === true && !hardBlockHttp;
+          const autoAllowed = guardAutoAllowed || autoApproveHttp;
           if (!autoAllowed) {
             await logEvent("pending_approval", {
               action: "http_post",
