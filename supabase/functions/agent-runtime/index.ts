@@ -167,8 +167,13 @@ serve(async (req) => {
       .eq("agent_id", agentId).eq("user_id", userId)
       .in("kind", ["clarification_request", "clarification_answer"])
       .order("created_at", { ascending: false }).limit(1).maybeSingle();
+    let expiredClarificationId: string | null = null;
     if (lastClarify && lastClarify.kind === "clarification_request") {
-      return json({ skipped: true, reason: "awaiting clarification" });
+      const ageMs = Date.now() - new Date(lastClarify.created_at as string).getTime();
+      if (ageMs < 24 * 60 * 60 * 1000) {
+        return json({ skipped: true, reason: "awaiting clarification" });
+      }
+      expiredClarificationId = lastClarify.id as string;
     }
 
     const { data: run, error: runErr } = await supabase
@@ -182,6 +187,9 @@ serve(async (req) => {
       supabase.from("agent_events").insert({ run_id: runId, agent_id: agentId, user_id: userId, kind, payload });
 
     await logEvent("run_started", { trigger, goal: manifest.goal });
+    if (expiredClarificationId) {
+      await logEvent("clarification_expired", { original_event_id: expiredClarificationId, expired_after_hours: 24 });
+    }
     await logEvent("reason", { thought: `Agent activated (${trigger}). Reviewing business context and memory before acting.` });
 
     // Build system prompt with business + memory context
@@ -456,7 +464,10 @@ Rules:
             const r = (g.rule || "").toLowerCase();
             return g.requiresApproval && (r.includes("email") || r.includes("send") || r.includes("external"));
           });
-          if (emailGuard) {
+          // Hard-required approval when guardrail literally says [REQUIRES APPROVAL].
+          const hardBlock = emailGuard && /\[requires approval\]/i.test(emailGuard.rule || "");
+          const autoApprove = (agent as { auto_approve_low_risk?: boolean }).auto_approve_low_risk === true && !hardBlock;
+          if (emailGuard && !autoApprove) {
             await logEvent("pending_approval", {
               action: "send_email",
               payload: { to, subject, body },
@@ -537,7 +548,10 @@ Rules:
             const r = (g.rule || "").toLowerCase();
             return r.includes("http_post") || r.includes("webhook") || r.includes("external") || r.includes("adjust");
           });
-          const autoAllowed = !!httpGuard && httpGuard.requiresApproval === false;
+          const guardAutoAllowed = !!httpGuard && httpGuard.requiresApproval === false;
+          const hardBlockHttp = !!httpGuard && /\[requires approval\]/i.test(httpGuard.rule || "");
+          const autoApproveHttp = (agent as { auto_approve_low_risk?: boolean }).auto_approve_low_risk === true && !hardBlockHttp;
+          const autoAllowed = guardAutoAllowed || autoApproveHttp;
           if (!autoAllowed) {
             await logEvent("pending_approval", {
               action: "http_post",

@@ -1,7 +1,7 @@
 // Digital-Employee panel rendered beneath the generated dashboard in AgentCockpit.
 // Shows: Business Sync, Schedule, Approvals queue, Clarifications inbox, Memory.
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Brain, CalendarClock, CheckCircle2, MessageCircleQuestion, ShieldCheck, XCircle, Send, Copy, Webhook, Clock } from "lucide-react";
+import { Brain, CalendarClock, CheckCircle2, MessageCircleQuestion, ShieldCheck, XCircle, Send, Copy, Webhook, Clock, Zap } from "lucide-react";
 import { supabase, SUPABASE_FUNCTIONS_URL } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Calendar } from "@/components/ui/calendar";
@@ -18,6 +18,7 @@ type AgentRow = {
   business_profile_id: string | null;
   autonomy: string | null;
   webhook_secret: string | null;
+  auto_approve_low_risk: boolean | null;
 };
 type BusinessProfile = {
   company_name: string | null;
@@ -48,7 +49,7 @@ export default function AgentEmployeePanel({ agentId, events }: { agentId: strin
   const load = useCallback(async () => {
     const { data: a } = await supabase
       .from("agents")
-      .select("id, role, schedule_cron, schedule_label, next_run_at, business_profile_id, autonomy, webhook_secret")
+      .select("id, role, schedule_cron, schedule_label, next_run_at, business_profile_id, autonomy, webhook_secret, auto_approve_low_risk")
       .eq("id", agentId).maybeSingle();
     setAgent(a as AgentRow | null);
     if (a?.business_profile_id) {
@@ -68,8 +69,13 @@ export default function AgentEmployeePanel({ agentId, events }: { agentId: strin
 
   // Derive pending approvals and unresolved clarifications from event stream
   const approvals = events.filter((e) => e.kind === "pending_approval").filter((e) => {
-    const after = events.find((x) => x.created_at > e.created_at && (x.kind === "approval_granted" || x.kind === "approval_rejected") && (x.payload as { ref?: string })?.ref === e.id);
-    return !after;
+    const resolved = events.some((x) =>
+      x.created_at > e.created_at &&
+      (x.kind === "approval_granted" || x.kind === "approval_rejected") &&
+      ((x.payload as { ref?: string; original_event_id?: string })?.ref === e.id ||
+       (x.payload as { ref?: string; original_event_id?: string })?.original_event_id === e.id),
+    );
+    return !resolved;
   }).slice(-6);
 
   const clarifications = (() => {
@@ -96,19 +102,26 @@ export default function AgentEmployeePanel({ agentId, events }: { agentId: strin
   };
 
   const respondApproval = async (eventId: string, granted: boolean) => {
-    const userId = (await supabase.auth.getUser()).data.user?.id;
-    const ev = events.find((e) => e.id === eventId);
-    if (!ev || !userId) return;
-    const { error } = await supabase.from("agent_events").insert({
-      agent_id: agentId, user_id: userId, run_id: ev.run_id,
-      kind: granted ? "approval_granted" : "approval_rejected",
-      payload: { ref: eventId },
-    } as never);
-    if (error) { toast.error(error.message); return; }
-    toast.success(granted ? "Approved — agent will execute on next run." : "Rejected.");
+    const { data, error } = await supabase.functions.invoke("agent-approval", {
+      body: { eventId, action: granted ? "approve" : "reject" },
+    });
+    if (error) { toast.error(error.message || "Approval failed"); return; }
+    const summary = (data as { summary?: string; resolved?: string; ok?: boolean } | null) || {};
     if (granted) {
-      void supabase.functions.invoke("agent-runtime", { body: { agentId, trigger: "manual", userInstruction: `Operator approved action: ${JSON.stringify(ev.payload).slice(0, 400)}` } });
+      toast.success(summary.ok === false ? "Approved, but delivery failed — see events." : "Approved & executed.");
+    } else {
+      toast.success("Rejected.");
     }
+  };
+
+  const toggleAutoApprove = async () => {
+    if (!agent) return;
+    const next = !agent.auto_approve_low_risk;
+    if (next && !confirm("Enable auto-approve for low-risk sends? The agent will send emails and webhooks without asking, unless a guardrail explicitly says [REQUIRES APPROVAL].")) return;
+    const { error } = await supabase.from("agents").update({ auto_approve_low_risk: next } as never).eq("id", agentId);
+    if (error) { toast.error(error.message); return; }
+    toast.success(next ? "Auto-approve enabled — agent will send without asking." : "Auto-approve disabled — actions will queue for approval.");
+    load();
   };
 
 
@@ -317,6 +330,16 @@ export default function AgentEmployeePanel({ agentId, events }: { agentId: strin
 
       {/* Approvals queue */}
       <Card title={`Approvals · ${approvals.length}`} icon={<CheckCircle2 className="h-4 w-4" />}>
+        <button
+          onClick={toggleAutoApprove}
+          className={`w-full mb-2 flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg border text-[11px] ${agent?.auto_approve_low_risk ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200" : "border-white/10 bg-white/[0.02] text-zinc-300 hover:text-white hover:border-white/30"}`}
+          title="When ON, low-risk send_email and http_post skip the queue and execute immediately. Guardrails marked [REQUIRES APPROVAL] still queue."
+        >
+          <span className="flex items-center gap-1.5"><Zap className="h-3 w-3" /> Auto-approve low-risk sends</span>
+          <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold ${agent?.auto_approve_low_risk ? "bg-emerald-400 text-black" : "bg-white/10 text-zinc-400"}`}>
+            {agent?.auto_approve_low_risk ? "ON" : "OFF"}
+          </span>
+        </button>
         {approvals.length === 0 ? (
           <div className="text-xs text-zinc-500">No pending approvals. Agent will queue external actions here.</div>
         ) : (
@@ -344,6 +367,7 @@ export default function AgentEmployeePanel({ agentId, events }: { agentId: strin
           </div>
         )}
       </Card>
+
 
       {/* Clarifications inbox */}
       <Card title={`Clarifications · ${clarifications.length}`} icon={<MessageCircleQuestion className="h-4 w-4" />}>

@@ -1,113 +1,81 @@
-## Goal
 
-Generated AI Agents become real "digital employees": they understand the business with minimal input, ask the user only what's truly missing, run on a schedule (not just one click), keep a memory of the business, and execute end-to-end workflows across Sales, Support, Marketing, and Ops — plus anything the client described in their original prompt.
+# What's actually blocking successful agent execution
 
-## 1. Cold-start: auto-research the business
+I checked the runtime, scheduler, cron, gateway logs, `agent_runs`, `agent_events`, `agent_integrations`, and `integration_snapshots`. Here's the truth on the ground.
 
-When the user submits a short prompt:
+## What already works
 
-- NazAI extracts any URL, brand name, or industry hint from the prompt.
-- A new edge function `business-context-researcher` runs Firecrawl + web search to build a **Business Profile**:
-  - company name, one-line description, industry, tone of voice
-  - core offers / products, pricing if public
-  - audience, geos, languages
-  - inferred KPIs (e.g. "book demos", "reduce reply time", "weekly content cadence")
-  - common channels (email, social handles, support inbox)
-- Output stored in a new `business_profiles` table, scoped per user, reusable across all agents.
-- Every agent compiled afterwards inherits this profile automatically — no need to re-explain the business.
+- pg_cron `nazai-agent-scheduler` is active, firing every minute.
+- `agent-runtime` boots fine, the AI gateway calls are all HTTP 200 (Gemini flash / pro).
+- Recent `agent_runs` are `status = completed` with rich "Delivered:" summaries.
+- Migrations for `agent_reports`, `webhook_secret`, `agent_memory`, `business_profiles`, scheduled runs — all in place.
+- Widgets `execution_flow` / `artifacts_panel` render.
 
-If no URL is given, the researcher uses web search + brand name only; missing pieces become questions in step 2.
+So the pipeline runs end-to-end. The problem is that "completed" here means "the LLM narrated a completion", not "real work happened in the real world."
 
-## 2. Clarifying intake during generation (only when essential)
+## The real blockers (ranked)
 
-Before compiling the agent, NazAI runs a short adaptive intake — the same pattern NazAI uses with the user today:
+### 1. Integrations are fake — this is the #1 blocker
+`agent_integrations.metadata` for every "connected" row literally says:
+`"note": "Stored. Live verification not available for this provider yet."`
+`integration_snapshots` are AI-hallucinated (`mailbox: "@plums"`, `unread: 3`) — never fetched from Gmail/Stripe/Shopify. Result: the agent reasons over fabricated numbers, so any "insight" or action is baseless. Stripe row is `status: error`.
 
-- Inspects the Business Profile + the user's prompt
-- Generates **at most 3 questions**, only for fields the agent literally cannot run without (e.g. "Which inbox should support replies be drafted in?", "What's an acceptable discount ceiling?", "Daily, hourly, or event-triggered?")
-- If everything essential is already inferred, intake is skipped silently.
+Until at least one provider returns real data, no run is truly "successful" no matter what the summary says.
 
-Intake answers are merged into the manifest and into `business_profiles` so future agents reuse them.
+### 2. Approval queue is write-only
+`agent_events` has **44 `pending_approval` rows and 0 `approval_granted`/`approval_rejected`**. `send_email`, `http_post`, and `request_approval` all queue by design, but nothing consumes the queue: no approve/reject UI, no runtime handler that, on approval, actually calls `send-transactional-email` or fires the webhook. So every external action the agent "delivers" is stuck forever.
 
-## 3. Real "digital employee" agent types
+### 3. `send_email` guardrail defaults to approval-required
+For every agent the compiler emits at least one guardrail matching `email|send|external`, so `send_email` never sends on the first pass. Combined with #2 → zero emails ever leave.
 
-Compiler (`compile-agent-manifest`) gets a library of role blueprints, picked automatically from the user's prompt:
+### 4. `http_post` allow-list is empty by default
+As previously flagged, `WEBHOOK_DOMAIN_ALLOWLIST` env var is unset. `http_post` only works to the agent's own `webhook_url`. Every other target 403s.
 
-- **Sales / Lead Ops** — prospect research, ICP scoring, outbound draft, follow-up cadence, CRM-style pipeline updates (logged events for now).
-- **Customer Support** — inbox triage, draft replies in brand tone, urgency classification, escalation log.
-- **Marketing / Content Ops** — content calendar, post drafts, SEO/mention monitoring, weekly brief.
-- **Operations / Finance** — KPI digest, anomaly alerts, invoice/renewal reminders, weekly report.
-- **Custom** — fallback used when the user's prompt doesn't match a role; the compiler builds a bespoke manifest from the prompt + Business Profile (covers the "anything client asked for before generation" case).
+### 5. `send-transactional-email` sender / domain not confirmed
+Resend needs a verified `from` domain. If it's not set for the current project, `send_email` will fail with a Resend 4xx even after approval is wired.
 
-Each blueprint defines: default goal, decision policy, KPIs, tool set, guardrails, schedule, and a domain-tuned dashboard layout (already supported by `GeneratedAgentDashboard`).
+### 6. Clarification loop can strand a run
+`agent_runs.status = 'paused'` rows exist (e.g. `39891e33…`). If the operator never answers, the agent never runs again on that schedule because the next tick sees an unresolved `clarification_request` and skips.
 
-## 4. Autonomy + approval (matches the user's answer)
+## Fix plan (minimum path to a real end-to-end run)
 
-Default policy per agent:
+Do in this order. Steps 1–3 unblock 90% of "real execution".
 
-- Internal actions (reasoning, research, drafting, logging, computing KPIs) → fully autonomous.
-- External-world actions (sending an email, posting publicly, charging money, messaging customers) → drafted and queued as `pending_approval` events in the cockpit. User one-click approves or rejects.
-- Whenever the agent hits a decision it doesn't have enough info for, it does **exactly what NazAI does with the user**: emits a `clarification_request` event with up to 3 concrete options. The cockpit renders these as inline answer chips; the user's answer is fed back into the same run and remembered on the agent for next time.
+### Step 1 — Wire the approval queue (backend + minimal UI)
+- New edge function `agent-approval` with actions `approve` / `reject`, JWT-verified, scoped by `user_id`.
+- On `approve`, look up the original `pending_approval` event's `payload.action` and dispatch:
+  - `send_email` → call `send-transactional-email` with the queued `to/subject/body`.
+  - `http_post` → run the existing `validateHttpPostUrl` + fetch (bypass the "queue by default" branch since this IS the approval).
+  - generic `request_approval` → just log `approval_granted` so the agent can resume.
+- Emit `approval_granted` / `approval_rejected` events with `result_ref` (email id / http status / snapshot).
+- Add a tiny "Approvals" list to `AgentEmployeePanel` (already has the approvals section stub) with Approve / Reject buttons calling the new function. No design changes.
 
-This means agents never silently stall — they either act, queue an approval, or ask a precise question.
+### Step 2 — Make at least one integration return real data
+Two options, pick one this pass (I recommend A, cheapest, most useful):
+- **A.** Real Gmail via the existing Google OAuth: `integration-sync` reads `access_token` from `agent_integrations` and calls `gmail.users.messages.list?q=is:unread` to fill the snapshot with actual `unread` / `awaiting_reply`. Kill the placeholder synth path when a token exists.
+- **B.** Add a raw "API key" connector for Stripe (`sk_...`) and hit `/v1/balance` + `/v1/charges?limit=10`. Real numbers, no OAuth.
 
-## 5. Scheduled / always-on execution
+Either way: remove the "Live verification not available for this provider yet." fallback — if we can't verify, mark `status = error` instead of `connected`, so agents stop trusting phantom data.
 
-Today agents only run on manual trigger. To feel like an employee they must work on their own.
+### Step 3 — Auto-approve low-risk sends per agent
+Add an `auto_approve_low_risk boolean default false` column to `agents`. When true, `send_email` and `http_post` skip the queue if `risk != "high"` and the guardrail doesn't literally say `[REQUIRES APPROVAL]`. Expose a toggle in `AgentEmployeePanel` under "Autonomy". This lets a user opt an agent into truly autonomous send once they trust it, without loosening safety globally.
 
-- Add `schedule_cron` and `next_run_at` to `agents`.
-- New edge function `agent-scheduler` triggered by pg_cron every minute: finds agents whose `next_run_at <= now()` and invokes `agent-runtime` for each.
-- Compiler picks a sensible default per role (e.g. Support every 10 min, Sales daily 9am, Marketing Mon 8am, Ops daily 7am). User can change it from the cockpit.
-- Cron + webhook + manual triggers all funnel into the same runtime path and the same event stream.
+### Step 4 — Verify Resend `from` identity
+Confirm the project's Resend account has a verified domain and `send-transactional-email` uses it (or a Resend-provided `onboarding@resend.dev` fallback for dev). If not verified, tell the user which domain to verify in Resend — no code change until then.
 
-## 6. Persistent agent memory
+### Step 5 — Set `WEBHOOK_DOMAIN_ALLOWLIST`
+Ask the user for the comma-separated domains they actually want to POST to (Zapier/Make/n8n hooks, their app's ingest URL). Save via `add_secret`. `http_post` currently already reads this — just needs values.
 
-New `agent_memory` table: append-only key/value facts the agent learns (e.g. "ICP = SaaS founders 10–50 emp", "no discounts above 20%", "primary support inbox = hello@…"). Runtime loads recent memory into the system prompt every run, and a dedicated `remember` tool lets the agent commit new facts. This is what makes the agent actually "synchronized to the business" over time instead of restarting cold every run.
+### Step 6 — Rescue stranded `paused` runs
+- In `agent-scheduler`, if the most recent event on an agent is a `clarification_request` older than 24h, log `clarification_expired` and let the next scheduled tick proceed with the last known state instead of skipping forever.
+- Optional: surface unanswered clarifications as a badge on `AgentCockpit` so the operator sees them.
 
-## 7. Reliability + observability upgrades
+## Manual items you'll need to do (no code)
+- Verify a sending domain in Resend (Step 4).
+- Provide the webhook domain allow-list value (Step 5).
+- Reconnect Gmail if you want Step 2A — the current row has no usable token (metadata note = "Live verification not available"), meaning OAuth never completed.
 
-- Manifest validation: compiler refuses to deploy if required fields are missing, returns the exact gap, cockpit shows a fix-it card.
-- Runtime returns structured per-phase errors (already partly there) and the cockpit surfaces them; status no longer flips back to ACTIVE after a failed run (already fixed previously, keep it).
-- Every run now logs: trigger, business_profile_version, memory_snapshot_count, tool_calls, approvals_requested, approvals_granted, KPIs touched.
+## What I'd tackle first
+If you want the fastest "the agent did a real thing" moment: Step 1 + Step 3 in one pass. That alone converts the 44 stuck approvals into either real emails or explicit rejects, and lets you flip a switch per agent for hands-off sending. Step 2 makes the *reasoning* real; Steps 1+3 make the *actions* real.
 
-## 8. Integrations
-
-Per user request, only the foundation now — connectors come later:
-
-- Keep current real tools: `web_search`, `http_get`, `calc`, `notify`, plus new `remember` and `request_approval` and `ask_user`.
-- Mark email/CRM/Slack/Stripe tools as `needs_connector` placeholders so the UI shows "Connect to activate" without breaking deploy.(about this later)
-
-## Files to add / change
-
-Backend:
-
-- `supabase/functions/business-context-researcher/index.ts` *(new)* — Firecrawl + AI gateway, writes `business_profiles`.
-- `supabase/functions/agent-intake/index.ts` *(new)* — generates up to 3 essential questions, merges answers.
-- `supabase/functions/agent-scheduler/index.ts` *(new)* — invoked by pg_cron, fans out to `agent-runtime`.
-- `supabase/functions/compile-agent-manifest/index.ts` — add role library, inject Business Profile + memory, default schedule, manifest validation, `needs_connector` markers.
-- `supabase/functions/agent-runtime/index.ts` — load memory, add `remember`, `request_approval`, `ask_user` tools; emit `clarification_request` and `pending_approval` event kinds; phase-tagged errors.
-
-DB migration (one file):
-
-- `business_profiles` (user-scoped, RLS, GRANTs)
-- `agent_memory` (agent-scoped, RLS, GRANTs)
-- `agents`: add `schedule_cron text`, `next_run_at timestamptz`, `business_profile_id uuid`, `role text`
-- `agent_events`: allow new kinds `clarification_request`, `clarification_answer`, `pending_approval`, `approval_granted`, `approval_rejected`, `memory_write`
-- pg_cron job calling `agent-scheduler` every minute
-
-Frontend:
-
-- `GenerationWorkspace.tsx` — show "Researching your business…" phase, then render intake questions (reuse existing question UI), then deploy.
-- `AgentCockpit.tsx` / `GeneratedAgentDashboard.tsx` — new widgets: **Business Sync card**, **Schedule control**, **Approvals queue**, **Clarifications inbox**, **Memory log**. Reuse current premium glass styling.
-- New `src/components/agents/IntakeQuestions.tsx` — renders the up-to-3 essential questions during generation and on demand in the cockpit.
-
-## Acceptance test
-
-1. Submit "AI agent for acme.com to handle inbound support".
-2. UI shows "Researching acme.com…" then a Business Profile preview.
-3. Up to 3 essential questions appear (e.g. inbox, tone, escalation rule). If all inferable, skipped.
-4. Cockpit opens with role-specific dashboard, a visible schedule ("every 10 min"), and Business Sync card.
-5. Agent runs automatically on schedule without the user clicking Run.
-6. When the agent lacks info mid-run, an inline clarification chip appears in the cockpit and the agent waits.
-7. External actions land in an Approvals queue, not silently sent.
-8. Facts the agent learns appear in Memory and are reused in the next run.
-9. Errors per phase are visible; status stays ERROR until a clean run succeeds.
+Say the word and I'll implement Steps 1 and 3 (plus the small scheduler safety net in Step 6) in a single build pass. Steps 2, 4, 5 depend on choices/secrets from you.
