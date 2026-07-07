@@ -427,7 +427,7 @@ type Manifest = {
   ui?: Record<string, unknown>;
 };
 
-const ALLOWED_WIDGETS = new Set(["hero_metric","live_thoughts","decision_log","action_timeline","tool_call_stream","alert_feed","tool_grid","kpi_radar","guardrail_panel","status_grid","automation_rules","workflow_summary"]);
+const ALLOWED_WIDGETS = new Set(["hero_metric","live_thoughts","decision_log","action_timeline","tool_call_stream","alert_feed","tool_grid","kpi_radar","guardrail_panel","status_grid","automation_rules","workflow_summary","execution_flow","artifacts_panel"]);
 const ALLOWED_VALUE_FROM = new Set(["events_count","decisions_count","actions_count","tool_calls_count","thoughts_count","errors_count"]);
 const ALLOWED_ICONS = new Set(["brain","activity","wallet","gauge","signal","radar","terminal","rocket","eye","crosshair","shield","flame","sparkles","cpu","globe","line","bars","trending","zap","alert","check","wrench"]);
 const ALLOWED_KINDS = ["web_search", "http_get", "calc", "notify", "remember", "ask_user", "request_approval", "custom"];
