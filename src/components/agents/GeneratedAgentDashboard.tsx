@@ -199,10 +199,27 @@ export default function GeneratedAgentDashboard({
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 sm:gap-4">
         {ui.widgets.map((w, i) => (
           <div key={i} className={spanClass(w.span ?? defaultSpan(w.kind))}>
-            <WidgetCard widget={w} events={events} demo={demo} manifest={manifest} stats={stats} accent={accent} accent2={accent2} />
+            <WidgetCard widget={w} events={events} demo={demo} manifest={manifest} stats={stats} accent={accent} accent2={accent2} agentId={agentId} onOpen={setModal} />
           </div>
         ))}
       </div>
+
+      <Dialog open={modal !== null} onOpenChange={(o) => !o && setModal(null)}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto bg-zinc-950 border-white/10">
+          <DialogHeader>
+            <DialogTitle className="text-white font-mono text-sm">
+              {modal?.title}
+            </DialogTitle>
+          </DialogHeader>
+          {modal?.kind === "report" ? (
+            <RichMarkdown text={modal.body} />
+          ) : modal?.kind === "payload" ? (
+            <pre className="text-[11px] text-cyan-200 font-mono whitespace-pre-wrap break-all bg-black/40 rounded-lg p-3 border border-white/10">
+              {JSON.stringify(modal.payload, null, 2)}
+            </pre>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
