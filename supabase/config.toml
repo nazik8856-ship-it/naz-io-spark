@@ -42,4 +42,8 @@ verify_jwt = false
 [functions.agent-runtime]
 verify_jwt = false
 
+[functions.agent-approval]
+verify_jwt = true
+
+
 
