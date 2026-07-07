@@ -1,0 +1,156 @@
+// Consumes agent pending_approval events. Approves → dispatches the queued
+// external action (send_email / http_post / generic). Rejects → logs and moves on.
+// Input: { eventId: string, action: "approve" | "reject", note?: string }
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  try {
+    const authHeader = req.headers.get("Authorization") ?? "";
+    if (!authHeader.startsWith("Bearer ")) return json({ error: "Unauthorized" }, 401);
+
+    const userClient = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_ANON_KEY")!,
+      { global: { headers: { Authorization: authHeader } } },
+    );
+    const admin = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+
+    const token = authHeader.replace("Bearer ", "");
+    const { data: claims, error: claimsErr } = await userClient.auth.getClaims(token);
+    if (claimsErr || !claims?.claims?.sub) return json({ error: "Unauthorized" }, 401);
+    const userId = claims.claims.sub as string;
+
+    const body = await req.json().catch(() => ({}));
+    const eventId = String(body.eventId || "").trim();
+    const action = String(body.action || "").trim();
+    const note = String(body.note || "").slice(0, 400);
+    if (!eventId || !["approve", "reject"].includes(action)) {
+      return json({ error: "eventId and action=approve|reject required" }, 400);
+    }
+
+    const { data: evt, error: evtErr } = await admin.from("agent_events")
+      .select("id, agent_id, run_id, user_id, kind, payload")
+      .eq("id", eventId).maybeSingle();
+    if (evtErr || !evt) return json({ error: "Event not found" }, 404);
+    if (evt.user_id !== userId) return json({ error: "Forbidden" }, 403);
+    if (evt.kind !== "pending_approval") return json({ error: "Not a pending_approval" }, 400);
+
+    // Idempotency: skip if already resolved.
+    const { data: existing } = await admin.from("agent_events")
+      .select("id, kind")
+      .eq("agent_id", evt.agent_id)
+      .in("kind", ["approval_granted", "approval_rejected"])
+      .contains("payload", { original_event_id: eventId })
+      .limit(1).maybeSingle();
+    if (existing) return json({ ok: true, alreadyResolved: existing.kind });
+
+    const logEvent = (kind: string, payload: Record<string, unknown>) =>
+      admin.from("agent_events").insert({
+        agent_id: evt.agent_id, run_id: evt.run_id, user_id: userId, kind, payload,
+      });
+
+    const payload = (evt.payload as Record<string, unknown>) || {};
+    const actionType = String(payload.action || "");
+
+    if (action === "reject") {
+      await logEvent("approval_rejected", { original_event_id: eventId, action: actionType, note });
+      return json({ ok: true, resolved: "rejected" });
+    }
+
+    // Approve → dispatch the action.
+    if (actionType === "send_email") {
+      const p = (payload.payload as Record<string, unknown>) || {};
+      const to = String(p.to || "").trim();
+      const subject = String(p.subject || "").slice(0, 200);
+      const bodyText = String(p.body || "").slice(0, 6000);
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to) || !subject || !bodyText) {
+        await logEvent("approval_rejected", { original_event_id: eventId, action: actionType, reason: "invalid queued payload" });
+        return json({ error: "Queued email payload invalid" }, 400);
+      }
+      const { data: agentRow } = await admin.from("agents").select("manifest").eq("id", evt.agent_id).maybeSingle();
+      const agentName = ((agentRow?.manifest as Record<string, unknown>)?.name as string) || "Agent";
+      try {
+        const svc = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+        const r = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${svc}` },
+          body: JSON.stringify({
+            templateName: "agent-notification",
+            recipientEmail: to,
+            idempotencyKey: `approval-${eventId}`,
+            templateData: { subject, body: bodyText, agentName },
+          }),
+        });
+        const respBody = await r.json().catch(() => ({}));
+        const ok = r.ok && (respBody?.success !== false);
+        await logEvent("approval_granted", {
+          original_event_id: eventId,
+          action: actionType,
+          note,
+          result_ref: respBody?.messageId ?? null,
+          ok,
+          summary: ok ? `Email delivered to ${to} — "${subject}"` : `Delivery failed: ${respBody?.error || `HTTP ${r.status}`}`,
+        });
+        await logEvent("action", { type: "send_email", target: to, ok, result_ref: respBody?.messageId ?? null, summary: ok ? `Approved & sent: ${subject}` : `Approved but delivery failed` });
+        return json({ ok, resolved: "approved", result: respBody });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "unknown";
+        await logEvent("approval_granted", { original_event_id: eventId, action: actionType, ok: false, summary: `Send exception: ${msg}` });
+        return json({ ok: false, error: msg }, 500);
+      }
+    }
+
+    if (actionType === "http_post") {
+      const p = (payload.payload as Record<string, unknown>) || {};
+      const url = String(p.url || "").trim();
+      const bodyObj = (p.body && typeof p.body === "object") ? p.body : {};
+      if (!/^https:\/\//.test(url)) {
+        await logEvent("approval_rejected", { original_event_id: eventId, action: actionType, reason: "invalid queued url" });
+        return json({ error: "Queued http_post url invalid" }, 400);
+      }
+      try {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 8000);
+        const r = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "User-Agent": "NazAI-Agent/1.0" },
+          body: JSON.stringify(bodyObj),
+          signal: ctrl.signal,
+        });
+        clearTimeout(t);
+        const respText = (await r.text().catch(() => "")).slice(0, 200);
+        await logEvent("approval_granted", {
+          original_event_id: eventId, action: actionType, note,
+          ok: r.ok, summary: `${r.status} ${respText}`,
+        });
+        await logEvent("action", { type: "http_post", target: url, ok: r.ok, result_ref: null, summary: `Approved: ${r.status} ${respText}` });
+        return json({ ok: r.ok, resolved: "approved", status: r.status });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "unknown";
+        await logEvent("approval_granted", { original_event_id: eventId, action: actionType, ok: false, summary: `POST exception: ${msg}` });
+        return json({ ok: false, error: msg }, 500);
+      }
+    }
+
+    // Generic request_approval (or unknown action): just record approval so agent can resume.
+    await logEvent("approval_granted", { original_event_id: eventId, action: actionType, note, ok: true, summary: "Operator approved." });
+    return json({ ok: true, resolved: "approved" });
+  } catch (e) {
+    console.error("agent-approval error", e);
+    return json({ error: e instanceof Error ? e.message : "unknown" }, 500);
+  }
+});
+
+function json(b: unknown, s = 200) {
+  return new Response(JSON.stringify(b), { status: s, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+}
