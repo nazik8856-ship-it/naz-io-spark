@@ -49,7 +49,7 @@ export default function AgentEmployeePanel({ agentId, events }: { agentId: strin
   const load = useCallback(async () => {
     const { data: a } = await supabase
       .from("agents")
-      .select("id, role, schedule_cron, schedule_label, next_run_at, business_profile_id, autonomy, webhook_secret")
+      .select("id, role, schedule_cron, schedule_label, next_run_at, business_profile_id, autonomy, webhook_secret, auto_approve_low_risk")
       .eq("id", agentId).maybeSingle();
     setAgent(a as AgentRow | null);
     if (a?.business_profile_id) {
