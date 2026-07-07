@@ -23,7 +23,9 @@ export type Widget =
   | { kind: "guardrail_panel"; title: string; span?: number }
   | { kind: "tool_call_stream"; title: string; limit?: number; span?: number }
   | { kind: "automation_rules"; title: string; span?: number }
-  | { kind: "workflow_summary"; title: string; span?: number };
+  | { kind: "workflow_summary"; title: string; span?: number }
+  | { kind: "execution_flow"; title: string; limit?: number; span?: number }
+  | { kind: "artifacts_panel"; title: string; limit?: number; span?: number };
 
 export type AgentUiSpec = {
   theme?: "obsidian" | "cyber" | "terminal" | "market" | "command" | "lab";
