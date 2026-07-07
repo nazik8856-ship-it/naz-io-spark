@@ -736,3 +736,78 @@ function stripHtml(s: string): string {
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
     .replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 }
+
+// Hostnames explicitly permitted for http_post beyond a per-agent
+// metadata.webhook_url. START EMPTY — operator must add trusted domains here
+// before generic http_post calls will resolve for anything except an exact
+// match to an integration's configured webhook_url.
+const WEBHOOK_DOMAIN_ALLOWLIST: string[] = [];
+
+async function validateHttpPostUrl(
+  rawUrl: string,
+  supabase: SupabaseClient,
+  userId: string,
+  agentId: string,
+): Promise<{ ok: boolean; reason: string }> {
+  if (!rawUrl) return { ok: false, reason: "empty url" };
+  let u: URL;
+  try { u = new URL(rawUrl); } catch { return { ok: false, reason: "invalid url" }; }
+  if (u.protocol !== "https:") return { ok: false, reason: "only https is allowed" };
+  const host = u.hostname.toLowerCase();
+  if (["localhost", "127.0.0.1", "0.0.0.0", "::1", "169.254.169.254"].includes(host)) {
+    return { ok: false, reason: `blocked host ${host}` };
+  }
+  // Resolve DNS and check every A/AAAA against private/loopback/link-local ranges.
+  try {
+    const addrs = await Promise.allSettled([
+      Deno.resolveDns(host, "A"),
+      Deno.resolveDns(host, "AAAA"),
+    ]);
+    const ips: string[] = [];
+    for (const r of addrs) if (r.status === "fulfilled") ips.push(...r.value);
+    for (const ip of ips) {
+      if (isPrivateOrLoopbackIp(ip)) return { ok: false, reason: `resolved to private/loopback ip ${ip}` };
+    }
+  } catch (_) {
+    return { ok: false, reason: "dns resolution failed" };
+  }
+  // Allow if the host matches this agent's configured webhook_url in agent_integrations.metadata.webhook_url.
+  const { data: integrations } = await supabase.from("agent_integrations")
+    .select("metadata")
+    .eq("user_id", userId)
+    .or(`agent_id.eq.${agentId},agent_id.is.null`);
+  for (const row of integrations || []) {
+    const wh = (row.metadata as Record<string, unknown> | null)?.webhook_url;
+    if (typeof wh === "string") {
+      try {
+        const whHost = new URL(wh).hostname.toLowerCase();
+        if (whHost === host) return { ok: true, reason: "matched agent integration webhook_url" };
+      } catch { /* skip */ }
+    }
+  }
+  if (WEBHOOK_DOMAIN_ALLOWLIST.some((d) => host === d.toLowerCase() || host.endsWith(`.${d.toLowerCase()}`))) {
+    return { ok: true, reason: "matched WEBHOOK_DOMAIN_ALLOWLIST" };
+  }
+  return { ok: false, reason: `host ${host} not in per-agent webhook_url and not in WEBHOOK_DOMAIN_ALLOWLIST` };
+}
+
+function isPrivateOrLoopbackIp(ip: string): boolean {
+  if (ip.includes(":")) {
+    // IPv6: loopback ::1, link-local fe80::/10, unique-local fc00::/7
+    const lower = ip.toLowerCase();
+    if (lower === "::1" || lower === "::") return true;
+    if (lower.startsWith("fe8") || lower.startsWith("fe9") || lower.startsWith("fea") || lower.startsWith("feb")) return true;
+    if (lower.startsWith("fc") || lower.startsWith("fd")) return true;
+    return false;
+  }
+  const parts = ip.split(".").map((n) => parseInt(n, 10));
+  if (parts.length !== 4 || parts.some((n) => isNaN(n) || n < 0 || n > 255)) return true;
+  const [a, b] = parts;
+  if (a === 10) return true;
+  if (a === 127) return true;
+  if (a === 0) return true;
+  if (a === 169 && b === 254) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  return false;
+}
