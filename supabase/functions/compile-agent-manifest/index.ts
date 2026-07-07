@@ -123,7 +123,7 @@ const ROLE_LIBRARY: Record<string, {
     automations: [
       { name: "Daily cash & sales reconcile", trigger: "Daily 07:00", source: "Stripe + Shopify + QuickBooks", condition: "Always", action: "Post digest with revenue, refunds, top SKUs, anomalies", integrations: ["Stripe", "Shopify", "QuickBooks", "Slack"] },
       { name: "Low stock reorder", trigger: "Every 30 min", source: "Shopify inventory", condition: "SKU < reorder point", action: "Draft PO in QuickBooks, ping ops", integrations: ["Shopify", "QuickBooks"], requiresApproval: true },
-      { name: "Overdue invoice nudge", trigger: "Daily 10:00", source: "QuickBooks / Xero", condition: "Invoice 7+ days overdue", action: "send_email reminder (queued for approval) + generate_report weekly cashflow digest", integrations: ["QuickBooks", "Gmail"], requiresApproval: true }, },
+      { name: "Overdue invoice nudge", trigger: "Daily 10:00", source: "QuickBooks / Xero", condition: "Invoice 7+ days overdue", action: "send_email reminder (queued for approval) + generate_report weekly cashflow digest", integrations: ["QuickBooks", "Gmail"], requiresApproval: true },
       { name: "Cash-runway guardrail", trigger: "Daily 08:00", source: "Bank + Stripe", condition: "Runway < 60 days", action: "Pause discretionary ad spend, alert founder", integrations: ["Meta Ads", "Slack"], requiresApproval: true },
       { name: "Price-elasticity nudge", trigger: "Weekly Sun 22:00", source: "Shopify + GA4", condition: "Conversion ↓ & margin headroom", action: "Propose ±5% price test for approval", integrations: ["Shopify", "GA4"], requiresApproval: true },
     ],
