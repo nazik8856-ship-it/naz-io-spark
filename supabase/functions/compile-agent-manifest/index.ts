@@ -142,7 +142,7 @@ const ROLE_LIBRARY: Record<string, {
     automations: [
       { name: "Signal sweep", trigger: "Every 6h", source: "Connected tools", condition: "New events since last run", action: "Summarize, score, and route to the right next step", integrations: ["Slack", "Email"] },
       { name: "Threshold alert", trigger: "Every 1h", source: "Connected KPIs", condition: "Metric crosses user-set threshold", action: "Notify operator with context + recommended action", integrations: ["Slack"] },
-      { name: "Weekly recap", trigger: "Mon 08:00", source: "Run history", condition: "Always", action: "Ship recap of decisions, actions, and wins", integrations: ["Email"] },
+      { name: "Weekly recap", trigger: "Mon 08:00", source: "Run history", condition: "Always", action: "generate_report recap of decisions, actions, wins + send_email to operator", integrations: ["Email"] },
     ],
   },
 };
