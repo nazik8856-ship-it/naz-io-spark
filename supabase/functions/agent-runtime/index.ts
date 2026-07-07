@@ -395,6 +395,174 @@ Rules:
           continue;
         }
 
+        if (tool.kind === "send_email") {
+          const to = String(input.to || "").trim();
+          const subject = String(input.subject || "").slice(0, 200);
+          const body = String(input.body || "").slice(0, 6000);
+          if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to) || !subject || !body) {
+            const msg = "send_email requires valid to, subject, body.";
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: "send_email", target: to, ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue.` });
+            continue;
+          }
+          const emailGuard = (manifest.guardrails || []).find((g) => {
+            const r = (g.rule || "").toLowerCase();
+            return g.requiresApproval && (r.includes("email") || r.includes("send") || r.includes("external"));
+          });
+          if (emailGuard) {
+            await logEvent("pending_approval", {
+              action: "send_email",
+              payload: { to, subject, body },
+              risk: "med",
+              guardrail: emailGuard.rule,
+            });
+            const msg = `Queued for approval (guardrail: ${emailGuard.rule}); NOT sent.`;
+            await logEvent("tool_result", { tool: tool.name, ok: true, summary: msg });
+            await logEvent("action", { type: "send_email", target: to, ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue with other work or finish.` });
+            continue;
+          }
+          try {
+            const svc = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+            const r = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${svc}` },
+              body: JSON.stringify({
+                templateName: "agent-notification",
+                recipientEmail: to,
+                idempotencyKey: `agent-${agentId}-${runId}-${Date.now()}`,
+                templateData: { subject, body, agentName: manifest.name },
+              }),
+            });
+            const respBody = await r.json().catch(() => ({}));
+            const ok = r.ok && (respBody?.success !== false);
+            const summary = ok
+              ? `Email queued for delivery to ${to} — subject "${subject}".`
+              : `Send failed: ${respBody?.error || respBody?.reason || `HTTP ${r.status}`}`;
+            await logEvent("tool_result", { tool: tool.name, ok, summary });
+            await logEvent("action", { type: "send_email", target: to, ok, result_ref: respBody?.messageId ?? null, summary });
+            messages.push({ role: "user", content: `${summary}\n\nContinue.` });
+          } catch (e) {
+            const msg = `send_email exception: ${e instanceof Error ? e.message : "unknown"}`;
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: "send_email", target: to, ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg}\n\nContinue.` });
+          }
+          continue;
+        }
+
+        if (tool.kind === "generate_report") {
+          const title = String(input.title || "").slice(0, 200);
+          const kind = String(input.kind || "report");
+          const bodyMd = String(input.body_markdown || input.body || "").slice(0, 30000);
+          if (!title || !bodyMd || !["report","digest","audit","plan"].includes(kind)) {
+            const msg = "generate_report requires title, valid kind (report|digest|audit|plan), and body_markdown.";
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: "generate_report", target: title, ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue.` });
+            continue;
+          }
+          const { data: rep, error: repErr } = await supabase
+            .from("agent_reports")
+            .insert({ agent_id: agentId, run_id: runId, user_id: userId, title, kind, body_markdown: bodyMd })
+            .select("id").single();
+          const preview = bodyMd.slice(0, 200);
+          if (repErr || !rep) {
+            const msg = `Failed to save report: ${repErr?.message || "unknown"}`;
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: "generate_report", target: title, ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg}\n\nContinue.` });
+            continue;
+          }
+          const summary = `Saved ${kind} "${title}" (id ${rep.id}). Preview: ${preview}`;
+          await logEvent("tool_result", { tool: tool.name, ok: true, summary });
+          await logEvent("action", { type: "generate_report", target: title, ok: true, result_ref: rep.id, summary: preview });
+          messages.push({ role: "user", content: `Report saved: id=${rep.id} title="${title}" kind=${kind}. Preview:\n${preview}\n\nContinue.` });
+          continue;
+        }
+
+        if (tool.kind === "http_post") {
+          const url = String(input.url || "").trim();
+          const bodyObj = (input.body && typeof input.body === "object") ? input.body : {};
+          const check = await validateHttpPostUrl(url, supabase, userId, agentId);
+          if (!check.ok) {
+            await logEvent("tool_error", { tool: tool.name, message: check.reason, url });
+            await logEvent("action", { type: "http_post", target: url, ok: false, result_ref: null, summary: `Blocked: ${check.reason}` });
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: `Blocked: ${check.reason}` });
+            messages.push({ role: "user", content: `http_post blocked: ${check.reason}\n\nContinue.` });
+            continue;
+          }
+          let lastErr = "";
+          let done = false;
+          for (let attempt = 0; attempt < 2 && !done; attempt++) {
+            try {
+              const ctrl = new AbortController();
+              const to = setTimeout(() => ctrl.abort(), 5000);
+              const r = await fetch(url, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "User-Agent": "NazAI-Agent/1.0" },
+                body: JSON.stringify(bodyObj),
+                signal: ctrl.signal,
+              });
+              clearTimeout(to);
+              const respText = (await r.text().catch(() => "")).slice(0, 200);
+              const summary = `${r.status} ${respText}`;
+              await logEvent("tool_result", { tool: tool.name, ok: r.ok, summary });
+              await logEvent("action", { type: "http_post", target: url, ok: r.ok, result_ref: null, summary });
+              messages.push({ role: "user", content: `http_post → ${summary}\n\nContinue.` });
+              done = true;
+            } catch (e) {
+              lastErr = e instanceof Error ? e.message : "unknown";
+            }
+          }
+          if (!done) {
+            const msg = `http_post failed after retry: ${lastErr}`;
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: "http_post", target: url, ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg}\n\nContinue.` });
+          }
+          continue;
+        }
+
+        if (tool.kind === "schedule_followup") {
+          const runAtIso = String(input.run_at_iso || input.at || "").trim();
+          const instruction = String(input.instruction || "").slice(0, 1000);
+          const when = new Date(runAtIso);
+          const now = Date.now();
+          const maxMs = 90 * 24 * 60 * 60 * 1000;
+          if (isNaN(when.getTime()) || when.getTime() <= now || when.getTime() - now > maxMs || !instruction) {
+            const msg = "schedule_followup requires run_at_iso (valid ISO, in the future, ≤90 days out) and a non-empty instruction.";
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: "schedule_followup", target: runAtIso, ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue.` });
+            continue;
+          }
+          const { data: newRun, error: newRunErr } = await supabase
+            .from("agent_runs")
+            .insert({
+              agent_id: agentId,
+              user_id: userId,
+              trigger: "scheduled",
+              status: "scheduled",
+              scheduled_for: when.toISOString(),
+              instruction,
+            })
+            .select("id").single();
+          if (newRunErr || !newRun) {
+            const msg = `schedule_followup failed: ${newRunErr?.message || "unknown"}`;
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: "schedule_followup", target: when.toISOString(), ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg}\n\nContinue.` });
+            continue;
+          }
+          const summary = `Follow-up scheduled at ${when.toISOString()} (run_id ${newRun.id}).`;
+          await logEvent("tool_result", { tool: tool.name, ok: true, summary });
+          await logEvent("action", { type: "schedule_followup", target: when.toISOString(), ok: true, result_ref: newRun.id, summary: instruction });
+          messages.push({ role: "user", content: `${summary}\n\nContinue.` });
+          continue;
+        }
+
         const result = await executeTool(tool, input, supabase, agentId, runId, userId, logEvent);
         await logEvent("tool_result", { tool: tool.name, ok: !result.error, summary: result.summary });
         messages.push({ role: "user", content: `Tool "${tool.name}" returned:\n${result.summary}\n\nContinue.` });
