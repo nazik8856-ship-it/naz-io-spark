@@ -29,7 +29,40 @@ serve(async (req) => {
     const key = Deno.env.get("LOVABLE_API_KEY");
     if (!key) return json({ error: "Missing LOVABLE_API_KEY" }, 500);
 
-    const { agentId, trigger = "manual", userInstruction } = await req.json();
+    // Accept params from either query string (external webhook callers) or JSON body (scheduler / frontend).
+    const url = new URL(req.url);
+    const qsAgentId = url.searchParams.get("agentId") || "";
+    const qsTrigger = url.searchParams.get("trigger") || "";
+
+    let bodyAgentId = "";
+    let bodyTrigger = "";
+    let bodyUserInstruction: string | undefined = undefined;
+    let rawBody: unknown = undefined;
+    if (req.method === "POST") {
+      const text = await req.text();
+      if (text) {
+        try {
+          const parsed = JSON.parse(text);
+          rawBody = parsed;
+          if (parsed && typeof parsed === "object") {
+            bodyAgentId = typeof parsed.agentId === "string" ? parsed.agentId : "";
+            bodyTrigger = typeof parsed.trigger === "string" ? parsed.trigger : "";
+            bodyUserInstruction = typeof parsed.userInstruction === "string" ? parsed.userInstruction : undefined;
+          }
+        } catch {
+          rawBody = text;
+        }
+      }
+    }
+
+    const agentId = bodyAgentId || qsAgentId;
+    const trigger = bodyTrigger || qsTrigger || "manual";
+    // For external webhook calls, forward the posted body as userInstruction if none was set explicitly.
+    let userInstruction = bodyUserInstruction;
+    if (!userInstruction && trigger === "webhook" && rawBody !== undefined) {
+      userInstruction = typeof rawBody === "string" ? rawBody : JSON.stringify(rawBody);
+      if (userInstruction) userInstruction = userInstruction.slice(0, 4000);
+    }
     if (!agentId) return json({ error: "agentId required" }, 400);
 
     const authHeader = req.headers.get("Authorization") ?? "";
@@ -44,10 +77,17 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    // Resolve user: either authed via JWT, or scheduler-impersonated
+    // Resolve user:
+    //  - scheduler → x-scheduler-user-id header
+    //  - webhook (public) → look up the agent's owner via service role
+    //  - normal → JWT
     let userId = "";
     if (schedulerUserId) {
       userId = schedulerUserId;
+    } else if (trigger === "webhook") {
+      const { data: ownerRow } = await adminClient
+        .from("agents").select("user_id").eq("id", agentId).maybeSingle();
+      userId = (ownerRow?.user_id as string | undefined) ?? "";
     } else {
       const { data: userData } = await userScopedClient.auth.getUser();
       userId = userData?.user?.id ?? "";

@@ -1,9 +1,13 @@
 // Digital-Employee panel rendered beneath the generated dashboard in AgentCockpit.
 // Shows: Business Sync, Schedule, Approvals queue, Clarifications inbox, Memory.
-import { useCallback, useEffect, useState } from "react";
-import { Brain, CalendarClock, CheckCircle2, MessageCircleQuestion, ShieldCheck, XCircle, Send } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Brain, CalendarClock, CheckCircle2, MessageCircleQuestion, ShieldCheck, XCircle, Send, Copy, Webhook, Clock } from "lucide-react";
+import { supabase, SUPABASE_FUNCTIONS_URL } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { format } from "date-fns";
+import { cn } from "@/lib/utils";
 
 type AgentRow = {
   id: string;
@@ -118,6 +122,51 @@ export default function AgentEmployeePanel({ agentId, events }: { agentId: strin
     load();
   };
 
+  const [customCron, setCustomCron] = useState("");
+  const cronValid = useMemo(
+    () => /^(\*|[0-9,\-/]+)(\s+(\*|[0-9,\-/]+)){4}$/.test(customCron.trim()),
+    [customCron],
+  );
+
+  const webhookUrl = useMemo(
+    () => `${SUPABASE_FUNCTIONS_URL}/agent-runtime?agentId=${agentId}&trigger=webhook`,
+    [agentId],
+  );
+  const copyWebhook = async () => {
+    try {
+      await navigator.clipboard.writeText(webhookUrl);
+      toast.success("Webhook URL copied");
+    } catch {
+      toast.error("Copy failed — select and copy manually.");
+    }
+  };
+
+  const [runOnceDate, setRunOnceDate] = useState<Date | undefined>(undefined);
+  const [runOnceTime, setRunOnceTime] = useState<string>("");
+  const scheduleRunOnce = async () => {
+    if (!runOnceDate || !runOnceTime) { toast.error("Pick a date and a time."); return; }
+    const [hh, mm] = runOnceTime.split(":").map((n) => parseInt(n, 10));
+    if (isNaN(hh) || isNaN(mm)) { toast.error("Invalid time."); return; }
+    const when = new Date(runOnceDate);
+    when.setHours(hh, mm, 0, 0);
+    if (when.getTime() <= Date.now()) { toast.error("Pick a time in the future."); return; }
+    const userId = (await supabase.auth.getUser()).data.user?.id;
+    if (!userId) { toast.error("Not signed in."); return; }
+    const { error } = await supabase.from("agent_runs").insert({
+      agent_id: agentId,
+      user_id: userId,
+      trigger: "scheduled",
+      status: "scheduled",
+      scheduled_for: when.toISOString(),
+      instruction: "One-off run scheduled by operator",
+    } as never);
+    if (error) { toast.error(error.message); return; }
+    toast.success(`Scheduled one-off run at ${when.toLocaleString()}`);
+    setRunOnceDate(undefined); setRunOnceTime("");
+  };
+
+
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
       {/* Business Sync */}
@@ -152,7 +201,81 @@ export default function AgentEmployeePanel({ agentId, events }: { agentId: strin
             </button>
           ))}
         </div>
+        <div className="mt-3 flex items-center gap-1.5">
+          <input
+            value={customCron}
+            onChange={(e) => setCustomCron(e.target.value)}
+            placeholder="Custom cron  e.g. */15 * * * *"
+            className={`flex-1 px-2 py-1 text-[11px] font-mono rounded border bg-black/30 text-white focus:outline-none ${customCron && !cronValid ? "border-rose-400/60" : "border-white/10 focus:border-emerald-400/60"}`}
+          />
+          <button
+            disabled={!cronValid}
+            onClick={() => setSchedule(customCron.trim(), `Custom (${customCron.trim()})`)}
+            className="px-2 py-1 text-[10px] rounded bg-emerald-400 text-black font-bold disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Save
+          </button>
+        </div>
+        {customCron && !cronValid && (
+          <div className="mt-1 text-[10px] text-rose-300/80">Needs 5 fields separated by spaces (e.g. <span className="font-mono">*/15 * * * *</span>).</div>
+        )}
       </Card>
+
+      {/* Triggers */}
+      <Card title="Triggers" icon={<Webhook className="h-4 w-4" />}>
+        <div className="space-y-3">
+          <div>
+            <div className="text-[10px] uppercase tracking-wider font-mono text-zinc-500 mb-1">Webhook URL</div>
+            <div className="flex items-center gap-1.5">
+              <code className="flex-1 min-w-0 truncate px-2 py-1 text-[10px] rounded border border-white/10 bg-black/30 text-cyan-200 font-mono">
+                {webhookUrl}
+              </code>
+              <button onClick={copyWebhook} className="p-1.5 rounded border border-white/10 bg-white/[0.03] text-zinc-300 hover:text-white hover:border-white/30" title="Copy">
+                <Copy className="h-3 w-3" />
+              </button>
+            </div>
+            <div className="mt-1 text-[10px] text-zinc-500">POST any JSON — it's forwarded to the agent as an instruction.</div>
+          </div>
+
+          <div className="border-t border-white/5 pt-3">
+            <div className="text-[10px] uppercase tracking-wider font-mono text-zinc-500 mb-1 flex items-center gap-1"><Clock className="h-3 w-3" /> Run once at…</div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button className={cn("px-2 py-1 text-[11px] rounded border border-white/10 bg-white/[0.03] text-zinc-300 hover:text-white hover:border-white/30 font-mono", !runOnceDate && "text-zinc-500")}>
+                    {runOnceDate ? format(runOnceDate, "PPP") : "Pick date"}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0 pointer-events-auto bg-zinc-950 border-white/10" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={runOnceDate}
+                    onSelect={setRunOnceDate}
+                    initialFocus
+                    disabled={(d) => d < new Date(new Date().setHours(0, 0, 0, 0))}
+                    className={cn("p-3 pointer-events-auto")}
+                  />
+                </PopoverContent>
+              </Popover>
+              <input
+                type="time"
+                value={runOnceTime}
+                onChange={(e) => setRunOnceTime(e.target.value)}
+                className="px-2 py-1 text-[11px] font-mono rounded border border-white/10 bg-black/30 text-white focus:outline-none focus:border-cyan-400/60"
+              />
+              <button
+                onClick={scheduleRunOnce}
+                disabled={!runOnceDate || !runOnceTime}
+                className="px-2 py-1 text-[10px] rounded bg-cyan-400 text-black font-bold disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Schedule
+              </button>
+            </div>
+          </div>
+        </div>
+      </Card>
+
+
 
       {/* Approvals queue */}
       <Card title={`Approvals · ${approvals.length}`} icon={<CheckCircle2 className="h-4 w-4" />}>

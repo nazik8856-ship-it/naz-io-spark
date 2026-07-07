@@ -50,7 +50,56 @@ serve(async (req) => {
         console.warn("scheduler error", e);
       }
     }
-    return json({ ranAt: nowIso, dispatched: results.length, results });
+    // ------------------------------------------------------------------
+    // Also poll scheduled follow-up runs (from schedule_followup tool or
+    // "Run once at…" UI). Each due row is claimed via an atomic conditional
+    // update so concurrent scheduler ticks can't double-fire it.
+    // ------------------------------------------------------------------
+    const scheduledResults: { id: string; ok: boolean }[] = [];
+    const { data: dueRuns } = await supabase
+      .from("agent_runs")
+      .select("id, agent_id, user_id, instruction")
+      .eq("status", "scheduled")
+      .lte("scheduled_for", nowIso)
+      .not("scheduled_for", "is", null)
+      .limit(50);
+
+    for (const r of dueRuns || []) {
+      // Atomic claim — only one tick's update will affect the row.
+      const { data: claimed, error: claimErr } = await supabase
+        .from("agent_runs")
+        .update({ status: "dispatched" })
+        .eq("id", r.id).eq("status", "scheduled")
+        .select("id").maybeSingle();
+      if (claimErr || !claimed) continue;
+      try {
+        fetch(fnUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${serviceKey}`,
+            "x-scheduler-user-id": r.user_id as string,
+          },
+          body: JSON.stringify({
+            agentId: r.agent_id,
+            trigger: "scheduled",
+            userInstruction: (r.instruction as string | null) ?? undefined,
+          }),
+        }).catch((e) => console.warn("scheduler scheduled-run invoke failed", r.id, e));
+        scheduledResults.push({ id: r.id as string, ok: true });
+      } catch (e) {
+        scheduledResults.push({ id: r.id as string, ok: false });
+        console.warn("scheduler scheduled-run error", e);
+      }
+    }
+
+    return json({
+      ranAt: nowIso,
+      dispatched: results.length,
+      results,
+      scheduledDispatched: scheduledResults.length,
+      scheduledResults,
+    });
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : "unknown" }, 500);
   }
