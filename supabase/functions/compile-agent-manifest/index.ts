@@ -175,7 +175,7 @@ Shape: {
     "widgets": [ /* 6-10 widgets, see allowed kinds */ ] }
 }
 
-Allowed widget kinds: hero_metric, live_thoughts, decision_log, action_timeline, tool_call_stream, alert_feed, tool_grid, kpi_radar, guardrail_panel, status_grid, automation_rules, workflow_summary.
+Allowed widget kinds: hero_metric, live_thoughts, decision_log, action_timeline, tool_call_stream, alert_feed, tool_grid, kpi_radar, guardrail_panel, status_grid, automation_rules, workflow_summary, execution_flow, artifacts_panel.
 Allowed icons: brain, activity, wallet, gauge, signal, radar, terminal, rocket, eye, crosshair, shield, flame, sparkles, cpu, globe, line, bars, trending, zap, alert, check, wrench.
 
 Rules:
