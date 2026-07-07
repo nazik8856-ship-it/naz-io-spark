@@ -456,7 +456,10 @@ Rules:
             const r = (g.rule || "").toLowerCase();
             return g.requiresApproval && (r.includes("email") || r.includes("send") || r.includes("external"));
           });
-          if (emailGuard) {
+          // Hard-required approval when guardrail literally says [REQUIRES APPROVAL].
+          const hardBlock = emailGuard && /\[requires approval\]/i.test(emailGuard.rule || "");
+          const autoApprove = (agent as { auto_approve_low_risk?: boolean }).auto_approve_low_risk === true && !hardBlock;
+          if (emailGuard && !autoApprove) {
             await logEvent("pending_approval", {
               action: "send_email",
               payload: { to, subject, body },
