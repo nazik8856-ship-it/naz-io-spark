@@ -1,9 +1,13 @@
 // Digital-Employee panel rendered beneath the generated dashboard in AgentCockpit.
 // Shows: Business Sync, Schedule, Approvals queue, Clarifications inbox, Memory.
-import { useCallback, useEffect, useState } from "react";
-import { Brain, CalendarClock, CheckCircle2, MessageCircleQuestion, ShieldCheck, XCircle, Send } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Brain, CalendarClock, CheckCircle2, MessageCircleQuestion, ShieldCheck, XCircle, Send, Copy, Webhook, Clock } from "lucide-react";
+import { supabase, SUPABASE_FUNCTIONS_URL } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { format } from "date-fns";
+import { cn } from "@/lib/utils";
 
 type AgentRow = {
   id: string;
