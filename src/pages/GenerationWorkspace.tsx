@@ -2066,23 +2066,8 @@ export default function GenerationWorkspace() {
                       </div>
                     </div>
 
-                    {savedAgents.length > 1 && (
-                      <div className="max-w-4xl mx-auto mt-8">
-                        <div className="text-xs uppercase tracking-[0.2em] text-zinc-500 mb-3">Your Agents</div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                          {savedAgents.map((a) => (
-                            <button
-                              key={a.id}
-                              onClick={() => { setSelectedSavedId(a.id); setActiveTab("dashboard"); }}
-                              className="text-left rounded-xl border border-white/10 bg-black/40 p-4 hover:border-purple-400/50 transition"
-                            >
-                              <div className="text-sm font-bold text-white truncate">{a.name}</div>
-                              <div className="text-[10px] font-mono text-zinc-500 mt-1">{new Date(a.savedAt).toLocaleString()}</div>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                    {/* Recent agents list moved to Generator home's "Recent" section
+                        so the generation workspace stays focused on the current build. */}
                   </div>
                 );
               }
