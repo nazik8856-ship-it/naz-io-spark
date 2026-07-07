@@ -311,8 +311,12 @@ function CardHeading({ label, accent, right }: { label: string; accent: string; 
 
 /* ============================ widgets ============================ */
 
+type ModalPayload =
+  | { kind: "report"; title: string; body: string }
+  | { kind: "payload"; title: string; payload: Record<string, unknown> };
+
 function WidgetCard({
-  widget, events, demo, manifest, stats, accent, accent2,
+  widget, events, demo, manifest, stats, accent, accent2, agentId, onOpen,
 }: {
   widget: Widget;
   events: AgentEvent[];
@@ -321,6 +325,8 @@ function WidgetCard({
   stats: ReturnType<typeof deriveStats>;
   accent: string;
   accent2: string;
+  agentId?: string;
+  onOpen: (m: ModalPayload) => void;
 }) {
   if (widget.kind === "hero_metric") {
     const demoCounts = {
