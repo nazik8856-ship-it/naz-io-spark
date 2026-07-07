@@ -84,6 +84,13 @@ export default function GeneratedAgentDashboard({
   }, []);
   const demo = useMemo(() => buildDemoEvents(manifest, tick), [manifest, tick]);
 
+  // Shared modal state for artifacts/execution_flow chip clicks.
+  const [modal, setModal] = useState<
+    | { kind: "report"; title: string; body: string }
+    | { kind: "payload"; title: string; payload: Record<string, unknown> }
+    | null
+  >(null);
+
   return (
     <div
       className="space-y-5"
