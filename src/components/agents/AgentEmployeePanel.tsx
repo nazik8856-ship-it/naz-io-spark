@@ -69,8 +69,13 @@ export default function AgentEmployeePanel({ agentId, events }: { agentId: strin
 
   // Derive pending approvals and unresolved clarifications from event stream
   const approvals = events.filter((e) => e.kind === "pending_approval").filter((e) => {
-    const after = events.find((x) => x.created_at > e.created_at && (x.kind === "approval_granted" || x.kind === "approval_rejected") && (x.payload as { ref?: string })?.ref === e.id);
-    return !after;
+    const resolved = events.some((x) =>
+      x.created_at > e.created_at &&
+      (x.kind === "approval_granted" || x.kind === "approval_rejected") &&
+      ((x.payload as { ref?: string; original_event_id?: string })?.ref === e.id ||
+       (x.payload as { ref?: string; original_event_id?: string })?.original_event_id === e.id),
+    );
+    return !resolved;
   }).slice(-6);
 
   const clarifications = (() => {
