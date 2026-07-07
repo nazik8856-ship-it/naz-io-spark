@@ -775,8 +775,10 @@ function defaultUiFor(m: Manifest): AgentUiSpec {
     hero: { title: m.name, tagline: m.goal, icon: "sparkles" },
     layout: "command-deck",
     widgets: [
+      { kind: "execution_flow", title: "Execution flow (last 3 runs)", limit: 3, span: 6 },
       { kind: "workflow_summary", title: "How this agent automates your workflow", span: 6 },
       { kind: "automation_rules", title: "Active automations", span: 6 },
+      { kind: "artifacts_panel", title: "Artifacts & reports", limit: 10, span: 3 },
       { kind: "hero_metric", title: "Actions taken", valueFrom: "actions_count", span: 2 },
       { kind: "hero_metric", title: "Tool calls", valueFrom: "tool_calls_count", span: 2 },
       { kind: "live_thoughts", title: "Reasoning stream", limit: 8, span: 3 },
