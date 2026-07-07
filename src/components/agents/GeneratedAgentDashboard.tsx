@@ -66,8 +66,8 @@ const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
 };
 
 export default function GeneratedAgentDashboard({
-  manifest, events,
-}: { manifest: Manifest; events: AgentEvent[] }) {
+  manifest, events, agentId,
+}: { manifest: Manifest; events: AgentEvent[]; agentId?: string }) {
   const ui = manifest.ui ?? defaultUiFor(manifest);
   const accent = ui.accent || "#34d399";
   const accent2 = ui.accentSecondary || "#22d3ee";
