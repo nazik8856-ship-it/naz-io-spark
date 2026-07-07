@@ -175,7 +175,7 @@ Shape: {
     "widgets": [ /* 6-10 widgets, see allowed kinds */ ] }
 }
 
-Allowed widget kinds: hero_metric, live_thoughts, decision_log, action_timeline, tool_call_stream, alert_feed, tool_grid, kpi_radar, guardrail_panel, status_grid, automation_rules, workflow_summary.
+Allowed widget kinds: hero_metric, live_thoughts, decision_log, action_timeline, tool_call_stream, alert_feed, tool_grid, kpi_radar, guardrail_panel, status_grid, automation_rules, workflow_summary, execution_flow, artifacts_panel.
 Allowed icons: brain, activity, wallet, gauge, signal, radar, terminal, rocket, eye, crosshair, shield, flame, sparkles, cpu, globe, line, bars, trending, zap, alert, check, wrench.
 
 Rules:
@@ -295,8 +295,10 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
     // guardrails, and KPIs. Missing widgets are filled in so newly generated
     // agents never look condensed compared to older ones.
     const REQUIRED_WIDGETS: Record<string, Record<string, unknown>> = {
+      execution_flow:   { kind: "execution_flow",   title: "Execution flow (last 3 runs)", limit: 3, span: 6 },
       workflow_summary: { kind: "workflow_summary", title: "How this agent automates your workflow", span: 6 },
       automation_rules: { kind: "automation_rules", title: "Active automations", span: 6 },
+      artifacts_panel:  { kind: "artifacts_panel",  title: "Artifacts & reports", limit: 10, span: 3 },
       hero_runs:        { kind: "hero_metric", title: "Runs",      valueFrom: "events_count",     span: 2 },
       hero_decisions:   { kind: "hero_metric", title: "Decisions", valueFrom: "decisions_count",  span: 2 },
       hero_actions:     { kind: "hero_metric", title: "Actions",   valueFrom: "actions_count",    span: 2 },
@@ -319,23 +321,28 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
       const uiObj = (normalized.ui as Record<string, unknown>);
       const existing = Array.isArray(uiObj.widgets) ? (uiObj.widgets as Record<string, unknown>[]) : [];
       const kinds = new Set(existing.map((w) => String(w.kind)));
-      // Prepend workflow + automations, then add every other required widget
-      // that isn't already present so the dashboard is never sparse.
+      // Prepend execution_flow, then workflow + automations + artifacts_panel,
+      // then hero + stream widgets, then any extras. execution_flow is FIRST so
+      // operators see real trigger→decision→action→result immediately.
       const ordered: Record<string, unknown>[] = [];
-      ordered.push(REQUIRED_WIDGETS.workflow_summary);
-      ordered.push(REQUIRED_WIDGETS.automation_rules);
+      const pickExisting = (key: string) => existing.find((w) => String(w.kind) === key);
+      ordered.push(pickExisting("execution_flow") ?? REQUIRED_WIDGETS.execution_flow);
+      ordered.push(pickExisting("workflow_summary") ?? REQUIRED_WIDGETS.workflow_summary);
+      ordered.push(pickExisting("automation_rules") ?? REQUIRED_WIDGETS.automation_rules);
+      ordered.push(pickExisting("artifacts_panel") ?? REQUIRED_WIDGETS.artifacts_panel);
       const heroOrder = ["hero_runs", "hero_decisions", "hero_actions"];
       const heroExisting = existing.filter((w) => String(w.kind) === "hero_metric");
       // Keep first three hero_metric widgets the model chose; pad with defaults.
       for (let i = 0; i < 3; i++) ordered.push(heroExisting[i] ?? REQUIRED_WIDGETS[heroOrder[i]]);
       const streamOrder = ["live_thoughts", "decision_log", "action_timeline", "tool_call_stream", "alert_feed", "guardrail_panel", "kpi_radar"];
       for (const key of streamOrder) {
-        const present = existing.find((w) => String(w.kind) === key);
+        const present = pickExisting(key);
         ordered.push(present ?? REQUIRED_WIDGETS[key]);
       }
       // Preserve any additional widgets the compiler produced that weren't yet included
+      const reserved = new Set(["execution_flow","workflow_summary","automation_rules","artifacts_panel","hero_metric",...streamOrder]);
       for (const w of existing) {
-        if (!ordered.includes(w) && !["hero_metric","workflow_summary","automation_rules", ...streamOrder].includes(String(w.kind))) {
+        if (!ordered.includes(w) && !reserved.has(String(w.kind))) {
           ordered.push(w);
         }
       }
@@ -427,7 +434,7 @@ type Manifest = {
   ui?: Record<string, unknown>;
 };
 
-const ALLOWED_WIDGETS = new Set(["hero_metric","live_thoughts","decision_log","action_timeline","tool_call_stream","alert_feed","tool_grid","kpi_radar","guardrail_panel","status_grid","automation_rules","workflow_summary"]);
+const ALLOWED_WIDGETS = new Set(["hero_metric","live_thoughts","decision_log","action_timeline","tool_call_stream","alert_feed","tool_grid","kpi_radar","guardrail_panel","status_grid","automation_rules","workflow_summary","execution_flow","artifacts_panel"]);
 const ALLOWED_VALUE_FROM = new Set(["events_count","decisions_count","actions_count","tool_calls_count","thoughts_count","errors_count"]);
 const ALLOWED_ICONS = new Set(["brain","activity","wallet","gauge","signal","radar","terminal","rocket","eye","crosshair","shield","flame","sparkles","cpu","globe","line","bars","trending","zap","alert","check","wrench"]);
 const ALLOWED_KINDS = ["web_search", "http_get", "calc", "notify", "remember", "ask_user", "request_approval", "custom"];

@@ -188,7 +188,7 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
 
       {/* Bespoke per-agent generated dashboard */}
       <div ref={feedRef}>
-        <GeneratedAgentDashboard manifest={manifest} events={events} />
+        <GeneratedAgentDashboard manifest={manifest} events={events} agentId={agentId} />
       </div>
 
       {/* Digital-employee surfaces: business sync, schedule, approvals, clarifications, memory */}

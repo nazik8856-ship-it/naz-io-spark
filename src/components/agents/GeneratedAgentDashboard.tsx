@@ -4,9 +4,12 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Activity, AlertTriangle, BarChart3, Brain, CheckCircle2, Cpu, Crosshair,
-  Eye, Flame, Gauge, Globe2, LineChart, Radar, Rocket, ShieldCheck, Signal,
+  Eye, FileText, Flame, Gauge, Globe2, LineChart, Radar, Rocket, ShieldCheck, Signal,
   Sparkles, Terminal, TrendingUp, Wallet, Wrench, Zap,
 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import RichMarkdown from "@/components/chat/RichMarkdown";
 
 export type Widget =
   | { kind: "hero_metric"; title: string; valueFrom?: string; staticValue?: string; subtitle?: string; accent?: string; span?: number }
@@ -20,7 +23,9 @@ export type Widget =
   | { kind: "guardrail_panel"; title: string; span?: number }
   | { kind: "tool_call_stream"; title: string; limit?: number; span?: number }
   | { kind: "automation_rules"; title: string; span?: number }
-  | { kind: "workflow_summary"; title: string; span?: number };
+  | { kind: "workflow_summary"; title: string; span?: number }
+  | { kind: "execution_flow"; title: string; limit?: number; span?: number }
+  | { kind: "artifacts_panel"; title: string; limit?: number; span?: number };
 
 export type AgentUiSpec = {
   theme?: "obsidian" | "cyber" | "terminal" | "market" | "command" | "lab";
@@ -41,7 +46,7 @@ export type Automation = {
   requiresApproval?: boolean;
 };
 
-type AgentEvent = { id: string; kind: string; payload: Record<string, unknown>; created_at: string };
+type AgentEvent = { id: string; kind: string; payload: Record<string, unknown>; created_at: string; run_id?: string | null };
 type Manifest = {
   name: string; goal: string;
   tools: { name: string; description: string; kind: string; config: Record<string, unknown> }[];
@@ -61,8 +66,8 @@ const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
 };
 
 export default function GeneratedAgentDashboard({
-  manifest, events,
-}: { manifest: Manifest; events: AgentEvent[] }) {
+  manifest, events, agentId,
+}: { manifest: Manifest; events: AgentEvent[]; agentId?: string }) {
   const ui = manifest.ui ?? defaultUiFor(manifest);
   const accent = ui.accent || "#34d399";
   const accent2 = ui.accentSecondary || "#22d3ee";
@@ -78,6 +83,13 @@ export default function GeneratedAgentDashboard({
     return () => clearInterval(id);
   }, []);
   const demo = useMemo(() => buildDemoEvents(manifest, tick), [manifest, tick]);
+
+  // Shared modal state for artifacts/execution_flow chip clicks.
+  const [modal, setModal] = useState<
+    | { kind: "report"; title: string; body: string }
+    | { kind: "payload"; title: string; payload: Record<string, unknown> }
+    | null
+  >(null);
 
   return (
     <div
@@ -187,10 +199,27 @@ export default function GeneratedAgentDashboard({
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 sm:gap-4">
         {ui.widgets.map((w, i) => (
           <div key={i} className={spanClass(w.span ?? defaultSpan(w.kind))}>
-            <WidgetCard widget={w} events={events} demo={demo} manifest={manifest} stats={stats} accent={accent} accent2={accent2} />
+            <WidgetCard widget={w} events={events} demo={demo} manifest={manifest} stats={stats} accent={accent} accent2={accent2} agentId={agentId} onOpen={setModal} />
           </div>
         ))}
       </div>
+
+      <Dialog open={modal !== null} onOpenChange={(o) => !o && setModal(null)}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto bg-zinc-950 border-white/10">
+          <DialogHeader>
+            <DialogTitle className="text-white font-mono text-sm">
+              {modal?.title}
+            </DialogTitle>
+          </DialogHeader>
+          {modal?.kind === "report" ? (
+            <RichMarkdown text={modal.body} />
+          ) : modal?.kind === "payload" ? (
+            <pre className="text-[11px] text-cyan-200 font-mono whitespace-pre-wrap break-all bg-black/40 rounded-lg p-3 border border-white/10">
+              {JSON.stringify(modal.payload, null, 2)}
+            </pre>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -209,6 +238,8 @@ function spanClass(n: number) {
 
 function defaultSpan(kind: string): number {
   if (kind === "decision_log" || kind === "action_timeline" || kind === "live_thoughts" || kind === "tool_call_stream") return 4;
+  if (kind === "execution_flow") return 6;
+  if (kind === "artifacts_panel") return 3;
   if (kind === "tool_grid" || kind === "guardrail_panel" || kind === "kpi_radar") return 2;
   return 2;
 }
@@ -280,8 +311,12 @@ function CardHeading({ label, accent, right }: { label: string; accent: string; 
 
 /* ============================ widgets ============================ */
 
+type ModalPayload =
+  | { kind: "report"; title: string; body: string }
+  | { kind: "payload"; title: string; payload: Record<string, unknown> };
+
 function WidgetCard({
-  widget, events, demo, manifest, stats, accent, accent2,
+  widget, events, demo, manifest, stats, accent, accent2, agentId, onOpen,
 }: {
   widget: Widget;
   events: AgentEvent[];
@@ -290,6 +325,8 @@ function WidgetCard({
   stats: ReturnType<typeof deriveStats>;
   accent: string;
   accent2: string;
+  agentId?: string;
+  onOpen: (m: ModalPayload) => void;
 }) {
   if (widget.kind === "hero_metric") {
     const demoCounts = {
@@ -708,6 +745,14 @@ function WidgetCard({
     );
   }
 
+  if (widget.kind === "execution_flow") {
+    return <ExecutionFlowWidget widget={widget} events={events} accent={accent} accent2={accent2} agentId={agentId} onOpen={onOpen} />;
+  }
+
+  if (widget.kind === "artifacts_panel") {
+    return <ArtifactsPanelWidget widget={widget} accent={accent} agentId={agentId} onOpen={onOpen} />;
+  }
+
   return null;
 }
 
@@ -730,8 +775,10 @@ function defaultUiFor(m: Manifest): AgentUiSpec {
     hero: { title: m.name, tagline: m.goal, icon: "sparkles" },
     layout: "command-deck",
     widgets: [
+      { kind: "execution_flow", title: "Execution flow (last 3 runs)", limit: 3, span: 6 },
       { kind: "workflow_summary", title: "How this agent automates your workflow", span: 6 },
       { kind: "automation_rules", title: "Active automations", span: 6 },
+      { kind: "artifacts_panel", title: "Artifacts & reports", limit: 10, span: 3 },
       { kind: "hero_metric", title: "Actions taken", valueFrom: "actions_count", span: 2 },
       { kind: "hero_metric", title: "Tool calls", valueFrom: "tool_calls_count", span: 2 },
       { kind: "live_thoughts", title: "Reasoning stream", limit: 8, span: 3 },
@@ -812,4 +859,301 @@ function buildDemoEvents(manifest: Manifest, tick: number): AgentEvent[] {
   for (let i = 0; i < 6; i++) push("tool_call", toolCalls[(tick + i) % toolCalls.length], 18 + i * 19);
 
   return out.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+}
+
+/* ============================ execution_flow & artifacts_panel ============================ */
+
+type RunRow = {
+  id: string;
+  trigger: string | null;
+  status: string | null;
+  started_at: string;
+  instruction: string | null;
+};
+type ReportRow = {
+  id: string;
+  title: string;
+  kind: string;
+  body_markdown: string;
+  created_at: string;
+  run_id: string | null;
+};
+
+function shortId(id: string) {
+  return id.replace(/-/g, "").slice(0, 6);
+}
+function relTime(iso: string) {
+  const d = new Date(iso).getTime();
+  const s = Math.max(1, Math.floor((Date.now() - d) / 1000));
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+
+function ExecutionFlowWidget({
+  widget, events, accent, accent2, agentId, onOpen,
+}: {
+  widget: Extract<Widget, { kind: "execution_flow" }>;
+  events: AgentEvent[];
+  accent: string;
+  accent2: string;
+  agentId?: string;
+  onOpen: (m: ModalPayload) => void;
+}) {
+  const limit = widget.limit ?? 3;
+  const [runs, setRuns] = useState<RunRow[]>([]);
+  const [reportsById, setReportsById] = useState<Record<string, ReportRow>>({});
+
+  // Derive latest N run_ids from events (newest first).
+  const runIds = useMemo(() => {
+    const seen: string[] = [];
+    for (let i = events.length - 1; i >= 0; i--) {
+      const rid = events[i].run_id;
+      if (rid && !seen.includes(rid)) {
+        seen.push(rid);
+        if (seen.length >= limit) break;
+      }
+    }
+    return seen;
+  }, [events, limit]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!agentId) return;
+      // Runs: prefer the run_ids seen in events, fall back to latest by agent.
+      const q = supabase.from("agent_runs")
+        .select("id, trigger, status, started_at, instruction")
+        .eq("agent_id", agentId)
+        .order("started_at", { ascending: false })
+        .limit(limit);
+      const { data: r } = runIds.length
+        ? await supabase.from("agent_runs")
+            .select("id, trigger, status, started_at, instruction")
+            .in("id", runIds)
+        : await q;
+      if (cancelled) return;
+      const sorted = (r ?? []).slice().sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime());
+      setRuns(sorted as RunRow[]);
+
+      const { data: reps } = await supabase.from("agent_reports")
+        .select("id, title, kind, body_markdown, created_at, run_id")
+        .eq("agent_id", agentId)
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (cancelled) return;
+      const map: Record<string, ReportRow> = {};
+      for (const rep of (reps ?? []) as ReportRow[]) map[rep.id] = rep;
+      setReportsById(map);
+    })();
+    return () => { cancelled = true; };
+  }, [agentId, runIds, limit]);
+
+  return (
+    <GlassCard accent={accent}>
+      <div className="p-4 h-full flex flex-col">
+        <CardHeading
+          label={widget.title}
+          accent={accent}
+          right={
+            <span
+              className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded"
+              style={{ background: `${accent}18`, color: accent }}
+            >
+              {runs.length ? `${runs.length} recent` : "waiting"}
+            </span>
+          }
+        />
+        {runs.length === 0 ? (
+          <div className="text-[11px] text-zinc-500 py-4">No runs yet. Trigger the agent manually, on schedule, or via webhook.</div>
+        ) : (
+          <ul className="space-y-3">
+            {runs.map((run) => {
+              const runEvents = events.filter((e) => e.run_id === run.id);
+              const decisionEvt = [...runEvents].reverse().find((e) => e.kind === "decision");
+              const actionEvts = runEvents.filter((e) => e.kind === "action");
+              const decisionText = decisionEvt
+                ? String((decisionEvt.payload as { decision?: string; rationale?: string })?.decision ?? "")
+                : "";
+              const triggerLabel = run.trigger === "cron"
+                ? `cron${run.instruction ? ` · ${run.instruction.slice(0, 32)}` : ""}`
+                : (run.trigger ?? "manual");
+              return (
+                <li
+                  key={run.id}
+                  className="rounded-xl p-3"
+                  style={{
+                    background: "linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.01))",
+                    border: `1px solid ${accent}22`,
+                  }}
+                >
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <div className="text-[9.5px] font-mono uppercase tracking-widest text-zinc-500">
+                      Run <span className="text-zinc-300">#{shortId(run.id)}</span> · {relTime(run.started_at)}
+                    </div>
+                    <span
+                      className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded"
+                      style={{
+                        background: run.status === "error" ? "rgba(244,63,94,0.15)" : `${accent}15`,
+                        color: run.status === "error" ? "#fb7185" : accent,
+                        border: `1px solid ${run.status === "error" ? "rgba(244,63,94,0.3)" : `${accent}30`}`,
+                      }}
+                    >
+                      {run.status ?? "?"}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-[70px_1fr] gap-x-2 gap-y-1.5 text-[11px] leading-snug items-start">
+                    <span className="font-mono text-[9.5px] uppercase tracking-widest text-zinc-500 pt-1">Trigger</span>
+                    <span className="text-zinc-200 font-mono text-[11px]" style={{ color: accent2 }}>{triggerLabel}</span>
+
+                    <span className="font-mono text-[9.5px] uppercase tracking-widest text-zinc-500 pt-1">Decision</span>
+                    <span className="text-zinc-300 truncate" title={decisionText}>
+                      {decisionText ? `◆ ${decisionText.slice(0, 140)}${decisionText.length > 140 ? "…" : ""}` : <span className="text-zinc-600">—</span>}
+                    </span>
+
+                    <span className="font-mono text-[9.5px] uppercase tracking-widest text-zinc-500 pt-1">Actions</span>
+                    <span className="flex flex-wrap gap-1.5">
+                      {actionEvts.length === 0 && <span className="text-zinc-600 text-[11px]">—</span>}
+                      {actionEvts.map((a) => {
+                        const p = a.payload as { type?: string; target?: string; ok?: boolean; result_ref?: string; summary?: string };
+                        const type = p.type ?? "action";
+                        const ok = p.ok !== false;
+                        const target = p.target ?? "";
+                        const report = p.result_ref ? reportsById[p.result_ref] : undefined;
+                        return (
+                          <button
+                            key={a.id}
+                            onClick={() => {
+                              if (report) {
+                                onOpen({ kind: "report", title: report.title, body: report.body_markdown });
+                              } else {
+                                onOpen({ kind: "payload", title: `${type} · ${relTime(a.created_at)}`, payload: a.payload });
+                              }
+                            }}
+                            className="text-[10px] font-mono px-1.5 py-0.5 rounded transition-colors hover:brightness-125"
+                            style={{
+                              background: ok ? `${accent}12` : "rgba(244,63,94,0.12)",
+                              color: ok ? accent : "#fb7185",
+                              border: `1px solid ${ok ? `${accent}30` : "rgba(244,63,94,0.3)"}`,
+                            }}
+                            title={p.summary ?? type}
+                          >
+                            {ok ? "✓" : "✗"} {type}{target ? ` · ${String(target).slice(0, 24)}` : ""}
+                            {report && <span className="ml-1 opacity-70">→ report #{shortId(report.id)}</span>}
+                          </button>
+                        );
+                      })}
+                    </span>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    </GlassCard>
+  );
+}
+
+function ArtifactsPanelWidget({
+  widget, accent, agentId, onOpen,
+}: {
+  widget: Extract<Widget, { kind: "artifacts_panel" }>;
+  accent: string;
+  agentId?: string;
+  onOpen: (m: ModalPayload) => void;
+}) {
+  const limit = widget.limit ?? 10;
+  const [reports, setReports] = useState<ReportRow[]>([]);
+  const [total, setTotal] = useState<number>(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!agentId) return;
+      const { data, count } = await supabase.from("agent_reports")
+        .select("id, title, kind, body_markdown, created_at, run_id", { count: "exact" })
+        .eq("agent_id", agentId)
+        .order("created_at", { ascending: false })
+        .limit(limit);
+      if (cancelled) return;
+      setReports((data ?? []) as ReportRow[]);
+      setTotal(count ?? (data?.length ?? 0));
+    })();
+    // Simple periodic refresh so new artifacts appear without a page reload.
+    const id = setInterval(async () => {
+      if (!agentId) return;
+      const { data, count } = await supabase.from("agent_reports")
+        .select("id, title, kind, body_markdown, created_at, run_id", { count: "exact" })
+        .eq("agent_id", agentId)
+        .order("created_at", { ascending: false })
+        .limit(limit);
+      if (cancelled) return;
+      setReports((data ?? []) as ReportRow[]);
+      setTotal(count ?? (data?.length ?? 0));
+    }, 15000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [agentId, limit]);
+
+  const extra = Math.max(0, total - reports.length);
+
+  return (
+    <GlassCard accent={accent}>
+      <div className="p-4 h-full flex flex-col">
+        <CardHeading
+          label={widget.title}
+          accent={accent}
+          right={
+            <span
+              className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded"
+              style={{ background: `${accent}18`, color: accent }}
+            >
+              {total}
+            </span>
+          }
+        />
+        {reports.length === 0 ? (
+          <div className="text-[11px] text-zinc-500 py-4">No artifacts yet. Reports, audits, digests, and plans the agent generates will appear here.</div>
+        ) : (
+          <ul className="space-y-2 max-h-[420px] overflow-y-auto custom-scroll pr-1">
+            {reports.map((r) => (
+              <li
+                key={r.id}
+                className="group/artifact flex items-start justify-between gap-2 rounded-lg p-2.5"
+                style={{
+                  background: "linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.01))",
+                  border: `1px solid ${accent}22`,
+                }}
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <FileText className="h-3 w-3 shrink-0" style={{ color: accent }} />
+                    <span
+                      className="text-[9px] font-mono uppercase tracking-wider px-1 py-px rounded"
+                      style={{ background: `${accent}18`, color: accent, border: `1px solid ${accent}30` }}
+                    >
+                      {r.kind}
+                    </span>
+                    <span className="text-[9.5px] text-zinc-500 font-mono">{relTime(r.created_at)}</span>
+                  </div>
+                  <div className="text-[12px] text-white leading-snug truncate" title={r.title}>{r.title}</div>
+                </div>
+                <button
+                  onClick={() => onOpen({ kind: "report", title: r.title, body: r.body_markdown })}
+                  className="shrink-0 text-[10px] font-mono px-2 py-1 rounded transition-colors"
+                  style={{ background: `${accent}15`, color: accent, border: `1px solid ${accent}40` }}
+                >
+                  Open
+                </button>
+              </li>
+            ))}
+            {extra > 0 && (
+              <li className="text-[10px] text-zinc-500 font-mono text-center py-1">+{extra} more</li>
+            )}
+          </ul>
+        )}
+      </div>
+    </GlassCard>
+  );
 }
