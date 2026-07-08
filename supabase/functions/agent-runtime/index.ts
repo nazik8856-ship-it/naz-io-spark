@@ -482,23 +482,57 @@ Rules:
           }
           try {
             const svc = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-            const r = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json", Authorization: `Bearer ${svc}` },
-              body: JSON.stringify({
-                templateName: "agent-notification",
-                recipientEmail: to,
-                idempotencyKey: `agent-${agentId}-${runId}-${Date.now()}`,
-                templateData: { subject, body, agentName: manifest.name },
-              }),
-            });
-            const respBody = await r.json().catch(() => ({}));
-            const ok = r.ok && (respBody?.success !== false);
-            const summary = ok
-              ? `Email queued for delivery to ${to} — subject "${subject}".`
-              : `Send failed: ${respBody?.error || respBody?.reason || `HTTP ${r.status}`}`;
+            // Prefer real Gmail send when the user has connected Gmail (agent-scoped, then global).
+            const admin = createClient(Deno.env.get("SUPABASE_URL")!, svc);
+            const { data: gmailRows } = await admin
+              .from("agent_integrations")
+              .select("id, credentials, agent_id")
+              .eq("user_id", userId)
+              .eq("provider", "gmail")
+              .eq("status", "connected")
+              .order("agent_id", { ascending: false, nullsFirst: false });
+            const gmail = (gmailRows || []).find((r) => r.agent_id === agentId) || (gmailRows || [])[0];
+
+            let ok = false;
+            let summary = "";
+            let messageId: string | null = null;
+
+            if (gmail) {
+              const { ensureAccessToken, gmailSend } = await import("../_shared/gmail.ts");
+              const access = await ensureAccessToken(admin, { id: gmail.id, credentials: (gmail.credentials as Record<string, unknown>) || {} });
+              if (!access) {
+                summary = "Gmail token invalid — please reconnect Gmail.";
+              } else {
+                const creds = (gmail.credentials as Record<string, unknown>) || {};
+                const from = String(creds.email || "me");
+                const result = await gmailSend(access, from, to, subject, body);
+                ok = result.ok;
+                messageId = result.id || null;
+                summary = ok
+                  ? `Email sent via Gmail (${from}) to ${to} — subject "${subject}".`
+                  : `Gmail send failed: ${result.error || "unknown"}`;
+              }
+            } else {
+              const r = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${svc}` },
+                body: JSON.stringify({
+                  templateName: "agent-notification",
+                  recipientEmail: to,
+                  idempotencyKey: `agent-${agentId}-${runId}-${Date.now()}`,
+                  templateData: { subject, body, agentName: manifest.name },
+                }),
+              });
+              const respBody = await r.json().catch(() => ({}));
+              ok = r.ok && (respBody?.success !== false);
+              messageId = respBody?.messageId ?? null;
+              summary = ok
+                ? `Email queued for delivery to ${to} — subject "${subject}".`
+                : `Send failed: ${respBody?.error || respBody?.reason || `HTTP ${r.status}`}`;
+            }
+
             await logEvent("tool_result", { tool: tool.name, ok, summary });
-            await logEvent("action", { type: "send_email", target: to, ok, result_ref: respBody?.messageId ?? null, summary });
+            await logEvent("action", { type: "send_email", target: to, ok, result_ref: messageId, summary });
             messages.push({ role: "user", content: `${summary}\n\nContinue.` });
           } catch (e) {
             const msg = `send_email exception: ${e instanceof Error ? e.message : "unknown"}`;
