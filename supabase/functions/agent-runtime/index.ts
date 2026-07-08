@@ -488,7 +488,7 @@ Rules:
               .from("agent_integrations")
               .select("id, credentials, agent_id")
               .eq("user_id", userId)
-              .eq("provider", "gmail")
+              .eq("provider", "Gmail")
               .eq("status", "connected")
               .order("agent_id", { ascending: false, nullsFirst: false });
             const gmail = (gmailRows || []).find((r) => r.agent_id === agentId) || (gmailRows || [])[0];

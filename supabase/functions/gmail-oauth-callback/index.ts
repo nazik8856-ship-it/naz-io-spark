@@ -63,7 +63,7 @@ Deno.serve(async (req) => {
         .from("agent_integrations")
         .select("credentials")
         .eq("user_id", userId)
-        .eq("provider", "gmail")
+        .eq("provider", "Gmail")
         .eq("agent_id", agentId)
         .maybeSingle();
       const prev = (existing?.credentials as { refresh_token?: string } | null) || {};
@@ -76,7 +76,7 @@ Deno.serve(async (req) => {
         {
           user_id: userId,
           agent_id: agentId,
-          provider: "gmail",
+          provider: "Gmail",
           credentials,
           metadata: {
             account_email: info?.email,
