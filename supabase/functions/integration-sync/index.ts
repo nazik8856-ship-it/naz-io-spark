@@ -266,7 +266,32 @@ function simulate(provider: string, c: Credentials): SyncResult {
   };
 }
 
-async function syncOne(provider: string, credentials: Credentials): Promise<SyncResult> {
+async function syncGmail(admin: SupabaseClient, row: { id: string; credentials: Credentials }): Promise<SyncResult> {
+  const access = await ensureAccessToken(admin, { id: row.id, credentials: row.credentials as Record<string, unknown> });
+  if (!access) return { ok: false, kind: "inbox", data: {}, error: "Gmail token invalid — please reconnect." };
+  try {
+    const stats = await gmailList(access);
+    const email = (row.credentials?.email as string) || (row.credentials?.account_email as string) || "gmail";
+    return {
+      ok: true,
+      kind: "inbox",
+      data: {
+        mailbox: email,
+        unread: stats.unread,
+        unread_primary: stats.unread_primary,
+        labels: stats.labels,
+      },
+    };
+  } catch (e) {
+    return { ok: false, kind: "inbox", data: {}, error: e instanceof Error ? e.message : "gmail sync failed" };
+  }
+}
+
+async function syncOne(
+  provider: string,
+  credentials: Credentials,
+  ctx?: { admin: SupabaseClient; rowId: string },
+): Promise<SyncResult> {
   const p = provider.toLowerCase();
   try {
     if (p.includes("stripe")) return await syncStripe(credentials);
@@ -275,6 +300,9 @@ async function syncOne(provider: string, credentials: Credentials): Promise<Sync
     if (p.includes("slack")) return await syncSlack(credentials);
     if (p.includes("hubspot")) return await syncHubSpot(credentials);
     if (p.includes("ga4") || p.includes("analytics")) return await syncGA4(credentials);
+    if (p === "gmail" && ctx && (credentials.refresh_token || credentials.access_token)) {
+      return await syncGmail(ctx.admin, { id: ctx.rowId, credentials });
+    }
     return simulate(provider, credentials);
   } catch (e) {
     return { ok: false, kind: "summary", data: {}, error: e instanceof Error ? e.message : "sync failed" };
