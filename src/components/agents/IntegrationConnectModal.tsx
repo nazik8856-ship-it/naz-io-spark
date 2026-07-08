@@ -215,6 +215,73 @@ export default function IntegrationConnectModal({
     return () => { cancelled = true; };
   }, [integration.name, agentId]);
 
+  const reloadConnected = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    let q = supabase
+      .from("agent_integrations")
+      .select("status, metadata, credentials")
+      .eq("user_id", user.id)
+      .eq("provider", integration.name);
+    q = agentId ? q.eq("agent_id", agentId) : q.is("agent_id", null);
+    const { data } = await q.maybeSingle();
+    if (data?.status === "connected") {
+      const meta = (data.metadata as Record<string, unknown>) || {};
+      const creds = (data.credentials as Record<string, unknown>) || {};
+      const displayEmail = String(meta.account_email || creds.email || meta.account_name || "Gmail");
+      setAccount({
+        id: String(meta.account_id || displayEmail || "connected"),
+        handle: displayEmail,
+        name: String(meta.account_name || displayEmail),
+        kind: "personal",
+        avatar: (meta.avatar as string) || null,
+      });
+      setEmail(displayEmail);
+      setStep("connected");
+      onChange?.();
+    }
+  };
+
+  const startGmailOAuth = async () => {
+    setError(null);
+    setOauthLoading(true);
+    try {
+      const { data, error: fnErr } = await supabase.functions.invoke("gmail-oauth-start", {
+        body: { agentId: agentId || null, origin: window.location.origin },
+      });
+      if (fnErr) throw new Error(fnErr.message || "Failed to start Gmail OAuth");
+      const url = (data as { url?: string }).url;
+      if (!url) throw new Error("No authorization URL returned");
+      const popup = window.open(url, "gmail_oauth", "width=520,height=680");
+      if (!popup) throw new Error("Popup blocked. Please allow popups and retry.");
+      const handler = (ev: MessageEvent) => {
+        const payload = ev.data as { source?: string; ok?: boolean; message?: string } | null;
+        if (!payload || payload.source !== "nazai-gmail-oauth") return;
+        window.removeEventListener("message", handler);
+        setOauthLoading(false);
+        if (payload.ok) {
+          toast.success("Gmail connected");
+          reloadConnected();
+        } else {
+          setError(payload.message || "Gmail connection failed");
+          toast.error(payload.message || "Gmail connection failed");
+        }
+      };
+      window.addEventListener("message", handler);
+      // Fallback: if popup closes without a message, stop the spinner.
+      const timer = setInterval(() => {
+        if (popup.closed) {
+          clearInterval(timer);
+          setTimeout(() => setOauthLoading(false), 500);
+        }
+      }, 500);
+    } catch (e) {
+      setOauthLoading(false);
+      setError(e instanceof Error ? e.message : "Failed to start Gmail OAuth");
+      toast.error(e instanceof Error ? e.message : "Failed to start Gmail OAuth");
+    }
+  };
+
   const submitEmail = (e: React.FormEvent) => {
     e.preventDefault();
     const v = email.trim();
