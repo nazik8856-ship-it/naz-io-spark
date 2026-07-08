@@ -155,6 +155,7 @@ export default function IntegrationConnectModal({
 }) {
   const scopes = useMemo(() => scopesFor(integration), [integration]);
   const socials = useMemo(() => socialProvidersFor(integration.name), [integration.name]);
+  const isGmail = useMemo(() => /^gmail$/i.test(integration.name.trim()), [integration.name]);
   const [step, setStep] = useState<Step>("loading");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -166,6 +167,7 @@ export default function IntegrationConnectModal({
   const [error, setError] = useState<string | null>(null);
   const [liveData, setLiveData] = useState<{ kind?: string; data?: Record<string, unknown>; error?: string | null; fetched_at?: string } | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [oauthLoading, setOauthLoading] = useState(false);
 
   // Prior state
   useEffect(() => {
