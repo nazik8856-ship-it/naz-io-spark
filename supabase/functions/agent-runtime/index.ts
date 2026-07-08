@@ -225,6 +225,7 @@ serve(async (req) => {
       { name: "generate_report", kind: "generate_report", description: "Write a markdown report/digest/audit/plan as a durable artifact the operator can open later.", config: {} },
       { name: "create_doc", kind: "create_doc", description: "Create a real Google Doc in the connected Google account (from the Gmail integration) with the given title and body text. Returns the doc URL.", config: {} },
       { name: "create_sheet", kind: "create_sheet", description: "Create a real Google Sheet in the connected Google account (from the Gmail integration) with the given title and rows (2D array of cell values). Returns the sheet URL.", config: {} },
+      { name: "create_calendar_event", kind: "create_calendar_event", description: "Create a real event on the connected Google account's primary calendar. Requires ISO start/end times.", config: {} },
       { name: "http_post", kind: "http_post", description: "POST a JSON payload to an allow-listed URL to trigger or adjust an external system. URL must be https and either match this agent's configured webhook_url or a whitelisted domain.", config: {} },
       { name: "webhook", kind: "http_post", description: "Alias for http_post — POST a JSON payload to an allow-listed URL.", config: {} },
       { name: "schedule_followup", kind: "schedule_followup", description: "Schedule this agent to run again at a specific future time, carrying an instruction forward.", config: {} },
@@ -253,6 +254,7 @@ serve(async (req) => {
         case "generate_report": usage = `generate_report(title: string, kind: "report"|"digest"|"audit"|"plan", body_markdown: string)  // saves a durable artifact`; break;
         case "create_doc": usage = `create_doc(title: string, body_markdown: string)  // creates a real Google Doc in the connected Google account and returns { url, id }`; break;
         case "create_sheet": usage = `create_sheet(title: string, rows: string[][])  // creates a real Google Sheet with the given rows and returns { url, id }`; break;
+        case "create_calendar_event": usage = `create_calendar_event(title: string, start_iso: string, end_iso: string, description?: string)  // creates an event on the primary Google Calendar and returns { url, id }`; break;
         case "http_post": usage = `http_post(url: string, body: object)  // POSTs JSON to an allow-listed https URL (per-agent webhook_url or whitelisted domain)`; break;
         case "schedule_followup": usage = `schedule_followup(run_at_iso: string, instruction: string)  // queues a future run of this same agent`; break;
         default: usage = `${t.name}(...)  // CUSTOM — currently inert`;
@@ -696,6 +698,80 @@ Rules:
             continue;
           }
         }
+
+        if (tool.kind === "create_calendar_event") {
+          const title = String(input.title || "").slice(0, 200).trim();
+          const startIso = String(input.start_iso || input.start || "").trim();
+          const endIso = String(input.end_iso || input.end || "").trim();
+          const description = String(input.description || "").slice(0, 8000);
+          const isoOk = (s: string) => !!s && !isNaN(Date.parse(s));
+          if (!title || !isoOk(startIso) || !isoOk(endIso)) {
+            const msg = "create_calendar_event requires title, valid start_iso, valid end_iso.";
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: "create_calendar_event", target: title, ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue.` });
+            continue;
+          }
+          try {
+            const { data: gmailRows } = await supabase
+              .from("agent_integrations")
+              .select("id, credentials, agent_id")
+              .eq("user_id", userId)
+              .eq("provider", "Gmail")
+              .eq("status", "connected")
+              .order("agent_id", { ascending: false, nullsFirst: false });
+            const gmail = (gmailRows || []).find((r) => r.agent_id === agentId) || (gmailRows || [])[0];
+            if (!gmail) {
+              const msg = "create_calendar_event needs a connected Google account — connect Gmail in Integrations first.";
+              await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+              await logEvent("action", { type: "create_calendar_event", target: title, ok: false, result_ref: null, summary: msg });
+              messages.push({ role: "user", content: `${msg} Continue.` });
+              continue;
+            }
+            const { ensureAccessToken } = await import("../_shared/gmail.ts");
+            const access = await ensureAccessToken(supabase, { id: gmail.id, credentials: (gmail.credentials as Record<string, unknown>) || {} });
+            if (!access) {
+              const msg = "Google token invalid — please reconnect Gmail.";
+              await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+              await logEvent("action", { type: "create_calendar_event", target: title, ok: false, result_ref: null, summary: msg });
+              messages.push({ role: "user", content: `${msg} Continue.` });
+              continue;
+            }
+            const r = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
+              method: "POST",
+              headers: { Authorization: `Bearer ${access}`, "Content-Type": "application/json" },
+              body: JSON.stringify({
+                summary: title,
+                description: description || undefined,
+                start: { dateTime: new Date(startIso).toISOString() },
+                end: { dateTime: new Date(endIso).toISOString() },
+              }),
+            });
+            const rb = await r.json().catch(() => ({}));
+            if (!r.ok || !rb.id) {
+              const msg = `Calendar events.insert failed: ${rb?.error?.message || `HTTP ${r.status}`}`;
+              await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+              await logEvent("action", { type: "create_calendar_event", target: title, ok: false, result_ref: null, summary: msg });
+              messages.push({ role: "user", content: `${msg} Continue.` });
+              continue;
+            }
+            const eventId = rb.id as string;
+            const url = (rb.htmlLink as string) || `https://calendar.google.com/calendar/u/0/r/eventedit/${eventId}`;
+            const summary = `Created calendar event "${title}" ${startIso} → ${endIso} — ${url}`;
+            await logEvent("tool_result", { tool: tool.name, ok: true, summary });
+            await logEvent("action", { type: "create_calendar_event", target: title, ok: true, result_ref: eventId, summary, url });
+            messages.push({ role: "user", content: `${summary}\nid=${eventId}\n\nContinue.` });
+            continue;
+          } catch (e) {
+            const msg = `create_calendar_event exception: ${e instanceof Error ? e.message : "unknown"}`;
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: "create_calendar_event", target: title, ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue.` });
+            continue;
+          }
+        }
+
+
 
 
 
