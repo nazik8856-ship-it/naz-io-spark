@@ -699,6 +699,80 @@ Rules:
           }
         }
 
+        if (tool.kind === "create_calendar_event") {
+          const title = String(input.title || "").slice(0, 200).trim();
+          const startIso = String(input.start_iso || input.start || "").trim();
+          const endIso = String(input.end_iso || input.end || "").trim();
+          const description = String(input.description || "").slice(0, 8000);
+          const isoOk = (s: string) => !!s && !isNaN(Date.parse(s));
+          if (!title || !isoOk(startIso) || !isoOk(endIso)) {
+            const msg = "create_calendar_event requires title, valid start_iso, valid end_iso.";
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: "create_calendar_event", target: title, ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue.` });
+            continue;
+          }
+          try {
+            const { data: gmailRows } = await supabase
+              .from("agent_integrations")
+              .select("id, credentials, agent_id")
+              .eq("user_id", userId)
+              .eq("provider", "Gmail")
+              .eq("status", "connected")
+              .order("agent_id", { ascending: false, nullsFirst: false });
+            const gmail = (gmailRows || []).find((r) => r.agent_id === agentId) || (gmailRows || [])[0];
+            if (!gmail) {
+              const msg = "create_calendar_event needs a connected Google account — connect Gmail in Integrations first.";
+              await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+              await logEvent("action", { type: "create_calendar_event", target: title, ok: false, result_ref: null, summary: msg });
+              messages.push({ role: "user", content: `${msg} Continue.` });
+              continue;
+            }
+            const { ensureAccessToken } = await import("../_shared/gmail.ts");
+            const access = await ensureAccessToken(supabase, { id: gmail.id, credentials: (gmail.credentials as Record<string, unknown>) || {} });
+            if (!access) {
+              const msg = "Google token invalid — please reconnect Gmail.";
+              await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+              await logEvent("action", { type: "create_calendar_event", target: title, ok: false, result_ref: null, summary: msg });
+              messages.push({ role: "user", content: `${msg} Continue.` });
+              continue;
+            }
+            const r = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
+              method: "POST",
+              headers: { Authorization: `Bearer ${access}`, "Content-Type": "application/json" },
+              body: JSON.stringify({
+                summary: title,
+                description: description || undefined,
+                start: { dateTime: new Date(startIso).toISOString() },
+                end: { dateTime: new Date(endIso).toISOString() },
+              }),
+            });
+            const rb = await r.json().catch(() => ({}));
+            if (!r.ok || !rb.id) {
+              const msg = `Calendar events.insert failed: ${rb?.error?.message || `HTTP ${r.status}`}`;
+              await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+              await logEvent("action", { type: "create_calendar_event", target: title, ok: false, result_ref: null, summary: msg });
+              messages.push({ role: "user", content: `${msg} Continue.` });
+              continue;
+            }
+            const eventId = rb.id as string;
+            const url = (rb.htmlLink as string) || `https://calendar.google.com/calendar/u/0/r/eventedit/${eventId}`;
+            const summary = `Created calendar event "${title}" ${startIso} → ${endIso} — ${url}`;
+            await logEvent("tool_result", { tool: tool.name, ok: true, summary });
+            await logEvent("action", { type: "create_calendar_event", target: title, ok: true, result_ref: eventId, summary, url });
+            messages.push({ role: "user", content: `${summary}\nid=${eventId}\n\nContinue.` });
+            continue;
+          } catch (e) {
+            const msg = `create_calendar_event exception: ${e instanceof Error ? e.message : "unknown"}`;
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: "create_calendar_event", target: title, ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue.` });
+            continue;
+          }
+        }
+
+
+
 
 
         if (tool.kind === "http_post") {
