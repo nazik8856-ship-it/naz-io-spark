@@ -155,6 +155,7 @@ export default function IntegrationConnectModal({
 }) {
   const scopes = useMemo(() => scopesFor(integration), [integration]);
   const socials = useMemo(() => socialProvidersFor(integration.name), [integration.name]);
+  const isGmail = useMemo(() => /^gmail$/i.test(integration.name.trim()), [integration.name]);
   const [step, setStep] = useState<Step>("loading");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -166,6 +167,7 @@ export default function IntegrationConnectModal({
   const [error, setError] = useState<string | null>(null);
   const [liveData, setLiveData] = useState<{ kind?: string; data?: Record<string, unknown>; error?: string | null; fetched_at?: string } | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [oauthLoading, setOauthLoading] = useState(false);
 
   // Prior state
   useEffect(() => {
@@ -212,6 +214,73 @@ export default function IntegrationConnectModal({
     })();
     return () => { cancelled = true; };
   }, [integration.name, agentId]);
+
+  const reloadConnected = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    let q = supabase
+      .from("agent_integrations")
+      .select("status, metadata, credentials")
+      .eq("user_id", user.id)
+      .eq("provider", integration.name);
+    q = agentId ? q.eq("agent_id", agentId) : q.is("agent_id", null);
+    const { data } = await q.maybeSingle();
+    if (data?.status === "connected") {
+      const meta = (data.metadata as Record<string, unknown>) || {};
+      const creds = (data.credentials as Record<string, unknown>) || {};
+      const displayEmail = String(meta.account_email || creds.email || meta.account_name || "Gmail");
+      setAccount({
+        id: String(meta.account_id || displayEmail || "connected"),
+        handle: displayEmail,
+        name: String(meta.account_name || displayEmail),
+        kind: "personal",
+        avatar: (meta.avatar as string) || null,
+      });
+      setEmail(displayEmail);
+      setStep("connected");
+      onChange?.();
+    }
+  };
+
+  const startGmailOAuth = async () => {
+    setError(null);
+    setOauthLoading(true);
+    try {
+      const { data, error: fnErr } = await supabase.functions.invoke("gmail-oauth-start", {
+        body: { agentId: agentId || null, origin: window.location.origin },
+      });
+      if (fnErr) throw new Error(fnErr.message || "Failed to start Gmail OAuth");
+      const url = (data as { url?: string }).url;
+      if (!url) throw new Error("No authorization URL returned");
+      const popup = window.open(url, "gmail_oauth", "width=520,height=680");
+      if (!popup) throw new Error("Popup blocked. Please allow popups and retry.");
+      const handler = (ev: MessageEvent) => {
+        const payload = ev.data as { source?: string; ok?: boolean; message?: string } | null;
+        if (!payload || payload.source !== "nazai-gmail-oauth") return;
+        window.removeEventListener("message", handler);
+        setOauthLoading(false);
+        if (payload.ok) {
+          toast.success("Gmail connected");
+          reloadConnected();
+        } else {
+          setError(payload.message || "Gmail connection failed");
+          toast.error(payload.message || "Gmail connection failed");
+        }
+      };
+      window.addEventListener("message", handler);
+      // Fallback: if popup closes without a message, stop the spinner.
+      const timer = setInterval(() => {
+        if (popup.closed) {
+          clearInterval(timer);
+          setTimeout(() => setOauthLoading(false), 500);
+        }
+      }, 500);
+    } catch (e) {
+      setOauthLoading(false);
+      setError(e instanceof Error ? e.message : "Failed to start Gmail OAuth");
+      toast.error(e instanceof Error ? e.message : "Failed to start Gmail OAuth");
+    }
+  };
 
   const submitEmail = (e: React.FormEvent) => {
     e.preventDefault();
@@ -396,7 +465,37 @@ export default function IntegrationConnectModal({
             </div>
           )}
 
-          {step === "email" && (
+          {step === "email" && isGmail && (
+            <div className="flex-1 flex flex-col animate-fade-in">
+              <h2 className="text-2xl font-normal text-center mb-1">Connect Gmail</h2>
+              <p className="text-sm text-zinc-600 text-center mb-6">
+                Real Google sign-in. NazAI will receive a revocable token to read and send email on your behalf.
+              </p>
+              <button
+                type="button"
+                onClick={startGmailOAuth}
+                disabled={oauthLoading}
+                className="w-full h-12 rounded-full border border-zinc-300 bg-white hover:bg-zinc-50 flex items-center justify-center gap-3 text-sm font-medium text-zinc-800 transition disabled:opacity-60"
+              >
+                {oauthLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <SocialIcon id="google" />}
+                {oauthLoading ? "Waiting for Google…" : "Continue with Google"}
+              </button>
+              <ul className="mt-6 space-y-2 text-xs text-zinc-600">
+                {scopes.map((s) => (
+                  <li key={s} className="flex items-start gap-2">
+                    <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 text-emerald-500" />
+                    <span>{s}</span>
+                  </li>
+                ))}
+              </ul>
+              {error && <div className="text-xs text-red-600 mt-4">{error}</div>}
+              <p className="text-[11px] text-zinc-500 mt-6">
+                You can revoke access anytime from your Google account or by disconnecting here.
+              </p>
+            </div>
+          )}
+
+          {step === "email" && !isGmail && (
             <form onSubmit={submitEmail} className="flex-1 flex flex-col animate-fade-in">
               <h2 className="text-2xl font-normal text-center mb-1">Sign in</h2>
               <p className="text-sm text-zinc-600 text-center mb-6">

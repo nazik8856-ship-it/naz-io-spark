@@ -45,5 +45,11 @@ verify_jwt = false
 [functions.agent-approval]
 verify_jwt = true
 
+[functions.gmail-oauth-start]
+verify_jwt = true
+
+[functions.gmail-oauth-callback]
+verify_jwt = false
+
 
 

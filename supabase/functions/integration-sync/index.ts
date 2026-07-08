@@ -17,6 +17,7 @@
 // reason about instead of "unknown".
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { ensureAccessToken, gmailList } from "../_shared/gmail.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -265,7 +266,32 @@ function simulate(provider: string, c: Credentials): SyncResult {
   };
 }
 
-async function syncOne(provider: string, credentials: Credentials): Promise<SyncResult> {
+async function syncGmail(admin: SupabaseClient, row: { id: string; credentials: Credentials }): Promise<SyncResult> {
+  const access = await ensureAccessToken(admin, { id: row.id, credentials: row.credentials as Record<string, unknown> });
+  if (!access) return { ok: false, kind: "inbox", data: {}, error: "Gmail token invalid — please reconnect." };
+  try {
+    const stats = await gmailList(access);
+    const email = (row.credentials?.email as string) || (row.credentials?.account_email as string) || "gmail";
+    return {
+      ok: true,
+      kind: "inbox",
+      data: {
+        mailbox: email,
+        unread: stats.unread,
+        unread_primary: stats.unread_primary,
+        labels: stats.labels,
+      },
+    };
+  } catch (e) {
+    return { ok: false, kind: "inbox", data: {}, error: e instanceof Error ? e.message : "gmail sync failed" };
+  }
+}
+
+async function syncOne(
+  provider: string,
+  credentials: Credentials,
+  ctx?: { admin: SupabaseClient; rowId: string },
+): Promise<SyncResult> {
   const p = provider.toLowerCase();
   try {
     if (p.includes("stripe")) return await syncStripe(credentials);
@@ -274,6 +300,9 @@ async function syncOne(provider: string, credentials: Credentials): Promise<Sync
     if (p.includes("slack")) return await syncSlack(credentials);
     if (p.includes("hubspot")) return await syncHubSpot(credentials);
     if (p.includes("ga4") || p.includes("analytics")) return await syncGA4(credentials);
+    if (p === "gmail" && ctx && (credentials.refresh_token || credentials.access_token)) {
+      return await syncGmail(ctx.admin, { id: ctx.rowId, credentials });
+    }
     return simulate(provider, credentials);
   } catch (e) {
     return { ok: false, kind: "summary", data: {}, error: e instanceof Error ? e.message : "sync failed" };
@@ -355,13 +384,13 @@ Deno.serve(async (req) => {
     if (cron) {
       const { data: rows, error } = await admin
         .from("agent_integrations")
-        .select("user_id, agent_id, provider, credentials")
+        .select("id, user_id, agent_id, provider, credentials")
         .eq("status", "connected")
         .limit(500);
       if (error) return j(500, { error: error.message });
       let ok = 0, fail = 0;
       for (const r of rows || []) {
-        const result = await syncOne(r.provider as string, (r.credentials as Credentials) || {});
+        const result = await syncOne(r.provider as string, (r.credentials as Credentials) || {}, { admin, rowId: r.id as string });
         await persist(admin, {
           user_id: r.user_id as string,
           agent_id: (r.agent_id as string | null) ?? null,
@@ -381,7 +410,7 @@ Deno.serve(async (req) => {
 
     let q = admin
       .from("agent_integrations")
-      .select("user_id, agent_id, provider, credentials")
+      .select("id, user_id, agent_id, provider, credentials")
       .eq("user_id", user.id)
       .eq("status", "connected");
     if (providerFilter) q = q.eq("provider", providerFilter);
@@ -391,7 +420,7 @@ Deno.serve(async (req) => {
 
     const synced: Array<{ provider: string; ok: boolean; kind: string; data: Record<string, unknown>; error?: string }> = [];
     for (const r of rows || []) {
-      const result = await syncOne(r.provider as string, (r.credentials as Credentials) || {});
+      const result = await syncOne(r.provider as string, (r.credentials as Credentials) || {}, { admin, rowId: r.id as string });
       await persist(admin, {
         user_id: r.user_id as string,
         agent_id: (r.agent_id as string | null) ?? null,
