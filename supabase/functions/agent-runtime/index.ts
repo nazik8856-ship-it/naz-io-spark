@@ -852,24 +852,10 @@ async function validateHttpPostUrl(
   } catch (_) {
     return { ok: false, reason: "dns resolution failed" };
   }
-  // Allow if the host matches this agent's configured webhook_url in agent_integrations.metadata.webhook_url.
-  const { data: integrations } = await supabase.from("agent_integrations")
-    .select("metadata")
-    .eq("user_id", userId)
-    .or(`agent_id.eq.${agentId},agent_id.is.null`);
-  for (const row of integrations || []) {
-    const wh = (row.metadata as Record<string, unknown> | null)?.webhook_url;
-    if (typeof wh === "string") {
-      try {
-        const whHost = new URL(wh).hostname.toLowerCase();
-        if (whHost === host) return { ok: true, reason: "matched agent integration webhook_url" };
-      } catch { /* skip */ }
-    }
-  }
-  if (WEBHOOK_DOMAIN_ALLOWLIST.some((d) => host === d.toLowerCase() || host.endsWith(`.${d.toLowerCase()}`))) {
-    return { ok: true, reason: "matched WEBHOOK_DOMAIN_ALLOWLIST" };
-  }
-  return { ok: false, reason: `host ${host} not in per-agent webhook_url and not in WEBHOOK_DOMAIN_ALLOWLIST` };
+  // Domain allowlist check removed — any public hostname is permitted once IP
+  // checks above pass. Per-agent approval gate remains the authorization surface.
+  return { ok: true, reason: `host ${host} passed ip checks` };
+
 }
 
 function isPrivateOrLoopbackIp(ip: string): boolean {
