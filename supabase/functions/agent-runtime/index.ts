@@ -483,7 +483,7 @@ Rules:
           try {
             const svc = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
             // Prefer real Gmail send when the user has connected Gmail (agent-scoped, then global).
-            const admin = createClient(Deno.env.get("SUPABASE_URL")!, svc);
+            const admin = supabase;
             const { data: gmailRows } = await admin
               .from("agent_integrations")
               .select("id, credentials, agent_id")
