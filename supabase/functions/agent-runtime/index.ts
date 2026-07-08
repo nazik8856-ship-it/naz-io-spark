@@ -225,6 +225,7 @@ serve(async (req) => {
       { name: "generate_report", kind: "generate_report", description: "Write a markdown report/digest/audit/plan as a durable artifact the operator can open later.", config: {} },
       { name: "create_doc", kind: "create_doc", description: "Create a real Google Doc in the connected Google account (from the Gmail integration) with the given title and body text. Returns the doc URL.", config: {} },
       { name: "create_sheet", kind: "create_sheet", description: "Create a real Google Sheet in the connected Google account (from the Gmail integration) with the given title and rows (2D array of cell values). Returns the sheet URL.", config: {} },
+      { name: "create_calendar_event", kind: "create_calendar_event", description: "Create a real event on the connected Google account's primary calendar. Requires ISO start/end times.", config: {} },
       { name: "http_post", kind: "http_post", description: "POST a JSON payload to an allow-listed URL to trigger or adjust an external system. URL must be https and either match this agent's configured webhook_url or a whitelisted domain.", config: {} },
       { name: "webhook", kind: "http_post", description: "Alias for http_post — POST a JSON payload to an allow-listed URL.", config: {} },
       { name: "schedule_followup", kind: "schedule_followup", description: "Schedule this agent to run again at a specific future time, carrying an instruction forward.", config: {} },
