@@ -465,7 +465,37 @@ export default function IntegrationConnectModal({
             </div>
           )}
 
-          {step === "email" && (
+          {step === "email" && isGmail && (
+            <div className="flex-1 flex flex-col animate-fade-in">
+              <h2 className="text-2xl font-normal text-center mb-1">Connect Gmail</h2>
+              <p className="text-sm text-zinc-600 text-center mb-6">
+                Real Google sign-in. NazAI will receive a revocable token to read and send email on your behalf.
+              </p>
+              <button
+                type="button"
+                onClick={startGmailOAuth}
+                disabled={oauthLoading}
+                className="w-full h-12 rounded-full border border-zinc-300 bg-white hover:bg-zinc-50 flex items-center justify-center gap-3 text-sm font-medium text-zinc-800 transition disabled:opacity-60"
+              >
+                {oauthLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <SocialIcon id="google" />}
+                {oauthLoading ? "Waiting for Google…" : "Continue with Google"}
+              </button>
+              <ul className="mt-6 space-y-2 text-xs text-zinc-600">
+                {scopes.map((s) => (
+                  <li key={s} className="flex items-start gap-2">
+                    <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 text-emerald-500" />
+                    <span>{s}</span>
+                  </li>
+                ))}
+              </ul>
+              {error && <div className="text-xs text-red-600 mt-4">{error}</div>}
+              <p className="text-[11px] text-zinc-500 mt-6">
+                You can revoke access anytime from your Google account or by disconnecting here.
+              </p>
+            </div>
+          )}
+
+          {step === "email" && !isGmail && (
             <form onSubmit={submitEmail} className="flex-1 flex flex-col animate-fade-in">
               <h2 className="text-2xl font-normal text-center mb-1">Sign in</h2>
               <p className="text-sm text-zinc-600 text-center mb-6">
