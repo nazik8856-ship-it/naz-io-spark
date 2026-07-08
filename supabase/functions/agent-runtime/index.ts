@@ -226,6 +226,8 @@ serve(async (req) => {
       { name: "create_doc", kind: "create_doc", description: "Create a real Google Doc in the connected Google account (from the Gmail integration) with the given title and body text. Returns the doc URL.", config: {} },
       { name: "create_sheet", kind: "create_sheet", description: "Create a real Google Sheet in the connected Google account (from the Gmail integration) with the given title and rows (2D array of cell values). Returns the sheet URL.", config: {} },
       { name: "create_calendar_event", kind: "create_calendar_event", description: "Create a real event on the connected Google account's primary calendar. Requires ISO start/end times.", config: {} },
+      { name: "read_analytics", kind: "read_analytics", description: "Fetch last 30 days of sessions and users from a Google Analytics 4 property via the GA4 Data API. Requires property_id.", config: {} },
+      { name: "read_youtube_stats", kind: "read_youtube_stats", description: "Fetch subscriber/view/video counts for a YouTube channel via the YouTube Data API. Defaults to the authed Google account's own channel when channel_id is omitted.", config: {} },
       { name: "http_post", kind: "http_post", description: "POST a JSON payload to an allow-listed URL to trigger or adjust an external system. URL must be https and either match this agent's configured webhook_url or a whitelisted domain.", config: {} },
       { name: "webhook", kind: "http_post", description: "Alias for http_post — POST a JSON payload to an allow-listed URL.", config: {} },
       { name: "schedule_followup", kind: "schedule_followup", description: "Schedule this agent to run again at a specific future time, carrying an instruction forward.", config: {} },
@@ -255,6 +257,8 @@ serve(async (req) => {
         case "create_doc": usage = `create_doc(title: string, body_markdown: string)  // creates a real Google Doc in the connected Google account and returns { url, id }`; break;
         case "create_sheet": usage = `create_sheet(title: string, rows: string[][])  // creates a real Google Sheet with the given rows and returns { url, id }`; break;
         case "create_calendar_event": usage = `create_calendar_event(title: string, start_iso: string, end_iso: string, description?: string)  // creates an event on the primary Google Calendar and returns { url, id }`; break;
+        case "read_analytics": usage = `read_analytics(property_id: string)  // GA4 Data API: last 30 days sessions & totalUsers for the given property`; break;
+        case "read_youtube_stats": usage = `read_youtube_stats(channel_id?: string)  // YouTube Data API: subscriber/view/video counts. Omit channel_id for the authed user's own channel.`; break;
         case "http_post": usage = `http_post(url: string, body: object)  // POSTs JSON to an allow-listed https URL (per-agent webhook_url or whitelisted domain)`; break;
         case "schedule_followup": usage = `schedule_followup(run_at_iso: string, instruction: string)  // queues a future run of this same agent`; break;
         default: usage = `${t.name}(...)  // CUSTOM — currently inert`;
@@ -770,6 +774,114 @@ Rules:
             continue;
           }
         }
+
+        if (tool.kind === "read_analytics" || tool.kind === "read_youtube_stats") {
+          const kind = tool.kind;
+          const propertyId = String(input.property_id || "").trim();
+          const channelId = String(input.channel_id || "").trim();
+          const target = kind === "read_analytics" ? propertyId : (channelId || "mine");
+          if (kind === "read_analytics" && !propertyId) {
+            const msg = "read_analytics requires property_id (GA4 numeric property ID).";
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: kind, target, ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue.` });
+            continue;
+          }
+          try {
+            const { data: gmailRows } = await supabase
+              .from("agent_integrations")
+              .select("id, credentials, agent_id")
+              .eq("user_id", userId)
+              .eq("provider", "Gmail")
+              .eq("status", "connected")
+              .order("agent_id", { ascending: false, nullsFirst: false });
+            const gmail = (gmailRows || []).find((r) => r.agent_id === agentId) || (gmailRows || [])[0];
+            if (!gmail) {
+              const msg = `${kind} needs a connected Google account — connect Gmail in Integrations first.`;
+              await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+              await logEvent("action", { type: kind, target, ok: false, result_ref: null, summary: msg });
+              messages.push({ role: "user", content: `${msg} Continue.` });
+              continue;
+            }
+            const { ensureAccessToken } = await import("../_shared/gmail.ts");
+            const access = await ensureAccessToken(supabase, { id: gmail.id, credentials: (gmail.credentials as Record<string, unknown>) || {} });
+            if (!access) {
+              const msg = "Google token invalid — please reconnect Gmail.";
+              await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+              await logEvent("action", { type: kind, target, ok: false, result_ref: null, summary: msg });
+              messages.push({ role: "user", content: `${msg} Continue.` });
+              continue;
+            }
+
+            if (kind === "read_analytics") {
+              const r = await fetch(
+                `https://analyticsdata.googleapis.com/v1beta/properties/${encodeURIComponent(propertyId)}:runReport`,
+                {
+                  method: "POST",
+                  headers: { Authorization: `Bearer ${access}`, "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    dateRanges: [{ startDate: "30daysAgo", endDate: "today" }],
+                    metrics: [{ name: "sessions" }, { name: "totalUsers" }],
+                  }),
+                },
+              );
+              const rb = await r.json().catch(() => ({}));
+              if (!r.ok) {
+                const msg = `GA4 runReport failed: ${rb?.error?.message || `HTTP ${r.status}`}`;
+                await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+                await logEvent("action", { type: kind, target, ok: false, result_ref: null, summary: msg });
+                messages.push({ role: "user", content: `${msg} Continue.` });
+                continue;
+              }
+              const row = rb.rows?.[0]?.metricValues || [];
+              const sessions = row[0]?.value ?? "0";
+              const users = row[1]?.value ?? "0";
+              const summary = `GA4 property ${propertyId} (last 30d): sessions=${sessions}, totalUsers=${users}`;
+              await logEvent("tool_result", { tool: tool.name, ok: true, summary });
+              await logEvent("action", { type: kind, target, ok: true, result_ref: propertyId, summary });
+              messages.push({ role: "user", content: `${summary}\n\nContinue.` });
+              continue;
+            } else {
+              const qs = channelId
+                ? `part=statistics,snippet&id=${encodeURIComponent(channelId)}`
+                : `part=statistics,snippet&mine=true`;
+              const r = await fetch(`https://www.googleapis.com/youtube/v3/channels?${qs}`, {
+                headers: { Authorization: `Bearer ${access}` },
+              });
+              const rb = await r.json().catch(() => ({}));
+              if (!r.ok) {
+                const msg = `YouTube channels.list failed: ${rb?.error?.message || `HTTP ${r.status}`}`;
+                await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+                await logEvent("action", { type: kind, target, ok: false, result_ref: null, summary: msg });
+                messages.push({ role: "user", content: `${msg} Continue.` });
+                continue;
+              }
+              const ch = rb.items?.[0];
+              if (!ch) {
+                const msg = channelId ? `No channel found for id ${channelId}.` : "Authed Google account has no YouTube channel.";
+                await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+                await logEvent("action", { type: kind, target, ok: false, result_ref: null, summary: msg });
+                messages.push({ role: "user", content: `${msg} Continue.` });
+                continue;
+              }
+              const s = ch.statistics || {};
+              const title = ch.snippet?.title || ch.id;
+              const summary = `YouTube "${title}" (id=${ch.id}): subscribers=${s.subscriberCount ?? "hidden"}, views=${s.viewCount ?? "0"}, videos=${s.videoCount ?? "0"}`;
+              await logEvent("tool_result", { tool: tool.name, ok: true, summary });
+              await logEvent("action", { type: kind, target: ch.id, ok: true, result_ref: ch.id, summary });
+              messages.push({ role: "user", content: `${summary}\n\nContinue.` });
+              continue;
+            }
+          } catch (e) {
+            const msg = `${kind} exception: ${e instanceof Error ? e.message : "unknown"}`;
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: kind, target, ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue.` });
+            continue;
+          }
+        }
+
+
 
 
 
