@@ -223,6 +223,8 @@ serve(async (req) => {
       { name: "make_plan", kind: "make_plan", description: "Produce a concrete, numbered execution plan for a stated objective. Each step includes owner, tool/action to take, success criteria. Use before large multi-step work.", config: {} },
       { name: "send_email", kind: "send_email", description: "Send a real email via the agent-notification template. Requires an explicit guardrail allowing external sends; otherwise it will be queued for approval instead of sent.", config: {} },
       { name: "generate_report", kind: "generate_report", description: "Write a markdown report/digest/audit/plan as a durable artifact the operator can open later.", config: {} },
+      { name: "create_doc", kind: "create_doc", description: "Create a real Google Doc in the connected Google account (from the Gmail integration) with the given title and body text. Returns the doc URL.", config: {} },
+      { name: "create_sheet", kind: "create_sheet", description: "Create a real Google Sheet in the connected Google account (from the Gmail integration) with the given title and rows (2D array of cell values). Returns the sheet URL.", config: {} },
       { name: "http_post", kind: "http_post", description: "POST a JSON payload to an allow-listed URL to trigger or adjust an external system. URL must be https and either match this agent's configured webhook_url or a whitelisted domain.", config: {} },
       { name: "webhook", kind: "http_post", description: "Alias for http_post — POST a JSON payload to an allow-listed URL.", config: {} },
       { name: "schedule_followup", kind: "schedule_followup", description: "Schedule this agent to run again at a specific future time, carrying an instruction forward.", config: {} },
@@ -249,6 +251,8 @@ serve(async (req) => {
         case "make_plan": usage = `make_plan(objective: string, constraints?: string)  // returns a numbered execution plan with success criteria`; break;
         case "send_email": usage = `send_email(to: string, subject: string, body: string)  // actually delivers an email unless guardrails require approval`; break;
         case "generate_report": usage = `generate_report(title: string, kind: "report"|"digest"|"audit"|"plan", body_markdown: string)  // saves a durable artifact`; break;
+        case "create_doc": usage = `create_doc(title: string, body_markdown: string)  // creates a real Google Doc in the connected Google account and returns { url, id }`; break;
+        case "create_sheet": usage = `create_sheet(title: string, rows: string[][])  // creates a real Google Sheet with the given rows and returns { url, id }`; break;
         case "http_post": usage = `http_post(url: string, body: object)  // POSTs JSON to an allow-listed https URL (per-agent webhook_url or whitelisted domain)`; break;
         case "schedule_followup": usage = `schedule_followup(run_at_iso: string, instruction: string)  // queues a future run of this same agent`; break;
         default: usage = `${t.name}(...)  // CUSTOM — currently inert`;
@@ -572,6 +576,128 @@ Rules:
           messages.push({ role: "user", content: `Report saved: id=${rep.id} title="${title}" kind=${kind}. Preview:\n${preview}\n\nContinue.` });
           continue;
         }
+
+        if (tool.kind === "create_doc" || tool.kind === "create_sheet") {
+          const isDoc = tool.kind === "create_doc";
+          const title = String(input.title || "").slice(0, 200).trim();
+          const bodyMd = String(input.body_markdown || input.body || "");
+          const rows = Array.isArray(input.rows) ? (input.rows as unknown[]) : [];
+          if (!title || (isDoc && !bodyMd) || (!isDoc && rows.length === 0)) {
+            const msg = isDoc
+              ? "create_doc requires title and body_markdown."
+              : "create_sheet requires title and non-empty rows (string[][]).";
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: tool.kind, target: title, ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue.` });
+            continue;
+          }
+          try {
+            const { data: gmailRows } = await supabase
+              .from("agent_integrations")
+              .select("id, credentials, agent_id")
+              .eq("user_id", userId)
+              .eq("provider", "Gmail")
+              .eq("status", "connected")
+              .order("agent_id", { ascending: false, nullsFirst: false });
+            const gmail = (gmailRows || []).find((r) => r.agent_id === agentId) || (gmailRows || [])[0];
+            if (!gmail) {
+              const msg = `${tool.kind} needs a connected Google account — connect Gmail in Integrations first.`;
+              await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+              await logEvent("action", { type: tool.kind, target: title, ok: false, result_ref: null, summary: msg });
+              messages.push({ role: "user", content: `${msg} Continue.` });
+              continue;
+            }
+            const { ensureAccessToken } = await import("../_shared/gmail.ts");
+            const access = await ensureAccessToken(supabase, { id: gmail.id, credentials: (gmail.credentials as Record<string, unknown>) || {} });
+            if (!access) {
+              const msg = "Google token invalid — please reconnect Gmail.";
+              await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+              await logEvent("action", { type: tool.kind, target: title, ok: false, result_ref: null, summary: msg });
+              messages.push({ role: "user", content: `${msg} Continue.` });
+              continue;
+            }
+            const authHeaders = { Authorization: `Bearer ${access}`, "Content-Type": "application/json" };
+
+            if (isDoc) {
+              const createR = await fetch("https://docs.googleapis.com/v1/documents", {
+                method: "POST", headers: authHeaders, body: JSON.stringify({ title }),
+              });
+              const createBody = await createR.json().catch(() => ({}));
+              if (!createR.ok || !createBody.documentId) {
+                const msg = `Docs create failed: ${createBody?.error?.message || `HTTP ${createR.status}`}`;
+                await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+                await logEvent("action", { type: "create_doc", target: title, ok: false, result_ref: null, summary: msg });
+                messages.push({ role: "user", content: `${msg} Continue.` });
+                continue;
+              }
+              const docId = createBody.documentId as string;
+              const text = bodyMd.slice(0, 100000);
+              if (text) {
+                const upR = await fetch(`https://docs.googleapis.com/v1/documents/${docId}:batchUpdate`, {
+                  method: "POST", headers: authHeaders,
+                  body: JSON.stringify({ requests: [{ insertText: { location: { index: 1 }, text } }] }),
+                });
+                if (!upR.ok) {
+                  const eb = await upR.json().catch(() => ({}));
+                  const msg = `Docs insertText failed: ${eb?.error?.message || `HTTP ${upR.status}`}`;
+                  await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+                  await logEvent("action", { type: "create_doc", target: title, ok: false, result_ref: docId, summary: msg });
+                  messages.push({ role: "user", content: `${msg} Continue.` });
+                  continue;
+                }
+              }
+              const url = `https://docs.google.com/document/d/${docId}/edit`;
+              const summary = `Created Google Doc "${title}" — ${url}`;
+              await logEvent("tool_result", { tool: tool.name, ok: true, summary });
+              await logEvent("action", { type: "create_doc", target: title, ok: true, result_ref: docId, summary, url });
+              messages.push({ role: "user", content: `${summary}\nid=${docId}\n\nContinue.` });
+              continue;
+            } else {
+              const createR = await fetch("https://sheets.googleapis.com/v4/spreadsheets", {
+                method: "POST", headers: authHeaders,
+                body: JSON.stringify({ properties: { title } }),
+              });
+              const createBody = await createR.json().catch(() => ({}));
+              if (!createR.ok || !createBody.spreadsheetId) {
+                const msg = `Sheets create failed: ${createBody?.error?.message || `HTTP ${createR.status}`}`;
+                await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+                await logEvent("action", { type: "create_sheet", target: title, ok: false, result_ref: null, summary: msg });
+                messages.push({ role: "user", content: `${msg} Continue.` });
+                continue;
+              }
+              const sheetId = createBody.spreadsheetId as string;
+              const values = (rows as unknown[]).slice(0, 5000).map((r) =>
+                Array.isArray(r) ? (r as unknown[]).slice(0, 100).map((c) => (c == null ? "" : String(c))) : [String(r ?? "")],
+              );
+              const upR = await fetch(
+                `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/Sheet1!A1?valueInputOption=USER_ENTERED`,
+                { method: "PUT", headers: authHeaders, body: JSON.stringify({ values }) },
+              );
+              if (!upR.ok) {
+                const eb = await upR.json().catch(() => ({}));
+                const msg = `Sheets values.update failed: ${eb?.error?.message || `HTTP ${upR.status}`}`;
+                await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+                await logEvent("action", { type: "create_sheet", target: title, ok: false, result_ref: sheetId, summary: msg });
+                messages.push({ role: "user", content: `${msg} Continue.` });
+                continue;
+              }
+              const url = `https://docs.google.com/spreadsheets/d/${sheetId}/edit`;
+              const summary = `Created Google Sheet "${title}" (${values.length} rows) — ${url}`;
+              await logEvent("tool_result", { tool: tool.name, ok: true, summary });
+              await logEvent("action", { type: "create_sheet", target: title, ok: true, result_ref: sheetId, summary, url });
+              messages.push({ role: "user", content: `${summary}\nid=${sheetId}\n\nContinue.` });
+              continue;
+            }
+          } catch (e) {
+            const msg = `${tool.kind} exception: ${e instanceof Error ? e.message : "unknown"}`;
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: tool.kind, target: title, ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue.` });
+            continue;
+          }
+        }
+
+
 
         if (tool.kind === "http_post") {
           const url = String(input.url || "").trim();
