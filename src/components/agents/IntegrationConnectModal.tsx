@@ -24,6 +24,7 @@ type Integration = {
 
 type Step =
   | "loading"
+  | "coming_soon"
   | "email"
   | "password"
   | "finding"
@@ -209,7 +210,7 @@ export default function IntegrationConnectModal({
           fetched_at: snap.fetched_at as string,
         });
       } else {
-        setStep("email");
+        setStep(isGmail ? "email" : "coming_soon");
       }
     })();
     return () => { cancelled = true; };
@@ -495,301 +496,24 @@ export default function IntegrationConnectModal({
             </div>
           )}
 
-          {step === "email" && !isGmail && (
-            <form onSubmit={submitEmail} className="flex-1 flex flex-col animate-fade-in">
-              <h2 className="text-2xl font-normal text-center mb-1">Sign in</h2>
-              <p className="text-sm text-zinc-600 text-center mb-6">
-                to continue to <span className="font-medium">{integration.name}</span>
-              </p>
-
-              {socials.length > 0 && (
-                <div className="space-y-2 mb-4">
-                  {socials.map((s) => (
-                    <button
-                      type="button"
-                      key={s.id}
-                      onClick={() => signInWithSocial(s)}
-                      className="w-full h-11 rounded-full border border-zinc-300 bg-white hover:bg-zinc-50 flex items-center justify-center gap-3 text-sm font-medium text-zinc-800 transition"
-                    >
-                      <SocialIcon id={s.id} />
-                      {s.label}
-                    </button>
-                  ))}
-                  <div className="flex items-center gap-3 py-1">
-                    <div className="flex-1 h-px bg-zinc-200" />
-                    <span className="text-[11px] uppercase tracking-widest text-zinc-400">or</span>
-                    <div className="flex-1 h-px bg-zinc-200" />
-                  </div>
-                </div>
-              )}
-
-              <label className="block">
-                <input
-                  autoFocus
-                  type="email"
-                  value={email}
-                  onChange={(e) => { setEmail(e.target.value); setError(null); }}
-                  placeholder={`Email or ${integration.name} username`}
-                  className="w-full h-14 px-4 rounded-lg border border-zinc-300 focus:border-blue-600 focus:ring-2 focus:ring-blue-100 outline-none text-base transition"
-                />
-              </label>
-              {error && <div className="text-xs text-red-600 mt-2">{error}</div>}
-
-              <p className="text-xs text-zinc-500 mt-4">
-                Use the same login you use on <span className="font-medium">{integration.name}</span>.
-                NazAI never stores your password — it's exchanged for a revocable access token.
-              </p>
-
-
-              <div className="mt-auto pt-8 flex items-center justify-end">
-                <button
-                  type="submit"
-                  className="px-6 h-10 rounded-md text-sm font-medium text-white transition hover:brightness-110"
-                  style={{ background: "#1a73e8" }}
-                >
-                  Next
-                </button>
-              </div>
-            </form>
-          )}
-
-          {step === "password" && (
-            <form onSubmit={submitPassword} className="flex-1 flex flex-col animate-fade-in">
-              <h2 className="text-2xl font-normal text-center mb-1">Welcome</h2>
+          {step === "coming_soon" && (
+            <div className="flex-1 flex flex-col items-center justify-center text-center animate-fade-in gap-3">
+              <h2 className="text-2xl font-normal text-zinc-900 mb-1">{integration.name}</h2>
+              <p className="text-sm text-zinc-500">Coming soon</p>
               <button
                 type="button"
-                onClick={() => { setStep("email"); setPassword(""); setError(null); }}
-                className="mx-auto mb-6 inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-zinc-300 text-sm hover:bg-zinc-50"
+                disabled
+                className="mt-4 px-6 h-10 rounded-md text-sm font-medium text-zinc-400 bg-zinc-100 border border-zinc-200 cursor-not-allowed"
               >
-                <div className="h-5 w-5 rounded-full flex items-center justify-center text-white text-[10px] font-bold"
-                     style={{ background: `linear-gradient(135deg, ${accent}, #22d3ee)` }}>
-                  {email.charAt(0).toUpperCase()}
-                </div>
-                <span className="truncate max-w-[180px]">{email}</span>
-                <ArrowLeft className="h-3 w-3 text-zinc-400" />
+                Connect
               </button>
-
-              <label className="block relative">
-                <input
-                  autoFocus
-                  type={showPw ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => { setPassword(e.target.value); setError(null); }}
-                  placeholder="Enter your password"
-                  className="w-full h-14 px-4 pr-12 rounded-lg border border-zinc-300 focus:border-blue-600 focus:ring-2 focus:ring-blue-100 outline-none text-base transition"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPw((v) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-zinc-500 hover:text-zinc-800"
-                >
-                  {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </label>
-              {error && <div className="text-xs text-red-600 mt-2">{error}</div>}
-
-              <label className="mt-4 inline-flex items-center gap-2 text-sm text-zinc-700 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={showPw}
-                  onChange={(e) => setShowPw(e.target.checked)}
-                  className="h-4 w-4 rounded border-zinc-400"
-                />
-                Show password
-              </label>
-
-              <div className="mt-auto pt-8 flex items-center justify-end">
-                <button
-                  type="submit"
-                  className="px-6 h-10 rounded-md text-sm font-medium text-white transition hover:brightness-110"
-                  style={{ background: "#1a73e8" }}
-                >
-                  Next
-                </button>
-              </div>
-            </form>
-          )}
-
-          {step === "finding" && (
-            <div className="flex-1 flex flex-col items-center justify-center text-center animate-fade-in gap-3">
-              <Loader2 className="h-8 w-8 animate-spin text-zinc-400" />
-              <div className="text-sm text-zinc-700">Finding your {integration.name} account…</div>
-              <div className="text-xs text-zinc-400 font-mono">{email}</div>
             </div>
           )}
 
-          {step === "search" && (
-            <form onSubmit={runSearch} className="flex-1 flex flex-col animate-fade-in">
-              <h2 className="text-xl font-normal text-center mb-1">Find your account</h2>
-              <p className="text-sm text-zinc-600 text-center mb-5">
-                Search your real <span className="font-medium">{integration.name}</span> handle or business
-              </p>
 
-              <label className="block relative mb-3">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
-                <input
-                  autoFocus
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => { setSearchQuery(e.target.value); setError(null); }}
-                  placeholder={
-                    /shopify/i.test(integration.name) ? "your-store-name (my-store.myshopify.com)" :
-                    /instagram|tiktok|youtube|twitter|^x$/i.test(integration.name) ? "@yourhandle" :
-                    /quickbooks|xero|stripe|hubspot|salesforce|slack|notion/i.test(integration.name) ? "Your business or workspace name" :
-                    "Your username or business name"
-                  }
-                  className="w-full h-12 pl-10 pr-3 rounded-lg border border-zinc-300 focus:border-blue-600 focus:ring-2 focus:ring-blue-100 outline-none text-sm transition"
-                />
-              </label>
 
-              {error && <div className="text-xs text-red-600 mb-2">{error}</div>}
 
-              {results.length > 0 && (
-                <div className="space-y-2 mb-2">
-                  <div className="text-[10px] uppercase tracking-widest text-zinc-500 font-medium px-1">
-                    {results.length} match{results.length > 1 ? "es" : ""} · pick one
-                  </div>
-                  {results.map((a) => (
-                    <button
-                      type="button"
-                      key={a.id}
-                      onClick={() => pickAccount(a)}
-                      className="w-full rounded-xl border border-zinc-200 hover:border-blue-500 hover:bg-blue-50/40 p-3 flex items-center gap-3 text-left transition group"
-                    >
-                      {a.avatar ? (
-                        <img src={a.avatar} alt="" className="h-10 w-10 rounded-full object-cover bg-zinc-100" />
-                      ) : (
-                        <div
-                          className="h-10 w-10 rounded-full flex items-center justify-center text-white"
-                          style={{ background: `linear-gradient(135deg, ${accent}, #22d3ee)` }}
-                        >
-                          {a.kind === "business" ? <Building2 className="h-5 w-5" /> : <UserCircle2 className="h-5 w-5" />}
-                        </div>
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-semibold text-zinc-900 truncate flex items-center gap-1.5">
-                          {a.name}
-                          {a.verified && <CheckCircle2 className="h-3.5 w-3.5 text-blue-500 shrink-0" />}
-                        </div>
-                        <div className="text-xs text-zinc-500 truncate">{a.handle}</div>
-                      </div>
-                      <span className="text-[9px] uppercase tracking-wider font-mono px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-600">
-                        {a.kind}
-                      </span>
-                      <ArrowRight className="h-4 w-4 text-zinc-300 group-hover:text-blue-600 shrink-0" />
-                    </button>
-                  ))}
-                </div>
-              )}
 
-              <p className="text-[11px] text-zinc-500 mt-3">
-                We only match against your real, existing account on {integration.name}.
-                Fake or non-existent handles will be rejected.
-              </p>
-
-              <div className="mt-auto pt-6 flex items-center justify-end">
-                <button
-                  type="submit"
-                  disabled={searching}
-                  className="inline-flex items-center gap-2 px-6 h-10 rounded-md text-sm font-medium text-white transition hover:brightness-110 disabled:opacity-70"
-                  style={{ background: "#1a73e8" }}
-                >
-                  {searching ? <><Loader2 className="h-4 w-4 animate-spin" /> Searching…</> : <><Search className="h-4 w-4" /> Search</>}
-                </button>
-              </div>
-            </form>
-          )}
-
-          {step === "no_match" && (
-            <div className="flex-1 flex flex-col animate-fade-in">
-              <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 mb-4">
-                <div className="flex items-center gap-1.5 mb-1 font-medium">
-                  <AlertTriangle className="h-4 w-4" /> Account not found
-                </div>
-                <div className="text-xs break-words">{error || `We couldn't find a ${integration.name} account matching that handle.`}</div>
-                <div className="text-xs mt-2 text-amber-700">
-                  Check for typos, remove any leading <span className="font-mono">@</span>, or try the exact
-                  username you use to sign in on {integration.name}.
-                </div>
-              </div>
-              <div className="mt-auto flex items-center justify-end gap-2">
-                <button
-                  onClick={() => { setStep("email"); setError(null); setSearchQuery(""); }}
-                  className="px-4 h-10 rounded-md text-sm text-zinc-700 hover:bg-zinc-100"
-                >
-                  Start over
-                </button>
-                <button
-                  onClick={() => { setStep("search"); setError(null); }}
-                  className="px-6 h-10 rounded-md text-sm font-semibold text-white"
-                  style={{ background: "#1a73e8" }}
-                >
-                  Try another handle
-                </button>
-              </div>
-            </div>
-          )}
-
-          {(step === "account" || step === "connecting") && account && (
-            <div className="flex-1 flex flex-col animate-fade-in">
-              <h2 className="text-xl font-normal text-center mb-1">Account found</h2>
-              <p className="text-sm text-zinc-600 text-center mb-5">
-                Confirm to link this account with NazAI
-              </p>
-
-              <div className="rounded-2xl border border-zinc-200 p-4 flex items-center gap-3 mb-5 bg-zinc-50">
-                <div
-                  className="h-11 w-11 rounded-full flex items-center justify-center text-white font-bold"
-                  style={{ background: `linear-gradient(135deg, ${accent}, #22d3ee)` }}
-                >
-                  <User2 className="h-5 w-5" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-semibold text-zinc-900 truncate">{account.name}</div>
-                  <div className="text-xs text-zinc-500 truncate">{account.handle}</div>
-                </div>
-                <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-mono">
-                  {integration.name}
-                </span>
-              </div>
-
-              <div className="rounded-xl border border-zinc-200 p-3 mb-5">
-                <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-2 font-medium">
-                  NazAI will be able to
-                </div>
-                <ul className="space-y-1.5">
-                  {scopes.map((s) => (
-                    <li key={s} className="flex items-center gap-2 text-xs text-zinc-700">
-                      <CheckCircle2 className="h-3 w-3 shrink-0" style={{ color: accent }} />
-                      {s}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              <div className="mt-auto flex items-center gap-2">
-                <button
-                  onClick={() => { setStep("password"); }}
-                  disabled={step === "connecting"}
-                  className="px-4 h-10 rounded-md text-sm font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={confirmConnect}
-                  disabled={step === "connecting"}
-                  className="ml-auto inline-flex items-center gap-2 px-6 h-10 rounded-md text-sm font-semibold text-white transition hover:brightness-110 disabled:opacity-70"
-                  style={{ background: "#1a73e8" }}
-                >
-                  {step === "connecting" ? (
-                    <><Loader2 className="h-4 w-4 animate-spin" /> Connecting…</>
-                  ) : (
-                    <>Connect <ArrowRight className="h-4 w-4" /></>
-                  )}
-                </button>
-              </div>
-            </div>
-          )}
 
           {step === "connected" && account && (
             <div className="flex-1 flex flex-col animate-fade-in">
