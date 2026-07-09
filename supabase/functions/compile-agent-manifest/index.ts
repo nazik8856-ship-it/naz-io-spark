@@ -498,12 +498,21 @@ function normalizeManifest(m: Record<string, unknown>): Manifest {
     goal: String(m.goal || "").slice(0, 400),
     systemPrompt: String(m.systemPrompt || "").slice(0, 2000),
     decisionPolicy: String(m.decisionPolicy || "Act when confident; otherwise log and pause for review.").slice(0, 400),
-    tools: tools.slice(0, 10).map((t) => ({
-      name: String(t.name || "tool").slice(0, 60),
-      description: String(t.description || "").slice(0, 300),
-      kind: ALLOWED_KINDS.includes(String(t.kind)) ? String(t.kind) : "custom",
-      config: (t.config && typeof t.config === "object") ? (t.config as Record<string, unknown>) : {},
-    })),
+    tools: tools
+      .filter((t) => {
+        const k = String(t.kind || "").toLowerCase();
+        const n = String(t.name || "").toLowerCase();
+        // Strip legacy gmail_poll / http_get tools — agents rely on sync_now + read_data instead.
+        if (k === "http_get") return false;
+        if (n === "http_get" || n === "gmail_poll") return false;
+        return true;
+      })
+      .slice(0, 10).map((t) => ({
+        name: String(t.name || "tool").slice(0, 60),
+        description: String(t.description || "").slice(0, 300),
+        kind: ALLOWED_KINDS.includes(String(t.kind)) ? String(t.kind) : "custom",
+        config: (t.config && typeof t.config === "object") ? (t.config as Record<string, unknown>) : {},
+      })),
     triggers: (triggers.length ? triggers : [{ kind: "manual", spec: "on-demand" }]).slice(0, 4).map((t) => ({
       kind: ["manual", "cron", "webhook"].includes(String(t.kind)) ? String(t.kind) : "manual",
       spec: String(t.spec || "on-demand").slice(0, 120),
