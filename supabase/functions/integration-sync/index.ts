@@ -246,17 +246,6 @@ function simulate(provider: string, c: Credentials): SyncResult {
       },
     };
   }
-  if (/gmail|outlook/.test(p)) {
-    return {
-      ok: true, kind: "inbox",
-      data: {
-        mailbox: handle,
-        unread: rand(60),
-        awaiting_reply: rand(8),
-        newsletters: rand(30),
-      },
-    };
-  }
   return {
     ok: true, kind: "summary",
     data: {
