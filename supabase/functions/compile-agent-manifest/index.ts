@@ -117,7 +117,7 @@ const ROLE_LIBRARY: Record<string, {
       { rule: "Never charge customers or move funds without approval.", requiresApproval: true },
       { rule: "Flag any KPI change > 25% as an anomaly.", requiresApproval: false },
     ],
-    tools: ["calc", "http_get", "notify", "remember", "request_approval", "ask_user"],
+    tools: ["calc", "sync_now", "read_data", "notify", "remember", "request_approval", "ask_user"],
     workflowSummary:
       "Every morning the agent reconciles yesterday's sales, payouts, refunds, and inventory across Stripe, Shopify, and QuickBooks. It catches anomalies (>25% swings, low cash runway, overdue invoices, low stock) and either fixes them inside policy or drafts the action for one-click approval — closing the loop on daily ops without you opening a spreadsheet.",
     automations: [
