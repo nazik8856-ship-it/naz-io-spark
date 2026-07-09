@@ -446,14 +446,22 @@ Rules:
             messages.push({ role: "user", content: `read_data requires a "provider" string.` });
             continue;
           }
+          // Resolve provider case-insensitively against the user's connected integrations,
+          // so agents can call read_data("gmail") / "Gmail" / "GMAIL" interchangeably.
+          const { data: intRows } = await supabase.from("agent_integrations")
+            .select("provider")
+            .eq("user_id", userId)
+            .ilike("provider", providerFilter)
+            .limit(1);
+          const canonicalProvider = (intRows?.[0]?.provider as string | undefined) ?? providerFilter;
           const { data: rows } = await supabase.from("integration_snapshots")
             .select("kind, data, error, fetched_at")
-            .eq("user_id", userId).eq("provider", providerFilter)
+            .eq("user_id", userId).ilike("provider", canonicalProvider)
             .order("fetched_at", { ascending: false }).limit(1);
           const snap = rows?.[0];
           const summary = snap
-            ? `${providerFilter} [${snap.kind}] fetched ${snap.fetched_at}: ${snap.error ? `ERROR ${snap.error}` : JSON.stringify(snap.data)}`
-            : `No snapshot yet for ${providerFilter}. Call sync_now first.`;
+            ? `${canonicalProvider} [${snap.kind}] fetched ${snap.fetched_at}: ${snap.error ? `ERROR ${snap.error}` : JSON.stringify(snap.data)}`
+            : `No snapshot yet for ${canonicalProvider}. Call sync_now first.`;
           await logEvent("tool_result", { tool: tool.name, ok: !!snap && !snap.error, summary });
           messages.push({ role: "user", content: `${summary}\n\nContinue.` });
           continue;

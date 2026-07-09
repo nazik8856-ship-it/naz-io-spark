@@ -48,7 +48,7 @@ const ROLE_LIBRARY: Record<string, {
       { rule: "Never send outbound emails without explicit approval.", requiresApproval: true },
       { rule: "Never promise discounts above policy.", requiresApproval: true },
     ],
-    tools: ["web_search", "http_get", "notify", "remember", "request_approval", "ask_user"],
+    tools: ["web_search", "sync_now", "read_data", "notify", "remember", "request_approval", "ask_user"],
     workflowSummary:
       "Every morning the agent pulls fresh prospect signals, scores them, drafts personalized outreach, and queues it for one-click approval. Throughout the day it watches replies and pipeline events, advances stages in your CRM, and nudges stalled deals — so the rep only handles humans, not data entry.",
     automations: [
@@ -94,7 +94,7 @@ const ROLE_LIBRARY: Record<string, {
       { rule: "Never publish to social/blog without approval.", requiresApproval: true },
       { rule: "Stay within stated brand tone and forbidden-topics list.", requiresApproval: false },
     ],
-    tools: ["web_search", "http_get", "notify", "remember", "request_approval", "ask_user"],
+    tools: ["web_search", "sync_now", "read_data", "notify", "remember", "request_approval", "ask_user"],
     workflowSummary:
       "The agent runs your content engine on autopilot: it watches mentions and SEO movement daily, drafts 5+ posts per week in your brand tone, monitors ad performance, and pauses underperformers. Every Monday it ships a one-page brief with what shipped, what worked, and what's queued for approval.",
     automations: [
@@ -117,7 +117,7 @@ const ROLE_LIBRARY: Record<string, {
       { rule: "Never charge customers or move funds without approval.", requiresApproval: true },
       { rule: "Flag any KPI change > 25% as an anomaly.", requiresApproval: false },
     ],
-    tools: ["calc", "http_get", "notify", "remember", "request_approval", "ask_user"],
+    tools: ["calc", "sync_now", "read_data", "notify", "remember", "request_approval", "ask_user"],
     workflowSummary:
       "Every morning the agent reconciles yesterday's sales, payouts, refunds, and inventory across Stripe, Shopify, and QuickBooks. It catches anomalies (>25% swings, low cash runway, overdue invoices, low stock) and either fixes them inside policy or drafts the action for one-click approval — closing the loop on daily ops without you opening a spreadsheet.",
     automations: [
@@ -136,7 +136,7 @@ const ROLE_LIBRARY: Record<string, {
     guardrails: [
       { rule: "Never perform irreversible external actions without approval.", requiresApproval: true },
     ],
-    tools: ["web_search", "http_get", "calc", "notify", "remember", "request_approval", "ask_user"],
+    tools: ["web_search", "sync_now", "read_data", "calc", "notify", "remember", "request_approval", "ask_user"],
     workflowSummary:
       "The agent runs on the schedule you set, monitors the data sources you connect, applies your rules, and either acts inside policy or queues the action for approval — turning manual checks into a hands-free loop.",
     automations: [
@@ -163,7 +163,7 @@ Shape: {
   "name": string, "goal": string,
   "systemPrompt": string,        // <= 1400 chars, in-character, references the business
   "decisionPolicy": string,
-  "tools": [ { "name": string, "description": string, "kind": "web_search"|"http_get"|"http_post"|"calc"|"notify"|"remember"|"ask_user"|"request_approval"|"send_email"|"generate_report"|"sync_now"|"schedule_followup"|"custom", "config": object } ],
+  "tools": [ { "name": string, "description": string, "kind": "web_search"|"http_post"|"calc"|"notify"|"remember"|"ask_user"|"request_approval"|"send_email"|"generate_report"|"sync_integrations"|"integration_query"|"sync_now"|"schedule_followup"|"custom", "config": object } ],
   "triggers": [ { "kind": "manual"|"cron"|"webhook", "spec": string } ],
   "guardrails": [ { "rule": string, "requiresApproval": boolean } ],
   "kpis": [ { "name": string, "target": string } ],
@@ -437,7 +437,7 @@ type Manifest = {
 const ALLOWED_WIDGETS = new Set(["hero_metric","live_thoughts","decision_log","action_timeline","tool_call_stream","alert_feed","tool_grid","kpi_radar","guardrail_panel","status_grid","automation_rules","workflow_summary","execution_flow","artifacts_panel"]);
 const ALLOWED_VALUE_FROM = new Set(["events_count","decisions_count","actions_count","tool_calls_count","thoughts_count","errors_count"]);
 const ALLOWED_ICONS = new Set(["brain","activity","wallet","gauge","signal","radar","terminal","rocket","eye","crosshair","shield","flame","sparkles","cpu","globe","line","bars","trending","zap","alert","check","wrench"]);
-const ALLOWED_KINDS = ["web_search", "http_get", "calc", "notify", "remember", "ask_user", "request_approval", "send_email", "generate_report", "http_post", "sync_now", "schedule_followup", "custom"];
+const ALLOWED_KINDS = ["web_search", "calc", "notify", "remember", "ask_user", "request_approval", "send_email", "generate_report", "http_post", "sync_integrations", "integration_query", "sync_now", "schedule_followup", "custom"];
 
 function normalizeAutomations(raw: unknown): Automation[] {
   if (!Array.isArray(raw)) return [];
@@ -498,12 +498,21 @@ function normalizeManifest(m: Record<string, unknown>): Manifest {
     goal: String(m.goal || "").slice(0, 400),
     systemPrompt: String(m.systemPrompt || "").slice(0, 2000),
     decisionPolicy: String(m.decisionPolicy || "Act when confident; otherwise log and pause for review.").slice(0, 400),
-    tools: tools.slice(0, 10).map((t) => ({
-      name: String(t.name || "tool").slice(0, 60),
-      description: String(t.description || "").slice(0, 300),
-      kind: ALLOWED_KINDS.includes(String(t.kind)) ? String(t.kind) : "custom",
-      config: (t.config && typeof t.config === "object") ? (t.config as Record<string, unknown>) : {},
-    })),
+    tools: tools
+      .filter((t) => {
+        const k = String(t.kind || "").toLowerCase();
+        const n = String(t.name || "").toLowerCase();
+        // Strip legacy gmail_poll / http_get tools — agents rely on sync_now + read_data instead.
+        if (k === "http_get") return false;
+        if (n === "http_get" || n === "gmail_poll") return false;
+        return true;
+      })
+      .slice(0, 10).map((t) => ({
+        name: String(t.name || "tool").slice(0, 60),
+        description: String(t.description || "").slice(0, 300),
+        kind: ALLOWED_KINDS.includes(String(t.kind)) ? String(t.kind) : "custom",
+        config: (t.config && typeof t.config === "object") ? (t.config as Record<string, unknown>) : {},
+      })),
     triggers: (triggers.length ? triggers : [{ kind: "manual", spec: "on-demand" }]).slice(0, 4).map((t) => ({
       kind: ["manual", "cron", "webhook"].includes(String(t.kind)) ? String(t.kind) : "manual",
       spec: String(t.spec || "on-demand").slice(0, 120),
@@ -553,7 +562,8 @@ function buildFallbackManifest(
     decisionPolicy: blueprint.decisionPolicy,
     tools: [
       { name: "web_search", kind: "web_search", description: "Research the business, customers, competitors, or any current public info.", config: {} },
-      { name: "http_get", kind: "http_get", description: "Fetch a public URL to read its content.", config: {} },
+      { name: "sync_now", kind: "sync_integrations", description: "Refresh live data from all connected tools before reasoning.", config: {} },
+      { name: "read_data", kind: "integration_query", description: "Read the latest synced snapshot for a specific connected tool.", config: {} },
       { name: "notify", kind: "notify", description: "Log an internal notification for the operator.", config: { channel: "log" } },
       { name: "remember", kind: "remember", description: "Persist a fact about the business for future runs.", config: {} },
       { name: "ask_user", kind: "ask_user", description: "Ask the operator a focused question when essential info is missing.", config: {} },
