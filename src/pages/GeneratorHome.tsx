@@ -186,11 +186,11 @@ export default function GeneratorHome() {
             </div>
             <button
               onClick={handleGenerate}
-              disabled={!prompt.trim()}
+              disabled={!prompt.trim() || compiling}
               className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-purple-400/50 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              <Zap className="h-4 w-4 text-purple-300" />
-              <span className="text-sm">Generate</span>
+              {compiling ? <Loader2 className="h-4 w-4 text-purple-300 animate-spin" /> : <Zap className="h-4 w-4 text-purple-300" />}
+              <span className="text-sm">{compiling ? "Compiling…" : "Generate"}</span>
               <span className="text-purple-300">↗</span>
             </button>
           </div>
