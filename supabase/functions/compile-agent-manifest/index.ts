@@ -136,7 +136,7 @@ const ROLE_LIBRARY: Record<string, {
     guardrails: [
       { rule: "Never perform irreversible external actions without approval.", requiresApproval: true },
     ],
-    tools: ["web_search", "http_get", "calc", "notify", "remember", "request_approval", "ask_user"],
+    tools: ["web_search", "sync_now", "read_data", "calc", "notify", "remember", "request_approval", "ask_user"],
     workflowSummary:
       "The agent runs on the schedule you set, monitors the data sources you connect, applies your rules, and either acts inside policy or queues the action for approval — turning manual checks into a hands-free loop.",
     automations: [
