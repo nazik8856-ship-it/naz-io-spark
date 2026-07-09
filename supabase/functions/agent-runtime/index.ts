@@ -458,6 +458,7 @@ Rules:
           const { data: intRows } = await supabase.from("agent_integrations")
             .select("provider")
             .eq("user_id", userId)
+            .eq("status", "connected")
             .ilike("provider", providerFilter)
             .limit(1);
           const canonicalProvider = (intRows?.[0]?.provider as string | undefined) ?? providerFilter;
