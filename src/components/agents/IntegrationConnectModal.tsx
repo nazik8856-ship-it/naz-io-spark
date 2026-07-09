@@ -514,66 +514,6 @@ export default function IntegrationConnectModal({
 
 
 
-          {(step === "account" || step === "connecting") && account && (
-            <div className="flex-1 flex flex-col animate-fade-in">
-              <h2 className="text-xl font-normal text-center mb-1">Account found</h2>
-              <p className="text-sm text-zinc-600 text-center mb-5">
-                Confirm to link this account with NazAI
-              </p>
-
-              <div className="rounded-2xl border border-zinc-200 p-4 flex items-center gap-3 mb-5 bg-zinc-50">
-                <div
-                  className="h-11 w-11 rounded-full flex items-center justify-center text-white font-bold"
-                  style={{ background: `linear-gradient(135deg, ${accent}, #22d3ee)` }}
-                >
-                  <User2 className="h-5 w-5" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-semibold text-zinc-900 truncate">{account.name}</div>
-                  <div className="text-xs text-zinc-500 truncate">{account.handle}</div>
-                </div>
-                <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-mono">
-                  {integration.name}
-                </span>
-              </div>
-
-              <div className="rounded-xl border border-zinc-200 p-3 mb-5">
-                <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-2 font-medium">
-                  NazAI will be able to
-                </div>
-                <ul className="space-y-1.5">
-                  {scopes.map((s) => (
-                    <li key={s} className="flex items-center gap-2 text-xs text-zinc-700">
-                      <CheckCircle2 className="h-3 w-3 shrink-0" style={{ color: accent }} />
-                      {s}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              <div className="mt-auto flex items-center gap-2">
-                <button
-                  onClick={() => { setStep("password"); }}
-                  disabled={step === "connecting"}
-                  className="px-4 h-10 rounded-md text-sm font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={confirmConnect}
-                  disabled={step === "connecting"}
-                  className="ml-auto inline-flex items-center gap-2 px-6 h-10 rounded-md text-sm font-semibold text-white transition hover:brightness-110 disabled:opacity-70"
-                  style={{ background: "#1a73e8" }}
-                >
-                  {step === "connecting" ? (
-                    <><Loader2 className="h-4 w-4 animate-spin" /> Connecting…</>
-                  ) : (
-                    <>Connect <ArrowRight className="h-4 w-4" /></>
-                  )}
-                </button>
-              </div>
-            </div>
-          )}
 
           {step === "connected" && account && (
             <div className="flex-1 flex flex-col animate-fade-in">
