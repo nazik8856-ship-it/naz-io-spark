@@ -655,12 +655,60 @@ export type Database = {
         }
         Relationships: []
       }
+      website_pages: {
+        Row: {
+          created_at: string
+          id: string
+          order_index: number
+          sections: Json
+          seo_description: string | null
+          slug: string
+          title: string | null
+          updated_at: string
+          website_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          order_index?: number
+          sections?: Json
+          seo_description?: string | null
+          slug: string
+          title?: string | null
+          updated_at?: string
+          website_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          order_index?: number
+          sections?: Json
+          seo_description?: string | null
+          slug?: string
+          title?: string | null
+          updated_at?: string
+          website_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "website_pages_website_id_fkey"
+            columns: ["website_id"]
+            isOneToOne: false
+            referencedRelation: "websites"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       websites: {
         Row: {
           created_at: string
           html: string
           id: string
+          name: string | null
           prompt: string | null
+          subdomain: string | null
+          tagline: string | null
+          theme: Json
           title: string
           user_id: string
         }
@@ -668,7 +716,11 @@ export type Database = {
           created_at?: string
           html: string
           id?: string
+          name?: string | null
           prompt?: string | null
+          subdomain?: string | null
+          tagline?: string | null
+          theme?: Json
           title?: string
           user_id: string
         }
@@ -676,7 +728,11 @@ export type Database = {
           created_at?: string
           html?: string
           id?: string
+          name?: string | null
           prompt?: string | null
+          subdomain?: string | null
+          tagline?: string | null
+          theme?: Json
           title?: string
           user_id?: string
         }
