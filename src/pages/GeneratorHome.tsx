@@ -49,9 +49,41 @@ export default function GeneratorHome() {
     return () => { cancelled = true; };
   }, [user?.id]);
 
-  const handleGenerate = () => {
-    if (!prompt.trim()) return;
-    sessionStorage.setItem("nazai_pending_prompt", prompt.trim());
+  const [compiling, setCompiling] = useState(false);
+
+  const handleGenerate = async () => {
+    const p = prompt.trim();
+    if (!p || compiling) return;
+
+    if (activeType === "website") {
+      setCompiling(true);
+      try {
+        const { data: sess } = await supabase.auth.getSession();
+        const token = sess.session?.access_token ?? SUPABASE_ANON;
+        const resp = await fetch(`${SUPABASE_FUNCTIONS_URL}/compile-website-manifest`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+            apikey: SUPABASE_ANON,
+          },
+          body: JSON.stringify({ prompt: p, save: true }),
+        });
+        const body = await resp.json().catch(() => ({}));
+        if (!resp.ok || !body?.website_id) {
+          toast.error(body?.error || `Website compile failed (${resp.status})`);
+          setCompiling(false);
+          return;
+        }
+        navigate(`/website-preview/${body.website_id}`);
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Website compile failed");
+        setCompiling(false);
+      }
+      return;
+    }
+
+    sessionStorage.setItem("nazai_pending_prompt", p);
     sessionStorage.setItem("nazai_pending_type", activeType);
     navigate("/generation-workspace");
   };
