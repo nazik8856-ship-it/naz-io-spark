@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Globe, Building2, ShoppingBag, Palette, Code2, FileText, Zap, Clock, ChevronRight, Sparkles } from "lucide-react";
+import { ArrowLeft, Globe, Building2, ShoppingBag, Palette, Code2, FileText, Zap, Clock, ChevronRight, Sparkles, Loader2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useProjects } from "@/hooks/useProjects";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, SUPABASE_FUNCTIONS_URL, SUPABASE_ANON } from "@/integrations/supabase/client";
 import { formatDistanceToNow } from "date-fns";
+import { toast } from "sonner";
 
 const TYPES = [
   { id: "website", label: "Website", icon: Globe },
@@ -48,9 +49,41 @@ export default function GeneratorHome() {
     return () => { cancelled = true; };
   }, [user?.id]);
 
-  const handleGenerate = () => {
-    if (!prompt.trim()) return;
-    sessionStorage.setItem("nazai_pending_prompt", prompt.trim());
+  const [compiling, setCompiling] = useState(false);
+
+  const handleGenerate = async () => {
+    const p = prompt.trim();
+    if (!p || compiling) return;
+
+    if (activeType === "website") {
+      setCompiling(true);
+      try {
+        const { data: sess } = await supabase.auth.getSession();
+        const token = sess.session?.access_token ?? SUPABASE_ANON;
+        const resp = await fetch(`${SUPABASE_FUNCTIONS_URL}/compile-website-manifest`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+            apikey: SUPABASE_ANON,
+          },
+          body: JSON.stringify({ prompt: p, save: true }),
+        });
+        const body = await resp.json().catch(() => ({}));
+        if (!resp.ok || !body?.website_id) {
+          toast.error(body?.error || `Website compile failed (${resp.status})`);
+          setCompiling(false);
+          return;
+        }
+        navigate(`/website-preview/${body.website_id}`);
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Website compile failed");
+        setCompiling(false);
+      }
+      return;
+    }
+
+    sessionStorage.setItem("nazai_pending_prompt", p);
     sessionStorage.setItem("nazai_pending_type", activeType);
     navigate("/generation-workspace");
   };
@@ -153,11 +186,11 @@ export default function GeneratorHome() {
             </div>
             <button
               onClick={handleGenerate}
-              disabled={!prompt.trim()}
+              disabled={!prompt.trim() || compiling}
               className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-purple-400/50 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              <Zap className="h-4 w-4 text-purple-300" />
-              <span className="text-sm">Generate</span>
+              {compiling ? <Loader2 className="h-4 w-4 text-purple-300 animate-spin" /> : <Zap className="h-4 w-4 text-purple-300" />}
+              <span className="text-sm">{compiling ? "Compiling…" : "Generate"}</span>
               <span className="text-purple-300">↗</span>
             </button>
           </div>
