@@ -553,7 +553,8 @@ function buildFallbackManifest(
     decisionPolicy: blueprint.decisionPolicy,
     tools: [
       { name: "web_search", kind: "web_search", description: "Research the business, customers, competitors, or any current public info.", config: {} },
-      { name: "http_get", kind: "http_get", description: "Fetch a public URL to read its content.", config: {} },
+      { name: "sync_now", kind: "sync_integrations", description: "Refresh live data from all connected tools before reasoning.", config: {} },
+      { name: "read_data", kind: "integration_query", description: "Read the latest synced snapshot for a specific connected tool.", config: {} },
       { name: "notify", kind: "notify", description: "Log an internal notification for the operator.", config: { channel: "log" } },
       { name: "remember", kind: "remember", description: "Persist a fact about the business for future runs.", config: {} },
       { name: "ask_user", kind: "ask_user", description: "Ask the operator a focused question when essential info is missing.", config: {} },
