@@ -94,7 +94,7 @@ const ROLE_LIBRARY: Record<string, {
       { rule: "Never publish to social/blog without approval.", requiresApproval: true },
       { rule: "Stay within stated brand tone and forbidden-topics list.", requiresApproval: false },
     ],
-    tools: ["web_search", "http_get", "notify", "remember", "request_approval", "ask_user"],
+    tools: ["web_search", "sync_now", "read_data", "notify", "remember", "request_approval", "ask_user"],
     workflowSummary:
       "The agent runs your content engine on autopilot: it watches mentions and SEO movement daily, drafts 5+ posts per week in your brand tone, monitors ad performance, and pauses underperformers. Every Monday it ships a one-page brief with what shipped, what worked, and what's queued for approval.",
     automations: [
