@@ -416,6 +416,12 @@ Rules:
               body: JSON.stringify({ cron: true }),
             });
             const body = await r.json().catch(() => ({}));
+            // Build a set of connected providers so we only return snapshots for live connections.
+            const { data: connectedInts } = await supabase.from("agent_integrations")
+              .select("provider")
+              .eq("user_id", userId)
+              .eq("status", "connected");
+            const connectedSet = new Set((connectedInts || []).map((i) => String(i.provider).toLowerCase()));
             // Re-read the latest snapshots for THIS user so the agent has fresh numbers.
             const { data: fresh } = await supabase.from("integration_snapshots")
               .select("provider, kind, data, error, fetched_at")
@@ -425,6 +431,7 @@ Rules:
             const summary = (fresh || [])
               .filter((s) => {
                 if (seen.has(s.provider as string)) return false;
+                if (!connectedSet.has(String(s.provider).toLowerCase())) return false;
                 if (providerFilter && s.provider !== providerFilter) return false;
                 seen.add(s.provider as string); return true;
               })
@@ -451,6 +458,7 @@ Rules:
           const { data: intRows } = await supabase.from("agent_integrations")
             .select("provider")
             .eq("user_id", userId)
+            .eq("status", "connected")
             .ilike("provider", providerFilter)
             .limit(1);
           const canonicalProvider = (intRows?.[0]?.provider as string | undefined) ?? providerFilter;
