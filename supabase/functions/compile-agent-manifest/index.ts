@@ -48,7 +48,7 @@ const ROLE_LIBRARY: Record<string, {
       { rule: "Never send outbound emails without explicit approval.", requiresApproval: true },
       { rule: "Never promise discounts above policy.", requiresApproval: true },
     ],
-    tools: ["web_search", "http_get", "notify", "remember", "request_approval", "ask_user"],
+    tools: ["web_search", "sync_now", "read_data", "notify", "remember", "request_approval", "ask_user"],
     workflowSummary:
       "Every morning the agent pulls fresh prospect signals, scores them, drafts personalized outreach, and queues it for one-click approval. Throughout the day it watches replies and pipeline events, advances stages in your CRM, and nudges stalled deals — so the rep only handles humans, not data entry.",
     automations: [
