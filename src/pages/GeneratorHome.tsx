@@ -51,10 +51,13 @@ export default function GeneratorHome() {
   }, [user?.id]);
 
   const [compiling, setCompiling] = useState(false);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [tone, setTone] = useState<string | null>(null);
 
   const handleGenerate = async () => {
-    const p = prompt.trim();
-    if (!p || compiling) return;
+    const raw = prompt.trim();
+    if (!raw || compiling) return;
+    const p = buildContextPrompt(raw, tone, attachments);
 
     if (activeType === "website") {
       setCompiling(true);
