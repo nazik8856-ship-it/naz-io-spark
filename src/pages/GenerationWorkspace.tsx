@@ -210,6 +210,8 @@ export default function GenerationWorkspace() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatMode, setChatMode] = useState<ChatMode>("build");
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [tone, setTone] = useState<string | null>(null);
   const modeMenuRef = useRef<HTMLDivElement>(null);
   const initialized = useRef(false);
   const forcedAgentRef = useRef<boolean>(false);
