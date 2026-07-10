@@ -1428,12 +1428,12 @@ export default function GenerationWorkspace() {
               />
               <div className="flex items-center justify-between mt-2">
                 <div className="flex items-center gap-1">
-                  <button className="h-7 w-7 rounded-md hover:bg-white/5 flex items-center justify-center text-zinc-400">
-                    <Sliders className="h-3.5 w-3.5" />
-                  </button>
-                  <button className="h-7 w-7 rounded-md hover:bg-white/5 flex items-center justify-center text-zinc-400">
-                    <Plus className="h-3.5 w-3.5" />
-                  </button>
+                  <PromptExtras
+                    attachments={attachments}
+                    onChange={setAttachments}
+                    tone={tone}
+                    onToneChange={setTone}
+                  />
                 </div>
                 <div className="flex items-center gap-1">
                   <div className="relative" ref={modeMenuRef}>
