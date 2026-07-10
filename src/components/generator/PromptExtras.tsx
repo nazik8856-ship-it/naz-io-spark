@@ -45,17 +45,43 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
   const [connected, setConnected] = useState<Array<{ provider: string; hasSnapshot: boolean; snapshotText?: string }>>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const csvInputRef = useRef<HTMLInputElement>(null);
-  const plusRef = useRef<HTMLDivElement>(null);
-  const tunerRef = useRef<HTMLDivElement>(null);
+  const plusBtnRef = useRef<HTMLButtonElement>(null);
+  const tunerBtnRef = useRef<HTMLButtonElement>(null);
+  const plusPanelRef = useRef<HTMLDivElement>(null);
+  const tunerPanelRef = useRef<HTMLDivElement>(null);
+  const [plusPos, setPlusPos] = useState<{ left: number; bottom: number } | null>(null);
+  const [tunerPos, setTunerPos] = useState<{ left: number; bottom: number } | null>(null);
+
+  const computePos = (btn: HTMLButtonElement | null) => {
+    if (!btn) return null;
+    const r = btn.getBoundingClientRect();
+    return { left: r.left, bottom: window.innerHeight - r.top + 8 };
+  };
+
+  useLayoutEffect(() => {
+    if (plusOpen) setPlusPos(computePos(plusBtnRef.current));
+  }, [plusOpen]);
+  useLayoutEffect(() => {
+    if (tunerOpen) setTunerPos(computePos(tunerBtnRef.current));
+  }, [tunerOpen]);
 
   useEffect(() => {
     const h = (e: MouseEvent) => {
-      if (plusRef.current && !plusRef.current.contains(e.target as Node)) setPlusOpen(false);
-      if (tunerRef.current && !tunerRef.current.contains(e.target as Node)) setTunerOpen(false);
+      const t = e.target as Node;
+      if (
+        plusOpen &&
+        !plusBtnRef.current?.contains(t) &&
+        !plusPanelRef.current?.contains(t)
+      ) setPlusOpen(false);
+      if (
+        tunerOpen &&
+        !tunerBtnRef.current?.contains(t) &&
+        !tunerPanelRef.current?.contains(t)
+      ) setTunerOpen(false);
     };
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
-  }, []);
+  }, [plusOpen, tunerOpen]);
 
   // Load user's existing agents + websites when + menu opens (for attach-as-context)
   useEffect(() => {
