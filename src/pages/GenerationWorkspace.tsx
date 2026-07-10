@@ -690,15 +690,18 @@ export default function GenerationWorkspace() {
   const sendPrompt = () => {
     const text = prompt.trim();
     if (!text || isStreaming) return;
+    const enriched = buildContextPrompt(text, tone, attachments);
     const userMsg: ChatMessage = {
       id: crypto.randomUUID(),
       role: "user",
-      content: text,
+      content: enriched,
       time: "just now",
     };
     const next = [...messages, userMsg];
     setMessages(next);
     setPrompt("");
+    setAttachments([]);
+    setTone(null);
     const history = next
       .filter((m) => m.content.trim().length > 0)
       .map((m) => ({
