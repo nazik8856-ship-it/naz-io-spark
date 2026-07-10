@@ -176,17 +176,21 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
   return (
     <div className="flex items-center gap-2 flex-wrap">
       {/* + button */}
-      <div className="relative" ref={plusRef}>
-        <button
-          type="button"
-          onClick={() => { setPlusOpen((v) => !v); setTunerOpen(false); }}
-          className="h-8 w-8 rounded-full bg-white/5 border border-white/10 hover:border-purple-400/50 flex items-center justify-center text-zinc-300"
-          title="Attach"
+      <button
+        ref={plusBtnRef}
+        type="button"
+        onClick={() => { setPlusOpen((v) => !v); setTunerOpen(false); }}
+        className="h-8 w-8 rounded-full bg-white/5 border border-white/10 hover:border-purple-400/50 flex items-center justify-center text-zinc-300"
+        title="Attach"
+      >
+        <Plus className="h-4 w-4" />
+      </button>
+      {plusOpen && plusPos && createPortal(
+        <div
+          ref={plusPanelRef}
+          style={{ position: "fixed", left: plusPos.left, bottom: plusPos.bottom, zIndex: 10000 }}
+          className="w-72 rounded-xl border border-white/10 bg-zinc-950 p-3 shadow-2xl"
         >
-          <Plus className="h-4 w-4" />
-        </button>
-        {plusOpen && (
-          <div className="absolute bottom-full left-0 mb-2 w-72 rounded-xl border border-white/10 bg-zinc-950/95 backdrop-blur-xl p-3 z-50 shadow-2xl">
             <div className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 mb-2">Attach</div>
             <button
               onClick={() => fileInputRef.current?.click()}
