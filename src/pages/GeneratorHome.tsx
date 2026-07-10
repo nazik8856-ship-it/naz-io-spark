@@ -175,7 +175,15 @@ export default function GeneratorHome() {
             rows={3}
             className="w-full bg-transparent resize-none outline-none text-base text-zinc-100 placeholder:text-zinc-600"
           />
-          <div className="flex items-center justify-between pt-3 mt-2 border-t border-white/5">
+          <div className="flex items-center gap-2 flex-wrap pt-3 mt-2 border-t border-white/5">
+            <PromptExtras
+              attachments={attachments}
+              onChange={setAttachments}
+              tone={tone}
+              onToneChange={setTone}
+            />
+          </div>
+          <div className="flex items-center justify-between pt-3 mt-2">
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-purple-400/40 text-purple-300 text-xs">
               {(() => {
                 const t = TYPES.find((x) => x.id === activeType)!;
