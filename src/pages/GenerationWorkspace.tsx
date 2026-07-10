@@ -35,6 +35,7 @@ import AgentCockpit from "@/components/agents/AgentCockpit";
 import AgentRenderBoundary from "@/components/agents/AgentRenderBoundary";
 import AgentIntakeModal, { type IntakeQuestion } from "@/components/agents/AgentIntakeModal";
 import { SUPABASE_FUNCTIONS_URL, SUPABASE_ANON, supabase } from "@/integrations/supabase/client";
+import PromptExtras, { buildContextPrompt, type Attachment } from "@/components/generator/PromptExtras";
 
 type AgentStatus = "pending" | "building" | "approved" | "removed";
 type AgentManifest = {
@@ -209,6 +210,8 @@ export default function GenerationWorkspace() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatMode, setChatMode] = useState<ChatMode>("build");
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [tone, setTone] = useState<string | null>(null);
   const modeMenuRef = useRef<HTMLDivElement>(null);
   const initialized = useRef(false);
   const forcedAgentRef = useRef<boolean>(false);
@@ -687,15 +690,18 @@ export default function GenerationWorkspace() {
   const sendPrompt = () => {
     const text = prompt.trim();
     if (!text || isStreaming) return;
+    const enriched = buildContextPrompt(text, tone, attachments);
     const userMsg: ChatMessage = {
       id: crypto.randomUUID(),
       role: "user",
-      content: text,
+      content: enriched,
       time: "just now",
     };
     const next = [...messages, userMsg];
     setMessages(next);
     setPrompt("");
+    setAttachments([]);
+    setTone(null);
     const history = next
       .filter((m) => m.content.trim().length > 0)
       .map((m) => ({
@@ -1422,12 +1428,12 @@ export default function GenerationWorkspace() {
               />
               <div className="flex items-center justify-between mt-2">
                 <div className="flex items-center gap-1">
-                  <button className="h-7 w-7 rounded-md hover:bg-white/5 flex items-center justify-center text-zinc-400">
-                    <Sliders className="h-3.5 w-3.5" />
-                  </button>
-                  <button className="h-7 w-7 rounded-md hover:bg-white/5 flex items-center justify-center text-zinc-400">
-                    <Plus className="h-3.5 w-3.5" />
-                  </button>
+                  <PromptExtras
+                    attachments={attachments}
+                    onChange={setAttachments}
+                    tone={tone}
+                    onToneChange={setTone}
+                  />
                 </div>
                 <div className="flex items-center gap-1">
                   <div className="relative" ref={modeMenuRef}>
