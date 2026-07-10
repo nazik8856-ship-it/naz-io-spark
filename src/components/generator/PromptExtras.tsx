@@ -191,130 +191,134 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
           style={{ position: "fixed", left: plusPos.left, bottom: plusPos.bottom, zIndex: 10000 }}
           className="w-72 rounded-xl border border-white/10 bg-zinc-950 p-3 shadow-2xl"
         >
-            <div className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 mb-2">Attach</div>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="w-full flex items-center gap-2 px-2 py-2 rounded-lg text-sm text-zinc-200 hover:bg-white/5"
-            >
-              <Upload className="h-4 w-4 text-purple-300" /> Upload file or image
-            </button>
+          <div className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 mb-2">Attach</div>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="w-full flex items-center gap-2 px-2 py-2 rounded-lg text-sm text-zinc-200 hover:bg-white/5"
+          >
+            <Upload className="h-4 w-4 text-purple-300" /> Upload file or image
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => { handleFiles(e.target.files, false); setPlusOpen(false); e.target.value = ""; }}
+          />
+          <div className="flex items-center gap-1 px-2 py-2">
+            <Link2 className="h-4 w-4 text-purple-300 shrink-0" />
             <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              className="hidden"
-              onChange={(e) => { handleFiles(e.target.files, false); setPlusOpen(false); e.target.value = ""; }}
+              value={urlInput}
+              onChange={(e) => setUrlInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && attachUrl()}
+              placeholder="Paste URL…"
+              className="flex-1 bg-transparent text-sm text-zinc-200 outline-none placeholder:text-zinc-600"
             />
-            <div className="flex items-center gap-1 px-2 py-2">
-              <Link2 className="h-4 w-4 text-purple-300 shrink-0" />
-              <input
-                value={urlInput}
-                onChange={(e) => setUrlInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && attachUrl()}
-                placeholder="Paste URL…"
-                className="flex-1 bg-transparent text-sm text-zinc-200 outline-none placeholder:text-zinc-600"
-              />
-              <button onClick={attachUrl} className="text-xs text-purple-300 hover:text-purple-200">Add</button>
-            </div>
-            <div className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 mt-3 mb-1 px-2">Your projects</div>
-            <div className="max-h-40 overflow-y-auto">
-              {projects.length === 0 && (
-                <div className="text-xs text-zinc-600 px-2 py-1.5">No agents or sites yet.</div>
-              )}
-              {projects.map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => { add({ id: p.id, label: p.label, contextText: p.text }); setPlusOpen(false); }}
-                  className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs text-zinc-300 hover:bg-white/5"
-                >
-                  <Box className="h-3.5 w-3.5 text-purple-300" /> {p.label}
-                </button>
-              ))}
-            </div>
+            <button onClick={attachUrl} className="text-xs text-purple-300 hover:text-purple-200">Add</button>
           </div>
-        )}
-      </div>
+          <div className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 mt-3 mb-1 px-2">Your projects</div>
+          <div className="max-h-40 overflow-y-auto">
+            {projects.length === 0 && (
+              <div className="text-xs text-zinc-600 px-2 py-1.5">No agents or sites yet.</div>
+            )}
+            {projects.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => { add({ id: p.id, label: p.label, contextText: p.text }); setPlusOpen(false); }}
+                className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs text-zinc-300 hover:bg-white/5"
+              >
+                <Box className="h-3.5 w-3.5 text-purple-300" /> {p.label}
+              </button>
+            ))}
+          </div>
+        </div>,
+        document.body
+      )}
 
       {/* sliders button */}
-      <div className="relative" ref={tunerRef}>
-        <button
-          type="button"
-          onClick={() => { setTunerOpen((v) => !v); setPlusOpen(false); }}
-          className="h-8 w-8 rounded-full bg-white/5 border border-white/10 hover:border-purple-400/50 flex items-center justify-center text-zinc-300"
-          title="Tune"
+      <button
+        ref={tunerBtnRef}
+        type="button"
+        onClick={() => { setTunerOpen((v) => !v); setPlusOpen(false); }}
+        className="h-8 w-8 rounded-full bg-white/5 border border-white/10 hover:border-purple-400/50 flex items-center justify-center text-zinc-300"
+        title="Tune"
+      >
+        <SlidersHorizontal className="h-4 w-4" />
+      </button>
+      {tunerOpen && tunerPos && createPortal(
+        <div
+          ref={tunerPanelRef}
+          style={{ position: "fixed", left: tunerPos.left, bottom: tunerPos.bottom, zIndex: 10000 }}
+          className="w-80 rounded-xl border border-white/10 bg-zinc-950 p-3 shadow-2xl"
         >
-          <SlidersHorizontal className="h-4 w-4" />
-        </button>
-        {tunerOpen && (
-          <div className="absolute bottom-full left-0 mb-2 w-80 rounded-xl border border-white/10 bg-zinc-950/95 backdrop-blur-xl p-3 z-50 shadow-2xl">
-            <div className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 mb-2">Tone</div>
-            <div className="flex flex-wrap gap-1.5 mb-3">
-              {TONES.map((t) => (
-                <button
-                  key={t}
-                  onClick={() => onToneChange(tone === t ? null : t)}
-                  className={`px-2.5 py-1 rounded-full text-xs border transition ${
-                    tone === t
-                      ? "bg-purple-500/25 border-purple-400/60 text-white"
-                      : "bg-white/[0.03] border-white/10 text-zinc-300 hover:border-white/30"
-                  }`}
-                >
-                  {t}
-                </button>
-              ))}
-            </div>
-
-            <div className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 mb-2">Pull data from integration</div>
-            <div className="space-y-1 mb-3">
-              {INTEGRATIONS.map((i) => {
-                const c = connected.find((x) => x.provider === i.id || x.provider.includes(i.id.split("_")[1] || i.id));
-                const already = attachments.some((a) => a.id === `int-${i.id}`);
-                return (
-                  <button
-                    key={i.id}
-                    disabled={!c || already}
-                    onClick={() => {
-                      if (!c) return;
-                      add({
-                        id: `int-${i.id}`,
-                        label: `Data · ${i.label}`,
-                        contextText: c.hasSnapshot && c.snapshotText
-                          ? `Live data from ${i.label} (connected):\n${c.snapshotText.slice(0, 3000)}`
-                          : `User has ${i.label} connected via OAuth. Assume relevant data is available and shape output accordingly.`,
-                      });
-                      setTunerOpen(false);
-                    }}
-                    className="w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-xs hover:bg-white/5 disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    <span className="flex items-center gap-2 text-zinc-300">
-                      <Database className="h-3.5 w-3.5 text-purple-300" /> {i.label}
-                    </span>
-                    <span className="text-[10px] text-zinc-500">
-                      {already ? <Check className="h-3 w-3 inline text-emerald-400" /> : c ? "connected" : "not connected"}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 mb-2">Import from CSV / export</div>
-            <button
-              onClick={() => csvInputRef.current?.click()}
-              className="w-full flex items-center gap-2 px-2 py-2 rounded-lg text-xs text-zinc-200 border border-dashed border-white/10 hover:border-purple-400/40"
-            >
-              <FileSpreadsheet className="h-4 w-4 text-purple-300" /> Upload CSV/JSON (Wix, Shopify export, etc.)
-            </button>
-            <input
-              ref={csvInputRef}
-              type="file"
-              accept=".csv,.tsv,.json,.txt,.xml,.yaml,.yml"
-              multiple
-              className="hidden"
-              onChange={(e) => { handleFiles(e.target.files, true); setTunerOpen(false); e.target.value = ""; }}
-            />
+          <div className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 mb-2">Tone</div>
+          <div className="flex flex-wrap gap-1.5 mb-3">
+            {TONES.map((t) => (
+              <button
+                key={t}
+                onClick={() => onToneChange(tone === t ? null : t)}
+                className={`px-2.5 py-1 rounded-full text-xs border transition ${
+                  tone === t
+                    ? "bg-purple-500/25 border-purple-400/60 text-white"
+                    : "bg-white/[0.03] border-white/10 text-zinc-300 hover:border-white/30"
+                }`}
+              >
+                {t}
+              </button>
+            ))}
           </div>
-        )}
-      </div>
+
+          <div className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 mb-2">Pull data from integration</div>
+          <div className="space-y-1 mb-3">
+            {INTEGRATIONS.map((i) => {
+              const c = connected.find((x) => x.provider === i.id || x.provider.includes(i.id.split("_")[1] || i.id));
+              const already = attachments.some((a) => a.id === `int-${i.id}`);
+              return (
+                <button
+                  key={i.id}
+                  disabled={!c || already}
+                  onClick={() => {
+                    if (!c) return;
+                    add({
+                      id: `int-${i.id}`,
+                      label: `Data · ${i.label}`,
+                      contextText: c.hasSnapshot && c.snapshotText
+                        ? `Live data from ${i.label} (connected):\n${c.snapshotText.slice(0, 3000)}`
+                        : `User has ${i.label} connected via OAuth. Assume relevant data is available and shape output accordingly.`,
+                    });
+                    setTunerOpen(false);
+                  }}
+                  className="w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-xs hover:bg-white/5 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <span className="flex items-center gap-2 text-zinc-300">
+                    <Database className="h-3.5 w-3.5 text-purple-300" /> {i.label}
+                  </span>
+                  <span className="text-[10px] text-zinc-500">
+                    {already ? <Check className="h-3 w-3 inline text-emerald-400" /> : c ? "connected" : "not connected"}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 mb-2">Import from CSV / export</div>
+          <button
+            onClick={() => csvInputRef.current?.click()}
+            className="w-full flex items-center gap-2 px-2 py-2 rounded-lg text-xs text-zinc-200 border border-dashed border-white/10 hover:border-purple-400/40"
+          >
+            <FileSpreadsheet className="h-4 w-4 text-purple-300" /> Upload CSV/JSON (Wix, Shopify export, etc.)
+          </button>
+          <input
+            ref={csvInputRef}
+            type="file"
+            accept=".csv,.tsv,.json,.txt,.xml,.yaml,.yml"
+            multiple
+            className="hidden"
+            onChange={(e) => { handleFiles(e.target.files, true); setTunerOpen(false); e.target.value = ""; }}
+          />
+        </div>,
+        document.body
+      )}
 
       {/* chips */}
       {tone && (
