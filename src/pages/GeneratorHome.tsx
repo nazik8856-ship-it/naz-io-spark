@@ -6,6 +6,7 @@ import { useProjects } from "@/hooks/useProjects";
 import { supabase, SUPABASE_FUNCTIONS_URL, SUPABASE_ANON } from "@/integrations/supabase/client";
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
+import PromptExtras, { buildContextPrompt, type Attachment } from "@/components/generator/PromptExtras";
 
 const TYPES = [
   { id: "website", label: "Website", icon: Globe },
