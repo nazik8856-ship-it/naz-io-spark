@@ -12,15 +12,24 @@ const corsHeaders = {
 const LOVABLE_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 const MODEL = "google/gemini-3-flash-preview";
 
-const SECTION_TYPES = ["hero", "about", "services", "testimonials", "gallery", "contact", "pricing", "faq"] as const;
+const SECTION_TYPES = [
+  "hero", "about", "services", "testimonials", "gallery", "contact",
+  "pricing", "faq", "stats", "process", "cta", "logos", "feature-split", "custom",
+] as const;
 type SectionType = typeof SECTION_TYPES[number];
 
-type Section = { type: SectionType; content: Record<string, unknown> };
+type Section = { type: SectionType; variant?: string; content: Record<string, unknown> };
 type Page = { slug: string; title: string; seo_description?: string; sections: Section[] };
 type Theme = {
-  palette: { bg: string; surface: string; text: string; accent: string; accentSecondary?: string };
-  font: { heading: string; body: string };
+  palette: {
+    bg: string; surface: string; text: string; accent: string;
+    accentSecondary?: string; muted?: string; border?: string;
+  };
+  font: { heading: string; body: string; mono?: string; display?: string };
   vibe: string;
+  layout?: string;
+  motion?: string;
+  design_rationale?: string;
 };
 type Manifest = {
   name: string;
@@ -29,45 +38,87 @@ type Manifest = {
   pages: Page[];
 };
 
-const SCHEMA_DOC = `Return STRICT JSON only — no markdown fences, no commentary.
+const SCHEMA_DOC = `You are a senior brand + web designer. Return STRICT JSON only — no markdown fences, no commentary.
+
+CORE DIRECTIVE — READ FIRST:
+1. If the user's brief specifies colors, fonts, style, vibe, imagery, features, references, or any concrete design direction — FOLLOW IT EXACTLY. Do not "improve" or reinterpret it.
+2. Only invent when the brief is silent on that dimension. When you invent, invent something SPECIFIC to this business — not a generic default.
+3. AVOID these overused AI-design clichés unless the user explicitly asks for them:
+   - cream/beige background + serif headings + terracotta accent
+   - pure black + single neon cyan/green accent
+   - purple → pink gradients on white
+   - Inter for both heading and body
+   - centered hero with three feature icons in a row
+   - the "startup landing" template look
+   Pick a palette and font pair that actually fits THIS business's audience and category.
 
 Shape: {
-  "name": string,                 // brand / site name
-  "tagline": string,              // one strong sentence, under 90 chars
+  "name": string,
+  "tagline": string,               // one strong sentence, under 90 chars
   "theme": {
-    "palette": { "bg": "#hex", "surface": "#hex", "text": "#hex", "accent": "#hex", "accentSecondary": "#hex" },
-    "font": { "heading": string, "body": string },   // Google Fonts family names
-    "vibe": string                                    // 3-6 words describing look
+    "palette": {
+      "bg": "#hex", "surface": "#hex", "text": "#hex",
+      "accent": "#hex", "accentSecondary": "#hex",
+      "muted": "#hex", "border": "#hex"
+    },
+    "font": {
+      "heading": string,           // Google Fonts family
+      "body": string,              // Google Fonts family (SHOULD differ from heading unless minimalism demands it)
+      "mono": string,              // optional
+      "display": string            // optional, for oversized hero type
+    },
+    "vibe": string,                // 3-6 words
+    "layout": "centered" | "asymmetric" | "editorial" | "split" | "grid-heavy" | "magazine" | "minimal-luxury" | "brutalist" | "playful",
+    "motion": "subtle" | "expressive" | "kinetic" | "none",
+    "design_rationale": string     // 1-2 sentences: WHY this palette/font/layout fits this specific brief
   },
   "pages": [
     {
-      "slug": string,             // kebab-case, "home" for landing
-      "title": string,            // page title
-      "seo_description": string,  // 140-160 chars
+      "slug": string,              // kebab-case, "home" for landing
+      "title": string,
+      "seo_description": string,   // 140-160 chars
       "sections": [
-        { "type": "hero"|"about"|"services"|"testimonials"|"gallery"|"contact"|"pricing"|"faq",
-          "content": object }
+        { "type": "<one of the allowed types>", "variant": string, "content": object }
       ]
     }
   ]
 }
 
-Section content shapes (fill with REAL, specific copy — never lorem ipsum, never placeholder like "Feature 1"):
-- hero:         { "headline": string, "subheadline": string, "cta_primary": string, "cta_secondary"?: string, "image_prompt": string }
-- about:        { "heading": string, "body": string, "bullets": string[] }        // 3-5 bullets
-- services:     { "heading": string, "items": [ { "title": string, "description": string, "icon"?: string } ] }   // 3-6 items
-- testimonials: { "heading": string, "items": [ { "quote": string, "author": string, "role"?: string } ] }        // 2-4
-- gallery:      { "heading": string, "items": [ { "caption": string, "image_prompt": string } ] }                 // 4-8
+Allowed section types: hero, about, services, testimonials, gallery, contact, pricing, faq, stats, process, cta, logos, feature-split, custom.
+
+Section content shapes (fill with REAL, specific copy — never lorem ipsum, never "Feature 1"):
+- hero:         { "eyebrow"?: string, "headline": string, "subheadline": string, "cta_primary": string, "cta_secondary"?: string, "image_prompt": string, "media_style"?: "photo"|"illustration"|"gradient"|"pattern", "stats"?: [{"label":string,"value":string}] }
+  hero.variant: "centered" | "split-image" | "full-bleed" | "editorial-lede" | "asymmetric-mark" | "minimal-luxury"
+- about:        { "heading": string, "body": string, "bullets": string[], "image_prompt"?: string, "pull_quote"?: string }
+- services:     { "heading": string, "items": [ { "title": string, "description": string, "icon"?: string, "image_prompt"?: string } ] }
+  services.variant: "cards" | "list" | "numbered" | "zigzag"
+- testimonials: { "heading": string, "items": [ { "quote": string, "author": string, "role"?: string } ] }
+- gallery:      { "heading": string, "items": [ { "caption": string, "image_prompt": string } ] }
+  gallery.variant: "masonry" | "grid" | "strip" | "showcase"
 - contact:      { "heading": string, "body": string, "email"?: string, "phone"?: string, "address"?: string, "form_fields": string[] }
-- pricing:      { "heading": string, "tiers": [ { "name": string, "price": string, "period"?: string, "features": string[], "cta": string, "featured"?: boolean } ] } // 2-4 tiers
-- faq:          { "heading": string, "items": [ { "q": string, "a": string } ] }                                  // 4-8 items
+- pricing:      { "heading": string, "tiers": [ { "name": string, "price": string, "period"?: string, "features": string[], "cta": string, "featured"?: boolean } ] }
+- faq:          { "heading": string, "items": [ { "q": string, "a": string } ] }
+- stats:        { "heading"?: string, "items": [ { "value": string, "label": string } ] }
+- process:      { "heading": string, "steps": [ { "title": string, "description": string } ] }
+- cta:          { "headline": string, "subheadline"?: string, "cta_primary": string, "cta_secondary"?: string }
+- logos:        { "heading"?: string, "items": [ { "name": string } ] }
+- feature-split:{ "heading": string, "body": string, "bullets"?: string[], "image_prompt": string, "reverse"?: boolean }
+- custom:       { "kind": "calculator"|"booking"|"quote"|"newsletter"|"map"|"embed",
+                  "heading"?: string, "body"?: string,
+                  "fields"?: [{"name":string,"label":string,"type":"number"|"text"|"email"|"date"|"select","options"?:string[],"unit"?:string}],
+                  "formula"?: string,                 // for calculator: e.g. "hours * rate * 1.2"
+                  "output_label"?: string, "output_unit"?: string }
+
+Image prompts: for EVERY visual section (hero, about with image, feature-split, gallery items, service items when relevant) provide a SPECIFIC image_prompt — subject, mood, lighting, palette hint. Example: "aerial photo of a wooden pilates studio at golden hour, warm shadows, muted earth tones".
 
 Rules:
-- 3-6 pages total. First page slug MUST be "home" and MUST start with a "hero" section.
-- Every website should include hero + at least one of (about|services) + a contact section somewhere.
+- 3-6 pages total. First page slug MUST be "home" and MUST start with a hero.
+- Every site should include hero + at least one of (about|services|feature-split) + a contact or cta section.
+- Vary section variants across pages so the site doesn't feel templated.
 - Copy must be specific to the described business — mention what it actually does, for whom, with real language.
-- No lorem ipsum, no "Coming soon", no "Lorem", no generic filler.
-- Palette must be readable (contrast between bg and text).`;
+- No lorem ipsum, no "Coming soon", no placeholder text.
+- Palette must have readable contrast between bg and text (WCAG AA).
+- Fonts must be real Google Fonts families.`;
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -98,9 +149,19 @@ function normalize(raw: unknown, prompt: string): Manifest {
       text: paletteRaw.text || "#F4F4F5",
       accent: paletteRaw.accent || "#00A3FF",
       accentSecondary: paletteRaw.accentSecondary || "#7C3AED",
+      muted: paletteRaw.muted,
+      border: paletteRaw.border,
     },
-    font: { heading: fontRaw.heading || "Inter", body: fontRaw.body || "Inter" },
+    font: {
+      heading: fontRaw.heading || "Inter",
+      body: fontRaw.body || "Inter",
+      mono: fontRaw.mono,
+      display: fontRaw.display,
+    },
     vibe: typeof themeRaw.vibe === "string" ? themeRaw.vibe : "modern, clean, confident",
+    layout: typeof themeRaw.layout === "string" ? themeRaw.layout : "centered",
+    motion: typeof themeRaw.motion === "string" ? themeRaw.motion : "subtle",
+    design_rationale: typeof themeRaw.design_rationale === "string" ? themeRaw.design_rationale : undefined,
   };
   const pagesIn = Array.isArray(r.pages) ? r.pages : [];
   const pages: Page[] = pagesIn.slice(0, 6).map((p, idx) => {
@@ -111,7 +172,11 @@ function normalize(raw: unknown, prompt: string): Manifest {
         const ss = (s ?? {}) as Record<string, unknown>;
         const t = String(ss.type ?? "").toLowerCase();
         if (!SECTION_TYPES.includes(t as SectionType)) return null;
-        return { type: t as SectionType, content: (ss.content as Record<string, unknown>) ?? {} };
+        return {
+          type: t as SectionType,
+          variant: typeof ss.variant === "string" ? ss.variant : undefined,
+          content: (ss.content as Record<string, unknown>) ?? {},
+        };
       })
       .filter((x): x is Section => !!x);
     const title = typeof pp.title === "string" && pp.title.trim() ? pp.title.trim() : (idx === 0 ? name : `Page ${idx + 1}`);
@@ -130,13 +195,13 @@ function normalize(raw: unknown, prompt: string): Manifest {
       title: name,
       seo_description: `${name} — ${tagline}`.slice(0, 160),
       sections: [
-        { type: "hero", content: { headline: name, subheadline: tagline, cta_primary: "Get started", image_prompt: prompt } },
+        { type: "hero", variant: "centered", content: { headline: name, subheadline: tagline, cta_primary: "Get started", image_prompt: prompt } },
       ],
     });
   } else {
     pages[0].slug = "home";
     if (pages[0].sections[0]?.type !== "hero") {
-      pages[0].sections.unshift({ type: "hero", content: { headline: name, subheadline: tagline, cta_primary: "Get started", image_prompt: prompt } });
+      pages[0].sections.unshift({ type: "hero", variant: "centered", content: { headline: name, subheadline: tagline, cta_primary: "Get started", image_prompt: prompt } });
     }
   }
 
@@ -171,9 +236,9 @@ serve(async (req) => {
           model: MODEL,
           messages: [
             { role: "system", content: `You are NazAI Website Compiler.\n\n${SCHEMA_DOC}` },
-            { role: "user", content: `Compile this website brief into the JSON manifest. Return only the JSON object.\n\nBRIEF:\n${prompt}` },
+            { role: "user", content: `Compile this website brief into the JSON manifest. Follow user-specified style STRICTLY; invent a distinct identity where the brief is silent. Return only the JSON object.\n\nBRIEF:\n${prompt}` },
           ],
-          temperature: 0.4,
+          temperature: 0.85,
         }),
       });
       if (resp.status === 429) return json({ error: "Rate limited. Please retry in a moment." }, 429);
