@@ -169,7 +169,9 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
     add({
       id: crypto.randomUUID(),
       label: `URL · ${u.slice(0, 40)}`,
-      contextText: `Reference URL for inspiration/context: ${u}`,
+      contextText: `Reference URL: ${u}`,
+      url: u,
+      kind: "url",
     });
     setUrlInput("");
     setPlusOpen(false);
