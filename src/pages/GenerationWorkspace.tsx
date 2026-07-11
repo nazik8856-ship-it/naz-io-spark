@@ -1332,18 +1332,11 @@ export default function GenerationWorkspace() {
                                   >Restore</button>
                                 ) : (
                                   <>
-                                    {m.agentStatus === "approved" && m.agentDbId ? (
-                                      <button
-                                        onClick={() => navigate(`/generated/agent/${m.agentDbId}`)}
-                                        className="px-2.5 py-1 rounded-md text-[11px] font-semibold text-black bg-gradient-to-r from-emerald-400 to-cyan-400"
-                                      >Open Dashboard</button>
-                                    ) : (
-                                      <button
-                                        onClick={() => void buildAgent(m.id)}
-                                        disabled={m.agentStatus === "building"}
-                                        className="px-2.5 py-1 rounded-md text-[11px] font-semibold text-black bg-gradient-to-r from-purple-500 to-cyan-400 disabled:opacity-50"
-                                      >{m.agentStatus === "building" ? "Booting…" : "Approve & Build"}</button>
-                                    )}
+                                    <button
+                                      onClick={() => void buildAgent(m.id)}
+                                      disabled={m.agentStatus === "approved" || m.agentStatus === "building"}
+                                      className="px-2.5 py-1 rounded-md text-[11px] font-semibold text-black bg-gradient-to-r from-purple-500 to-cyan-400 disabled:opacity-50"
+                                    >{m.agentStatus === "approved" ? "Live" : m.agentStatus === "building" ? "Booting…" : "Approve & Build"}</button>
                                     <button
                                       onClick={() => startEditAgent(m.id)}
                                       className="px-2.5 py-1 rounded-md text-[11px] text-zinc-200 border border-white/10 hover:bg-white/5"
