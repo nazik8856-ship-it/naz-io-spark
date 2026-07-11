@@ -57,10 +57,13 @@ export default function GeneratorHome() {
   const handleGenerate = async () => {
     const raw = prompt.trim();
     if (!raw || compiling) return;
-    const p = buildContextPrompt(raw, tone, attachments);
+    setCompiling(true);
+    // Read/analyze every attached input BEFORE generation so the compiler
+    // works off real understanding — not raw appended text.
+    const analyzerKind = activeType === "website" ? "website" : activeType === "business" ? "agent" : "generic";
+    const { enrichedPrompt: p } = await analyzeAndBuildContext(raw, tone, attachments, analyzerKind as "website" | "agent" | "generic");
 
     if (activeType === "website") {
-      setCompiling(true);
       try {
         const { data: sess } = await supabase.auth.getSession();
         const token = sess.session?.access_token ?? SUPABASE_ANON;
@@ -79,7 +82,8 @@ export default function GeneratorHome() {
           setCompiling(false);
           return;
         }
-        navigate(`/website-preview/${body.website_id}`);
+        // Unified dashboard for any generated thing.
+        navigate(`/generated/website/${body.website_id}`);
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Website compile failed");
         setCompiling(false);
@@ -89,6 +93,7 @@ export default function GeneratorHome() {
 
     sessionStorage.setItem("nazai_pending_prompt", p);
     sessionStorage.setItem("nazai_pending_type", activeType);
+    setCompiling(false);
     navigate("/generation-workspace");
   };
 
