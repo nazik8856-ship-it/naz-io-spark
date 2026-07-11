@@ -229,28 +229,44 @@ export default function GeneratedDashboard() {
       </header>
 
       <div className="flex-1 flex min-h-0">
-        {/* Left: chat pane — same shape as the agent workspace */}
+        {/* Left: chat pane — same LiveAgentChat used by AI Agent workspace */}
         {kind === "website" && (
-          <ChatPane
-            title={website?.name || "Website"}
-            subtitle="Refine your site"
-            turns={turns}
-            busy={chatBusy}
-            onSend={sendWebsiteEdit}
-          />
+          <div className="w-full md:max-w-[420px] border-r border-white/5 bg-[#050813] flex flex-col min-h-0">
+            <LiveAgentChat
+              agentId={id || "website"}
+              name={website?.name || "Website"}
+              goal={website?.tagline || website?.prompt || undefined}
+              turns={turns.map((t) => ({ role: t.role, content: t.content }))}
+              suggestions={[
+                "Make the hero more editorial",
+                "Add a testimonials section",
+                "Use a warmer palette",
+                "Tighten the copy",
+              ]}
+              streaming={chatBusy}
+              fullSpec={website?.theme?.design_rationale || website?.prompt || ""}
+              onSend={sendWebsiteEdit}
+            />
+          </div>
         )}
         {kind === "agent" && agentManifest && (
-          <ChatPane
-            title={agentManifest.name}
-            subtitle="Agent workspace"
-            turns={[
-              { role: "user", content: agentManifest.goal || "Build my agent", time: "just now" },
-              { role: "assistant", content: `Deployed "${agentManifest.name}". Run it from the dashboard or ask for tweaks here.`, time: "just now" },
-            ]}
-            busy={false}
-            onSend={(t) => toast.info(`Agent edits coming soon: "${t}"`)}
-          />
+          <div className="w-full md:max-w-[420px] border-r border-white/5 bg-[#050813] flex flex-col min-h-0">
+            <LiveAgentChat
+              agentId={id || "agent"}
+              name={agentManifest.name}
+              goal={agentManifest.goal}
+              turns={[
+                { role: "user", content: agentManifest.goal || "Build my agent" },
+                { role: "assistant", content: `Deployed "${agentManifest.name}". Run it from the dashboard or ask for tweaks here.` },
+              ]}
+              suggestions={[]}
+              streaming={false}
+              fullSpec={agentManifest.systemPrompt || ""}
+              onSend={(t) => toast.info(`Agent edits coming soon: "${t}"`)}
+            />
+          </div>
         )}
+
 
         {/* Right: tabbed Preview + Dashboard */}
         <section className="flex-1 flex flex-col min-w-0 bg-[#0a0f1e]">
