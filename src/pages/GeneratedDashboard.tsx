@@ -300,12 +300,35 @@ export default function GeneratedDashboard() {
               <div className="p-6 text-white/50 text-sm">Agent preview lives in the dashboard tab.</div>
             )}
             {activeTab === "dashboard" && kind === "website" && websiteData && (
-              <div className="p-6">
-                <GeneratedAgentDashboard
-                  manifest={websiteData.manifest}
-                  events={websiteData.events as any}
-                  agentId={undefined}
-                />
+              <div className="relative h-full overflow-y-auto px-6 md:px-10 py-8">
+                <div className="max-w-6xl mx-auto rounded-xl border border-emerald-400/50 bg-black/55 backdrop-blur-sm overflow-hidden shadow-[0_0_60px_-15px_rgba(16,185,129,0.5)]">
+                  <div className="flex items-start justify-between gap-4 p-5 border-b border-white/10 bg-gradient-to-r from-emerald-400/10 via-cyan-400/5 to-transparent">
+                    <div className="min-w-0">
+                      <div className="text-[10px] uppercase tracking-[0.22em] font-mono mb-2 text-emerald-300">
+                        Website Generated!
+                      </div>
+                      <h1 className="text-2xl md:text-3xl font-bold text-white truncate">
+                        {website?.name || "Your website"}
+                      </h1>
+                      {(website?.tagline || website?.theme?.design_rationale) && (
+                        <p className="text-sm text-cyan-200/90 mt-2 line-clamp-2">
+                          🎯 {website?.tagline || website?.theme?.design_rationale}
+                        </p>
+                      )}
+                    </div>
+                    <span className="shrink-0 text-[10px] uppercase tracking-wider px-2.5 py-1 rounded inline-flex items-center gap-1 bg-emerald-400/15 text-emerald-300 border border-emerald-400/40">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                      LIVE SITE
+                    </span>
+                  </div>
+                  <div className="p-5 md:p-7">
+                    <GeneratedAgentDashboard
+                      manifest={websiteData.manifest}
+                      events={websiteData.events as any}
+                      agentId={undefined}
+                    />
+                  </div>
+                </div>
               </div>
             )}
             {activeTab === "dashboard" && kind === "agent" && agentManifest && id && (
