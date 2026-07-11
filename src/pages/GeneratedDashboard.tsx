@@ -1,14 +1,16 @@
-// Unified post-generation dashboard for ANY generated thing — agents, websites,
-// and future generation kinds — reusing the same GeneratedAgentDashboard
-// component (execution_flow, artifacts_panel, hero, etc.) instead of a bespoke
-// per-type view.
-import { useEffect, useMemo, useState } from "react";
+// Unified post-generation workspace: mirrors the AI-Agent generation UI
+// (left chat pane + right tabbed Preview/Dashboard) for ANY generation kind
+// — websites, agents, and future ones — so every generated thing lands in the
+// same chat-plus-dashboard experience.
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { ArrowLeft, ExternalLink, Loader2 } from "lucide-react";
+import { ArrowLeft, ExternalLink, Loader2, MessageSquare, Send, LayoutDashboard, Monitor } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import GeneratedAgentDashboard, { type AgentUiSpec, type Widget } from "@/components/agents/GeneratedAgentDashboard";
 import AgentCockpit, { type AgentManifest } from "@/components/agents/AgentCockpit";
+import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 type Params = { kind: string; id: string };
 
@@ -20,7 +22,8 @@ type SynthEvent = {
   run_id?: string | null;
 };
 
-/** Build a GeneratedAgentDashboard Manifest + synthetic event stream from a website record. */
+type ChatTurn = { role: "user" | "assistant"; content: string; time: string };
+
 function synthesizeWebsiteManifest(
   website: any,
   pages: any[],
@@ -29,7 +32,6 @@ function synthesizeWebsiteManifest(
   const palette = theme.palette || {};
   const accent = palette.accent || "#a855f7";
   const accentSecondary = palette.accentSecondary || palette.accent2 || "#22d3ee";
-
   const totalSections = pages.reduce((n, p) => n + ((p.sections || []).length || 0), 0);
 
   const ui: AgentUiSpec = {
@@ -44,7 +46,7 @@ function synthesizeWebsiteManifest(
     layout: "command-deck",
     widgets: [
       { kind: "hero_metric", title: "Pages", staticValue: String(pages.length), subtitle: "Generated & live", span: 3 },
-      { kind: "hero_metric", title: "Sections", staticValue: String(totalSections), subtitle: "Total blocks compiled", span: 3 },
+      { kind: "hero_metric", title: "Sections", staticValue: String(totalSections), subtitle: "Blocks compiled", span: 3 },
       { kind: "hero_metric", title: "Layout", staticValue: theme.layout || "custom", subtitle: "Design identity", span: 3 },
       { kind: "hero_metric", title: "Motion", staticValue: theme.motion || "subtle", subtitle: "Animation profile", span: 3 },
       { kind: "execution_flow", title: "Compile trace", limit: 12, span: 6 },
@@ -58,15 +60,8 @@ function synthesizeWebsiteManifest(
     name: website.name || website.title || "Website",
     goal: website.tagline || website.prompt || "Deliver the website's promise.",
     tools: Array.from(
-      new Set(
-        pages.flatMap((p: any) => (p.sections || []).map((s: any) => s?.type).filter(Boolean)),
-      ),
-    ).map((t: any) => ({
-      name: String(t),
-      description: `${t} block`,
-      kind: "section",
-      config: {},
-    })),
+      new Set(pages.flatMap((p: any) => (p.sections || []).map((s: any) => s?.type).filter(Boolean))),
+    ).map((t: any) => ({ name: String(t), description: `${t} block`, kind: "section", config: {} })),
     guardrails: [],
     kpis: [
       { name: "Design identity", target: theme.layout || "custom" },
@@ -76,52 +71,99 @@ function synthesizeWebsiteManifest(
     ui,
   };
 
-  // Synthetic event stream — makes execution_flow / artifacts_panel populate.
   const t0 = new Date(website.created_at || Date.now()).getTime();
   const events: SynthEvent[] = [
-    {
-      id: `${website.id}-start`,
-      kind: "run_started",
-      payload: { note: "Compile started" },
-      created_at: new Date(t0).toISOString(),
-      run_id: website.id,
-    },
-    {
-      id: `${website.id}-reasoning`,
-      kind: "reasoning",
-      payload: { text: theme.design_rationale || `Interpreted brief: ${website.prompt || website.name}` },
-      created_at: new Date(t0 + 1000).toISOString(),
-      run_id: website.id,
-    },
+    { id: `${website.id}-start`, kind: "run_started", payload: { note: "Compile started" }, created_at: new Date(t0).toISOString(), run_id: website.id },
+    { id: `${website.id}-reasoning`, kind: "reasoning", payload: { text: theme.design_rationale || `Interpreted brief: ${website.prompt || website.name}` }, created_at: new Date(t0 + 1000).toISOString(), run_id: website.id },
   ];
   let step = 2;
   pages.forEach((p: any) => {
-    events.push({
-      id: `${p.id}-page`,
-      kind: "action",
-      payload: { title: `Page: ${p.title || p.slug}`, slug: p.slug, sections: (p.sections || []).length },
-      created_at: new Date(t0 + 1000 * step++).toISOString(),
-      run_id: website.id,
-    });
+    events.push({ id: `${p.id}-page`, kind: "action", payload: { title: `Page: ${p.title || p.slug}`, slug: p.slug, sections: (p.sections || []).length }, created_at: new Date(t0 + 1000 * step++).toISOString(), run_id: website.id });
     (p.sections || []).forEach((s: any, i: number) => {
-      events.push({
-        id: `${p.id}-s-${i}`,
-        kind: "tool_call",
-        payload: { tool: s?.type || "section", variant: s?.variant, page: p.slug },
-        created_at: new Date(t0 + 1000 * step++).toISOString(),
-        run_id: website.id,
-      });
+      events.push({ id: `${p.id}-s-${i}`, kind: "tool_call", payload: { tool: s?.type || "section", variant: s?.variant, page: p.slug }, created_at: new Date(t0 + 1000 * step++).toISOString(), run_id: website.id });
     });
   });
-  events.push({
-    id: `${website.id}-finished`,
-    kind: "finished",
-    payload: { pages: pages.length, sections: totalSections },
-    created_at: new Date(t0 + 1000 * step).toISOString(),
-    run_id: website.id,
-  });
-
+  events.push({ id: `${website.id}-finished`, kind: "finished", payload: { pages: pages.length, sections: totalSections }, created_at: new Date(t0 + 1000 * step).toISOString(), run_id: website.id });
   return { manifest, events };
+}
+
+/** Minimal chat pane visually matching the agent workspace's left column. */
+function ChatPane({
+  title,
+  subtitle,
+  turns,
+  busy,
+  onSend,
+}: {
+  title: string;
+  subtitle: string;
+  turns: ChatTurn[];
+  busy: boolean;
+  onSend: (text: string) => void;
+}) {
+  const [input, setInput] = useState("");
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [turns.length, busy]);
+
+  return (
+    <aside className="w-full md:max-w-[380px] border-r border-white/5 flex flex-col bg-[#050813]">
+      <div className="px-4 py-3 border-b border-white/5 flex items-center gap-2">
+        <MessageSquare className="h-4 w-4 text-cyan-300" />
+        <div className="min-w-0">
+          <div className="text-sm font-semibold text-white truncate">{title}</div>
+          <div className="text-[10px] uppercase tracking-[0.24em] text-white/40 truncate">{subtitle}</div>
+        </div>
+      </div>
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+        {turns.map((t, i) => (
+          <div
+            key={i}
+            className={cn(
+              "text-sm px-3 py-2 rounded-xl max-w-[92%] whitespace-pre-wrap leading-relaxed",
+              t.role === "user"
+                ? "ml-auto bg-gradient-to-br from-purple-500/30 to-cyan-500/20 border border-white/10 text-white"
+                : "bg-white/[0.04] border border-white/5 text-zinc-200",
+            )}
+          >
+            {t.content}
+          </div>
+        ))}
+        {busy && (
+          <div className="flex items-center gap-2 text-cyan-300 text-xs">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Applying changes…
+          </div>
+        )}
+      </div>
+      <div className="border-t border-white/5 p-3 flex gap-2">
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey && input.trim() && !busy) {
+              e.preventDefault();
+              onSend(input.trim());
+              setInput("");
+            }
+          }}
+          placeholder="Describe changes…"
+          className="flex-1 bg-white/[0.04] border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/30 focus:outline-none focus:ring-1 focus:ring-cyan-400/40"
+          disabled={busy}
+        />
+        <button
+          onClick={() => {
+            if (input.trim() && !busy) { onSend(input.trim()); setInput(""); }
+          }}
+          disabled={!input.trim() || busy}
+          className="h-9 w-9 rounded-lg bg-gradient-to-br from-purple-500 to-cyan-500 text-black flex items-center justify-center disabled:opacity-40"
+          aria-label="Send"
+        >
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+        </button>
+      </div>
+    </aside>
+  );
 }
 
 export default function GeneratedDashboard() {
@@ -133,6 +175,10 @@ export default function GeneratedDashboard() {
   const [website, setWebsite] = useState<any | null>(null);
   const [pages, setPages] = useState<any[]>([]);
   const [agentManifest, setAgentManifest] = useState<AgentManifest | null>(null);
+  const [activeTab, setActiveTab] = useState<"preview" | "dashboard">("dashboard");
+  const [turns, setTurns] = useState<ChatTurn[]>([]);
+  const [chatBusy, setChatBusy] = useState(false);
+  const [previewKey, setPreviewKey] = useState(0);
 
   useEffect(() => {
     if (!id || !kind) return;
@@ -142,31 +188,26 @@ export default function GeneratedDashboard() {
       setError(null);
       try {
         if (kind === "website") {
-          const { data: site, error: sErr } = await supabase
-            .from("websites")
-            .select("*")
-            .eq("id", id)
-            .maybeSingle();
+          const { data: site, error: sErr } = await supabase.from("websites").select("*").eq("id", id).maybeSingle();
           if (sErr) throw sErr;
           if (!site) throw new Error("Website not found");
-          const { data: pgs } = await supabase
-            .from("website_pages")
-            .select("*")
-            .eq("website_id", id)
-            .order("order_index", { ascending: true });
+          const { data: pgs } = await supabase.from("website_pages").select("*").eq("website_id", id).order("order_index", { ascending: true });
           if (cancelled) return;
           setWebsite(site);
           setPages(pgs || []);
+          setTurns([
+            { role: "user", content: site.prompt || site.name || "Generate my website", time: "just now" },
+            {
+              role: "assistant",
+              content: `Built "${site.name || "your site"}" — ${(pgs || []).length} page${(pgs || []).length === 1 ? "" : "s"}, ${((pgs || []).reduce((n: number, p: any) => n + ((p.sections || []).length || 0), 0))} sections. Switch to Preview to see it live, or Dashboard for the compile trace. Tell me what to change.`,
+              time: "just now",
+            },
+          ]);
         } else if (kind === "agent") {
-          const { data: agent, error: aErr } = await supabase
-            .from("agents")
-            .select("*")
-            .eq("id", id)
-            .maybeSingle();
+          const { data: agent, error: aErr } = await supabase.from("agents").select("*").eq("id", id).maybeSingle();
           if (aErr) throw aErr;
           if (!agent) throw new Error("Agent not found");
           if (cancelled) return;
-          // agents.manifest column stores the compiled manifest.
           const m = (agent as any).manifest || {};
           setAgentManifest({
             name: agent.name || m.name || "Agent",
@@ -196,12 +237,44 @@ export default function GeneratedDashboard() {
     [website, pages],
   );
 
+  const sendWebsiteEdit = async (text: string) => {
+    if (!id) return;
+    setTurns((t) => [...t, { role: "user", content: text, time: "just now" }]);
+    setChatBusy(true);
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess.session?.access_token;
+      const resp = await supabase.functions.invoke("compile-website-manifest", {
+        body: {
+          prompt: text,
+          previousWebsiteId: id,
+          refine: true,
+          save: true,
+        },
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      if (resp.error) throw new Error(resp.error.message || "Refine failed");
+      const { data: site } = await supabase.from("websites").select("*").eq("id", id).maybeSingle();
+      const { data: pgs } = await supabase.from("website_pages").select("*").eq("website_id", id).order("order_index", { ascending: true });
+      if (site) setWebsite(site);
+      if (pgs) setPages(pgs);
+      setPreviewKey((k) => k + 1);
+      setTurns((t) => [...t, { role: "assistant", content: "✓ Updated. Preview refreshed.", time: "just now" }]);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setTurns((t) => [...t, { role: "assistant", content: `Couldn't apply that: ${msg}`, time: "just now" }]);
+      toast.error(msg);
+    } finally {
+      setChatBusy(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#020617] text-white">
         <div className="flex items-center gap-3 text-white/60">
           <Loader2 className="h-4 w-4 animate-spin" />
-          <span className="text-sm">Loading dashboard…</span>
+          <span className="text-sm">Loading workspace…</span>
         </div>
       </div>
     );
@@ -210,52 +283,98 @@ export default function GeneratedDashboard() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-[#020617] text-white gap-4">
         <p className="text-red-400 text-sm">{error}</p>
-        <button
-          onClick={() => navigate("/generator-home")}
-          className="px-4 py-2 rounded-lg border border-white/10 text-sm hover:bg-white/5"
-        >
-          Back
-        </button>
+        <button onClick={() => navigate("/generator-home")} className="px-4 py-2 rounded-lg border border-white/10 text-sm hover:bg-white/5">Back</button>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#020617] text-white">
-      <header className="sticky top-0 z-10 backdrop-blur-xl bg-[#020617]/70 border-b border-white/5 px-6 py-3 flex items-center justify-between">
-        <button
-          onClick={() => navigate("/generator-home")}
-          className="flex items-center gap-2 text-white/60 hover:text-white transition text-sm"
-        >
+    <div className="h-screen flex flex-col bg-[#020617] text-white">
+      <header className="shrink-0 backdrop-blur-xl bg-[#020617]/70 border-b border-white/5 px-6 py-3 flex items-center justify-between">
+        <button onClick={() => navigate("/generator-home")} className="flex items-center gap-2 text-white/60 hover:text-white transition text-sm">
           <ArrowLeft className="h-4 w-4" />
           Back
         </button>
-        <div className="text-[10px] font-mono uppercase tracking-[0.3em] text-white/40">
-          {kind} · dashboard
-        </div>
-        {kind === "website" && id && (
-          <Link
-            to={`/website-preview/${id}`}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-purple-400/40 text-purple-300 hover:bg-purple-400/10 text-xs"
-          >
-            Open preview <ExternalLink className="h-3 w-3" />
+        <div className="text-[10px] font-mono uppercase tracking-[0.3em] text-white/40">{kind} · workspace</div>
+        {kind === "website" && id ? (
+          <Link to={`/website-preview/${id}`} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-purple-400/40 text-purple-300 hover:bg-purple-400/10 text-xs">
+            Open full <ExternalLink className="h-3 w-3" />
           </Link>
-        )}
-        {kind !== "website" && <div className="w-16" />}
+        ) : <div className="w-16" />}
       </header>
 
-      <main className="max-w-7xl mx-auto px-6 py-6">
-        {kind === "website" && websiteData && (
-          <GeneratedAgentDashboard
-            manifest={websiteData.manifest}
-            events={websiteData.events as any}
-            agentId={undefined}
+      <div className="flex-1 flex min-h-0">
+        {/* Left: chat pane — same shape as the agent workspace */}
+        {kind === "website" && (
+          <ChatPane
+            title={website?.name || "Website"}
+            subtitle="Refine your site"
+            turns={turns}
+            busy={chatBusy}
+            onSend={sendWebsiteEdit}
           />
         )}
-        {kind === "agent" && agentManifest && id && (
-          <AgentCockpit agentId={id} manifest={agentManifest} />
+        {kind === "agent" && agentManifest && (
+          <ChatPane
+            title={agentManifest.name}
+            subtitle="Agent workspace"
+            turns={[
+              { role: "user", content: agentManifest.goal || "Build my agent", time: "just now" },
+              { role: "assistant", content: `Deployed "${agentManifest.name}". Run it from the dashboard or ask for tweaks here.`, time: "just now" },
+            ]}
+            busy={false}
+            onSend={(t) => toast.info(`Agent edits coming soon: "${t}"`)}
+          />
         )}
-      </main>
+
+        {/* Right: tabbed Preview + Dashboard */}
+        <section className="flex-1 flex flex-col min-w-0 bg-[#0a0f1e]">
+          <div className="shrink-0 border-b border-white/5 px-4 flex items-center gap-1">
+            {(["preview", "dashboard"] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setActiveTab(t)}
+                className={cn(
+                  "px-3 py-2.5 text-xs font-mono uppercase tracking-[0.2em] flex items-center gap-1.5 border-b-2 -mb-px",
+                  activeTab === t
+                    ? "text-white border-cyan-400"
+                    : "text-white/40 hover:text-white/70 border-transparent",
+                )}
+              >
+                {t === "preview" ? <Monitor className="h-3.5 w-3.5" /> : <LayoutDashboard className="h-3.5 w-3.5" />}
+                {t}
+              </button>
+            ))}
+          </div>
+          <div className="flex-1 min-h-0 overflow-auto">
+            {activeTab === "preview" && kind === "website" && id && (
+              <iframe
+                key={previewKey}
+                src={`/website-preview/${id}`}
+                title="Website preview"
+                className="w-full h-full bg-white"
+              />
+            )}
+            {activeTab === "preview" && kind === "agent" && (
+              <div className="p-6 text-white/50 text-sm">Agent preview lives in the dashboard tab.</div>
+            )}
+            {activeTab === "dashboard" && kind === "website" && websiteData && (
+              <div className="p-6">
+                <GeneratedAgentDashboard
+                  manifest={websiteData.manifest}
+                  events={websiteData.events as any}
+                  agentId={undefined}
+                />
+              </div>
+            )}
+            {activeTab === "dashboard" && kind === "agent" && agentManifest && id && (
+              <div className="p-6">
+                <AgentCockpit agentId={id} manifest={agentManifest} />
+              </div>
+            )}
+          </div>
+        </section>
+      </div>
     </div>
   );
 }
