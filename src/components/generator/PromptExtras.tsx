@@ -286,6 +286,7 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
                     add({
                       id: `int-${i.id}`,
                       label: `Data · ${i.label}`,
+                      kind: "integration",
                       contextText: c.hasSnapshot && c.snapshotText
                         ? `Live data from ${i.label} (connected):\n${c.snapshotText.slice(0, 3000)}`
                         : `User has ${i.label} connected via OAuth. Assume relevant data is available and shape output accordingly.`,
