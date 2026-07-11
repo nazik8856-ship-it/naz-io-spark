@@ -1,14 +1,16 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Plus, SlidersHorizontal, X, Upload, Link2, Box, FileSpreadsheet, Database, Check } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, SUPABASE_FUNCTIONS_URL, SUPABASE_ANON } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 
 export type Attachment = {
   id: string;
   label: string;
-  contextText: string; // what gets appended to the prompt
+  contextText: string; // what gets appended to the prompt (fallback)
+  url?: string;        // for URL attachments — fetched & analyzed server-side
+  kind?: string;       // "file" | "data" | "url" | "project" | "integration" | "image"
 };
 
 interface Props {
