@@ -148,6 +148,7 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
           add({
             id: crypto.randomUUID(),
             label: `${isCsv ? "Data" : "File"} · ${f.name}`,
+            kind: isCsv ? "data" : "file",
             contextText: `${isCsv ? "Imported data" : "Attached file"} "${f.name}":\n${snippet}`,
           });
         } catch {
@@ -157,6 +158,7 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
         add({
           id: crypto.randomUUID(),
           label: `${f.type.startsWith("image/") ? "Image" : "File"} · ${f.name}`,
+          kind: f.type.startsWith("image/") ? "image" : "file",
           contextText: `${f.type.startsWith("image/") ? "Reference image" : "File"} attached: ${f.name} (${Math.round(f.size / 1024)}KB, ${f.type || "unknown"}). Use context clues from the filename.`,
         });
       }
