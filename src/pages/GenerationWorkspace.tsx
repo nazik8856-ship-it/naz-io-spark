@@ -687,10 +687,18 @@ export default function GenerationWorkspace() {
 
 
 
-  const sendPrompt = () => {
+  const sendPrompt = async () => {
     const text = prompt.trim();
     if (!text || isStreaming) return;
-    const enriched = buildContextPrompt(text, tone, attachments);
+    // Analyze attachments (files, URLs, imported data, integrations) BEFORE
+    // sending — the AI actually reads them instead of getting raw appended text.
+    const analyzerKind = forcedAgentRef.current ? "agent" : "generic";
+    const { enrichedPrompt: enriched } = await analyzeAndBuildContext(
+      text,
+      tone,
+      attachments,
+      analyzerKind as "agent" | "generic",
+    );
     const userMsg: ChatMessage = {
       id: crypto.randomUUID(),
       role: "user",
