@@ -35,7 +35,7 @@ import AgentCockpit from "@/components/agents/AgentCockpit";
 import AgentRenderBoundary from "@/components/agents/AgentRenderBoundary";
 import AgentIntakeModal, { type IntakeQuestion } from "@/components/agents/AgentIntakeModal";
 import { SUPABASE_FUNCTIONS_URL, SUPABASE_ANON, supabase } from "@/integrations/supabase/client";
-import PromptExtras, { buildContextPrompt, type Attachment } from "@/components/generator/PromptExtras";
+import PromptExtras, { analyzeAndBuildContext, type Attachment } from "@/components/generator/PromptExtras";
 
 type AgentStatus = "pending" | "building" | "approved" | "removed";
 type AgentManifest = {
