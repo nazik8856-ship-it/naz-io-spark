@@ -2,13 +2,14 @@
 // (left chat pane + right tabbed Preview/Dashboard) for ANY generation kind
 // — websites, agents, and future ones — so every generated thing lands in the
 // same chat-plus-dashboard experience.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { ArrowLeft, ExternalLink, Loader2, MessageSquare, Send, LayoutDashboard, Monitor } from "lucide-react";
+import { ArrowLeft, ExternalLink, Loader2, LayoutDashboard, Monitor } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import GeneratedAgentDashboard, { type AgentUiSpec, type Widget } from "@/components/agents/GeneratedAgentDashboard";
 import AgentCockpit, { type AgentManifest } from "@/components/agents/AgentCockpit";
+import LiveAgentChat from "@/components/agents/LiveAgentChat";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
