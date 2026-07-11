@@ -348,3 +348,58 @@ export function buildContextPrompt(basePrompt: string, tone: string | null, atta
   if (!extras.length) return basePrompt;
   return `${basePrompt}\n\n--- Additional context ---\n${extras.join("\n\n")}`;
 }
+
+/**
+ * Runs the attached inputs (files, URLs, imported data, integration snapshots)
+ * through the `analyze-inputs` edge function so the AI actually READS them and
+ * returns a compact structured analysis + an enriched prompt. Falls back to the
+ * sync `buildContextPrompt` if the analyzer is unavailable.
+ *
+ * Every generation type (websites, agents, future kinds) should call this before
+ * dispatching to its compiler so the compiler works off real understanding.
+ */
+export async function analyzeAndBuildContext(
+  basePrompt: string,
+  tone: string | null,
+  attachments: Attachment[],
+  kind: "website" | "agent" | "generic" = "generic",
+): Promise<{ enrichedPrompt: string; analysis: Record<string, unknown> | null }> {
+  // Nothing to analyze — passthrough with tone only.
+  if (attachments.length === 0) {
+    return { enrichedPrompt: buildContextPrompt(basePrompt, tone, attachments), analysis: null };
+  }
+  try {
+    const { data: sess } = await supabase.auth.getSession();
+    const token = sess.session?.access_token ?? SUPABASE_ANON;
+    const resp = await fetch(`${SUPABASE_FUNCTIONS_URL}/analyze-inputs`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+        apikey: SUPABASE_ANON,
+      },
+      body: JSON.stringify({
+        prompt: basePrompt,
+        tone,
+        kind,
+        attachments: attachments.map((a) => ({
+          id: a.id,
+          label: a.label,
+          contextText: a.contextText,
+          url: a.url,
+          kind: a.kind,
+        })),
+      }),
+    });
+    if (!resp.ok) throw new Error(`analyze-inputs ${resp.status}`);
+    const body = await resp.json();
+    if (typeof body?.enrichedPrompt === "string") {
+      return { enrichedPrompt: body.enrichedPrompt, analysis: body.analysis ?? null };
+    }
+    throw new Error("analyzer returned no enrichedPrompt");
+  } catch (e) {
+    console.warn("[analyzeAndBuildContext] falling back to raw context", e);
+    return { enrichedPrompt: buildContextPrompt(basePrompt, tone, attachments), analysis: null };
+  }
+}
+
