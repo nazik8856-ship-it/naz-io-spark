@@ -21,6 +21,7 @@ const Pricing = lazy(() => import("./pages/Pricing"));
 const Unsubscribe = lazy(() => import("./pages/Unsubscribe"));
 const OAuthConsent = lazy(() => import("./pages/OAuthConsent"));
 const WebsitePreview = lazy(() => import("./pages/WebsitePreview"));
+const GeneratedDashboard = lazy(() => import("./pages/GeneratedDashboard"));
 
 const queryClient = new QueryClient();
 
