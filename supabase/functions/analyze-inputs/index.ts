@@ -86,18 +86,17 @@ serve(async (req) => {
     if (userId) {
       const { data: snaps } = await supabase
         .from("integration_snapshots")
-        .select("provider, summary, data, created_at")
+        .select("provider, kind, data, created_at")
         .eq("user_id", userId)
         .order("created_at", { ascending: false })
         .limit(5);
       (snaps || []).forEach((s: any) => {
-        const summary = typeof s.summary === "string" ? s.summary : "";
         const dataStr = s.data ? JSON.stringify(s.data).slice(0, 4000) : "";
-        if (summary || dataStr) {
+        if (dataStr) {
           resolved.push({
-            label: `Integration · ${s.provider}`,
+            label: `Integration · ${s.provider}${s.kind ? ` (${s.kind})` : ""}`,
             source: `integration:${s.provider}`,
-            text: [summary, dataStr].filter(Boolean).join("\n"),
+            text: dataStr,
           });
         }
       });
