@@ -2,13 +2,14 @@
 // (left chat pane + right tabbed Preview/Dashboard) for ANY generation kind
 // — websites, agents, and future ones — so every generated thing lands in the
 // same chat-plus-dashboard experience.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { ArrowLeft, ExternalLink, Loader2, MessageSquare, Send, LayoutDashboard, Monitor } from "lucide-react";
+import { ArrowLeft, ExternalLink, Loader2, LayoutDashboard, Monitor } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import GeneratedAgentDashboard, { type AgentUiSpec, type Widget } from "@/components/agents/GeneratedAgentDashboard";
 import AgentCockpit, { type AgentManifest } from "@/components/agents/AgentCockpit";
+import LiveAgentChat from "@/components/agents/LiveAgentChat";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -87,84 +88,8 @@ function synthesizeWebsiteManifest(
   return { manifest, events };
 }
 
-/** Minimal chat pane visually matching the agent workspace's left column. */
-function ChatPane({
-  title,
-  subtitle,
-  turns,
-  busy,
-  onSend,
-}: {
-  title: string;
-  subtitle: string;
-  turns: ChatTurn[];
-  busy: boolean;
-  onSend: (text: string) => void;
-}) {
-  const [input, setInput] = useState("");
-  const scrollRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [turns.length, busy]);
 
-  return (
-    <aside className="w-full md:max-w-[380px] border-r border-white/5 flex flex-col bg-[#050813]">
-      <div className="px-4 py-3 border-b border-white/5 flex items-center gap-2">
-        <MessageSquare className="h-4 w-4 text-cyan-300" />
-        <div className="min-w-0">
-          <div className="text-sm font-semibold text-white truncate">{title}</div>
-          <div className="text-[10px] uppercase tracking-[0.24em] text-white/40 truncate">{subtitle}</div>
-        </div>
-      </div>
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
-        {turns.map((t, i) => (
-          <div
-            key={i}
-            className={cn(
-              "text-sm px-3 py-2 rounded-xl max-w-[92%] whitespace-pre-wrap leading-relaxed",
-              t.role === "user"
-                ? "ml-auto bg-gradient-to-br from-purple-500/30 to-cyan-500/20 border border-white/10 text-white"
-                : "bg-white/[0.04] border border-white/5 text-zinc-200",
-            )}
-          >
-            {t.content}
-          </div>
-        ))}
-        {busy && (
-          <div className="flex items-center gap-2 text-cyan-300 text-xs">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Applying changes…
-          </div>
-        )}
-      </div>
-      <div className="border-t border-white/5 p-3 flex gap-2">
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey && input.trim() && !busy) {
-              e.preventDefault();
-              onSend(input.trim());
-              setInput("");
-            }
-          }}
-          placeholder="Describe changes…"
-          className="flex-1 bg-white/[0.04] border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/30 focus:outline-none focus:ring-1 focus:ring-cyan-400/40"
-          disabled={busy}
-        />
-        <button
-          onClick={() => {
-            if (input.trim() && !busy) { onSend(input.trim()); setInput(""); }
-          }}
-          disabled={!input.trim() || busy}
-          className="h-9 w-9 rounded-lg bg-gradient-to-br from-purple-500 to-cyan-500 text-black flex items-center justify-center disabled:opacity-40"
-          aria-label="Send"
-        >
-          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-        </button>
-      </div>
-    </aside>
-  );
-}
+
 
 export default function GeneratedDashboard() {
   const { kind, id } = useParams<Params>();
@@ -304,28 +229,44 @@ export default function GeneratedDashboard() {
       </header>
 
       <div className="flex-1 flex min-h-0">
-        {/* Left: chat pane — same shape as the agent workspace */}
+        {/* Left: chat pane — same LiveAgentChat used by AI Agent workspace */}
         {kind === "website" && (
-          <ChatPane
-            title={website?.name || "Website"}
-            subtitle="Refine your site"
-            turns={turns}
-            busy={chatBusy}
-            onSend={sendWebsiteEdit}
-          />
+          <div className="w-full md:max-w-[420px] border-r border-white/5 bg-[#050813] flex flex-col min-h-0">
+            <LiveAgentChat
+              agentId={id || "website"}
+              name={website?.name || "Website"}
+              goal={website?.tagline || website?.prompt || undefined}
+              turns={turns.map((t) => ({ role: t.role, content: t.content }))}
+              suggestions={[
+                "Make the hero more editorial",
+                "Add a testimonials section",
+                "Use a warmer palette",
+                "Tighten the copy",
+              ]}
+              streaming={chatBusy}
+              fullSpec={website?.theme?.design_rationale || website?.prompt || ""}
+              onSend={sendWebsiteEdit}
+            />
+          </div>
         )}
         {kind === "agent" && agentManifest && (
-          <ChatPane
-            title={agentManifest.name}
-            subtitle="Agent workspace"
-            turns={[
-              { role: "user", content: agentManifest.goal || "Build my agent", time: "just now" },
-              { role: "assistant", content: `Deployed "${agentManifest.name}". Run it from the dashboard or ask for tweaks here.`, time: "just now" },
-            ]}
-            busy={false}
-            onSend={(t) => toast.info(`Agent edits coming soon: "${t}"`)}
-          />
+          <div className="w-full md:max-w-[420px] border-r border-white/5 bg-[#050813] flex flex-col min-h-0">
+            <LiveAgentChat
+              agentId={id || "agent"}
+              name={agentManifest.name}
+              goal={agentManifest.goal}
+              turns={[
+                { role: "user", content: agentManifest.goal || "Build my agent" },
+                { role: "assistant", content: `Deployed "${agentManifest.name}". Run it from the dashboard or ask for tweaks here.` },
+              ]}
+              suggestions={[]}
+              streaming={false}
+              fullSpec={agentManifest.systemPrompt || ""}
+              onSend={(t) => toast.info(`Agent edits coming soon: "${t}"`)}
+            />
+          </div>
         )}
+
 
         {/* Right: tabbed Preview + Dashboard */}
         <section className="flex-1 flex flex-col min-w-0 bg-[#0a0f1e]">
@@ -359,12 +300,35 @@ export default function GeneratedDashboard() {
               <div className="p-6 text-white/50 text-sm">Agent preview lives in the dashboard tab.</div>
             )}
             {activeTab === "dashboard" && kind === "website" && websiteData && (
-              <div className="p-6">
-                <GeneratedAgentDashboard
-                  manifest={websiteData.manifest}
-                  events={websiteData.events as any}
-                  agentId={undefined}
-                />
+              <div className="relative h-full overflow-y-auto px-6 md:px-10 py-8">
+                <div className="max-w-6xl mx-auto rounded-xl border border-emerald-400/50 bg-black/55 backdrop-blur-sm overflow-hidden shadow-[0_0_60px_-15px_rgba(16,185,129,0.5)]">
+                  <div className="flex items-start justify-between gap-4 p-5 border-b border-white/10 bg-gradient-to-r from-emerald-400/10 via-cyan-400/5 to-transparent">
+                    <div className="min-w-0">
+                      <div className="text-[10px] uppercase tracking-[0.22em] font-mono mb-2 text-emerald-300">
+                        Website Generated!
+                      </div>
+                      <h1 className="text-2xl md:text-3xl font-bold text-white truncate">
+                        {website?.name || "Your website"}
+                      </h1>
+                      {(website?.tagline || website?.theme?.design_rationale) && (
+                        <p className="text-sm text-cyan-200/90 mt-2 line-clamp-2">
+                          🎯 {website?.tagline || website?.theme?.design_rationale}
+                        </p>
+                      )}
+                    </div>
+                    <span className="shrink-0 text-[10px] uppercase tracking-wider px-2.5 py-1 rounded inline-flex items-center gap-1 bg-emerald-400/15 text-emerald-300 border border-emerald-400/40">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                      LIVE SITE
+                    </span>
+                  </div>
+                  <div className="p-5 md:p-7">
+                    <GeneratedAgentDashboard
+                      manifest={websiteData.manifest}
+                      events={websiteData.events as any}
+                      agentId={undefined}
+                    />
+                  </div>
+                </div>
               </div>
             )}
             {activeTab === "dashboard" && kind === "agent" && agentManifest && id && (
