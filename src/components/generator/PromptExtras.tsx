@@ -1,14 +1,16 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Plus, SlidersHorizontal, X, Upload, Link2, Box, FileSpreadsheet, Database, Check } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, SUPABASE_FUNCTIONS_URL, SUPABASE_ANON } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 
 export type Attachment = {
   id: string;
   label: string;
-  contextText: string; // what gets appended to the prompt
+  contextText: string; // what gets appended to the prompt (fallback)
+  url?: string;        // for URL attachments — fetched & analyzed server-side
+  kind?: string;       // "file" | "data" | "url" | "project" | "integration" | "image"
 };
 
 interface Props {
@@ -146,6 +148,7 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
           add({
             id: crypto.randomUUID(),
             label: `${isCsv ? "Data" : "File"} · ${f.name}`,
+            kind: isCsv ? "data" : "file",
             contextText: `${isCsv ? "Imported data" : "Attached file"} "${f.name}":\n${snippet}`,
           });
         } catch {
@@ -155,6 +158,7 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
         add({
           id: crypto.randomUUID(),
           label: `${f.type.startsWith("image/") ? "Image" : "File"} · ${f.name}`,
+          kind: f.type.startsWith("image/") ? "image" : "file",
           contextText: `${f.type.startsWith("image/") ? "Reference image" : "File"} attached: ${f.name} (${Math.round(f.size / 1024)}KB, ${f.type || "unknown"}). Use context clues from the filename.`,
         });
       }
@@ -167,7 +171,9 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
     add({
       id: crypto.randomUUID(),
       label: `URL · ${u.slice(0, 40)}`,
-      contextText: `Reference URL for inspiration/context: ${u}`,
+      contextText: `Reference URL: ${u}`,
+      url: u,
+      kind: "url",
     });
     setUrlInput("");
     setPlusOpen(false);
@@ -282,6 +288,7 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
                     add({
                       id: `int-${i.id}`,
                       label: `Data · ${i.label}`,
+                      kind: "integration",
                       contextText: c.hasSnapshot && c.snapshotText
                         ? `Live data from ${i.label} (connected):\n${c.snapshotText.slice(0, 3000)}`
                         : `User has ${i.label} connected via OAuth. Assume relevant data is available and shape output accordingly.`,
@@ -344,3 +351,58 @@ export function buildContextPrompt(basePrompt: string, tone: string | null, atta
   if (!extras.length) return basePrompt;
   return `${basePrompt}\n\n--- Additional context ---\n${extras.join("\n\n")}`;
 }
+
+/**
+ * Runs the attached inputs (files, URLs, imported data, integration snapshots)
+ * through the `analyze-inputs` edge function so the AI actually READS them and
+ * returns a compact structured analysis + an enriched prompt. Falls back to the
+ * sync `buildContextPrompt` if the analyzer is unavailable.
+ *
+ * Every generation type (websites, agents, future kinds) should call this before
+ * dispatching to its compiler so the compiler works off real understanding.
+ */
+export async function analyzeAndBuildContext(
+  basePrompt: string,
+  tone: string | null,
+  attachments: Attachment[],
+  kind: "website" | "agent" | "generic" = "generic",
+): Promise<{ enrichedPrompt: string; analysis: Record<string, unknown> | null }> {
+  // Nothing to analyze — passthrough with tone only.
+  if (attachments.length === 0) {
+    return { enrichedPrompt: buildContextPrompt(basePrompt, tone, attachments), analysis: null };
+  }
+  try {
+    const { data: sess } = await supabase.auth.getSession();
+    const token = sess.session?.access_token ?? SUPABASE_ANON;
+    const resp = await fetch(`${SUPABASE_FUNCTIONS_URL}/analyze-inputs`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+        apikey: SUPABASE_ANON,
+      },
+      body: JSON.stringify({
+        prompt: basePrompt,
+        tone,
+        kind,
+        attachments: attachments.map((a) => ({
+          id: a.id,
+          label: a.label,
+          contextText: a.contextText,
+          url: a.url,
+          kind: a.kind,
+        })),
+      }),
+    });
+    if (!resp.ok) throw new Error(`analyze-inputs ${resp.status}`);
+    const body = await resp.json();
+    if (typeof body?.enrichedPrompt === "string") {
+      return { enrichedPrompt: body.enrichedPrompt, analysis: body.analysis ?? null };
+    }
+    throw new Error("analyzer returned no enrichedPrompt");
+  } catch (e) {
+    console.warn("[analyzeAndBuildContext] falling back to raw context", e);
+    return { enrichedPrompt: buildContextPrompt(basePrompt, tone, attachments), analysis: null };
+  }
+}
+

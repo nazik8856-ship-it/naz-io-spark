@@ -35,7 +35,7 @@ import AgentCockpit from "@/components/agents/AgentCockpit";
 import AgentRenderBoundary from "@/components/agents/AgentRenderBoundary";
 import AgentIntakeModal, { type IntakeQuestion } from "@/components/agents/AgentIntakeModal";
 import { SUPABASE_FUNCTIONS_URL, SUPABASE_ANON, supabase } from "@/integrations/supabase/client";
-import PromptExtras, { buildContextPrompt, type Attachment } from "@/components/generator/PromptExtras";
+import PromptExtras, { analyzeAndBuildContext, type Attachment } from "@/components/generator/PromptExtras";
 
 type AgentStatus = "pending" | "building" | "approved" | "removed";
 type AgentManifest = {
@@ -687,10 +687,18 @@ export default function GenerationWorkspace() {
 
 
 
-  const sendPrompt = () => {
+  const sendPrompt = async () => {
     const text = prompt.trim();
     if (!text || isStreaming) return;
-    const enriched = buildContextPrompt(text, tone, attachments);
+    // Analyze attachments (files, URLs, imported data, integrations) BEFORE
+    // sending — the AI actually reads them instead of getting raw appended text.
+    const analyzerKind = forcedAgentRef.current ? "agent" : "generic";
+    const { enrichedPrompt: enriched } = await analyzeAndBuildContext(
+      text,
+      tone,
+      attachments,
+      analyzerKind as "agent" | "generic",
+    );
     const userMsg: ChatMessage = {
       id: crypto.randomUUID(),
       role: "user",
