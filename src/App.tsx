@@ -60,6 +60,7 @@ const App = () => (
                 <Route path="/generation-workspace" element={<GenerationWorkspace />} />
                 <Route path="/pricing" element={<Pricing />} />
                 <Route path="/website-preview/:id" element={<WebsitePreview />} />
+                <Route path="/generated/:kind/:id" element={<GeneratedDashboard />} />
                 <Route path="/unsubscribe" element={<Unsubscribe />} />
 
                 {/* OAuth 2.1 consent screen for MCP clients (ChatGPT, Claude, etc.) */}
