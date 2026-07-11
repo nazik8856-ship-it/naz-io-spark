@@ -88,84 +88,8 @@ function synthesizeWebsiteManifest(
   return { manifest, events };
 }
 
-/** Minimal chat pane visually matching the agent workspace's left column. */
-function ChatPane({
-  title,
-  subtitle,
-  turns,
-  busy,
-  onSend,
-}: {
-  title: string;
-  subtitle: string;
-  turns: ChatTurn[];
-  busy: boolean;
-  onSend: (text: string) => void;
-}) {
-  const [input, setInput] = useState("");
-  const scrollRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [turns.length, busy]);
 
-  return (
-    <aside className="w-full md:max-w-[380px] border-r border-white/5 flex flex-col bg-[#050813]">
-      <div className="px-4 py-3 border-b border-white/5 flex items-center gap-2">
-        <MessageSquare className="h-4 w-4 text-cyan-300" />
-        <div className="min-w-0">
-          <div className="text-sm font-semibold text-white truncate">{title}</div>
-          <div className="text-[10px] uppercase tracking-[0.24em] text-white/40 truncate">{subtitle}</div>
-        </div>
-      </div>
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
-        {turns.map((t, i) => (
-          <div
-            key={i}
-            className={cn(
-              "text-sm px-3 py-2 rounded-xl max-w-[92%] whitespace-pre-wrap leading-relaxed",
-              t.role === "user"
-                ? "ml-auto bg-gradient-to-br from-purple-500/30 to-cyan-500/20 border border-white/10 text-white"
-                : "bg-white/[0.04] border border-white/5 text-zinc-200",
-            )}
-          >
-            {t.content}
-          </div>
-        ))}
-        {busy && (
-          <div className="flex items-center gap-2 text-cyan-300 text-xs">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Applying changes…
-          </div>
-        )}
-      </div>
-      <div className="border-t border-white/5 p-3 flex gap-2">
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey && input.trim() && !busy) {
-              e.preventDefault();
-              onSend(input.trim());
-              setInput("");
-            }
-          }}
-          placeholder="Describe changes…"
-          className="flex-1 bg-white/[0.04] border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/30 focus:outline-none focus:ring-1 focus:ring-cyan-400/40"
-          disabled={busy}
-        />
-        <button
-          onClick={() => {
-            if (input.trim() && !busy) { onSend(input.trim()); setInput(""); }
-          }}
-          disabled={!input.trim() || busy}
-          className="h-9 w-9 rounded-lg bg-gradient-to-br from-purple-500 to-cyan-500 text-black flex items-center justify-center disabled:opacity-40"
-          aria-label="Send"
-        >
-          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-        </button>
-      </div>
-    </aside>
-  );
-}
+
 
 export default function GeneratedDashboard() {
   const { kind, id } = useParams<Params>();
