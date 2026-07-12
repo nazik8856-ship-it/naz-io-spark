@@ -683,8 +683,20 @@ Rules:
                   continue;
                 }
               }
+              // Verify the doc exists by re-fetching it.
+              const vr = await fetch(`https://docs.googleapis.com/v1/documents/${docId}`, {
+                headers: { Authorization: `Bearer ${access}` },
+              });
+              const vb = await vr.json().catch(() => ({}));
+              if (!vr.ok || vb?.documentId !== docId) {
+                const msg = `Docs verify failed: ${vb?.error?.message || `HTTP ${vr.status}`} (id=${docId})`;
+                await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+                await logEvent("action", { type: "create_doc", target: title, ok: false, result_ref: docId, summary: msg });
+                messages.push({ role: "user", content: `${msg} Continue.` });
+                continue;
+              }
               const url = `https://docs.google.com/document/d/${docId}/edit`;
-              const summary = `Created Google Doc "${title}" — ${url}`;
+              const summary = `Created Google Doc "${title}" — ${url} (verified title="${vb?.title ?? title}").`;
               await logEvent("tool_result", { tool: tool.name, ok: true, summary });
               await logEvent("action", { type: "create_doc", target: title, ok: true, result_ref: docId, summary, url });
               messages.push({ role: "user", content: `${summary}\nid=${docId}\n\nContinue.` });
