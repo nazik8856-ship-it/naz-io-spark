@@ -534,9 +534,24 @@ Rules:
                 const result = await gmailSend(access, from, to, subject, body);
                 ok = result.ok;
                 messageId = result.id || null;
-                summary = ok
-                  ? `Email sent via Gmail (${from}) to ${to} — subject "${subject}".`
-                  : `Gmail send failed: ${result.error || "unknown"}`;
+                if (ok && messageId) {
+                  // Verify send actually landed in Gmail by re-fetching the message.
+                  const vr = await fetch(
+                    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}?format=metadata`,
+                    { headers: { Authorization: `Bearer ${access}` } },
+                  );
+                  const vb = await vr.json().catch(() => ({}));
+                  if (!vr.ok || !vb?.id) {
+                    ok = false;
+                    summary = `Gmail send unverified: ${vb?.error?.message || `verify HTTP ${vr.status}`} (initial id=${messageId})`;
+                  } else {
+                    summary = `Email sent via Gmail (${from}) to ${to} — subject "${subject}" (verified id=${vb.id}).`;
+                  }
+                } else {
+                  summary = ok
+                    ? `Email sent via Gmail (${from}) to ${to} — subject "${subject}".`
+                    : `Gmail send failed: ${result.error || "unknown"}`;
+                }
               }
             } else {
               const r = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
@@ -668,8 +683,20 @@ Rules:
                   continue;
                 }
               }
+              // Verify the doc exists by re-fetching it.
+              const vr = await fetch(`https://docs.googleapis.com/v1/documents/${docId}`, {
+                headers: { Authorization: `Bearer ${access}` },
+              });
+              const vb = await vr.json().catch(() => ({}));
+              if (!vr.ok || vb?.documentId !== docId) {
+                const msg = `Docs verify failed: ${vb?.error?.message || `HTTP ${vr.status}`} (id=${docId})`;
+                await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+                await logEvent("action", { type: "create_doc", target: title, ok: false, result_ref: docId, summary: msg });
+                messages.push({ role: "user", content: `${msg} Continue.` });
+                continue;
+              }
               const url = `https://docs.google.com/document/d/${docId}/edit`;
-              const summary = `Created Google Doc "${title}" — ${url}`;
+              const summary = `Created Google Doc "${title}" — ${url} (verified title="${vb?.title ?? title}").`;
               await logEvent("tool_result", { tool: tool.name, ok: true, summary });
               await logEvent("action", { type: "create_doc", target: title, ok: true, result_ref: docId, summary, url });
               messages.push({ role: "user", content: `${summary}\nid=${docId}\n\nContinue.` });
@@ -703,8 +730,21 @@ Rules:
                 messages.push({ role: "user", content: `${msg} Continue.` });
                 continue;
               }
+              // Verify sheet exists and captured our values.
+              const vr = await fetch(
+                `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}?fields=spreadsheetId,properties.title,sheets.properties.gridProperties.rowCount`,
+                { headers: { Authorization: `Bearer ${access}` } },
+              );
+              const vb = await vr.json().catch(() => ({}));
+              if (!vr.ok || vb?.spreadsheetId !== sheetId) {
+                const msg = `Sheets verify failed: ${vb?.error?.message || `HTTP ${vr.status}`} (id=${sheetId})`;
+                await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+                await logEvent("action", { type: "create_sheet", target: title, ok: false, result_ref: sheetId, summary: msg });
+                messages.push({ role: "user", content: `${msg} Continue.` });
+                continue;
+              }
               const url = `https://docs.google.com/spreadsheets/d/${sheetId}/edit`;
-              const summary = `Created Google Sheet "${title}" (${values.length} rows) — ${url}`;
+              const summary = `Created Google Sheet "${title}" (${values.length} rows) — ${url} (verified).`;
               await logEvent("tool_result", { tool: tool.name, ok: true, summary });
               await logEvent("action", { type: "create_sheet", target: title, ok: true, result_ref: sheetId, summary, url });
               messages.push({ role: "user", content: `${summary}\nid=${sheetId}\n\nContinue.` });
@@ -776,8 +816,21 @@ Rules:
               continue;
             }
             const eventId = rb.id as string;
-            const url = (rb.htmlLink as string) || `https://calendar.google.com/calendar/u/0/r/eventedit/${eventId}`;
-            const summary = `Created calendar event "${title}" ${startIso} → ${endIso} — ${url}`;
+            // Verify the event is actually on the primary calendar.
+            const vr = await fetch(
+              `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`,
+              { headers: { Authorization: `Bearer ${access}` } },
+            );
+            const vb = await vr.json().catch(() => ({}));
+            if (!vr.ok || vb?.id !== eventId || vb?.status === "cancelled") {
+              const msg = `Calendar verify failed: ${vb?.error?.message || `HTTP ${vr.status}`} (id=${eventId}, status=${vb?.status ?? "unknown"})`;
+              await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+              await logEvent("action", { type: "create_calendar_event", target: title, ok: false, result_ref: eventId, summary: msg });
+              messages.push({ role: "user", content: `${msg} Continue.` });
+              continue;
+            }
+            const url = (vb.htmlLink as string) || (rb.htmlLink as string) || `https://calendar.google.com/calendar/u/0/r/eventedit/${eventId}`;
+            const summary = `Created calendar event "${title}" ${startIso} → ${endIso} — ${url} (verified status=${vb.status}).`;
             await logEvent("tool_result", { tool: tool.name, ok: true, summary });
             await logEvent("action", { type: "create_calendar_event", target: title, ok: true, result_ref: eventId, summary, url });
             messages.push({ role: "user", content: `${summary}\nid=${eventId}\n\nContinue.` });
