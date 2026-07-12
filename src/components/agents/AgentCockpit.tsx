@@ -181,6 +181,36 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
     ? { bg: "bg-amber-400/15", text: "text-amber-300", border: "border-amber-400/40", label: "NEEDS SETUP", pulse: false }
     : { bg: "bg-emerald-400/15", text: "text-emerald-300", border: "border-emerald-400/40", label: "ACTIVE", pulse: false };
 
+  const [outputsOpen, setOutputsOpen] = useState(false);
+  const outputs = useMemo<OutputItem[]>(() => {
+    const out: OutputItem[] = [];
+    for (const e of events) {
+      if (e.kind !== "action") continue;
+      const p = (e.payload || {}) as Record<string, unknown>;
+      const type = String(p.type || "");
+      if (!OUTPUT_TYPES.has(type)) continue;
+      if (p.ok !== true) continue;
+      const url = (p.url as string) || null;
+      const ref = (p.result_ref as string) || null;
+      if (!url && !ref) continue;
+      out.push({
+        id: e.id,
+        type,
+        label: String(p.target || p.summary || type),
+        url,
+        ref,
+        created_at: e.created_at,
+      });
+    }
+    const seen = new Set<string>();
+    return out.reverse().filter((o) => {
+      const k = `${o.type}:${o.url || o.ref}`;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  }, [events]);
+
   return (
     <div className="space-y-4">
       {/* Status + actions bar (the generated dashboard renders its own hero) */}
@@ -192,6 +222,16 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
         >
           {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
           {running ? "Running…" : "Run Now"}
+        </button>
+        <button
+          onClick={() => { loadEvents(); setOutputsOpen(true); }}
+          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-emerald-400/40 bg-emerald-400/10 text-xs text-emerald-200 font-semibold hover:bg-emerald-400/20"
+        >
+          <Package className="h-3.5 w-3.5" />
+          Outputs
+          <span className="ml-1 px-1.5 py-0.5 rounded bg-emerald-400/20 text-emerald-100 text-[10px] font-mono">
+            {outputs.length}
+          </span>
         </button>
         {onOpenBlueprint && (
           <button
@@ -210,6 +250,72 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
           {statusPill.label}
         </button>
       </div>
+
+      {outputsOpen && (
+        <div
+          className="fixed inset-0 z-[95] flex items-start justify-center p-4 sm:p-8 overflow-y-auto"
+          style={{ background: "rgba(0,0,0,0.72)", backdropFilter: "blur(8px)" }}
+          onClick={() => setOutputsOpen(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="relative w-full max-w-2xl rounded-2xl overflow-hidden mt-16"
+            style={{ background: "#0a0b0f", border: "1px solid rgba(52,211,153,0.28)", boxShadow: "0 40px 120px -40px rgba(52,211,153,0.4)" }}
+          >
+            <div className="flex items-center justify-between px-5 py-4 border-b border-white/5">
+              <div className="flex items-center gap-2">
+                <Package className="h-4 w-4 text-emerald-300" />
+                <div>
+                  <div className="text-sm font-bold text-white">Outputs</div>
+                  <div className="text-[11px] text-zinc-500">Verified artifacts this agent created</div>
+                </div>
+              </div>
+              <button onClick={() => setOutputsOpen(false)} className="text-zinc-400 hover:text-white p-1 rounded hover:bg-white/5">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="max-h-[60vh] overflow-y-auto">
+              {outputs.length === 0 ? (
+                <div className="px-5 py-12 text-center text-sm text-zinc-500">
+                  No completed actions yet.
+                  <div className="text-[11px] text-zinc-600 mt-1">Run the agent — verified outputs (docs, sheets, emails, events) will appear here.</div>
+                </div>
+              ) : (
+                <ul className="divide-y divide-white/5">
+                  {outputs.map((o) => {
+                    const meta = TYPE_META[o.type] || { icon: Package, label: o.type, color: "text-zinc-300" };
+                    const Icon = meta.icon;
+                    const when = new Date(o.created_at);
+                    return (
+                      <li key={o.id} className="px-5 py-3 flex items-center gap-3 hover:bg-white/[0.02]">
+                        <Icon className={`h-4 w-4 shrink-0 ${meta.color}`} />
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm text-white truncate">{o.label}</div>
+                          <div className="text-[11px] text-zinc-500">
+                            {meta.label} · {when.toLocaleString()}
+                          </div>
+                        </div>
+                        {o.url ? (
+                          <a
+                            href={o.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-emerald-400/30 bg-emerald-400/10 text-[11px] text-emerald-200 hover:bg-emerald-400/20"
+                          >
+                            Open <ExternalLink className="h-3 w-3" />
+                          </a>
+                        ) : (
+                          <span className="text-[10px] font-mono text-zinc-600 truncate max-w-[140px]">{o.ref}</span>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Bespoke per-agent generated dashboard */}
       <div ref={feedRef}>
