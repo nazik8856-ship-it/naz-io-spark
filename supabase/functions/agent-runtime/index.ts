@@ -187,7 +187,7 @@ serve(async (req) => {
     // ok:false, remember which tool failed so we can force the model to try
     // one alternative before it is allowed to ask_user. Cleared when a
     // DIFFERENT tool succeeds or is next attempted.
-    let pendingAlternativeAfterFailure: { failedTool: string; nudged: boolean } | null = null;
+    let pendingAlternativeAfterFailure: { failedTool: string; nudged: boolean } | null = null as { failedTool: string; nudged: boolean } | null;
 
     const logEvent = (kind: string, payload: Record<string, unknown>) => {
       if (kind === "tool_result" || kind === "action") {
