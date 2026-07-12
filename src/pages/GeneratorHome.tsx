@@ -31,6 +31,9 @@ export default function GeneratorHome() {
   const [recentAgents, setRecentAgents] = useState<RecentAgent[]>([]);
   const [agentsLoading, setAgentsLoading] = useState(false);
 
+  type Outcome = { label: string; tone: "green" | "amber" | "red" | "zinc" };
+  const [agentOutcomes, setAgentOutcomes] = useState<Record<string, Outcome>>({});
+
   useEffect(() => {
     if (!user?.id) return;
     let cancelled = false;
@@ -42,13 +45,79 @@ export default function GeneratorHome() {
         .eq("user_id", user.id)
         .order("created_at", { ascending: false })
         .limit(6);
-      if (!cancelled) {
-        setRecentAgents((data as RecentAgent[]) || []);
-        setAgentsLoading(false);
+      if (cancelled) return;
+      const agents = (data as RecentAgent[]) || [];
+      setRecentAgents(agents);
+      setAgentsLoading(false);
+
+      // Derive plain outcome per agent from its latest run's actual events.
+      const ids = agents.map((a) => a.id);
+      if (ids.length === 0) return;
+      const { data: evs } = await supabase
+        .from("agent_events")
+        .select("agent_id, run_id, kind, payload, created_at")
+        .in("agent_id", ids)
+        .order("created_at", { ascending: false })
+        .limit(600);
+      if (cancelled || !evs) return;
+
+      const byAgent = new Map<string, typeof evs>();
+      for (const e of evs) {
+        const list = byAgent.get(e.agent_id as string) || [];
+        list.push(e);
+        byAgent.set(e.agent_id as string, list);
       }
+
+      const outcomes: Record<string, Outcome> = {};
+      for (const [aid, list] of byAgent) {
+        // Latest run_id = run_id of the most recent event that has one.
+        const latestRunId = list.find((e) => !!e.run_id)?.run_id as string | undefined;
+        if (!latestRunId) { outcomes[aid] = { label: "No runs", tone: "zinc" }; continue; }
+        // Events for the run in chronological order.
+        const runEvs = list.filter((e) => e.run_id === latestRunId).reverse();
+
+        let hasPendingApproval = false;
+        let hasClarification = false;
+        // Track action ok state per action "type" so a later ok:true retry cancels a prior failure.
+        const lastActionOkByType = new Map<string, boolean>();
+        let sawAction = false;
+
+        for (const e of runEvs) {
+          const kind = String(e.kind || "");
+          const p = (e.payload as Record<string, unknown>) || {};
+          if (kind === "pending_approval") { hasPendingApproval = true; continue; }
+          if (kind === "approval_resolved" || kind === "approved" || kind === "rejected") {
+            hasPendingApproval = false;
+            continue;
+          }
+          if (kind === "ask_user" || kind === "clarification" || kind === "needs_input") {
+            hasClarification = true; continue;
+          }
+          if (kind === "clarification_resolved" || kind === "user_reply") {
+            hasClarification = false; continue;
+          }
+          if (kind === "action") {
+            sawAction = true;
+            const type = String((p as { type?: unknown }).type || "action");
+            const ok = (p as { ok?: unknown }).ok === true;
+            lastActionOkByType.set(type, ok);
+          }
+        }
+
+        let outcome: Outcome;
+        if (hasPendingApproval) outcome = { label: "Needs approval", tone: "amber" };
+        else if (hasClarification) outcome = { label: "Blocked", tone: "amber" };
+        else if (sawAction && Array.from(lastActionOkByType.values()).some((v) => v === false))
+          outcome = { label: "Failed", tone: "red" };
+        else if (sawAction) outcome = { label: "Done", tone: "green" };
+        else outcome = { label: "Running", tone: "zinc" };
+        outcomes[aid] = outcome;
+      }
+      if (!cancelled) setAgentOutcomes(outcomes);
     })();
     return () => { cancelled = true; };
   }, [user?.id]);
+
 
   const [compiling, setCompiling] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
