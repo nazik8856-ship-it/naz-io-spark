@@ -816,8 +816,21 @@ Rules:
               continue;
             }
             const eventId = rb.id as string;
-            const url = (rb.htmlLink as string) || `https://calendar.google.com/calendar/u/0/r/eventedit/${eventId}`;
-            const summary = `Created calendar event "${title}" ${startIso} → ${endIso} — ${url}`;
+            // Verify the event is actually on the primary calendar.
+            const vr = await fetch(
+              `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`,
+              { headers: { Authorization: `Bearer ${access}` } },
+            );
+            const vb = await vr.json().catch(() => ({}));
+            if (!vr.ok || vb?.id !== eventId || vb?.status === "cancelled") {
+              const msg = `Calendar verify failed: ${vb?.error?.message || `HTTP ${vr.status}`} (id=${eventId}, status=${vb?.status ?? "unknown"})`;
+              await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+              await logEvent("action", { type: "create_calendar_event", target: title, ok: false, result_ref: eventId, summary: msg });
+              messages.push({ role: "user", content: `${msg} Continue.` });
+              continue;
+            }
+            const url = (vb.htmlLink as string) || (rb.htmlLink as string) || `https://calendar.google.com/calendar/u/0/r/eventedit/${eventId}`;
+            const summary = `Created calendar event "${title}" ${startIso} → ${endIso} — ${url} (verified status=${vb.status}).`;
             await logEvent("tool_result", { tool: tool.name, ok: true, summary });
             await logEvent("action", { type: "create_calendar_event", target: title, ok: true, result_ref: eventId, summary, url });
             messages.push({ role: "user", content: `${summary}\nid=${eventId}\n\nContinue.` });
