@@ -342,16 +342,34 @@ export default function GeneratorHome() {
                   red: "bg-red-400/10 text-red-300 border-red-400/40",
                   zinc: "bg-white/5 text-zinc-400 border-white/10",
                 };
+                const runs = agentRunHistory[a.id] || [];
+                const isCron = !!a.schedule_cron;
+                const isExpanded = expandedAgent === a.id;
+                const streakCounts = runs.reduce(
+                  (acc, r) => {
+                    if (r.outcome.label === "Done") acc.done++;
+                    else if (r.outcome.label === "Failed") acc.failed++;
+                    else if (r.outcome.label === "Blocked" || r.outcome.label === "Needs approval") acc.blocked++;
+                    return acc;
+                  },
+                  { done: 0, failed: 0, blocked: 0 },
+                );
+                const dotColor = (tone: Outcome["tone"]) =>
+                  tone === "green" ? "bg-emerald-400" : tone === "amber" ? "bg-amber-400" : tone === "red" ? "bg-red-400" : "bg-zinc-500";
                 return (
-                  <button
+                  <div
                     key={`agent-${a.id}`}
-                    onClick={() => navigate("/generation-workspace")}
-                    className="text-left rounded-2xl border border-emerald-400/20 bg-gradient-to-br from-emerald-400/[0.05] to-cyan-400/[0.02] hover:border-emerald-400/50 transition-all p-5"
+                    className="rounded-2xl border border-emerald-400/20 bg-gradient-to-br from-emerald-400/[0.05] to-cyan-400/[0.02] hover:border-emerald-400/50 transition-all p-5"
                   >
                     <div className="flex items-start justify-between gap-2 mb-4">
-                      <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-400 to-cyan-400 flex items-center justify-center shadow-[0_8px_24px_-8px_rgba(52,211,153,0.6)]">
+                      <button
+                        type="button"
+                        onClick={() => navigate("/generation-workspace")}
+                        className="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-400 to-cyan-400 flex items-center justify-center shadow-[0_8px_24px_-8px_rgba(52,211,153,0.6)]"
+                        aria-label="Open agent"
+                      >
                         <Sparkles className="h-5 w-5 text-black" />
-                      </div>
+                      </button>
                       {outcome && (
                         <span
                           className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider ${toneClasses[outcome.tone]}`}
@@ -362,19 +380,71 @@ export default function GeneratorHome() {
                         </span>
                       )}
                     </div>
-                    <div className="text-[9px] uppercase tracking-[0.24em] font-mono text-emerald-300 mb-1">AI Agent</div>
-                    <div className="font-semibold truncate text-white">
-                      {(a.name || "Agent").slice(0, 40)}
-                    </div>
-                    {a.goal && (
-                      <div className="text-xs text-zinc-400 line-clamp-2 mt-1">{a.goal}</div>
+                    <button
+                      type="button"
+                      onClick={() => navigate("/generation-workspace")}
+                      className="block w-full text-left"
+                    >
+                      <div className="text-[9px] uppercase tracking-[0.24em] font-mono text-emerald-300 mb-1">AI Agent</div>
+                      <div className="font-semibold truncate text-white">
+                        {(a.name || "Agent").slice(0, 40)}
+                      </div>
+                      {a.goal && (
+                        <div className="text-xs text-zinc-400 line-clamp-2 mt-1">{a.goal}</div>
+                      )}
+                      <div className="flex items-center gap-1.5 mt-2 text-xs text-zinc-500">
+                        <Clock className="h-3 w-3" />
+                        {ago}
+                      </div>
+                    </button>
+                    {isCron && runs.length > 0 && (
+                      <div className="mt-3 pt-3 border-t border-white/5">
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setExpandedAgent(isExpanded ? null : a.id); }}
+                          className="w-full flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 hover:bg-white/[0.03] transition-colors"
+                          title="Last 7 scheduled runs — click to expand"
+                        >
+                          <div className="flex items-center gap-1">
+                            {runs.map((r) => (
+                              <span
+                                key={r.runId}
+                                className={`h-2 w-2 rounded-sm ${dotColor(r.outcome.tone)}`}
+                              />
+                            ))}
+                            {Array.from({ length: Math.max(0, 7 - runs.length) }).map((_, i) => (
+                              <span key={`empty-${i}`} className="h-2 w-2 rounded-sm bg-white/5" />
+                            ))}
+                          </div>
+                          <div className="flex items-center gap-2 text-[10px] font-mono">
+                            <span className="text-emerald-300">{streakCounts.done}✓</span>
+                            <span className="text-amber-300">{streakCounts.blocked}⏸</span>
+                            <span className="text-red-300">{streakCounts.failed}✕</span>
+                            <ChevronRight className={`h-3 w-3 text-zinc-500 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+                          </div>
+                        </button>
+                        {isExpanded && (
+                          <ul className="mt-2 space-y-1">
+                            {runs.map((r) => (
+                              <li key={r.runId} className="flex items-center justify-between gap-2 text-[11px] px-2 py-1 rounded bg-white/[0.02]">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${dotColor(r.outcome.tone)}`} />
+                                  <span className={`font-mono ${toneClasses[r.outcome.tone].split(" ").find((c) => c.startsWith("text-"))}`}>
+                                    {r.outcome.label}
+                                  </span>
+                                </div>
+                                <span className="text-zinc-500 shrink-0">
+                                  {formatDistanceToNow(new Date(r.time), { addSuffix: true })}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
                     )}
-                    <div className="flex items-center gap-1.5 mt-2 text-xs text-zinc-500">
-                      <Clock className="h-3 w-3" />
-                      {ago}
-                    </div>
-                  </button>
+                  </div>
                 );
+
               })}
               {recentProjects.slice(0, Math.max(0, 6 - recentAgents.length)).map((p) => {
                 const initial = (p.directive || "?").trim()[0]?.toUpperCase() || "N";
