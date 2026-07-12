@@ -405,6 +405,26 @@ Rules:
           continue;
         }
         const input = (parsed.input && typeof parsed.input === "object") ? parsed.input as Record<string, unknown> : {};
+
+        // Retry-alternative-first guard: block ask_user until the model has
+        // tried at least one different tool after the last failure.
+        if (tool.kind === "ask_user" && pendingAlternativeAfterFailure && !pendingAlternativeAfterFailure.nudged) {
+          pendingAlternativeAfterFailure.nudged = true;
+          const failed = pendingAlternativeAfterFailure.failedTool;
+          await logEvent("reason", {
+            thought: `Intercepted ask_user — must try one alternative approach after "${failed}" failed before escalating to operator.`,
+          });
+          messages.push({
+            role: "user",
+            content: `Do NOT call ask_user yet. The last "${failed}" attempt failed. Try ONE reasonable alternative first — a different tool, different input, or a smaller sub-goal. Only call ask_user if that alternative also fails or the missing piece is genuinely operator-only (credentials, a decision, a fact the business hasn't shared).`,
+          });
+          continue;
+        }
+        // Any DIFFERENT tool attempt clears the pending-alternative flag.
+        if (pendingAlternativeAfterFailure && tool.name !== pendingAlternativeAfterFailure.failedTool && tool.kind !== "ask_user") {
+          pendingAlternativeAfterFailure = null;
+        }
+
         await logEvent("tool_call", { tool: tool.name, kind: tool.kind, input });
 
         // Built-in interactive tools pause the run
@@ -415,6 +435,7 @@ Rules:
           paused = true;
           finalSummary = "Paused: waiting on operator clarification.";
           break;
+
         }
         if (tool.kind === "request_approval") {
           await logEvent("pending_approval", {
