@@ -262,6 +262,11 @@ serve(async (req) => {
         case "create_doc": usage = `create_doc(title: string, body_markdown: string)  // creates a real Google Doc in the connected Google account and returns { url, id }`; break;
         case "create_sheet": usage = `create_sheet(title: string, rows: string[][])  // creates a real Google Sheet with the given rows and returns { url, id }`; break;
         case "create_calendar_event": usage = `create_calendar_event(title: string, start_iso: string, end_iso: string, description?: string)  // creates an event on the primary Google Calendar and returns { url, id }`; break;
+        case "edit_doc": usage = `edit_doc(doc_id: string, mode: "append"|"replace", body_markdown: string)  // edits an existing Google Doc by id and re-reads to verify`; break;
+        case "edit_sheet": usage = `edit_sheet(sheet_id: string, range: string, values: string[][])  // updates a range (e.g. "Sheet1!A2:C10") in an existing Google Sheet and re-reads to verify`; break;
+        case "read_email": usage = `read_email(message_id?: string, thread_id?: string, query?: string, max?: number)  // returns full decoded body/thread content, not just unread counts`; break;
+        case "reply_email": usage = `reply_email(thread_id: string, body: string, subject?: string)  // replies inside an existing Gmail thread with proper threading headers; approval-gated like send_email`; break;
+
         case "read_analytics": usage = `read_analytics(property_id: string)  // GA4 Data API: last 30 days sessions & totalUsers for the given property`; break;
         case "read_youtube_stats": usage = `read_youtube_stats(channel_id?: string)  // YouTube Data API: subscriber/view/video counts. Omit channel_id for the authed user's own channel.`; break;
         case "http_post": usage = `http_post(url: string, body: object)  // POSTs JSON to an allow-listed https URL (per-agent webhook_url or whitelisted domain)`; break;
