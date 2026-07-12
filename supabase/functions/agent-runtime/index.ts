@@ -1550,8 +1550,9 @@ Reply with ONE fenced JSON block:
       }
       // Reconcile: model saying "no" downgrades Done to Failed; "partial"
       // downgrades Done to Failed unless step-limit already explains it.
-      if (outcomeLabel === "Done" && goalMet === "no") outcomeLabel = "Failed";
-      if (outcomeLabel === "Done" && goalMet === "partial") outcomeLabel = "Step limit"; // partial-but-not-limited stays informative
+      if (outcomeLabel === "Done" && (goalMet as string) === "no") outcomeLabel = "Failed";
+      if (outcomeLabel === "Done" && (goalMet as string) === "partial") outcomeLabel = "Step limit"; // partial-but-not-limited stays informative
+
     } catch (e) {
       console.warn("completion self-check failed", e);
     }
