@@ -339,6 +339,12 @@ Rules:
 
     let finalSummary = "Run ended without explicit summary.";
     let steps = 0, finished = false, paused = false;
+    // Retry-alternative-first guard: whenever a tool action fails (ok:false or
+    // tool_error), require the model to attempt at least one DIFFERENT tool
+    // before it is allowed to ask_user. This intercept fires at most once per
+    // failure so genuine dead-ends can still escalate to the operator.
+    let pendingAlternativeAfterFailure: { failedTool: string; nudged: boolean } | null = null;
+
 
     while (steps < MAX_STEPS && !finished && !paused) {
       steps++;
