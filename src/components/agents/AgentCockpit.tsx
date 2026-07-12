@@ -1,10 +1,35 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, Play, Plug, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Loader2, Play, Plug, X, Package, FileText, Sheet, Mail, Calendar, ExternalLink, FileEdit } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import GeneratedAgentDashboard, { type AgentUiSpec } from "./GeneratedAgentDashboard";
 import AgentEmployeePanel from "./AgentEmployeePanel";
 import AgentIntegrationsPanel from "./AgentIntegrationsPanel";
+
+type OutputItem = {
+  id: string;
+  type: string;
+  label: string;
+  url: string | null;
+  ref: string | null;
+  created_at: string;
+};
+
+const OUTPUT_TYPES = new Set([
+  "create_doc", "edit_doc", "create_sheet", "edit_sheet",
+  "create_calendar_event", "send_email", "reply_email", "generate_report",
+]);
+
+const TYPE_META: Record<string, { icon: React.ComponentType<{ className?: string }>; label: string; color: string }> = {
+  create_doc: { icon: FileText, label: "Google Doc", color: "text-blue-300" },
+  edit_doc: { icon: FileEdit, label: "Doc edit", color: "text-blue-300" },
+  create_sheet: { icon: Sheet, label: "Google Sheet", color: "text-emerald-300" },
+  edit_sheet: { icon: FileEdit, label: "Sheet edit", color: "text-emerald-300" },
+  create_calendar_event: { icon: Calendar, label: "Calendar event", color: "text-purple-300" },
+  send_email: { icon: Mail, label: "Email sent", color: "text-amber-300" },
+  reply_email: { icon: Mail, label: "Email reply", color: "text-amber-300" },
+  generate_report: { icon: FileText, label: "Report", color: "text-cyan-300" },
+};
 
 export type AgentManifest = {
   name: string;
