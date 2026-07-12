@@ -183,8 +183,25 @@ serve(async (req) => {
     if (runErr || !run) return json({ error: "Could not start run" }, 500);
     const runId = run.id as string;
 
-    const logEvent = (kind: string, payload: Record<string, unknown>) =>
-      supabase.from("agent_events").insert({ run_id: runId, agent_id: agentId, user_id: userId, kind, payload });
+    // Retry-alternative-first guard: on any tool_result/action logged with
+    // ok:false, remember which tool failed so we can force the model to try
+    // one alternative before it is allowed to ask_user. Cleared when a
+    // DIFFERENT tool succeeds or is next attempted.
+    let pendingAlternativeAfterFailure: { failedTool: string; nudged: boolean } | null = null;
+
+    const logEvent = (kind: string, payload: Record<string, unknown>) => {
+      if (kind === "tool_result" || kind === "action") {
+        const p = payload as { ok?: unknown; tool?: unknown; type?: unknown };
+        const toolName = String(p.tool || p.type || "unknown");
+        if (p.ok === false) {
+          pendingAlternativeAfterFailure = { failedTool: toolName, nudged: false };
+        } else if (p.ok === true && pendingAlternativeAfterFailure && toolName !== pendingAlternativeAfterFailure.failedTool) {
+          pendingAlternativeAfterFailure = null;
+        }
+      }
+      return supabase.from("agent_events").insert({ run_id: runId, agent_id: agentId, user_id: userId, kind, payload });
+    };
+
 
     await logEvent("run_started", { trigger, goal: manifest.goal });
     if (expiredClarificationId) {
