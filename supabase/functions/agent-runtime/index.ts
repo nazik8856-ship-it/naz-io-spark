@@ -534,9 +534,24 @@ Rules:
                 const result = await gmailSend(access, from, to, subject, body);
                 ok = result.ok;
                 messageId = result.id || null;
-                summary = ok
-                  ? `Email sent via Gmail (${from}) to ${to} — subject "${subject}".`
-                  : `Gmail send failed: ${result.error || "unknown"}`;
+                if (ok && messageId) {
+                  // Verify send actually landed in Gmail by re-fetching the message.
+                  const vr = await fetch(
+                    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}?format=metadata`,
+                    { headers: { Authorization: `Bearer ${access}` } },
+                  );
+                  const vb = await vr.json().catch(() => ({}));
+                  if (!vr.ok || !vb?.id) {
+                    ok = false;
+                    summary = `Gmail send unverified: ${vb?.error?.message || `verify HTTP ${vr.status}`} (initial id=${messageId})`;
+                  } else {
+                    summary = `Email sent via Gmail (${from}) to ${to} — subject "${subject}" (verified id=${vb.id}).`;
+                  }
+                } else {
+                  summary = ok
+                    ? `Email sent via Gmail (${from}) to ${to} — subject "${subject}".`
+                    : `Gmail send failed: ${result.error || "unknown"}`;
+                }
               }
             } else {
               const r = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
