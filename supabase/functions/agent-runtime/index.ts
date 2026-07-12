@@ -409,9 +409,9 @@ Rules:
 
         // Retry-alternative-first guard: block ask_user until the model has
         // tried at least one different tool after the last failure.
-        if (tool.kind === "ask_user" && pendingAlternativeAfterFailure && !pendingAlternativeAfterFailure.nudged) {
-          pendingAlternativeAfterFailure.nudged = true;
-          const failed = pendingAlternativeAfterFailure.failedTool;
+        if (tool.kind === "ask_user" && failGuard.state && !failGuard.state.nudged) {
+          failGuard.state.nudged = true;
+          const failed = failGuard.state.failedTool;
           await logEvent("reason", {
             thought: `Intercepted ask_user — must try one alternative approach after "${failed}" failed before escalating to operator.`,
           });
@@ -422,9 +422,10 @@ Rules:
           continue;
         }
         // Any DIFFERENT tool attempt clears the pending-alternative flag.
-        if (pendingAlternativeAfterFailure && tool.name !== pendingAlternativeAfterFailure.failedTool && tool.kind !== "ask_user") {
-          pendingAlternativeAfterFailure = null;
+        if (failGuard.state && tool.name !== failGuard.state.failedTool && tool.kind !== "ask_user") {
+          failGuard.state = null;
         }
+
 
         await logEvent("tool_call", { tool: tool.name, kind: tool.kind, input });
 
