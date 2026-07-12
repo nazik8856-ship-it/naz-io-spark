@@ -308,14 +308,32 @@ export default function GeneratorHome() {
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
               {recentAgents.map((a) => {
                 const ago = formatDistanceToNow(new Date(a.created_at), { addSuffix: true });
+                const outcome = agentOutcomes[a.id];
+                const toneClasses: Record<string, string> = {
+                  green: "bg-emerald-400/10 text-emerald-300 border-emerald-400/40",
+                  amber: "bg-amber-400/10 text-amber-300 border-amber-400/40",
+                  red: "bg-red-400/10 text-red-300 border-red-400/40",
+                  zinc: "bg-white/5 text-zinc-400 border-white/10",
+                };
                 return (
                   <button
                     key={`agent-${a.id}`}
                     onClick={() => navigate("/generation-workspace")}
                     className="text-left rounded-2xl border border-emerald-400/20 bg-gradient-to-br from-emerald-400/[0.05] to-cyan-400/[0.02] hover:border-emerald-400/50 transition-all p-5"
                   >
-                    <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-400 to-cyan-400 flex items-center justify-center mb-4 shadow-[0_8px_24px_-8px_rgba(52,211,153,0.6)]">
-                      <Sparkles className="h-5 w-5 text-black" />
+                    <div className="flex items-start justify-between gap-2 mb-4">
+                      <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-400 to-cyan-400 flex items-center justify-center shadow-[0_8px_24px_-8px_rgba(52,211,153,0.6)]">
+                        <Sparkles className="h-5 w-5 text-black" />
+                      </div>
+                      {outcome && (
+                        <span
+                          className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider ${toneClasses[outcome.tone]}`}
+                          title="Derived from the latest run's events"
+                        >
+                          <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                          {outcome.label}
+                        </span>
+                      )}
                     </div>
                     <div className="text-[9px] uppercase tracking-[0.24em] font-mono text-emerald-300 mb-1">AI Agent</div>
                     <div className="font-semibold truncate text-white">
