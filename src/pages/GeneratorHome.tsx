@@ -31,6 +31,9 @@ export default function GeneratorHome() {
   const [recentAgents, setRecentAgents] = useState<RecentAgent[]>([]);
   const [agentsLoading, setAgentsLoading] = useState(false);
 
+  type Outcome = { label: string; tone: "green" | "amber" | "red" | "zinc" };
+  const [agentOutcomes, setAgentOutcomes] = useState<Record<string, Outcome>>({});
+
   useEffect(() => {
     if (!user?.id) return;
     let cancelled = false;
@@ -42,13 +45,79 @@ export default function GeneratorHome() {
         .eq("user_id", user.id)
         .order("created_at", { ascending: false })
         .limit(6);
-      if (!cancelled) {
-        setRecentAgents((data as RecentAgent[]) || []);
-        setAgentsLoading(false);
+      if (cancelled) return;
+      const agents = (data as RecentAgent[]) || [];
+      setRecentAgents(agents);
+      setAgentsLoading(false);
+
+      // Derive plain outcome per agent from its latest run's actual events.
+      const ids = agents.map((a) => a.id);
+      if (ids.length === 0) return;
+      const { data: evs } = await supabase
+        .from("agent_events")
+        .select("agent_id, run_id, kind, payload, created_at")
+        .in("agent_id", ids)
+        .order("created_at", { ascending: false })
+        .limit(600);
+      if (cancelled || !evs) return;
+
+      const byAgent = new Map<string, typeof evs>();
+      for (const e of evs) {
+        const list = byAgent.get(e.agent_id as string) || [];
+        list.push(e);
+        byAgent.set(e.agent_id as string, list);
       }
+
+      const outcomes: Record<string, Outcome> = {};
+      for (const [aid, list] of byAgent) {
+        // Latest run_id = run_id of the most recent event that has one.
+        const latestRunId = list.find((e) => !!e.run_id)?.run_id as string | undefined;
+        if (!latestRunId) { outcomes[aid] = { label: "No runs", tone: "zinc" }; continue; }
+        // Events for the run in chronological order.
+        const runEvs = list.filter((e) => e.run_id === latestRunId).reverse();
+
+        let hasPendingApproval = false;
+        let hasClarification = false;
+        // Track action ok state per action "type" so a later ok:true retry cancels a prior failure.
+        const lastActionOkByType = new Map<string, boolean>();
+        let sawAction = false;
+
+        for (const e of runEvs) {
+          const kind = String(e.kind || "");
+          const p = (e.payload as Record<string, unknown>) || {};
+          if (kind === "pending_approval") { hasPendingApproval = true; continue; }
+          if (kind === "approval_resolved" || kind === "approved" || kind === "rejected") {
+            hasPendingApproval = false;
+            continue;
+          }
+          if (kind === "ask_user" || kind === "clarification" || kind === "needs_input") {
+            hasClarification = true; continue;
+          }
+          if (kind === "clarification_resolved" || kind === "user_reply") {
+            hasClarification = false; continue;
+          }
+          if (kind === "action") {
+            sawAction = true;
+            const type = String((p as { type?: unknown }).type || "action");
+            const ok = (p as { ok?: unknown }).ok === true;
+            lastActionOkByType.set(type, ok);
+          }
+        }
+
+        let outcome: Outcome;
+        if (hasPendingApproval) outcome = { label: "Needs approval", tone: "amber" };
+        else if (hasClarification) outcome = { label: "Blocked", tone: "amber" };
+        else if (sawAction && Array.from(lastActionOkByType.values()).some((v) => v === false))
+          outcome = { label: "Failed", tone: "red" };
+        else if (sawAction) outcome = { label: "Done", tone: "green" };
+        else outcome = { label: "Running", tone: "zinc" };
+        outcomes[aid] = outcome;
+      }
+      if (!cancelled) setAgentOutcomes(outcomes);
     })();
     return () => { cancelled = true; };
   }, [user?.id]);
+
 
   const [compiling, setCompiling] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -239,14 +308,32 @@ export default function GeneratorHome() {
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
               {recentAgents.map((a) => {
                 const ago = formatDistanceToNow(new Date(a.created_at), { addSuffix: true });
+                const outcome = agentOutcomes[a.id];
+                const toneClasses: Record<string, string> = {
+                  green: "bg-emerald-400/10 text-emerald-300 border-emerald-400/40",
+                  amber: "bg-amber-400/10 text-amber-300 border-amber-400/40",
+                  red: "bg-red-400/10 text-red-300 border-red-400/40",
+                  zinc: "bg-white/5 text-zinc-400 border-white/10",
+                };
                 return (
                   <button
                     key={`agent-${a.id}`}
                     onClick={() => navigate("/generation-workspace")}
                     className="text-left rounded-2xl border border-emerald-400/20 bg-gradient-to-br from-emerald-400/[0.05] to-cyan-400/[0.02] hover:border-emerald-400/50 transition-all p-5"
                   >
-                    <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-400 to-cyan-400 flex items-center justify-center mb-4 shadow-[0_8px_24px_-8px_rgba(52,211,153,0.6)]">
-                      <Sparkles className="h-5 w-5 text-black" />
+                    <div className="flex items-start justify-between gap-2 mb-4">
+                      <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-400 to-cyan-400 flex items-center justify-center shadow-[0_8px_24px_-8px_rgba(52,211,153,0.6)]">
+                        <Sparkles className="h-5 w-5 text-black" />
+                      </div>
+                      {outcome && (
+                        <span
+                          className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider ${toneClasses[outcome.tone]}`}
+                          title="Derived from the latest run's events"
+                        >
+                          <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                          {outcome.label}
+                        </span>
+                      )}
                     </div>
                     <div className="text-[9px] uppercase tracking-[0.24em] font-mono text-emerald-300 mb-1">AI Agent</div>
                     <div className="font-semibold truncate text-white">
