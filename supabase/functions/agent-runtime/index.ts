@@ -730,8 +730,21 @@ Rules:
                 messages.push({ role: "user", content: `${msg} Continue.` });
                 continue;
               }
+              // Verify sheet exists and captured our values.
+              const vr = await fetch(
+                `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}?fields=spreadsheetId,properties.title,sheets.properties.gridProperties.rowCount`,
+                { headers: { Authorization: `Bearer ${access}` } },
+              );
+              const vb = await vr.json().catch(() => ({}));
+              if (!vr.ok || vb?.spreadsheetId !== sheetId) {
+                const msg = `Sheets verify failed: ${vb?.error?.message || `HTTP ${vr.status}`} (id=${sheetId})`;
+                await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+                await logEvent("action", { type: "create_sheet", target: title, ok: false, result_ref: sheetId, summary: msg });
+                messages.push({ role: "user", content: `${msg} Continue.` });
+                continue;
+              }
               const url = `https://docs.google.com/spreadsheets/d/${sheetId}/edit`;
-              const summary = `Created Google Sheet "${title}" (${values.length} rows) — ${url}`;
+              const summary = `Created Google Sheet "${title}" (${values.length} rows) — ${url} (verified).`;
               await logEvent("tool_result", { tool: tool.name, ok: true, summary });
               await logEvent("action", { type: "create_sheet", target: title, ok: true, result_ref: sheetId, summary, url });
               messages.push({ role: "user", content: `${summary}\nid=${sheetId}\n\nContinue.` });
