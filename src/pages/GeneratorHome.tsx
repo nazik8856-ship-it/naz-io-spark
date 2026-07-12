@@ -27,12 +27,16 @@ export default function GeneratorHome() {
   // Recent AI Agents — surfaced here (previously shown inside the generation
   // workspace's "Your Agents" tab). Everything the user has generated lands in
   // this Recent section now.
-  type RecentAgent = { id: string; name: string; goal: string | null; created_at: string };
+  type RecentAgent = { id: string; name: string; goal: string | null; created_at: string; schedule_cron: string | null };
   const [recentAgents, setRecentAgents] = useState<RecentAgent[]>([]);
   const [agentsLoading, setAgentsLoading] = useState(false);
 
   type Outcome = { label: string; tone: "green" | "amber" | "red" | "zinc" };
+  type RunOutcome = { runId: string; outcome: Outcome; time: string };
   const [agentOutcomes, setAgentOutcomes] = useState<Record<string, Outcome>>({});
+  // Last 7 scheduled runs per agent (cron-scheduled agents only).
+  const [agentRunHistory, setAgentRunHistory] = useState<Record<string, RunOutcome[]>>({});
+  const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -41,7 +45,7 @@ export default function GeneratorHome() {
       setAgentsLoading(true);
       const { data } = await supabase
         .from("agents")
-        .select("id, name, goal, created_at")
+        .select("id, name, goal, created_at, schedule_cron")
         .eq("user_id", user.id)
         .order("created_at", { ascending: false })
         .limit(6);
@@ -58,7 +62,7 @@ export default function GeneratorHome() {
         .select("agent_id, run_id, kind, payload, created_at")
         .in("agent_id", ids)
         .order("created_at", { ascending: false })
-        .limit(600);
+        .limit(1200);
       if (cancelled || !evs) return;
 
       const byAgent = new Map<string, typeof evs>();
@@ -68,34 +72,19 @@ export default function GeneratorHome() {
         byAgent.set(e.agent_id as string, list);
       }
 
-      const outcomes: Record<string, Outcome> = {};
-      for (const [aid, list] of byAgent) {
-        // Latest run_id = run_id of the most recent event that has one.
-        const latestRunId = list.find((e) => !!e.run_id)?.run_id as string | undefined;
-        if (!latestRunId) { outcomes[aid] = { label: "No runs", tone: "zinc" }; continue; }
-        // Events for the run in chronological order.
-        const runEvs = list.filter((e) => e.run_id === latestRunId).reverse();
-
+      // Compute outcome for a set of events within a single run (chronological).
+      const computeOutcome = (runEvs: typeof evs): Outcome => {
         let hasPendingApproval = false;
         let hasClarification = false;
-        // Track action ok state per action "type" so a later ok:true retry cancels a prior failure.
         const lastActionOkByType = new Map<string, boolean>();
         let sawAction = false;
-
         for (const e of runEvs) {
           const kind = String(e.kind || "");
           const p = (e.payload as Record<string, unknown>) || {};
           if (kind === "pending_approval") { hasPendingApproval = true; continue; }
-          if (kind === "approval_resolved" || kind === "approved" || kind === "rejected") {
-            hasPendingApproval = false;
-            continue;
-          }
-          if (kind === "ask_user" || kind === "clarification" || kind === "needs_input") {
-            hasClarification = true; continue;
-          }
-          if (kind === "clarification_resolved" || kind === "user_reply") {
-            hasClarification = false; continue;
-          }
+          if (kind === "approval_resolved" || kind === "approved" || kind === "rejected") { hasPendingApproval = false; continue; }
+          if (kind === "ask_user" || kind === "clarification" || kind === "needs_input") { hasClarification = true; continue; }
+          if (kind === "clarification_resolved" || kind === "user_reply") { hasClarification = false; continue; }
           if (kind === "action") {
             sawAction = true;
             const type = String((p as { type?: unknown }).type || "action");
@@ -103,20 +92,58 @@ export default function GeneratorHome() {
             lastActionOkByType.set(type, ok);
           }
         }
+        if (hasPendingApproval) return { label: "Needs approval", tone: "amber" };
+        if (hasClarification) return { label: "Blocked", tone: "amber" };
+        if (sawAction && Array.from(lastActionOkByType.values()).some((v) => v === false)) return { label: "Failed", tone: "red" };
+        if (sawAction) return { label: "Done", tone: "green" };
+        return { label: "Running", tone: "zinc" };
+      };
 
-        let outcome: Outcome;
-        if (hasPendingApproval) outcome = { label: "Needs approval", tone: "amber" };
-        else if (hasClarification) outcome = { label: "Blocked", tone: "amber" };
-        else if (sawAction && Array.from(lastActionOkByType.values()).some((v) => v === false))
-          outcome = { label: "Failed", tone: "red" };
-        else if (sawAction) outcome = { label: "Done", tone: "green" };
-        else outcome = { label: "Running", tone: "zinc" };
-        outcomes[aid] = outcome;
+      const outcomes: Record<string, Outcome> = {};
+      const history: Record<string, RunOutcome[]> = {};
+      const cronById = new Map(agents.map((a) => [a.id, a.schedule_cron]));
+
+      for (const [aid, list] of byAgent) {
+        // Group by run_id, tracking earliest time per run for chronological ordering.
+        const runs = new Map<string, { evs: typeof evs; firstAt: string }>();
+        for (const e of list) {
+          const rid = e.run_id as string | null;
+          if (!rid) continue;
+          const cur = runs.get(rid);
+          if (cur) {
+            cur.evs.push(e);
+            if ((e.created_at as string) < cur.firstAt) cur.firstAt = e.created_at as string;
+          } else {
+            runs.set(rid, { evs: [e], firstAt: e.created_at as string });
+          }
+        }
+        // Sort runs by firstAt desc (latest first).
+        const sortedRuns = Array.from(runs.entries()).sort((a, b) => (b[1].firstAt).localeCompare(a[1].firstAt));
+        if (sortedRuns.length === 0) { outcomes[aid] = { label: "No runs", tone: "zinc" }; continue; }
+
+        // Latest run outcome (chronological within run).
+        const [latestRunId, latestRun] = sortedRuns[0];
+        outcomes[aid] = computeOutcome([...latestRun.evs].sort((a, b) => (a.created_at as string).localeCompare(b.created_at as string)));
+
+        // Streak history — only for cron-scheduled agents.
+        if (cronById.get(aid)) {
+          const last7 = sortedRuns.slice(0, 7).map(([rid, r]) => ({
+            runId: rid,
+            time: r.firstAt,
+            outcome: computeOutcome([...r.evs].sort((a, b) => (a.created_at as string).localeCompare(b.created_at as string))),
+          }));
+          history[aid] = last7;
+        }
+        void latestRunId;
       }
-      if (!cancelled) setAgentOutcomes(outcomes);
+      if (!cancelled) {
+        setAgentOutcomes(outcomes);
+        setAgentRunHistory(history);
+      }
     })();
     return () => { cancelled = true; };
   }, [user?.id]);
+
 
 
   const [compiling, setCompiling] = useState(false);
