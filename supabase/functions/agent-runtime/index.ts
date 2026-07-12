@@ -897,6 +897,340 @@ Rules:
           }
         }
 
+        // ------------------------------------------------------------
+        // Helper: resolve a connected Gmail integration + access token.
+        // ------------------------------------------------------------
+        const resolveGoogleAccess = async (): Promise<{ access: string | null; error?: string; fromEmail?: string }> => {
+          const { data: gmailRows } = await supabase
+            .from("agent_integrations")
+            .select("id, credentials, agent_id")
+            .eq("user_id", userId)
+            .eq("provider", "Gmail")
+            .eq("status", "connected")
+            .order("agent_id", { ascending: false, nullsFirst: false });
+          const gmail = (gmailRows || []).find((r) => r.agent_id === agentId) || (gmailRows || [])[0];
+          if (!gmail) return { access: null, error: "Google account not connected — connect Gmail in Integrations first." };
+          const { ensureAccessToken } = await import("../_shared/gmail.ts");
+          const access = await ensureAccessToken(supabase, { id: gmail.id, credentials: (gmail.credentials as Record<string, unknown>) || {} });
+          if (!access) return { access: null, error: "Google token invalid — please reconnect Gmail." };
+          const creds = (gmail.credentials as Record<string, unknown>) || {};
+          return { access, fromEmail: String(creds.email || "me") };
+        };
+
+        // ------------------------------------------------------------
+        // edit_doc: append/replace body of an existing Google Doc, verify.
+        // ------------------------------------------------------------
+        if (tool.kind === "edit_doc") {
+          const docId = String(input.doc_id || input.id || "").trim();
+          const mode = String(input.mode || "append").toLowerCase();
+          const bodyMd = String(input.body_markdown || input.body || "");
+          if (!docId || !bodyMd || (mode !== "append" && mode !== "replace")) {
+            const msg = `edit_doc requires doc_id, body_markdown, and mode="append" or "replace".`;
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: "edit_doc", target: docId, ok: false, result_ref: docId || null, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue.` });
+            continue;
+          }
+          try {
+            const { access, error, fromEmail: _fe } = await resolveGoogleAccess();
+            if (!access) throw new Error(error);
+            const authHeaders = { Authorization: `Bearer ${access}`, "Content-Type": "application/json" };
+            // Fetch current doc for its endIndex.
+            const getR = await fetch(`https://docs.googleapis.com/v1/documents/${encodeURIComponent(docId)}`, {
+              headers: { Authorization: `Bearer ${access}` },
+            });
+            const getB = await getR.json().catch(() => ({}));
+            if (!getR.ok || getB?.documentId !== docId) {
+              throw new Error(`Docs get failed: ${getB?.error?.message || `HTTP ${getR.status}`}`);
+            }
+            const contentArr = (getB.body?.content || []) as Array<{ endIndex?: number }>;
+            const endIndex = contentArr.length ? (contentArr[contentArr.length - 1].endIndex ?? 2) : 2;
+            const text = bodyMd.slice(0, 100000);
+            const requests: unknown[] = [];
+            if (mode === "replace" && endIndex > 2) {
+              requests.push({ deleteContentRange: { range: { startIndex: 1, endIndex: endIndex - 1 } } });
+              requests.push({ insertText: { location: { index: 1 }, text } });
+            } else if (mode === "replace") {
+              requests.push({ insertText: { location: { index: 1 }, text } });
+            } else {
+              // append at end (endIndex-1 is the trailing newline position)
+              const insertAt = Math.max(1, endIndex - 1);
+              requests.push({ insertText: { location: { index: insertAt }, text: (endIndex > 2 ? "\n" : "") + text } });
+            }
+            const upR = await fetch(`https://docs.googleapis.com/v1/documents/${encodeURIComponent(docId)}:batchUpdate`, {
+              method: "POST", headers: authHeaders, body: JSON.stringify({ requests }),
+            });
+            if (!upR.ok) {
+              const eb = await upR.json().catch(() => ({}));
+              throw new Error(`Docs batchUpdate failed: ${eb?.error?.message || `HTTP ${upR.status}`}`);
+            }
+            // Verify: re-fetch and confirm body contains a marker substring.
+            const vr = await fetch(`https://docs.googleapis.com/v1/documents/${encodeURIComponent(docId)}`, {
+              headers: { Authorization: `Bearer ${access}` },
+            });
+            const vb = await vr.json().catch(() => ({}));
+            const dumped = JSON.stringify(vb?.body?.content || []);
+            const marker = text.replace(/\s+/g, " ").trim().slice(0, 40);
+            if (!vr.ok || vb?.documentId !== docId || (marker && !dumped.includes(marker.slice(0, 20)))) {
+              throw new Error(`Docs verify failed: ${vb?.error?.message || `HTTP ${vr.status}`} — edit not observed in re-read.`);
+            }
+            const url = `https://docs.google.com/document/d/${docId}/edit`;
+            const summary = `Edited Google Doc ${docId} (${mode}) — ${text.length} chars applied and verified. ${url}`;
+            await logEvent("tool_result", { tool: tool.name, ok: true, summary });
+            await logEvent("action", { type: "edit_doc", target: docId, ok: true, result_ref: docId, summary, url });
+            messages.push({ role: "user", content: `${summary}\n\nContinue.` });
+          } catch (e) {
+            const msg = `edit_doc failed: ${e instanceof Error ? e.message : "unknown"}`;
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: "edit_doc", target: docId, ok: false, result_ref: docId, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue.` });
+          }
+          continue;
+        }
+
+        // ------------------------------------------------------------
+        // edit_sheet: update a range in an existing Google Sheet, verify.
+        // ------------------------------------------------------------
+        if (tool.kind === "edit_sheet") {
+          const sheetId = String(input.sheet_id || input.id || "").trim();
+          const range = String(input.range || "").trim();
+          const rows = Array.isArray(input.values) ? (input.values as unknown[])
+            : Array.isArray(input.rows) ? (input.rows as unknown[])
+            : [];
+          if (!sheetId || !range || rows.length === 0) {
+            const msg = `edit_sheet requires sheet_id, range (e.g. "Sheet1!A2:C10"), and non-empty values (string[][]).`;
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: "edit_sheet", target: sheetId, ok: false, result_ref: sheetId || null, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue.` });
+            continue;
+          }
+          try {
+            const { access, error } = await resolveGoogleAccess();
+            if (!access) throw new Error(error);
+            const values = rows.slice(0, 5000).map((r) =>
+              Array.isArray(r) ? (r as unknown[]).slice(0, 100).map((c) => (c == null ? "" : String(c))) : [String(r ?? "")],
+            );
+            const upR = await fetch(
+              `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}/values/${range}?valueInputOption=USER_ENTERED`,
+              { method: "PUT", headers: { Authorization: `Bearer ${access}`, "Content-Type": "application/json" }, body: JSON.stringify({ values }) },
+            );
+            const ub = await upR.json().catch(() => ({}));
+            if (!upR.ok) throw new Error(`Sheets values.update failed: ${ub?.error?.message || `HTTP ${upR.status}`}`);
+            const updatedCells = Number(ub?.updatedCells ?? 0);
+            // Verify: re-read the same range and confirm at least one cell matches.
+            const vr = await fetch(
+              `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}/values/${range}`,
+              { headers: { Authorization: `Bearer ${access}` } },
+            );
+            const vb = await vr.json().catch(() => ({}));
+            if (!vr.ok) throw new Error(`Sheets verify read failed: ${vb?.error?.message || `HTTP ${vr.status}`}`);
+            const gotValues = (vb?.values || []) as string[][];
+            const flatWrote = values.flat().filter(Boolean).map((s) => String(s));
+            const flatGot = gotValues.flat().map((s) => String(s ?? ""));
+            const match = flatWrote.length === 0 || flatWrote.some((v) => flatGot.includes(v));
+            if (!match) throw new Error(`Sheets verify mismatch: re-read of ${range} does not contain written values.`);
+            const url = `https://docs.google.com/spreadsheets/d/${sheetId}/edit`;
+            const summary = `Edited Sheet ${sheetId} range ${range} — ${updatedCells} cells updated and verified. ${url}`;
+            await logEvent("tool_result", { tool: tool.name, ok: true, summary });
+            await logEvent("action", { type: "edit_sheet", target: `${sheetId}:${range}`, ok: true, result_ref: sheetId, summary, url });
+            messages.push({ role: "user", content: `${summary}\n\nContinue.` });
+          } catch (e) {
+            const msg = `edit_sheet failed: ${e instanceof Error ? e.message : "unknown"}`;
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: "edit_sheet", target: sheetId, ok: false, result_ref: sheetId, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue.` });
+          }
+          continue;
+        }
+
+        // ------------------------------------------------------------
+        // read_email: fetch full body/thread content (not just metadata).
+        // ------------------------------------------------------------
+        if (tool.kind === "read_email") {
+          const messageId = String(input.message_id || "").trim();
+          const threadId = String(input.thread_id || "").trim();
+          const query = String(input.query || input.q || "").trim();
+          const max = Math.min(Math.max(Number(input.max || 3), 1), 10);
+          if (!messageId && !threadId && !query) {
+            const msg = `read_email requires one of: message_id, thread_id, or query (Gmail search).`;
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: "read_email", target: "", ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue.` });
+            continue;
+          }
+          try {
+            const { access, error } = await resolveGoogleAccess();
+            if (!access) throw new Error(error);
+            const auth = { Authorization: `Bearer ${access}` };
+            const decodeB64 = (s: string) => {
+              try {
+                const norm = s.replace(/-/g, "+").replace(/_/g, "/");
+                const pad = norm + "===".slice((norm.length + 3) % 4);
+                return atob(pad);
+              } catch { return ""; }
+            };
+            type GPart = { mimeType?: string; body?: { data?: string; size?: number }; parts?: GPart[] };
+            const walkParts = (p: GPart | undefined): string => {
+              if (!p) return "";
+              if (p.body?.data && (p.mimeType === "text/plain" || !p.mimeType)) return decodeB64(p.body.data);
+              if (Array.isArray(p.parts)) {
+                for (const c of p.parts) {
+                  const r = walkParts(c);
+                  if (r) return r;
+                }
+              }
+              if (p.body?.data && p.mimeType === "text/html") {
+                return stripHtml(decodeB64(p.body.data));
+              }
+              return "";
+            };
+            const fmtMessage = (m: { id?: string; threadId?: string; snippet?: string; payload?: GPart; internalDate?: string }) => {
+              const headers = ((m.payload as unknown as { headers?: Array<{ name: string; value: string }> })?.headers) || [];
+              const H = (n: string) => headers.find((h) => h.name.toLowerCase() === n.toLowerCase())?.value || "";
+              const body = walkParts(m.payload).slice(0, 6000) || (m.snippet || "");
+              return `--- Gmail message id=${m.id} thread=${m.threadId}\nFrom: ${H("From")}\nTo: ${H("To")}\nSubject: ${H("Subject")}\nDate: ${H("Date")}\n\n${body}`;
+            };
+            let target = messageId || threadId || query;
+            let out = "";
+            let resultRef: string | null = null;
+            if (messageId) {
+              const r = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}?format=full`, { headers: auth });
+              const rb = await r.json();
+              if (!r.ok) throw new Error(`Gmail get failed: ${rb?.error?.message || `HTTP ${r.status}`}`);
+              out = fmtMessage(rb); resultRef = rb.id;
+              target = rb.id || messageId;
+            } else if (threadId) {
+              const r = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/threads/${encodeURIComponent(threadId)}?format=full`, { headers: auth });
+              const rb = await r.json();
+              if (!r.ok) throw new Error(`Gmail thread get failed: ${rb?.error?.message || `HTTP ${r.status}`}`);
+              const msgs = (rb.messages || []).slice(-max);
+              out = msgs.map(fmtMessage).join("\n\n");
+              resultRef = rb.id || threadId;
+              target = rb.id || threadId;
+            } else {
+              const listR = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=${max}&q=${encodeURIComponent(query)}`, { headers: auth });
+              const listB = await listR.json();
+              if (!listR.ok) throw new Error(`Gmail search failed: ${listB?.error?.message || `HTTP ${listR.status}`}`);
+              const ids: Array<{ id: string }> = listB.messages || [];
+              if (ids.length === 0) { out = `No Gmail messages matched: ${query}`; }
+              else {
+                const parts: string[] = [];
+                for (const it of ids) {
+                  const r = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${it.id}?format=full`, { headers: auth });
+                  const rb = await r.json().catch(() => ({}));
+                  if (r.ok) parts.push(fmtMessage(rb));
+                }
+                out = parts.join("\n\n");
+                resultRef = ids[0]?.id ?? null;
+              }
+            }
+            const summary = out.slice(0, 8000);
+            await logEvent("tool_result", { tool: tool.name, ok: true, summary });
+            await logEvent("action", { type: "read_email", target, ok: true, result_ref: resultRef, summary: summary.slice(0, 400) });
+            messages.push({ role: "user", content: `${summary}\n\nContinue.` });
+          } catch (e) {
+            const msg = `read_email failed: ${e instanceof Error ? e.message : "unknown"}`;
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: "read_email", target: messageId || threadId || query, ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue.` });
+          }
+          continue;
+        }
+
+        // ------------------------------------------------------------
+        // reply_email: reply within an existing Gmail thread. Same
+        // approval-gate as send_email; verify by re-fetching the sent msg.
+        // ------------------------------------------------------------
+        if (tool.kind === "reply_email") {
+          const threadId = String(input.thread_id || "").trim();
+          const bodyText = String(input.body || "").slice(0, 6000);
+          const explicitSubject = String(input.subject || "").slice(0, 200);
+          if (!threadId || !bodyText) {
+            const msg = `reply_email requires thread_id and body.`;
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: "reply_email", target: threadId, ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue.` });
+            continue;
+          }
+          // Same approval gate as send_email.
+          const emailGuard = (manifest.guardrails || []).find((g) => {
+            const r = (g.rule || "").toLowerCase();
+            return g.requiresApproval && (r.includes("email") || r.includes("send") || r.includes("external") || r.includes("reply"));
+          });
+          const hardBlock = emailGuard && /\[requires approval\]/i.test(emailGuard.rule || "");
+          const autoApprove = (agent as { auto_approve_low_risk?: boolean }).auto_approve_low_risk === true && !hardBlock;
+          if (emailGuard && !autoApprove) {
+            await logEvent("pending_approval", {
+              action: "reply_email",
+              payload: { thread_id: threadId, subject: explicitSubject, body: bodyText },
+              risk: "med",
+              guardrail: emailGuard.rule,
+            });
+            const msg = `Queued for approval (guardrail: ${emailGuard.rule}); NOT sent.`;
+            await logEvent("tool_result", { tool: tool.name, ok: true, summary: msg });
+            await logEvent("action", { type: "reply_email", target: threadId, ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue with other work or finish.` });
+            continue;
+          }
+          try {
+            const { access, error, fromEmail } = await resolveGoogleAccess();
+            if (!access) throw new Error(error);
+            const auth = { Authorization: `Bearer ${access}` };
+            // Pull the thread's latest message to derive To, Subject, Message-ID, References.
+            const tR = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/threads/${encodeURIComponent(threadId)}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Subject&metadataHeaders=Message-ID&metadataHeaders=References&metadataHeaders=In-Reply-To`, { headers: auth });
+            const tB = await tR.json();
+            if (!tR.ok || !tB?.messages?.length) throw new Error(`Gmail thread lookup failed: ${tB?.error?.message || `HTTP ${tR.status}`}`);
+            const last = tB.messages[tB.messages.length - 1];
+            const headers = (last.payload?.headers || []) as Array<{ name: string; value: string }>;
+            const H = (n: string) => headers.find((h) => h.name.toLowerCase() === n.toLowerCase())?.value || "";
+            const originalFrom = H("From");
+            const originalMsgId = H("Message-ID") || H("Message-Id");
+            const priorRefs = H("References");
+            const origSubject = H("Subject");
+            const subject = explicitSubject || (origSubject.toLowerCase().startsWith("re:") ? origSubject : `Re: ${origSubject}`);
+            const to = originalFrom || H("To");
+            if (!to) throw new Error("Could not resolve reply recipient from thread.");
+            const references = [priorRefs, originalMsgId].filter(Boolean).join(" ");
+            const rfc = [
+              `From: ${fromEmail || "me"}`,
+              `To: ${to}`,
+              `Subject: ${subject}`,
+              originalMsgId ? `In-Reply-To: ${originalMsgId}` : "",
+              references ? `References: ${references}` : "",
+              `Content-Type: text/plain; charset="UTF-8"`,
+              ``,
+              bodyText,
+            ].filter(Boolean).join("\r\n");
+            const raw = btoa(unescape(encodeURIComponent(rfc))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+            const sendR = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/send`, {
+              method: "POST",
+              headers: { ...auth, "Content-Type": "application/json" },
+              body: JSON.stringify({ raw, threadId }),
+            });
+            const sendB = await sendR.json().catch(() => ({}));
+            if (!sendR.ok || !sendB?.id) throw new Error(`Gmail reply send failed: ${sendB?.error?.message || `HTTP ${sendR.status}`}`);
+            const sentId = sendB.id as string;
+            // Verify — re-fetch and confirm same threadId.
+            const vr = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(sentId)}?format=metadata`, { headers: auth });
+            const vb = await vr.json().catch(() => ({}));
+            if (!vr.ok || vb?.id !== sentId || vb?.threadId !== threadId) {
+              throw new Error(`Gmail reply verify failed: ${vb?.error?.message || `HTTP ${vr.status}`} (id=${sentId}, thread=${vb?.threadId})`);
+            }
+            const summary = `Reply sent in thread ${threadId} to ${to} — subject "${subject}" (verified id=${sentId}).`;
+            await logEvent("tool_result", { tool: tool.name, ok: true, summary });
+            await logEvent("action", { type: "reply_email", target: to, ok: true, result_ref: sentId, summary });
+            messages.push({ role: "user", content: `${summary}\n\nContinue.` });
+          } catch (e) {
+            const msg = `reply_email failed: ${e instanceof Error ? e.message : "unknown"}`;
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: "reply_email", target: threadId, ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue.` });
+          }
+          continue;
+        }
+
+
+
         if (tool.kind === "read_analytics" || tool.kind === "read_youtube_stats") {
           const kind = tool.kind;
           const propertyId = String(input.property_id || "").trim();
