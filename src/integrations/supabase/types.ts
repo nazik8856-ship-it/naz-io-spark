@@ -193,6 +193,7 @@ export type Database = {
           finished_at: string | null
           id: string
           instruction: string | null
+          outcome: string | null
           scheduled_for: string | null
           started_at: string
           status: string
@@ -205,6 +206,7 @@ export type Database = {
           finished_at?: string | null
           id?: string
           instruction?: string | null
+          outcome?: string | null
           scheduled_for?: string | null
           started_at?: string
           status?: string
@@ -217,6 +219,7 @@ export type Database = {
           finished_at?: string | null
           id?: string
           instruction?: string | null
+          outcome?: string | null
           scheduled_for?: string | null
           started_at?: string
           status?: string
