@@ -1454,18 +1454,124 @@ Rules:
       }
     }
 
-    if (!finished && !paused) {
+    const hitStepLimit = !finished && !paused;
+    if (hitStepLimit) {
       await logEvent("finished", { summary: `Reached step limit (${MAX_STEPS}).`, partial: true });
       finalSummary = `Stopped after ${steps} steps without explicit finish.`;
     }
 
+    // ------------------------------------------------------------------
+    // Completion self-check — reason over the ACTUAL logged actions and
+    // decide whether the original instruction was met. Produces a plain
+    // label consistent with the frontend outcome badge
+    // (Done / Failed / Blocked / Needs approval / Step limit / Paused)
+    // plus a short human summary. Falls back gracefully if the model call
+    // fails so the run always finalizes.
+    // ------------------------------------------------------------------
+    let outcomeLabel: "Done" | "Failed" | "Blocked" | "Needs approval" | "Step limit" | "Paused" = "Done";
+    let completionSummary = finalSummary;
+    let goalMet: "yes" | "partial" | "no" = "yes";
+    try {
+      const { data: runEvs } = await supabase
+        .from("agent_events")
+        .select("kind, payload")
+        .eq("run_id", runId)
+        .order("created_at", { ascending: true })
+        .limit(400);
+      const evs = runEvs || [];
+      // Fast-path derivation matches the frontend logic exactly.
+      let hasPendingApproval = false, hasClarification = false, sawAction = false;
+      const lastOkByType = new Map<string, boolean>();
+      const actionLines: string[] = [];
+      for (const e of evs) {
+        const k = String(e.kind || "");
+        const p = (e.payload as Record<string, unknown>) || {};
+        if (k === "pending_approval") hasPendingApproval = true;
+        else if (k === "approval_resolved" || k === "approved" || k === "rejected") hasPendingApproval = false;
+        else if (k === "clarification_request" || k === "ask_user" || k === "needs_input") hasClarification = true;
+        else if (k === "clarification_resolved" || k === "user_reply" || k === "clarification_answer") hasClarification = false;
+        else if (k === "action") {
+          sawAction = true;
+          const type = String((p as { type?: unknown }).type || "action");
+          const ok = (p as { ok?: unknown }).ok === true;
+          lastOkByType.set(type, ok);
+          actionLines.push(`- ${type} ok=${ok} ${String((p as { summary?: unknown }).summary || "").slice(0, 160)}`);
+        }
+      }
+      if (paused) outcomeLabel = "Paused";
+      else if (hasPendingApproval) outcomeLabel = "Needs approval";
+      else if (hasClarification) outcomeLabel = "Blocked";
+      else if (hitStepLimit) outcomeLabel = "Step limit";
+      else if (sawAction && Array.from(lastOkByType.values()).some((v) => v === false)) outcomeLabel = "Failed";
+      else if (sawAction) outcomeLabel = "Done";
+      else outcomeLabel = "Failed"; // finished with no delivered action = failed
+
+      // Ask the model to grade against the original instruction — but keep
+      // the derived label above; the model only refines the summary + goal_met.
+      const instruction = userInstruction || manifest.goal || "(unspecified)";
+      const gradePrompt = `You are grading whether an AI agent's run met its instruction.
+
+INSTRUCTION:
+${instruction}
+
+ACTIONS TAKEN THIS RUN (type ok=true/false + short summary):
+${actionLines.slice(-40).join("\n") || "(no actions logged)"}
+
+DERIVED OUTCOME LABEL (do not change): ${outcomeLabel}
+
+Reply with ONE fenced JSON block:
+\`\`\`json
+{"goal_met":"yes|partial|no","summary":"1-3 sentences, plain English, name the delivered artifacts or why the goal was not met"}
+\`\`\``;
+      const gResp = await fetch(LOVABLE_URL, {
+        method: "POST",
+        headers: { "Lovable-API-Key": key, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: MODEL,
+          messages: [
+            { role: "system", content: "You grade completion accurately. No hedging, no marketing. Under 400 chars." },
+            { role: "user", content: gradePrompt },
+          ],
+          temperature: 0.1,
+        }),
+      });
+      if (gResp.ok) {
+        const gData = await gResp.json();
+        const raw = gData?.choices?.[0]?.message?.content ?? "";
+        const parsed = extractAction(raw);
+        if (parsed) {
+          const gm = String((parsed as { goal_met?: unknown }).goal_met || "").toLowerCase();
+          if (gm === "yes" || gm === "partial" || gm === "no") goalMet = gm as typeof goalMet;
+          const sm = String((parsed as { summary?: unknown }).summary || "").slice(0, 600);
+          if (sm) completionSummary = sm;
+        }
+      }
+      // Reconcile: model saying "no" downgrades Done to Failed; "partial"
+      // downgrades Done to Failed unless step-limit already explains it.
+      if (outcomeLabel === "Done" && goalMet === "no") outcomeLabel = "Failed";
+      if (outcomeLabel === "Done" && goalMet === "partial") outcomeLabel = "Step limit"; // partial-but-not-limited stays informative
+    } catch (e) {
+      console.warn("completion self-check failed", e);
+    }
+
+    const finalCompletionText = `[${outcomeLabel}] goal_met=${goalMet}. ${completionSummary}`.slice(0, 900);
+    await logEvent("completion", {
+      outcome: outcomeLabel,
+      goal_met: goalMet,
+      summary: completionSummary,
+      hit_step_limit: hitStepLimit,
+      steps,
+    });
+
     await supabase.from("agent_runs").update({
-      status: paused ? "paused" : "completed",
+      status: paused ? "paused" : (hitStepLimit ? "step_limit" : (outcomeLabel === "Failed" ? "failed" : "completed")),
       finished_at: new Date().toISOString(),
-      summary: finalSummary,
+      summary: finalCompletionText,
+      outcome: outcomeLabel,
     }).eq("id", runId);
 
-    return json({ runId, summary: finalSummary, steps, paused });
+    return json({ runId, summary: finalCompletionText, outcome: outcomeLabel, goal_met: goalMet, steps, paused, hitStepLimit });
+
   } catch (e) {
     console.error("agent-runtime error", e);
     return json({ error: e instanceof Error ? e.message : "unknown" }, 500);
