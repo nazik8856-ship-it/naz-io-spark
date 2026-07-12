@@ -185,22 +185,23 @@ serve(async (req) => {
 
     // Retry-alternative-first guard: on any tool_result/action logged with
     // ok:false, remember which tool failed so we can force the model to try
-    // one alternative before it is allowed to ask_user. Cleared when a
-    // DIFFERENT tool succeeds or is next attempted.
-    let pendingAlternativeAfterFailure: { failedTool: string; nudged: boolean } | null = null as { failedTool: string; nudged: boolean } | null;
+    // one alternative before it is allowed to ask_user. Wrapped in an object
+    // holder so TS control-flow analysis doesn't narrow it to null.
+    const failGuard: { state: { failedTool: string; nudged: boolean } | null } = { state: null };
 
     const logEvent = (kind: string, payload: Record<string, unknown>) => {
       if (kind === "tool_result" || kind === "action") {
         const p = payload as { ok?: unknown; tool?: unknown; type?: unknown };
         const toolName = String(p.tool || p.type || "unknown");
         if (p.ok === false) {
-          pendingAlternativeAfterFailure = { failedTool: toolName, nudged: false };
-        } else if (p.ok === true && pendingAlternativeAfterFailure && toolName !== pendingAlternativeAfterFailure.failedTool) {
-          pendingAlternativeAfterFailure = null;
+          failGuard.state = { failedTool: toolName, nudged: false };
+        } else if (p.ok === true && failGuard.state && toolName !== failGuard.state.failedTool) {
+          failGuard.state = null;
         }
       }
       return supabase.from("agent_events").insert({ run_id: runId, agent_id: agentId, user_id: userId, kind, payload });
     };
+
 
 
     await logEvent("run_started", { trigger, goal: manifest.goal });
