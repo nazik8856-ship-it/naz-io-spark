@@ -183,8 +183,26 @@ serve(async (req) => {
     if (runErr || !run) return json({ error: "Could not start run" }, 500);
     const runId = run.id as string;
 
-    const logEvent = (kind: string, payload: Record<string, unknown>) =>
-      supabase.from("agent_events").insert({ run_id: runId, agent_id: agentId, user_id: userId, kind, payload });
+    // Retry-alternative-first guard: on any tool_result/action logged with
+    // ok:false, remember which tool failed so we can force the model to try
+    // one alternative before it is allowed to ask_user. Wrapped in an object
+    // holder so TS control-flow analysis doesn't narrow it to null.
+    const failGuard: { state: { failedTool: string; nudged: boolean } | null } = { state: null };
+
+    const logEvent = (kind: string, payload: Record<string, unknown>) => {
+      if (kind === "tool_result" || kind === "action") {
+        const p = payload as { ok?: unknown; tool?: unknown; type?: unknown };
+        const toolName = String(p.tool || p.type || "unknown");
+        if (p.ok === false) {
+          failGuard.state = { failedTool: toolName, nudged: false };
+        } else if (p.ok === true && failGuard.state && toolName !== failGuard.state.failedTool) {
+          failGuard.state = null;
+        }
+      }
+      return supabase.from("agent_events").insert({ run_id: runId, agent_id: agentId, user_id: userId, kind, payload });
+    };
+
+
 
     await logEvent("run_started", { trigger, goal: manifest.goal });
     if (expiredClarificationId) {
@@ -226,12 +244,17 @@ serve(async (req) => {
       { name: "create_doc", kind: "create_doc", description: "Create a real Google Doc in the connected Google account (from the Gmail integration) with the given title and body text. Returns the doc URL.", config: {} },
       { name: "create_sheet", kind: "create_sheet", description: "Create a real Google Sheet in the connected Google account (from the Gmail integration) with the given title and rows (2D array of cell values). Returns the sheet URL.", config: {} },
       { name: "create_calendar_event", kind: "create_calendar_event", description: "Create a real event on the connected Google account's primary calendar. Requires ISO start/end times.", config: {} },
+      { name: "edit_doc", kind: "edit_doc", description: "Edit an existing Google Doc by id — append to or replace its body content. Verifies the edit by re-reading the doc.", config: {} },
+      { name: "edit_sheet", kind: "edit_sheet", description: "Update a range in an existing Google Sheet by id (e.g. Sheet1!A2:C10) with a 2D array of values. Verifies by re-reading the range.", config: {} },
+      { name: "read_email", kind: "read_email", description: "Read the full body/thread of a Gmail message. Give a message_id, thread_id, or a Gmail search query (e.g. 'from:x@y.com newer_than:2d'). Returns decoded plain-text content, not just metadata.", config: {} },
+      { name: "reply_email", kind: "reply_email", description: "Reply inside an existing Gmail thread by thread_id (proper In-Reply-To/References headers). Same approval-gating as send_email.", config: {} },
       { name: "read_analytics", kind: "read_analytics", description: "Fetch last 30 days of sessions and users from a Google Analytics 4 property via the GA4 Data API. Requires property_id.", config: {} },
       { name: "read_youtube_stats", kind: "read_youtube_stats", description: "Fetch subscriber/view/video counts for a YouTube channel via the YouTube Data API. Defaults to the authed Google account's own channel when channel_id is omitted.", config: {} },
       { name: "http_post", kind: "http_post", description: "POST a JSON payload to an allow-listed URL to trigger or adjust an external system. URL must be https and either match this agent's configured webhook_url or a whitelisted domain.", config: {} },
       { name: "webhook", kind: "http_post", description: "Alias for http_post — POST a JSON payload to an allow-listed URL.", config: {} },
       { name: "schedule_followup", kind: "schedule_followup", description: "Schedule this agent to run again at a specific future time, carrying an instruction forward.", config: {} },
     ];
+
     const effectiveTools: Tool[] = [
       ...manifest.tools,
       ...builtInTools.filter((b) => !manifest.tools.some((t) => t.name === b.name || t.kind === b.kind)),
@@ -257,6 +280,11 @@ serve(async (req) => {
         case "create_doc": usage = `create_doc(title: string, body_markdown: string)  // creates a real Google Doc in the connected Google account and returns { url, id }`; break;
         case "create_sheet": usage = `create_sheet(title: string, rows: string[][])  // creates a real Google Sheet with the given rows and returns { url, id }`; break;
         case "create_calendar_event": usage = `create_calendar_event(title: string, start_iso: string, end_iso: string, description?: string)  // creates an event on the primary Google Calendar and returns { url, id }`; break;
+        case "edit_doc": usage = `edit_doc(doc_id: string, mode: "append"|"replace", body_markdown: string)  // edits an existing Google Doc by id and re-reads to verify`; break;
+        case "edit_sheet": usage = `edit_sheet(sheet_id: string, range: string, values: string[][])  // updates a range (e.g. "Sheet1!A2:C10") in an existing Google Sheet and re-reads to verify`; break;
+        case "read_email": usage = `read_email(message_id?: string, thread_id?: string, query?: string, max?: number)  // returns full decoded body/thread content, not just unread counts`; break;
+        case "reply_email": usage = `reply_email(thread_id: string, body: string, subject?: string)  // replies inside an existing Gmail thread with proper threading headers; approval-gated like send_email`; break;
+
         case "read_analytics": usage = `read_analytics(property_id: string)  // GA4 Data API: last 30 days sessions & totalUsers for the given property`; break;
         case "read_youtube_stats": usage = `read_youtube_stats(channel_id?: string)  // YouTube Data API: subscriber/view/video counts. Omit channel_id for the authed user's own channel.`; break;
         case "http_post": usage = `http_post(url: string, body: object)  // POSTs JSON to an allow-listed https URL (per-agent webhook_url or whitelisted domain)`; break;
@@ -290,8 +318,10 @@ ${memoryBlock}
 - Internal + routine automated work (research, drafting, computing, reasoning, logging, sending scheduled reminders, replying to DMs within tone, generating reports, updating dashboards, adjusting prices within configured bounds, reconciling records) → EXECUTE it via the appropriate tool. Do not ask permission for work the operator already delegated to you.
 - Reserve request_approval ONLY for irreversible, high-blast-radius actions: charging money above a threshold, mass public posts, legal/tax filings, deleting data, or anything a guardrail explicitly marks [REQUIRES APPROVAL].
 - If you literally cannot proceed without info the business hasn't given you, call ask_user with at most one focused question. After ask_user, finish the run; you'll resume when the operator answers.
+- Failure-recovery rule: if a tool call fails or returns ok:false, DO NOT immediately ask_user. First try ONE reasonable alternative approach (a different tool, different input, or a smaller sub-goal). Only call ask_user if the alternative also fails or the missing piece is genuinely operator-only info (credentials, a decision, a fact the business hasn't shared).
 - Persist anything durable about the business with remember(key, value) so future runs are smarter.
-- Your finish summary MUST list the concrete artifacts produced this run in the form "Delivered: <thing> → <where/ID>". If you delivered nothing, that is a failed run.
+- Before you finish, self-check: does what you actually produced this run satisfy the operator's instruction? Your finish summary MUST (a) list concrete artifacts as "Delivered: <thing> → <where/ID>", (b) plainly state whether the original goal was met (yes / partially / no) and why. If you delivered nothing, that is a failed run — say so honestly.
+
 - Never break character. Never explain you are an LLM.
 
 
@@ -327,6 +357,9 @@ Rules:
 
     let finalSummary = "Run ended without explicit summary.";
     let steps = 0, finished = false, paused = false;
+
+
+
 
     while (steps < MAX_STEPS && !finished && !paused) {
       steps++;
@@ -373,6 +406,27 @@ Rules:
           continue;
         }
         const input = (parsed.input && typeof parsed.input === "object") ? parsed.input as Record<string, unknown> : {};
+
+        // Retry-alternative-first guard: block ask_user until the model has
+        // tried at least one different tool after the last failure.
+        if (tool.kind === "ask_user" && failGuard.state && !failGuard.state.nudged) {
+          failGuard.state.nudged = true;
+          const failed = failGuard.state.failedTool;
+          await logEvent("reason", {
+            thought: `Intercepted ask_user — must try one alternative approach after "${failed}" failed before escalating to operator.`,
+          });
+          messages.push({
+            role: "user",
+            content: `Do NOT call ask_user yet. The last "${failed}" attempt failed. Try ONE reasonable alternative first — a different tool, different input, or a smaller sub-goal. Only call ask_user if that alternative also fails or the missing piece is genuinely operator-only (credentials, a decision, a fact the business hasn't shared).`,
+          });
+          continue;
+        }
+        // Any DIFFERENT tool attempt clears the pending-alternative flag.
+        if (failGuard.state && tool.name !== failGuard.state.failedTool && tool.kind !== "ask_user") {
+          failGuard.state = null;
+        }
+
+
         await logEvent("tool_call", { tool: tool.name, kind: tool.kind, input });
 
         // Built-in interactive tools pause the run
@@ -383,6 +437,7 @@ Rules:
           paused = true;
           finalSummary = "Paused: waiting on operator clarification.";
           break;
+
         }
         if (tool.kind === "request_approval") {
           await logEvent("pending_approval", {
@@ -844,6 +899,340 @@ Rules:
           }
         }
 
+        // ------------------------------------------------------------
+        // Helper: resolve a connected Gmail integration + access token.
+        // ------------------------------------------------------------
+        const resolveGoogleAccess = async (): Promise<{ access: string | null; error?: string; fromEmail?: string }> => {
+          const { data: gmailRows } = await supabase
+            .from("agent_integrations")
+            .select("id, credentials, agent_id")
+            .eq("user_id", userId)
+            .eq("provider", "Gmail")
+            .eq("status", "connected")
+            .order("agent_id", { ascending: false, nullsFirst: false });
+          const gmail = (gmailRows || []).find((r) => r.agent_id === agentId) || (gmailRows || [])[0];
+          if (!gmail) return { access: null, error: "Google account not connected — connect Gmail in Integrations first." };
+          const { ensureAccessToken } = await import("../_shared/gmail.ts");
+          const access = await ensureAccessToken(supabase, { id: gmail.id, credentials: (gmail.credentials as Record<string, unknown>) || {} });
+          if (!access) return { access: null, error: "Google token invalid — please reconnect Gmail." };
+          const creds = (gmail.credentials as Record<string, unknown>) || {};
+          return { access, fromEmail: String(creds.email || "me") };
+        };
+
+        // ------------------------------------------------------------
+        // edit_doc: append/replace body of an existing Google Doc, verify.
+        // ------------------------------------------------------------
+        if (tool.kind === "edit_doc") {
+          const docId = String(input.doc_id || input.id || "").trim();
+          const mode = String(input.mode || "append").toLowerCase();
+          const bodyMd = String(input.body_markdown || input.body || "");
+          if (!docId || !bodyMd || (mode !== "append" && mode !== "replace")) {
+            const msg = `edit_doc requires doc_id, body_markdown, and mode="append" or "replace".`;
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: "edit_doc", target: docId, ok: false, result_ref: docId || null, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue.` });
+            continue;
+          }
+          try {
+            const { access, error, fromEmail: _fe } = await resolveGoogleAccess();
+            if (!access) throw new Error(error);
+            const authHeaders = { Authorization: `Bearer ${access}`, "Content-Type": "application/json" };
+            // Fetch current doc for its endIndex.
+            const getR = await fetch(`https://docs.googleapis.com/v1/documents/${encodeURIComponent(docId)}`, {
+              headers: { Authorization: `Bearer ${access}` },
+            });
+            const getB = await getR.json().catch(() => ({}));
+            if (!getR.ok || getB?.documentId !== docId) {
+              throw new Error(`Docs get failed: ${getB?.error?.message || `HTTP ${getR.status}`}`);
+            }
+            const contentArr = (getB.body?.content || []) as Array<{ endIndex?: number }>;
+            const endIndex = contentArr.length ? (contentArr[contentArr.length - 1].endIndex ?? 2) : 2;
+            const text = bodyMd.slice(0, 100000);
+            const requests: unknown[] = [];
+            if (mode === "replace" && endIndex > 2) {
+              requests.push({ deleteContentRange: { range: { startIndex: 1, endIndex: endIndex - 1 } } });
+              requests.push({ insertText: { location: { index: 1 }, text } });
+            } else if (mode === "replace") {
+              requests.push({ insertText: { location: { index: 1 }, text } });
+            } else {
+              // append at end (endIndex-1 is the trailing newline position)
+              const insertAt = Math.max(1, endIndex - 1);
+              requests.push({ insertText: { location: { index: insertAt }, text: (endIndex > 2 ? "\n" : "") + text } });
+            }
+            const upR = await fetch(`https://docs.googleapis.com/v1/documents/${encodeURIComponent(docId)}:batchUpdate`, {
+              method: "POST", headers: authHeaders, body: JSON.stringify({ requests }),
+            });
+            if (!upR.ok) {
+              const eb = await upR.json().catch(() => ({}));
+              throw new Error(`Docs batchUpdate failed: ${eb?.error?.message || `HTTP ${upR.status}`}`);
+            }
+            // Verify: re-fetch and confirm body contains a marker substring.
+            const vr = await fetch(`https://docs.googleapis.com/v1/documents/${encodeURIComponent(docId)}`, {
+              headers: { Authorization: `Bearer ${access}` },
+            });
+            const vb = await vr.json().catch(() => ({}));
+            const dumped = JSON.stringify(vb?.body?.content || []);
+            const marker = text.replace(/\s+/g, " ").trim().slice(0, 40);
+            if (!vr.ok || vb?.documentId !== docId || (marker && !dumped.includes(marker.slice(0, 20)))) {
+              throw new Error(`Docs verify failed: ${vb?.error?.message || `HTTP ${vr.status}`} — edit not observed in re-read.`);
+            }
+            const url = `https://docs.google.com/document/d/${docId}/edit`;
+            const summary = `Edited Google Doc ${docId} (${mode}) — ${text.length} chars applied and verified. ${url}`;
+            await logEvent("tool_result", { tool: tool.name, ok: true, summary });
+            await logEvent("action", { type: "edit_doc", target: docId, ok: true, result_ref: docId, summary, url });
+            messages.push({ role: "user", content: `${summary}\n\nContinue.` });
+          } catch (e) {
+            const msg = `edit_doc failed: ${e instanceof Error ? e.message : "unknown"}`;
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: "edit_doc", target: docId, ok: false, result_ref: docId, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue.` });
+          }
+          continue;
+        }
+
+        // ------------------------------------------------------------
+        // edit_sheet: update a range in an existing Google Sheet, verify.
+        // ------------------------------------------------------------
+        if (tool.kind === "edit_sheet") {
+          const sheetId = String(input.sheet_id || input.id || "").trim();
+          const range = String(input.range || "").trim();
+          const rows = Array.isArray(input.values) ? (input.values as unknown[])
+            : Array.isArray(input.rows) ? (input.rows as unknown[])
+            : [];
+          if (!sheetId || !range || rows.length === 0) {
+            const msg = `edit_sheet requires sheet_id, range (e.g. "Sheet1!A2:C10"), and non-empty values (string[][]).`;
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: "edit_sheet", target: sheetId, ok: false, result_ref: sheetId || null, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue.` });
+            continue;
+          }
+          try {
+            const { access, error } = await resolveGoogleAccess();
+            if (!access) throw new Error(error);
+            const values = rows.slice(0, 5000).map((r) =>
+              Array.isArray(r) ? (r as unknown[]).slice(0, 100).map((c) => (c == null ? "" : String(c))) : [String(r ?? "")],
+            );
+            const upR = await fetch(
+              `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}/values/${range}?valueInputOption=USER_ENTERED`,
+              { method: "PUT", headers: { Authorization: `Bearer ${access}`, "Content-Type": "application/json" }, body: JSON.stringify({ values }) },
+            );
+            const ub = await upR.json().catch(() => ({}));
+            if (!upR.ok) throw new Error(`Sheets values.update failed: ${ub?.error?.message || `HTTP ${upR.status}`}`);
+            const updatedCells = Number(ub?.updatedCells ?? 0);
+            // Verify: re-read the same range and confirm at least one cell matches.
+            const vr = await fetch(
+              `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}/values/${range}`,
+              { headers: { Authorization: `Bearer ${access}` } },
+            );
+            const vb = await vr.json().catch(() => ({}));
+            if (!vr.ok) throw new Error(`Sheets verify read failed: ${vb?.error?.message || `HTTP ${vr.status}`}`);
+            const gotValues = (vb?.values || []) as string[][];
+            const flatWrote = values.flat().filter(Boolean).map((s) => String(s));
+            const flatGot = gotValues.flat().map((s) => String(s ?? ""));
+            const match = flatWrote.length === 0 || flatWrote.some((v) => flatGot.includes(v));
+            if (!match) throw new Error(`Sheets verify mismatch: re-read of ${range} does not contain written values.`);
+            const url = `https://docs.google.com/spreadsheets/d/${sheetId}/edit`;
+            const summary = `Edited Sheet ${sheetId} range ${range} — ${updatedCells} cells updated and verified. ${url}`;
+            await logEvent("tool_result", { tool: tool.name, ok: true, summary });
+            await logEvent("action", { type: "edit_sheet", target: `${sheetId}:${range}`, ok: true, result_ref: sheetId, summary, url });
+            messages.push({ role: "user", content: `${summary}\n\nContinue.` });
+          } catch (e) {
+            const msg = `edit_sheet failed: ${e instanceof Error ? e.message : "unknown"}`;
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: "edit_sheet", target: sheetId, ok: false, result_ref: sheetId, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue.` });
+          }
+          continue;
+        }
+
+        // ------------------------------------------------------------
+        // read_email: fetch full body/thread content (not just metadata).
+        // ------------------------------------------------------------
+        if (tool.kind === "read_email") {
+          const messageId = String(input.message_id || "").trim();
+          const threadId = String(input.thread_id || "").trim();
+          const query = String(input.query || input.q || "").trim();
+          const max = Math.min(Math.max(Number(input.max || 3), 1), 10);
+          if (!messageId && !threadId && !query) {
+            const msg = `read_email requires one of: message_id, thread_id, or query (Gmail search).`;
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: "read_email", target: "", ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue.` });
+            continue;
+          }
+          try {
+            const { access, error } = await resolveGoogleAccess();
+            if (!access) throw new Error(error);
+            const auth = { Authorization: `Bearer ${access}` };
+            const decodeB64 = (s: string) => {
+              try {
+                const norm = s.replace(/-/g, "+").replace(/_/g, "/");
+                const pad = norm + "===".slice((norm.length + 3) % 4);
+                return atob(pad);
+              } catch { return ""; }
+            };
+            type GPart = { mimeType?: string; body?: { data?: string; size?: number }; parts?: GPart[] };
+            const walkParts = (p: GPart | undefined): string => {
+              if (!p) return "";
+              if (p.body?.data && (p.mimeType === "text/plain" || !p.mimeType)) return decodeB64(p.body.data);
+              if (Array.isArray(p.parts)) {
+                for (const c of p.parts) {
+                  const r = walkParts(c);
+                  if (r) return r;
+                }
+              }
+              if (p.body?.data && p.mimeType === "text/html") {
+                return stripHtml(decodeB64(p.body.data));
+              }
+              return "";
+            };
+            const fmtMessage = (m: { id?: string; threadId?: string; snippet?: string; payload?: GPart; internalDate?: string }) => {
+              const headers = ((m.payload as unknown as { headers?: Array<{ name: string; value: string }> })?.headers) || [];
+              const H = (n: string) => headers.find((h) => h.name.toLowerCase() === n.toLowerCase())?.value || "";
+              const body = walkParts(m.payload).slice(0, 6000) || (m.snippet || "");
+              return `--- Gmail message id=${m.id} thread=${m.threadId}\nFrom: ${H("From")}\nTo: ${H("To")}\nSubject: ${H("Subject")}\nDate: ${H("Date")}\n\n${body}`;
+            };
+            let target = messageId || threadId || query;
+            let out = "";
+            let resultRef: string | null = null;
+            if (messageId) {
+              const r = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}?format=full`, { headers: auth });
+              const rb = await r.json();
+              if (!r.ok) throw new Error(`Gmail get failed: ${rb?.error?.message || `HTTP ${r.status}`}`);
+              out = fmtMessage(rb); resultRef = rb.id;
+              target = rb.id || messageId;
+            } else if (threadId) {
+              const r = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/threads/${encodeURIComponent(threadId)}?format=full`, { headers: auth });
+              const rb = await r.json();
+              if (!r.ok) throw new Error(`Gmail thread get failed: ${rb?.error?.message || `HTTP ${r.status}`}`);
+              const msgs = (rb.messages || []).slice(-max);
+              out = msgs.map(fmtMessage).join("\n\n");
+              resultRef = rb.id || threadId;
+              target = rb.id || threadId;
+            } else {
+              const listR = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=${max}&q=${encodeURIComponent(query)}`, { headers: auth });
+              const listB = await listR.json();
+              if (!listR.ok) throw new Error(`Gmail search failed: ${listB?.error?.message || `HTTP ${listR.status}`}`);
+              const ids: Array<{ id: string }> = listB.messages || [];
+              if (ids.length === 0) { out = `No Gmail messages matched: ${query}`; }
+              else {
+                const parts: string[] = [];
+                for (const it of ids) {
+                  const r = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${it.id}?format=full`, { headers: auth });
+                  const rb = await r.json().catch(() => ({}));
+                  if (r.ok) parts.push(fmtMessage(rb));
+                }
+                out = parts.join("\n\n");
+                resultRef = ids[0]?.id ?? null;
+              }
+            }
+            const summary = out.slice(0, 8000);
+            await logEvent("tool_result", { tool: tool.name, ok: true, summary });
+            await logEvent("action", { type: "read_email", target, ok: true, result_ref: resultRef, summary: summary.slice(0, 400) });
+            messages.push({ role: "user", content: `${summary}\n\nContinue.` });
+          } catch (e) {
+            const msg = `read_email failed: ${e instanceof Error ? e.message : "unknown"}`;
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: "read_email", target: messageId || threadId || query, ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue.` });
+          }
+          continue;
+        }
+
+        // ------------------------------------------------------------
+        // reply_email: reply within an existing Gmail thread. Same
+        // approval-gate as send_email; verify by re-fetching the sent msg.
+        // ------------------------------------------------------------
+        if (tool.kind === "reply_email") {
+          const threadId = String(input.thread_id || "").trim();
+          const bodyText = String(input.body || "").slice(0, 6000);
+          const explicitSubject = String(input.subject || "").slice(0, 200);
+          if (!threadId || !bodyText) {
+            const msg = `reply_email requires thread_id and body.`;
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: "reply_email", target: threadId, ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue.` });
+            continue;
+          }
+          // Same approval gate as send_email.
+          const emailGuard = (manifest.guardrails || []).find((g) => {
+            const r = (g.rule || "").toLowerCase();
+            return g.requiresApproval && (r.includes("email") || r.includes("send") || r.includes("external") || r.includes("reply"));
+          });
+          const hardBlock = emailGuard && /\[requires approval\]/i.test(emailGuard.rule || "");
+          const autoApprove = (agent as { auto_approve_low_risk?: boolean }).auto_approve_low_risk === true && !hardBlock;
+          if (emailGuard && !autoApprove) {
+            await logEvent("pending_approval", {
+              action: "reply_email",
+              payload: { thread_id: threadId, subject: explicitSubject, body: bodyText },
+              risk: "med",
+              guardrail: emailGuard.rule,
+            });
+            const msg = `Queued for approval (guardrail: ${emailGuard.rule}); NOT sent.`;
+            await logEvent("tool_result", { tool: tool.name, ok: true, summary: msg });
+            await logEvent("action", { type: "reply_email", target: threadId, ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue with other work or finish.` });
+            continue;
+          }
+          try {
+            const { access, error, fromEmail } = await resolveGoogleAccess();
+            if (!access) throw new Error(error);
+            const auth = { Authorization: `Bearer ${access}` };
+            // Pull the thread's latest message to derive To, Subject, Message-ID, References.
+            const tR = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/threads/${encodeURIComponent(threadId)}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Subject&metadataHeaders=Message-ID&metadataHeaders=References&metadataHeaders=In-Reply-To`, { headers: auth });
+            const tB = await tR.json();
+            if (!tR.ok || !tB?.messages?.length) throw new Error(`Gmail thread lookup failed: ${tB?.error?.message || `HTTP ${tR.status}`}`);
+            const last = tB.messages[tB.messages.length - 1];
+            const headers = (last.payload?.headers || []) as Array<{ name: string; value: string }>;
+            const H = (n: string) => headers.find((h) => h.name.toLowerCase() === n.toLowerCase())?.value || "";
+            const originalFrom = H("From");
+            const originalMsgId = H("Message-ID") || H("Message-Id");
+            const priorRefs = H("References");
+            const origSubject = H("Subject");
+            const subject = explicitSubject || (origSubject.toLowerCase().startsWith("re:") ? origSubject : `Re: ${origSubject}`);
+            const to = originalFrom || H("To");
+            if (!to) throw new Error("Could not resolve reply recipient from thread.");
+            const references = [priorRefs, originalMsgId].filter(Boolean).join(" ");
+            const rfc = [
+              `From: ${fromEmail || "me"}`,
+              `To: ${to}`,
+              `Subject: ${subject}`,
+              originalMsgId ? `In-Reply-To: ${originalMsgId}` : "",
+              references ? `References: ${references}` : "",
+              `Content-Type: text/plain; charset="UTF-8"`,
+              ``,
+              bodyText,
+            ].filter(Boolean).join("\r\n");
+            const raw = btoa(unescape(encodeURIComponent(rfc))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+            const sendR = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/send`, {
+              method: "POST",
+              headers: { ...auth, "Content-Type": "application/json" },
+              body: JSON.stringify({ raw, threadId }),
+            });
+            const sendB = await sendR.json().catch(() => ({}));
+            if (!sendR.ok || !sendB?.id) throw new Error(`Gmail reply send failed: ${sendB?.error?.message || `HTTP ${sendR.status}`}`);
+            const sentId = sendB.id as string;
+            // Verify — re-fetch and confirm same threadId.
+            const vr = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(sentId)}?format=metadata`, { headers: auth });
+            const vb = await vr.json().catch(() => ({}));
+            if (!vr.ok || vb?.id !== sentId || vb?.threadId !== threadId) {
+              throw new Error(`Gmail reply verify failed: ${vb?.error?.message || `HTTP ${vr.status}`} (id=${sentId}, thread=${vb?.threadId})`);
+            }
+            const summary = `Reply sent in thread ${threadId} to ${to} — subject "${subject}" (verified id=${sentId}).`;
+            await logEvent("tool_result", { tool: tool.name, ok: true, summary });
+            await logEvent("action", { type: "reply_email", target: to, ok: true, result_ref: sentId, summary });
+            messages.push({ role: "user", content: `${summary}\n\nContinue.` });
+          } catch (e) {
+            const msg = `reply_email failed: ${e instanceof Error ? e.message : "unknown"}`;
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: "reply_email", target: threadId, ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue.` });
+          }
+          continue;
+        }
+
+
+
         if (tool.kind === "read_analytics" || tool.kind === "read_youtube_stats") {
           const kind = tool.kind;
           const propertyId = String(input.property_id || "").trim();
@@ -1067,18 +1456,125 @@ Rules:
       }
     }
 
-    if (!finished && !paused) {
+    const hitStepLimit = !finished && !paused;
+    if (hitStepLimit) {
       await logEvent("finished", { summary: `Reached step limit (${MAX_STEPS}).`, partial: true });
       finalSummary = `Stopped after ${steps} steps without explicit finish.`;
     }
 
+    // ------------------------------------------------------------------
+    // Completion self-check — reason over the ACTUAL logged actions and
+    // decide whether the original instruction was met. Produces a plain
+    // label consistent with the frontend outcome badge
+    // (Done / Failed / Blocked / Needs approval / Step limit / Paused)
+    // plus a short human summary. Falls back gracefully if the model call
+    // fails so the run always finalizes.
+    // ------------------------------------------------------------------
+    let outcomeLabel: "Done" | "Failed" | "Blocked" | "Needs approval" | "Step limit" | "Paused" = "Done";
+    let completionSummary = finalSummary;
+    let goalMet: "yes" | "partial" | "no" = "yes";
+    try {
+      const { data: runEvs } = await supabase
+        .from("agent_events")
+        .select("kind, payload")
+        .eq("run_id", runId)
+        .order("created_at", { ascending: true })
+        .limit(400);
+      const evs = runEvs || [];
+      // Fast-path derivation matches the frontend logic exactly.
+      let hasPendingApproval = false, hasClarification = false, sawAction = false;
+      const lastOkByType = new Map<string, boolean>();
+      const actionLines: string[] = [];
+      for (const e of evs) {
+        const k = String(e.kind || "");
+        const p = (e.payload as Record<string, unknown>) || {};
+        if (k === "pending_approval") hasPendingApproval = true;
+        else if (k === "approval_resolved" || k === "approved" || k === "rejected") hasPendingApproval = false;
+        else if (k === "clarification_request" || k === "ask_user" || k === "needs_input") hasClarification = true;
+        else if (k === "clarification_resolved" || k === "user_reply" || k === "clarification_answer") hasClarification = false;
+        else if (k === "action") {
+          sawAction = true;
+          const type = String((p as { type?: unknown }).type || "action");
+          const ok = (p as { ok?: unknown }).ok === true;
+          lastOkByType.set(type, ok);
+          actionLines.push(`- ${type} ok=${ok} ${String((p as { summary?: unknown }).summary || "").slice(0, 160)}`);
+        }
+      }
+      if (paused) outcomeLabel = "Paused";
+      else if (hasPendingApproval) outcomeLabel = "Needs approval";
+      else if (hasClarification) outcomeLabel = "Blocked";
+      else if (hitStepLimit) outcomeLabel = "Step limit";
+      else if (sawAction && Array.from(lastOkByType.values()).some((v) => v === false)) outcomeLabel = "Failed";
+      else if (sawAction) outcomeLabel = "Done";
+      else outcomeLabel = "Failed"; // finished with no delivered action = failed
+
+      // Ask the model to grade against the original instruction — but keep
+      // the derived label above; the model only refines the summary + goal_met.
+      const instruction = userInstruction || manifest.goal || "(unspecified)";
+      const gradePrompt = `You are grading whether an AI agent's run met its instruction.
+
+INSTRUCTION:
+${instruction}
+
+ACTIONS TAKEN THIS RUN (type ok=true/false + short summary):
+${actionLines.slice(-40).join("\n") || "(no actions logged)"}
+
+DERIVED OUTCOME LABEL (do not change): ${outcomeLabel}
+
+Reply with ONE fenced JSON block:
+\`\`\`json
+{"goal_met":"yes|partial|no","summary":"1-3 sentences, plain English, name the delivered artifacts or why the goal was not met"}
+\`\`\``;
+      const gResp = await fetch(LOVABLE_URL, {
+        method: "POST",
+        headers: { "Lovable-API-Key": key, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: MODEL,
+          messages: [
+            { role: "system", content: "You grade completion accurately. No hedging, no marketing. Under 400 chars." },
+            { role: "user", content: gradePrompt },
+          ],
+          temperature: 0.1,
+        }),
+      });
+      if (gResp.ok) {
+        const gData = await gResp.json();
+        const raw = gData?.choices?.[0]?.message?.content ?? "";
+        const parsed = extractAction(raw);
+        if (parsed) {
+          const gm = String((parsed as { goal_met?: unknown }).goal_met || "").toLowerCase();
+          if (gm === "yes" || gm === "partial" || gm === "no") goalMet = gm as typeof goalMet;
+          const sm = String((parsed as { summary?: unknown }).summary || "").slice(0, 600);
+          if (sm) completionSummary = sm;
+        }
+      }
+      // Reconcile: model saying "no" downgrades Done to Failed; "partial"
+      // downgrades Done to Failed unless step-limit already explains it.
+      if (outcomeLabel === "Done" && (goalMet as string) === "no") outcomeLabel = "Failed";
+      if (outcomeLabel === "Done" && (goalMet as string) === "partial") outcomeLabel = "Step limit"; // partial-but-not-limited stays informative
+
+    } catch (e) {
+      console.warn("completion self-check failed", e);
+    }
+
+    const finalCompletionText = `[${outcomeLabel}] goal_met=${goalMet}. ${completionSummary}`.slice(0, 900);
+    await logEvent("completion", {
+      outcome: outcomeLabel,
+      goal_met: goalMet,
+      summary: completionSummary,
+      hit_step_limit: hitStepLimit,
+      steps,
+    });
+
     await supabase.from("agent_runs").update({
-      status: paused ? "paused" : "completed",
+      status: paused ? "paused" : (hitStepLimit ? "step_limit" : (outcomeLabel === "Failed" ? "failed" : "completed")),
       finished_at: new Date().toISOString(),
-      summary: finalSummary,
+      summary: finalCompletionText,
+      outcome: outcomeLabel,
     }).eq("id", runId);
 
-    return json({ runId, summary: finalSummary, steps, paused });
+    return json({ runId, summary: finalCompletionText, outcome: outcomeLabel, goal_met: goalMet, steps, paused, hitStepLimit });
+
   } catch (e) {
     console.error("agent-runtime error", e);
     return json({ error: e instanceof Error ? e.message : "unknown" }, 500);
