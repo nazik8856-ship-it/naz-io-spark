@@ -14,6 +14,63 @@ export type Database = {
   }
   public: {
     Tables: {
+      agent_artifacts: {
+        Row: {
+          account_email: string | null
+          agent_id: string | null
+          created_at: string
+          id: string
+          kind: string
+          provider: string | null
+          ref: Json
+          run_id: string | null
+          title: string | null
+          url: string | null
+          user_id: string
+        }
+        Insert: {
+          account_email?: string | null
+          agent_id?: string | null
+          created_at?: string
+          id?: string
+          kind: string
+          provider?: string | null
+          ref?: Json
+          run_id?: string | null
+          title?: string | null
+          url?: string | null
+          user_id: string
+        }
+        Update: {
+          account_email?: string | null
+          agent_id?: string | null
+          created_at?: string
+          id?: string
+          kind?: string
+          provider?: string | null
+          ref?: Json
+          run_id?: string | null
+          title?: string | null
+          url?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_artifacts_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_artifacts_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "agent_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       agent_events: {
         Row: {
           agent_id: string
@@ -563,17 +620,26 @@ export type Database = {
         Row: {
           created_at: string
           credits: number
+          display_name: string | null
           id: string
+          updated_at: string
+          user_context: Json
         }
         Insert: {
           created_at?: string
           credits?: number
+          display_name?: string | null
           id: string
+          updated_at?: string
+          user_context?: Json
         }
         Update: {
           created_at?: string
           credits?: number
+          display_name?: string | null
           id?: string
+          updated_at?: string
+          user_context?: Json
         }
         Relationships: []
       }

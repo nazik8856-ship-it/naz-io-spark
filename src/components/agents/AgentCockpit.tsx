@@ -65,6 +65,8 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [running, setRunning] = useState(false);
   const [lastRunStatus, setLastRunStatus] = useState<string>("");
+  const [gmailAcct, setGmailAcct] = useState<{ email: string | null; verified: string | null; status: string } | null>(null);
+  const [gmailVerifying, setGmailVerifying] = useState(false);
   const feedRef = useRef<HTMLDivElement>(null);
 
   const loadEvents = useCallback(async () => {
@@ -77,10 +79,42 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
     if (!error && data) setEvents(data as AgentEvent[]);
   }, [agentId]);
 
+  const loadGmail = useCallback(async () => {
+    const { data } = await supabase
+      .from("agent_integrations")
+      .select("provider, status, metadata, last_verified_at")
+      .eq("agent_id", agentId)
+      .eq("provider", "Gmail")
+      .maybeSingle();
+    if (!data) { setGmailAcct(null); return; }
+    const meta = (data.metadata as Record<string, unknown>) || {};
+    setGmailAcct({
+      email: (meta.account_email as string) || null,
+      verified: (data.last_verified_at as string) || null,
+      status: (data.status as string) || "connected",
+    });
+  }, [agentId]);
+
+  const verifyGmail = useCallback(async () => {
+    setGmailVerifying(true);
+    try {
+      await supabase.functions.invoke("integration-connect", {
+        body: { action: "fetch", provider: "Gmail", agentId },
+      });
+      await loadGmail();
+      toast.success("Gmail account confirmed");
+    } catch {
+      toast.error("Couldn't verify Gmail");
+    } finally {
+      setGmailVerifying(false);
+    }
+  }, [agentId, loadGmail]);
+
 
   // Initial load + realtime subscription on this agent's events.
   useEffect(() => {
     loadEvents();
+    loadGmail();
     const channel = supabase
       .channel(`agent_events:${agentId}`)
       .on(
@@ -213,6 +247,25 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
 
   return (
     <div className="space-y-4">
+      {gmailAcct && (
+        <div className="flex flex-wrap items-center gap-3 px-3 py-2 rounded-lg border border-emerald-400/25 bg-emerald-400/[0.04] text-xs">
+          <Mail className="h-3.5 w-3.5 text-emerald-300 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <span className="text-zinc-400">Google account connected:</span>{" "}
+            <span className="text-emerald-200 font-mono">{gmailAcct.email || "verified"}</span>
+            {gmailAcct.verified && (
+              <span className="text-zinc-500 ml-2">· last checked {new Date(gmailAcct.verified).toLocaleString()}</span>
+            )}
+          </div>
+          <button
+            onClick={verifyGmail}
+            disabled={gmailVerifying}
+            className="px-2 py-1 rounded border border-emerald-400/30 text-emerald-200 hover:bg-emerald-400/10 disabled:opacity-50 text-[11px]"
+          >
+            {gmailVerifying ? "Verifying…" : "Confirm account"}
+          </button>
+        </div>
+      )}
       {/* Status + actions bar (the generated dashboard renders its own hero) */}
       <div className="flex flex-wrap items-center gap-2">
         <button
