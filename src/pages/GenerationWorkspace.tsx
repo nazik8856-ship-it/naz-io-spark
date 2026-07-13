@@ -2152,6 +2152,24 @@ export default function GenerationWorkspace() {
         onSubmit={(answers) => {
           const r = intake.resolve;
           setIntake({ open: false, questions: [] });
+          // Persist intake answers so returning users don't re-enter them.
+          (async () => {
+            try {
+              const { data: sess } = await supabase.auth.getSession();
+              const uid = sess.session?.user?.id;
+              if (!uid) return;
+              const { data: prof } = await supabase
+                .from("profiles").select("user_context").eq("id", uid).maybeSingle();
+              const prev = (prof?.user_context as Record<string, unknown>) || {};
+              const merged = {
+                ...prev,
+                intake: { ...((prev as { intake?: Record<string, string> }).intake || {}), ...answers },
+                last_agent_name: intake.agentName || null,
+                updated_at: new Date().toISOString(),
+              };
+              await supabase.from("profiles").update({ user_context: merged }).eq("id", uid);
+            } catch { /* non-blocking */ }
+          })();
           r?.(answers);
         }}
         onSkip={() => {
