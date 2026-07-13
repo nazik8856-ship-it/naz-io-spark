@@ -104,6 +104,7 @@ export default function GeneratedDashboard() {
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [chatBusy, setChatBusy] = useState(false);
   const [previewKey, setPreviewKey] = useState(0);
+  const [outputsOpen, setOutputsOpen] = useState(false);
 
   useEffect(() => {
     if (!id || !kind) return;
