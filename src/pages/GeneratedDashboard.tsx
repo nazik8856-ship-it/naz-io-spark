@@ -222,12 +222,91 @@ export default function GeneratedDashboard() {
           Back
         </button>
         <div className="text-[10px] font-mono uppercase tracking-[0.3em] text-white/40">{kind} · workspace</div>
-        {kind === "website" && id ? (
-          <Link to={`/website-preview/${id}`} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-purple-400/40 text-purple-300 hover:bg-purple-400/10 text-xs">
-            Open full <ExternalLink className="h-3 w-3" />
-          </Link>
-        ) : <div className="w-16" />}
+        <div className="flex items-center gap-2">
+          {kind === "website" && (
+            <button
+              onClick={() => setOutputsOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-400/40 bg-emerald-400/10 text-xs text-emerald-200 font-semibold hover:bg-emerald-400/20"
+            >
+              <Package className="h-3.5 w-3.5" />
+              Outputs
+              <span className="ml-1 px-1.5 py-0.5 rounded bg-emerald-400/20 text-emerald-100 text-[10px] font-mono">
+                {pages.length + 1}
+              </span>
+            </button>
+          )}
+          {kind === "website" && id ? (
+            <Link to={`/website-preview/${id}`} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-purple-400/40 text-purple-300 hover:bg-purple-400/10 text-xs">
+              Open full <ExternalLink className="h-3 w-3" />
+            </Link>
+          ) : <div className="w-16" />}
+        </div>
       </header>
+
+      {outputsOpen && kind === "website" && (
+        <div
+          className="fixed inset-0 z-[95] flex items-start justify-center p-4 sm:p-8 overflow-y-auto"
+          style={{ background: "rgba(0,0,0,0.72)", backdropFilter: "blur(8px)" }}
+          onClick={() => setOutputsOpen(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="relative w-full max-w-2xl rounded-2xl overflow-hidden mt-16"
+            style={{ background: "#0a0b0f", border: "1px solid rgba(52,211,153,0.28)", boxShadow: "0 40px 120px -40px rgba(52,211,153,0.4)" }}
+          >
+            <div className="flex items-center justify-between px-5 py-4 border-b border-white/5">
+              <div className="flex items-center gap-2">
+                <Package className="h-4 w-4 text-emerald-300" />
+                <div>
+                  <div className="text-sm font-bold text-white">Outputs</div>
+                  <div className="text-[11px] text-zinc-500">Verified pages this website compiled</div>
+                </div>
+              </div>
+              <button onClick={() => setOutputsOpen(false)} className="text-zinc-400 hover:text-white p-1 rounded hover:bg-white/5">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="max-h-[60vh] overflow-y-auto">
+              {pages.length === 0 ? (
+                <div className="px-5 py-12 text-center text-sm text-zinc-500">
+                  No completed pages yet.
+                </div>
+              ) : (
+                <ul className="divide-y divide-white/5">
+                  <li className="px-5 py-3 flex items-center gap-3 hover:bg-white/[0.02]">
+                    <Package className="h-4 w-4 shrink-0 text-emerald-300" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm text-white truncate">{website?.name || "Website"}</div>
+                      <div className="text-[11px] text-zinc-500">Full site · {new Date(website?.created_at || Date.now()).toLocaleString()}</div>
+                    </div>
+                    <Link
+                      to={`/website-preview/${id}`}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-emerald-400/30 bg-emerald-400/10 text-[11px] text-emerald-200 hover:bg-emerald-400/20"
+                    >
+                      Open <ExternalLink className="h-3 w-3" />
+                    </Link>
+                  </li>
+                  {pages.map((p: any) => (
+                    <li key={p.id} className="px-5 py-3 flex items-center gap-3 hover:bg-white/[0.02]">
+                      <FileText className="h-4 w-4 shrink-0 text-cyan-300" />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm text-white truncate">{p.title || p.slug}</div>
+                        <div className="text-[11px] text-zinc-500">Page · /{p.slug} · {(p.sections || []).length} sections</div>
+                      </div>
+                      <Link
+                        to={`/website-preview/${id}#${p.slug}`}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-cyan-400/30 bg-cyan-400/10 text-[11px] text-cyan-200 hover:bg-cyan-400/20"
+                      >
+                        Open <ExternalLink className="h-3 w-3" />
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex-1 flex min-h-0">
         {/* Left: chat pane — same LiveAgentChat used by AI Agent workspace */}
