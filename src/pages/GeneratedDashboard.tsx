@@ -4,7 +4,7 @@
 // same chat-plus-dashboard experience.
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { ArrowLeft, ExternalLink, Loader2, LayoutDashboard, Monitor } from "lucide-react";
+import { ArrowLeft, ExternalLink, Loader2, LayoutDashboard, Monitor, Package, X, FileText } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import GeneratedAgentDashboard, { type AgentUiSpec, type Widget } from "@/components/agents/GeneratedAgentDashboard";
