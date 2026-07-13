@@ -189,7 +189,14 @@ serve(async (req) => {
     // holder so TS control-flow analysis doesn't narrow it to null.
     const failGuard: { state: { failedTool: string; nudged: boolean } | null } = { state: null };
 
-    const logEvent = (kind: string, payload: Record<string, unknown>) => {
+    const ARTIFACT_KINDS: Record<string, string> = {
+      create_doc: "doc", edit_doc: "doc",
+      create_sheet: "sheet", edit_sheet: "sheet",
+      create_calendar_event: "calendar_event",
+      send_email: "email", reply_email: "email",
+      generate_report: "report",
+    };
+    const logEvent = async (kind: string, payload: Record<string, unknown>) => {
       if (kind === "tool_result" || kind === "action") {
         const p = payload as { ok?: unknown; tool?: unknown; type?: unknown };
         const toolName = String(p.tool || p.type || "unknown");
@@ -197,6 +204,27 @@ serve(async (req) => {
           failGuard.state = { failedTool: toolName, nudged: false };
         } else if (p.ok === true && failGuard.state && toolName !== failGuard.state.failedTool) {
           failGuard.state = null;
+        }
+      }
+      // Mirror verified outputs into agent_artifacts so the Outputs panel is
+      // fast, durable, and survives event pruning.
+      if (kind === "action") {
+        const p = payload as { ok?: unknown; type?: unknown; target?: unknown; summary?: unknown; url?: unknown; result_ref?: unknown };
+        const artifactKind = ARTIFACT_KINDS[String(p.type || "")];
+        if (p.ok === true && artifactKind && (p.url || p.result_ref)) {
+          const gmail = connectedIntegrations.find((i) => (i.provider as string) === "Gmail");
+          const gmailMeta = (gmail?.metadata as Record<string, unknown>) || {};
+          supabase.from("agent_artifacts").insert({
+            user_id: userId,
+            agent_id: agentId,
+            run_id: runId,
+            kind: artifactKind,
+            title: String(p.target || p.summary || p.type || "output"),
+            url: p.url ? String(p.url) : null,
+            ref: { result_ref: p.result_ref ?? null, summary: p.summary ?? null },
+            provider: artifactKind === "email" ? "Gmail" : (artifactKind === "doc" || artifactKind === "sheet" || artifactKind === "calendar_event" ? "Google" : null),
+            account_email: (gmailMeta.account_email as string) || null,
+          }).then(() => {}, () => {});
         }
       }
       return supabase.from("agent_events").insert({ run_id: runId, agent_id: agentId, user_id: userId, kind, payload });
