@@ -1117,20 +1117,22 @@ Rules:
             const fmtMessage = (m: { id?: string; threadId?: string; snippet?: string; payload?: GPart; internalDate?: string }) => {
               const headers = ((m.payload as unknown as { headers?: Array<{ name: string; value: string }> })?.headers) || [];
               const H = (n: string) => headers.find((h) => h.name.toLowerCase() === n.toLowerCase())?.value || "";
+              // gmail.metadata scope: no body access, only headers + snippet. Use snippet as body preview.
               const body = walkParts(m.payload).slice(0, 6000) || (m.snippet || "");
-              return `--- Gmail message id=${m.id} thread=${m.threadId}\nFrom: ${H("From")}\nTo: ${H("To")}\nSubject: ${H("Subject")}\nDate: ${H("Date")}\n\n${body}`;
+              return `--- Gmail message id=${m.id} thread=${m.threadId}\nFrom: ${H("From")}\nTo: ${H("To")}\nSubject: ${H("Subject")}\nDate: ${H("Date")}\n\n${body}\n\n(Note: full body unavailable under gmail.metadata scope — showing snippet + headers.)`;
             };
+            const METADATA_HEADERS = "metadataHeaders=From&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Subject&metadataHeaders=Date&metadataHeaders=Message-ID&metadataHeaders=References&metadataHeaders=In-Reply-To";
             let target = messageId || threadId || query;
             let out = "";
             let resultRef: string | null = null;
             if (messageId) {
-              const r = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}?format=full`, { headers: auth });
+              const r = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}?format=metadata&${METADATA_HEADERS}`, { headers: auth });
               const rb = await r.json();
               if (!r.ok) throw new Error(`Gmail get failed: ${rb?.error?.message || `HTTP ${r.status}`}`);
               out = fmtMessage(rb); resultRef = rb.id;
               target = rb.id || messageId;
             } else if (threadId) {
-              const r = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/threads/${encodeURIComponent(threadId)}?format=full`, { headers: auth });
+              const r = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/threads/${encodeURIComponent(threadId)}?format=metadata&${METADATA_HEADERS}`, { headers: auth });
               const rb = await r.json();
               if (!r.ok) throw new Error(`Gmail thread get failed: ${rb?.error?.message || `HTTP ${r.status}`}`);
               const msgs = (rb.messages || []).slice(-max);
@@ -1138,19 +1140,22 @@ Rules:
               resultRef = rb.id || threadId;
               target = rb.id || threadId;
             } else {
-              const listR = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=${max}&q=${encodeURIComponent(query)}`, { headers: auth });
+              // gmail.metadata scope does NOT support the `q` search parameter.
+              // Fall back to a plain recent-messages list (no query filter) and let
+              // the agent scan headers/snippets client-side.
+              const listR = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=${max}`, { headers: auth });
               const listB = await listR.json();
-              if (!listR.ok) throw new Error(`Gmail search failed: ${listB?.error?.message || `HTTP ${listR.status}`}`);
+              if (!listR.ok) throw new Error(`Gmail list failed: ${listB?.error?.message || `HTTP ${listR.status}`} — note: search queries are not supported under gmail.metadata scope; pass message_id or thread_id instead.`);
               const ids: Array<{ id: string }> = listB.messages || [];
-              if (ids.length === 0) { out = `No Gmail messages matched: ${query}`; }
+              if (ids.length === 0) { out = `No recent Gmail messages found.`; }
               else {
                 const parts: string[] = [];
                 for (const it of ids) {
-                  const r = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${it.id}?format=full`, { headers: auth });
+                  const r = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${it.id}?format=metadata&${METADATA_HEADERS}`, { headers: auth });
                   const rb = await r.json().catch(() => ({}));
                   if (r.ok) parts.push(fmtMessage(rb));
                 }
-                out = parts.join("\n\n");
+                out = `(Note: query "${query}" ignored — gmail.metadata scope disallows search. Showing ${parts.length} most-recent messages.)\n\n${parts.join("\n\n")}`;
                 resultRef = ids[0]?.id ?? null;
               }
             }
