@@ -156,7 +156,20 @@ export default function IntegrationConnectModal({
 }) {
   const scopes = useMemo(() => scopesFor(integration), [integration]);
   const socials = useMemo(() => socialProvidersFor(integration.name), [integration.name]);
-  const isGmail = useMemo(() => /^gmail$/i.test(integration.name.trim()), [integration.name]);
+  const isGoogle = useMemo(() => /^(google|gmail)$/i.test(integration.name.trim()), [integration.name]);
+  const isGmail = isGoogle; // legacy alias
+  // The Google tile grants all 6 Google surfaces via a single OAuth. Backend
+  // still stores the connection under provider key "Gmail" for continuity with
+  // existing rows and edge-function logic.
+  const providerKey = isGoogle ? "Gmail" : integration.name;
+  const GOOGLE_CAPABILITIES = [
+    "Gmail — read & send email",
+    "Google Docs — read & edit",
+    "Google Sheets — read & edit",
+    "Google Calendar — read & schedule",
+    "Google Analytics — read metrics",
+    "YouTube — read channel & videos",
+  ];
   const [step, setStep] = useState<Step>("loading");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
