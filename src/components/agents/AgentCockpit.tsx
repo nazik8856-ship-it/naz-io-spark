@@ -114,6 +114,7 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
   // Initial load + realtime subscription on this agent's events.
   useEffect(() => {
     loadEvents();
+    loadGmail();
     const channel = supabase
       .channel(`agent_events:${agentId}`)
       .on(
