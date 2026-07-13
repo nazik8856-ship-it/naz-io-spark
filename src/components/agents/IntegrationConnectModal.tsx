@@ -369,7 +369,7 @@ export default function IntegrationConnectModal({
       const { data, error: fnErr } = await supabase.functions.invoke("integration-connect", {
         body: {
           action: "verify",
-          provider: integration.name,
+          provider: providerKey,
           agentId: agentId || null,
           credentials: {
             oauth_token: `oauth_sim_${crypto.randomUUID()}`,
