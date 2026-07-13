@@ -33,7 +33,7 @@ const ROLE_DEFAULTS: Record<string, IntegrationsSpec> = {
       { name: "HubSpot", category: "CRM", method: "OAuth", scopes: "contacts.read/write, deals.read/write", status: "recommended", examples: ["Create/update contacts", "Move deals through stages", "Score leads vs ICP"], steps: ["Sign in to HubSpot", "Pick workspace", "Grant contact + deal scopes"] },
       { name: "Salesforce", category: "CRM", method: "OAuth", scopes: "api, refresh_token", status: "optional", examples: ["Sync accounts and opportunities", "Run SOQL reports"], steps: ["Create Connected App", "Paste keys", "Authorize sandbox first"] },
       { name: "Pipedrive", category: "CRM", method: "API key", status: "optional", examples: ["Sync deals + activities"], steps: ["Settings → Personal → API", "Paste key"] },
-      { name: "Gmail / Outlook", category: "Email", method: "OAuth", scopes: "send + drafts", status: "recommended", examples: ["Draft personalised outbound (queued for approval)", "Auto follow-ups"], steps: ["Choose mailbox", "Approve drafts scope", "Pick sender alias"] },
+      { name: "Google", category: "Google", method: "Sign in", status: "recommended", examples: ["Google","Docs","Sheets","Calendar","Analytics","Google"], steps: ["Sign in with Google","Grant access to all Google surfaces"] },
       { name: "Slack", category: "Notifications", method: "OAuth", status: "recommended", examples: ["Ping on hot replies", "Daily pipeline digest"], steps: ["Connect workspace", "Pick channel"] },
     ],
     security: ["Outbound emails require one-click approval.", "Discounts above ceiling are escalated.", "Tokens encrypted; minimum scopes only."],
@@ -43,7 +43,7 @@ const ROLE_DEFAULTS: Record<string, IntegrationsSpec> = {
     integrations: [
       { name: "Zendesk", category: "Support", method: "OAuth + Webhook", scopes: "tickets.read/write", status: "recommended", examples: ["Triage + tag tickets", "Draft brand-tone replies", "Auto-escalate refund/legal"], steps: ["Sign in", "Authorize scopes", "Subscribe to ticket events"] },
       { name: "Intercom", category: "Support", method: "OAuth", status: "optional", examples: ["Reply suggestions", "Tag conversations"], steps: ["Connect workspace", "Approve scopes"] },
-      { name: "Gmail (shared inbox)", category: "Email", method: "OAuth", status: "recommended", examples: ["Read hello@ inbox", "Draft replies"], steps: ["Connect mailbox", "Grant read + drafts"] },
+      { name: "Google", category: "Google", method: "Sign in", status: "recommended", examples: ["Google","Docs","Sheets","Calendar","Analytics","Google"], steps: ["Sign in with Google","Grant access to all Google surfaces"] },
       { name: "Slack", category: "Notifications", method: "OAuth", status: "recommended", examples: ["Page on-call for P1", "SLA reports"], steps: ["Connect workspace", "Pick channel"] },
       { name: "Stripe", category: "Payments", method: "API key", scopes: "read-only", status: "optional", examples: ["Attach plan + LTV to tickets"], steps: ["Create restricted key", "Save"] },
     ],
@@ -56,7 +56,7 @@ const ROLE_DEFAULTS: Record<string, IntegrationsSpec> = {
       { name: "Webflow", category: "CMS", method: "API key", status: "optional", examples: ["Push CMS items", "Update SEO fields"], steps: ["Generate site token", "Save"] },
       { name: "X / Twitter", category: "Social", method: "OAuth", status: "optional", examples: ["Draft platform posts", "Schedule cadence"], steps: ["Connect account", "Pick posting window"] },
       { name: "LinkedIn", category: "Social", method: "OAuth", status: "optional", examples: ["Draft company posts"], steps: ["Connect page", "Authorize posting"] },
-      { name: "Google Analytics 4", category: "Analytics", method: "OAuth", scopes: "read-only", status: "recommended", examples: ["Weekly traffic + conversion brief"], steps: ["Connect property", "Grant Viewer"] },
+      
       { name: "Slack", category: "Notifications", method: "OAuth", status: "optional", examples: ["Mention alerts", "Weekly brief"], steps: ["Connect", "Pick channel"] },
     ],
     security: ["No public posts without approval.", "Brand tone enforced before drafts.", "Analytics scopes read-only."],
@@ -77,14 +77,14 @@ const ROLE_DEFAULTS: Record<string, IntegrationsSpec> = {
   custom: {
     summary: "The agent can connect to any of your business systems. Start with the essentials below; add more later.",
     integrations: [
-      { name: "Gmail / Outlook", category: "Email", method: "OAuth", status: "recommended", examples: ["Read & draft messages", "Send digests"], steps: ["Connect mailbox", "Approve scopes"] },
+      { name: "Google", category: "Google", method: "Sign in", status: "recommended", examples: ["Google","Docs","Sheets","Calendar","Analytics","Google"], steps: ["Sign in with Google","Grant access to all Google surfaces"] },
       { name: "HubSpot", category: "CRM", method: "OAuth", status: "optional", examples: ["Sync contacts and deals"], steps: ["Connect workspace", "Authorize"] },
       { name: "Salesforce", category: "CRM", method: "OAuth", status: "optional", examples: ["Sync accounts + opps"], steps: ["Connected App", "Authorize"] },
       { name: "Stripe", category: "Payments", method: "API key", status: "optional", examples: ["Revenue + churn KPIs"], steps: ["Restricted key", "Save"] },
       { name: "QuickBooks", category: "Accounting", method: "OAuth", status: "optional", examples: ["Invoice + P&L brief"], steps: ["Connect company file"] },
       { name: "Xero", category: "Accounting", method: "OAuth", status: "optional", examples: ["Reconciliation + cashflow"], steps: ["Connect organisation"] },
       { name: "Shopify", category: "Commerce", method: "OAuth / API key", status: "optional", examples: ["Orders + inventory"], steps: ["Connect store"] },
-      { name: "Google Analytics 4", category: "Analytics", method: "OAuth", status: "optional", examples: ["Traffic + conversion reports"], steps: ["Connect property"] },
+      
       { name: "Slack", category: "Notifications", method: "OAuth", status: "recommended", examples: ["Notifications + digests"], steps: ["Connect workspace", "Pick channel"] },
     ],
     security: ["External actions queued for one-click approval.", "Tokens encrypted; minimum scopes.", "Agent asks before broadening permissions."],
@@ -96,11 +96,11 @@ const ROLE_DEFAULTS: Record<string, IntegrationsSpec> = {
 // user-facing sign-in (email + password + native social login on the modal
 // side — e.g. "Continue with Facebook" for Instagram). No API keys shown.
 const MASTER_CATALOG: Integration[] = [
+  { name: "Google", category: "Google", method: "Sign in", examples: ["Gmail — read & send email","Google Docs — read & edit","Google Sheets — read & edit","Google Calendar — read & schedule","Google Analytics — read metrics","YouTube — channel & videos"], steps: ["Sign in once with Google","One consent grants all 6 surfaces"] },
   // Social & Content
   { name: "Instagram", category: "Social", method: "Sign in", examples: ["Reply to DMs & comments", "Draft & schedule posts/reels", "Track follower growth"], steps: ["Sign in with Instagram or Facebook", "Pick business account", "Approve posting scope"] },
   { name: "Facebook", category: "Social", method: "Sign in", examples: ["Manage Page posts & comments", "Reply to Messenger DMs", "Insights digest"], steps: ["Sign in with Facebook", "Pick Page", "Approve scopes"] },
   { name: "TikTok", category: "Social", method: "Sign in", examples: ["Draft & schedule videos", "Reply to comments", "Track views & followers"], steps: ["Sign in with TikTok", "Approve posting"] },
-  { name: "YouTube", category: "Social", method: "Sign in", examples: ["Draft titles/descriptions", "Reply to comments", "Track subs & watch time"], steps: ["Sign in with Google", "Pick channel", "Approve scopes"] },
   { name: "X / Twitter", category: "Social", method: "Sign in", examples: ["Draft & schedule tweets", "Reply to mentions", "Track impressions"], steps: ["Sign in with X", "Approve posting"] },
   { name: "LinkedIn", category: "Social", method: "Sign in", examples: ["Draft company posts", "Reply to DMs", "Track post reach"], steps: ["Sign in with LinkedIn", "Pick Page", "Approve scopes"] },
   { name: "Pinterest", category: "Social", method: "Sign in", examples: ["Publish pins", "Track saves & clicks"], steps: ["Sign in with Pinterest", "Pick board"] },
@@ -144,7 +144,6 @@ const MASTER_CATALOG: Integration[] = [
   { name: "Freshdesk", category: "Support", method: "Sign in", examples: ["Auto-triage tickets"], steps: ["Sign in with Freshdesk"] },
 
   // Email & Marketing
-  { name: "Gmail", category: "Email", method: "Sign in", examples: ["Read inbox", "Draft & send", "Send digests"], steps: ["Sign in with Google"] },
   { name: "Outlook", category: "Email", method: "Sign in", examples: ["Read inbox", "Draft replies"], steps: ["Sign in with Microsoft"] },
   { name: "Mailchimp", category: "Marketing", method: "Sign in", examples: ["Draft campaigns", "Segment audiences"], steps: ["Sign in with Mailchimp"] },
   { name: "Klaviyo", category: "Marketing", method: "Sign in", examples: ["Draft flows & campaigns", "Track revenue per email"], steps: ["Sign in with Klaviyo"] },
@@ -152,8 +151,6 @@ const MASTER_CATALOG: Integration[] = [
   { name: "SendGrid", category: "Email", method: "Sign in", examples: ["Transactional email health"], steps: ["Sign in with SendGrid"] },
 
   // Analytics & Ads
-  { name: "Google Analytics 4", category: "Analytics", method: "Sign in", examples: ["Weekly traffic + conversion brief"], steps: ["Sign in with Google", "Pick property"] },
-  { name: "Google Ads", category: "Ads", method: "Sign in", examples: ["Pause underperforming ads", "Budget alerts"], steps: ["Sign in with Google", "Pick account"] },
   { name: "Meta Ads", category: "Ads", method: "Sign in", examples: ["Pause underperformers", "ROAS alerts"], steps: ["Sign in with Facebook"] },
   { name: "TikTok Ads", category: "Ads", method: "Sign in", examples: ["Track ROAS", "Pause bad creatives"], steps: ["Sign in with TikTok"] },
   { name: "LinkedIn Ads", category: "Ads", method: "Sign in", examples: ["Pipeline attribution"], steps: ["Sign in with LinkedIn"] },
@@ -161,10 +158,8 @@ const MASTER_CATALOG: Integration[] = [
   // Productivity & Storage
   { name: "Notion", category: "Productivity", method: "Sign in", examples: ["Log decisions", "Update wiki"], steps: ["Sign in with Notion"] },
   { name: "Airtable", category: "Productivity", method: "Sign in", examples: ["Read/write bases"], steps: ["Sign in with Airtable"] },
-  { name: "Google Drive", category: "Storage", method: "Sign in", examples: ["Read docs & sheets", "Save reports"], steps: ["Sign in with Google"] },
   { name: "Dropbox", category: "Storage", method: "Sign in", examples: ["Save reports", "Read shared files"], steps: ["Sign in with Dropbox"] },
   { name: "OneDrive", category: "Storage", method: "Sign in", examples: ["Read shared files"], steps: ["Sign in with Microsoft"] },
-  { name: "Google Calendar", category: "Calendar", method: "Sign in", examples: ["Auto-book meetings", "Send daily agenda"], steps: ["Sign in with Google"] },
   { name: "Calendly", category: "Calendar", method: "Sign in", examples: ["Route inbound leads"], steps: ["Sign in with Calendly"] },
   { name: "Zoom", category: "Meetings", method: "Sign in", examples: ["Meeting summaries", "Auto-recordings"], steps: ["Sign in with Zoom"] },
 
@@ -195,14 +190,14 @@ function recommendFor(
 ): { names: Set<string>; reason: string } {
   const text = `${manifest?.name || ""} ${manifest?.goal || ""} ${manifest?.role || ""}`.toLowerCase();
   const signals: Array<{ kw: RegExp; boost: string[] }> = [
-    { kw: /shop|ecom|store|product|order|inventory|dtc|brand/, boost: ["Shopify", "Stripe", "Klaviyo", "Instagram", "Meta Ads", "Google Analytics 4"] },
-    { kw: /support|ticket|inbox|helpdesk|customer/, boost: ["Zendesk", "Gmail", "Intercom", "Slack", "WhatsApp Business"] },
-    { kw: /sales|lead|prospect|outreach|crm|pipeline|b2b/, boost: ["HubSpot", "Gmail", "LinkedIn", "Slack", "Calendly"] },
-    { kw: /market|content|social|blog|seo|creator|influenc|reels|posts?/, boost: ["Instagram", "TikTok", "YouTube", "X / Twitter", "LinkedIn", "Google Analytics 4"] },
-    { kw: /finance|invoice|kpi|revenue|cash|book|accounting|ops|operations/, boost: ["Stripe", "QuickBooks", "Xero", "Google Analytics 4", "Slack"] },
-    { kw: /restaurant|local|booking|appointment/, boost: ["Google Calendar", "Instagram", "WhatsApp Business", "Square"] },
+    { kw: /shop|ecom|store|product|order|inventory|dtc|brand/, boost: ["Shopify", "Stripe", "Klaviyo", "Instagram", "Meta Ads", "Google"] },
+    { kw: /support|ticket|inbox|helpdesk|customer/, boost: ["Zendesk", "Google", "Intercom", "Slack", "WhatsApp Business"] },
+    { kw: /sales|lead|prospect|outreach|crm|pipeline|b2b/, boost: ["HubSpot", "Google", "LinkedIn", "Slack", "Calendly"] },
+    { kw: /market|content|social|blog|seo|creator|influenc|reels|posts?/, boost: ["Instagram", "TikTok", "Google", "X / Twitter", "LinkedIn", "Google"] },
+    { kw: /finance|invoice|kpi|revenue|cash|book|accounting|ops|operations/, boost: ["Stripe", "QuickBooks", "Xero", "Google", "Slack"] },
+    { kw: /restaurant|local|booking|appointment/, boost: ["Google", "Instagram", "WhatsApp Business", "Square"] },
     { kw: /saas|product|dev|engineer/, boost: ["GitHub", "Linear", "Slack", "Stripe", "HubSpot"] },
-    { kw: /agenc|freelanc|client/, boost: ["Notion", "Gmail", "Slack", "Stripe", "Calendly"] },
+    { kw: /agenc|freelanc|client/, boost: ["Notion", "Google", "Slack", "Stripe", "Calendly"] },
   ];
   const picks = new Set<string>();
   const matched: string[] = [];
@@ -213,7 +208,7 @@ function recommendFor(
     }
   }
   // Sensible defaults if we couldn't infer anything
-  if (picks.size === 0) ["Gmail", "Slack", "Google Analytics 4", "Stripe", "Instagram"].forEach((n) => picks.add(n));
+  if (picks.size === 0) ["Google", "Slack", "Google", "Stripe", "Instagram"].forEach((n) => picks.add(n));
   // Filter to items actually present in catalog
   const inCatalog = new Set(catalog.map((c) => c.name));
   const names = new Set([...picks].filter((n) => inCatalog.has(n)));
