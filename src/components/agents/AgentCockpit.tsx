@@ -247,6 +247,25 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
 
   return (
     <div className="space-y-4">
+      {gmailAcct && (
+        <div className="flex flex-wrap items-center gap-3 px-3 py-2 rounded-lg border border-emerald-400/25 bg-emerald-400/[0.04] text-xs">
+          <Mail className="h-3.5 w-3.5 text-emerald-300 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <span className="text-zinc-400">Google account connected:</span>{" "}
+            <span className="text-emerald-200 font-mono">{gmailAcct.email || "verified"}</span>
+            {gmailAcct.verified && (
+              <span className="text-zinc-500 ml-2">· last checked {new Date(gmailAcct.verified).toLocaleString()}</span>
+            )}
+          </div>
+          <button
+            onClick={verifyGmail}
+            disabled={gmailVerifying}
+            className="px-2 py-1 rounded border border-emerald-400/30 text-emerald-200 hover:bg-emerald-400/10 disabled:opacity-50 text-[11px]"
+          >
+            {gmailVerifying ? "Verifying…" : "Confirm account"}
+          </button>
+        </div>
+      )}
       {/* Status + actions bar (the generated dashboard renders its own hero) */}
       <div className="flex flex-wrap items-center gap-2">
         <button
