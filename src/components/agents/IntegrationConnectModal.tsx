@@ -193,7 +193,7 @@ export default function IntegrationConnectModal({
         .from("agent_integrations")
         .select("status, metadata")
         .eq("user_id", user.id)
-        .eq("provider", integration.name);
+        .eq("provider", providerKey);
       q = agentId ? q.eq("agent_id", agentId) : q.is("agent_id", null);
       const { data } = await q.maybeSingle();
       if (cancelled) return;
@@ -212,7 +212,7 @@ export default function IntegrationConnectModal({
           .from("integration_snapshots")
           .select("kind, data, error, fetched_at")
           .eq("user_id", user.id)
-          .eq("provider", integration.name)
+          .eq("provider", providerKey)
           .order("fetched_at", { ascending: false })
           .limit(1)
           .maybeSingle();
@@ -236,7 +236,7 @@ export default function IntegrationConnectModal({
       .from("agent_integrations")
       .select("status, metadata, credentials")
       .eq("user_id", user.id)
-      .eq("provider", integration.name);
+      .eq("provider", providerKey);
     q = agentId ? q.eq("agent_id", agentId) : q.is("agent_id", null);
     const { data } = await q.maybeSingle();
     if (data?.status === "connected") {
@@ -399,7 +399,7 @@ export default function IntegrationConnectModal({
   const disconnect = async () => {
     try {
       const { error: fnErr } = await supabase.functions.invoke("integration-connect", {
-        body: { action: "disconnect", provider: integration.name, agentId: agentId || null },
+        body: { action: "disconnect", provider: providerKey, agentId: agentId || null },
       });
       if (fnErr) throw new Error(fnErr.message);
       setAccount(null);
@@ -419,7 +419,7 @@ export default function IntegrationConnectModal({
     setSyncing(true);
     try {
       const { data, error: fnErr } = await supabase.functions.invoke("integration-sync", {
-        body: { provider: integration.name, agentId: agentId || null },
+        body: { provider: providerKey, agentId: agentId || null },
       });
       if (fnErr) throw new Error(fnErr.message);
       const res = (data as { synced?: Array<{ ok: boolean; kind: string; data: Record<string, unknown>; error?: string }> }).synced || [];
