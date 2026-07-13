@@ -156,7 +156,20 @@ export default function IntegrationConnectModal({
 }) {
   const scopes = useMemo(() => scopesFor(integration), [integration]);
   const socials = useMemo(() => socialProvidersFor(integration.name), [integration.name]);
-  const isGmail = useMemo(() => /^gmail$/i.test(integration.name.trim()), [integration.name]);
+  const isGoogle = useMemo(() => /^(google|gmail)$/i.test(integration.name.trim()), [integration.name]);
+  const isGmail = isGoogle; // legacy alias
+  // The Google tile grants all 6 Google surfaces via a single OAuth. Backend
+  // still stores the connection under provider key "Gmail" for continuity with
+  // existing rows and edge-function logic.
+  const providerKey = isGoogle ? "Gmail" : integration.name;
+  const GOOGLE_CAPABILITIES = [
+    "Gmail — read & send email",
+    "Google Docs — read & edit",
+    "Google Sheets — read & edit",
+    "Google Calendar — read & schedule",
+    "Google Analytics — read metrics",
+    "YouTube — read channel & videos",
+  ];
   const [step, setStep] = useState<Step>("loading");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -180,7 +193,7 @@ export default function IntegrationConnectModal({
         .from("agent_integrations")
         .select("status, metadata")
         .eq("user_id", user.id)
-        .eq("provider", integration.name);
+        .eq("provider", providerKey);
       q = agentId ? q.eq("agent_id", agentId) : q.is("agent_id", null);
       const { data } = await q.maybeSingle();
       if (cancelled) return;
@@ -199,7 +212,7 @@ export default function IntegrationConnectModal({
           .from("integration_snapshots")
           .select("kind, data, error, fetched_at")
           .eq("user_id", user.id)
-          .eq("provider", integration.name)
+          .eq("provider", providerKey)
           .order("fetched_at", { ascending: false })
           .limit(1)
           .maybeSingle();
@@ -223,7 +236,7 @@ export default function IntegrationConnectModal({
       .from("agent_integrations")
       .select("status, metadata, credentials")
       .eq("user_id", user.id)
-      .eq("provider", integration.name);
+      .eq("provider", providerKey);
     q = agentId ? q.eq("agent_id", agentId) : q.is("agent_id", null);
     const { data } = await q.maybeSingle();
     if (data?.status === "connected") {
@@ -356,7 +369,7 @@ export default function IntegrationConnectModal({
       const { data, error: fnErr } = await supabase.functions.invoke("integration-connect", {
         body: {
           action: "verify",
-          provider: integration.name,
+          provider: providerKey,
           agentId: agentId || null,
           credentials: {
             oauth_token: `oauth_sim_${crypto.randomUUID()}`,
@@ -386,7 +399,7 @@ export default function IntegrationConnectModal({
   const disconnect = async () => {
     try {
       const { error: fnErr } = await supabase.functions.invoke("integration-connect", {
-        body: { action: "disconnect", provider: integration.name, agentId: agentId || null },
+        body: { action: "disconnect", provider: providerKey, agentId: agentId || null },
       });
       if (fnErr) throw new Error(fnErr.message);
       setAccount(null);
@@ -406,7 +419,7 @@ export default function IntegrationConnectModal({
     setSyncing(true);
     try {
       const { data, error: fnErr } = await supabase.functions.invoke("integration-sync", {
-        body: { provider: integration.name, agentId: agentId || null },
+        body: { provider: providerKey, agentId: agentId || null },
       });
       if (fnErr) throw new Error(fnErr.message);
       const res = (data as { synced?: Array<{ ok: boolean; kind: string; data: Record<string, unknown>; error?: string }> }).synced || [];
@@ -466,12 +479,22 @@ export default function IntegrationConnectModal({
             </div>
           )}
 
-          {step === "email" && isGmail && (
+          {step === "email" && isGoogle && (
             <div className="flex-1 flex flex-col animate-fade-in">
-              <h2 className="text-2xl font-normal text-center mb-1">Connect Gmail</h2>
-              <p className="text-sm text-zinc-600 text-center mb-6">
-                Real Google sign-in. NazAI will receive a revocable token to read and send email on your behalf.
+              <h2 className="text-2xl font-normal text-center mb-1">Connect Google</h2>
+              <p className="text-sm text-zinc-600 text-center mb-5">
+                One sign-in grants NazAI access to all your Google surfaces below. Tokens are revocable at any time.
               </p>
+              <ul className="mb-6 space-y-2 text-xs text-zinc-700 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+                {GOOGLE_CAPABILITIES.map((c) => (
+                  <li key={c} className="flex items-start gap-2">
+                    <span className="mt-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full border border-zinc-300 bg-white text-zinc-400">
+                      <span className="h-1.5 w-1.5 rounded-full bg-zinc-300" />
+                    </span>
+                    <span>{c}</span>
+                  </li>
+                ))}
+              </ul>
               <button
                 type="button"
                 onClick={startGmailOAuth}
@@ -481,20 +504,13 @@ export default function IntegrationConnectModal({
                 {oauthLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <SocialIcon id="google" />}
                 {oauthLoading ? "Waiting for Google…" : "Continue with Google"}
               </button>
-              <ul className="mt-6 space-y-2 text-xs text-zinc-600">
-                {scopes.map((s) => (
-                  <li key={s} className="flex items-start gap-2">
-                    <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 text-emerald-500" />
-                    <span>{s}</span>
-                  </li>
-                ))}
-              </ul>
               {error && <div className="text-xs text-red-600 mt-4">{error}</div>}
               <p className="text-[11px] text-zinc-500 mt-6">
                 You can revoke access anytime from your Google account or by disconnecting here.
               </p>
             </div>
           )}
+
 
           {step === "coming_soon" && (
             <div className="flex-1 flex flex-col items-center justify-center text-center animate-fade-in gap-3">
@@ -551,6 +567,22 @@ export default function IntegrationConnectModal({
                   LIVE
                 </span>
               </div>
+
+              {isGoogle && (
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-3 mb-4">
+                  <div className="text-[11px] uppercase tracking-wider font-mono font-semibold text-emerald-800 mb-2">
+                    Google surfaces granted
+                  </div>
+                  <ul className="grid grid-cols-1 gap-1.5 text-xs text-zinc-800">
+                    {GOOGLE_CAPABILITIES.map((c) => (
+                      <li key={c} className="flex items-start gap-2">
+                        <CheckCircle2 className="h-4 w-4 mt-0.5 text-emerald-600 shrink-0" />
+                        <span>{c}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
               {/* Live data preview */}
               <div className="rounded-2xl border border-zinc-200 bg-white p-4 mb-4">
