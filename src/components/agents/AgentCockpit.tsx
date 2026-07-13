@@ -65,6 +65,8 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [running, setRunning] = useState(false);
   const [lastRunStatus, setLastRunStatus] = useState<string>("");
+  const [gmailAcct, setGmailAcct] = useState<{ email: string | null; verified: string | null; status: string } | null>(null);
+  const [gmailVerifying, setGmailVerifying] = useState(false);
   const feedRef = useRef<HTMLDivElement>(null);
 
   const loadEvents = useCallback(async () => {
@@ -76,6 +78,37 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
       .limit(200);
     if (!error && data) setEvents(data as AgentEvent[]);
   }, [agentId]);
+
+  const loadGmail = useCallback(async () => {
+    const { data } = await supabase
+      .from("agent_integrations")
+      .select("provider, status, metadata, last_verified_at")
+      .eq("agent_id", agentId)
+      .eq("provider", "Gmail")
+      .maybeSingle();
+    if (!data) { setGmailAcct(null); return; }
+    const meta = (data.metadata as Record<string, unknown>) || {};
+    setGmailAcct({
+      email: (meta.account_email as string) || null,
+      verified: (data.last_verified_at as string) || null,
+      status: (data.status as string) || "connected",
+    });
+  }, [agentId]);
+
+  const verifyGmail = useCallback(async () => {
+    setGmailVerifying(true);
+    try {
+      await supabase.functions.invoke("integration-connect", {
+        body: { action: "fetch", provider: "Gmail", agentId },
+      });
+      await loadGmail();
+      toast.success("Gmail account confirmed");
+    } catch {
+      toast.error("Couldn't verify Gmail");
+    } finally {
+      setGmailVerifying(false);
+    }
+  }, [agentId, loadGmail]);
 
 
   // Initial load + realtime subscription on this agent's events.
