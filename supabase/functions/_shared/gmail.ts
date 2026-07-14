@@ -106,19 +106,49 @@ export async function exchangeCode(code: string) {
 }
 
 export async function refreshToken(refresh_token: string) {
-  const r = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: Deno.env.get("GOOGLE_OAUTH_CLIENT_ID") || "",
-      client_secret: Deno.env.get("GOOGLE_OAUTH_CLIENT_SECRET") || "",
-      refresh_token,
-      grant_type: "refresh_token",
-    }),
-  });
-  const data = await r.json();
-  if (!r.ok) throw new Error(data?.error_description || data?.error || `Refresh failed (${r.status})`);
-  return data as { access_token: string; expires_in: number; scope: string; token_type: string };
+  // Retry transient failures (network / 5xx) once with a short backoff so a
+  // single flaky call doesn't invalidate a live agent run.
+  let lastErr: unknown = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const r = await fetch("https://oauth2.googleapis.com/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          client_id: Deno.env.get("GOOGLE_OAUTH_CLIENT_ID") || "",
+          client_secret: Deno.env.get("GOOGLE_OAUTH_CLIENT_SECRET") || "",
+          refresh_token,
+          grant_type: "refresh_token",
+        }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (r.ok) return data as { access_token: string; expires_in: number; scope: string; token_type: string; refresh_token?: string };
+      const errCode = String(data?.error || "");
+      // invalid_grant = refresh token revoked/expired — do NOT retry, propagate a
+      // tagged error so callers can mark the integration as needing reconnect.
+      if (errCode === "invalid_grant" || errCode === "unauthorized_client") {
+        const e = new Error(`invalid_grant: ${data?.error_description || errCode}`);
+        (e as unknown as { code?: string }).code = "invalid_grant";
+        throw e;
+      }
+      lastErr = new Error(data?.error_description || errCode || `Refresh failed (${r.status})`);
+      // Retry on 5xx / rate limit
+      if (r.status >= 500 || r.status === 429) {
+        await new Promise((res) => setTimeout(res, 400));
+        continue;
+      }
+      throw lastErr;
+    } catch (e) {
+      lastErr = e;
+      if ((e as { code?: string })?.code === "invalid_grant") throw e;
+      if (attempt === 0) {
+        await new Promise((res) => setTimeout(res, 400));
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error("Refresh failed");
 }
 
 export async function fetchUserInfo(access_token: string) {
@@ -129,30 +159,97 @@ export async function fetchUserInfo(access_token: string) {
   return await r.json() as { email?: string; name?: string; picture?: string; sub?: string };
 }
 
-// Get a valid access token, refreshing if needed. Persists new token when refreshed.
+// Get a valid access token, refreshing if needed. Persists new token when
+// refreshed. On unrecoverable failure (invalid_grant), marks the integration
+// row so the UI can prompt the user to reconnect instead of silently failing
+// every subsequent run with a stale token.
 export async function ensureAccessToken(
   admin: SupabaseClient,
   row: { id: string; credentials: Record<string, unknown> },
+  opts?: { force?: boolean },
 ): Promise<string | null> {
   const creds = row.credentials || {};
   const access = creds.access_token as string | undefined;
   const refresh = creds.refresh_token as string | undefined;
   const expiresAt = Number(creds.expires_at || 0);
-  if (access && expiresAt > Date.now() + 60_000) return access;
-  if (!refresh) return access || null;
+  // 5-minute safety buffer so long-running tool calls don't expire mid-flight.
+  if (!opts?.force && access && expiresAt > Date.now() + 5 * 60_000) return access;
+  if (!refresh) {
+    // No refresh_token stored — connection can only be salvaged by reconnect.
+    if (!access) {
+      await admin.from("agent_integrations").update({
+        status: "error",
+        last_error: "Missing refresh_token — please reconnect Google.",
+      }).eq("id", row.id);
+    }
+    return access || null;
+  }
   try {
     const tok = await refreshToken(refresh);
     const newCreds = {
       ...creds,
       access_token: tok.access_token,
       expires_at: Date.now() + tok.expires_in * 1000,
+      // Google very rarely rotates the refresh_token, but if it does we must
+      // persist the new one or the next refresh will fail.
+      ...(tok.refresh_token ? { refresh_token: tok.refresh_token } : {}),
     };
-    await admin.from("agent_integrations").update({ credentials: newCreds }).eq("id", row.id);
+    await admin.from("agent_integrations").update({
+      credentials: newCreds,
+      status: "connected",
+      last_error: null,
+      last_verified_at: new Date().toISOString(),
+    }).eq("id", row.id);
     return tok.access_token;
   } catch (e) {
-    console.error("Gmail token refresh failed:", e);
+    const code = (e as { code?: string })?.code;
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("Google token refresh failed:", code || msg);
+    if (code === "invalid_grant") {
+      await admin.from("agent_integrations").update({
+        status: "error",
+        last_error: "Google refresh token revoked or expired — reconnect required.",
+      }).eq("id", row.id);
+    } else {
+      // Transient — record last_error but keep status connected so we retry next run.
+      await admin.from("agent_integrations").update({
+        last_error: `Token refresh transient failure: ${msg}`.slice(0, 500),
+      }).eq("id", row.id);
+    }
     return null;
   }
+}
+
+// Fetch with automatic access-token refresh + single retry on 401. Use this
+// for all Google API calls in the runtime so a stale-but-not-yet-expired
+// access token (e.g. revoked mid-run) doesn't hard-fail the whole action.
+export async function googleAuthedFetch(
+  admin: SupabaseClient,
+  row: { id: string; credentials: Record<string, unknown> },
+  url: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  let access = await ensureAccessToken(admin, row);
+  if (!access) return new Response(JSON.stringify({ error: { message: "no_access_token" } }), { status: 401 });
+  const doFetch = (tok: string) => fetch(url, {
+    ...init,
+    headers: { ...(init.headers || {}), Authorization: `Bearer ${tok}` },
+  });
+  let r = await doFetch(access);
+  if (r.status === 401) {
+    // Force a refresh and retry once. Re-read credentials from DB so we don't
+    // reuse the same stale token if another concurrent tool already refreshed.
+    const { data: fresh } = await admin
+      .from("agent_integrations")
+      .select("id, credentials")
+      .eq("id", row.id)
+      .maybeSingle();
+    const nextRow = fresh ? { id: fresh.id, credentials: (fresh.credentials as Record<string, unknown>) || {} } : row;
+    access = await ensureAccessToken(admin, nextRow, { force: true });
+    if (!access) return r;
+    r = await doFetch(access);
+  }
+  return r;
 }
 
 // Encode an RFC 2822 message to base64url for Gmail API.
