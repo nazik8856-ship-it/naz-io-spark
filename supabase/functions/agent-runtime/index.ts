@@ -1581,14 +1581,36 @@ Reply with ONE fenced JSON block:
           if (sm) completionSummary = sm;
         }
       }
-      // Reconcile: model saying "no" downgrades Done to Failed; "partial"
-      // downgrades Done to Failed unless step-limit already explains it.
+      // Reconcile derived label with the model's grade so status and goal_met
+      // stay internally consistent:
+      //   - goal_met=no  ⇒ downgrade Done to Failed
+      //   - goal_met=partial without a hard step limit ⇒ Step limit (informative)
+      //   - goal_met=yes ⇒ we DID complete the instruction; a step-limit ceiling
+      //     is a runtime detail, not a failure. Promote to Done so summary and
+      //     status agree.
       if (outcomeLabel === "Done" && (goalMet as string) === "no") outcomeLabel = "Failed";
-      if (outcomeLabel === "Done" && (goalMet as string) === "partial") outcomeLabel = "Step limit"; // partial-but-not-limited stays informative
+      if (outcomeLabel === "Done" && (goalMet as string) === "partial") outcomeLabel = "Step limit";
+      if ((goalMet as string) === "yes" && (outcomeLabel === "Step limit" || outcomeLabel === "Failed")) {
+        outcomeLabel = "Done";
+      }
 
     } catch (e) {
       console.warn("completion self-check failed", e);
     }
+
+    // Final run status must mirror the reconciled outcome — never mark a
+    // goal_met=yes run as step_limit.
+    const runStatus = paused
+      ? "paused"
+      : outcomeLabel === "Done"
+        ? "completed"
+        : outcomeLabel === "Step limit"
+          ? "step_limit"
+          : outcomeLabel === "Failed"
+            ? "failed"
+            : outcomeLabel === "Blocked" || outcomeLabel === "Needs approval"
+              ? "paused"
+              : "completed";
 
     const finalCompletionText = `[${outcomeLabel}] goal_met=${goalMet}. ${completionSummary}`.slice(0, 900);
     await logEvent("completion", {
@@ -1600,7 +1622,7 @@ Reply with ONE fenced JSON block:
     });
 
     await supabase.from("agent_runs").update({
-      status: paused ? "paused" : (hitStepLimit ? "step_limit" : (outcomeLabel === "Failed" ? "failed" : "completed")),
+      status: runStatus,
       finished_at: new Date().toISOString(),
       summary: finalCompletionText,
       outcome: outcomeLabel,
