@@ -924,7 +924,7 @@ export default function GenerationWorkspace() {
       // STAGE A — Compile the plan into a strict, executable manifest AND persist
       // the `agents` row in one round trip (server-side, scoped to auth.uid()).
       console.info("[Deploy] Stage A: compiling manifest…");
-      const compileResp = await fetch(functionUrl("compile-agent-manifest"), {
+      const compileResp = await resilientFetch(functionUrl("compile-agent-manifest"), {
         method: "POST",
         headers,
         body: JSON.stringify({ plan: sourceSpec, save: true, businessProfileId, userPrompt: sourceSpec, intakeAnswers }),
