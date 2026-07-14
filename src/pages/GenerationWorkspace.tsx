@@ -123,6 +123,43 @@ const authedFunctionHeaders = async (): Promise<Record<string, string>> => {
   };
 };
 
+// Resilient fetch: bounds the request with a timeout AND transparently retries
+// once on a network-level failure ("TypeError: Failed to fetch"). This is the
+// root-cause fix for the intermittent "Failed to fetch" seen during agent
+// deploy — long AI compile calls occasionally get their socket dropped by an
+// upstream proxy, and a single unretried fetch surfaces that as a hard error.
+async function resilientFetch(
+  url: string,
+  init: RequestInit & { timeoutMs?: number; retries?: number } = {},
+): Promise<Response> {
+  const { timeoutMs = 120_000, retries = 1, ...rest } = init;
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const resp = await fetch(url, { ...rest, signal: ctrl.signal, keepalive: false });
+      clearTimeout(timer);
+      // Only retry the fetch itself on network errors, not on HTTP status codes.
+      return resp;
+    } catch (e) {
+      clearTimeout(timer);
+      lastErr = e;
+      const isAbort = (e as { name?: string })?.name === "AbortError";
+      const msg = e instanceof Error ? e.message : String(e);
+      const isNetwork = /failed to fetch|network|load failed/i.test(msg) || isAbort;
+      if (attempt < retries && isNetwork) {
+        // Brief backoff before the retry.
+        await new Promise((r) => setTimeout(r, 600));
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error("fetch failed");
+}
+
+
 function cleanAgentSpecOutput(text: string, opts: { final?: boolean } = {}): string {
   if (!text) return "";
   let cleaned = text
