@@ -432,7 +432,7 @@ export default function GenerationWorkspace() {
     void (async () => {
       try {
         const headers = await authedFunctionHeaders();
-        const resp = await fetch(functionUrl("compile-agent-manifest"), {
+        const resp = await resilientFetch(functionUrl("compile-agent-manifest"), {
           method: "POST",
           headers,
           body: JSON.stringify({ plan: spec, save: true }),
