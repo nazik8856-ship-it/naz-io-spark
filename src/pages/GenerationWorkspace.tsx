@@ -326,6 +326,59 @@ export default function GenerationWorkspace() {
     });
   }, [messages.length === 0 ? 0 : 1]);
 
+  // DB-backed hydration: when reopening a project, chat history may include
+  // approved agent-spec messages whose localStorage link was cleared (other
+  // device, private window, quota). Pull the original blueprint (source_plan)
+  // and compiled manifest from the `agents` row so the full details —
+  // capabilities, workflow, deployment, expected impact — render again
+  // instead of showing only partial chat-session state.
+  useEffect(() => {
+    if (!user?.id) return;
+    const needs = messages.filter(
+      (m) => m.kind === "agent-spec" && m.agentStatus === "approved" &&
+        (!m.agentFinalSpec || !m.agentManifest),
+    );
+    if (needs.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const { data: agents } = await supabase
+        .from("agents")
+        .select("id, name, manifest, source_plan")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (cancelled || !agents?.length) return;
+      const byId = new Map(agents.map((a) => [a.id, a]));
+      const byName = new Map<string, typeof agents[number]>();
+      for (const a of agents) if (a.name) byName.set(String(a.name).toLowerCase().trim(), a);
+      setMessages((all) => {
+        let changed = false;
+        const next = all.map((m) => {
+          if (m.kind !== "agent-spec" || m.agentStatus !== "approved") return m;
+          if (m.agentFinalSpec && m.agentManifest) return m;
+          const hit = (m.agentDbId && byId.get(m.agentDbId)) ||
+            (m.agentName && byName.get(String(m.agentName).toLowerCase().trim())) ||
+            null;
+          if (!hit) return m;
+          changed = true;
+          const manifest = (hit.manifest as AgentManifest | null) || m.agentManifest;
+          const spec = (hit.source_plan as string | null) || m.agentFinalSpec || m.content;
+          return {
+            ...m,
+            agentDbId: m.agentDbId || hit.id,
+            agentName: m.agentName || hit.name || manifest?.name,
+            agentManifest: manifest,
+            agentFinalSpec: spec,
+          };
+        });
+        return changed ? next : all;
+      });
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, messages.length]);
+
+
   // Recompile manifest for approved messages still missing one (no link in storage either).
   useEffect(() => {
     const target = messages.find(
