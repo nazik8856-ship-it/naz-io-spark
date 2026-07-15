@@ -136,26 +136,17 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
 
   const handleSocial = async (provider: "google" | "apple") => {
     setSocialLoading(provider);
-    const isLovable = window.location.hostname.endsWith(".lovable.app");
 
     try {
-      if (isLovable) {
-        const { error } = await lovable.auth.signInWithOAuth(provider, {
-          redirect_uri: window.location.origin + "/auth/callback",
-        });
-        if (error) {
-          toast({ title: "Sign in failed", description: String(error), variant: "destructive" });
-          setSocialLoading(null);
-        }
-      } else {
-        const { error } = await supabase.auth.signInWithOAuth({
-          provider,
-          options: { redirectTo: `${window.location.origin}/auth/callback` },
-        });
-        if (error) {
-          toast({ title: "Sign in failed", description: error.message, variant: "destructive" });
-          setSocialLoading(null);
-        }
+      // Always use Lovable-managed OAuth (works on lovable.app, custom domains, and preview).
+      // Do NOT fall back to supabase.auth.signInWithOAuth — the native Supabase provider
+      // has no client_id/secret configured and returns "missing OAuth secret".
+      const { error } = await lovable.auth.signInWithOAuth(provider, {
+        redirect_uri: window.location.origin + "/auth/callback",
+      });
+      if (error) {
+        toast({ title: "Sign in failed", description: String(error), variant: "destructive" });
+        setSocialLoading(null);
       }
     } catch (err) {
       toast({ title: "Sign in failed", description: String(err), variant: "destructive" });
