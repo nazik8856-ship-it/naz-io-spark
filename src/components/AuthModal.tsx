@@ -141,15 +141,49 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
       // Always use Lovable-managed OAuth (works on lovable.app, custom domains, and preview).
       // Do NOT fall back to supabase.auth.signInWithOAuth — the native Supabase provider
       // has no client_id/secret configured and returns "missing OAuth secret".
-      const { error } = await lovable.auth.signInWithOAuth(provider, {
-        redirect_uri: window.location.origin + "/auth/callback",
+      // Use window.location.origin (not /auth/callback) — the Lovable-managed
+      // Google OAuth client only allowlists the app origin, so passing a deeper
+      // path causes the provider to silently reject the redirect and bounce the
+      // user back to "/" with no session and no error. Supabase's
+      // detectSessionInUrl (default true) picks up the tokens from the URL hash
+      // on origin automatically.
+      const result = await lovable.auth.signInWithOAuth(provider, {
+        redirect_uri: window.location.origin,
       });
-      if (error) {
-        toast({ title: "Sign in failed", description: String(error), variant: "destructive" });
+
+      const errMsg =
+        (result as { error?: unknown })?.error
+          ? String((result as { error?: unknown }).error)
+          : null;
+
+      if (errMsg) {
+        console.error("[auth-modal] OAuth sign-in failed:", errMsg);
+        toast({
+          title: `${provider === "google" ? "Google" : "Apple"} sign-in failed`,
+          description: errMsg,
+          variant: "destructive",
+        });
+        setSocialLoading(null);
+        return;
+      }
+
+      // If the SDK didn't redirect and didn't error, the popup flow completed
+      // and the session was set by the lovable wrapper. Trigger success.
+      const redirected = (result as { redirected?: boolean })?.redirected;
+      if (!redirected) {
+        await refreshSession();
+        clearStaleDashboardCache();
+        onSuccess();
         setSocialLoading(null);
       }
+      // else: browser is navigating away; loading state stays until return.
     } catch (err) {
-      toast({ title: "Sign in failed", description: String(err), variant: "destructive" });
+      console.error("[auth-modal] OAuth sign-in threw:", err);
+      toast({
+        title: `${provider === "google" ? "Google" : "Apple"} sign-in failed`,
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
       setSocialLoading(null);
     }
   };
