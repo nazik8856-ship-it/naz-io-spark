@@ -42,6 +42,7 @@ const App = () => (
       <BrowserRouter>
         <main className="min-h-screen bg-[#020617] selection:bg-[#00A3FF]/30">
           <EntranceSplash>
+            <OAuthReturnHandler />
             <Suspense fallback={<PageSkeleton />}>
               <Routes>
                 {/* Core Routes */}
