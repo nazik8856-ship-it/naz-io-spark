@@ -27,7 +27,24 @@ const AuthCallback = () => {
     if (hasProcessedRef.current) return;
     hasProcessedRef.current = true;
 
+    // Surface provider-side OAuth errors instead of silently bouncing home.
+    const queryParams = new URLSearchParams(window.location.search);
     const hashParams = new URLSearchParams(window.location.hash.substring(1));
+    const providerError =
+      hashParams.get("error_description") ||
+      hashParams.get("error") ||
+      queryParams.get("error_description") ||
+      queryParams.get("error");
+    if (providerError) {
+      const msg = decodeURIComponent(providerError);
+      console.error("[auth-callback] provider error:", msg);
+      toast.error("Sign-in failed", { description: msg });
+      hasRedirectedRef.current = true;
+      navigate("/", { replace: true });
+      setProcessingCallback(false);
+      return;
+    }
+
     const accessToken = hashParams.get("access_token");
     const refreshToken = hashParams.get("refresh_token");
 
@@ -41,7 +58,7 @@ const AuthCallback = () => {
         .catch((err) => console.error("Auth callback error:", err))
         .finally(() => setProcessingCallback(false));
     }
-  }, [refreshSession]);
+  }, [refreshSession, navigate]);
 
   useEffect(() => {
     if (processingCallback || loading || hasRedirectedRef.current) return;
@@ -55,16 +72,26 @@ const AuthCallback = () => {
 
       const authedUser = session?.user ?? user;
 
-      if (authedUser) {
-        await forceSendWelcomeEmailAfterAuth({
-          data: { user: authedUser },
-          fallbackEmail: authedUser.email || String(authedUser.user_metadata?.email ?? ""),
-          fallbackName: String(authedUser.user_metadata?.full_name ?? authedUser.user_metadata?.name ?? ""),
-          source: "auth-callback:oauth-session",
+      if (!authedUser) {
+        // No error param AND no session — the OAuth exchange dropped tokens
+        // somewhere (usually a redirect_uri mismatch). Don't silently redirect
+        // to /dashboard where AuthGuard bounces the user home with zero signal.
+        console.error("[auth-callback] no session after OAuth return");
+        toast.error("Sign-in failed", {
+          description:
+            "The OAuth provider returned no session. This usually means the redirect URL isn't registered for this app. Try again or contact support.",
         });
-        clearStaleDashboardCache();
+        navigate("/", { replace: true });
+        return;
       }
 
+      await forceSendWelcomeEmailAfterAuth({
+        data: { user: authedUser },
+        fallbackEmail: authedUser.email || String(authedUser.user_metadata?.email ?? ""),
+        fallbackName: String(authedUser.user_metadata?.full_name ?? authedUser.user_metadata?.name ?? ""),
+        source: "auth-callback:oauth-session",
+      });
+      clearStaleDashboardCache();
       navigate("/dashboard", { replace: true });
     };
 
