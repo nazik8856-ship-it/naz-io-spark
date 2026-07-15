@@ -6,6 +6,7 @@ import { lazy, Suspense } from "react";
 import EntranceSplash from "@/components/EntranceSplash";
 import PaymentWindow from "@/components/payments/PaymentWindow";
 import OutOfCreditsModal from "@/components/payments/OutOfCreditsModal";
+import OAuthReturnHandler from "@/components/OAuthReturnHandler";
 
 // ─── Route Components ─────────────────────────────────────────────────────────
 const Workflower = lazy(() => import("./pages/Workflower"));
@@ -41,6 +42,7 @@ const App = () => (
       <BrowserRouter>
         <main className="min-h-screen bg-[#020617] selection:bg-[#00A3FF]/30">
           <EntranceSplash>
+            <OAuthReturnHandler />
             <Suspense fallback={<PageSkeleton />}>
               <Routes>
                 {/* Core Routes */}
