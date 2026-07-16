@@ -1742,6 +1742,25 @@ export default function GenerationWorkspace() {
                   "radial-gradient(ellipse 70% 55% at 50% 60%, rgba(139,92,246,0.18) 0%, rgba(34,211,238,0.10) 35%, rgba(2,6,23,0) 70%)",
               }}
             />
+            <div
+              key={`preview-${previewNonce}`}
+              className="absolute inset-0 overflow-auto"
+              style={{
+                filter: `hue-rotate(${PREVIEW_THEMES[previewThemeIdx].hue}deg) saturate(${PREVIEW_THEMES[previewThemeIdx].sat})`,
+                transition: "filter 200ms ease",
+              }}
+            >
+              <div
+                className="mx-auto h-full"
+                style={{
+                  maxWidth:
+                    previewDevice === "phone" ? 390 : previewDevice === "tablet" ? 820 : "100%",
+                  transform: `scale(${PREVIEW_ZOOMS[previewZoomIdx]})`,
+                  transformOrigin: "top center",
+                  transition: "max-width 200ms ease, transform 200ms ease",
+                  outline: previewDevice !== "desktop" ? "1px solid rgba(255,255,255,0.08)" : "none",
+                }}
+              >
             {(() => {
               // CHAT TAB → live chat with the selected (or latest) built agent
               if (activeTab === "dashboard") {
