@@ -120,6 +120,7 @@ export type Database = {
         Row: {
           agent_id: string | null
           created_at: string
+          credentials: Json
           credentials_secret_id: string | null
           id: string
           last_error: string | null
@@ -133,6 +134,7 @@ export type Database = {
         Insert: {
           agent_id?: string | null
           created_at?: string
+          credentials?: Json
           credentials_secret_id?: string | null
           id?: string
           last_error?: string | null
@@ -146,6 +148,7 @@ export type Database = {
         Update: {
           agent_id?: string | null
           created_at?: string
+          credentials?: Json
           credentials_secret_id?: string | null
           id?: string
           last_error?: string | null

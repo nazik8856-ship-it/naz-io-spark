@@ -1,1 +1,0 @@
-ALTER TABLE public.agent_integrations DROP COLUMN IF EXISTS credentials;
