@@ -1301,7 +1301,7 @@ export default function GenerationWorkspace() {
       {/* Main split */}
       <div className="flex-1 flex min-h-0">
         {/* Chat sidebar */}
-        <aside className={`${activeTab === "preview" ? "hidden md:flex" : "flex"} w-full md:max-w-[380px] border-r border-white/5 flex-col`}>
+        <aside className={`${previewFullscreen ? "hidden" : ""} ${activeTab === "preview" ? "hidden md:flex" : "flex"} w-full md:max-w-[380px] border-r border-white/5 flex-col`}>
           {/* Messages */}
           <div className="flex-1 overflow-y-auto p-5 space-y-6">
             {messages.map((m) =>
