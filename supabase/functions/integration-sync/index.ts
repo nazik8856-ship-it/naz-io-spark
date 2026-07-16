@@ -18,6 +18,7 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { ensureAccessToken, gmailList } from "../_shared/gmail.ts";
+import { readSecret } from "../_shared/integration-secrets.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
