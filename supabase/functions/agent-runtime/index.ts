@@ -613,7 +613,7 @@ Rules:
               if (!access) {
                 summary = "Gmail token invalid — please reconnect Gmail.";
               } else {
-                const creds = (gmail.credentials as Record<string, unknown>) || {};
+                const creds = await readSecret(admin, (gmail.credentials_secret_id as string | null) ?? null);
                 const from = String(creds.email || "me");
                 const result = await gmailSend(access, from, to, subject, body);
                 ok = result.ok;
