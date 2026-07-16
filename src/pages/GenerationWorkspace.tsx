@@ -36,6 +36,7 @@ import AgentRenderBoundary from "@/components/agents/AgentRenderBoundary";
 import AgentIntakeModal, { type IntakeQuestion } from "@/components/agents/AgentIntakeModal";
 import { SUPABASE_FUNCTIONS_URL, SUPABASE_ANON, supabase } from "@/integrations/supabase/client";
 import PromptExtras, { analyzeAndBuildContext, type Attachment } from "@/components/generator/PromptExtras";
+import neonNAvatar from "@/assets/neon-n-avatar.png";
 
 type AgentStatus = "pending" | "building" | "approved" | "removed";
 type AgentManifest = {
@@ -1288,8 +1289,8 @@ export default function GenerationWorkspace() {
         </div>
 
         <div className="flex items-center gap-2">
-          <div className="h-8 w-8 rounded-full bg-gradient-to-br from-purple-500 to-cyan-400 flex items-center justify-center text-xs font-bold text-black">
-            {user?.email?.[0]?.toUpperCase() || "N"}
+          <div className="h-8 w-8 rounded-full bg-black border border-cyan-400/40 shadow-[0_0_12px_rgba(0,163,255,0.5)] overflow-hidden flex items-center justify-center">
+            <img src={neonNAvatar} alt="NazAI" className="h-full w-full object-cover" />
           </div>
           <button className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-purple-500 to-cyan-400 text-black text-sm font-semibold">
             <Sparkles className="h-3.5 w-3.5" />
@@ -1308,8 +1309,8 @@ export default function GenerationWorkspace() {
               m.role === "nazai" ? (
                 <div key={m.id} className="space-y-2">
                   <div className="flex items-center gap-2">
-                    <div className="h-7 w-7 rounded-full bg-gradient-to-br from-purple-500 to-cyan-400 flex items-center justify-center text-[10px] font-bold text-black">
-                      N
+                    <div className="h-7 w-7 rounded-full bg-black border border-cyan-400/40 shadow-[0_0_10px_rgba(0,163,255,0.5)] overflow-hidden flex items-center justify-center">
+                      <img src={neonNAvatar} alt="NazAI" className="h-full w-full object-cover" />
                     </div>
                     <div className="text-sm font-semibold">NazAI</div>
                   </div>
