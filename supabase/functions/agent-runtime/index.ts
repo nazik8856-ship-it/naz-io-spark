@@ -944,7 +944,7 @@ Rules:
           const { ensureAccessToken } = await import("../_shared/gmail.ts");
           const access = await ensureAccessToken(supabase, { id: gmail.id, credentials_secret_id: (gmail.credentials_secret_id as string | null) ?? null });
           if (!access) return { access: null, error: "Google token invalid — please reconnect Gmail." };
-          const creds = (gmail.credentials as Record<string, unknown>) || {};
+          const creds = await readSecret(supabase, (gmail.credentials_secret_id as string | null) ?? null);
           return { access, fromEmail: String(creds.email || "me") };
         };
 
