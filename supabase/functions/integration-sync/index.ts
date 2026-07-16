@@ -406,7 +406,7 @@ Deno.serve(async (req) => {
 
     let q = admin
       .from("agent_integrations")
-      .select("id, user_id, agent_id, provider, credentials")
+      .select("id, user_id, agent_id, provider, credentials_secret_id")
       .eq("user_id", user.id)
       .eq("status", "connected");
     if (providerFilter) q = q.eq("provider", providerFilter);
@@ -416,7 +416,9 @@ Deno.serve(async (req) => {
 
     const synced: Array<{ provider: string; ok: boolean; kind: string; data: Record<string, unknown>; error?: string }> = [];
     for (const r of rows || []) {
-      const result = await syncOne(r.provider as string, (r.credentials as Credentials) || {}, { admin, rowId: r.id as string });
+      const sid = (r.credentials_secret_id as string | null) ?? null;
+      const creds = (await readSecret(admin, sid)) as Credentials;
+      const result = await syncOne(r.provider as string, creds, { admin, rowId: r.id as string, secretId: sid });
       await persist(admin, {
         user_id: r.user_id as string,
         agent_id: (r.agent_id as string | null) ?? null,
