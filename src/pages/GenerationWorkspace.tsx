@@ -2301,6 +2301,8 @@ export default function GenerationWorkspace() {
                 </div>
               );
             })()}
+              </div>
+            </div>
           </div>
         </section>
       </div>
