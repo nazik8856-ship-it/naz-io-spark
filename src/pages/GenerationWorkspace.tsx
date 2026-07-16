@@ -244,6 +244,22 @@ export default function GenerationWorkspace() {
   const { user } = useAuth();
   const [prompt, setPrompt] = useState("");
   const [activeTab, setActiveTab] = useState<"preview" | "dashboard">("preview");
+  // Preview toolbar controls
+  const [previewDevice, setPreviewDevice] = useState<"desktop" | "tablet" | "phone">("desktop");
+  const PREVIEW_THEMES = [
+    { id: "default", label: "Default", hue: 0, sat: 1 },
+    { id: "emerald", label: "Emerald", hue: 90, sat: 1 },
+    { id: "amber", label: "Amber", hue: 200, sat: 1 },
+    { id: "rose", label: "Rose", hue: 300, sat: 1.1 },
+    { id: "mono", label: "Mono", hue: 0, sat: 0 },
+  ] as const;
+  const [previewThemeIdx, setPreviewThemeIdx] = useState(0);
+  const [previewPath, setPreviewPath] = useState("/");
+  const [previewPathInput, setPreviewPathInput] = useState("/");
+  const PREVIEW_ZOOMS = [1, 0.9, 0.75, 0.6, 1.15] as const;
+  const [previewZoomIdx, setPreviewZoomIdx] = useState(0);
+  const [previewFullscreen, setPreviewFullscreen] = useState(false);
+  const [previewNonce, setPreviewNonce] = useState(0);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatMode, setChatMode] = useState<ChatMode>("build");
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
