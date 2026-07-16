@@ -1309,8 +1309,8 @@ export default function GenerationWorkspace() {
               m.role === "nazai" ? (
                 <div key={m.id} className="space-y-2">
                   <div className="flex items-center gap-2">
-                    <div className="h-7 w-7 rounded-full bg-gradient-to-br from-purple-500 to-cyan-400 flex items-center justify-center text-[10px] font-bold text-black">
-                      N
+                    <div className="h-7 w-7 rounded-full bg-black border border-cyan-400/40 shadow-[0_0_10px_rgba(0,163,255,0.5)] overflow-hidden flex items-center justify-center">
+                      <img src={neonNAvatar} alt="NazAI" className="h-full w-full object-cover" />
                     </div>
                     <div className="text-sm font-semibold">NazAI</div>
                   </div>
