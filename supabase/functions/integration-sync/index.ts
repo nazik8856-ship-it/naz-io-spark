@@ -284,7 +284,7 @@ async function syncGmail(admin: SupabaseClient, row: { id: string; credentials_s
 async function syncOne(
   provider: string,
   credentials: Credentials,
-  ctx?: { admin: SupabaseClient; rowId: string },
+  ctx?: { admin: SupabaseClient; rowId: string; secretId: string | null },
 ): Promise<SyncResult> {
   const p = provider.toLowerCase();
   try {
@@ -295,7 +295,7 @@ async function syncOne(
     if (p.includes("hubspot")) return await syncHubSpot(credentials);
     if (p.includes("ga4") || p.includes("analytics")) return await syncGA4(credentials);
     if (p === "gmail" && ctx && (credentials.refresh_token || credentials.access_token)) {
-      return await syncGmail(ctx.admin, { id: ctx.rowId, credentials });
+      return await syncGmail(ctx.admin, { id: ctx.rowId, credentials_secret_id: ctx.secretId, credentials });
     }
     return simulate(provider, credentials);
   } catch (e) {
