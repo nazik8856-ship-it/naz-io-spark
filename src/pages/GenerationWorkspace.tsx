@@ -244,6 +244,22 @@ export default function GenerationWorkspace() {
   const { user } = useAuth();
   const [prompt, setPrompt] = useState("");
   const [activeTab, setActiveTab] = useState<"preview" | "dashboard">("preview");
+  // Preview toolbar controls
+  const [previewDevice, setPreviewDevice] = useState<"desktop" | "tablet" | "phone">("desktop");
+  const PREVIEW_THEMES = [
+    { id: "default", label: "Default", hue: 0, sat: 1 },
+    { id: "emerald", label: "Emerald", hue: 90, sat: 1 },
+    { id: "amber", label: "Amber", hue: 200, sat: 1 },
+    { id: "rose", label: "Rose", hue: 300, sat: 1.1 },
+    { id: "mono", label: "Mono", hue: 0, sat: 0 },
+  ] as const;
+  const [previewThemeIdx, setPreviewThemeIdx] = useState(0);
+  const [previewPath, setPreviewPath] = useState("/");
+  const [previewPathInput, setPreviewPathInput] = useState("/");
+  const PREVIEW_ZOOMS = [1, 0.9, 0.75, 0.6, 1.15] as const;
+  const [previewZoomIdx, setPreviewZoomIdx] = useState(0);
+  const [previewFullscreen, setPreviewFullscreen] = useState(false);
+  const [previewNonce, setPreviewNonce] = useState(0);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatMode, setChatMode] = useState<ChatMode>("build");
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
@@ -1285,7 +1301,7 @@ export default function GenerationWorkspace() {
       {/* Main split */}
       <div className="flex-1 flex min-h-0">
         {/* Chat sidebar */}
-        <aside className={`${activeTab === "preview" ? "hidden md:flex" : "flex"} w-full md:max-w-[380px] border-r border-white/5 flex-col`}>
+        <aside className={`${previewFullscreen ? "hidden" : ""} ${activeTab === "preview" ? "hidden md:flex" : "flex"} w-full md:max-w-[380px] border-r border-white/5 flex-col`}>
           {/* Messages */}
           <div className="flex-1 overflow-y-auto p-5 space-y-6">
             {messages.map((m) =>
@@ -1623,10 +1639,24 @@ export default function GenerationWorkspace() {
           {/* Preview toolbar */}
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/5">
             <div className="flex items-center gap-1">
-              <button className="h-8 w-8 rounded-md hover:bg-white/5 flex items-center justify-center text-zinc-400">
+              <button
+                onClick={() => {
+                  const order = ["desktop", "tablet", "phone"] as const;
+                  setPreviewDevice(order[(order.indexOf(previewDevice) + 1) % order.length]);
+                }}
+                title={`Device: ${previewDevice} (click to cycle)`}
+                className={`h-8 w-8 rounded-md flex items-center justify-center transition-colors ${previewDevice !== "desktop" ? "bg-white/10 text-white" : "hover:bg-white/5 text-zinc-400"}`}
+              >
                 <Monitor className="h-4 w-4" />
               </button>
-              <button className="h-8 w-8 rounded-md hover:bg-white/5 flex items-center justify-center text-zinc-400">
+              <button
+                onClick={() => {
+                  const order = ["desktop", "tablet", "phone"] as const;
+                  setPreviewDevice(order[(order.indexOf(previewDevice) + 1) % order.length]);
+                }}
+                title="Layout / device"
+                className="h-8 w-8 rounded-md hover:bg-white/5 flex items-center justify-center text-zinc-400"
+              >
                 <LayoutGrid className="h-4 w-4" />
               </button>
               <div className="w-px h-5 bg-white/10 mx-1" />
@@ -1634,30 +1664,70 @@ export default function GenerationWorkspace() {
                 <Sparkles className="h-3.5 w-3.5 text-purple-300" />
                 Edit
               </button>
-              <button className="h-8 w-8 rounded-md hover:bg-white/5 flex items-center justify-center text-zinc-400">
+              <button
+                onClick={() => setPreviewThemeIdx((i) => (i + 1) % PREVIEW_THEMES.length)}
+                title={`Theme: ${PREVIEW_THEMES[previewThemeIdx].label} (click to cycle)`}
+                className={`h-8 w-8 rounded-md flex items-center justify-center transition-colors ${previewThemeIdx !== 0 ? "bg-white/10 text-white" : "hover:bg-white/5 text-zinc-400"}`}
+              >
                 <Palette className="h-4 w-4" />
               </button>
             </div>
 
             <div className="flex-1 max-w-md mx-3">
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/10 bg-white/[0.03]">
-                <button className="text-zinc-400 hover:text-white">
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const raw = previewPathInput.trim();
+                  if (!raw) return;
+                  if (/^https?:\/\//i.test(raw)) {
+                    window.open(raw, "_blank", "noopener,noreferrer");
+                    return;
+                  }
+                  const path = raw.startsWith("/") ? raw : `/${raw}`;
+                  setPreviewPath(path);
+                  if (path === "/" || path.startsWith("/preview")) {
+                    setActiveTab("preview");
+                  } else if (path.startsWith("/chat") || path.startsWith("/dashboard")) {
+                    setActiveTab("dashboard");
+                  } else {
+                    navigate(path);
+                  }
+                }}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/10 bg-white/[0.03] focus-within:border-white/25"
+              >
+                <button
+                  type="button"
+                  onClick={() => setPreviewNonce((n) => n + 1)}
+                  title="Reload preview"
+                  className="text-zinc-400 hover:text-white"
+                >
                   <RefreshCw className="h-3.5 w-3.5" />
                 </button>
                 <input
                   className="flex-1 bg-transparent outline-none text-xs text-zinc-300 text-center"
-                  defaultValue="/"
+                  value={previewPathInput}
+                  onChange={(e) => setPreviewPathInput(e.target.value)}
+                  placeholder="/"
+                  spellCheck={false}
                 />
                 <ChevronDown className="h-3.5 w-3.5 text-zinc-500" />
-              </div>
+              </form>
             </div>
 
             <div className="flex items-center gap-1">
-              <button className="h-8 px-2 rounded-md hover:bg-white/5 flex items-center gap-1 text-zinc-400 text-xs">
+              <button
+                onClick={() => setPreviewZoomIdx((i) => (i + 1) % PREVIEW_ZOOMS.length)}
+                title={`Preview zoom: ${Math.round(PREVIEW_ZOOMS[previewZoomIdx] * 100)}% (click to cycle)`}
+                className={`h-8 px-2 rounded-md flex items-center gap-1 text-xs transition-colors ${previewZoomIdx !== 0 ? "bg-white/10 text-white" : "hover:bg-white/5 text-zinc-400"}`}
+              >
                 <Monitor className="h-4 w-4" />
-                <ChevronDown className="h-3 w-3" />
+                <span className="font-mono">{Math.round(PREVIEW_ZOOMS[previewZoomIdx] * 100)}%</span>
               </button>
-              <button className="h-8 w-8 rounded-md hover:bg-white/5 flex items-center justify-center text-zinc-400">
+              <button
+                onClick={() => setPreviewFullscreen((v) => !v)}
+                title={previewFullscreen ? "Exit fullscreen preview" : "Fullscreen preview"}
+                className={`h-8 w-8 rounded-md flex items-center justify-center transition-colors ${previewFullscreen ? "bg-white/10 text-white" : "hover:bg-white/5 text-zinc-400"}`}
+              >
                 <Maximize2 className="h-4 w-4" />
               </button>
             </div>
@@ -1672,6 +1742,25 @@ export default function GenerationWorkspace() {
                   "radial-gradient(ellipse 70% 55% at 50% 60%, rgba(139,92,246,0.18) 0%, rgba(34,211,238,0.10) 35%, rgba(2,6,23,0) 70%)",
               }}
             />
+            <div
+              key={`preview-${previewNonce}`}
+              className="absolute inset-0 overflow-auto"
+              style={{
+                filter: `hue-rotate(${PREVIEW_THEMES[previewThemeIdx].hue}deg) saturate(${PREVIEW_THEMES[previewThemeIdx].sat})`,
+                transition: "filter 200ms ease",
+              }}
+            >
+              <div
+                className="mx-auto h-full"
+                style={{
+                  maxWidth:
+                    previewDevice === "phone" ? 390 : previewDevice === "tablet" ? 820 : "100%",
+                  transform: `scale(${PREVIEW_ZOOMS[previewZoomIdx]})`,
+                  transformOrigin: "top center",
+                  transition: "max-width 200ms ease, transform 200ms ease",
+                  outline: previewDevice !== "desktop" ? "1px solid rgba(255,255,255,0.08)" : "none",
+                }}
+              >
             {(() => {
               // CHAT TAB → live chat with the selected (or latest) built agent
               if (activeTab === "dashboard") {
@@ -2212,6 +2301,8 @@ export default function GenerationWorkspace() {
                 </div>
               );
             })()}
+              </div>
+            </div>
           </div>
         </section>
       </div>
