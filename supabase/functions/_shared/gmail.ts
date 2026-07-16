@@ -1,5 +1,6 @@
 // Shared Gmail OAuth + API helpers.
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { readSecret, updateSecret } from "./integration-secrets.ts";
 
 export const GMAIL_SCOPES = [
   "https://www.googleapis.com/auth/gmail.send",
