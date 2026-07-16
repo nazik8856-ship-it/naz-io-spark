@@ -3,6 +3,7 @@
 // Renders a small HTML page that notifies the opener window and closes.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { verifyState, exchangeCode, fetchUserInfo } from "../_shared/gmail.ts";
+import { createSecret, updateSecret, readSecret } from "../_shared/integration-secrets.ts";
 
 const html = (title: string, msg: string, ok: boolean) => `<!doctype html>
 <html><head><meta charset="utf-8"><title>${title}</title>
@@ -56,18 +57,29 @@ Deno.serve(async (req) => {
       avatar: info?.picture || null,
     };
 
-    // Preserve refresh_token if Google did not return a new one (they only
-    // issue it on the first consent unless prompt=consent forces it).
-    if (!tok.refresh_token) {
-      const { data: existing } = await admin
-        .from("agent_integrations")
-        .select("credentials")
-        .eq("user_id", userId)
-        .eq("provider", "Gmail")
-        .eq("agent_id", agentId)
-        .maybeSingle();
-      const prev = (existing?.credentials as { refresh_token?: string } | null) || {};
-      if (prev.refresh_token) credentials.refresh_token = prev.refresh_token;
+    // Look up any existing row so we can (a) preserve a previous refresh_token
+    // if Google didn't return one this time, and (b) reuse the existing Vault
+    // secret id instead of orphaning it.
+    const { data: existing } = await admin
+      .from("agent_integrations")
+      .select("id, credentials_secret_id")
+      .eq("user_id", userId)
+      .eq("provider", "Gmail")
+      .eq("agent_id", agentId)
+      .maybeSingle();
+
+    if (!tok.refresh_token && existing?.credentials_secret_id) {
+      const prev = await readSecret(admin, existing.credentials_secret_id as string);
+      const prevRt = (prev as { refresh_token?: string })?.refresh_token;
+      if (prevRt) credentials.refresh_token = prevRt;
+    }
+
+    // Write credentials to Vault (create or update in place).
+    let secretId: string | null = (existing?.credentials_secret_id as string | null) ?? null;
+    if (secretId) {
+      await updateSecret(admin, secretId, credentials);
+    } else {
+      secretId = await createSecret(admin, credentials, `gmail-${userId}-${agentId ?? "global"}`);
     }
 
     const { error } = await admin
@@ -77,7 +89,8 @@ Deno.serve(async (req) => {
           user_id: userId,
           agent_id: agentId,
           provider: "Gmail",
-          credentials,
+          credentials_secret_id: secretId,
+          credentials: null,
           metadata: {
             account_email: info?.email,
             account_name: info?.name || info?.email,

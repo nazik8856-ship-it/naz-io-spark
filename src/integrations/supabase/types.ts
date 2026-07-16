@@ -121,6 +121,7 @@ export type Database = {
           agent_id: string | null
           created_at: string
           credentials: Json
+          credentials_secret_id: string | null
           id: string
           last_error: string | null
           last_verified_at: string | null
@@ -134,6 +135,7 @@ export type Database = {
           agent_id?: string | null
           created_at?: string
           credentials?: Json
+          credentials_secret_id?: string | null
           id?: string
           last_error?: string | null
           last_verified_at?: string | null
@@ -147,6 +149,7 @@ export type Database = {
           agent_id?: string | null
           created_at?: string
           credentials?: Json
+          credentials_secret_id?: string | null
           id?: string
           last_error?: string | null
           last_verified_at?: string | null
@@ -813,11 +816,16 @@ export type Database = {
     }
     Functions: {
       add_credits: { Args: { amount: number }; Returns: number }
+      create_integration_secret: {
+        Args: { label?: string; payload: Json }
+        Returns: string
+      }
       deduct_credit: { Args: { user_id: string }; Returns: boolean }
       delete_email: {
         Args: { message_id: number; queue_name: string }
         Returns: boolean
       }
+      delete_integration_secret: { Args: { sid: string }; Returns: undefined }
       email_queue_dispatch: { Args: never; Returns: undefined }
       enqueue_email: {
         Args: { payload: Json; queue_name: string }
@@ -839,6 +847,11 @@ export type Database = {
           msg_id: number
           read_ct: number
         }[]
+      }
+      read_integration_secret: { Args: { sid: string }; Returns: Json }
+      update_integration_secret: {
+        Args: { payload: Json; sid: string }
+        Returns: undefined
       }
     }
     Enums: {

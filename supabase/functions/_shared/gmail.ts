@@ -1,5 +1,6 @@
 // Shared Gmail OAuth + API helpers.
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { readSecret, updateSecret } from "./integration-secrets.ts";
 
 export const GMAIL_SCOPES = [
   "https://www.googleapis.com/auth/gmail.send",
@@ -163,19 +164,22 @@ export async function fetchUserInfo(access_token: string) {
 // refreshed. On unrecoverable failure (invalid_grant), marks the integration
 // row so the UI can prompt the user to reconnect instead of silently failing
 // every subsequent run with a stale token.
+//
+// Credentials are stored encrypted in Supabase Vault; the caller passes the
+// integration row containing `credentials_secret_id`. Optionally a `credentials`
+// snapshot may be supplied to skip an extra Vault read.
 export async function ensureAccessToken(
   admin: SupabaseClient,
-  row: { id: string; credentials: Record<string, unknown> },
+  row: { id: string; credentials_secret_id: string | null; credentials?: Record<string, unknown> },
   opts?: { force?: boolean },
 ): Promise<string | null> {
-  const creds = row.credentials || {};
+  const creds = row.credentials ?? await readSecret(admin, row.credentials_secret_id);
   const access = creds.access_token as string | undefined;
   const refresh = creds.refresh_token as string | undefined;
   const expiresAt = Number(creds.expires_at || 0);
   // 5-minute safety buffer so long-running tool calls don't expire mid-flight.
   if (!opts?.force && access && expiresAt > Date.now() + 5 * 60_000) return access;
   if (!refresh) {
-    // No refresh_token stored — connection can only be salvaged by reconnect.
     if (!access) {
       await admin.from("agent_integrations").update({
         status: "error",
@@ -190,12 +194,12 @@ export async function ensureAccessToken(
       ...creds,
       access_token: tok.access_token,
       expires_at: Date.now() + tok.expires_in * 1000,
-      // Google very rarely rotates the refresh_token, but if it does we must
-      // persist the new one or the next refresh will fail.
       ...(tok.refresh_token ? { refresh_token: tok.refresh_token } : {}),
     };
+    if (row.credentials_secret_id) {
+      await updateSecret(admin, row.credentials_secret_id, newCreds);
+    }
     await admin.from("agent_integrations").update({
-      credentials: newCreds,
       status: "connected",
       last_error: null,
       last_verified_at: new Date().toISOString(),
@@ -211,7 +215,6 @@ export async function ensureAccessToken(
         last_error: "Google refresh token revoked or expired — reconnect required.",
       }).eq("id", row.id);
     } else {
-      // Transient — record last_error but keep status connected so we retry next run.
       await admin.from("agent_integrations").update({
         last_error: `Token refresh transient failure: ${msg}`.slice(0, 500),
       }).eq("id", row.id);
@@ -220,12 +223,10 @@ export async function ensureAccessToken(
   }
 }
 
-// Fetch with automatic access-token refresh + single retry on 401. Use this
-// for all Google API calls in the runtime so a stale-but-not-yet-expired
-// access token (e.g. revoked mid-run) doesn't hard-fail the whole action.
+// Fetch with automatic access-token refresh + single retry on 401.
 export async function googleAuthedFetch(
   admin: SupabaseClient,
-  row: { id: string; credentials: Record<string, unknown> },
+  row: { id: string; credentials_secret_id: string | null; credentials?: Record<string, unknown> },
   url: string,
   init: RequestInit = {},
 ): Promise<Response> {
@@ -237,14 +238,16 @@ export async function googleAuthedFetch(
   });
   let r = await doFetch(access);
   if (r.status === 401) {
-    // Force a refresh and retry once. Re-read credentials from DB so we don't
-    // reuse the same stale token if another concurrent tool already refreshed.
+    // Force a refresh and retry once. Re-read row from DB in case another
+    // concurrent tool call already rotated the token.
     const { data: fresh } = await admin
       .from("agent_integrations")
-      .select("id, credentials")
+      .select("id, credentials_secret_id")
       .eq("id", row.id)
       .maybeSingle();
-    const nextRow = fresh ? { id: fresh.id, credentials: (fresh.credentials as Record<string, unknown>) || {} } : row;
+    const nextRow = fresh
+      ? { id: fresh.id as string, credentials_secret_id: (fresh.credentials_secret_id as string | null) ?? null }
+      : row;
     access = await ensureAccessToken(admin, nextRow, { force: true });
     if (!access) return r;
     r = await doFetch(access);
