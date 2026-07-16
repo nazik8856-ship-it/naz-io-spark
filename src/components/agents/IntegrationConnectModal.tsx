@@ -234,15 +234,14 @@ export default function IntegrationConnectModal({
     if (!user) return;
     let q = supabase
       .from("agent_integrations")
-      .select("status, metadata, credentials")
+      .select("status, metadata")
       .eq("user_id", user.id)
       .eq("provider", providerKey);
     q = agentId ? q.eq("agent_id", agentId) : q.is("agent_id", null);
     const { data } = await q.maybeSingle();
     if (data?.status === "connected") {
       const meta = (data.metadata as Record<string, unknown>) || {};
-      const creds = (data.credentials as Record<string, unknown>) || {};
-      const displayEmail = String(meta.account_email || creds.email || meta.account_name || "Gmail");
+      const displayEmail = String(meta.account_email || meta.account_name || "Gmail");
       setAccount({
         id: String(meta.account_id || displayEmail || "connected"),
         handle: displayEmail,
