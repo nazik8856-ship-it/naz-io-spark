@@ -256,8 +256,12 @@ function simulate(provider: string, c: Credentials): SyncResult {
   };
 }
 
-async function syncGmail(admin: SupabaseClient, row: { id: string; credentials: Credentials }): Promise<SyncResult> {
-  const access = await ensureAccessToken(admin, { id: row.id, credentials: row.credentials as Record<string, unknown> });
+async function syncGmail(admin: SupabaseClient, row: { id: string; credentials_secret_id: string | null; credentials: Credentials }): Promise<SyncResult> {
+  const access = await ensureAccessToken(admin, {
+    id: row.id,
+    credentials_secret_id: row.credentials_secret_id,
+    credentials: row.credentials as Record<string, unknown>,
+  });
   if (!access) return { ok: false, kind: "inbox", data: {}, error: "Gmail token invalid — please reconnect." };
   try {
     const stats = await gmailList(access);
