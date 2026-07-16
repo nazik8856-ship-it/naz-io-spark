@@ -3,6 +3,7 @@
 // Input: { agentId: string, trigger?: "manual"|"cron"|"webhook", userInstruction?: string }
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { readSecret } from "../_shared/integration-secrets.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
