@@ -378,13 +378,15 @@ Deno.serve(async (req) => {
     if (cron) {
       const { data: rows, error } = await admin
         .from("agent_integrations")
-        .select("id, user_id, agent_id, provider, credentials")
+        .select("id, user_id, agent_id, provider, credentials_secret_id")
         .eq("status", "connected")
         .limit(500);
       if (error) return j(500, { error: error.message });
       let ok = 0, fail = 0;
       for (const r of rows || []) {
-        const result = await syncOne(r.provider as string, (r.credentials as Credentials) || {}, { admin, rowId: r.id as string });
+        const sid = (r.credentials_secret_id as string | null) ?? null;
+        const creds = (await readSecret(admin, sid)) as Credentials;
+        const result = await syncOne(r.provider as string, creds, { admin, rowId: r.id as string, secretId: sid });
         await persist(admin, {
           user_id: r.user_id as string,
           agent_id: (r.agent_id as string | null) ?? null,
