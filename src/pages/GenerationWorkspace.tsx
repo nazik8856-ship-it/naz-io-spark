@@ -1639,10 +1639,24 @@ export default function GenerationWorkspace() {
           {/* Preview toolbar */}
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/5">
             <div className="flex items-center gap-1">
-              <button className="h-8 w-8 rounded-md hover:bg-white/5 flex items-center justify-center text-zinc-400">
+              <button
+                onClick={() => {
+                  const order = ["desktop", "tablet", "phone"] as const;
+                  setPreviewDevice(order[(order.indexOf(previewDevice) + 1) % order.length]);
+                }}
+                title={`Device: ${previewDevice} (click to cycle)`}
+                className={`h-8 w-8 rounded-md flex items-center justify-center transition-colors ${previewDevice !== "desktop" ? "bg-white/10 text-white" : "hover:bg-white/5 text-zinc-400"}`}
+              >
                 <Monitor className="h-4 w-4" />
               </button>
-              <button className="h-8 w-8 rounded-md hover:bg-white/5 flex items-center justify-center text-zinc-400">
+              <button
+                onClick={() => {
+                  const order = ["desktop", "tablet", "phone"] as const;
+                  setPreviewDevice(order[(order.indexOf(previewDevice) + 1) % order.length]);
+                }}
+                title="Layout / device"
+                className="h-8 w-8 rounded-md hover:bg-white/5 flex items-center justify-center text-zinc-400"
+              >
                 <LayoutGrid className="h-4 w-4" />
               </button>
               <div className="w-px h-5 bg-white/10 mx-1" />
@@ -1650,30 +1664,70 @@ export default function GenerationWorkspace() {
                 <Sparkles className="h-3.5 w-3.5 text-purple-300" />
                 Edit
               </button>
-              <button className="h-8 w-8 rounded-md hover:bg-white/5 flex items-center justify-center text-zinc-400">
+              <button
+                onClick={() => setPreviewThemeIdx((i) => (i + 1) % PREVIEW_THEMES.length)}
+                title={`Theme: ${PREVIEW_THEMES[previewThemeIdx].label} (click to cycle)`}
+                className={`h-8 w-8 rounded-md flex items-center justify-center transition-colors ${previewThemeIdx !== 0 ? "bg-white/10 text-white" : "hover:bg-white/5 text-zinc-400"}`}
+              >
                 <Palette className="h-4 w-4" />
               </button>
             </div>
 
             <div className="flex-1 max-w-md mx-3">
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/10 bg-white/[0.03]">
-                <button className="text-zinc-400 hover:text-white">
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const raw = previewPathInput.trim();
+                  if (!raw) return;
+                  if (/^https?:\/\//i.test(raw)) {
+                    window.open(raw, "_blank", "noopener,noreferrer");
+                    return;
+                  }
+                  const path = raw.startsWith("/") ? raw : `/${raw}`;
+                  setPreviewPath(path);
+                  if (path === "/" || path.startsWith("/preview")) {
+                    setActiveTab("preview");
+                  } else if (path.startsWith("/chat") || path.startsWith("/dashboard")) {
+                    setActiveTab("dashboard");
+                  } else {
+                    navigate(path);
+                  }
+                }}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/10 bg-white/[0.03] focus-within:border-white/25"
+              >
+                <button
+                  type="button"
+                  onClick={() => setPreviewNonce((n) => n + 1)}
+                  title="Reload preview"
+                  className="text-zinc-400 hover:text-white"
+                >
                   <RefreshCw className="h-3.5 w-3.5" />
                 </button>
                 <input
                   className="flex-1 bg-transparent outline-none text-xs text-zinc-300 text-center"
-                  defaultValue="/"
+                  value={previewPathInput}
+                  onChange={(e) => setPreviewPathInput(e.target.value)}
+                  placeholder="/"
+                  spellCheck={false}
                 />
                 <ChevronDown className="h-3.5 w-3.5 text-zinc-500" />
-              </div>
+              </form>
             </div>
 
             <div className="flex items-center gap-1">
-              <button className="h-8 px-2 rounded-md hover:bg-white/5 flex items-center gap-1 text-zinc-400 text-xs">
+              <button
+                onClick={() => setPreviewZoomIdx((i) => (i + 1) % PREVIEW_ZOOMS.length)}
+                title={`Preview zoom: ${Math.round(PREVIEW_ZOOMS[previewZoomIdx] * 100)}% (click to cycle)`}
+                className={`h-8 px-2 rounded-md flex items-center gap-1 text-xs transition-colors ${previewZoomIdx !== 0 ? "bg-white/10 text-white" : "hover:bg-white/5 text-zinc-400"}`}
+              >
                 <Monitor className="h-4 w-4" />
-                <ChevronDown className="h-3 w-3" />
+                <span className="font-mono">{Math.round(PREVIEW_ZOOMS[previewZoomIdx] * 100)}%</span>
               </button>
-              <button className="h-8 w-8 rounded-md hover:bg-white/5 flex items-center justify-center text-zinc-400">
+              <button
+                onClick={() => setPreviewFullscreen((v) => !v)}
+                title={previewFullscreen ? "Exit fullscreen preview" : "Fullscreen preview"}
+                className={`h-8 w-8 rounded-md flex items-center justify-center transition-colors ${previewFullscreen ? "bg-white/10 text-white" : "hover:bg-white/5 text-zinc-400"}`}
+              >
                 <Maximize2 className="h-4 w-4" />
               </button>
             </div>
