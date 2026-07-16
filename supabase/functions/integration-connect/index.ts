@@ -186,10 +186,12 @@ Deno.serve(async (req) => {
   try {
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
     const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const auth = req.headers.get("Authorization") || "";
     const supabase = createClient(SUPABASE_URL, ANON_KEY, {
       global: { headers: { Authorization: auth } },
     });
+    const admin = createClient(SUPABASE_URL, SERVICE_KEY);
 
     const { data: { user }, error: userErr } = await supabase.auth.getUser();
     if (userErr || !user) return j(401, { error: "Not authenticated" });
@@ -213,6 +215,17 @@ Deno.serve(async (req) => {
     if (!provider) return j(400, { error: "Missing provider" });
 
     if (action === "disconnect") {
+      // Look up existing rows first so we can drop the Vault secret(s) too.
+      let sel = admin
+        .from("agent_integrations")
+        .select("id, credentials_secret_id")
+        .eq("user_id", user.id)
+        .eq("provider", provider);
+      sel = agentId ? sel.eq("agent_id", agentId) : sel.is("agent_id", null);
+      const { data: existingRows } = await sel;
+      for (const r of existingRows || []) {
+        await deleteSecret(admin, (r.credentials_secret_id as string | null) ?? null);
+      }
       let del = supabase
         .from("agent_integrations")
         .delete()
@@ -227,11 +240,32 @@ Deno.serve(async (req) => {
     const credentials = (body.credentials as Credentials) || {};
     const result = await verify(provider, credentials);
 
+    // Find any existing row so we can reuse its Vault secret id.
+    let existQ = admin
+      .from("agent_integrations")
+      .select("id, credentials_secret_id")
+      .eq("user_id", user.id)
+      .eq("provider", provider);
+    existQ = agentId ? existQ.eq("agent_id", agentId) : existQ.is("agent_id", null);
+    const { data: existing } = await existQ.maybeSingle();
+
+    let secretId: string | null = (existing?.credentials_secret_id as string | null) ?? null;
+    try {
+      if (secretId) {
+        await updateSecret(admin, secretId, credentials);
+      } else {
+        secretId = await createSecret(admin, credentials, `${provider}-${user.id}-${agentId ?? "global"}`);
+      }
+    } catch (e) {
+      return j(500, { error: e instanceof Error ? e.message : "Vault write failed" });
+    }
+
     const row = {
       user_id: user.id,
       agent_id: agentId,
       provider,
-      credentials,
+      credentials_secret_id: secretId,
+      credentials: null,
       metadata: result.ok ? (result.sample || {}) : {},
       status: result.ok ? "connected" : "error",
       last_verified_at: new Date().toISOString(),
