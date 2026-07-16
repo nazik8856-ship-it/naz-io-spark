@@ -595,7 +595,7 @@ Rules:
             const admin = supabase;
             const { data: gmailRows } = await admin
               .from("agent_integrations")
-              .select("id, credentials, agent_id")
+              .select("id, credentials_secret_id, agent_id")
               .eq("user_id", userId)
               .eq("provider", "Gmail")
               .eq("status", "connected")
@@ -608,7 +608,7 @@ Rules:
 
             if (gmail) {
               const { ensureAccessToken, gmailSend } = await import("../_shared/gmail.ts");
-              const access = await ensureAccessToken(admin, { id: gmail.id, credentials: (gmail.credentials as Record<string, unknown>) || {} });
+              const access = await ensureAccessToken(admin, { id: gmail.id, credentials_secret_id: (gmail.credentials_secret_id as string | null) ?? null });
               if (!access) {
                 summary = "Gmail token invalid — please reconnect Gmail.";
               } else {
@@ -714,7 +714,7 @@ Rules:
           try {
             const { data: gmailRows } = await supabase
               .from("agent_integrations")
-              .select("id, credentials, agent_id")
+              .select("id, credentials_secret_id, agent_id")
               .eq("user_id", userId)
               .eq("provider", "Gmail")
               .eq("status", "connected")
@@ -728,7 +728,7 @@ Rules:
               continue;
             }
             const { ensureAccessToken } = await import("../_shared/gmail.ts");
-            const access = await ensureAccessToken(supabase, { id: gmail.id, credentials: (gmail.credentials as Record<string, unknown>) || {} });
+            const access = await ensureAccessToken(supabase, { id: gmail.id, credentials_secret_id: (gmail.credentials_secret_id as string | null) ?? null });
             if (!access) {
               const msg = "Google token invalid — please reconnect Gmail.";
               await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
@@ -858,7 +858,7 @@ Rules:
           try {
             const { data: gmailRows } = await supabase
               .from("agent_integrations")
-              .select("id, credentials, agent_id")
+              .select("id, credentials_secret_id, agent_id")
               .eq("user_id", userId)
               .eq("provider", "Gmail")
               .eq("status", "connected")
@@ -872,7 +872,7 @@ Rules:
               continue;
             }
             const { ensureAccessToken } = await import("../_shared/gmail.ts");
-            const access = await ensureAccessToken(supabase, { id: gmail.id, credentials: (gmail.credentials as Record<string, unknown>) || {} });
+            const access = await ensureAccessToken(supabase, { id: gmail.id, credentials_secret_id: (gmail.credentials_secret_id as string | null) ?? null });
             if (!access) {
               const msg = "Google token invalid — please reconnect Gmail.";
               await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
@@ -933,7 +933,7 @@ Rules:
         const resolveGoogleAccess = async (): Promise<{ access: string | null; error?: string; fromEmail?: string }> => {
           const { data: gmailRows } = await supabase
             .from("agent_integrations")
-            .select("id, credentials, agent_id")
+            .select("id, credentials_secret_id, agent_id")
             .eq("user_id", userId)
             .eq("provider", "Gmail")
             .eq("status", "connected")
@@ -941,7 +941,7 @@ Rules:
           const gmail = (gmailRows || []).find((r) => r.agent_id === agentId) || (gmailRows || [])[0];
           if (!gmail) return { access: null, error: "Google account not connected — connect Gmail in Integrations first." };
           const { ensureAccessToken } = await import("../_shared/gmail.ts");
-          const access = await ensureAccessToken(supabase, { id: gmail.id, credentials: (gmail.credentials as Record<string, unknown>) || {} });
+          const access = await ensureAccessToken(supabase, { id: gmail.id, credentials_secret_id: (gmail.credentials_secret_id as string | null) ?? null });
           if (!access) return { access: null, error: "Google token invalid — please reconnect Gmail." };
           const creds = (gmail.credentials as Record<string, unknown>) || {};
           return { access, fromEmail: String(creds.email || "me") };
@@ -1281,7 +1281,7 @@ Rules:
           try {
             const { data: gmailRows } = await supabase
               .from("agent_integrations")
-              .select("id, credentials, agent_id")
+              .select("id, credentials_secret_id, agent_id")
               .eq("user_id", userId)
               .eq("provider", "Gmail")
               .eq("status", "connected")
@@ -1295,7 +1295,7 @@ Rules:
               continue;
             }
             const { ensureAccessToken } = await import("../_shared/gmail.ts");
-            const access = await ensureAccessToken(supabase, { id: gmail.id, credentials: (gmail.credentials as Record<string, unknown>) || {} });
+            const access = await ensureAccessToken(supabase, { id: gmail.id, credentials_secret_id: (gmail.credentials_secret_id as string | null) ?? null });
             if (!access) {
               const msg = "Google token invalid — please reconnect Gmail.";
               await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
