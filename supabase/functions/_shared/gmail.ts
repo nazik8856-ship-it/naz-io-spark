@@ -288,24 +288,26 @@ export async function gmailSend(
 }
 
 export async function gmailList(access_token: string) {
-  const [unreadR, awaitingR, allR] = await Promise.all([
-    fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages?q=is:unread&maxResults=100", {
+  // Use structural label endpoints instead of q= search — gmail.metadata scope
+  // does not permit search queries, so is:unread / category:primary would 400.
+  const [unreadLabelR, primaryR, allR] = await Promise.all([
+    fetch("https://gmail.googleapis.com/gmail/v1/users/me/labels/UNREAD", {
       headers: { Authorization: `Bearer ${access_token}` },
     }),
-    fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages?q=is:unread+category:primary&maxResults=50", {
+    fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages?labelIds=UNREAD&labelIds=CATEGORY_PERSONAL&maxResults=50", {
       headers: { Authorization: `Bearer ${access_token}` },
     }),
     fetch("https://gmail.googleapis.com/gmail/v1/users/me/labels", {
       headers: { Authorization: `Bearer ${access_token}` },
     }),
   ]);
-  const unread = await unreadR.json().catch(() => ({}));
-  const awaiting = await awaitingR.json().catch(() => ({}));
+  const unreadLabel = await unreadLabelR.json().catch(() => ({}));
+  const primary = await primaryR.json().catch(() => ({}));
   const labels = await allR.json().catch(() => ({}));
-  if (!unreadR.ok) throw new Error(unread?.error?.message || `Gmail ${unreadR.status}`);
+  if (!unreadLabelR.ok) throw new Error(unreadLabel?.error?.message || `Gmail ${unreadLabelR.status}`);
   return {
-    unread: unread.resultSizeEstimate ?? (unread.messages?.length ?? 0),
-    unread_primary: awaiting.resultSizeEstimate ?? (awaiting.messages?.length ?? 0),
+    unread: unreadLabel.messagesUnread ?? 0,
+    unread_primary: primary.resultSizeEstimate ?? (primary.messages?.length ?? 0),
     labels: (labels.labels || []).length,
   };
 }
