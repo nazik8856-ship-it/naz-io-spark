@@ -299,6 +299,7 @@ export default function GenerationWorkspace() {
     try { localStorage.setItem("nazai_voice_output", voiceOutput ? "1" : "0"); } catch { /* noop */ }
     if (!voiceOutput) voice.cancelSpeak();
   }, [voiceOutput, voice]);
+  useEffect(() => { sendPromptRef.current = () => { void sendPrompt(); }; });
 
   type SavedAgent = { id: string; name: string; spec: string; systemPrompt?: string; savedAt: string };
   const [savedAgents, setSavedAgents] = useState<SavedAgent[]>(() => {
