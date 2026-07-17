@@ -6,6 +6,9 @@ import {
   History,
   Lightbulb,
   Mic,
+  MicOff,
+  Volume2,
+  VolumeX,
   MessageSquare,
   Plus,
   Sliders,
@@ -28,6 +31,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { useVoiceChat } from "@/hooks/useVoiceChat";
 import ReactMarkdown from "react-markdown";
 import { toast } from "sonner";
 import LiveAgentChat from "@/components/agents/LiveAgentChat";
@@ -271,6 +275,31 @@ export default function GenerationWorkspace() {
   const forcedAgentRef = useRef<boolean>(false);
   const abortRef = useRef<AbortController | null>(null);
   const lastPromptRef = useRef<string>("");
+
+  // Voice mode: push-to-talk mic + TTS for assistant replies
+  const [voiceOutput, setVoiceOutput] = useState<boolean>(() => {
+    try { return localStorage.getItem("nazai_voice_output") === "1"; } catch { return false; }
+  });
+  const sendPromptRef = useRef<() => void>(() => {});
+  const voice = useVoiceChat({
+    onTranscript: (text) => setPrompt(text),
+    onFinalSubmit: () => { setTimeout(() => sendPromptRef.current(), 50); },
+  });
+  const spokenIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!voiceOutput) return;
+    for (const m of messages) {
+      if (m.role === "nazai" && !m.streaming && m.content && !spokenIdsRef.current.has(m.id)) {
+        spokenIdsRef.current.add(m.id);
+        voice.speak(m.content);
+      }
+    }
+  }, [messages, voiceOutput, voice]);
+  useEffect(() => {
+    try { localStorage.setItem("nazai_voice_output", voiceOutput ? "1" : "0"); } catch { /* noop */ }
+    if (!voiceOutput) voice.cancelSpeak();
+  }, [voiceOutput, voice]);
+  useEffect(() => { sendPromptRef.current = () => { void sendPrompt(); }; });
 
   type SavedAgent = { id: string; name: string; spec: string; systemPrompt?: string; savedAt: string };
   const [savedAgents, setSavedAgents] = useState<SavedAgent[]>(() => {
@@ -795,6 +824,7 @@ export default function GenerationWorkspace() {
 
 
   const sendPrompt = async () => {
+
     const text = prompt.trim();
     if (!text || isStreaming) return;
     // Analyze attachments (files, URLs, imported data, integrations) BEFORE
@@ -1619,8 +1649,32 @@ export default function GenerationWorkspace() {
                       })()}
                     </button>
                   </div>
-                  <button className="h-7 w-7 rounded-md hover:bg-white/5 flex items-center justify-center text-zinc-400">
-                    <Mic className="h-3.5 w-3.5" />
+                  <button
+                    type="button"
+                    onClick={() => setVoiceOutput((v) => !v)}
+                    disabled={!voice.supported}
+                    title={voice.supported ? (voiceOutput ? "Voice replies on — click to mute" : "Voice replies off — click to enable") : "Voice not supported in this browser"}
+                    className={`h-7 w-7 rounded-md flex items-center justify-center transition-colors ${
+                      voiceOutput ? "bg-cyan-400/20 text-cyan-200" : "hover:bg-white/5 text-zinc-400"
+                    } disabled:opacity-30`}
+                  >
+                    {voiceOutput ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
+                  </button>
+                  <button
+                    type="button"
+                    onPointerDown={(e) => { e.preventDefault(); if (voice.supported) voice.start(prompt); }}
+                    onPointerUp={(e) => { e.preventDefault(); voice.stop(); }}
+                    onPointerLeave={() => { if (voice.listening) voice.stop(); }}
+                    onPointerCancel={() => voice.stop()}
+                    disabled={!voice.supported}
+                    title={voice.supported ? "Hold to talk" : "Speech recognition not supported in this browser"}
+                    className={`h-7 w-7 rounded-md flex items-center justify-center transition-colors ${
+                      voice.listening
+                        ? "bg-red-500/20 text-red-300 ring-1 ring-red-400/40 animate-pulse"
+                        : "hover:bg-white/5 text-zinc-400"
+                    } disabled:opacity-30`}
+                  >
+                    {voice.listening ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
                   </button>
                   <button
                     onClick={sendPrompt}
