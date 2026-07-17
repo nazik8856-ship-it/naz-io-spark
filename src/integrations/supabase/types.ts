@@ -300,6 +300,7 @@ export type Database = {
           autonomy: string
           business_profile_id: string | null
           created_at: string
+          daily_run_cap: number
           goal: string | null
           id: string
           manifest: Json
@@ -320,6 +321,7 @@ export type Database = {
           autonomy?: string
           business_profile_id?: string | null
           created_at?: string
+          daily_run_cap?: number
           goal?: string | null
           id?: string
           manifest: Json
@@ -340,6 +342,7 @@ export type Database = {
           autonomy?: string
           business_profile_id?: string | null
           created_at?: string
+          daily_run_cap?: number
           goal?: string | null
           id?: string
           manifest?: Json

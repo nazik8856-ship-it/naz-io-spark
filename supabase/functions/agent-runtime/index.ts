@@ -109,6 +109,30 @@ serve(async (req) => {
 
     const manifest = agent.manifest as Manifest;
 
+    // Daily run cap — only enforced for cron triggers. Manual/webhook/scheduled
+    // runs bypass the cap so users can always force a run.
+    if (trigger === "cron") {
+      const cap = Number((agent as { daily_run_cap?: number }).daily_run_cap ?? 3);
+      const startOfDay = new Date();
+      startOfDay.setUTCHours(0, 0, 0, 0);
+      const { count } = await supabase
+        .from("agent_runs")
+        .select("id", { count: "exact", head: true })
+        .eq("agent_id", agentId)
+        .eq("user_id", userId)
+        .eq("status", "completed")
+        .gte("created_at", startOfDay.toISOString());
+      if ((count ?? 0) >= cap) {
+        await supabase.from("agent_events").insert({
+          agent_id: agentId,
+          user_id: userId,
+          kind: "run_skipped",
+          payload: { reason: "Daily run cap reached, skipping", cap, completed_today: count, trigger },
+        });
+        return json({ skipped: true, reason: "Daily run cap reached, skipping", cap, completed_today: count });
+      }
+    }
+
     // Load business profile and memory
     let profile: Record<string, unknown> | null = null;
     if (agent.business_profile_id) {
