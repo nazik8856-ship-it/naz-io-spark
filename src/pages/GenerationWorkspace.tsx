@@ -823,6 +823,8 @@ export default function GenerationWorkspace() {
 
 
   const sendPrompt = async () => {
+    // keep latest ref for voice callback
+
     const text = prompt.trim();
     if (!text || isStreaming) return;
     // Analyze attachments (files, URLs, imported data, integrations) BEFORE
