@@ -1,0 +1,1 @@
+ALTER TABLE public.agents ADD COLUMN IF NOT EXISTS daily_run_cap integer NOT NULL DEFAULT 3;
