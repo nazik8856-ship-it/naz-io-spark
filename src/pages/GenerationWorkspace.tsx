@@ -31,6 +31,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { useVoiceChat } from "@/hooks/useVoiceChat";
 import ReactMarkdown from "react-markdown";
 import { toast } from "sonner";
 import LiveAgentChat from "@/components/agents/LiveAgentChat";
