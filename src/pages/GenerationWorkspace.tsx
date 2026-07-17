@@ -276,6 +276,30 @@ export default function GenerationWorkspace() {
   const abortRef = useRef<AbortController | null>(null);
   const lastPromptRef = useRef<string>("");
 
+  // Voice mode: push-to-talk mic + TTS for assistant replies
+  const [voiceOutput, setVoiceOutput] = useState<boolean>(() => {
+    try { return localStorage.getItem("nazai_voice_output") === "1"; } catch { return false; }
+  });
+  const sendPromptRef = useRef<() => void>(() => {});
+  const voice = useVoiceChat({
+    onTranscript: (text) => setPrompt(text),
+    onFinalSubmit: () => { setTimeout(() => sendPromptRef.current(), 50); },
+  });
+  const spokenIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!voiceOutput) return;
+    for (const m of messages) {
+      if (m.role === "nazai" && !m.streaming && m.content && !spokenIdsRef.current.has(m.id)) {
+        spokenIdsRef.current.add(m.id);
+        voice.speak(m.content);
+      }
+    }
+  }, [messages, voiceOutput, voice]);
+  useEffect(() => {
+    try { localStorage.setItem("nazai_voice_output", voiceOutput ? "1" : "0"); } catch { /* noop */ }
+    if (!voiceOutput) voice.cancelSpeak();
+  }, [voiceOutput, voice]);
+
   type SavedAgent = { id: string; name: string; spec: string; systemPrompt?: string; savedAt: string };
   const [savedAgents, setSavedAgents] = useState<SavedAgent[]>(() => {
     try {
