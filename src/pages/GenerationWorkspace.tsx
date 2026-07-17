@@ -1649,8 +1649,32 @@ export default function GenerationWorkspace() {
                       })()}
                     </button>
                   </div>
-                  <button className="h-7 w-7 rounded-md hover:bg-white/5 flex items-center justify-center text-zinc-400">
-                    <Mic className="h-3.5 w-3.5" />
+                  <button
+                    type="button"
+                    onClick={() => setVoiceOutput((v) => !v)}
+                    disabled={!voice.supported}
+                    title={voice.supported ? (voiceOutput ? "Voice replies on — click to mute" : "Voice replies off — click to enable") : "Voice not supported in this browser"}
+                    className={`h-7 w-7 rounded-md flex items-center justify-center transition-colors ${
+                      voiceOutput ? "bg-cyan-400/20 text-cyan-200" : "hover:bg-white/5 text-zinc-400"
+                    } disabled:opacity-30`}
+                  >
+                    {voiceOutput ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
+                  </button>
+                  <button
+                    type="button"
+                    onPointerDown={(e) => { e.preventDefault(); if (voice.supported) voice.start(prompt); }}
+                    onPointerUp={(e) => { e.preventDefault(); voice.stop(); }}
+                    onPointerLeave={() => { if (voice.listening) voice.stop(); }}
+                    onPointerCancel={() => voice.stop()}
+                    disabled={!voice.supported}
+                    title={voice.supported ? "Hold to talk" : "Speech recognition not supported in this browser"}
+                    className={`h-7 w-7 rounded-md flex items-center justify-center transition-colors ${
+                      voice.listening
+                        ? "bg-red-500/20 text-red-300 ring-1 ring-red-400/40 animate-pulse"
+                        : "hover:bg-white/5 text-zinc-400"
+                    } disabled:opacity-30`}
+                  >
+                    {voice.listening ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
                   </button>
                   <button
                     onClick={sendPrompt}
