@@ -1459,6 +1459,11 @@ Rules:
             const summary = `Reply sent in thread ${threadId} to ${to} — subject "${subject}" (verified id=${sentId}).`;
             await logEvent("tool_result", { tool: tool.name, ok: true, summary });
             await logEvent("action", { type: "reply_email", target: to, ok: true, result_ref: sentId, summary });
+            {
+              const cr = await upsertClient({ email: to, note: `Replied in thread — subject "${subject}".`, incrementInteraction: true });
+              if (cr.ok && cr.clientId) await logEvent("client_update", { client_id: cr.clientId, via: "reply_email", email: to });
+              else if (cr.requiresApproval) await logEvent("client_update_deferred", { via: "reply_email", email: to, reason: cr.reason });
+            }
             messages.push({ role: "user", content: `${summary}\n\nContinue.` });
           } catch (e) {
             const msg = `reply_email failed: ${e instanceof Error ? e.message : "unknown"}`;
