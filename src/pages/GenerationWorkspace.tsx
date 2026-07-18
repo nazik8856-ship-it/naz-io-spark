@@ -1015,9 +1015,10 @@ export default function GenerationWorkspace() {
       const compileBody = (await compileResp.json()) as {
         manifest: AgentManifest;
         agentId: string | null;
+        mode?: "created" | "updated";
         error?: string;
       };
-      const { manifest, agentId } = compileBody;
+      const { manifest, agentId, mode: compileMode } = compileBody;
       if (!manifest || !manifest.name) throw new Error("Manifest did not parse.");
       if (!agentId) throw new Error(compileBody.error || "Could not persist agent — backend rejected the row.");
 
