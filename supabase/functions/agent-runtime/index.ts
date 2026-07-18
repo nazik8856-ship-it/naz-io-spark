@@ -276,6 +276,99 @@ serve(async (req) => {
       send_email: "email", reply_email: "email",
       generate_report: "report",
     };
+
+    // Verified-action executor kinds subject to the daily action cap.
+    const ACTION_CAPPED_KINDS = new Set([
+      "send_email", "reply_email",
+      "create_doc", "edit_doc",
+      "create_sheet", "edit_sheet",
+      "create_calendar_event",
+      "upsert_client_note",
+    ]);
+    const dailyActionCap = Math.max(0, Number((agent as { daily_action_cap?: number }).daily_action_cap ?? 20));
+    const clientWriteMode = String((agent as { client_write_mode?: string }).client_write_mode || "hybrid");
+    const actionCapState: { blocked: boolean; loggedOnce: boolean; usedToday: number } = { blocked: false, loggedOnce: false, usedToday: 0 };
+
+    // Count today's ok:true action events for this agent (UTC-day boundary).
+    const startOfUtcDay = () => {
+      const d = new Date();
+      d.setUTCHours(0, 0, 0, 0);
+      return d.toISOString();
+    };
+    const countTodaysActions = async (): Promise<number> => {
+      const { data } = await supabase
+        .from("agent_events")
+        .select("payload")
+        .eq("agent_id", agentId)
+        .eq("user_id", userId)
+        .eq("kind", "action")
+        .gte("created_at", startOfUtcDay());
+      let n = 0;
+      for (const row of data || []) {
+        const p = (row.payload as Record<string, unknown>) || {};
+        if (p.ok === true && ACTION_CAPPED_KINDS.has(String(p.type || ""))) n++;
+      }
+      return n;
+    };
+    actionCapState.usedToday = await countTodaysActions();
+    if (dailyActionCap > 0 && actionCapState.usedToday >= dailyActionCap) actionCapState.blocked = true;
+
+    // Auto-upsert / update a client record for this agent, respecting client_write_mode.
+    // Returns { ok, clientId, requiresApproval, reason }.
+    const upsertClient = async (opts: {
+      email?: string; name?: string; company?: string;
+      note?: string; tags?: string[]; incrementInteraction?: boolean;
+    }): Promise<{ ok: boolean; clientId?: string; requiresApproval?: boolean; reason?: string }> => {
+      const email = (opts.email || "").trim().toLowerCase() || null;
+      const name = (opts.name || "").trim() || null;
+      if (!email && !name) return { ok: false, reason: "email or name required" };
+      // Look up existing (by email preferred)
+      let existing: { id: string; notes: string | null; interaction_count: number } | null = null;
+      if (email) {
+        const { data } = await supabase.from("agent_clients")
+          .select("id, notes, interaction_count")
+          .eq("agent_id", agentId).eq("user_id", userId)
+          .ilike("email", email).maybeSingle();
+        if (data) existing = data as typeof existing;
+      }
+      const isEdit = !!existing;
+      const requiresApproval = clientWriteMode === "approval" || (clientWriteMode === "hybrid" && isEdit && !!opts.note && (existing?.notes || "").length > 0);
+      if (requiresApproval) {
+        await logEvent("pending_approval", {
+          action: "upsert_client_note",
+          payload: { email, name, company: opts.company, note: opts.note, tags: opts.tags, client_id: existing?.id ?? null, mode: isEdit ? "edit" : "create" },
+          risk: "low",
+          reason: `client_write_mode=${clientWriteMode} — ${isEdit ? "edit to existing client note" : "new client record"} requires approval`,
+        });
+        return { ok: false, requiresApproval: true, reason: "queued for approval" };
+      }
+      const now = new Date().toISOString();
+      if (existing) {
+        const newNotes = opts.note
+          ? ((existing.notes ? existing.notes + "\n\n" : "") + `[${now}] ${opts.note}`).slice(0, 20000)
+          : existing.notes;
+        const { error: upErr } = await supabase.from("agent_clients").update({
+          notes: newNotes,
+          name: name || undefined,
+          company: opts.company || undefined,
+          tags: opts.tags && opts.tags.length ? opts.tags : undefined,
+          last_interaction_at: now,
+          interaction_count: (existing.interaction_count || 0) + (opts.incrementInteraction ? 1 : 0),
+        }).eq("id", existing.id);
+        if (upErr) return { ok: false, reason: upErr.message };
+        return { ok: true, clientId: existing.id };
+      }
+      const { data: ins, error: insErr } = await supabase.from("agent_clients").insert({
+        agent_id: agentId, user_id: userId,
+        email, name, company: opts.company || null,
+        tags: opts.tags || [],
+        notes: opts.note ? `[${now}] ${opts.note}` : null,
+        first_seen_at: now, last_interaction_at: now,
+        interaction_count: opts.incrementInteraction ? 1 : 0,
+      }).select("id").single();
+      if (insErr || !ins) return { ok: false, reason: insErr?.message || "insert failed" };
+      return { ok: true, clientId: ins.id };
+    };
     const logEvent = async (kind: string, payload: Record<string, unknown>) => {
       if (kind === "tool_result" || kind === "action") {
         const p = payload as { ok?: unknown; tool?: unknown; type?: unknown };
