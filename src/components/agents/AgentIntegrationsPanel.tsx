@@ -4,6 +4,7 @@
 // hub, each row opens the per-integration connect form (API keys, store URLs,
 // tokens, OAuth one-clicks).
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Plug, KeyRound, Webhook, ShieldCheck, Lock, CheckCircle2, X, Search, Sparkles, Wand2,
 } from "lucide-react";
