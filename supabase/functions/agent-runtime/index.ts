@@ -857,6 +857,11 @@ Rules:
 
             await logEvent("tool_result", { tool: tool.name, ok, summary });
             await logEvent("action", { type: "send_email", target: to, ok, result_ref: messageId, summary });
+            if (ok) {
+              const cr = await upsertClient({ email: to, note: `Sent email — subject "${subject}".`, incrementInteraction: true });
+              if (cr.ok && cr.clientId) await logEvent("client_update", { client_id: cr.clientId, via: "send_email", email: to });
+              else if (cr.requiresApproval) await logEvent("client_update_deferred", { via: "send_email", email: to, reason: cr.reason });
+            }
             messages.push({ role: "user", content: `${summary}\n\nContinue.` });
           } catch (e) {
             const msg = `send_email exception: ${e instanceof Error ? e.message : "unknown"}`;
