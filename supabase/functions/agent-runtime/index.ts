@@ -632,6 +632,31 @@ Rules:
 
         await logEvent("tool_call", { tool: tool.name, kind: tool.kind, input });
 
+        // Daily action cap gate — blocks verified action executors once used>=cap for today (UTC).
+        if (ACTION_CAPPED_KINDS.has(tool.kind) && dailyActionCap > 0) {
+          if (!actionCapState.blocked) {
+            actionCapState.usedToday = await countTodaysActions();
+            if (actionCapState.usedToday >= dailyActionCap) actionCapState.blocked = true;
+          }
+          if (actionCapState.blocked) {
+            if (!actionCapState.loggedOnce) {
+              await logEvent("action_cap_reached", {
+                reason: "Daily action cap reached, blocked",
+                cap: dailyActionCap,
+                used_today: actionCapState.usedToday,
+                tool: tool.name,
+                kind: tool.kind,
+              });
+              actionCapState.loggedOnce = true;
+            }
+            const msg = `Daily action cap reached, blocked (${actionCapState.usedToday}/${dailyActionCap}). No further real actions allowed today; you may still reason and finish.`;
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: tool.kind, target: "cap", ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg}\n\nSummarize what you have and finish.` });
+            continue;
+          }
+        }
+
         // Built-in interactive tools pause the run
         if (tool.kind === "ask_user") {
           const question = String(input.question || "").slice(0, 400);
