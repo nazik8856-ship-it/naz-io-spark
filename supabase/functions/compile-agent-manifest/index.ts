@@ -194,7 +194,7 @@ serve(async (req) => {
     if (!key) return json({ error: "Missing LOVABLE_API_KEY" }, 500);
 
     const body = await req.json();
-    const { plan, save = true, businessProfileId, userPrompt = "", intakeAnswers = {}, role: roleHint } = body || {};
+    const { plan, save = true, businessProfileId, userPrompt = "", intakeAnswers = {}, role: roleHint, existingAgentId = null } = body || {};
     if (!plan || typeof plan !== "string") return json({ error: "plan required" }, 400);
 
     const authHeader = req.headers.get("Authorization") ?? "";
