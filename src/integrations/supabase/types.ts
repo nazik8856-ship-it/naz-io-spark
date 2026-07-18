@@ -372,7 +372,7 @@ export type Database = {
           status: string
           updated_at: string
           user_id: string
-          webhook_secret: string
+          webhook_secret_id: string | null
         }
         Insert: {
           auto_approve_low_risk?: boolean
@@ -395,7 +395,7 @@ export type Database = {
           status?: string
           updated_at?: string
           user_id: string
-          webhook_secret?: string
+          webhook_secret_id?: string | null
         }
         Update: {
           auto_approve_low_risk?: boolean
@@ -418,7 +418,7 @@ export type Database = {
           status?: string
           updated_at?: string
           user_id?: string
-          webhook_secret?: string
+          webhook_secret_id?: string | null
         }
         Relationships: [
           {
@@ -911,6 +911,8 @@ export type Database = {
         }[]
       }
       read_integration_secret: { Args: { sid: string }; Returns: Json }
+      read_webhook_secret: { Args: { _agent_id: string }; Returns: string }
+      rotate_webhook_secret: { Args: { _agent_id: string }; Returns: string }
       update_integration_secret: {
         Args: { payload: Json; sid: string }
         Returns: undefined
