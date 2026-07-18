@@ -487,7 +487,7 @@ export default function AgentIntegrationsPanel({
             )}
           </div>
         </div>
-      )}
+      ), document.body)}
 
       {openIntegration && (
         <IntegrationConnectModal
