@@ -288,6 +288,13 @@ export default function AgentIntegrationsPanel({
     return () => window.removeEventListener("nazai:open-integrations-hub", handler as EventListener);
   }, [agentId]);
 
+  useEffect(() => {
+    if (!hubOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [hubOpen]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     const base = q
