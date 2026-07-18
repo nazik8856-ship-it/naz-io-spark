@@ -961,34 +961,46 @@ export default function GenerationWorkspace() {
 
       // STAGE 0.5 — Ask the user only the essentials the agent can't infer.
       // Non-blocking failure: if intake fails for any reason, deploy with defaults
-      // so the agent ALWAYS becomes visible.
+      // so the agent ALWAYS becomes visible. SKIPPED on incremental edits — the
+      // original intake answers are already stored on the existing agent.
       let intakeAnswers: Record<string, string> = {};
-      try {
-        const intakeResp = await fetch(functionUrl("agent-intake"), {
-          method: "POST", headers,
-          body: JSON.stringify({ prompt: sourceSpec, profile: businessProfile ?? {} }),
-        });
-        if (intakeResp.ok) {
-          const { questions = [] } = (await intakeResp.json()) as { questions: IntakeQuestion[] };
-          if (Array.isArray(questions) && questions.length > 0) {
-            const nameGuess =
-              (businessProfile as { company_name?: string } | null)?.company_name ||
-              latestMsg?.agentName;
-            const answers = await askIntake(questions, nameGuess);
-            if (answers) intakeAnswers = answers;
+      if (!isEdit) {
+        try {
+          const intakeResp = await fetch(functionUrl("agent-intake"), {
+            method: "POST", headers,
+            body: JSON.stringify({ prompt: sourceSpec, profile: businessProfile ?? {} }),
+          });
+          if (intakeResp.ok) {
+            const { questions = [] } = (await intakeResp.json()) as { questions: IntakeQuestion[] };
+            if (Array.isArray(questions) && questions.length > 0) {
+              const nameGuess =
+                (businessProfile as { company_name?: string } | null)?.company_name ||
+                latestMsg?.agentName;
+              const answers = await askIntake(questions, nameGuess);
+              if (answers) intakeAnswers = answers;
+            }
           }
+        } catch (e) {
+          console.warn("agent-intake failed (non-fatal)", e);
         }
-      } catch (e) {
-        console.warn("agent-intake failed (non-fatal)", e);
       }
 
       // STAGE A — Compile the plan into a strict, executable manifest AND persist
       // the `agents` row in one round trip (server-side, scoped to auth.uid()).
-      console.info("[Deploy] Stage A: compiling manifest…");
+      // On incremental edits we pass existingAgentId so the backend UPDATEs the
+      // same row instead of creating a duplicate.
+      console.info("[Deploy] Stage A: compiling manifest…", { isEdit, existingAgentId });
       const compileResp = await resilientFetch(functionUrl("compile-agent-manifest"), {
         method: "POST",
         headers,
-        body: JSON.stringify({ plan: sourceSpec, save: true, businessProfileId, userPrompt: sourceSpec, intakeAnswers }),
+        body: JSON.stringify({
+          plan: sourceSpec,
+          save: true,
+          businessProfileId,
+          userPrompt: sourceSpec,
+          intakeAnswers,
+          ...(existingAgentId ? { existingAgentId } : {}),
+        }),
       });
 
       if (compileResp.status === 429) throw new Error("Rate limit hit. Try again in a moment.");
