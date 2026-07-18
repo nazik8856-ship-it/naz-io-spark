@@ -71,6 +71,62 @@ export type Database = {
           },
         ]
       }
+      agent_clients: {
+        Row: {
+          agent_id: string
+          company: string | null
+          created_at: string
+          email: string | null
+          first_seen_at: string
+          id: string
+          interaction_count: number
+          last_interaction_at: string
+          name: string | null
+          notes: string | null
+          tags: string[]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          agent_id: string
+          company?: string | null
+          created_at?: string
+          email?: string | null
+          first_seen_at?: string
+          id?: string
+          interaction_count?: number
+          last_interaction_at?: string
+          name?: string | null
+          notes?: string | null
+          tags?: string[]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          agent_id?: string
+          company?: string | null
+          created_at?: string
+          email?: string | null
+          first_seen_at?: string
+          id?: string
+          interaction_count?: number
+          last_interaction_at?: string
+          name?: string | null
+          notes?: string | null
+          tags?: string[]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_clients_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       agent_events: {
         Row: {
           agent_id: string
@@ -299,7 +355,9 @@ export type Database = {
           auto_approve_low_risk: boolean
           autonomy: string
           business_profile_id: string | null
+          client_write_mode: string
           created_at: string
+          daily_action_cap: number
           daily_run_cap: number
           goal: string | null
           id: string
@@ -320,7 +378,9 @@ export type Database = {
           auto_approve_low_risk?: boolean
           autonomy?: string
           business_profile_id?: string | null
+          client_write_mode?: string
           created_at?: string
+          daily_action_cap?: number
           daily_run_cap?: number
           goal?: string | null
           id?: string
@@ -341,7 +401,9 @@ export type Database = {
           auto_approve_low_risk?: boolean
           autonomy?: string
           business_profile_id?: string | null
+          client_write_mode?: string
           created_at?: string
+          daily_action_cap?: number
           daily_run_cap?: number
           goal?: string | null
           id?: string

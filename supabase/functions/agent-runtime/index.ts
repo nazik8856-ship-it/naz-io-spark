@@ -276,6 +276,99 @@ serve(async (req) => {
       send_email: "email", reply_email: "email",
       generate_report: "report",
     };
+
+    // Verified-action executor kinds subject to the daily action cap.
+    const ACTION_CAPPED_KINDS = new Set([
+      "send_email", "reply_email",
+      "create_doc", "edit_doc",
+      "create_sheet", "edit_sheet",
+      "create_calendar_event",
+      "upsert_client_note",
+    ]);
+    const dailyActionCap = Math.max(0, Number((agent as { daily_action_cap?: number }).daily_action_cap ?? 20));
+    const clientWriteMode = String((agent as { client_write_mode?: string }).client_write_mode || "hybrid");
+    const actionCapState: { blocked: boolean; loggedOnce: boolean; usedToday: number } = { blocked: false, loggedOnce: false, usedToday: 0 };
+
+    // Count today's ok:true action events for this agent (UTC-day boundary).
+    const startOfUtcDay = () => {
+      const d = new Date();
+      d.setUTCHours(0, 0, 0, 0);
+      return d.toISOString();
+    };
+    const countTodaysActions = async (): Promise<number> => {
+      const { data } = await supabase
+        .from("agent_events")
+        .select("payload")
+        .eq("agent_id", agentId)
+        .eq("user_id", userId)
+        .eq("kind", "action")
+        .gte("created_at", startOfUtcDay());
+      let n = 0;
+      for (const row of data || []) {
+        const p = (row.payload as Record<string, unknown>) || {};
+        if (p.ok === true && ACTION_CAPPED_KINDS.has(String(p.type || ""))) n++;
+      }
+      return n;
+    };
+    actionCapState.usedToday = await countTodaysActions();
+    if (dailyActionCap > 0 && actionCapState.usedToday >= dailyActionCap) actionCapState.blocked = true;
+
+    // Auto-upsert / update a client record for this agent, respecting client_write_mode.
+    // Returns { ok, clientId, requiresApproval, reason }.
+    const upsertClient = async (opts: {
+      email?: string; name?: string; company?: string;
+      note?: string; tags?: string[]; incrementInteraction?: boolean;
+    }): Promise<{ ok: boolean; clientId?: string; requiresApproval?: boolean; reason?: string }> => {
+      const email = (opts.email || "").trim().toLowerCase() || null;
+      const name = (opts.name || "").trim() || null;
+      if (!email && !name) return { ok: false, reason: "email or name required" };
+      // Look up existing (by email preferred)
+      let existing: { id: string; notes: string | null; interaction_count: number } | null = null;
+      if (email) {
+        const { data } = await supabase.from("agent_clients")
+          .select("id, notes, interaction_count")
+          .eq("agent_id", agentId).eq("user_id", userId)
+          .ilike("email", email).maybeSingle();
+        if (data) existing = data as typeof existing;
+      }
+      const isEdit = !!existing;
+      const requiresApproval = clientWriteMode === "approval" || (clientWriteMode === "hybrid" && isEdit && !!opts.note && (existing?.notes || "").length > 0);
+      if (requiresApproval) {
+        await logEvent("pending_approval", {
+          action: "upsert_client_note",
+          payload: { email, name, company: opts.company, note: opts.note, tags: opts.tags, client_id: existing?.id ?? null, mode: isEdit ? "edit" : "create" },
+          risk: "low",
+          reason: `client_write_mode=${clientWriteMode} — ${isEdit ? "edit to existing client note" : "new client record"} requires approval`,
+        });
+        return { ok: false, requiresApproval: true, reason: "queued for approval" };
+      }
+      const now = new Date().toISOString();
+      if (existing) {
+        const newNotes = opts.note
+          ? ((existing.notes ? existing.notes + "\n\n" : "") + `[${now}] ${opts.note}`).slice(0, 20000)
+          : existing.notes;
+        const { error: upErr } = await supabase.from("agent_clients").update({
+          notes: newNotes,
+          name: name || undefined,
+          company: opts.company || undefined,
+          tags: opts.tags && opts.tags.length ? opts.tags : undefined,
+          last_interaction_at: now,
+          interaction_count: (existing.interaction_count || 0) + (opts.incrementInteraction ? 1 : 0),
+        }).eq("id", existing.id);
+        if (upErr) return { ok: false, reason: upErr.message };
+        return { ok: true, clientId: existing.id };
+      }
+      const { data: ins, error: insErr } = await supabase.from("agent_clients").insert({
+        agent_id: agentId, user_id: userId,
+        email, name, company: opts.company || null,
+        tags: opts.tags || [],
+        notes: opts.note ? `[${now}] ${opts.note}` : null,
+        first_seen_at: now, last_interaction_at: now,
+        interaction_count: opts.incrementInteraction ? 1 : 0,
+      }).select("id").single();
+      if (insErr || !ins) return { ok: false, reason: insErr?.message || "insert failed" };
+      return { ok: true, clientId: ins.id };
+    };
     const logEvent = async (kind: string, payload: Record<string, unknown>) => {
       if (kind === "tool_result" || kind === "action") {
         const p = payload as { ok?: unknown; tool?: unknown; type?: unknown };
@@ -361,6 +454,7 @@ serve(async (req) => {
       { name: "http_post", kind: "http_post", description: "POST a JSON payload to an allow-listed URL to trigger or adjust an external system. URL must be https and either match this agent's configured webhook_url or a whitelisted domain.", config: {} },
       { name: "webhook", kind: "http_post", description: "Alias for http_post — POST a JSON payload to an allow-listed URL.", config: {} },
       { name: "schedule_followup", kind: "schedule_followup", description: "Schedule this agent to run again at a specific future time, carrying an instruction forward.", config: {} },
+      { name: "upsert_client_note", kind: "upsert_client_note", description: "Create/update a client (contact) record for THIS agent with a short interaction note. Looks up by email; if the client exists it appends a timestamped note. Respects the agent's client_write_mode (edits may require approval).", config: {} },
     ];
 
     const effectiveTools: Tool[] = [
@@ -397,6 +491,7 @@ serve(async (req) => {
         case "read_youtube_stats": usage = `read_youtube_stats(channel_id?: string)  // YouTube Data API: subscriber/view/video counts. Omit channel_id for the authed user's own channel.`; break;
         case "http_post": usage = `http_post(url: string, body: object)  // POSTs JSON to an allow-listed https URL (per-agent webhook_url or whitelisted domain)`; break;
         case "schedule_followup": usage = `schedule_followup(run_at_iso: string, instruction: string)  // queues a future run of this same agent`; break;
+        case "upsert_client_note": usage = `upsert_client_note(email?: string, name?: string, company?: string, note: string, tags?: string[])  // creates/updates the agent's private client record and appends a timestamped note. Edits to existing notes may require approval per client_write_mode.`; break;
         default: usage = `${t.name}(...)  // CUSTOM — currently inert`;
       }
       return `- ${t.name} (${t.kind}): ${t.description}\n  Usage: ${usage}`;
@@ -536,6 +631,31 @@ Rules:
 
 
         await logEvent("tool_call", { tool: tool.name, kind: tool.kind, input });
+
+        // Daily action cap gate — blocks verified action executors once used>=cap for today (UTC).
+        if (ACTION_CAPPED_KINDS.has(tool.kind) && dailyActionCap > 0) {
+          if (!actionCapState.blocked) {
+            actionCapState.usedToday = await countTodaysActions();
+            if (actionCapState.usedToday >= dailyActionCap) actionCapState.blocked = true;
+          }
+          if (actionCapState.blocked) {
+            if (!actionCapState.loggedOnce) {
+              await logEvent("action_cap_reached", {
+                reason: "Daily action cap reached, blocked",
+                cap: dailyActionCap,
+                used_today: actionCapState.usedToday,
+                tool: tool.name,
+                kind: tool.kind,
+              });
+              actionCapState.loggedOnce = true;
+            }
+            const msg = `Daily action cap reached, blocked (${actionCapState.usedToday}/${dailyActionCap}). No further real actions allowed today; you may still reason and finish.`;
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: tool.kind, target: "cap", ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg}\n\nSummarize what you have and finish.` });
+            continue;
+          }
+        }
 
         // Built-in interactive tools pause the run
         if (tool.kind === "ask_user") {
@@ -737,6 +857,11 @@ Rules:
 
             await logEvent("tool_result", { tool: tool.name, ok, summary });
             await logEvent("action", { type: "send_email", target: to, ok, result_ref: messageId, summary });
+            if (ok) {
+              const cr = await upsertClient({ email: to, note: `Sent email — subject "${subject}".`, incrementInteraction: true });
+              if (cr.ok && cr.clientId) await logEvent("client_update", { client_id: cr.clientId, via: "send_email", email: to });
+              else if (cr.requiresApproval) await logEvent("client_update_deferred", { via: "send_email", email: to, reason: cr.reason });
+            }
             messages.push({ role: "user", content: `${summary}\n\nContinue.` });
           } catch (e) {
             const msg = `send_email exception: ${e instanceof Error ? e.message : "unknown"}`;
@@ -1334,6 +1459,11 @@ Rules:
             const summary = `Reply sent in thread ${threadId} to ${to} — subject "${subject}" (verified id=${sentId}).`;
             await logEvent("tool_result", { tool: tool.name, ok: true, summary });
             await logEvent("action", { type: "reply_email", target: to, ok: true, result_ref: sentId, summary });
+            {
+              const cr = await upsertClient({ email: to, note: `Replied in thread — subject "${subject}".`, incrementInteraction: true });
+              if (cr.ok && cr.clientId) await logEvent("client_update", { client_id: cr.clientId, via: "reply_email", email: to });
+              else if (cr.requiresApproval) await logEvent("client_update_deferred", { via: "reply_email", email: to, reason: cr.reason });
+            }
             messages.push({ role: "user", content: `${summary}\n\nContinue.` });
           } catch (e) {
             const msg = `reply_email failed: ${e instanceof Error ? e.message : "unknown"}`;
@@ -1343,6 +1473,48 @@ Rules:
           }
           continue;
         }
+
+        // ------------------------------------------------------------
+        // upsert_client_note: create/update a client record for this agent
+        // with a timestamped note. Respects client_write_mode ('free' |
+        // 'approval' | 'hybrid'). Approval-required cases are queued via
+        // pending_approval and NOT written until approved.
+        // ------------------------------------------------------------
+        if (tool.kind === "upsert_client_note") {
+          const email = String(input.email || "").trim();
+          const name = String(input.name || "").trim();
+          const company = String(input.company || "").trim();
+          const note = String(input.note || input.notes || "").slice(0, 4000).trim();
+          const tags = Array.isArray(input.tags) ? (input.tags as unknown[]).map((t) => String(t)).slice(0, 20) : [];
+          if (!note || (!email && !name)) {
+            const msg = `upsert_client_note requires "note" and at least one of "email" or "name".`;
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: "upsert_client_note", target: email || name, ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue.` });
+            continue;
+          }
+          const cr = await upsertClient({ email, name, company, note, tags, incrementInteraction: true });
+          if (cr.requiresApproval) {
+            const msg = `Client update queued for approval (client_write_mode=${clientWriteMode}); NOT applied yet.`;
+            await logEvent("tool_result", { tool: tool.name, ok: true, summary: msg });
+            await logEvent("action", { type: "upsert_client_note", target: email || name, ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue with other work or finish.` });
+            continue;
+          }
+          if (!cr.ok) {
+            const msg = `upsert_client_note failed: ${cr.reason || "unknown"}`;
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: "upsert_client_note", target: email || name, ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue.` });
+            continue;
+          }
+          const summary = `Client record ${cr.clientId} updated (${email || name}) — note appended.`;
+          await logEvent("tool_result", { tool: tool.name, ok: true, summary });
+          await logEvent("action", { type: "upsert_client_note", target: email || name, ok: true, result_ref: cr.clientId, summary });
+          messages.push({ role: "user", content: `${summary}\n\nContinue.` });
+          continue;
+        }
+
 
 
 
