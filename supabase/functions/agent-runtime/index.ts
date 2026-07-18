@@ -491,6 +491,7 @@ serve(async (req) => {
         case "read_youtube_stats": usage = `read_youtube_stats(channel_id?: string)  // YouTube Data API: subscriber/view/video counts. Omit channel_id for the authed user's own channel.`; break;
         case "http_post": usage = `http_post(url: string, body: object)  // POSTs JSON to an allow-listed https URL (per-agent webhook_url or whitelisted domain)`; break;
         case "schedule_followup": usage = `schedule_followup(run_at_iso: string, instruction: string)  // queues a future run of this same agent`; break;
+        case "upsert_client_note": usage = `upsert_client_note(email?: string, name?: string, company?: string, note: string, tags?: string[])  // creates/updates the agent's private client record and appends a timestamped note. Edits to existing notes may require approval per client_write_mode.`; break;
         default: usage = `${t.name}(...)  // CUSTOM — currently inert`;
       }
       return `- ${t.name} (${t.kind}): ${t.description}\n  Usage: ${usage}`;
