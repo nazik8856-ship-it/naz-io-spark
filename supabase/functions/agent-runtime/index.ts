@@ -201,6 +201,61 @@ serve(async (req) => {
       expiredClarificationId = lastClarify.id as string;
     }
 
+    // Concurrency guard: block if another run is already 'running' for this
+    // agent, unless it's stale (>15 min old with no recent event heartbeat).
+    const STALE_LOCK_MS = 15 * 60 * 1000;
+    const { data: existingRunning } = await supabase
+      .from("agent_runs")
+      .select("id, created_at")
+      .eq("agent_id", agentId)
+      .eq("user_id", userId)
+      .eq("status", "running")
+      .order("created_at", { ascending: false })
+      .limit(1);
+    for (const r of existingRunning || []) {
+      const ageMs = Date.now() - new Date(r.created_at as string).getTime();
+      let stale = ageMs > STALE_LOCK_MS;
+      if (stale) {
+        // Check for any event heartbeat within the stale window
+        const cutoff = new Date(Date.now() - STALE_LOCK_MS).toISOString();
+        const { count: recentEventCount } = await supabase
+          .from("agent_events")
+          .select("id", { count: "exact", head: true })
+          .eq("agent_id", agentId)
+          .eq("user_id", userId)
+          .gte("created_at", cutoff);
+        if ((recentEventCount ?? 0) > 0) stale = false;
+      }
+      if (stale) {
+        // Atomically flip the stale row to 'failed' so only one caller proceeds
+        const { data: claimed } = await supabase
+          .from("agent_runs")
+          .update({ status: "failed", completion_summary: "Stale run auto-closed (no heartbeat >15 min)" })
+          .eq("id", r.id)
+          .eq("status", "running")
+          .select("id")
+          .maybeSingle();
+        if (!claimed) {
+          // Someone else transitioned it; treat as still running
+          await supabase.from("agent_events").insert({
+            agent_id: agentId, user_id: userId, kind: "run_skipped",
+            payload: { reason: "already running, skipped", trigger, blocking_run_id: r.id },
+          });
+          return json({ skipped: true, reason: "already running, skipped" });
+        }
+        await supabase.from("agent_events").insert({
+          agent_id: agentId, user_id: userId, kind: "run_stale_cleared",
+          payload: { reason: "stale lock cleared", stale_run_id: r.id, age_ms: ageMs },
+        });
+      } else {
+        await supabase.from("agent_events").insert({
+          agent_id: agentId, user_id: userId, kind: "run_skipped",
+          payload: { reason: "already running, skipped", trigger, blocking_run_id: r.id, age_ms: ageMs },
+        });
+        return json({ skipped: true, reason: "already running, skipped", blocking_run_id: r.id });
+      }
+    }
+
     const { data: run, error: runErr } = await supabase
       .from("agent_runs")
       .insert({ agent_id: agentId, user_id: userId, trigger, status: "running" })
