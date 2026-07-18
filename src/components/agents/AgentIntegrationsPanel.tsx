@@ -350,7 +350,7 @@ export default function AgentIntegrationsPanel({
         Connect Business Tools
       </button>
 
-      {hubOpen && (
+      {hubOpen && createPortal((
         <div
           className="fixed inset-0 z-[95] flex items-center justify-center p-4"
           style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(10px)" }}
