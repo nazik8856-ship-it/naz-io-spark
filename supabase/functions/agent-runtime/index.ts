@@ -1474,6 +1474,48 @@ Rules:
           continue;
         }
 
+        // ------------------------------------------------------------
+        // upsert_client_note: create/update a client record for this agent
+        // with a timestamped note. Respects client_write_mode ('free' |
+        // 'approval' | 'hybrid'). Approval-required cases are queued via
+        // pending_approval and NOT written until approved.
+        // ------------------------------------------------------------
+        if (tool.kind === "upsert_client_note") {
+          const email = String(input.email || "").trim();
+          const name = String(input.name || "").trim();
+          const company = String(input.company || "").trim();
+          const note = String(input.note || input.notes || "").slice(0, 4000).trim();
+          const tags = Array.isArray(input.tags) ? (input.tags as unknown[]).map((t) => String(t)).slice(0, 20) : [];
+          if (!note || (!email && !name)) {
+            const msg = `upsert_client_note requires "note" and at least one of "email" or "name".`;
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: "upsert_client_note", target: email || name, ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue.` });
+            continue;
+          }
+          const cr = await upsertClient({ email, name, company, note, tags, incrementInteraction: true });
+          if (cr.requiresApproval) {
+            const msg = `Client update queued for approval (client_write_mode=${clientWriteMode}); NOT applied yet.`;
+            await logEvent("tool_result", { tool: tool.name, ok: true, summary: msg });
+            await logEvent("action", { type: "upsert_client_note", target: email || name, ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue with other work or finish.` });
+            continue;
+          }
+          if (!cr.ok) {
+            const msg = `upsert_client_note failed: ${cr.reason || "unknown"}`;
+            await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+            await logEvent("action", { type: "upsert_client_note", target: email || name, ok: false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg} Continue.` });
+            continue;
+          }
+          const summary = `Client record ${cr.clientId} updated (${email || name}) — note appended.`;
+          await logEvent("tool_result", { tool: tool.name, ok: true, summary });
+          await logEvent("action", { type: "upsert_client_note", target: email || name, ok: true, result_ref: cr.clientId, summary });
+          messages.push({ role: "user", content: `${summary}\n\nContinue.` });
+          continue;
+        }
+
+
 
 
         if (tool.kind === "read_analytics" || tool.kind === "read_youtube_stats") {
