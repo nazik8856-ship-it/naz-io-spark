@@ -4,6 +4,7 @@
 // hub, each row opens the per-integration connect form (API keys, store URLs,
 // tokens, OAuth one-clicks).
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Plug, KeyRound, Webhook, ShieldCheck, Lock, CheckCircle2, X, Search, Sparkles, Wand2,
 } from "lucide-react";
@@ -287,6 +288,13 @@ export default function AgentIntegrationsPanel({
     return () => window.removeEventListener("nazai:open-integrations-hub", handler as EventListener);
   }, [agentId]);
 
+  useEffect(() => {
+    if (!hubOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [hubOpen]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     const base = q
@@ -349,7 +357,7 @@ export default function AgentIntegrationsPanel({
         Connect Business Tools
       </button>
 
-      {hubOpen && (
+      {hubOpen && createPortal((
         <div
           className="fixed inset-0 z-[95] flex items-center justify-center p-4"
           style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(10px)" }}
@@ -486,7 +494,7 @@ export default function AgentIntegrationsPanel({
             )}
           </div>
         </div>
-      )}
+      ), document.body)}
 
       {openIntegration && (
         <IntegrationConnectModal
