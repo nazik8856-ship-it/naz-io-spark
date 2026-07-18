@@ -9,20 +9,40 @@ import OutOfCreditsModal from "@/components/payments/OutOfCreditsModal";
 import OAuthReturnHandler from "@/components/OAuthReturnHandler";
 
 // ─── Route Components ─────────────────────────────────────────────────────────
-const Workflower = lazy(() => import("./pages/Workflower"));
-const Workspace = lazy(() => import("./pages/Workspace"));
-const Signup = lazy(() => import("./pages/Signup"));
-const AuthCallback = lazy(() => import("./pages/AuthCallback"));
-const Dashboard = lazy(() => import("./pages/Dashboard"));
-const Generator = lazy(() => import("./pages/Generator"));
-const GeneratorHome = lazy(() => import("./pages/GeneratorHome"));
-const GenerationWorkspace = lazy(() => import("./pages/GenerationWorkspace"));
-const Generating = lazy(() => import("./pages/Generating"));
-const Pricing = lazy(() => import("./pages/Pricing"));
-const Unsubscribe = lazy(() => import("./pages/Unsubscribe"));
-const OAuthConsent = lazy(() => import("./pages/OAuthConsent"));
-const WebsitePreview = lazy(() => import("./pages/WebsitePreview"));
-const GeneratedDashboard = lazy(() => import("./pages/GeneratedDashboard"));
+// Retry lazy imports once after a hard reload when the browser is holding a
+// stale chunk hash from a previous deploy ("Failed to fetch dynamically
+// imported module"). Without this, the app white-screens until the user
+// manually refreshes.
+const lazyWithReload = <T,>(factory: () => Promise<{ default: React.ComponentType<T> }>) =>
+  lazy(() =>
+    factory().catch((err) => {
+      const msg = String(err?.message || err);
+      if (/dynamically imported module|Importing a module script failed|ChunkLoadError/i.test(msg)) {
+        const key = "__nazai_chunk_reload__";
+        if (!sessionStorage.getItem(key)) {
+          sessionStorage.setItem(key, "1");
+          window.location.reload();
+          return new Promise<never>(() => {});
+        }
+      }
+      throw err;
+    }),
+  );
+
+const Workflower = lazyWithReload(() => import("./pages/Workflower"));
+const Workspace = lazyWithReload(() => import("./pages/Workspace"));
+const Signup = lazyWithReload(() => import("./pages/Signup"));
+const AuthCallback = lazyWithReload(() => import("./pages/AuthCallback"));
+const Dashboard = lazyWithReload(() => import("./pages/Dashboard"));
+const Generator = lazyWithReload(() => import("./pages/Generator"));
+const GeneratorHome = lazyWithReload(() => import("./pages/GeneratorHome"));
+const GenerationWorkspace = lazyWithReload(() => import("./pages/GenerationWorkspace"));
+const Generating = lazyWithReload(() => import("./pages/Generating"));
+const Pricing = lazyWithReload(() => import("./pages/Pricing"));
+const Unsubscribe = lazyWithReload(() => import("./pages/Unsubscribe"));
+const OAuthConsent = lazyWithReload(() => import("./pages/OAuthConsent"));
+const WebsitePreview = lazyWithReload(() => import("./pages/WebsitePreview"));
+const GeneratedDashboard = lazyWithReload(() => import("./pages/GeneratedDashboard"));
 
 const queryClient = new QueryClient();
 
