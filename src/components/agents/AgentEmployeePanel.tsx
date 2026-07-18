@@ -146,7 +146,16 @@ export default function AgentEmployeePanel({ agentId, events }: { agentId: strin
     () => `${SUPABASE_FUNCTIONS_URL}/agent-runtime?agentId=${agentId}&trigger=webhook`,
     [agentId],
   );
-  const webhookSecret = agent?.webhook_secret ?? "";
+  const [webhookSecret, setWebhookSecret] = useState<string>("");
+  useEffect(() => {
+    let cancelled = false;
+    if (!agent?.webhook_secret_id) { setWebhookSecret(""); return; }
+    (async () => {
+      const { data, error } = await supabase.rpc("read_webhook_secret", { _agent_id: agentId } as never);
+      if (!cancelled && !error && typeof data === "string") setWebhookSecret(data);
+    })();
+    return () => { cancelled = true; };
+  }, [agentId, agent?.webhook_secret_id]);
   const curlCommand = useMemo(
     () => `curl -X POST '${webhookUrl}' \\\n  -H 'x-webhook-secret: ${webhookSecret}' \\\n  -H 'Content-Type: application/json' \\\n  -d '{"note":"triggered from external system"}'`,
     [webhookUrl, webhookSecret],
@@ -161,12 +170,9 @@ export default function AgentEmployeePanel({ agentId, events }: { agentId: strin
   };
   const regenerateSecret = async () => {
     if (!confirm("Regenerate webhook secret? Any external system using the current secret will stop working until updated.")) return;
-    // 24 random bytes → 48 hex chars, matching the DB default shape.
-    const bytes = new Uint8Array(24);
-    crypto.getRandomValues(bytes);
-    const newSecret = Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
-    const { error } = await supabase.from("agents").update({ webhook_secret: newSecret } as never).eq("id", agentId);
+    const { data, error } = await supabase.rpc("rotate_webhook_secret", { _agent_id: agentId } as never);
     if (error) { toast.error(error.message); return; }
+    if (typeof data === "string") setWebhookSecret(data);
     toast.warning("Webhook secret rotated. Update any external integrations with the new secret.");
     load();
   };
