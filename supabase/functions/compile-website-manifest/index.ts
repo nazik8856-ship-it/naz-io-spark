@@ -52,6 +52,45 @@ CORE DIRECTIVE — READ FIRST:
    - the "startup landing" template look
    Pick a palette and font pair that actually fits THIS business's audience and category.
 
+DESIGN HEURISTICS — apply these to every site you compile (they are how skilled human designers make sites feel "cool" and modern, not templated):
+
+A. HIERARCHY & LAYOUT
+- Exaggerated hierarchy: pair very large, confident headlines with small, refined eyebrow/label text. Never make hero headline and body text similar in size. Always provide a short "eyebrow" on the hero (2-4 words, uppercase-feeling label).
+- Asymmetric bias: prefer layouts other than "centered" when the brand allows it. Use "centered" only for luxury/minimal or when the brief is explicitly clean/formal. Editorial, split, asymmetric, magazine, brutalist are usually more interesting.
+- Vary hero.variant across generations: rotate through split-image, editorial-lede, asymmetric-mark, full-bleed, minimal-luxury based on the brand personality. Avoid defaulting to "centered".
+- Give sections breathing room: don't cram; each section should have one clear purpose.
+
+B. COLOR — pick a palette FAMILY that fits the brand, not a default
+- Dark-first (bg near #08–#14 range, high-contrast text, one saturated accent) for: tech, SaaS, agencies, creators, gaming, crypto, music, nightlife, architecture, photography, film, premium/luxury tech.
+- Dopamine (bright saturated accents on light or dark bg, optional secondary accent for gradients) for: consumer apps, fitness, food/beverage, kids, fashion, entertainment, events.
+- Earthy / nature-distilled (clay, wood, stone, sage, muted warm neutrals) for: wellness, hospitality, artisan, sustainable, real estate, therapy, coffee, pottery, garden, farm.
+- Editorial light (off-white bg + rich near-black text + one restrained accent) for: publishing, law, finance, professional services, non-profits, book/writing.
+- Always ensure WCAG AA contrast between bg and text. accentSecondary should genuinely differ from accent (not a near-duplicate) so gradients read.
+
+C. TYPOGRAPHY as identity
+- Use a distinct "display" font for the hero when the brand allows expressiveness (fashion, editorial, creative, luxury, cultural). Keep body a readable sans (Inter, Manrope, DM Sans, IBM Plex Sans, Work Sans, etc.).
+- Pair contrast: display serif + geometric sans; or expressive sans + neutral sans; never the same family for heading and body unless the brand is deliberately minimalist.
+- Suggested display fonts by mood: Fraunces / Instrument Serif / Playfair (editorial luxury), Bricolage Grotesque / Space Grotesque / Syne (modern tech), Archivo Black / Bebas Neue / Anton (bold statement), Cormorant / Libre Caslon (classical), Unbounded / Clash Display (fashion-tech).
+- Real Google Fonts families only.
+
+D. CONTENT — bite-sized, specific, scannable
+- Copy must be concrete: mention what the business does, for whom, with real language from that industry.
+- Short paragraphs (2-3 sentences max). Prefer bullets, numbered steps, or short cards over walls of text.
+- Every headline should make a promise or a stance, not a category label. "Cold-pressed coffee from single farms" > "Welcome to our coffee shop".
+- No placeholder text, no lorem ipsum, no "Coming soon", no "Feature 1 / Feature 2".
+
+E. MOTION
+- Default motion = "subtle" for professional/luxury/finance/editorial.
+- "expressive" for consumer, creative, fashion, agency.
+- "kinetic" only if the brand is explicitly playful, gaming, or hype.
+- "none" only if requested.
+
+F. IMAGERY
+- Image prompts must be SPECIFIC: subject + mood + lighting + palette hint. "aerial photo of a wooden pilates studio at golden hour, warm shadows, muted earth tones" — not "gym interior".
+- Match imagery to palette (dark palette → moody low-key images; earthy → natural light; editorial → clean minimal).
+
+Before finalizing, silently self-check: does this site's palette, font pair, hero variant, and layout feel specifically chosen for THIS business — or could it belong to any generic startup? If the latter, revise.
+
 Shape: {
   "name": string,
   "tagline": string,               // one strong sentence, under 90 chars
