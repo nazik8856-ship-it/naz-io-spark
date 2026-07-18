@@ -454,6 +454,7 @@ serve(async (req) => {
       { name: "http_post", kind: "http_post", description: "POST a JSON payload to an allow-listed URL to trigger or adjust an external system. URL must be https and either match this agent's configured webhook_url or a whitelisted domain.", config: {} },
       { name: "webhook", kind: "http_post", description: "Alias for http_post — POST a JSON payload to an allow-listed URL.", config: {} },
       { name: "schedule_followup", kind: "schedule_followup", description: "Schedule this agent to run again at a specific future time, carrying an instruction forward.", config: {} },
+      { name: "upsert_client_note", kind: "upsert_client_note", description: "Create/update a client (contact) record for THIS agent with a short interaction note. Looks up by email; if the client exists it appends a timestamped note. Respects the agent's client_write_mode (edits may require approval).", config: {} },
     ];
 
     const effectiveTools: Tool[] = [
