@@ -914,6 +914,20 @@ export default function GenerationWorkspace() {
       editing: false,
       agentError: undefined,
     });
+    // INCREMENTAL EDIT: if a previous approved agent exists in this session
+    // with a real (non-local) DB id, treat this deploy as an in-place refinement
+    // of that agent instead of spawning a duplicate. Everything the user didn't
+    // ask to change is preserved server-side (memory, integrations, cron, events).
+    const priorApproved = [...messages].reverse().find(
+      (m) =>
+        m.id !== id &&
+        m.kind === "agent-spec" &&
+        m.agentStatus === "approved" &&
+        m.agentDbId &&
+        !m.agentDbId.startsWith("local-"),
+    );
+    const existingAgentId = priorApproved?.agentDbId ?? null;
+    const isEdit = !!existingAgentId;
 
     try {
       // Require a signed-in user — without it, the edge function can't insert
@@ -947,34 +961,46 @@ export default function GenerationWorkspace() {
 
       // STAGE 0.5 — Ask the user only the essentials the agent can't infer.
       // Non-blocking failure: if intake fails for any reason, deploy with defaults
-      // so the agent ALWAYS becomes visible.
+      // so the agent ALWAYS becomes visible. SKIPPED on incremental edits — the
+      // original intake answers are already stored on the existing agent.
       let intakeAnswers: Record<string, string> = {};
-      try {
-        const intakeResp = await fetch(functionUrl("agent-intake"), {
-          method: "POST", headers,
-          body: JSON.stringify({ prompt: sourceSpec, profile: businessProfile ?? {} }),
-        });
-        if (intakeResp.ok) {
-          const { questions = [] } = (await intakeResp.json()) as { questions: IntakeQuestion[] };
-          if (Array.isArray(questions) && questions.length > 0) {
-            const nameGuess =
-              (businessProfile as { company_name?: string } | null)?.company_name ||
-              latestMsg?.agentName;
-            const answers = await askIntake(questions, nameGuess);
-            if (answers) intakeAnswers = answers;
+      if (!isEdit) {
+        try {
+          const intakeResp = await fetch(functionUrl("agent-intake"), {
+            method: "POST", headers,
+            body: JSON.stringify({ prompt: sourceSpec, profile: businessProfile ?? {} }),
+          });
+          if (intakeResp.ok) {
+            const { questions = [] } = (await intakeResp.json()) as { questions: IntakeQuestion[] };
+            if (Array.isArray(questions) && questions.length > 0) {
+              const nameGuess =
+                (businessProfile as { company_name?: string } | null)?.company_name ||
+                latestMsg?.agentName;
+              const answers = await askIntake(questions, nameGuess);
+              if (answers) intakeAnswers = answers;
+            }
           }
+        } catch (e) {
+          console.warn("agent-intake failed (non-fatal)", e);
         }
-      } catch (e) {
-        console.warn("agent-intake failed (non-fatal)", e);
       }
 
       // STAGE A — Compile the plan into a strict, executable manifest AND persist
       // the `agents` row in one round trip (server-side, scoped to auth.uid()).
-      console.info("[Deploy] Stage A: compiling manifest…");
+      // On incremental edits we pass existingAgentId so the backend UPDATEs the
+      // same row instead of creating a duplicate.
+      console.info("[Deploy] Stage A: compiling manifest…", { isEdit, existingAgentId });
       const compileResp = await resilientFetch(functionUrl("compile-agent-manifest"), {
         method: "POST",
         headers,
-        body: JSON.stringify({ plan: sourceSpec, save: true, businessProfileId, userPrompt: sourceSpec, intakeAnswers }),
+        body: JSON.stringify({
+          plan: sourceSpec,
+          save: true,
+          businessProfileId,
+          userPrompt: sourceSpec,
+          intakeAnswers,
+          ...(existingAgentId ? { existingAgentId } : {}),
+        }),
       });
 
       if (compileResp.status === 429) throw new Error("Rate limit hit. Try again in a moment.");
@@ -989,9 +1015,10 @@ export default function GenerationWorkspace() {
       const compileBody = (await compileResp.json()) as {
         manifest: AgentManifest;
         agentId: string | null;
+        mode?: "created" | "updated";
         error?: string;
       };
-      const { manifest, agentId } = compileBody;
+      const { manifest, agentId, mode: compileMode } = compileBody;
       if (!manifest || !manifest.name) throw new Error("Manifest did not parse.");
       if (!agentId) throw new Error(compileBody.error || "Could not persist agent — backend rejected the row.");
 
@@ -1022,7 +1049,7 @@ export default function GenerationWorkspace() {
       const next = [entry, ...current.filter((a) => a.id !== id)];
       persistSaved(next);
       saveAgentLink(id, { agentDbId: agentId, manifest, name, spec: sourceSpec });
-      toast.success(`${name} is live — launching first autonomous run…`);
+      toast.success(compileMode === "updated" ? `${name} updated — applying changes and re-running…` : `${name} is live — launching first autonomous run…`);
 
       // STAGE C — Fire-and-forget the first autonomous run. The cockpit subscribes
       // to agent_events via realtime, so live reasoning will appear as it streams.

@@ -194,7 +194,7 @@ serve(async (req) => {
     if (!key) return json({ error: "Missing LOVABLE_API_KEY" }, 500);
 
     const body = await req.json();
-    const { plan, save = true, businessProfileId, userPrompt = "", intakeAnswers = {}, role: roleHint } = body || {};
+    const { plan, save = true, businessProfileId, userPrompt = "", intakeAnswers = {}, role: roleHint, existingAgentId = null } = body || {};
     if (!plan || typeof plan !== "string") return json({ error: "plan required" }, 400);
 
     const authHeader = req.headers.get("Authorization") ?? "";
@@ -358,38 +358,83 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
 
 
     let agentId: string | null = null;
+    let mode: "created" | "updated" = "created";
     if (save) {
       if (!user) return json({ error: "Not authenticated — sign in to deploy.", manifest: normalized, agentId: null }, 401);
       const slug = slugify(normalized.name);
       const next_run_at = nextRunFromCron(blueprint.schedule_cron);
-      const { data: inserted, error: insErr } = await supabase
-        .from("agents")
-        .insert({
-          user_id: user.id, name: normalized.name, slug, goal: normalized.goal,
-          manifest: normalized, source_plan: plan.slice(0, 8000),
-          status: "active", role,
-          schedule_cron: blueprint.schedule_cron, schedule_label: blueprint.schedule_label,
-          next_run_at, business_profile_id: businessProfileId ?? null,
-          autonomy: "guarded",
-        })
-        .select("id").single();
-      if (insErr) return json({ error: insErr.message, manifest: normalized, agentId: null }, 500);
-      agentId = inserted?.id ?? null;
 
-      // Seed memory from intake answers + business essentials so the agent starts informed
-      const memRows: Record<string, unknown>[] = [];
-      for (const [k, v] of Object.entries(intakeAnswers || {})) {
-        memRows.push({ agent_id: agentId, user_id: user.id, key: `intake.${k}`, value: String(v).slice(0, 600), source: "intake" });
+      // INCREMENTAL EDIT PATH: if the client passed an existingAgentId that
+      // belongs to this user, UPDATE that agent's manifest in place instead of
+      // creating a new row — preserves agent_id, memory, events, artifacts,
+      // integrations, and cron history so follow-up prompts refine the same
+      // agent rather than spawning duplicates.
+      if (existingAgentId && typeof existingAgentId === "string" && !existingAgentId.startsWith("local-")) {
+        const { data: existing } = await supabase
+          .from("agents")
+          .select("id, user_id, manifest, source_plan, schedule_cron")
+          .eq("id", existingAgentId)
+          .eq("user_id", user.id)
+          .maybeSingle();
+        if (existing) {
+          // Preserve prior schedule if the user didn't reset the role — otherwise
+          // adopt the new blueprint's schedule.
+          const priorCron = (existing.schedule_cron as string | null) ?? null;
+          const cron = priorCron || blueprint.schedule_cron;
+          const label = priorCron ? blueprint.schedule_label : blueprint.schedule_label;
+          const { error: updErr } = await supabase
+            .from("agents")
+            .update({
+              name: normalized.name, slug, goal: normalized.goal,
+              manifest: normalized, source_plan: plan.slice(0, 8000),
+              role, schedule_cron: cron, schedule_label: label,
+              next_run_at: nextRunFromCron(cron),
+              business_profile_id: businessProfileId ?? null,
+            })
+            .eq("id", existingAgentId)
+            .eq("user_id", user.id);
+          if (updErr) return json({ error: updErr.message, manifest: normalized, agentId: null }, 500);
+          agentId = existingAgentId;
+          mode = "updated";
+          // Only add NEW intake answers to memory — never re-seed business facts.
+          const memRows: Record<string, unknown>[] = [];
+          for (const [k, v] of Object.entries(intakeAnswers || {})) {
+            memRows.push({ agent_id: agentId, user_id: user.id, key: `intake.${k}`, value: String(v).slice(0, 600), source: "intake" });
+          }
+          if (memRows.length) await supabase.from("agent_memory").upsert(memRows, { onConflict: "agent_id,key" }).select();
+        }
       }
-      if (profile) {
-        if (profile.company_name) memRows.push({ agent_id: agentId, user_id: user.id, key: "business.name", value: String(profile.company_name), source: "research" });
-        if (profile.tone) memRows.push({ agent_id: agentId, user_id: user.id, key: "business.tone", value: String(profile.tone), source: "research" });
-        if (profile.audience) memRows.push({ agent_id: agentId, user_id: user.id, key: "business.audience", value: String(profile.audience), source: "research" });
+
+      if (!agentId) {
+        const { data: inserted, error: insErr } = await supabase
+          .from("agents")
+          .insert({
+            user_id: user.id, name: normalized.name, slug, goal: normalized.goal,
+            manifest: normalized, source_plan: plan.slice(0, 8000),
+            status: "active", role,
+            schedule_cron: blueprint.schedule_cron, schedule_label: blueprint.schedule_label,
+            next_run_at, business_profile_id: businessProfileId ?? null,
+            autonomy: "guarded",
+          })
+          .select("id").single();
+        if (insErr) return json({ error: insErr.message, manifest: normalized, agentId: null }, 500);
+        agentId = inserted?.id ?? null;
+
+        // Seed memory from intake answers + business essentials so the agent starts informed
+        const memRows: Record<string, unknown>[] = [];
+        for (const [k, v] of Object.entries(intakeAnswers || {})) {
+          memRows.push({ agent_id: agentId, user_id: user.id, key: `intake.${k}`, value: String(v).slice(0, 600), source: "intake" });
+        }
+        if (profile) {
+          if (profile.company_name) memRows.push({ agent_id: agentId, user_id: user.id, key: "business.name", value: String(profile.company_name), source: "research" });
+          if (profile.tone) memRows.push({ agent_id: agentId, user_id: user.id, key: "business.tone", value: String(profile.tone), source: "research" });
+          if (profile.audience) memRows.push({ agent_id: agentId, user_id: user.id, key: "business.audience", value: String(profile.audience), source: "research" });
+        }
+        if (memRows.length) await supabase.from("agent_memory").insert(memRows);
       }
-      if (memRows.length) await supabase.from("agent_memory").insert(memRows);
     }
 
-    return json({ manifest: normalized, agentId, role, schedule_cron: blueprint.schedule_cron, schedule_label: blueprint.schedule_label, usedFallback });
+    return json({ manifest: normalized, agentId, mode, role, schedule_cron: blueprint.schedule_cron, schedule_label: blueprint.schedule_label, usedFallback });
   } catch (e) {
     console.error("compile-agent-manifest error", e);
     return json({ error: e instanceof Error ? e.message : "unknown" }, 500);
