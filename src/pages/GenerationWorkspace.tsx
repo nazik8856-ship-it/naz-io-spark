@@ -1049,7 +1049,7 @@ export default function GenerationWorkspace() {
       const next = [entry, ...current.filter((a) => a.id !== id)];
       persistSaved(next);
       saveAgentLink(id, { agentDbId: agentId, manifest, name, spec: sourceSpec });
-      toast.success(`${name} is live — launching first autonomous run…`);
+      toast.success(compileMode === "updated" ? `${name} updated — applying changes and re-running…` : `${name} is live — launching first autonomous run…`);
 
       // STAGE C — Fire-and-forget the first autonomous run. The cockpit subscribes
       // to agent_events via realtime, so live reasoning will appear as it streams.
