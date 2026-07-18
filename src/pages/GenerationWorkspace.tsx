@@ -914,6 +914,20 @@ export default function GenerationWorkspace() {
       editing: false,
       agentError: undefined,
     });
+    // INCREMENTAL EDIT: if a previous approved agent exists in this session
+    // with a real (non-local) DB id, treat this deploy as an in-place refinement
+    // of that agent instead of spawning a duplicate. Everything the user didn't
+    // ask to change is preserved server-side (memory, integrations, cron, events).
+    const priorApproved = [...messages].reverse().find(
+      (m) =>
+        m.id !== id &&
+        m.kind === "agent-spec" &&
+        m.agentStatus === "approved" &&
+        m.agentDbId &&
+        !m.agentDbId.startsWith("local-"),
+    );
+    const existingAgentId = priorApproved?.agentDbId ?? null;
+    const isEdit = !!existingAgentId;
 
     try {
       // Require a signed-in user — without it, the edge function can't insert
