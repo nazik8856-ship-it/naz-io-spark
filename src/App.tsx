@@ -43,6 +43,7 @@ const Unsubscribe = lazyWithReload(() => import("./pages/Unsubscribe"));
 const OAuthConsent = lazyWithReload(() => import("./pages/OAuthConsent"));
 const WebsitePreview = lazyWithReload(() => import("./pages/WebsitePreview"));
 const GeneratedDashboard = lazyWithReload(() => import("./pages/GeneratedDashboard"));
+const Privacy = lazyWithReload(() => import("./pages/Privacy"));
 
 const queryClient = new QueryClient();
 
