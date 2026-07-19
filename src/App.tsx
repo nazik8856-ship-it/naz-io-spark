@@ -85,6 +85,7 @@ const App = () => (
                 <Route path="/website-preview/:id" element={<WebsitePreview />} />
                 <Route path="/generated/:kind/:id" element={<GeneratedDashboard />} />
                 <Route path="/unsubscribe" element={<Unsubscribe />} />
+                <Route path="/privacy" element={<Privacy />} />
 
                 {/* OAuth 2.1 consent screen for MCP clients (ChatGPT, Claude, etc.) */}
                 <Route path="/.lovable/oauth/consent" element={<OAuthConsent />} />
