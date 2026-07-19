@@ -43,6 +43,7 @@ const Unsubscribe = lazyWithReload(() => import("./pages/Unsubscribe"));
 const OAuthConsent = lazyWithReload(() => import("./pages/OAuthConsent"));
 const WebsitePreview = lazyWithReload(() => import("./pages/WebsitePreview"));
 const GeneratedDashboard = lazyWithReload(() => import("./pages/GeneratedDashboard"));
+const Privacy = lazyWithReload(() => import("./pages/Privacy"));
 
 const queryClient = new QueryClient();
 
@@ -84,6 +85,7 @@ const App = () => (
                 <Route path="/website-preview/:id" element={<WebsitePreview />} />
                 <Route path="/generated/:kind/:id" element={<GeneratedDashboard />} />
                 <Route path="/unsubscribe" element={<Unsubscribe />} />
+                <Route path="/privacy" element={<Privacy />} />
 
                 {/* OAuth 2.1 consent screen for MCP clients (ChatGPT, Claude, etc.) */}
                 <Route path="/.lovable/oauth/consent" element={<OAuthConsent />} />
