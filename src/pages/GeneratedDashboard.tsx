@@ -1,8 +1,7 @@
-// Unified post-generation workspace: mirrors the AI-Agent generation UI
-// (left chat pane + right tabbed Preview/Dashboard) for ANY generation kind
-// — websites, agents, and future ones — so every generated thing lands in the
-// same chat-plus-dashboard experience.
-import { useEffect, useMemo, useRef, useState } from "react";
+// Post-generation workspace. Websites get their own preview/code/chat surface
+// (fully separate from the AI-Agent pipeline — no agent widgets, no dashboard
+// tab, no agent-specific fields). Agents keep their cockpit workspace.
+import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -27,7 +26,6 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import GeneratedAgentDashboard, { type AgentUiSpec, type Widget } from "@/components/agents/GeneratedAgentDashboard";
 import AgentCockpit, { type AgentManifest } from "@/components/agents/AgentCockpit";
 import LiveAgentChat from "@/components/agents/LiveAgentChat";
 import { cn } from "@/lib/utils";
@@ -43,15 +41,8 @@ const DEVICE_WIDTH: Record<Device, string> = {
 
 type Params = { kind: string; id: string };
 
-type SynthEvent = {
-  id: string;
-  kind: string;
-  payload: Record<string, unknown>;
-  created_at: string;
-  run_id?: string | null;
-};
-
 type ChatTurn = { role: "user" | "assistant"; content: string; time: string };
+
 
 function synthesizeWebsiteManifest(
   website: any,
