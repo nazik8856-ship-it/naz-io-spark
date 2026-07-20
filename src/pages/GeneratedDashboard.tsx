@@ -128,11 +128,27 @@ export default function GeneratedDashboard() {
   const [website, setWebsite] = useState<any | null>(null);
   const [pages, setPages] = useState<any[]>([]);
   const [agentManifest, setAgentManifest] = useState<AgentManifest | null>(null);
-  const [activeTab, setActiveTab] = useState<"preview" | "dashboard">("dashboard");
+  const [webView, setWebView] = useState<WebsiteView>("preview");
+  const [agentTab, setAgentTab] = useState<"preview" | "dashboard">("dashboard");
+  const [device, setDevice] = useState<Device>("desktop");
+  const [selectedPage, setSelectedPage] = useState<string>("");
+  const [pageMenuOpen, setPageMenuOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [chatBusy, setChatBusy] = useState(false);
   const [previewKey, setPreviewKey] = useState(0);
-  const [outputsOpen, setOutputsOpen] = useState(false);
+  const pageMenuRef = useRef<HTMLDivElement>(null);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onDocClick = (e: MouseEvent) => {
+      if (pageMenuRef.current && !pageMenuRef.current.contains(e.target as Node)) setPageMenuOpen(false);
+      if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) setMoreOpen(false);
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, []);
 
   useEffect(() => {
     if (!id || !kind) return;
