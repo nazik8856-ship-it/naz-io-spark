@@ -693,7 +693,7 @@ function SectionBlock({
 
   switch (section.type) {
     case "hero":
-      return <Hero c={c} variant={variant || (layout === "split" ? "split-image" : layout === "editorial" ? "editorial-lede" : layout === "brutalist" ? "asymmetric-mark" : layout === "minimal-luxury" ? "minimal-luxury" : "centered")} palette={palette} containerMax={containerMax} displayFont={displayFont} />;
+      return <Hero c={c} variant={variant || (layout === "split" ? "split-image" : layout === "editorial" ? "editorial-lede" : layout === "brutalist" ? "asymmetric-mark" : layout === "minimal-luxury" ? "minimal-luxury" : "centered")} palette={palette} containerMax={containerMax} displayFont={displayFont} motif={motif} />;
 
     case "about":
       return (
