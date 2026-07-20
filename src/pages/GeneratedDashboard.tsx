@@ -2,9 +2,29 @@
 // (left chat pane + right tabbed Preview/Dashboard) for ANY generation kind
 // — websites, agents, and future ones — so every generated thing lands in the
 // same chat-plus-dashboard experience.
-import { useEffect, useMemo, useState } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
-import { ArrowLeft, ExternalLink, Loader2, LayoutDashboard, Monitor, Package, X, FileText } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import {
+  ArrowLeft,
+  ExternalLink,
+  Loader2,
+  LayoutDashboard,
+  Monitor,
+  Smartphone,
+  Tablet,
+  RefreshCw,
+  Share2,
+  Rocket,
+  MoreHorizontal,
+  ChevronDown,
+  Code2,
+  Copy,
+  Trash2,
+  Pencil,
+  Download,
+  Check,
+  Eye,
+} from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import GeneratedAgentDashboard, { type AgentUiSpec, type Widget } from "@/components/agents/GeneratedAgentDashboard";
@@ -12,6 +32,14 @@ import AgentCockpit, { type AgentManifest } from "@/components/agents/AgentCockp
 import LiveAgentChat from "@/components/agents/LiveAgentChat";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+
+type WebsiteView = "preview" | "code";
+type Device = "desktop" | "tablet" | "phone";
+const DEVICE_WIDTH: Record<Device, string> = {
+  desktop: "100%",
+  tablet: "820px",
+  phone: "390px",
+};
 
 type Params = { kind: string; id: string };
 
