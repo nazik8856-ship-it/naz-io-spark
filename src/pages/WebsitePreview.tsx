@@ -511,7 +511,7 @@ function SectionBlock({
           <div className={fieldStr(c, "image_prompt") ? "grid gap-10 md:grid-cols-2 items-center" : ""}>
             <div>
               <div className={eyebrow} style={{ color: palette.accent }}>About</div>
-              <h2 className={heading}>{fieldStr(c, "heading", "About")}</h2>
+              <h2 className={heading}>{renderHeadline(fieldStr(c, "heading", "About"), palette, displayFont)}</h2>
               <p className="text-lg opacity-85 max-w-2xl">{fieldStr(c, "body")}</p>
               {fieldStrArr(c, "bullets").length > 0 && (
                 <ul className="mt-6 grid gap-3 sm:grid-cols-2" data-reveal-stagger>
@@ -545,7 +545,7 @@ function SectionBlock({
         <section style={{ backgroundColor: palette.surface }} className="border-y" data-reveal>
           <div className={container} style={{ borderColor: palette.border }}>
             <div className={eyebrow} style={{ color: palette.accent }}>What we do</div>
-            <h2 className={heading}>{fieldStr(c, "heading", "Services")}</h2>
+            <h2 className={heading}>{renderHeadline(fieldStr(c, "heading", "Services"), palette, displayFont)}</h2>
             {v === "numbered" && (
               <div className="grid gap-8 md:grid-cols-2" data-reveal-stagger>
                 {items.map((it, i) => (
@@ -612,7 +612,7 @@ function SectionBlock({
               <img src={imageUrl(fieldStr(c, "image_prompt") || fieldStr(c, "heading"), 1400, 1120, palette, fieldStr(c, "media_style"))} alt="" loading="lazy" />
             </div>
             <div>
-              <h2 className={heading}>{fieldStr(c, "heading")}</h2>
+              <h2 className={heading}>{renderHeadline(fieldStr(c, "heading"), palette, displayFont)}</h2>
               <p className="text-lg opacity-85">{fieldStr(c, "body")}</p>
               {fieldStrArr(c, "bullets").length > 0 && (
                 <ul className="mt-6 space-y-2">
@@ -633,7 +633,7 @@ function SectionBlock({
       const items = fieldArr<Record<string, unknown>>(c, "items");
       return (
         <section className={container} data-reveal>
-          <h2 className={heading}>{fieldStr(c, "heading", "What clients say")}</h2>
+          <h2 className={heading}>{renderHeadline(fieldStr(c, "heading", "What clients say"), palette, displayFont)}</h2>
           <div className="grid gap-6 md:grid-cols-2" data-reveal-stagger>
             {items.map((it, i) => (
               <blockquote key={i} className="nz-card rounded-xl p-6 border-l-4" style={{ borderLeftColor: palette.accent }}>
@@ -660,7 +660,7 @@ function SectionBlock({
       return (
         <section style={{ backgroundColor: palette.surface }} className="border-y" data-reveal>
           <div className={container} style={{ borderColor: palette.border }}>
-            <h2 className={heading}>{fieldStr(c, "heading", "Gallery")}</h2>
+            <h2 className={heading}>{renderHeadline(fieldStr(c, "heading", "Gallery"), palette, displayFont)}</h2>
             <div className={gridClass} data-reveal-stagger>
               {items.map((it, i) => {
                 const showcaseSpan = v === "showcase" ? (i % 5 === 0 ? "md:col-span-4 md:row-span-2" : "md:col-span-2") : "";
@@ -684,7 +684,7 @@ function SectionBlock({
       const items = fieldArr<Record<string, unknown>>(c, "items");
       return (
         <section className={container} data-reveal>
-          {fieldStr(c, "heading") && <h2 className={heading}>{fieldStr(c, "heading")}</h2>}
+          {fieldStr(c, "heading") && <h2 className={heading}>{renderHeadline(fieldStr(c, "heading"), palette, displayFont)}</h2>}
           <div className="grid gap-8 grid-cols-2 md:grid-cols-4" data-reveal-stagger>
             {items.map((it, i) => (
               <div key={i}>
@@ -702,7 +702,7 @@ function SectionBlock({
       return (
         <section style={{ backgroundColor: palette.surface }} className="border-y" data-reveal>
           <div className={container} style={{ borderColor: palette.border }}>
-            <h2 className={heading}>{fieldStr(c, "heading", "How it works")}</h2>
+            <h2 className={heading}>{renderHeadline(fieldStr(c, "heading", "How it works"), palette, displayFont)}</h2>
             <div className="grid gap-8 md:grid-cols-3 relative" data-reveal-stagger>
               {steps.map((st, i) => (
                 <div key={i} className="relative">
@@ -764,7 +764,7 @@ function SectionBlock({
           <div className="grid gap-10 md:grid-cols-2 items-start">
             <div>
               <div className={eyebrow} style={{ color: palette.accent }}>Contact</div>
-              <h2 className={heading}>{fieldStr(c, "heading", "Get in touch")}</h2>
+              <h2 className={heading}>{renderHeadline(fieldStr(c, "heading", "Get in touch"), palette, displayFont)}</h2>
               <p className="opacity-80">{fieldStr(c, "body")}</p>
               <ul className="mt-6 space-y-2 text-sm opacity-90">
                 {fieldStr(c, "email") && <li><span className="nz-link">✉ {fieldStr(c, "email")}</span></li>}
@@ -794,7 +794,7 @@ function SectionBlock({
       return (
         <section style={{ backgroundColor: palette.surface }} className="border-y" data-reveal>
           <div className={container} style={{ borderColor: palette.border }}>
-            <h2 className={heading}>{fieldStr(c, "heading", "Pricing")}</h2>
+            <h2 className={heading}>{renderHeadline(fieldStr(c, "heading", "Pricing"), palette, displayFont)}</h2>
             <div className="grid gap-6 md:grid-cols-3" data-reveal-stagger>
               {tiers.map((t, i) => {
                 const featured = !!t.featured;
@@ -835,7 +835,7 @@ function SectionBlock({
       const items = fieldArr<Record<string, unknown>>(c, "items");
       return (
         <section className={container} data-reveal>
-          <h2 className={heading}>{fieldStr(c, "heading", "FAQ")}</h2>
+          <h2 className={heading}>{renderHeadline(fieldStr(c, "heading", "FAQ"), palette, displayFont)}</h2>
           <div className="max-w-3xl space-y-3" data-reveal-stagger>
             {items.map((it, i) => (
               <details key={i} className="nz-card rounded-lg p-4 group">
@@ -852,7 +852,7 @@ function SectionBlock({
     }
 
     case "custom":
-      return <CustomBlock c={c} palette={palette} container={container} heading={heading} eyebrow={eyebrow} />;
+      return <CustomBlock c={c} palette={palette} container={container} heading={heading} eyebrow={eyebrow} displayFont={displayFont} />;
 
     default:
       return null;
@@ -986,8 +986,8 @@ function Hero({
 }
 
 function CustomBlock({
-  c, palette, container, heading, eyebrow,
-}: { c: Record<string, unknown>; palette: Palette; container: string; heading: string; eyebrow: string }) {
+  c, palette, container, heading, eyebrow, displayFont,
+}: { c: Record<string, unknown>; palette: Palette; container: string; heading: string; eyebrow: string; displayFont?: string }) {
   const kind = fieldStr(c, "kind");
   const fields = fieldArr<Record<string, unknown>>(c, "fields");
   const [values, setValues] = useState<Record<string, string>>({});
@@ -999,7 +999,7 @@ function CustomBlock({
     return (
       <section className={container} data-reveal>
         <div className={eyebrow} style={{ color: palette.accent }}>Estimator</div>
-        <h2 className={heading}>{fieldStr(c, "heading", "Quick estimate")}</h2>
+        <h2 className={heading}>{renderHeadline(fieldStr(c, "heading", "Quick estimate"), palette, displayFont)}</h2>
         <div className="grid gap-6 md:grid-cols-2 items-start">
           <div className="grid gap-4">
             {fields.map((f, i) => {
@@ -1056,7 +1056,7 @@ function CustomBlock({
   // booking / quote / generic — real form
   return (
     <section className={container} data-reveal>
-      <h2 className={heading}>{fieldStr(c, "heading", kind || "Request")}</h2>
+      <h2 className={heading}>{renderHeadline(fieldStr(c, "heading", kind || "Request"), palette, displayFont)}</h2>
       {fieldStr(c, "body") && <p className="opacity-80 max-w-2xl">{fieldStr(c, "body")}</p>}
       <form className="mt-8 nz-card rounded-2xl p-6 grid gap-4 md:grid-cols-2 max-w-3xl"
         onSubmit={(e) => { e.preventDefault(); alert("Request sent."); }}>
