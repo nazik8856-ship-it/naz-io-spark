@@ -44,68 +44,8 @@ type Params = { kind: string; id: string };
 type ChatTurn = { role: "user" | "assistant"; content: string; time: string };
 
 
-function synthesizeWebsiteManifest(
-  website: any,
-  pages: any[],
-): { manifest: Parameters<typeof GeneratedAgentDashboard>[0]["manifest"]; events: SynthEvent[] } {
-  const theme = (website?.theme || {}) as any;
-  const palette = theme.palette || {};
-  const accent = palette.accent || "#a855f7";
-  const accentSecondary = palette.accentSecondary || palette.accent2 || "#22d3ee";
-  const totalSections = pages.reduce((n, p) => n + ((p.sections || []).length || 0), 0);
 
-  const ui: AgentUiSpec = {
-    theme: "obsidian",
-    accent,
-    accentSecondary,
-    hero: {
-      title: website.name || website.title || "Generated site",
-      tagline: website.tagline || theme.design_rationale || "Live website — inspect pages, sections, and design identity.",
-      icon: "globe",
-    },
-    layout: "command-deck",
-    widgets: [
-      { kind: "hero_metric", title: "Pages", staticValue: String(pages.length), subtitle: "Generated & live", span: 3 },
-      { kind: "hero_metric", title: "Sections", staticValue: String(totalSections), subtitle: "Blocks compiled", span: 3 },
-      { kind: "hero_metric", title: "Layout", staticValue: theme.layout || "custom", subtitle: "Design identity", span: 3 },
-      { kind: "hero_metric", title: "Motion", staticValue: theme.motion || "subtle", subtitle: "Animation profile", span: 3 },
-      { kind: "execution_flow", title: "Compile trace", limit: 12, span: 6 },
-      { kind: "artifacts_panel", title: "Pages & sections", limit: 20, span: 6 },
-      { kind: "workflow_summary", title: "Design rationale", span: 6 },
-      { kind: "tool_grid", title: "Section blocks", span: 6 },
-    ] as Widget[],
-  };
 
-  const manifest = {
-    name: website.name || website.title || "Website",
-    goal: website.tagline || website.prompt || "Deliver the website's promise.",
-    tools: Array.from(
-      new Set(pages.flatMap((p: any) => (p.sections || []).map((s: any) => s?.type).filter(Boolean))),
-    ).map((t: any) => ({ name: String(t), description: `${t} block`, kind: "section", config: {} })),
-    guardrails: [],
-    kpis: [
-      { name: "Design identity", target: theme.layout || "custom" },
-      { name: "Font pairing", target: `${theme.font?.heading || "—"} / ${theme.font?.body || "—"}` },
-    ],
-    workflowSummary: theme.design_rationale || website.prompt || "Auto-generated website from your brief.",
-    ui,
-  };
-
-  const t0 = new Date(website.created_at || Date.now()).getTime();
-  const events: SynthEvent[] = [
-    { id: `${website.id}-start`, kind: "run_started", payload: { note: "Compile started" }, created_at: new Date(t0).toISOString(), run_id: website.id },
-    { id: `${website.id}-reasoning`, kind: "reasoning", payload: { text: theme.design_rationale || `Interpreted brief: ${website.prompt || website.name}` }, created_at: new Date(t0 + 1000).toISOString(), run_id: website.id },
-  ];
-  let step = 2;
-  pages.forEach((p: any) => {
-    events.push({ id: `${p.id}-page`, kind: "action", payload: { title: `Page: ${p.title || p.slug}`, slug: p.slug, sections: (p.sections || []).length }, created_at: new Date(t0 + 1000 * step++).toISOString(), run_id: website.id });
-    (p.sections || []).forEach((s: any, i: number) => {
-      events.push({ id: `${p.id}-s-${i}`, kind: "tool_call", payload: { tool: s?.type || "section", variant: s?.variant, page: p.slug }, created_at: new Date(t0 + 1000 * step++).toISOString(), run_id: website.id });
-    });
-  });
-  events.push({ id: `${website.id}-finished`, kind: "finished", payload: { pages: pages.length, sections: totalSections }, created_at: new Date(t0 + 1000 * step).toISOString(), run_id: website.id });
-  return { manifest, events };
-}
 
 
 
