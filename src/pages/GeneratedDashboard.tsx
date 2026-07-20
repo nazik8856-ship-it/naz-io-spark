@@ -66,6 +66,9 @@ export default function GeneratedDashboard() {
   const [pageMenuOpen, setPageMenuOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [publishOpen, setPublishOpen] = useState(false);
+  const [domainInput, setDomainInput] = useState("");
+  const [savingDomain, setSavingDomain] = useState(false);
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [chatBusy, setChatBusy] = useState(false);
   const [previewKey, setPreviewKey] = useState(0);
