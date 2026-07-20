@@ -1,8 +1,7 @@
-// Unified post-generation workspace: mirrors the AI-Agent generation UI
-// (left chat pane + right tabbed Preview/Dashboard) for ANY generation kind
-// — websites, agents, and future ones — so every generated thing lands in the
-// same chat-plus-dashboard experience.
-import { useEffect, useMemo, useRef, useState } from "react";
+// Post-generation workspace. Websites get their own preview/code/chat surface
+// (fully separate from the AI-Agent pipeline — no agent widgets, no dashboard
+// tab, no agent-specific fields). Agents keep their cockpit workspace.
+import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -27,7 +26,6 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import GeneratedAgentDashboard, { type AgentUiSpec, type Widget } from "@/components/agents/GeneratedAgentDashboard";
 import AgentCockpit, { type AgentManifest } from "@/components/agents/AgentCockpit";
 import LiveAgentChat from "@/components/agents/LiveAgentChat";
 import { cn } from "@/lib/utils";
@@ -43,78 +41,11 @@ const DEVICE_WIDTH: Record<Device, string> = {
 
 type Params = { kind: string; id: string };
 
-type SynthEvent = {
-  id: string;
-  kind: string;
-  payload: Record<string, unknown>;
-  created_at: string;
-  run_id?: string | null;
-};
-
 type ChatTurn = { role: "user" | "assistant"; content: string; time: string };
 
-function synthesizeWebsiteManifest(
-  website: any,
-  pages: any[],
-): { manifest: Parameters<typeof GeneratedAgentDashboard>[0]["manifest"]; events: SynthEvent[] } {
-  const theme = (website?.theme || {}) as any;
-  const palette = theme.palette || {};
-  const accent = palette.accent || "#a855f7";
-  const accentSecondary = palette.accentSecondary || palette.accent2 || "#22d3ee";
-  const totalSections = pages.reduce((n, p) => n + ((p.sections || []).length || 0), 0);
 
-  const ui: AgentUiSpec = {
-    theme: "obsidian",
-    accent,
-    accentSecondary,
-    hero: {
-      title: website.name || website.title || "Generated site",
-      tagline: website.tagline || theme.design_rationale || "Live website — inspect pages, sections, and design identity.",
-      icon: "globe",
-    },
-    layout: "command-deck",
-    widgets: [
-      { kind: "hero_metric", title: "Pages", staticValue: String(pages.length), subtitle: "Generated & live", span: 3 },
-      { kind: "hero_metric", title: "Sections", staticValue: String(totalSections), subtitle: "Blocks compiled", span: 3 },
-      { kind: "hero_metric", title: "Layout", staticValue: theme.layout || "custom", subtitle: "Design identity", span: 3 },
-      { kind: "hero_metric", title: "Motion", staticValue: theme.motion || "subtle", subtitle: "Animation profile", span: 3 },
-      { kind: "execution_flow", title: "Compile trace", limit: 12, span: 6 },
-      { kind: "artifacts_panel", title: "Pages & sections", limit: 20, span: 6 },
-      { kind: "workflow_summary", title: "Design rationale", span: 6 },
-      { kind: "tool_grid", title: "Section blocks", span: 6 },
-    ] as Widget[],
-  };
 
-  const manifest = {
-    name: website.name || website.title || "Website",
-    goal: website.tagline || website.prompt || "Deliver the website's promise.",
-    tools: Array.from(
-      new Set(pages.flatMap((p: any) => (p.sections || []).map((s: any) => s?.type).filter(Boolean))),
-    ).map((t: any) => ({ name: String(t), description: `${t} block`, kind: "section", config: {} })),
-    guardrails: [],
-    kpis: [
-      { name: "Design identity", target: theme.layout || "custom" },
-      { name: "Font pairing", target: `${theme.font?.heading || "—"} / ${theme.font?.body || "—"}` },
-    ],
-    workflowSummary: theme.design_rationale || website.prompt || "Auto-generated website from your brief.",
-    ui,
-  };
 
-  const t0 = new Date(website.created_at || Date.now()).getTime();
-  const events: SynthEvent[] = [
-    { id: `${website.id}-start`, kind: "run_started", payload: { note: "Compile started" }, created_at: new Date(t0).toISOString(), run_id: website.id },
-    { id: `${website.id}-reasoning`, kind: "reasoning", payload: { text: theme.design_rationale || `Interpreted brief: ${website.prompt || website.name}` }, created_at: new Date(t0 + 1000).toISOString(), run_id: website.id },
-  ];
-  let step = 2;
-  pages.forEach((p: any) => {
-    events.push({ id: `${p.id}-page`, kind: "action", payload: { title: `Page: ${p.title || p.slug}`, slug: p.slug, sections: (p.sections || []).length }, created_at: new Date(t0 + 1000 * step++).toISOString(), run_id: website.id });
-    (p.sections || []).forEach((s: any, i: number) => {
-      events.push({ id: `${p.id}-s-${i}`, kind: "tool_call", payload: { tool: s?.type || "section", variant: s?.variant, page: p.slug }, created_at: new Date(t0 + 1000 * step++).toISOString(), run_id: website.id });
-    });
-  });
-  events.push({ id: `${website.id}-finished`, kind: "finished", payload: { pages: pages.length, sections: totalSections }, created_at: new Date(t0 + 1000 * step).toISOString(), run_id: website.id });
-  return { manifest, events };
-}
 
 
 
@@ -202,10 +133,8 @@ export default function GeneratedDashboard() {
     return () => { cancelled = true; };
   }, [kind, id, user?.id]);
 
-  const websiteData = useMemo(
-    () => (website ? synthesizeWebsiteManifest(website, pages) : null),
-    [website, pages],
-  );
+
+
 
   const sendWebsiteEdit = async (text: string) => {
     if (!id) return;
@@ -319,7 +248,7 @@ export default function GeneratedDashboard() {
       .maybeSingle();
     if (error || !data) return toast.error(error?.message || "Duplicate failed");
     toast.success("Duplicated");
-    navigate(`/g/website/${data.id}`);
+    navigate(`/generated/website/${data.id}`);
   };
   const deleteSite = async () => {
     if (!id || !confirm("Delete this website? This cannot be undone.")) return;
@@ -559,25 +488,31 @@ export default function GeneratedDashboard() {
         {/* Right: main content */}
         <section className="flex-1 flex flex-col min-w-0 bg-[#0a0f1e]">
           {kind === "website" && (
-            <div className="flex-1 min-h-0 overflow-auto">
+            <div className="flex-1 min-h-0 flex flex-col">
               {webView === "preview" && id && (
-                <div className="h-full w-full flex items-center justify-center p-4 bg-[#050813]">
+                // Explicit absolute positioning + fixed inset guarantees the
+                // iframe fills the pane. Prior `h-full` on a flex item under
+                // `items-center` collapsed the iframe to ~150px in Chrome,
+                // producing the "solid color block" the user reported.
+                <div className="relative flex-1 min-h-0 bg-[#050813] flex justify-center p-4">
                   <div
-                    className="h-full bg-white rounded-lg overflow-hidden shadow-2xl shadow-black/60 transition-all duration-300 ease-out"
+                    className="relative bg-white rounded-lg overflow-hidden shadow-2xl shadow-black/60 transition-[width] duration-300 ease-out w-full"
                     style={{
                       width: DEVICE_WIDTH[device],
                       maxWidth: "100%",
+                      height: "100%",
                     }}
                   >
                     <iframe
                       key={previewKey}
                       src={previewSrc}
                       title="Website preview"
-                      className="w-full h-full bg-white"
+                      className="absolute inset-0 w-full h-full bg-white border-0 block"
                     />
                   </div>
                 </div>
               )}
+
               {webView === "code" && (
                 <div className="h-full overflow-auto p-6">
                   <div className="max-w-5xl mx-auto space-y-4">
