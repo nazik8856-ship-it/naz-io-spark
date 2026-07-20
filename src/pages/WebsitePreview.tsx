@@ -470,6 +470,7 @@ export default function WebsitePreview() {
           layout={layout}
           containerMax={containerMax}
           index={idx}
+          displayFont={theme.font.display}
         />
       ))}
 
