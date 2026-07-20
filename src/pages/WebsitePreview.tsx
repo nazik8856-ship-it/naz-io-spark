@@ -887,11 +887,11 @@ function Hero({
         <div className={`${containerMax} mx-auto px-6 py-20 md:py-28 grid gap-10 md:grid-cols-2 items-center`}>
           <div className="nz-hero-in">
             {eyebrowEl}
-            <h1 className="nz-h text-5xl md:text-7xl font-extrabold leading-[1.02] mt-3">{headline}</h1>
+            <h1 className="nz-h text-5xl md:text-7xl font-extrabold leading-[1.02] mt-3">{rHead(headline)}</h1>
             {subheadline && <p className="mt-5 text-lg opacity-80 max-w-lg">{subheadline}</p>}
             <div className="mt-8">{ctas}</div>
           </div>
-          <div className="nz-media rounded-3xl aspect-[4/5]" style={{ background: palette.surface }}>
+          <div data-parallax className="nz-media rounded-3xl aspect-[4/5]" style={{ background: palette.surface }}>
             {img && <img src={imageUrl(img, 1200, 1500, palette, fieldStr(c, "media_style"))} alt="" />}
           </div>
         </div>
@@ -910,7 +910,7 @@ function Hero({
         )}
         <div className={`${containerMax} mx-auto px-6 py-32 md:py-44 relative nz-hero-in`}>
           {eyebrowEl}
-          <h1 className="nz-h text-6xl md:text-8xl font-extrabold leading-[1.0] mt-3 max-w-4xl">{headline}</h1>
+          <h1 className="nz-h text-6xl md:text-8xl font-extrabold leading-[1.0] mt-3 max-w-4xl">{rHead(headline)}</h1>
           {subheadline && <p className="mt-6 text-xl opacity-90 max-w-2xl">{subheadline}</p>}
           <div className="mt-10">{ctas}</div>
         </div>
@@ -923,7 +923,7 @@ function Hero({
       <section className="border-b" style={{ borderColor: palette.border }}>
         <div className={`${containerMax} mx-auto px-6 py-24 md:py-32 nz-hero-in`}>
           {eyebrowEl}
-          <h1 className="nz-h text-6xl md:text-8xl font-black leading-[0.95] mt-4 max-w-5xl">{headline}</h1>
+          <h1 className="nz-h text-6xl md:text-8xl font-black leading-[0.95] mt-4 max-w-5xl">{rHead(headline)}</h1>
           {subheadline && <p className="mt-8 text-xl opacity-80 max-w-2xl border-l-2 pl-6" style={{ borderColor: palette.accent }}>{subheadline}</p>}
           <div className="mt-10">{ctas}</div>
         </div>
@@ -938,7 +938,7 @@ function Hero({
         <div className={`${containerMax} mx-auto px-6 py-24 md:py-36 grid md:grid-cols-12 gap-8 items-end relative nz-hero-in`}>
           <div className="md:col-span-8">
             {eyebrowEl}
-            <h1 className="nz-h text-6xl md:text-8xl font-black leading-[0.95] mt-4">{headline}</h1>
+            <h1 className="nz-h text-6xl md:text-8xl font-black leading-[0.95] mt-4">{rHead(headline)}</h1>
           </div>
           <div className="md:col-span-4">
             {subheadline && <p className="text-lg opacity-80">{subheadline}</p>}
@@ -954,7 +954,7 @@ function Hero({
       <section>
         <div className={`${containerMax} mx-auto px-6 py-32 md:py-48 text-center nz-hero-in`}>
           {eyebrowEl}
-          <h1 className="nz-h text-5xl md:text-7xl font-light tracking-tight leading-[1.05] mt-4">{headline}</h1>
+          <h1 className="nz-h text-5xl md:text-7xl font-light tracking-tight leading-[1.05] mt-4">{rHead(headline)}</h1>
           {subheadline && <p className="mt-8 text-lg opacity-70 max-w-xl mx-auto">{subheadline}</p>}
           <div className="mt-10 flex justify-center">{ctas}</div>
         </div>
@@ -967,7 +967,7 @@ function Hero({
     <section className="border-b" style={{ borderColor: palette.border, background: `linear-gradient(135deg, ${palette.bg} 0%, ${palette.surface} 100%)` }}>
       <div className={`${containerMax} mx-auto px-6 py-28 md:py-36 text-center nz-hero-in`}>
         {eyebrowEl}
-        <h1 className="nz-h text-5xl md:text-7xl font-extrabold tracking-tight leading-[1.05] mt-3">{headline}</h1>
+        <h1 className="nz-h text-5xl md:text-7xl font-extrabold tracking-tight leading-[1.05] mt-3">{rHead(headline)}</h1>
         {subheadline && <p className="mt-6 text-lg md:text-xl opacity-80 max-w-2xl mx-auto">{subheadline}</p>}
         <div className="mt-10 flex justify-center">{ctas}</div>
         {stats.length > 0 && (
