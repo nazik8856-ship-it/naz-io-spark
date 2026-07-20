@@ -1096,8 +1096,9 @@ function Hero({
 
   if (variant === "split-image") {
     return (
-      <section className="border-b" style={{ borderColor: palette.border }}>
-        <div className={`${containerMax} mx-auto px-6 py-20 md:py-28 grid gap-10 md:grid-cols-2 items-center`}>
+      <section className="relative overflow-hidden border-b" style={{ borderColor: palette.border }}>
+        {decor()}
+        <div className={`${containerMax} mx-auto px-6 py-20 md:py-28 grid gap-10 md:grid-cols-2 items-center relative`}>
           <div className="nz-hero-in">
             {eyebrowEl}
             <h1 className="nz-h text-5xl md:text-7xl font-extrabold leading-[1.02] mt-3">{rHead(headline)}</h1>
@@ -1121,6 +1122,7 @@ function Hero({
             <div className="absolute inset-0" style={{ background: `linear-gradient(180deg, ${palette.bg}77 0%, ${palette.bg}dd 100%)` }} />
           </div>
         )}
+        {decor(true)}
         <div className={`${containerMax} mx-auto px-6 py-32 md:py-44 relative nz-hero-in`}>
           {eyebrowEl}
           <h1 className="nz-h text-6xl md:text-8xl font-extrabold leading-[1.0] mt-3 max-w-4xl">{rHead(headline)}</h1>
@@ -1133,8 +1135,9 @@ function Hero({
 
   if (variant === "editorial-lede") {
     return (
-      <section className="border-b" style={{ borderColor: palette.border }}>
-        <div className={`${containerMax} mx-auto px-6 py-24 md:py-32 nz-hero-in`}>
+      <section className="relative overflow-hidden border-b" style={{ borderColor: palette.border }}>
+        {decor()}
+        <div className={`${containerMax} mx-auto px-6 py-24 md:py-32 nz-hero-in relative`}>
           {eyebrowEl}
           <h1 className="nz-h text-6xl md:text-8xl font-black leading-[0.95] mt-4 max-w-5xl">{rHead(headline)}</h1>
           {subheadline && <p className="mt-8 text-xl opacity-80 max-w-2xl border-l-2 pl-6" style={{ borderColor: palette.accent }}>{subheadline}</p>}
@@ -1147,7 +1150,7 @@ function Hero({
   if (variant === "asymmetric-mark") {
     return (
       <section className="relative overflow-hidden border-b" style={{ borderColor: palette.border }}>
-        <div className="absolute -top-20 -right-20 w-[520px] h-[520px] rounded-full opacity-30 blur-3xl" style={{ background: palette.accent }} />
+        {decor(true)}
         <div className={`${containerMax} mx-auto px-6 py-24 md:py-36 grid md:grid-cols-12 gap-8 items-end relative nz-hero-in`}>
           <div className="md:col-span-8">
             {eyebrowEl}
@@ -1164,8 +1167,9 @@ function Hero({
 
   if (variant === "minimal-luxury") {
     return (
-      <section>
-        <div className={`${containerMax} mx-auto px-6 py-32 md:py-48 text-center nz-hero-in`}>
+      <section className="relative overflow-hidden">
+        {decor()}
+        <div className={`${containerMax} mx-auto px-6 py-32 md:py-48 text-center nz-hero-in relative`}>
           {eyebrowEl}
           <h1 className="nz-h text-5xl md:text-7xl font-light tracking-tight leading-[1.05] mt-4">{rHead(headline)}</h1>
           {subheadline && <p className="mt-8 text-lg opacity-70 max-w-xl mx-auto">{subheadline}</p>}
@@ -1177,8 +1181,9 @@ function Hero({
 
   // centered fallback
   return (
-    <section className="border-b" style={{ borderColor: palette.border, background: `linear-gradient(135deg, ${palette.bg} 0%, ${palette.surface} 100%)` }}>
-      <div className={`${containerMax} mx-auto px-6 py-28 md:py-36 text-center nz-hero-in`}>
+    <section className="relative overflow-hidden border-b" style={{ borderColor: palette.border, background: `linear-gradient(135deg, ${palette.bg} 0%, ${palette.surface} 100%)` }}>
+      {decor(true)}
+      <div className={`${containerMax} mx-auto px-6 py-28 md:py-36 text-center nz-hero-in relative`}>
         {eyebrowEl}
         <h1 className="nz-h text-5xl md:text-7xl font-extrabold tracking-tight leading-[1.05] mt-3">{rHead(headline)}</h1>
         {subheadline && <p className="mt-6 text-lg md:text-xl opacity-80 max-w-2xl mx-auto">{subheadline}</p>}
@@ -1187,6 +1192,7 @@ function Hero({
           <div className="mt-16 grid grid-cols-2 md:grid-cols-4 gap-6 max-w-3xl mx-auto">
             {stats.map((s, i) => (
               <div key={i}>
+                {motif && <div className="nz-stat-mark flex justify-center"><MotifIcon path={motif.path} color={palette.accent} size={16} /></div>}
                 <div className="nz-h text-3xl md:text-4xl font-bold" style={{ color: palette.accent }}>{fieldStr(s, "value")}</div>
                 <div className="text-xs opacity-70 uppercase tracking-wider mt-1">{fieldStr(s, "label")}</div>
               </div>
