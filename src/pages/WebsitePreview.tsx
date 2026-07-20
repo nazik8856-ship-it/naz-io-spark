@@ -779,7 +779,12 @@ function SectionBlock({
               <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3" data-reveal-stagger>
                 {items.map((it, i) => (
                   <div key={i} className="nz-card rounded-xl p-6">
-                    <div className="nz-mono text-xs uppercase tracking-[0.2em] mb-3" style={{ color: palette.accent }}>
+                    {motif && (
+                      <span className="nz-motif-mark">
+                        <MotifIcon path={motif.path} color={palette.accent} size={20} />
+                      </span>
+                    )}
+                    <div className="nz-mono text-[10px] uppercase tracking-[0.2em] mb-2 opacity-70" style={{ color: palette.accent }}>
                       {fieldStr(it, "icon", `0${i + 1}`)}
                     </div>
                     <h3 className="nz-h font-semibold text-lg mb-2">{fieldStr(it, "title")}</h3>
