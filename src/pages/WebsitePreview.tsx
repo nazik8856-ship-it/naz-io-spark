@@ -661,9 +661,30 @@ export default function WebsitePreview() {
       ))}
 
       {!activePage?.sections.length && (
-        <div className="max-w-3xl mx-auto px-6 py-24 text-center opacity-70">
-          <p>This page has no sections yet.</p>
-        </div>
+        <section className="relative overflow-hidden" style={{ minHeight: "70vh" }}>
+          <div className="nz-hero-decor" aria-hidden="true">
+            <span className="nz-blob a" />
+            <span className="nz-blob b" />
+            <span className="nz-blob c" />
+          </div>
+          <MotifIcon path={motif.path} color={p.accent} size={340} strokeWidth={1} className="nz-hero-motif big" />
+          <div className={`${containerMax} mx-auto px-6 py-24 md:py-32 relative`}>
+            <div className="nz-hero-in max-w-3xl">
+              <div className={`${"nz-mono text-[11px] uppercase tracking-[0.28em] mb-4"}`} style={{ color: p.accent }}>
+                {site.tagline ? "· preview ·" : "welcome"}
+              </div>
+              <h1 className="nz-h text-5xl md:text-7xl font-bold tracking-tight mb-6">
+                {renderHeadline(site.name || "Your new site", p, theme.font.display)}
+              </h1>
+              {site.tagline && (
+                <p className="text-lg md:text-xl opacity-80 max-w-2xl mb-8">{site.tagline}</p>
+              )}
+              <p className="text-sm opacity-60 max-w-xl">
+                This page doesn't have any sections yet — ask the chat to add a hero, about, services, or gallery and it'll appear here instantly.
+              </p>
+            </div>
+          </div>
+        </section>
       )}
 
       <footer className="border-t px-6 py-8 text-center text-xs opacity-60" style={{ borderColor: p.border }}>
