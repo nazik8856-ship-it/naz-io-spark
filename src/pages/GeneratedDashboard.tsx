@@ -248,7 +248,7 @@ export default function GeneratedDashboard() {
       .maybeSingle();
     if (error || !data) return toast.error(error?.message || "Duplicate failed");
     toast.success("Duplicated");
-    navigate(`/g/website/${data.id}`);
+    navigate(`/generated/website/${data.id}`);
   };
   const deleteSite = async () => {
     if (!id || !confirm("Delete this website? This cannot be undone.")) return;
