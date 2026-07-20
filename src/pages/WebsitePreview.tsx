@@ -860,8 +860,9 @@ function SectionBlock({
 }
 
 function Hero({
-  c, variant, palette, containerMax,
-}: { c: Record<string, unknown>; variant: string; palette: Palette; containerMax: string }) {
+  c, variant, palette, containerMax, displayFont,
+}: { c: Record<string, unknown>; variant: string; palette: Palette; containerMax: string; displayFont?: string }) {
+  const rHead = (t: string) => renderHeadline(t, palette, displayFont);
   const eyebrow = fieldStr(c, "eyebrow");
   const headline = fieldStr(c, "headline", "Welcome");
   const subheadline = fieldStr(c, "subheadline");
