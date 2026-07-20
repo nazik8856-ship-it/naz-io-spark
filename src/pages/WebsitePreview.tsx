@@ -615,6 +615,8 @@ export default function WebsitePreview() {
   return (
     <div ref={rootRef} className="nz-root min-h-screen">
       <style>{scopedCss}</style>
+      <div className="nz-pattern" aria-hidden="true" />
+      <div className="nz-grain" aria-hidden="true" />
 
       {/* Preview chrome */}
       <div className="sticky top-0 z-50 flex items-center justify-between gap-4 px-4 py-2.5 border-b backdrop-blur text-xs"
@@ -622,7 +624,8 @@ export default function WebsitePreview() {
         <button onClick={() => navigate("/generator-home")} className="flex items-center gap-1.5 text-zinc-300 hover:text-white">
           <ArrowLeft className="h-3.5 w-3.5" /> Back
         </button>
-        <div className="font-mono uppercase tracking-[0.24em] text-zinc-400 truncate">
+        <div className="font-mono uppercase tracking-[0.24em] text-zinc-400 truncate flex items-center gap-2">
+          <MotifIcon path={motif.path} color={p.accent} size={12} />
           {site.name} · preview
         </div>
         <div className="flex items-center gap-1.5 overflow-x-auto max-w-[50%]">
@@ -641,15 +644,20 @@ export default function WebsitePreview() {
       </div>
 
       {activePage?.sections.map((s, idx) => (
-        <SectionBlock
-          key={idx}
-          section={s}
-          palette={p}
-          layout={layout}
-          containerMax={containerMax}
-          index={idx}
-          displayFont={theme.font.display}
-        />
+        <div key={idx}>
+          <SectionBlock
+            section={s}
+            palette={p}
+            layout={layout}
+            containerMax={containerMax}
+            index={idx}
+            displayFont={theme.font.display}
+            motif={motif}
+          />
+          {idx < (activePage?.sections.length ?? 0) - 1 && s.type !== "hero" && (
+            <SectionDivider path={motif.path} palette={p} />
+          )}
+        </div>
       ))}
 
       {!activePage?.sections.length && (
@@ -659,6 +667,9 @@ export default function WebsitePreview() {
       )}
 
       <footer className="border-t px-6 py-8 text-center text-xs opacity-60" style={{ borderColor: p.border }}>
+        <div className="nz-footer-mark justify-center mb-2">
+          <MotifIcon path={motif.path} color={p.accent} size={16} strokeWidth={1.6} />
+        </div>
         © {new Date().getFullYear()} {site.name} · {site.tagline}
       </footer>
     </div>
@@ -666,9 +677,10 @@ export default function WebsitePreview() {
 }
 
 function SectionBlock({
-  section, palette, layout, containerMax, index, displayFont,
+  section, palette, layout, containerMax, index, displayFont, motif,
 }: {
   section: Section; palette: Palette; layout: string; containerMax: string; index: number; displayFont?: string;
+  motif?: { key: string; path: string };
 }) {
   const c = section.content ?? {};
   const variant = section.variant ?? "";
