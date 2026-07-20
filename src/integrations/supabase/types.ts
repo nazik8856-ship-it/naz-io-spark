@@ -836,6 +836,7 @@ export type Database = {
       websites: {
         Row: {
           created_at: string
+          custom_domain: string | null
           html: string
           id: string
           name: string | null
@@ -848,6 +849,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          custom_domain?: string | null
           html: string
           id?: string
           name?: string | null
@@ -860,6 +862,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          custom_domain?: string | null
           html?: string
           id?: string
           name?: string | null
