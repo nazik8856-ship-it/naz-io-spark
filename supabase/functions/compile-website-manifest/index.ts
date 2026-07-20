@@ -260,6 +260,25 @@ function normalize(raw: unknown, prompt: string): Manifest {
   return { name, tagline, theme, pages };
 }
 
+const REFINE_DOC = `You are NazAI Website Refiner. The user is editing an EXISTING generated website via chat.
+
+Your job in 3 steps:
+1. READ the user's message carefully. Figure out their real intent — even if phrased vaguely, ambiguously, or as a mood ("make it feel more premium", "less corporate", "sharper"). Map to concrete edits.
+2. CLASSIFY intent as one of:
+   - "theme": palette, fonts, vibe, motion, layout style
+   - "copy": headlines/subheads/body copy/CTA text on existing sections
+   - "content": add/remove/reorder sections or pages, add items to lists
+   - "structural": rename site, change tagline, major restructure
+   - "mixed": any combination
+3. Produce an UPDATED full manifest. PRESERVE everything the user did NOT ask to change — do not regenerate untouched sections, do not swap the palette when they only asked for a copy tweak, do not rewrite copy when they only asked for a color change. Apply the minimum edits that satisfy intent, then keep everything else byte-identical to the current manifest.
+
+Return STRICT JSON only:
+{
+  "intent": "theme"|"copy"|"content"|"structural"|"mixed",
+  "summary": string,
+  "manifest": { ...full manifest, same shape as compile }
+}`;
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
@@ -267,7 +286,7 @@ serve(async (req) => {
     if (!key) return json({ error: "Missing LOVABLE_API_KEY" }, 500);
 
     const body = await req.json().catch(() => ({}));
-    const { prompt, save = true } = body || {};
+    const { prompt, save = true, previousWebsiteId, refine = false } = body || {};
     if (!prompt || typeof prompt !== "string") return json({ error: "prompt required" }, 400);
 
     const authHeader = req.headers.get("Authorization") ?? "";
@@ -279,6 +298,81 @@ serve(async (req) => {
     const { data: userData } = await supabase.auth.getUser();
     const user = userData?.user;
 
+    // ============ REFINE PATH ============
+    if (refine && previousWebsiteId && user) {
+      const { data: existing } = await supabase.from("websites").select("*").eq("id", previousWebsiteId).eq("user_id", user.id).maybeSingle();
+      if (!existing) return json({ error: "Website not found" }, 404);
+      const { data: existingPages } = await supabase.from("website_pages").select("*").eq("website_id", previousWebsiteId).order("order_index", { ascending: true });
+
+      const currentManifest = {
+        name: existing.name,
+        tagline: existing.tagline,
+        theme: existing.theme,
+        pages: (existingPages || []).map((p: any) => ({
+          slug: p.slug, title: p.title, seo_description: p.seo_description, sections: p.sections || [],
+        })),
+      };
+
+      let refined: { intent?: string; summary?: string; manifest?: unknown } = {};
+      try {
+        const resp = await fetch(LOVABLE_URL, {
+          method: "POST",
+          headers: { "Lovable-API-Key": key, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: MODEL,
+            messages: [
+              { role: "system", content: `${REFINE_DOC}\n\n${SCHEMA_DOC}` },
+              { role: "user", content: `CURRENT MANIFEST (do not regenerate untouched parts):\n${JSON.stringify(currentManifest)}\n\nUSER REQUEST:\n${prompt}\n\nReturn the JSON envelope { intent, summary, manifest }.` },
+            ],
+            temperature: 0.4,
+          }),
+        });
+        if (resp.status === 429) return json({ error: "Rate limited. Please retry in a moment." }, 429);
+        if (resp.status === 402) return json({ error: "AI credits exhausted for this workspace." }, 402);
+        if (!resp.ok) throw new Error(`gateway ${resp.status}`);
+        const data = await resp.json();
+        const raw = data?.choices?.[0]?.message?.content ?? "{}";
+        refined = JSON.parse(stripFences(typeof raw === "string" ? raw : JSON.stringify(raw)));
+      } catch (err) {
+        console.error("refine AI failure", err);
+        return json({ error: "Could not understand that request. Try rephrasing more specifically." }, 500);
+      }
+
+      const nextManifest = normalize(refined.manifest ?? currentManifest, existing.prompt || prompt);
+
+      const { error: uErr } = await supabase
+        .from("websites")
+        .update({
+          name: nextManifest.name,
+          title: nextManifest.name,
+          tagline: nextManifest.tagline,
+          theme: nextManifest.theme,
+        })
+        .eq("id", previousWebsiteId)
+        .eq("user_id", user.id);
+      if (uErr) return json({ error: uErr.message }, 500);
+
+      await supabase.from("website_pages").delete().eq("website_id", previousWebsiteId);
+      const pageRows = nextManifest.pages.map((p, i) => ({
+        website_id: previousWebsiteId,
+        slug: p.slug, title: p.title,
+        seo_description: p.seo_description ?? null,
+        sections: p.sections, order_index: i,
+      }));
+      const { data: pagesOut, error: pagesErr } = await supabase.from("website_pages").insert(pageRows).select("id, slug, title, order_index");
+      if (pagesErr) return json({ error: pagesErr.message }, 500);
+
+      return json({
+        manifest: nextManifest,
+        website_id: previousWebsiteId,
+        pages: pagesOut,
+        intent: refined.intent || "mixed",
+        summary: refined.summary || "Applied your changes.",
+        refined: true,
+      });
+    }
+
+    // ============ FRESH COMPILE PATH ============
     let manifest: Manifest;
     try {
       const resp = await fetch(LOVABLE_URL, {

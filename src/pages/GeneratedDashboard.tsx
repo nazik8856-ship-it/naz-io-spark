@@ -153,12 +153,14 @@ export default function GeneratedDashboard() {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });
       if (resp.error) throw new Error(resp.error.message || "Refine failed");
+      const summary = (resp.data as any)?.summary || "Updated.";
+      const intent = (resp.data as any)?.intent || "mixed";
       const { data: site } = await supabase.from("websites").select("*").eq("id", id).maybeSingle();
       const { data: pgs } = await supabase.from("website_pages").select("*").eq("website_id", id).order("order_index", { ascending: true });
       if (site) setWebsite(site);
       if (pgs) setPages(pgs);
       setPreviewKey((k) => k + 1);
-      setTurns((t) => [...t, { role: "assistant", content: "✓ Updated. Preview refreshed.", time: "just now" }]);
+      setTurns((t) => [...t, { role: "assistant", content: `✓ ${summary} _(${intent} edit — preview refreshed)_`, time: "just now" }]);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setTurns((t) => [...t, { role: "assistant", content: `Couldn't apply that: ${msg}`, time: "just now" }]);
