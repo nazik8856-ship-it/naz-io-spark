@@ -488,25 +488,31 @@ export default function GeneratedDashboard() {
         {/* Right: main content */}
         <section className="flex-1 flex flex-col min-w-0 bg-[#0a0f1e]">
           {kind === "website" && (
-            <div className="flex-1 min-h-0 overflow-auto">
+            <div className="flex-1 min-h-0 flex flex-col">
               {webView === "preview" && id && (
-                <div className="h-full w-full flex items-center justify-center p-4 bg-[#050813]">
+                // Explicit absolute positioning + fixed inset guarantees the
+                // iframe fills the pane. Prior `h-full` on a flex item under
+                // `items-center` collapsed the iframe to ~150px in Chrome,
+                // producing the "solid color block" the user reported.
+                <div className="relative flex-1 min-h-0 bg-[#050813] flex justify-center p-4">
                   <div
-                    className="h-full bg-white rounded-lg overflow-hidden shadow-2xl shadow-black/60 transition-all duration-300 ease-out"
+                    className="relative bg-white rounded-lg overflow-hidden shadow-2xl shadow-black/60 transition-[width] duration-300 ease-out w-full"
                     style={{
                       width: DEVICE_WIDTH[device],
                       maxWidth: "100%",
+                      height: "100%",
                     }}
                   >
                     <iframe
                       key={previewKey}
                       src={previewSrc}
                       title="Website preview"
-                      className="w-full h-full bg-white"
+                      className="absolute inset-0 w-full h-full bg-white border-0 block"
                     />
                   </div>
                 </div>
               )}
+
               {webView === "code" && (
                 <div className="h-full overflow-auto p-6">
                   <div className="max-w-5xl mx-auto space-y-4">
