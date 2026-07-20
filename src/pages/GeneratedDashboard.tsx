@@ -2,9 +2,29 @@
 // (left chat pane + right tabbed Preview/Dashboard) for ANY generation kind
 // — websites, agents, and future ones — so every generated thing lands in the
 // same chat-plus-dashboard experience.
-import { useEffect, useMemo, useState } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
-import { ArrowLeft, ExternalLink, Loader2, LayoutDashboard, Monitor, Package, X, FileText } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import {
+  ArrowLeft,
+  ExternalLink,
+  Loader2,
+  LayoutDashboard,
+  Monitor,
+  Smartphone,
+  Tablet,
+  RefreshCw,
+  Share2,
+  Rocket,
+  MoreHorizontal,
+  ChevronDown,
+  Code2,
+  Copy,
+  Trash2,
+  Pencil,
+  Download,
+  Check,
+  Eye,
+} from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import GeneratedAgentDashboard, { type AgentUiSpec, type Widget } from "@/components/agents/GeneratedAgentDashboard";
@@ -12,6 +32,14 @@ import AgentCockpit, { type AgentManifest } from "@/components/agents/AgentCockp
 import LiveAgentChat from "@/components/agents/LiveAgentChat";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+
+type WebsiteView = "preview" | "code";
+type Device = "desktop" | "tablet" | "phone";
+const DEVICE_WIDTH: Record<Device, string> = {
+  desktop: "100%",
+  tablet: "820px",
+  phone: "390px",
+};
 
 type Params = { kind: string; id: string };
 
@@ -100,11 +128,27 @@ export default function GeneratedDashboard() {
   const [website, setWebsite] = useState<any | null>(null);
   const [pages, setPages] = useState<any[]>([]);
   const [agentManifest, setAgentManifest] = useState<AgentManifest | null>(null);
-  const [activeTab, setActiveTab] = useState<"preview" | "dashboard">("dashboard");
+  const [webView, setWebView] = useState<WebsiteView>("preview");
+  const [agentTab, setAgentTab] = useState<"preview" | "dashboard">("dashboard");
+  const [device, setDevice] = useState<Device>("desktop");
+  const [selectedPage, setSelectedPage] = useState<string>("");
+  const [pageMenuOpen, setPageMenuOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [chatBusy, setChatBusy] = useState(false);
   const [previewKey, setPreviewKey] = useState(0);
-  const [outputsOpen, setOutputsOpen] = useState(false);
+  const pageMenuRef = useRef<HTMLDivElement>(null);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onDocClick = (e: MouseEvent) => {
+      if (pageMenuRef.current && !pageMenuRef.current.contains(e.target as Node)) setPageMenuOpen(false);
+      if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) setMoreOpen(false);
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, []);
 
   useEffect(() => {
     if (!id || !kind) return;
@@ -214,102 +258,267 @@ export default function GeneratedDashboard() {
     );
   }
 
+  const liveUrl = id ? `${typeof window !== "undefined" ? window.location.origin : ""}/website-preview/${id}` : "";
+  const currentPage = pages.find((p) => p.slug === selectedPage) || pages[0];
+  const previewSrc = id
+    ? `/website-preview/${id}${currentPage?.slug ? `#${currentPage.slug}` : ""}`
+    : "";
+  const refreshPreview = () => setPreviewKey((k) => k + 1);
+  const copyShare = async () => {
+    if (!liveUrl) return;
+    try {
+      await navigator.clipboard.writeText(liveUrl);
+      setCopied(true);
+      toast.success("Share link copied");
+      setTimeout(() => setCopied(false), 1600);
+    } catch {
+      toast.error("Couldn't copy link");
+    }
+  };
+  const publishSite = () => {
+    if (!id) return;
+    window.open(`/website-preview/${id}`, "_blank");
+    toast.success("Opening live site — use the publish flow in project settings to deploy.");
+  };
+  const exportSite = async () => {
+    try {
+      const payload = { website, pages };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${(website?.name || "website").replace(/\s+/g, "-").toLowerCase()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("Export downloaded");
+    } catch {
+      toast.error("Export failed");
+    }
+  };
+  const renameSite = async () => {
+    const next = prompt("Rename website", website?.name || "");
+    if (!next || next === website?.name) return;
+    const { error } = await supabase.from("websites").update({ name: next }).eq("id", id!);
+    if (error) return toast.error(error.message);
+    setWebsite((w: any) => ({ ...w, name: next }));
+    toast.success("Renamed");
+  };
+  const duplicateSite = async () => {
+    if (!website) return;
+    const { data, error } = await supabase
+      .from("websites")
+      .insert({
+        name: `${website.name || "Website"} (copy)`,
+        prompt: website.prompt,
+        tagline: website.tagline,
+        theme: website.theme,
+        html: website.html || "",
+        user_id: website.user_id,
+      })
+      .select()
+      .maybeSingle();
+    if (error || !data) return toast.error(error?.message || "Duplicate failed");
+    toast.success("Duplicated");
+    navigate(`/g/website/${data.id}`);
+  };
+  const deleteSite = async () => {
+    if (!id || !confirm("Delete this website? This cannot be undone.")) return;
+    const { error } = await supabase.from("websites").delete().eq("id", id);
+    if (error) return toast.error(error.message);
+    toast.success("Deleted");
+    navigate("/generator-home");
+  };
+
   return (
     <div className="h-screen flex flex-col bg-[#020617] text-white">
-      <header className="shrink-0 backdrop-blur-xl bg-[#020617]/70 border-b border-white/5 px-6 py-3 flex items-center justify-between">
-        <button onClick={() => navigate("/generator-home")} className="flex items-center gap-2 text-white/60 hover:text-white transition text-sm">
-          <ArrowLeft className="h-4 w-4" />
-          Back
-        </button>
-        <div className="text-[10px] font-mono uppercase tracking-[0.3em] text-white/40">{kind} · workspace</div>
-        <div className="flex items-center gap-2">
-          {kind === "website" && (
-            <button
-              onClick={() => setOutputsOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-400/40 bg-emerald-400/10 text-xs text-emerald-200 font-semibold hover:bg-emerald-400/20"
-            >
-              <Package className="h-3.5 w-3.5" />
-              Outputs
-              <span className="ml-1 px-1.5 py-0.5 rounded bg-emerald-400/20 text-emerald-100 text-[10px] font-mono">
-                {pages.length + 1}
-              </span>
-            </button>
-          )}
-          {kind === "website" && id ? (
-            <Link to={`/website-preview/${id}`} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-purple-400/40 text-purple-300 hover:bg-purple-400/10 text-xs">
-              Open full <ExternalLink className="h-3 w-3" />
-            </Link>
-          ) : <div className="w-16" />}
-        </div>
-      </header>
-
-      {outputsOpen && kind === "website" && (
-        <div
-          className="fixed inset-0 z-[95] flex items-start justify-center p-4 sm:p-8 overflow-y-auto"
-          style={{ background: "rgba(0,0,0,0.72)", backdropFilter: "blur(8px)" }}
-          onClick={() => setOutputsOpen(false)}
+      {kind === "website" ? (
+        <header
+          className="shrink-0 relative border-b border-white/[0.06] px-4 py-2.5 flex items-center gap-3"
+          style={{
+            background:
+              "linear-gradient(180deg, rgba(10,15,30,0.92) 0%, rgba(2,6,23,0.92) 100%)",
+            backdropFilter: "blur(24px)",
+          }}
         >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="relative w-full max-w-2xl rounded-2xl overflow-hidden mt-16"
-            style={{ background: "#0a0b0f", border: "1px solid rgba(52,211,153,0.28)", boxShadow: "0 40px 120px -40px rgba(52,211,153,0.4)" }}
-          >
-            <div className="flex items-center justify-between px-5 py-4 border-b border-white/5">
-              <div className="flex items-center gap-2">
-                <Package className="h-4 w-4 text-emerald-300" />
-                <div>
-                  <div className="text-sm font-bold text-white">Outputs</div>
-                  <div className="text-[11px] text-zinc-500">Verified pages this website compiled</div>
-                </div>
+          {/* Left: back + title + page selector */}
+          <div className="flex items-center gap-2 min-w-0">
+            <button
+              onClick={() => navigate("/generator-home")}
+              className="p-1.5 rounded-md text-white/50 hover:text-white hover:bg-white/[0.06] transition"
+              title="Back"
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </button>
+            <div className="h-4 w-px bg-white/10 mx-1" />
+            <div className="min-w-0 flex items-center gap-2">
+              <div className="h-6 w-6 rounded-md bg-gradient-to-br from-cyan-400/30 to-purple-500/30 border border-white/10 flex items-center justify-center text-[10px] font-bold text-cyan-200">
+                {(website?.name || "W").slice(0, 1).toUpperCase()}
               </div>
-              <button onClick={() => setOutputsOpen(false)} className="text-zinc-400 hover:text-white p-1 rounded hover:bg-white/5">
-                <X className="h-4 w-4" />
-              </button>
+              <div className="text-sm font-semibold text-white truncate max-w-[180px]">
+                {website?.name || "Untitled"}
+              </div>
             </div>
-            <div className="max-h-[60vh] overflow-y-auto">
-              {pages.length === 0 ? (
-                <div className="px-5 py-12 text-center text-sm text-zinc-500">
-                  No completed pages yet.
-                </div>
-              ) : (
-                <ul className="divide-y divide-white/5">
-                  <li className="px-5 py-3 flex items-center gap-3 hover:bg-white/[0.02]">
-                    <Package className="h-4 w-4 shrink-0 text-emerald-300" />
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm text-white truncate">{website?.name || "Website"}</div>
-                      <div className="text-[11px] text-zinc-500">Full site · {new Date(website?.created_at || Date.now()).toLocaleString()}</div>
-                    </div>
-                    <Link
-                      to={`/website-preview/${id}`}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-emerald-400/30 bg-emerald-400/10 text-[11px] text-emerald-200 hover:bg-emerald-400/20"
-                    >
-                      Open <ExternalLink className="h-3 w-3" />
-                    </Link>
-                  </li>
-                  {pages.map((p: any) => (
-                    <li key={p.id} className="px-5 py-3 flex items-center gap-3 hover:bg-white/[0.02]">
-                      <FileText className="h-4 w-4 shrink-0 text-cyan-300" />
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm text-white truncate">{p.title || p.slug}</div>
-                        <div className="text-[11px] text-zinc-500">Page · /{p.slug} · {(p.sections || []).length} sections</div>
-                      </div>
-                      <Link
-                        to={`/website-preview/${id}#${p.slug}`}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-cyan-400/30 bg-cyan-400/10 text-[11px] text-cyan-200 hover:bg-cyan-400/20"
+
+            {/* Page dropdown */}
+            {pages.length > 0 && (
+              <div className="relative ml-1" ref={pageMenuRef}>
+                <button
+                  onClick={() => setPageMenuOpen((o) => !o)}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs text-white/70 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] transition"
+                >
+                  {currentPage?.title || currentPage?.slug || "Homepage"}
+                  <ChevronDown className="h-3 w-3 opacity-60" />
+                </button>
+                {pageMenuOpen && (
+                  <div className="absolute left-0 top-full mt-1.5 min-w-[220px] rounded-lg border border-white/10 bg-[#0a0f1e] shadow-2xl shadow-black/60 py-1 z-50">
+                    {pages.map((p) => (
+                      <button
+                        key={p.id}
+                        onClick={() => {
+                          setSelectedPage(p.slug);
+                          setPageMenuOpen(false);
+                          refreshPreview();
+                        }}
+                        className={cn(
+                          "w-full text-left px-3 py-1.5 text-xs flex items-center justify-between hover:bg-white/[0.06] transition",
+                          (currentPage?.slug === p.slug) ? "text-cyan-300" : "text-white/70",
+                        )}
                       >
-                        Open <ExternalLink className="h-3 w-3" />
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              )}
+                        <span className="truncate">{p.title || p.slug}</span>
+                        <span className="text-[10px] text-white/30 font-mono">/{p.slug}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Center: view switcher */}
+          <div className="flex-1 flex justify-center">
+            <div className="inline-flex items-center p-0.5 rounded-lg bg-white/[0.04] border border-white/[0.06]">
+              {([
+                { key: "preview" as const, label: "Preview", icon: Eye },
+                { key: "code" as const, label: "Code", icon: Code2 },
+              ]).map(({ key, label, icon: Icon }) => (
+                <button
+                  key={key}
+                  onClick={() => setWebView(key)}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition",
+                    webView === key
+                      ? "bg-white/[0.09] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08)]"
+                      : "text-white/50 hover:text-white/80",
+                  )}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {label}
+                </button>
+              ))}
+              <div className="relative" ref={moreMenuRef}>
+                <button
+                  onClick={() => setMoreOpen((o) => !o)}
+                  className={cn(
+                    "flex items-center px-2 py-1.5 rounded-md text-xs transition",
+                    moreOpen ? "bg-white/[0.09] text-white" : "text-white/50 hover:text-white/80",
+                  )}
+                  title="More"
+                >
+                  <MoreHorizontal className="h-3.5 w-3.5" />
+                </button>
+                {moreOpen && (
+                  <div className="absolute right-0 top-full mt-1.5 min-w-[180px] rounded-lg border border-white/10 bg-[#0a0f1e] shadow-2xl shadow-black/60 py-1 z-50">
+                    {[
+                      { icon: Pencil, label: "Rename", onClick: renameSite },
+                      { icon: Copy, label: "Duplicate", onClick: duplicateSite },
+                      { icon: Download, label: "Export", onClick: exportSite },
+                      { icon: Trash2, label: "Delete", onClick: deleteSite, danger: true },
+                    ].map(({ icon: Icon, label, onClick, danger }) => (
+                      <button
+                        key={label}
+                        onClick={() => { setMoreOpen(false); onClick(); }}
+                        className={cn(
+                          "w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 transition",
+                          danger ? "text-red-300 hover:bg-red-500/10" : "text-white/70 hover:bg-white/[0.06]",
+                        )}
+                      >
+                        <Icon className="h-3.5 w-3.5" />
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-        </div>
+
+          {/* Right: device + refresh + external + share + publish */}
+          <div className="flex items-center gap-1.5">
+            <div className="inline-flex items-center p-0.5 rounded-lg bg-white/[0.04] border border-white/[0.06]">
+              {([
+                { key: "desktop" as const, icon: Monitor, label: "Desktop" },
+                { key: "tablet" as const, icon: Tablet, label: "Tablet" },
+                { key: "phone" as const, icon: Smartphone, label: "Phone" },
+              ]).map(({ key, icon: Icon, label }) => (
+                <button
+                  key={key}
+                  onClick={() => setDevice(key)}
+                  title={label}
+                  className={cn(
+                    "p-1.5 rounded-md transition",
+                    device === key ? "bg-white/[0.1] text-white" : "text-white/40 hover:text-white/70",
+                  )}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={refreshPreview}
+              title="Refresh preview"
+              className="p-1.5 rounded-md text-white/50 hover:text-white hover:bg-white/[0.06] transition"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+            </button>
+            <a
+              href={previewSrc || "#"}
+              target="_blank"
+              rel="noreferrer"
+              title="Open live preview"
+              className="p-1.5 rounded-md text-white/50 hover:text-white hover:bg-white/[0.06] transition"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+            </a>
+            <div className="h-4 w-px bg-white/10 mx-1" />
+            <button
+              onClick={copyShare}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-white/80 bg-white/[0.05] hover:bg-white/[0.09] border border-white/[0.08] transition"
+            >
+              {copied ? <Check className="h-3.5 w-3.5 text-emerald-300" /> : <Share2 className="h-3.5 w-3.5" />}
+              Share
+            </button>
+            <button
+              onClick={publishSite}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold text-[#001018] bg-gradient-to-r from-cyan-300 to-cyan-400 hover:from-cyan-200 hover:to-cyan-300 shadow-[0_0_20px_-4px_rgba(34,211,238,0.6)] transition"
+            >
+              <Rocket className="h-3.5 w-3.5" />
+              Publish
+            </button>
+          </div>
+        </header>
+      ) : (
+        <header className="shrink-0 backdrop-blur-xl bg-[#020617]/70 border-b border-white/5 px-6 py-3 flex items-center justify-between">
+          <button onClick={() => navigate("/generator-home")} className="flex items-center gap-2 text-white/60 hover:text-white transition text-sm">
+            <ArrowLeft className="h-4 w-4" />
+            Back
+          </button>
+          <div className="text-[10px] font-mono uppercase tracking-[0.3em] text-white/40">{kind} · workspace</div>
+          <div className="w-16" />
+        </header>
       )}
 
       <div className="flex-1 flex min-h-0">
-        {/* Left: chat pane — same LiveAgentChat used by AI Agent workspace */}
+        {/* Left: chat pane */}
         {kind === "website" && (
           <div className="w-full md:max-w-[420px] border-r border-white/5 bg-[#050813] flex flex-col min-h-0">
             <LiveAgentChat
@@ -347,76 +556,73 @@ export default function GeneratedDashboard() {
           </div>
         )}
 
-
-        {/* Right: tabbed Preview + Dashboard */}
+        {/* Right: main content */}
         <section className="flex-1 flex flex-col min-w-0 bg-[#0a0f1e]">
-          <div className="shrink-0 border-b border-white/5 px-4 flex items-center gap-1">
-            {(["preview", "dashboard"] as const).map((t) => (
-              <button
-                key={t}
-                onClick={() => setActiveTab(t)}
-                className={cn(
-                  "px-3 py-2.5 text-xs font-mono uppercase tracking-[0.2em] flex items-center gap-1.5 border-b-2 -mb-px",
-                  activeTab === t
-                    ? "text-white border-cyan-400"
-                    : "text-white/40 hover:text-white/70 border-transparent",
-                )}
-              >
-                {t === "preview" ? <Monitor className="h-3.5 w-3.5" /> : <LayoutDashboard className="h-3.5 w-3.5" />}
-                {t}
-              </button>
-            ))}
-          </div>
-          <div className="flex-1 min-h-0 overflow-auto">
-            {activeTab === "preview" && kind === "website" && id && (
-              <iframe
-                key={previewKey}
-                src={`/website-preview/${id}`}
-                title="Website preview"
-                className="w-full h-full bg-white"
-              />
-            )}
-            {activeTab === "preview" && kind === "agent" && (
-              <div className="p-6 text-white/50 text-sm">Agent preview lives in the dashboard tab.</div>
-            )}
-            {activeTab === "dashboard" && kind === "website" && websiteData && (
-              <div className="relative h-full overflow-y-auto px-6 md:px-10 py-8">
-                <div className="max-w-6xl mx-auto rounded-xl border border-emerald-400/50 bg-black/55 backdrop-blur-sm overflow-hidden shadow-[0_0_60px_-15px_rgba(16,185,129,0.5)]">
-                  <div className="flex items-start justify-between gap-4 p-5 border-b border-white/10 bg-gradient-to-r from-emerald-400/10 via-cyan-400/5 to-transparent">
-                    <div className="min-w-0">
-                      <div className="text-[10px] uppercase tracking-[0.22em] font-mono mb-2 text-emerald-300">
-                        Website Generated!
-                      </div>
-                      <h1 className="text-2xl md:text-3xl font-bold text-white truncate">
-                        {website?.name || "Your website"}
-                      </h1>
-                      {(website?.tagline || website?.theme?.design_rationale) && (
-                        <p className="text-sm text-cyan-200/90 mt-2 line-clamp-2">
-                          🎯 {website?.tagline || website?.theme?.design_rationale}
-                        </p>
-                      )}
-                    </div>
-                    <span className="shrink-0 text-[10px] uppercase tracking-wider px-2.5 py-1 rounded inline-flex items-center gap-1 bg-emerald-400/15 text-emerald-300 border border-emerald-400/40">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                      LIVE SITE
-                    </span>
-                  </div>
-                  <div className="p-5 md:p-7">
-                    <GeneratedAgentDashboard
-                      manifest={websiteData.manifest}
-                      events={websiteData.events as any}
-                      agentId={undefined}
+          {kind === "website" && (
+            <div className="flex-1 min-h-0 overflow-auto">
+              {webView === "preview" && id && (
+                <div className="h-full w-full flex items-center justify-center p-4 bg-[#050813]">
+                  <div
+                    className="h-full bg-white rounded-lg overflow-hidden shadow-2xl shadow-black/60 transition-all duration-300 ease-out"
+                    style={{
+                      width: DEVICE_WIDTH[device],
+                      maxWidth: "100%",
+                    }}
+                  >
+                    <iframe
+                      key={previewKey}
+                      src={previewSrc}
+                      title="Website preview"
+                      className="w-full h-full bg-white"
                     />
                   </div>
                 </div>
+              )}
+              {webView === "code" && (
+                <div className="h-full overflow-auto p-6">
+                  <div className="max-w-5xl mx-auto space-y-4">
+                    <div className="text-[10px] font-mono uppercase tracking-[0.28em] text-cyan-300/80">
+                      Compiled manifest
+                    </div>
+                    <pre className="text-[11px] leading-relaxed font-mono text-cyan-100/90 bg-black/60 border border-white/[0.06] rounded-xl p-5 overflow-x-auto whitespace-pre">
+{JSON.stringify({ website, pages }, null, 2)}
+                    </pre>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          {kind === "agent" && (
+            <>
+              <div className="shrink-0 border-b border-white/5 px-4 flex items-center gap-1">
+                {(["preview", "dashboard"] as const).map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => setAgentTab(t)}
+                    className={cn(
+                      "px-3 py-2.5 text-xs font-mono uppercase tracking-[0.2em] flex items-center gap-1.5 border-b-2 -mb-px",
+                      agentTab === t
+                        ? "text-white border-cyan-400"
+                        : "text-white/40 hover:text-white/70 border-transparent",
+                    )}
+                  >
+                    {t === "preview" ? <Monitor className="h-3.5 w-3.5" /> : <LayoutDashboard className="h-3.5 w-3.5" />}
+                    {t}
+                  </button>
+                ))}
               </div>
-            )}
-            {activeTab === "dashboard" && kind === "agent" && agentManifest && id && (
-              <div className="p-6">
-                <AgentCockpit agentId={id} manifest={agentManifest} />
+              <div className="flex-1 min-h-0 overflow-auto">
+                {agentTab === "preview" && (
+                  <div className="p-6 text-white/50 text-sm">Agent preview lives in the dashboard tab.</div>
+                )}
+                {agentTab === "dashboard" && agentManifest && id && (
+                  <div className="p-6">
+                    <AgentCockpit agentId={id} manifest={agentManifest} />
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            </>
+          )}
         </section>
       </div>
     </div>
