@@ -883,6 +883,7 @@ function SectionBlock({
           <div className="grid gap-8 grid-cols-2 md:grid-cols-4" data-reveal-stagger>
             {items.map((it, i) => (
               <div key={i}>
+                {motif && <div className="nz-stat-mark"><MotifIcon path={motif.path} color={palette.accent} size={18} /></div>}
                 <div className="nz-h text-4xl md:text-6xl font-bold" style={{ color: palette.accent }}>{fieldStr(it, "value")}</div>
                 <div className="mt-2 text-sm opacity-70 uppercase tracking-wider">{fieldStr(it, "label")}</div>
               </div>
