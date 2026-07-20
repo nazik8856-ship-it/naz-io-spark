@@ -1,0 +1,1 @@
+ALTER TABLE public.websites ADD COLUMN IF NOT EXISTS custom_domain text;
