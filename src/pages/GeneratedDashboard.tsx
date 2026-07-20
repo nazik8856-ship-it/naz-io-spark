@@ -211,8 +211,36 @@ export default function GeneratedDashboard() {
   };
   const publishSite = () => {
     if (!id) return;
-    window.open(`/website-preview/${id}`, "_blank");
-    toast.success("Opening live site — use the publish flow in project settings to deploy.");
+    setDomainInput((website?.custom_domain as string) || "");
+    setPublishOpen(true);
+  };
+  const confirmPublish = async (opts: { saveDomain: boolean }) => {
+    if (!id) return;
+    try {
+      setSavingDomain(true);
+      if (opts.saveDomain) {
+        const raw = domainInput.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+        if (raw && !/^([a-z0-9-]+\.)+[a-z]{2,}$/.test(raw)) {
+          toast.error("That doesn't look like a valid domain");
+          setSavingDomain(false);
+          return;
+        }
+        const { error: upErr } = await supabase
+          .from("websites")
+          .update({ custom_domain: raw || null } as any)
+          .eq("id", id);
+        if (upErr) throw upErr;
+        setWebsite((w: any) => (w ? { ...w, custom_domain: raw || null } : w));
+        if (raw) toast.success(`Domain saved: ${raw}`);
+      }
+      setPublishOpen(false);
+      window.open(`/website-preview/${id}`, "_blank");
+      toast.success("Opening live site — use the publish flow in project settings to deploy.");
+    } catch (e: any) {
+      toast.error(e?.message || "Couldn't save domain");
+    } finally {
+      setSavingDomain(false);
+    }
   };
   const exportSite = async () => {
     try {
