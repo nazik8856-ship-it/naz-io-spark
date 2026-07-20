@@ -554,7 +554,62 @@ export default function WebsitePreview() {
     .nz-link { position: relative; display: inline-block; }
     .nz-link::after { content: ""; position: absolute; left: 0; right: 0; bottom: -3px; height: 1px; background: var(--accent); transform: scaleX(0); transform-origin: right; transition: transform .3s ease; }
     .nz-link:hover::after { transform: scaleX(1); transform-origin: left; }
-    section { transition: background-color .8s ease; }
+    section { transition: background-color .8s ease; position: relative; }
+
+    /* Cohesive thematic decoration layers */
+    .nz-root { position: relative; }
+    .nz-pattern {
+      position: fixed; inset: 0; pointer-events: none; z-index: 0;
+      background-image: ${patternUrl};
+      background-size: 180px 180px;
+      opacity: 0.055;
+      mix-blend-mode: screen;
+    }
+    .nz-grain {
+      position: fixed; inset: 0; pointer-events: none; z-index: 1;
+      background-image: ${GRAIN_URI};
+      opacity: 0.035;
+      mix-blend-mode: overlay;
+    }
+    .nz-root > *:not(.nz-pattern):not(.nz-grain) { position: relative; z-index: 2; }
+
+    /* Section divider — motif icon flanked by gradient hairlines */
+    .nz-divider { display: flex; align-items: center; justify-content: center; gap: 14px; padding: 8px 24px; opacity: .8; }
+    .nz-divider-line { flex: 1; max-width: 240px; height: 1px; display: block; }
+
+    /* Hero decorative blobs — theme-tinted, gently floating */
+    .nz-hero-decor { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+    .nz-blob { position: absolute; border-radius: 50%; filter: blur(60px); opacity: .35; }
+    .nz-blob.a { width: 520px; height: 520px; background: var(--accent);  top: -160px; left: -120px; animation: nzFloat 14s ease-in-out infinite; }
+    .nz-blob.b { width: 420px; height: 420px; background: var(--accent2); bottom: -140px; right: -100px; animation: nzFloat 18s ease-in-out infinite reverse; }
+    .nz-blob.c { width: 260px; height: 260px; background: var(--accent);  top: 40%; right: 30%; opacity: .18; animation: nzFloat 22s ease-in-out infinite; }
+    @keyframes nzFloat {
+      0%,100% { transform: translate3d(0,0,0) scale(1); }
+      50%     { transform: translate3d(30px,-20px,0) scale(1.08); }
+    }
+    .nz-hero-motif {
+      position: absolute; top: 8%; right: 6%;
+      width: 180px; height: 180px; opacity: .09;
+      animation: nzSpin 40s linear infinite;
+      color: var(--accent);
+    }
+    .nz-hero-motif.big { width: 340px; height: 340px; top: -60px; right: -60px; opacity: .07; }
+    @keyframes nzSpin { to { transform: rotate(360deg); } }
+
+    /* Motif marker for stats, service cards, footer */
+    .nz-motif-mark { display: inline-flex; align-items: center; justify-content: center;
+      width: 40px; height: 40px; border-radius: 10px; margin-bottom: 14px;
+      background: color-mix(in srgb, var(--accent) 14%, transparent);
+      border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+      color: var(--accent);
+      transition: transform .5s cubic-bezier(.2,.7,.2,1), background .3s;
+    }
+    .nz-card:hover .nz-motif-mark { transform: rotate(-8deg) scale(1.08); background: color-mix(in srgb, var(--accent) 22%, transparent); }
+
+    .nz-stat-mark { color: var(--accent); opacity: .7; margin-bottom: 10px; }
+    .nz-footer-mark { display: inline-flex; align-items: center; gap: 8px; }
+    .nz-footer-mark svg { animation: nzPulse 3s ease-in-out infinite; }
+    @keyframes nzPulse { 0%,100% { opacity: .5; } 50% { opacity: 1; } }
   `;
 
   return (
