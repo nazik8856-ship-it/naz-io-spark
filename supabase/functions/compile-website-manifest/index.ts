@@ -81,6 +81,12 @@ D. VISUAL SIGNATURE — prefer bespoke over stock
 E. DENSITY CONTRAST
 - Alternate dense and spacious sections. Put stats/logos (tight, data-dense) directly next to hero/about/feature-split (spacious, breathing). Do NOT space every section uniformly — that reads as templated. A "stats" section right after the hero, followed by a spacious "about", is a strong rhythm.
 
+F. THEMATIC COHESION — every element reinforces the same subject
+- The renderer auto-derives a subject motif icon from the name + tagline (coffee cup for cafés, leaf for botanical, wave for aquatic, dumbbell for fitness, camera for photography, code for tech, brush for creative, chart for finance, flame for food, plane for travel, home for real estate, gear for industrial, note for music, hotel for hospitality, paw for pets, scissors for salon, bike for cycling, diamond for luxury, bolt for energy, etc.). This motif is used automatically across: the tiled background pattern, section dividers, service card markers, stats markers, hero decoration, and footer.
+- Because motif selection keys off keywords in the name and tagline, MAKE SURE the name/tagline contains an unambiguous subject word (e.g. "Ember & Oak Coffee Bar", not just "Ember & Oak"). This is how thematic decoration stays coherent.
+- Include a stats section (with concrete numbers — years, clients, cups, sessions, projects) when it fits the brief — the motif markers plus dense typography make it a signature moment.
+- Include process/services variants that reinforce the theme with numbered steps or zigzag imagery.
+
 F. MOTION — the renderer provides scroll reveal, card 3D tilt, magnetic buttons, and section background shifts by default. Choose motion level:
 - "subtle" for professional/luxury/finance/editorial.
 - "expressive" for consumer, creative, fashion, agency.

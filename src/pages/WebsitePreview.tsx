@@ -130,6 +130,118 @@ function imageUrl(prompt: string, w: number, h: number, palette: Palette, mediaS
   return signatureSvg(prompt, w, h, palette);
 }
 
+// ─── Thematic motif system ────────────────────────────────────────────────
+// A small library of subject icons expressed as SVG paths. The renderer picks
+// one based on keywords in the site name/tagline/prompt so every decorative
+// element (pattern, dividers, stats markers, footer) reinforces the theme.
+const MOTIFS: Record<string, string> = {
+  coffee: "M6 8h9a4 4 0 010 8h-1M6 8v9a3 3 0 003 3h3a3 3 0 003-3v-1M6 8H4",
+  leaf: "M4 20c8 0 16-8 16-16-8 0-16 8-16 16zM4 20l8-8",
+  spark: "M12 2v6M12 16v6M2 12h6M16 12h6M5 5l4 4M15 15l4 4M19 5l-4 4M9 15l-4 4",
+  wave: "M2 12c2-4 4-4 6 0s4 4 6 0 4-4 6 0",
+  mountain: "M3 20l6-10 4 6 3-4 5 8H3z",
+  gear: "M12 8a4 4 0 100 8 4 4 0 000-8zM12 3v3M12 18v3M5 5l2 2M17 17l2 2M3 12h3M18 12h3M5 19l2-2M17 7l2-2",
+  code: "M8 6l-6 6 6 6M16 6l6 6-6 6M14 4l-4 16",
+  brush: "M4 20c6-2 10-6 12-12l-4-4C6 6 2 10 4 20z",
+  camera: "M4 8h4l2-3h4l2 3h4v11H4zM12 17a4 4 0 100-8 4 4 0 000 8z",
+  music: "M9 18V6l10-2v12M9 18a2 2 0 11-4 0 2 2 0 014 0zM19 16a2 2 0 11-4 0 2 2 0 014 0z",
+  plane: "M2 12l20-8-8 20-2-8-10-4z",
+  book: "M4 4h7a4 4 0 014 4v12H8a4 4 0 01-4-4V4zM20 4h-5",
+  dumbbell: "M6 8v8M4 10v4M10 6v12M18 6v12M14 8v8M20 10v4M10 12h4",
+  home: "M3 12l9-8 9 8v9h-6v-6H9v6H3z",
+  chart: "M4 20V10M10 20V4M16 20v-8M22 20V8",
+  flame: "M12 2c2 4 6 6 6 11a6 6 0 01-12 0c0-3 2-4 3-7 1 2 3 2 3-4z",
+  diamond: "M6 3h12l4 6-10 12L2 9z",
+  bolt: "M13 2L4 14h7l-1 8 9-12h-7z",
+  star: "M12 2l3 7h7l-6 4 2 8-6-5-6 5 2-8-6-4h7z",
+  flower: "M12 3a3 3 0 100 6 3 3 0 000-6zM12 15a3 3 0 100 6 3 3 0 000-6zM6 12a3 3 0 10-6 0 3 3 0 006 0zM24 12a3 3 0 10-6 0 3 3 0 006 0z",
+  compass: "M12 2a10 10 0 100 20 10 10 0 000-20zM8 16l3-7 5-1-2 7z",
+  hotel: "M3 21V10l9-6 9 6v11h-6v-6H9v6z",
+  paw: "M6 12a2 2 0 11-4 0 2 2 0 014 0zM22 12a2 2 0 11-4 0 2 2 0 014 0zM10 6a2 2 0 11-4 0 2 2 0 014 0zM18 6a2 2 0 11-4 0 2 2 0 014 0zM12 22c4 0 6-4 6-6a4 4 0 00-12 0c0 2 2 6 6 6z",
+  scissors: "M6 4l14 14M6 20L20 6M8 6a2 2 0 11-4 0 2 2 0 014 0zM8 20a2 2 0 11-4 0 2 2 0 014 0z",
+  bike: "M5 18a3 3 0 100-6 3 3 0 000 6zM19 18a3 3 0 100-6 3 3 0 000 6zM5 15l4-8h4l3 8M9 7l6 8",
+};
+
+const MOTIF_KEYWORDS: [RegExp, keyof typeof MOTIFS][] = [
+  [/coffee|cafe|espresso|roast|barista|latte/i, "coffee"],
+  [/wellness|yoga|meditat|spa|therap|calm|mindful/i, "flower"],
+  [/leaf|plant|garden|botan|nature|eco|sustain|forest|organic/i, "leaf"],
+  [/mountain|hike|adventure|outdoor|climb|trail|explore/i, "mountain"],
+  [/wave|surf|ocean|sea|beach|swim|marine|water|pool/i, "wave"],
+  [/photo|camera|film|cinema|videograph/i, "camera"],
+  [/music|band|dj|record|sound|audio|vinyl/i, "music"],
+  [/travel|flight|tour|airline|voyage/i, "plane"],
+  [/book|library|read|publish|literature|novel|editor/i, "book"],
+  [/gym|fitness|workout|train|strength|athlet|crossfit|pilates/i, "dumbbell"],
+  [/pet|dog|cat|vet|animal|groom/i, "paw"],
+  [/salon|barber|hair|beauty|nails/i, "scissors"],
+  [/bike|cycle|cycling|bicycle/i, "bike"],
+  [/hotel|hospitality|resort|inn|bnb|stay/i, "hotel"],
+  [/real estate|property|realtor|interior|home|architect/i, "home"],
+  [/analytic|data|finance|invest|market|trading|fintech/i, "chart"],
+  [/food|restaurant|kitchen|chef|dining|bake|patisserie|bistro/i, "flame"],
+  [/luxury|jewel|diamond|premium|prestige|couture/i, "diamond"],
+  [/energy|electric|power|solar|voltage|charge/i, "bolt"],
+  [/award|elite|premier|top|hall of fame/i, "star"],
+  [/code|dev|software|api|engineer|program|saas|app|platform|ai\b/i, "code"],
+  [/art|paint|design|brand|creative|craft|illustrat/i, "brush"],
+  [/mechan|auto|machin|industri|manufactur|garage/i, "gear"],
+  [/compass|discovery|journey|guide/i, "compass"],
+];
+
+function motifFromPrompt(text: string): { key: string; path: string } {
+  const t = (text || "").toLowerCase();
+  for (const [re, key] of MOTIF_KEYWORDS) {
+    if (re.test(t)) return { key, path: MOTIFS[key] };
+  }
+  return { key: "spark", path: MOTIFS.spark };
+}
+
+// Tiled background pattern: subtle dot grid seeded with the site's motif at a
+// randomized position — every site gets a distinct decorative weave.
+function patternDataUri(motifPath: string, palette: Palette, seed: number): string {
+  const rand = rng(seed);
+  const c = palette.accent;
+  const c2 = palette.accentSecondary || c;
+  const size = 180;
+  const dots: string[] = [];
+  for (let x = 10; x < size; x += 22) {
+    for (let y = 10; y < size; y += 22) {
+      dots.push(`<circle cx="${x}" cy="${y}" r="0.9" fill="${c}" opacity="0.30"/>`);
+    }
+  }
+  const mx = Math.floor(rand() * (size - 60)) + 20;
+  const my = Math.floor(rand() * (size - 60)) + 20;
+  const rot = Math.floor(rand() * 360);
+  const motif = `<g transform="translate(${mx} ${my}) rotate(${rot}) scale(1.4)"><path d="${motifPath}" fill="none" stroke="${c2}" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.55"/></g>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${dots.join("")}${motif}</svg>`;
+  return `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}")`;
+}
+
+// Grain overlay for texture — pure SVG turbulence, palette-agnostic.
+const GRAIN_URI = `url("data:image/svg+xml;utf8,${encodeURIComponent(
+  `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.5 0"/></filter><rect width="200" height="200" filter="url(#n)"/></svg>`
+)}")`;
+
+// Reusable inline motif icon
+function MotifIcon({ path, color, size = 20, strokeWidth = 1.6, className }: { path: string; color: string; size?: number; strokeWidth?: number; className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d={path} />
+    </svg>
+  );
+}
+
+function SectionDivider({ path, palette }: { path: string; palette: Palette }) {
+  return (
+    <div className="nz-divider" aria-hidden="true">
+      <span className="nz-divider-line" style={{ background: `linear-gradient(90deg, transparent, ${palette.accent}55, transparent)` }} />
+      <MotifIcon path={path} color={palette.accent} size={18} strokeWidth={1.4} />
+      <span className="nz-divider-line" style={{ background: `linear-gradient(90deg, transparent, ${palette.accent}55, transparent)` }} />
+    </div>
+  );
+}
+
 // Render a headline with optional highlight tokens: ~word~  or  **word**  → styled accent span.
 function renderHeadline(text: string, palette: Palette, displayFont?: string): (string | JSX.Element)[] {
   if (!text) return [text];
@@ -372,6 +484,17 @@ export default function WebsitePreview() {
     layout === "minimal-luxury" ? "max-w-4xl" :
     "max-w-6xl";
 
+  // Auto-derived thematic motif — reinforces the same subject across
+  // background pattern, dividers, stats, service cards, and footer.
+  const motif = useMemo(
+    () => motifFromPrompt(`${site.name ?? ""} ${site.tagline ?? ""} ${activePage?.title ?? ""}`),
+    [site, activePage]
+  );
+  const patternUrl = useMemo(
+    () => patternDataUri(motif.path, p, seedFrom(`${site.name ?? "site"}|${p.accent}`)),
+    [motif, p, site]
+  );
+
   // Scoped CSS — palette + fonts + animations
   const scopedCss = `
     .nz-root {
@@ -431,12 +554,69 @@ export default function WebsitePreview() {
     .nz-link { position: relative; display: inline-block; }
     .nz-link::after { content: ""; position: absolute; left: 0; right: 0; bottom: -3px; height: 1px; background: var(--accent); transform: scaleX(0); transform-origin: right; transition: transform .3s ease; }
     .nz-link:hover::after { transform: scaleX(1); transform-origin: left; }
-    section { transition: background-color .8s ease; }
+    section { transition: background-color .8s ease; position: relative; }
+
+    /* Cohesive thematic decoration layers */
+    .nz-root { position: relative; }
+    .nz-pattern {
+      position: fixed; inset: 0; pointer-events: none; z-index: 0;
+      background-image: ${patternUrl};
+      background-size: 180px 180px;
+      opacity: 0.055;
+      mix-blend-mode: screen;
+    }
+    .nz-grain {
+      position: fixed; inset: 0; pointer-events: none; z-index: 1;
+      background-image: ${GRAIN_URI};
+      opacity: 0.035;
+      mix-blend-mode: overlay;
+    }
+    .nz-root > *:not(.nz-pattern):not(.nz-grain) { position: relative; z-index: 2; }
+
+    /* Section divider — motif icon flanked by gradient hairlines */
+    .nz-divider { display: flex; align-items: center; justify-content: center; gap: 14px; padding: 8px 24px; opacity: .8; }
+    .nz-divider-line { flex: 1; max-width: 240px; height: 1px; display: block; }
+
+    /* Hero decorative blobs — theme-tinted, gently floating */
+    .nz-hero-decor { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+    .nz-blob { position: absolute; border-radius: 50%; filter: blur(60px); opacity: .35; }
+    .nz-blob.a { width: 520px; height: 520px; background: var(--accent);  top: -160px; left: -120px; animation: nzFloat 14s ease-in-out infinite; }
+    .nz-blob.b { width: 420px; height: 420px; background: var(--accent2); bottom: -140px; right: -100px; animation: nzFloat 18s ease-in-out infinite reverse; }
+    .nz-blob.c { width: 260px; height: 260px; background: var(--accent);  top: 40%; right: 30%; opacity: .18; animation: nzFloat 22s ease-in-out infinite; }
+    @keyframes nzFloat {
+      0%,100% { transform: translate3d(0,0,0) scale(1); }
+      50%     { transform: translate3d(30px,-20px,0) scale(1.08); }
+    }
+    .nz-hero-motif {
+      position: absolute; top: 8%; right: 6%;
+      width: 180px; height: 180px; opacity: .09;
+      animation: nzSpin 40s linear infinite;
+      color: var(--accent);
+    }
+    .nz-hero-motif.big { width: 340px; height: 340px; top: -60px; right: -60px; opacity: .07; }
+    @keyframes nzSpin { to { transform: rotate(360deg); } }
+
+    /* Motif marker for stats, service cards, footer */
+    .nz-motif-mark { display: inline-flex; align-items: center; justify-content: center;
+      width: 40px; height: 40px; border-radius: 10px; margin-bottom: 14px;
+      background: color-mix(in srgb, var(--accent) 14%, transparent);
+      border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+      color: var(--accent);
+      transition: transform .5s cubic-bezier(.2,.7,.2,1), background .3s;
+    }
+    .nz-card:hover .nz-motif-mark { transform: rotate(-8deg) scale(1.08); background: color-mix(in srgb, var(--accent) 22%, transparent); }
+
+    .nz-stat-mark { color: var(--accent); opacity: .7; margin-bottom: 10px; }
+    .nz-footer-mark { display: inline-flex; align-items: center; gap: 8px; }
+    .nz-footer-mark svg { animation: nzPulse 3s ease-in-out infinite; }
+    @keyframes nzPulse { 0%,100% { opacity: .5; } 50% { opacity: 1; } }
   `;
 
   return (
     <div ref={rootRef} className="nz-root min-h-screen">
       <style>{scopedCss}</style>
+      <div className="nz-pattern" aria-hidden="true" />
+      <div className="nz-grain" aria-hidden="true" />
 
       {/* Preview chrome */}
       <div className="sticky top-0 z-50 flex items-center justify-between gap-4 px-4 py-2.5 border-b backdrop-blur text-xs"
@@ -444,7 +624,8 @@ export default function WebsitePreview() {
         <button onClick={() => navigate("/generator-home")} className="flex items-center gap-1.5 text-zinc-300 hover:text-white">
           <ArrowLeft className="h-3.5 w-3.5" /> Back
         </button>
-        <div className="font-mono uppercase tracking-[0.24em] text-zinc-400 truncate">
+        <div className="font-mono uppercase tracking-[0.24em] text-zinc-400 truncate flex items-center gap-2">
+          <MotifIcon path={motif.path} color={p.accent} size={12} />
           {site.name} · preview
         </div>
         <div className="flex items-center gap-1.5 overflow-x-auto max-w-[50%]">
@@ -463,15 +644,20 @@ export default function WebsitePreview() {
       </div>
 
       {activePage?.sections.map((s, idx) => (
-        <SectionBlock
-          key={idx}
-          section={s}
-          palette={p}
-          layout={layout}
-          containerMax={containerMax}
-          index={idx}
-          displayFont={theme.font.display}
-        />
+        <div key={idx}>
+          <SectionBlock
+            section={s}
+            palette={p}
+            layout={layout}
+            containerMax={containerMax}
+            index={idx}
+            displayFont={theme.font.display}
+            motif={motif}
+          />
+          {idx < (activePage?.sections.length ?? 0) - 1 && s.type !== "hero" && (
+            <SectionDivider path={motif.path} palette={p} />
+          )}
+        </div>
       ))}
 
       {!activePage?.sections.length && (
@@ -481,6 +667,9 @@ export default function WebsitePreview() {
       )}
 
       <footer className="border-t px-6 py-8 text-center text-xs opacity-60" style={{ borderColor: p.border }}>
+        <div className="nz-footer-mark justify-center mb-2">
+          <MotifIcon path={motif.path} color={p.accent} size={16} strokeWidth={1.6} />
+        </div>
         © {new Date().getFullYear()} {site.name} · {site.tagline}
       </footer>
     </div>
@@ -488,9 +677,10 @@ export default function WebsitePreview() {
 }
 
 function SectionBlock({
-  section, palette, layout, containerMax, index, displayFont,
+  section, palette, layout, containerMax, index, displayFont, motif,
 }: {
   section: Section; palette: Palette; layout: string; containerMax: string; index: number; displayFont?: string;
+  motif?: { key: string; path: string };
 }) {
   const c = section.content ?? {};
   const variant = section.variant ?? "";
@@ -503,7 +693,7 @@ function SectionBlock({
 
   switch (section.type) {
     case "hero":
-      return <Hero c={c} variant={variant || (layout === "split" ? "split-image" : layout === "editorial" ? "editorial-lede" : layout === "brutalist" ? "asymmetric-mark" : layout === "minimal-luxury" ? "minimal-luxury" : "centered")} palette={palette} containerMax={containerMax} displayFont={displayFont} />;
+      return <Hero c={c} variant={variant || (layout === "split" ? "split-image" : layout === "editorial" ? "editorial-lede" : layout === "brutalist" ? "asymmetric-mark" : layout === "minimal-luxury" ? "minimal-luxury" : "centered")} palette={palette} containerMax={containerMax} displayFont={displayFont} motif={motif} />;
 
     case "about":
       return (
@@ -589,7 +779,12 @@ function SectionBlock({
               <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3" data-reveal-stagger>
                 {items.map((it, i) => (
                   <div key={i} className="nz-card rounded-xl p-6">
-                    <div className="nz-mono text-xs uppercase tracking-[0.2em] mb-3" style={{ color: palette.accent }}>
+                    {motif && (
+                      <span className="nz-motif-mark">
+                        <MotifIcon path={motif.path} color={palette.accent} size={20} />
+                      </span>
+                    )}
+                    <div className="nz-mono text-[10px] uppercase tracking-[0.2em] mb-2 opacity-70" style={{ color: palette.accent }}>
                       {fieldStr(it, "icon", `0${i + 1}`)}
                     </div>
                     <h3 className="nz-h font-semibold text-lg mb-2">{fieldStr(it, "title")}</h3>
@@ -688,6 +883,7 @@ function SectionBlock({
           <div className="grid gap-8 grid-cols-2 md:grid-cols-4" data-reveal-stagger>
             {items.map((it, i) => (
               <div key={i}>
+                {motif && <div className="nz-stat-mark"><MotifIcon path={motif.path} color={palette.accent} size={18} /></div>}
                 <div className="nz-h text-4xl md:text-6xl font-bold" style={{ color: palette.accent }}>{fieldStr(it, "value")}</div>
                 <div className="mt-2 text-sm opacity-70 uppercase tracking-wider">{fieldStr(it, "label")}</div>
               </div>
@@ -860,8 +1056,8 @@ function SectionBlock({
 }
 
 function Hero({
-  c, variant, palette, containerMax, displayFont,
-}: { c: Record<string, unknown>; variant: string; palette: Palette; containerMax: string; displayFont?: string }) {
+  c, variant, palette, containerMax, displayFont, motif,
+}: { c: Record<string, unknown>; variant: string; palette: Palette; containerMax: string; displayFont?: string; motif?: { key: string; path: string } }) {
   const rHead = (t: string) => renderHeadline(t, palette, displayFont);
   const eyebrow = fieldStr(c, "eyebrow");
   const headline = fieldStr(c, "headline", "Welcome");
@@ -872,7 +1068,10 @@ function Hero({
   const stats = fieldArr<Record<string, unknown>>(c, "stats");
 
   const eyebrowEl = eyebrow && (
-    <div className="nz-mono text-[11px] uppercase tracking-[0.32em]" style={{ color: palette.accent }}>{eyebrow}</div>
+    <div className="nz-mono text-[11px] uppercase tracking-[0.32em] inline-flex items-center gap-2" style={{ color: palette.accent }}>
+      {motif && <MotifIcon path={motif.path} color={palette.accent} size={12} />}
+      {eyebrow}
+    </div>
   );
   const ctas = (
     <div className="flex items-center gap-3 flex-wrap">
@@ -881,10 +1080,25 @@ function Hero({
     </div>
   );
 
+  // Shared decorative layer for hero sections — soft blobs + slowly spinning motif
+  const decor = (big = false) => (
+    <div className="nz-hero-decor" aria-hidden="true">
+      <span className="nz-blob a" />
+      <span className="nz-blob b" />
+      <span className="nz-blob c" />
+      {motif && (
+        <svg viewBox="0 0 24 24" className={`nz-hero-motif ${big ? "big" : ""}`} fill="none" stroke="currentColor" strokeWidth={1} strokeLinecap="round" strokeLinejoin="round">
+          <path d={motif.path} />
+        </svg>
+      )}
+    </div>
+  );
+
   if (variant === "split-image") {
     return (
-      <section className="border-b" style={{ borderColor: palette.border }}>
-        <div className={`${containerMax} mx-auto px-6 py-20 md:py-28 grid gap-10 md:grid-cols-2 items-center`}>
+      <section className="relative overflow-hidden border-b" style={{ borderColor: palette.border }}>
+        {decor()}
+        <div className={`${containerMax} mx-auto px-6 py-20 md:py-28 grid gap-10 md:grid-cols-2 items-center relative`}>
           <div className="nz-hero-in">
             {eyebrowEl}
             <h1 className="nz-h text-5xl md:text-7xl font-extrabold leading-[1.02] mt-3">{rHead(headline)}</h1>
@@ -908,6 +1122,7 @@ function Hero({
             <div className="absolute inset-0" style={{ background: `linear-gradient(180deg, ${palette.bg}77 0%, ${palette.bg}dd 100%)` }} />
           </div>
         )}
+        {decor(true)}
         <div className={`${containerMax} mx-auto px-6 py-32 md:py-44 relative nz-hero-in`}>
           {eyebrowEl}
           <h1 className="nz-h text-6xl md:text-8xl font-extrabold leading-[1.0] mt-3 max-w-4xl">{rHead(headline)}</h1>
@@ -920,8 +1135,9 @@ function Hero({
 
   if (variant === "editorial-lede") {
     return (
-      <section className="border-b" style={{ borderColor: palette.border }}>
-        <div className={`${containerMax} mx-auto px-6 py-24 md:py-32 nz-hero-in`}>
+      <section className="relative overflow-hidden border-b" style={{ borderColor: palette.border }}>
+        {decor()}
+        <div className={`${containerMax} mx-auto px-6 py-24 md:py-32 nz-hero-in relative`}>
           {eyebrowEl}
           <h1 className="nz-h text-6xl md:text-8xl font-black leading-[0.95] mt-4 max-w-5xl">{rHead(headline)}</h1>
           {subheadline && <p className="mt-8 text-xl opacity-80 max-w-2xl border-l-2 pl-6" style={{ borderColor: palette.accent }}>{subheadline}</p>}
@@ -934,7 +1150,7 @@ function Hero({
   if (variant === "asymmetric-mark") {
     return (
       <section className="relative overflow-hidden border-b" style={{ borderColor: palette.border }}>
-        <div className="absolute -top-20 -right-20 w-[520px] h-[520px] rounded-full opacity-30 blur-3xl" style={{ background: palette.accent }} />
+        {decor(true)}
         <div className={`${containerMax} mx-auto px-6 py-24 md:py-36 grid md:grid-cols-12 gap-8 items-end relative nz-hero-in`}>
           <div className="md:col-span-8">
             {eyebrowEl}
@@ -951,8 +1167,9 @@ function Hero({
 
   if (variant === "minimal-luxury") {
     return (
-      <section>
-        <div className={`${containerMax} mx-auto px-6 py-32 md:py-48 text-center nz-hero-in`}>
+      <section className="relative overflow-hidden">
+        {decor()}
+        <div className={`${containerMax} mx-auto px-6 py-32 md:py-48 text-center nz-hero-in relative`}>
           {eyebrowEl}
           <h1 className="nz-h text-5xl md:text-7xl font-light tracking-tight leading-[1.05] mt-4">{rHead(headline)}</h1>
           {subheadline && <p className="mt-8 text-lg opacity-70 max-w-xl mx-auto">{subheadline}</p>}
@@ -964,8 +1181,9 @@ function Hero({
 
   // centered fallback
   return (
-    <section className="border-b" style={{ borderColor: palette.border, background: `linear-gradient(135deg, ${palette.bg} 0%, ${palette.surface} 100%)` }}>
-      <div className={`${containerMax} mx-auto px-6 py-28 md:py-36 text-center nz-hero-in`}>
+    <section className="relative overflow-hidden border-b" style={{ borderColor: palette.border, background: `linear-gradient(135deg, ${palette.bg} 0%, ${palette.surface} 100%)` }}>
+      {decor(true)}
+      <div className={`${containerMax} mx-auto px-6 py-28 md:py-36 text-center nz-hero-in relative`}>
         {eyebrowEl}
         <h1 className="nz-h text-5xl md:text-7xl font-extrabold tracking-tight leading-[1.05] mt-3">{rHead(headline)}</h1>
         {subheadline && <p className="mt-6 text-lg md:text-xl opacity-80 max-w-2xl mx-auto">{subheadline}</p>}
@@ -974,6 +1192,7 @@ function Hero({
           <div className="mt-16 grid grid-cols-2 md:grid-cols-4 gap-6 max-w-3xl mx-auto">
             {stats.map((s, i) => (
               <div key={i}>
+                {motif && <div className="nz-stat-mark flex justify-center"><MotifIcon path={motif.path} color={palette.accent} size={16} /></div>}
                 <div className="nz-h text-3xl md:text-4xl font-bold" style={{ color: palette.accent }}>{fieldStr(s, "value")}</div>
                 <div className="text-xs opacity-70 uppercase tracking-wider mt-1">{fieldStr(s, "label")}</div>
               </div>
