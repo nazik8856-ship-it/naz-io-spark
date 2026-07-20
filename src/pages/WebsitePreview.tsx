@@ -294,20 +294,32 @@ export default function WebsitePreview() {
     if (!id) return;
     let cancelled = false;
     (async () => {
-      setLoading(true);
-      const [{ data: siteRow, error: siteErr }, { data: pageRows }] = await Promise.all([
-        supabase.from("websites").select("id, name, tagline, theme").eq("id", id).maybeSingle(),
-        supabase.from("website_pages").select("id, slug, title, seo_description, sections, order_index").eq("website_id", id).order("order_index", { ascending: true }),
-      ]);
-      if (cancelled) return;
-      if (siteErr || !siteRow) {
-        setError(siteErr?.message ?? "Website not found");
-        setLoading(false);
-        return;
+      try {
+        setLoading(true);
+        setError(null);
+
+        // The preview runs in a fresh iframe document. Wait for the persisted
+        // session to hydrate before querying owner-protected website rows.
+        await supabase.auth.getSession();
+
+        const [siteResult, pagesResult] = await Promise.all([
+          supabase.from("websites").select("id, name, tagline, theme").eq("id", id).maybeSingle(),
+          supabase.from("website_pages").select("id, slug, title, seo_description, sections, order_index").eq("website_id", id).order("order_index", { ascending: true }),
+        ]);
+        if (cancelled) return;
+        if (siteResult.error) throw siteResult.error;
+        if (pagesResult.error) throw pagesResult.error;
+        if (!siteResult.data) throw new Error("Website not found or you no longer have access to it");
+
+        setSite(siteResult.data as unknown as Website);
+        setPages((pagesResult.data ?? []) as unknown as Page[]);
+      } catch (e) {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : "Could not load this website preview");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-      setSite(siteRow as unknown as Website);
-      setPages((pageRows ?? []) as unknown as Page[]);
-      setLoading(false);
     })();
     return () => { cancelled = true; };
   }, [id]);
@@ -326,6 +338,20 @@ export default function WebsitePreview() {
   }, [site]);
 
   const activePage = pages.find((p) => p.slug === activeSlug) ?? pages[0];
+  const p = theme.palette;
+
+  // These memo hooks must run on every render, including the initial loading
+  // render. Keeping them below the loading/error returns caused React's hook
+  // order to change as soon as the website data arrived, crashing the iframe
+  // before any generated content could paint.
+  const motif = useMemo(
+    () => motifFromPrompt(`${site?.name ?? ""} ${site?.tagline ?? ""} ${activePage?.title ?? ""}`),
+    [site?.name, site?.tagline, activePage?.title]
+  );
+  const patternUrl = useMemo(
+    () => patternDataUri(motif.path, p, seedFrom(`${site?.name ?? "site"}|${p.accent}`)),
+    [motif.path, p, site?.name]
+  );
 
   // Fonts
   useEffect(() => {
@@ -476,24 +502,12 @@ export default function WebsitePreview() {
     );
   }
 
-  const p = theme.palette;
   const layout = theme.layout ?? "centered";
   const containerMax =
     layout === "editorial" || layout === "magazine" ? "max-w-5xl" :
     layout === "brutalist" ? "max-w-7xl" :
     layout === "minimal-luxury" ? "max-w-4xl" :
     "max-w-6xl";
-
-  // Auto-derived thematic motif — reinforces the same subject across
-  // background pattern, dividers, stats, service cards, and footer.
-  const motif = useMemo(
-    () => motifFromPrompt(`${site.name ?? ""} ${site.tagline ?? ""} ${activePage?.title ?? ""}`),
-    [site, activePage]
-  );
-  const patternUrl = useMemo(
-    () => patternDataUri(motif.path, p, seedFrom(`${site.name ?? "site"}|${p.accent}`)),
-    [motif, p, site]
-  );
 
   // Scoped CSS — palette + fonts + animations
   const scopedCss = `
