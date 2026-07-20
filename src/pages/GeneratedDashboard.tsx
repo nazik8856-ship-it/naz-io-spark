@@ -312,6 +312,7 @@ export default function GeneratedDashboard() {
         prompt: website.prompt,
         tagline: website.tagline,
         theme: website.theme,
+        html: website.html || "",
         user_id: website.user_id,
       })
       .select()
