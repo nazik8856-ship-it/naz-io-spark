@@ -488,19 +488,22 @@ export default function WebsitePreview() {
 }
 
 function SectionBlock({
-  section, palette, layout, containerMax, index,
+  section, palette, layout, containerMax, index, displayFont,
 }: {
-  section: Section; palette: Palette; layout: string; containerMax: string; index: number;
+  section: Section; palette: Palette; layout: string; containerMax: string; index: number; displayFont?: string;
 }) {
   const c = section.content ?? {};
   const variant = section.variant ?? "";
-  const container = `${containerMax} mx-auto px-6 py-20 md:py-24`;
-  const heading = "nz-h text-3xl md:text-5xl font-bold tracking-tight mb-6";
+  // Density contrast: stats/logos tighter, hero/about/testimonials spacious
+  const dense = section.type === "stats" || section.type === "logos";
+  const container = `${containerMax} mx-auto px-6 ${dense ? "py-10 md:py-14" : "py-20 md:py-28"}`;
+  const headingCls = "nz-h text-3xl md:text-5xl font-bold tracking-tight mb-6";
   const eyebrow = "nz-mono text-[11px] uppercase tracking-[0.28em] mb-3";
+  const heading = headingCls; // legacy alias used below
 
   switch (section.type) {
     case "hero":
-      return <Hero c={c} variant={variant || (layout === "split" ? "split-image" : layout === "editorial" ? "editorial-lede" : layout === "brutalist" ? "asymmetric-mark" : layout === "minimal-luxury" ? "minimal-luxury" : "centered")} palette={palette} containerMax={containerMax} />;
+      return <Hero c={c} variant={variant || (layout === "split" ? "split-image" : layout === "editorial" ? "editorial-lede" : layout === "brutalist" ? "asymmetric-mark" : layout === "minimal-luxury" ? "minimal-luxury" : "centered")} palette={palette} containerMax={containerMax} displayFont={displayFont} />;
 
     case "about":
       return (
