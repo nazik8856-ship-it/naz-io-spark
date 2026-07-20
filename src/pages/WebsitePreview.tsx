@@ -65,7 +65,7 @@ function fieldBool(o: Record<string, unknown>, k: string): boolean {
   return !!o[k];
 }
 
-// Deterministic hash → stable Unsplash query
+// Deterministic hash → stable seed
 function seedFrom(s: string): number {
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) {
@@ -74,11 +74,85 @@ function seedFrom(s: string): number {
   }
   return h;
 }
-function imageUrl(prompt: string, w = 1600, h = 1000): string {
-  const clean = prompt.trim().slice(0, 120);
-  const seed = seedFrom(clean);
-  const q = encodeURIComponent(clean.replace(/[^\w\s,]/g, " ").split(/\s+/).slice(0, 6).join(","));
-  return `https://source.unsplash.com/${w}x${h}/?${q}&sig=${seed}`;
+// PRNG from a numeric seed
+function rng(seed: number) {
+  let s = seed || 1;
+  return () => {
+    s = (s * 9301 + 49297) % 233280;
+    return s / 233280;
+  };
+}
+
+// Bespoke SVG "signature" — gradient mesh + geometric marks — deterministic per (prompt+palette).
+// Guarantees every site gets a unique visual identity instead of stock photography.
+function signatureSvg(prompt: string, w: number, h: number, palette: Palette): string {
+  const seed = seedFrom(prompt + "|" + palette.accent + "|" + palette.accentSecondary);
+  const rand = rng(seed);
+  const a = palette.accent;
+  const b = palette.accentSecondary || palette.accent;
+  const bg = palette.surface;
+  const marks: string[] = [];
+  const kind = seed % 4;
+  const n = 5 + Math.floor(rand() * 4);
+  for (let i = 0; i < n; i++) {
+    const x = Math.floor(rand() * w);
+    const y = Math.floor(rand() * h);
+    const r = 40 + Math.floor(rand() * Math.min(w, h) * 0.35);
+    const op = 0.10 + rand() * 0.35;
+    const c = i % 2 === 0 ? a : b;
+    if (kind === 0) {
+      marks.push(`<circle cx="${x}" cy="${y}" r="${r}" fill="${c}" opacity="${op.toFixed(2)}" filter="url(#blur)"/>`);
+    } else if (kind === 1) {
+      const x2 = Math.floor(rand() * w);
+      const y2 = Math.floor(rand() * h);
+      marks.push(`<line x1="${x}" y1="${y}" x2="${x2}" y2="${y2}" stroke="${c}" stroke-width="${1 + rand() * 3}" opacity="${op.toFixed(2)}"/>`);
+    } else if (kind === 2) {
+      const size = r;
+      const rot = Math.floor(rand() * 360);
+      marks.push(`<rect x="${x}" y="${y}" width="${size}" height="${size}" fill="none" stroke="${c}" stroke-width="1.5" opacity="${op.toFixed(2)}" transform="rotate(${rot} ${x + size / 2} ${y + size / 2})"/>`);
+    } else {
+      marks.push(`<circle cx="${x}" cy="${y}" r="${r}" fill="none" stroke="${c}" stroke-width="1" opacity="${op.toFixed(2)}"/>`);
+    }
+  }
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}"><defs><radialGradient id="g" cx="${20 + rand() * 60}%" cy="${20 + rand() * 60}%" r="80%"><stop offset="0%" stop-color="${a}" stop-opacity="0.7"/><stop offset="55%" stop-color="${b}" stop-opacity="0.35"/><stop offset="100%" stop-color="${bg}" stop-opacity="1"/></radialGradient><filter id="blur"><feGaussianBlur stdDeviation="${20 + rand() * 40}"/></filter></defs><rect width="${w}" height="${h}" fill="${bg}"/><rect width="${w}" height="${h}" fill="url(#g)"/>${marks.join("")}</svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
+function photoUrl(prompt: string, w: number, h: number): string {
+  const seed = seedFrom(prompt);
+  return `https://picsum.photos/seed/${seed}/${w}/${h}`;
+}
+
+function imageUrl(prompt: string, w: number, h: number, palette: Palette, mediaStyle?: string): string {
+  const style = (mediaStyle || "").toLowerCase();
+  if (style === "photo") return photoUrl(prompt, w, h);
+  // default: bespoke signature (illustration/gradient/pattern) — no external dependency, unique per site
+  return signatureSvg(prompt, w, h, palette);
+}
+
+// Render a headline with optional highlight tokens: ~word~  or  **word**  → styled accent span.
+function renderHeadline(text: string, palette: Palette, displayFont?: string): (string | JSX.Element)[] {
+  if (!text) return [text];
+  const parts = text.split(/(~[^~]+~|\*\*[^*]+\*\*)/g);
+  return parts.map((part, i) => {
+    const m = part.match(/^~([^~]+)~$|^\*\*([^*]+)\*\*$/);
+    if (!m) return part;
+    const inner = m[1] || m[2];
+    return (
+      <span
+        key={i}
+        className="nz-hl"
+        style={{
+          color: palette.accent,
+          fontFamily: displayFont ? `'${displayFont}', serif` : undefined,
+          fontStyle: "italic",
+          fontWeight: 500,
+        }}
+      >
+        {inner}
+      </span>
+    );
+  });
 }
 
 // Simple safe formula: allow numbers, variable names, + - * / ( ) . spaces
@@ -173,7 +247,7 @@ export default function WebsitePreview() {
     meta.content = desc.slice(0, 160);
   }, [site, activePage]);
 
-  // Scroll reveal
+  // Scroll reveal + tilt + magnetic + scroll-driven bg shift
   const rootRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (theme.motion === "none") return;
@@ -181,7 +255,9 @@ export default function WebsitePreview() {
     if (reduce) return;
     const root = rootRef.current;
     if (!root) return;
-    const els = root.querySelectorAll<HTMLElement>("[data-reveal]");
+
+    // Reveal
+    const revealEls = root.querySelectorAll<HTMLElement>("[data-reveal]");
     const io = new IntersectionObserver((entries) => {
       entries.forEach((e) => {
         if (e.isIntersecting) {
@@ -190,8 +266,83 @@ export default function WebsitePreview() {
         }
       });
     }, { threshold: 0.12, rootMargin: "0px 0px -40px 0px" });
-    els.forEach((el) => io.observe(el));
-    return () => io.disconnect();
+    revealEls.forEach((el) => io.observe(el));
+
+    // Card tilt on hover (transform via CSS vars)
+    const cards = root.querySelectorAll<HTMLElement>(".nz-card");
+    const onCardMove = (ev: MouseEvent) => {
+      const el = ev.currentTarget as HTMLElement;
+      const r = el.getBoundingClientRect();
+      const x = (ev.clientX - r.left) / r.width - 0.5;
+      const y = (ev.clientY - r.top) / r.height - 0.5;
+      el.style.setProperty("--tx", `${(-y * 6).toFixed(2)}deg`);
+      el.style.setProperty("--ty", `${(x * 8).toFixed(2)}deg`);
+    };
+    const onCardLeave = (ev: MouseEvent) => {
+      const el = ev.currentTarget as HTMLElement;
+      el.style.setProperty("--tx", "0deg");
+      el.style.setProperty("--ty", "0deg");
+    };
+    cards.forEach((c) => {
+      c.addEventListener("mousemove", onCardMove);
+      c.addEventListener("mouseleave", onCardLeave);
+    });
+
+    // Magnetic pull on primary buttons
+    const mags = root.querySelectorAll<HTMLElement>(".nz-btn-primary, [data-magnetic]");
+    const onMagMove = (ev: MouseEvent) => {
+      const el = ev.currentTarget as HTMLElement;
+      const r = el.getBoundingClientRect();
+      const dx = ev.clientX - (r.left + r.width / 2);
+      const dy = ev.clientY - (r.top + r.height / 2);
+      el.style.setProperty("--mx", `${(dx * 0.25).toFixed(1)}px`);
+      el.style.setProperty("--my", `${(dy * 0.35).toFixed(1)}px`);
+    };
+    const onMagLeave = (ev: MouseEvent) => {
+      const el = ev.currentTarget as HTMLElement;
+      el.style.setProperty("--mx", "0px");
+      el.style.setProperty("--my", "0px");
+    };
+    mags.forEach((b) => {
+      b.addEventListener("mousemove", onMagMove);
+      b.addEventListener("mouseleave", onMagLeave);
+    });
+
+    // Scroll-driven background shift + parallax on hero image
+    const sections = root.querySelectorAll<HTMLElement>("section");
+    const onScroll = () => {
+      const vh = window.innerHeight;
+      let bestIdx = 0;
+      let bestDist = Infinity;
+      sections.forEach((s, i) => {
+        const r = s.getBoundingClientRect();
+        const d = Math.abs(r.top + r.height / 2 - vh / 2);
+        if (d < bestDist) { bestDist = d; bestIdx = i; }
+      });
+      // Subtly rotate the base hue every other section
+      root.style.setProperty("--scroll-tint", bestIdx % 2 === 0 ? "0" : "1");
+      // Parallax
+      root.querySelectorAll<HTMLElement>("[data-parallax]").forEach((el) => {
+        const r = el.getBoundingClientRect();
+        const p = (r.top + r.height / 2 - vh / 2) / vh;
+        el.style.transform = `translate3d(0, ${(-p * 24).toFixed(1)}px, 0)`;
+      });
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+
+    return () => {
+      io.disconnect();
+      cards.forEach((c) => {
+        c.removeEventListener("mousemove", onCardMove);
+        c.removeEventListener("mouseleave", onCardLeave);
+      });
+      mags.forEach((b) => {
+        b.removeEventListener("mousemove", onMagMove);
+        b.removeEventListener("mouseleave", onMagLeave);
+      });
+      window.removeEventListener("scroll", onScroll);
+    };
   }, [theme, activePage]);
 
   if (loading) {
@@ -232,15 +383,28 @@ export default function WebsitePreview() {
     }
     .nz-h { font-family: '${theme.font.display || theme.font.heading}', '${theme.font.heading}', system-ui, sans-serif; letter-spacing: -0.02em; }
     .nz-mono { font-family: '${theme.font.mono || "JetBrains Mono"}', ui-monospace, monospace; }
+    .nz-root { --scroll-tint: 0; }
     .nz-root a { color: var(--accent); }
-    .nz-btn-primary { background: var(--accent); color: var(--bg); transition: transform .2s ease, box-shadow .2s ease, filter .2s ease; }
-    .nz-btn-primary:hover { transform: translateY(-2px); box-shadow: 0 12px 30px -12px var(--accent); filter: brightness(1.05); }
-    .nz-btn-ghost { border: 1px solid var(--border); color: var(--text); transition: border-color .2s, background .2s; }
+    .nz-btn-primary {
+      background: var(--accent); color: var(--bg);
+      --mx: 0px; --my: 0px;
+      transform: translate3d(var(--mx), var(--my), 0);
+      transition: transform .35s cubic-bezier(.2,.7,.2,1), box-shadow .3s ease, filter .3s ease;
+    }
+    .nz-btn-primary:hover { box-shadow: 0 18px 40px -14px var(--accent); filter: brightness(1.08); }
+    .nz-btn-ghost { border: 1px solid var(--border); color: var(--text); transition: border-color .2s, background .2s, transform .3s ease; --mx:0px; --my:0px; transform: translate3d(var(--mx), var(--my), 0); }
     .nz-btn-ghost:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
-    .nz-card { background: var(--surface); border: 1px solid var(--border); transition: transform .3s ease, border-color .3s ease, box-shadow .3s ease; }
-    .nz-card:hover { transform: translateY(-4px); border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); box-shadow: 0 20px 40px -20px color-mix(in srgb, var(--accent) 40%, transparent); }
+    .nz-card {
+      background: var(--surface); border: 1px solid var(--border);
+      --tx: 0deg; --ty: 0deg;
+      transform-style: preserve-3d;
+      transform: perspective(900px) rotateX(var(--tx)) rotateY(var(--ty));
+      transition: transform .35s cubic-bezier(.2,.7,.2,1), border-color .3s ease, box-shadow .3s ease;
+    }
+    .nz-card:hover { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); box-shadow: 0 30px 60px -30px color-mix(in srgb, var(--accent) 50%, transparent); }
     .nz-input { background: color-mix(in srgb, var(--text) 6%, transparent); border: 1px solid var(--border); color: var(--text); }
     .nz-input:focus { outline: none; border-color: var(--accent); }
+    .nz-hl { background: linear-gradient(120deg, color-mix(in srgb, var(--accent) 22%, transparent), transparent 60%); padding: 0 .12em; border-radius: 2px; }
     [data-reveal] { opacity: 0; transform: translateY(24px); transition: opacity .8s cubic-bezier(.2,.7,.2,1), transform .8s cubic-bezier(.2,.7,.2,1); }
     [data-reveal][data-in="1"] { opacity: 1; transform: none; }
     [data-reveal-stagger] > * { opacity: 0; transform: translateY(20px); transition: opacity .7s cubic-bezier(.2,.7,.2,1), transform .7s cubic-bezier(.2,.7,.2,1); }
@@ -267,6 +431,7 @@ export default function WebsitePreview() {
     .nz-link { position: relative; display: inline-block; }
     .nz-link::after { content: ""; position: absolute; left: 0; right: 0; bottom: -3px; height: 1px; background: var(--accent); transform: scaleX(0); transform-origin: right; transition: transform .3s ease; }
     .nz-link:hover::after { transform: scaleX(1); transform-origin: left; }
+    section { transition: background-color .8s ease; }
   `;
 
   return (
@@ -305,6 +470,7 @@ export default function WebsitePreview() {
           layout={layout}
           containerMax={containerMax}
           index={idx}
+          displayFont={theme.font.display}
         />
       ))}
 
@@ -322,19 +488,22 @@ export default function WebsitePreview() {
 }
 
 function SectionBlock({
-  section, palette, layout, containerMax, index,
+  section, palette, layout, containerMax, index, displayFont,
 }: {
-  section: Section; palette: Palette; layout: string; containerMax: string; index: number;
+  section: Section; palette: Palette; layout: string; containerMax: string; index: number; displayFont?: string;
 }) {
   const c = section.content ?? {};
   const variant = section.variant ?? "";
-  const container = `${containerMax} mx-auto px-6 py-20 md:py-24`;
-  const heading = "nz-h text-3xl md:text-5xl font-bold tracking-tight mb-6";
+  // Density contrast: stats/logos tighter, hero/about/testimonials spacious
+  const dense = section.type === "stats" || section.type === "logos";
+  const container = `${containerMax} mx-auto px-6 ${dense ? "py-10 md:py-14" : "py-20 md:py-28"}`;
+  const headingCls = "nz-h text-3xl md:text-5xl font-bold tracking-tight mb-6";
   const eyebrow = "nz-mono text-[11px] uppercase tracking-[0.28em] mb-3";
+  const heading = headingCls; // legacy alias used below
 
   switch (section.type) {
     case "hero":
-      return <Hero c={c} variant={variant || (layout === "split" ? "split-image" : layout === "editorial" ? "editorial-lede" : layout === "brutalist" ? "asymmetric-mark" : layout === "minimal-luxury" ? "minimal-luxury" : "centered")} palette={palette} containerMax={containerMax} />;
+      return <Hero c={c} variant={variant || (layout === "split" ? "split-image" : layout === "editorial" ? "editorial-lede" : layout === "brutalist" ? "asymmetric-mark" : layout === "minimal-luxury" ? "minimal-luxury" : "centered")} palette={palette} containerMax={containerMax} displayFont={displayFont} />;
 
     case "about":
       return (
@@ -342,7 +511,7 @@ function SectionBlock({
           <div className={fieldStr(c, "image_prompt") ? "grid gap-10 md:grid-cols-2 items-center" : ""}>
             <div>
               <div className={eyebrow} style={{ color: palette.accent }}>About</div>
-              <h2 className={heading}>{fieldStr(c, "heading", "About")}</h2>
+              <h2 className={heading}>{renderHeadline(fieldStr(c, "heading", "About"), palette, displayFont)}</h2>
               <p className="text-lg opacity-85 max-w-2xl">{fieldStr(c, "body")}</p>
               {fieldStrArr(c, "bullets").length > 0 && (
                 <ul className="mt-6 grid gap-3 sm:grid-cols-2" data-reveal-stagger>
@@ -362,7 +531,7 @@ function SectionBlock({
             </div>
             {fieldStr(c, "image_prompt") && (
               <div className="nz-media rounded-2xl aspect-[4/5]" style={{ background: palette.surface }}>
-                <img src={imageUrl(fieldStr(c, "image_prompt"), 1200, 1500)} alt="" loading="lazy" />
+                <img src={imageUrl(fieldStr(c, "image_prompt"), 1200, 1500, palette, fieldStr(c, "media_style"))} alt="" loading="lazy" />
               </div>
             )}
           </div>
@@ -376,7 +545,7 @@ function SectionBlock({
         <section style={{ backgroundColor: palette.surface }} className="border-y" data-reveal>
           <div className={container} style={{ borderColor: palette.border }}>
             <div className={eyebrow} style={{ color: palette.accent }}>What we do</div>
-            <h2 className={heading}>{fieldStr(c, "heading", "Services")}</h2>
+            <h2 className={heading}>{renderHeadline(fieldStr(c, "heading", "Services"), palette, displayFont)}</h2>
             {v === "numbered" && (
               <div className="grid gap-8 md:grid-cols-2" data-reveal-stagger>
                 {items.map((it, i) => (
@@ -405,7 +574,7 @@ function SectionBlock({
                 {items.map((it, i) => (
                   <div key={i} className={`grid gap-8 md:grid-cols-2 items-center ${i % 2 ? "md:[&>div:first-child]:order-2" : ""}`} data-reveal>
                     <div className="nz-media rounded-2xl aspect-[4/3]" style={{ background: palette.bg }}>
-                      <img src={imageUrl(fieldStr(it, "image_prompt") || fieldStr(it, "title"), 1200, 900)} alt="" loading="lazy" />
+                      <img src={imageUrl(fieldStr(it, "image_prompt") || fieldStr(it, "title"), 1200, 900, palette)} alt="" loading="lazy" />
                     </div>
                     <div>
                       <div className={eyebrow} style={{ color: palette.accent }}>{String(i + 1).padStart(2, "0")}</div>
@@ -440,10 +609,10 @@ function SectionBlock({
         <section className={container} data-reveal>
           <div className={`grid gap-10 md:grid-cols-2 items-center ${reverse ? "md:[&>div:first-child]:order-2" : ""}`}>
             <div className="nz-media rounded-2xl aspect-[5/4]" style={{ background: palette.surface }}>
-              <img src={imageUrl(fieldStr(c, "image_prompt") || fieldStr(c, "heading"), 1400, 1120)} alt="" loading="lazy" />
+              <img src={imageUrl(fieldStr(c, "image_prompt") || fieldStr(c, "heading"), 1400, 1120, palette, fieldStr(c, "media_style"))} alt="" loading="lazy" />
             </div>
             <div>
-              <h2 className={heading}>{fieldStr(c, "heading")}</h2>
+              <h2 className={heading}>{renderHeadline(fieldStr(c, "heading"), palette, displayFont)}</h2>
               <p className="text-lg opacity-85">{fieldStr(c, "body")}</p>
               {fieldStrArr(c, "bullets").length > 0 && (
                 <ul className="mt-6 space-y-2">
@@ -464,7 +633,7 @@ function SectionBlock({
       const items = fieldArr<Record<string, unknown>>(c, "items");
       return (
         <section className={container} data-reveal>
-          <h2 className={heading}>{fieldStr(c, "heading", "What clients say")}</h2>
+          <h2 className={heading}>{renderHeadline(fieldStr(c, "heading", "What clients say"), palette, displayFont)}</h2>
           <div className="grid gap-6 md:grid-cols-2" data-reveal-stagger>
             {items.map((it, i) => (
               <blockquote key={i} className="nz-card rounded-xl p-6 border-l-4" style={{ borderLeftColor: palette.accent }}>
@@ -491,7 +660,7 @@ function SectionBlock({
       return (
         <section style={{ backgroundColor: palette.surface }} className="border-y" data-reveal>
           <div className={container} style={{ borderColor: palette.border }}>
-            <h2 className={heading}>{fieldStr(c, "heading", "Gallery")}</h2>
+            <h2 className={heading}>{renderHeadline(fieldStr(c, "heading", "Gallery"), palette, displayFont)}</h2>
             <div className={gridClass} data-reveal-stagger>
               {items.map((it, i) => {
                 const showcaseSpan = v === "showcase" ? (i % 5 === 0 ? "md:col-span-4 md:row-span-2" : "md:col-span-2") : "";
@@ -500,7 +669,7 @@ function SectionBlock({
                 return (
                   <div key={i} className={`nz-gallery-item ${showcaseSpan} ${stripSize} ${heightClass}`}
                     style={{ background: `linear-gradient(135deg, ${palette.accent}22, ${palette.accentSecondary}22)` }}>
-                    <img src={imageUrl(fieldStr(it, "image_prompt") || fieldStr(it, "caption"), 900, 900)} alt={fieldStr(it, "caption")} loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    <img src={imageUrl(fieldStr(it, "image_prompt") || fieldStr(it, "caption"), 900, 900, palette, "photo")} alt={fieldStr(it, "caption")} loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                     {fieldStr(it, "caption") && <div className="cap">{fieldStr(it, "caption")}</div>}
                   </div>
                 );
@@ -515,7 +684,7 @@ function SectionBlock({
       const items = fieldArr<Record<string, unknown>>(c, "items");
       return (
         <section className={container} data-reveal>
-          {fieldStr(c, "heading") && <h2 className={heading}>{fieldStr(c, "heading")}</h2>}
+          {fieldStr(c, "heading") && <h2 className={heading}>{renderHeadline(fieldStr(c, "heading"), palette, displayFont)}</h2>}
           <div className="grid gap-8 grid-cols-2 md:grid-cols-4" data-reveal-stagger>
             {items.map((it, i) => (
               <div key={i}>
@@ -533,7 +702,7 @@ function SectionBlock({
       return (
         <section style={{ backgroundColor: palette.surface }} className="border-y" data-reveal>
           <div className={container} style={{ borderColor: palette.border }}>
-            <h2 className={heading}>{fieldStr(c, "heading", "How it works")}</h2>
+            <h2 className={heading}>{renderHeadline(fieldStr(c, "heading", "How it works"), palette, displayFont)}</h2>
             <div className="grid gap-8 md:grid-cols-3 relative" data-reveal-stagger>
               {steps.map((st, i) => (
                 <div key={i} className="relative">
@@ -595,7 +764,7 @@ function SectionBlock({
           <div className="grid gap-10 md:grid-cols-2 items-start">
             <div>
               <div className={eyebrow} style={{ color: palette.accent }}>Contact</div>
-              <h2 className={heading}>{fieldStr(c, "heading", "Get in touch")}</h2>
+              <h2 className={heading}>{renderHeadline(fieldStr(c, "heading", "Get in touch"), palette, displayFont)}</h2>
               <p className="opacity-80">{fieldStr(c, "body")}</p>
               <ul className="mt-6 space-y-2 text-sm opacity-90">
                 {fieldStr(c, "email") && <li><span className="nz-link">✉ {fieldStr(c, "email")}</span></li>}
@@ -625,7 +794,7 @@ function SectionBlock({
       return (
         <section style={{ backgroundColor: palette.surface }} className="border-y" data-reveal>
           <div className={container} style={{ borderColor: palette.border }}>
-            <h2 className={heading}>{fieldStr(c, "heading", "Pricing")}</h2>
+            <h2 className={heading}>{renderHeadline(fieldStr(c, "heading", "Pricing"), palette, displayFont)}</h2>
             <div className="grid gap-6 md:grid-cols-3" data-reveal-stagger>
               {tiers.map((t, i) => {
                 const featured = !!t.featured;
@@ -666,7 +835,7 @@ function SectionBlock({
       const items = fieldArr<Record<string, unknown>>(c, "items");
       return (
         <section className={container} data-reveal>
-          <h2 className={heading}>{fieldStr(c, "heading", "FAQ")}</h2>
+          <h2 className={heading}>{renderHeadline(fieldStr(c, "heading", "FAQ"), palette, displayFont)}</h2>
           <div className="max-w-3xl space-y-3" data-reveal-stagger>
             {items.map((it, i) => (
               <details key={i} className="nz-card rounded-lg p-4 group">
@@ -683,7 +852,7 @@ function SectionBlock({
     }
 
     case "custom":
-      return <CustomBlock c={c} palette={palette} container={container} heading={heading} eyebrow={eyebrow} />;
+      return <CustomBlock c={c} palette={palette} container={container} heading={heading} eyebrow={eyebrow} displayFont={displayFont} />;
 
     default:
       return null;
@@ -691,8 +860,9 @@ function SectionBlock({
 }
 
 function Hero({
-  c, variant, palette, containerMax,
-}: { c: Record<string, unknown>; variant: string; palette: Palette; containerMax: string }) {
+  c, variant, palette, containerMax, displayFont,
+}: { c: Record<string, unknown>; variant: string; palette: Palette; containerMax: string; displayFont?: string }) {
+  const rHead = (t: string) => renderHeadline(t, palette, displayFont);
   const eyebrow = fieldStr(c, "eyebrow");
   const headline = fieldStr(c, "headline", "Welcome");
   const subheadline = fieldStr(c, "subheadline");
@@ -717,12 +887,12 @@ function Hero({
         <div className={`${containerMax} mx-auto px-6 py-20 md:py-28 grid gap-10 md:grid-cols-2 items-center`}>
           <div className="nz-hero-in">
             {eyebrowEl}
-            <h1 className="nz-h text-5xl md:text-7xl font-extrabold leading-[1.02] mt-3">{headline}</h1>
+            <h1 className="nz-h text-5xl md:text-7xl font-extrabold leading-[1.02] mt-3">{rHead(headline)}</h1>
             {subheadline && <p className="mt-5 text-lg opacity-80 max-w-lg">{subheadline}</p>}
             <div className="mt-8">{ctas}</div>
           </div>
-          <div className="nz-media rounded-3xl aspect-[4/5]" style={{ background: palette.surface }}>
-            {img && <img src={imageUrl(img, 1200, 1500)} alt="" />}
+          <div data-parallax className="nz-media rounded-3xl aspect-[4/5]" style={{ background: palette.surface }}>
+            {img && <img src={imageUrl(img, 1200, 1500, palette, fieldStr(c, "media_style"))} alt="" />}
           </div>
         </div>
       </section>
@@ -734,13 +904,13 @@ function Hero({
       <section className="relative overflow-hidden" style={{ minHeight: "88vh" }}>
         {img && (
           <div className="absolute inset-0 nz-media">
-            <img src={imageUrl(img, 1920, 1200)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+            <img src={imageUrl(img, 1920, 1200, palette, fieldStr(c, "media_style"))} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
             <div className="absolute inset-0" style={{ background: `linear-gradient(180deg, ${palette.bg}77 0%, ${palette.bg}dd 100%)` }} />
           </div>
         )}
         <div className={`${containerMax} mx-auto px-6 py-32 md:py-44 relative nz-hero-in`}>
           {eyebrowEl}
-          <h1 className="nz-h text-6xl md:text-8xl font-extrabold leading-[1.0] mt-3 max-w-4xl">{headline}</h1>
+          <h1 className="nz-h text-6xl md:text-8xl font-extrabold leading-[1.0] mt-3 max-w-4xl">{rHead(headline)}</h1>
           {subheadline && <p className="mt-6 text-xl opacity-90 max-w-2xl">{subheadline}</p>}
           <div className="mt-10">{ctas}</div>
         </div>
@@ -753,7 +923,7 @@ function Hero({
       <section className="border-b" style={{ borderColor: palette.border }}>
         <div className={`${containerMax} mx-auto px-6 py-24 md:py-32 nz-hero-in`}>
           {eyebrowEl}
-          <h1 className="nz-h text-6xl md:text-8xl font-black leading-[0.95] mt-4 max-w-5xl">{headline}</h1>
+          <h1 className="nz-h text-6xl md:text-8xl font-black leading-[0.95] mt-4 max-w-5xl">{rHead(headline)}</h1>
           {subheadline && <p className="mt-8 text-xl opacity-80 max-w-2xl border-l-2 pl-6" style={{ borderColor: palette.accent }}>{subheadline}</p>}
           <div className="mt-10">{ctas}</div>
         </div>
@@ -768,7 +938,7 @@ function Hero({
         <div className={`${containerMax} mx-auto px-6 py-24 md:py-36 grid md:grid-cols-12 gap-8 items-end relative nz-hero-in`}>
           <div className="md:col-span-8">
             {eyebrowEl}
-            <h1 className="nz-h text-6xl md:text-8xl font-black leading-[0.95] mt-4">{headline}</h1>
+            <h1 className="nz-h text-6xl md:text-8xl font-black leading-[0.95] mt-4">{rHead(headline)}</h1>
           </div>
           <div className="md:col-span-4">
             {subheadline && <p className="text-lg opacity-80">{subheadline}</p>}
@@ -784,7 +954,7 @@ function Hero({
       <section>
         <div className={`${containerMax} mx-auto px-6 py-32 md:py-48 text-center nz-hero-in`}>
           {eyebrowEl}
-          <h1 className="nz-h text-5xl md:text-7xl font-light tracking-tight leading-[1.05] mt-4">{headline}</h1>
+          <h1 className="nz-h text-5xl md:text-7xl font-light tracking-tight leading-[1.05] mt-4">{rHead(headline)}</h1>
           {subheadline && <p className="mt-8 text-lg opacity-70 max-w-xl mx-auto">{subheadline}</p>}
           <div className="mt-10 flex justify-center">{ctas}</div>
         </div>
@@ -797,7 +967,7 @@ function Hero({
     <section className="border-b" style={{ borderColor: palette.border, background: `linear-gradient(135deg, ${palette.bg} 0%, ${palette.surface} 100%)` }}>
       <div className={`${containerMax} mx-auto px-6 py-28 md:py-36 text-center nz-hero-in`}>
         {eyebrowEl}
-        <h1 className="nz-h text-5xl md:text-7xl font-extrabold tracking-tight leading-[1.05] mt-3">{headline}</h1>
+        <h1 className="nz-h text-5xl md:text-7xl font-extrabold tracking-tight leading-[1.05] mt-3">{rHead(headline)}</h1>
         {subheadline && <p className="mt-6 text-lg md:text-xl opacity-80 max-w-2xl mx-auto">{subheadline}</p>}
         <div className="mt-10 flex justify-center">{ctas}</div>
         {stats.length > 0 && (
@@ -816,8 +986,8 @@ function Hero({
 }
 
 function CustomBlock({
-  c, palette, container, heading, eyebrow,
-}: { c: Record<string, unknown>; palette: Palette; container: string; heading: string; eyebrow: string }) {
+  c, palette, container, heading, eyebrow, displayFont,
+}: { c: Record<string, unknown>; palette: Palette; container: string; heading: string; eyebrow: string; displayFont?: string }) {
   const kind = fieldStr(c, "kind");
   const fields = fieldArr<Record<string, unknown>>(c, "fields");
   const [values, setValues] = useState<Record<string, string>>({});
@@ -829,7 +999,7 @@ function CustomBlock({
     return (
       <section className={container} data-reveal>
         <div className={eyebrow} style={{ color: palette.accent }}>Estimator</div>
-        <h2 className={heading}>{fieldStr(c, "heading", "Quick estimate")}</h2>
+        <h2 className={heading}>{renderHeadline(fieldStr(c, "heading", "Quick estimate"), palette, displayFont)}</h2>
         <div className="grid gap-6 md:grid-cols-2 items-start">
           <div className="grid gap-4">
             {fields.map((f, i) => {
@@ -886,7 +1056,7 @@ function CustomBlock({
   // booking / quote / generic — real form
   return (
     <section className={container} data-reveal>
-      <h2 className={heading}>{fieldStr(c, "heading", kind || "Request")}</h2>
+      <h2 className={heading}>{renderHeadline(fieldStr(c, "heading", kind || "Request"), palette, displayFont)}</h2>
       {fieldStr(c, "body") && <p className="opacity-80 max-w-2xl">{fieldStr(c, "body")}</p>}
       <form className="mt-8 nz-card rounded-2xl p-6 grid gap-4 md:grid-cols-2 max-w-3xl"
         onSubmit={(e) => { e.preventDefault(); alert("Request sent."); }}>
