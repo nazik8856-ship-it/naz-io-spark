@@ -12,11 +12,23 @@ interface EntranceSplashProps {
 const EntranceSplash = ({ children }: EntranceSplashProps) => {
   // Default to true so the landing page is hidden on first paint;
   // useEffect immediately corrects this if the splash was already played.
-  const [showSplash, setShowSplash] = useState<boolean>(true);
+  // Skip splash entirely when we're rendered inside a preview iframe or on a
+  // route that must paint immediately (website preview embedded in the
+  // workspace). Otherwise the parent workspace would sit on a black screen for
+  // 2s+ before the site appears — indistinguishable from a "blank preview" bug.
+  const isPreviewRoute =
+    typeof window !== "undefined" &&
+    (window.location.pathname.startsWith("/website-preview") ||
+      window.self !== window.top);
+  const [showSplash, setShowSplash] = useState<boolean>(!isPreviewRoute);
   const [hasMounted, setHasMounted] = useState(false);
 
   useEffect(() => {
     setHasMounted(true);
+    if (isPreviewRoute) {
+      setShowSplash(false);
+      return;
+    }
     try {
       const played = sessionStorage.getItem(SESSION_KEY) === "1";
       if (played) {
