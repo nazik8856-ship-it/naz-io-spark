@@ -294,20 +294,32 @@ export default function WebsitePreview() {
     if (!id) return;
     let cancelled = false;
     (async () => {
-      setLoading(true);
-      const [{ data: siteRow, error: siteErr }, { data: pageRows }] = await Promise.all([
-        supabase.from("websites").select("id, name, tagline, theme").eq("id", id).maybeSingle(),
-        supabase.from("website_pages").select("id, slug, title, seo_description, sections, order_index").eq("website_id", id).order("order_index", { ascending: true }),
-      ]);
-      if (cancelled) return;
-      if (siteErr || !siteRow) {
-        setError(siteErr?.message ?? "Website not found");
-        setLoading(false);
-        return;
+      try {
+        setLoading(true);
+        setError(null);
+
+        // The preview runs in a fresh iframe document. Wait for the persisted
+        // session to hydrate before querying owner-protected website rows.
+        await supabase.auth.getSession();
+
+        const [siteResult, pagesResult] = await Promise.all([
+          supabase.from("websites").select("id, name, tagline, theme").eq("id", id).maybeSingle(),
+          supabase.from("website_pages").select("id, slug, title, seo_description, sections, order_index").eq("website_id", id).order("order_index", { ascending: true }),
+        ]);
+        if (cancelled) return;
+        if (siteResult.error) throw siteResult.error;
+        if (pagesResult.error) throw pagesResult.error;
+        if (!siteResult.data) throw new Error("Website not found or you no longer have access to it");
+
+        setSite(siteResult.data as unknown as Website);
+        setPages((pagesResult.data ?? []) as unknown as Page[]);
+      } catch (e) {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : "Could not load this website preview");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-      setSite(siteRow as unknown as Website);
-      setPages((pageRows ?? []) as unknown as Page[]);
-      setLoading(false);
     })();
     return () => { cancelled = true; };
   }, [id]);
