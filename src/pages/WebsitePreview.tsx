@@ -484,6 +484,17 @@ export default function WebsitePreview() {
     layout === "minimal-luxury" ? "max-w-4xl" :
     "max-w-6xl";
 
+  // Auto-derived thematic motif — reinforces the same subject across
+  // background pattern, dividers, stats, service cards, and footer.
+  const motif = useMemo(
+    () => motifFromPrompt(`${site.name ?? ""} ${site.tagline ?? ""} ${activePage?.title ?? ""}`),
+    [site, activePage]
+  );
+  const patternUrl = useMemo(
+    () => patternDataUri(motif.path, p, seedFrom(`${site.name ?? "site"}|${p.accent}`)),
+    [motif, p, site]
+  );
+
   // Scoped CSS — palette + fonts + animations
   const scopedCss = `
     .nz-root {
