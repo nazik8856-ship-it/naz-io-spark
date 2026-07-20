@@ -326,6 +326,20 @@ export default function WebsitePreview() {
   }, [site]);
 
   const activePage = pages.find((p) => p.slug === activeSlug) ?? pages[0];
+  const p = theme.palette;
+
+  // These memo hooks must run on every render, including the initial loading
+  // render. Keeping them below the loading/error returns caused React's hook
+  // order to change as soon as the website data arrived, crashing the iframe
+  // before any generated content could paint.
+  const motif = useMemo(
+    () => motifFromPrompt(`${site?.name ?? ""} ${site?.tagline ?? ""} ${activePage?.title ?? ""}`),
+    [site?.name, site?.tagline, activePage?.title]
+  );
+  const patternUrl = useMemo(
+    () => patternDataUri(motif.path, p, seedFrom(`${site?.name ?? "site"}|${p.accent}`)),
+    [motif.path, p, site?.name]
+  );
 
   // Fonts
   useEffect(() => {
@@ -476,24 +490,12 @@ export default function WebsitePreview() {
     );
   }
 
-  const p = theme.palette;
   const layout = theme.layout ?? "centered";
   const containerMax =
     layout === "editorial" || layout === "magazine" ? "max-w-5xl" :
     layout === "brutalist" ? "max-w-7xl" :
     layout === "minimal-luxury" ? "max-w-4xl" :
     "max-w-6xl";
-
-  // Auto-derived thematic motif — reinforces the same subject across
-  // background pattern, dividers, stats, service cards, and footer.
-  const motif = useMemo(
-    () => motifFromPrompt(`${site.name ?? ""} ${site.tagline ?? ""} ${activePage?.title ?? ""}`),
-    [site, activePage]
-  );
-  const patternUrl = useMemo(
-    () => patternDataUri(motif.path, p, seedFrom(`${site.name ?? "site"}|${p.accent}`)),
-    [motif, p, site]
-  );
 
   // Scoped CSS — palette + fonts + animations
   const scopedCss = `
