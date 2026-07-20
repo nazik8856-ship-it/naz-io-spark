@@ -247,7 +247,7 @@ export default function WebsitePreview() {
     meta.content = desc.slice(0, 160);
   }, [site, activePage]);
 
-  // Scroll reveal
+  // Scroll reveal + tilt + magnetic + scroll-driven bg shift
   const rootRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (theme.motion === "none") return;
@@ -255,7 +255,9 @@ export default function WebsitePreview() {
     if (reduce) return;
     const root = rootRef.current;
     if (!root) return;
-    const els = root.querySelectorAll<HTMLElement>("[data-reveal]");
+
+    // Reveal
+    const revealEls = root.querySelectorAll<HTMLElement>("[data-reveal]");
     const io = new IntersectionObserver((entries) => {
       entries.forEach((e) => {
         if (e.isIntersecting) {
@@ -264,8 +266,83 @@ export default function WebsitePreview() {
         }
       });
     }, { threshold: 0.12, rootMargin: "0px 0px -40px 0px" });
-    els.forEach((el) => io.observe(el));
-    return () => io.disconnect();
+    revealEls.forEach((el) => io.observe(el));
+
+    // Card tilt on hover (transform via CSS vars)
+    const cards = root.querySelectorAll<HTMLElement>(".nz-card");
+    const onCardMove = (ev: MouseEvent) => {
+      const el = ev.currentTarget as HTMLElement;
+      const r = el.getBoundingClientRect();
+      const x = (ev.clientX - r.left) / r.width - 0.5;
+      const y = (ev.clientY - r.top) / r.height - 0.5;
+      el.style.setProperty("--tx", `${(-y * 6).toFixed(2)}deg`);
+      el.style.setProperty("--ty", `${(x * 8).toFixed(2)}deg`);
+    };
+    const onCardLeave = (ev: MouseEvent) => {
+      const el = ev.currentTarget as HTMLElement;
+      el.style.setProperty("--tx", "0deg");
+      el.style.setProperty("--ty", "0deg");
+    };
+    cards.forEach((c) => {
+      c.addEventListener("mousemove", onCardMove);
+      c.addEventListener("mouseleave", onCardLeave);
+    });
+
+    // Magnetic pull on primary buttons
+    const mags = root.querySelectorAll<HTMLElement>(".nz-btn-primary, [data-magnetic]");
+    const onMagMove = (ev: MouseEvent) => {
+      const el = ev.currentTarget as HTMLElement;
+      const r = el.getBoundingClientRect();
+      const dx = ev.clientX - (r.left + r.width / 2);
+      const dy = ev.clientY - (r.top + r.height / 2);
+      el.style.setProperty("--mx", `${(dx * 0.25).toFixed(1)}px`);
+      el.style.setProperty("--my", `${(dy * 0.35).toFixed(1)}px`);
+    };
+    const onMagLeave = (ev: MouseEvent) => {
+      const el = ev.currentTarget as HTMLElement;
+      el.style.setProperty("--mx", "0px");
+      el.style.setProperty("--my", "0px");
+    };
+    mags.forEach((b) => {
+      b.addEventListener("mousemove", onMagMove);
+      b.addEventListener("mouseleave", onMagLeave);
+    });
+
+    // Scroll-driven background shift + parallax on hero image
+    const sections = root.querySelectorAll<HTMLElement>("section");
+    const onScroll = () => {
+      const vh = window.innerHeight;
+      let bestIdx = 0;
+      let bestDist = Infinity;
+      sections.forEach((s, i) => {
+        const r = s.getBoundingClientRect();
+        const d = Math.abs(r.top + r.height / 2 - vh / 2);
+        if (d < bestDist) { bestDist = d; bestIdx = i; }
+      });
+      // Subtly rotate the base hue every other section
+      root.style.setProperty("--scroll-tint", bestIdx % 2 === 0 ? "0" : "1");
+      // Parallax
+      root.querySelectorAll<HTMLElement>("[data-parallax]").forEach((el) => {
+        const r = el.getBoundingClientRect();
+        const p = (r.top + r.height / 2 - vh / 2) / vh;
+        el.style.transform = `translate3d(0, ${(-p * 24).toFixed(1)}px, 0)`;
+      });
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+
+    return () => {
+      io.disconnect();
+      cards.forEach((c) => {
+        c.removeEventListener("mousemove", onCardMove);
+        c.removeEventListener("mouseleave", onCardLeave);
+      });
+      mags.forEach((b) => {
+        b.removeEventListener("mousemove", onMagMove);
+        b.removeEventListener("mouseleave", onMagLeave);
+      });
+      window.removeEventListener("scroll", onScroll);
+    };
   }, [theme, activePage]);
 
   if (loading) {
