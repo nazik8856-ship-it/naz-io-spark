@@ -436,7 +436,7 @@ function SectionBlock({
             </div>
             {fieldStr(c, "image_prompt") && (
               <div className="nz-media rounded-2xl aspect-[4/5]" style={{ background: palette.surface }}>
-                <img src={imageUrl(fieldStr(c, "image_prompt"), 1200, 1500)} alt="" loading="lazy" />
+                <img src={imageUrl(fieldStr(c, "image_prompt"), 1200, 1500, palette, fieldStr(c, "media_style"))} alt="" loading="lazy" />
               </div>
             )}
           </div>
@@ -479,7 +479,7 @@ function SectionBlock({
                 {items.map((it, i) => (
                   <div key={i} className={`grid gap-8 md:grid-cols-2 items-center ${i % 2 ? "md:[&>div:first-child]:order-2" : ""}`} data-reveal>
                     <div className="nz-media rounded-2xl aspect-[4/3]" style={{ background: palette.bg }}>
-                      <img src={imageUrl(fieldStr(it, "image_prompt") || fieldStr(it, "title"), 1200, 900)} alt="" loading="lazy" />
+                      <img src={imageUrl(fieldStr(it, "image_prompt") || fieldStr(it, "title"), 1200, 900, palette)} alt="" loading="lazy" />
                     </div>
                     <div>
                       <div className={eyebrow} style={{ color: palette.accent }}>{String(i + 1).padStart(2, "0")}</div>
@@ -514,7 +514,7 @@ function SectionBlock({
         <section className={container} data-reveal>
           <div className={`grid gap-10 md:grid-cols-2 items-center ${reverse ? "md:[&>div:first-child]:order-2" : ""}`}>
             <div className="nz-media rounded-2xl aspect-[5/4]" style={{ background: palette.surface }}>
-              <img src={imageUrl(fieldStr(c, "image_prompt") || fieldStr(c, "heading"), 1400, 1120)} alt="" loading="lazy" />
+              <img src={imageUrl(fieldStr(c, "image_prompt") || fieldStr(c, "heading"), 1400, 1120, palette, fieldStr(c, "media_style"))} alt="" loading="lazy" />
             </div>
             <div>
               <h2 className={heading}>{fieldStr(c, "heading")}</h2>
@@ -574,7 +574,7 @@ function SectionBlock({
                 return (
                   <div key={i} className={`nz-gallery-item ${showcaseSpan} ${stripSize} ${heightClass}`}
                     style={{ background: `linear-gradient(135deg, ${palette.accent}22, ${palette.accentSecondary}22)` }}>
-                    <img src={imageUrl(fieldStr(it, "image_prompt") || fieldStr(it, "caption"), 900, 900)} alt={fieldStr(it, "caption")} loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    <img src={imageUrl(fieldStr(it, "image_prompt") || fieldStr(it, "caption"), 900, 900, palette, "photo")} alt={fieldStr(it, "caption")} loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                     {fieldStr(it, "caption") && <div className="cap">{fieldStr(it, "caption")}</div>}
                   </div>
                 );
@@ -796,7 +796,7 @@ function Hero({
             <div className="mt-8">{ctas}</div>
           </div>
           <div className="nz-media rounded-3xl aspect-[4/5]" style={{ background: palette.surface }}>
-            {img && <img src={imageUrl(img, 1200, 1500)} alt="" />}
+            {img && <img src={imageUrl(img, 1200, 1500, palette, fieldStr(c, "media_style"))} alt="" />}
           </div>
         </div>
       </section>
@@ -808,7 +808,7 @@ function Hero({
       <section className="relative overflow-hidden" style={{ minHeight: "88vh" }}>
         {img && (
           <div className="absolute inset-0 nz-media">
-            <img src={imageUrl(img, 1920, 1200)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+            <img src={imageUrl(img, 1920, 1200, palette, fieldStr(c, "media_style"))} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
             <div className="absolute inset-0" style={{ background: `linear-gradient(180deg, ${palette.bg}77 0%, ${palette.bg}dd 100%)` }} />
           </div>
         )}
