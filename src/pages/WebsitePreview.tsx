@@ -1056,8 +1056,8 @@ function SectionBlock({
 }
 
 function Hero({
-  c, variant, palette, containerMax, displayFont,
-}: { c: Record<string, unknown>; variant: string; palette: Palette; containerMax: string; displayFont?: string }) {
+  c, variant, palette, containerMax, displayFont, motif,
+}: { c: Record<string, unknown>; variant: string; palette: Palette; containerMax: string; displayFont?: string; motif?: { key: string; path: string } }) {
   const rHead = (t: string) => renderHeadline(t, palette, displayFont);
   const eyebrow = fieldStr(c, "eyebrow");
   const headline = fieldStr(c, "headline", "Welcome");
@@ -1068,12 +1068,29 @@ function Hero({
   const stats = fieldArr<Record<string, unknown>>(c, "stats");
 
   const eyebrowEl = eyebrow && (
-    <div className="nz-mono text-[11px] uppercase tracking-[0.32em]" style={{ color: palette.accent }}>{eyebrow}</div>
+    <div className="nz-mono text-[11px] uppercase tracking-[0.32em] inline-flex items-center gap-2" style={{ color: palette.accent }}>
+      {motif && <MotifIcon path={motif.path} color={palette.accent} size={12} />}
+      {eyebrow}
+    </div>
   );
   const ctas = (
     <div className="flex items-center gap-3 flex-wrap">
       {ctaP && <button className="nz-btn-primary px-6 py-3 rounded-lg font-semibold">{ctaP}</button>}
       {ctaS && <button className="nz-btn-ghost px-6 py-3 rounded-lg font-semibold">{ctaS}</button>}
+    </div>
+  );
+
+  // Shared decorative layer for hero sections — soft blobs + slowly spinning motif
+  const decor = (big = false) => (
+    <div className="nz-hero-decor" aria-hidden="true">
+      <span className="nz-blob a" />
+      <span className="nz-blob b" />
+      <span className="nz-blob c" />
+      {motif && (
+        <svg viewBox="0 0 24 24" className={`nz-hero-motif ${big ? "big" : ""}`} fill="none" stroke="currentColor" strokeWidth={1} strokeLinecap="round" strokeLinejoin="round">
+          <path d={motif.path} />
+        </svg>
+      )}
     </div>
   );
 
