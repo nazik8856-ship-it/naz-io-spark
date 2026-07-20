@@ -133,10 +133,8 @@ export default function GeneratedDashboard() {
     return () => { cancelled = true; };
   }, [kind, id, user?.id]);
 
-  const websiteData = useMemo(
-    () => (website ? synthesizeWebsiteManifest(website, pages) : null),
-    [website, pages],
-  );
+
+
 
   const sendWebsiteEdit = async (text: string) => {
     if (!id) return;
