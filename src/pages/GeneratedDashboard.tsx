@@ -593,6 +593,61 @@ export default function GeneratedDashboard() {
           )}
         </section>
       </div>
+      {publishOpen && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+          onClick={() => !savingDomain && setPublishOpen(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-white/10 bg-[#0a0f1e] shadow-[0_20px_80px_-20px_rgba(34,211,238,0.3)] p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-2 mb-1">
+              <Rocket className="h-4 w-4 text-cyan-300" />
+              <h3 className="text-white font-semibold">Publish website</h3>
+            </div>
+            <p className="text-xs text-white/50 mb-4">
+              Add a custom domain now, or skip to keep the current setup.
+            </p>
+            <label className="block text-[11px] font-mono uppercase tracking-[0.2em] text-white/40 mb-2">
+              Custom domain (optional)
+            </label>
+            <input
+              value={domainInput}
+              onChange={(e) => setDomainInput(e.target.value)}
+              placeholder="yourdomain.com"
+              autoFocus
+              className="w-full px-3 py-2 rounded-lg bg-black/50 border border-white/10 focus:border-cyan-400/60 focus:outline-none text-sm text-white placeholder:text-white/30"
+            />
+            {website?.custom_domain && (
+              <p className="mt-2 text-[11px] text-white/40">
+                Saved: <span className="text-cyan-300/80 font-mono">{website.custom_domain}</span>
+              </p>
+            )}
+            <p className="mt-3 text-[11px] text-white/40 leading-relaxed">
+              Domains are stored securely on your account. After saving, point an A record for the root and{" "}
+              <span className="font-mono">www</span> to <span className="font-mono text-white/70">185.158.133.1</span> at your registrar.
+            </p>
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                disabled={savingDomain}
+                onClick={() => confirmPublish({ saveDomain: false })}
+                className="px-3 py-1.5 rounded-md text-xs text-white/70 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 transition disabled:opacity-50"
+              >
+                Skip
+              </button>
+              <button
+                disabled={savingDomain}
+                onClick={() => confirmPublish({ saveDomain: true })}
+                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-md text-xs font-semibold text-[#001018] bg-gradient-to-r from-cyan-300 to-cyan-400 hover:from-cyan-200 hover:to-cyan-300 transition disabled:opacity-60"
+              >
+                {savingDomain ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Rocket className="h-3.5 w-3.5" />}
+                {domainInput.trim() ? "Save & publish" : "Publish"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
