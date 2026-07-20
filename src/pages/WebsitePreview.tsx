@@ -130,6 +130,118 @@ function imageUrl(prompt: string, w: number, h: number, palette: Palette, mediaS
   return signatureSvg(prompt, w, h, palette);
 }
 
+// ─── Thematic motif system ────────────────────────────────────────────────
+// A small library of subject icons expressed as SVG paths. The renderer picks
+// one based on keywords in the site name/tagline/prompt so every decorative
+// element (pattern, dividers, stats markers, footer) reinforces the theme.
+const MOTIFS: Record<string, string> = {
+  coffee: "M6 8h9a4 4 0 010 8h-1M6 8v9a3 3 0 003 3h3a3 3 0 003-3v-1M6 8H4",
+  leaf: "M4 20c8 0 16-8 16-16-8 0-16 8-16 16zM4 20l8-8",
+  spark: "M12 2v6M12 16v6M2 12h6M16 12h6M5 5l4 4M15 15l4 4M19 5l-4 4M9 15l-4 4",
+  wave: "M2 12c2-4 4-4 6 0s4 4 6 0 4-4 6 0",
+  mountain: "M3 20l6-10 4 6 3-4 5 8H3z",
+  gear: "M12 8a4 4 0 100 8 4 4 0 000-8zM12 3v3M12 18v3M5 5l2 2M17 17l2 2M3 12h3M18 12h3M5 19l2-2M17 7l2-2",
+  code: "M8 6l-6 6 6 6M16 6l6 6-6 6M14 4l-4 16",
+  brush: "M4 20c6-2 10-6 12-12l-4-4C6 6 2 10 4 20z",
+  camera: "M4 8h4l2-3h4l2 3h4v11H4zM12 17a4 4 0 100-8 4 4 0 000 8z",
+  music: "M9 18V6l10-2v12M9 18a2 2 0 11-4 0 2 2 0 014 0zM19 16a2 2 0 11-4 0 2 2 0 014 0z",
+  plane: "M2 12l20-8-8 20-2-8-10-4z",
+  book: "M4 4h7a4 4 0 014 4v12H8a4 4 0 01-4-4V4zM20 4h-5",
+  dumbbell: "M6 8v8M4 10v4M10 6v12M18 6v12M14 8v8M20 10v4M10 12h4",
+  home: "M3 12l9-8 9 8v9h-6v-6H9v6H3z",
+  chart: "M4 20V10M10 20V4M16 20v-8M22 20V8",
+  flame: "M12 2c2 4 6 6 6 11a6 6 0 01-12 0c0-3 2-4 3-7 1 2 3 2 3-4z",
+  diamond: "M6 3h12l4 6-10 12L2 9z",
+  bolt: "M13 2L4 14h7l-1 8 9-12h-7z",
+  star: "M12 2l3 7h7l-6 4 2 8-6-5-6 5 2-8-6-4h7z",
+  flower: "M12 3a3 3 0 100 6 3 3 0 000-6zM12 15a3 3 0 100 6 3 3 0 000-6zM6 12a3 3 0 10-6 0 3 3 0 006 0zM24 12a3 3 0 10-6 0 3 3 0 006 0z",
+  compass: "M12 2a10 10 0 100 20 10 10 0 000-20zM8 16l3-7 5-1-2 7z",
+  hotel: "M3 21V10l9-6 9 6v11h-6v-6H9v6z",
+  paw: "M6 12a2 2 0 11-4 0 2 2 0 014 0zM22 12a2 2 0 11-4 0 2 2 0 014 0zM10 6a2 2 0 11-4 0 2 2 0 014 0zM18 6a2 2 0 11-4 0 2 2 0 014 0zM12 22c4 0 6-4 6-6a4 4 0 00-12 0c0 2 2 6 6 6z",
+  scissors: "M6 4l14 14M6 20L20 6M8 6a2 2 0 11-4 0 2 2 0 014 0zM8 20a2 2 0 11-4 0 2 2 0 014 0z",
+  bike: "M5 18a3 3 0 100-6 3 3 0 000 6zM19 18a3 3 0 100-6 3 3 0 000 6zM5 15l4-8h4l3 8M9 7l6 8",
+};
+
+const MOTIF_KEYWORDS: [RegExp, keyof typeof MOTIFS][] = [
+  [/coffee|cafe|espresso|roast|barista|latte/i, "coffee"],
+  [/wellness|yoga|meditat|spa|therap|calm|mindful/i, "flower"],
+  [/leaf|plant|garden|botan|nature|eco|sustain|forest|organic/i, "leaf"],
+  [/mountain|hike|adventure|outdoor|climb|trail|explore/i, "mountain"],
+  [/wave|surf|ocean|sea|beach|swim|marine|water|pool/i, "wave"],
+  [/photo|camera|film|cinema|videograph/i, "camera"],
+  [/music|band|dj|record|sound|audio|vinyl/i, "music"],
+  [/travel|flight|tour|airline|voyage/i, "plane"],
+  [/book|library|read|publish|literature|novel|editor/i, "book"],
+  [/gym|fitness|workout|train|strength|athlet|crossfit|pilates/i, "dumbbell"],
+  [/pet|dog|cat|vet|animal|groom/i, "paw"],
+  [/salon|barber|hair|beauty|nails/i, "scissors"],
+  [/bike|cycle|cycling|bicycle/i, "bike"],
+  [/hotel|hospitality|resort|inn|bnb|stay/i, "hotel"],
+  [/real estate|property|realtor|interior|home|architect/i, "home"],
+  [/analytic|data|finance|invest|market|trading|fintech/i, "chart"],
+  [/food|restaurant|kitchen|chef|dining|bake|patisserie|bistro/i, "flame"],
+  [/luxury|jewel|diamond|premium|prestige|couture/i, "diamond"],
+  [/energy|electric|power|solar|voltage|charge/i, "bolt"],
+  [/award|elite|premier|top|hall of fame/i, "star"],
+  [/code|dev|software|api|engineer|program|saas|app|platform|ai\b/i, "code"],
+  [/art|paint|design|brand|creative|craft|illustrat/i, "brush"],
+  [/mechan|auto|machin|industri|manufactur|garage/i, "gear"],
+  [/compass|discovery|journey|guide/i, "compass"],
+];
+
+function motifFromPrompt(text: string): { key: string; path: string } {
+  const t = (text || "").toLowerCase();
+  for (const [re, key] of MOTIF_KEYWORDS) {
+    if (re.test(t)) return { key, path: MOTIFS[key] };
+  }
+  return { key: "spark", path: MOTIFS.spark };
+}
+
+// Tiled background pattern: subtle dot grid seeded with the site's motif at a
+// randomized position — every site gets a distinct decorative weave.
+function patternDataUri(motifPath: string, palette: Palette, seed: number): string {
+  const rand = rng(seed);
+  const c = palette.accent;
+  const c2 = palette.accentSecondary || c;
+  const size = 180;
+  const dots: string[] = [];
+  for (let x = 10; x < size; x += 22) {
+    for (let y = 10; y < size; y += 22) {
+      dots.push(`<circle cx="${x}" cy="${y}" r="0.9" fill="${c}" opacity="0.30"/>`);
+    }
+  }
+  const mx = Math.floor(rand() * (size - 60)) + 20;
+  const my = Math.floor(rand() * (size - 60)) + 20;
+  const rot = Math.floor(rand() * 360);
+  const motif = `<g transform="translate(${mx} ${my}) rotate(${rot}) scale(1.4)"><path d="${motifPath}" fill="none" stroke="${c2}" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.55"/></g>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${dots.join("")}${motif}</svg>`;
+  return `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}")`;
+}
+
+// Grain overlay for texture — pure SVG turbulence, palette-agnostic.
+const GRAIN_URI = `url("data:image/svg+xml;utf8,${encodeURIComponent(
+  `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.5 0"/></filter><rect width="200" height="200" filter="url(#n)"/></svg>`
+)}")`;
+
+// Reusable inline motif icon
+function MotifIcon({ path, color, size = 20, strokeWidth = 1.6, className }: { path: string; color: string; size?: number; strokeWidth?: number; className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d={path} />
+    </svg>
+  );
+}
+
+function SectionDivider({ path, palette }: { path: string; palette: Palette }) {
+  return (
+    <div className="nz-divider" aria-hidden="true">
+      <span className="nz-divider-line" style={{ background: `linear-gradient(90deg, transparent, ${palette.accent}55, transparent)` }} />
+      <MotifIcon path={path} color={palette.accent} size={18} strokeWidth={1.4} />
+      <span className="nz-divider-line" style={{ background: `linear-gradient(90deg, transparent, ${palette.accent}55, transparent)` }} />
+    </div>
+  );
+}
+
 // Render a headline with optional highlight tokens: ~word~  or  **word**  → styled accent span.
 function renderHeadline(text: string, palette: Palette, displayFont?: string): (string | JSX.Element)[] {
   if (!text) return [text];
