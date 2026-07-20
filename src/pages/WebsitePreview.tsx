@@ -65,7 +65,7 @@ function fieldBool(o: Record<string, unknown>, k: string): boolean {
   return !!o[k];
 }
 
-// Deterministic hash → stable Unsplash query
+// Deterministic hash → stable seed
 function seedFrom(s: string): number {
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) {
@@ -74,11 +74,85 @@ function seedFrom(s: string): number {
   }
   return h;
 }
-function imageUrl(prompt: string, w = 1600, h = 1000): string {
-  const clean = prompt.trim().slice(0, 120);
-  const seed = seedFrom(clean);
-  const q = encodeURIComponent(clean.replace(/[^\w\s,]/g, " ").split(/\s+/).slice(0, 6).join(","));
-  return `https://source.unsplash.com/${w}x${h}/?${q}&sig=${seed}`;
+// PRNG from a numeric seed
+function rng(seed: number) {
+  let s = seed || 1;
+  return () => {
+    s = (s * 9301 + 49297) % 233280;
+    return s / 233280;
+  };
+}
+
+// Bespoke SVG "signature" — gradient mesh + geometric marks — deterministic per (prompt+palette).
+// Guarantees every site gets a unique visual identity instead of stock photography.
+function signatureSvg(prompt: string, w: number, h: number, palette: Palette): string {
+  const seed = seedFrom(prompt + "|" + palette.accent + "|" + palette.accentSecondary);
+  const rand = rng(seed);
+  const a = palette.accent;
+  const b = palette.accentSecondary || palette.accent;
+  const bg = palette.surface;
+  const marks: string[] = [];
+  const kind = seed % 4;
+  const n = 5 + Math.floor(rand() * 4);
+  for (let i = 0; i < n; i++) {
+    const x = Math.floor(rand() * w);
+    const y = Math.floor(rand() * h);
+    const r = 40 + Math.floor(rand() * Math.min(w, h) * 0.35);
+    const op = 0.10 + rand() * 0.35;
+    const c = i % 2 === 0 ? a : b;
+    if (kind === 0) {
+      marks.push(`<circle cx="${x}" cy="${y}" r="${r}" fill="${c}" opacity="${op.toFixed(2)}" filter="url(#blur)"/>`);
+    } else if (kind === 1) {
+      const x2 = Math.floor(rand() * w);
+      const y2 = Math.floor(rand() * h);
+      marks.push(`<line x1="${x}" y1="${y}" x2="${x2}" y2="${y2}" stroke="${c}" stroke-width="${1 + rand() * 3}" opacity="${op.toFixed(2)}"/>`);
+    } else if (kind === 2) {
+      const size = r;
+      const rot = Math.floor(rand() * 360);
+      marks.push(`<rect x="${x}" y="${y}" width="${size}" height="${size}" fill="none" stroke="${c}" stroke-width="1.5" opacity="${op.toFixed(2)}" transform="rotate(${rot} ${x + size / 2} ${y + size / 2})"/>`);
+    } else {
+      marks.push(`<circle cx="${x}" cy="${y}" r="${r}" fill="none" stroke="${c}" stroke-width="1" opacity="${op.toFixed(2)}"/>`);
+    }
+  }
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}"><defs><radialGradient id="g" cx="${20 + rand() * 60}%" cy="${20 + rand() * 60}%" r="80%"><stop offset="0%" stop-color="${a}" stop-opacity="0.7"/><stop offset="55%" stop-color="${b}" stop-opacity="0.35"/><stop offset="100%" stop-color="${bg}" stop-opacity="1"/></radialGradient><filter id="blur"><feGaussianBlur stdDeviation="${20 + rand() * 40}"/></filter></defs><rect width="${w}" height="${h}" fill="${bg}"/><rect width="${w}" height="${h}" fill="url(#g)"/>${marks.join("")}</svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
+function photoUrl(prompt: string, w: number, h: number): string {
+  const seed = seedFrom(prompt);
+  return `https://picsum.photos/seed/${seed}/${w}/${h}`;
+}
+
+function imageUrl(prompt: string, w: number, h: number, palette: Palette, mediaStyle?: string): string {
+  const style = (mediaStyle || "").toLowerCase();
+  if (style === "photo") return photoUrl(prompt, w, h);
+  // default: bespoke signature (illustration/gradient/pattern) — no external dependency, unique per site
+  return signatureSvg(prompt, w, h, palette);
+}
+
+// Render a headline with optional highlight tokens: ~word~  or  **word**  → styled accent span.
+function renderHeadline(text: string, palette: Palette, displayFont?: string): (string | JSX.Element)[] {
+  if (!text) return [text];
+  const parts = text.split(/(~[^~]+~|\*\*[^*]+\*\*)/g);
+  return parts.map((part, i) => {
+    const m = part.match(/^~([^~]+)~$|^\*\*([^*]+)\*\*$/);
+    if (!m) return part;
+    const inner = m[1] || m[2];
+    return (
+      <span
+        key={i}
+        className="nz-hl"
+        style={{
+          color: palette.accent,
+          fontFamily: displayFont ? `'${displayFont}', serif` : undefined,
+          fontStyle: "italic",
+          fontWeight: 500,
+        }}
+      >
+        {inner}
+      </span>
+    );
+  });
 }
 
 // Simple safe formula: allow numbers, variable names, + - * / ( ) . spaces
