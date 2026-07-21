@@ -367,7 +367,8 @@ export async function analyzeAndBuildContext(
   attachments: Attachment[],
   kind: "website" | "agent" | "generic" = "generic",
 ): Promise<{ enrichedPrompt: string; analysis: Record<string, unknown> | null }> {
-  // Nothing to analyze — passthrough with tone only.
+  // Attached references need a dedicated reading pass. Bare prompts are
+  // analyzed by the website/agent compiler itself to avoid duplicate AI calls.
   if (attachments.length === 0) {
     return { enrichedPrompt: buildContextPrompt(basePrompt, tone, attachments), analysis: null };
   }

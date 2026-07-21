@@ -32,6 +32,19 @@ type Website = {
   theme: Partial<Theme> | null;
 };
 
+type PreviewCache = { website: Website; pages: Page[]; cachedAt?: number };
+
+function readPreviewCache(id?: string): PreviewCache | null {
+  if (!id || typeof window === "undefined") return null;
+  try {
+    const parsed = JSON.parse(localStorage.getItem(`nazai_website_preview_${id}`) || "null") as PreviewCache | null;
+    if (!parsed?.website?.id || parsed.website.id !== id || !Array.isArray(parsed.pages)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 const DEFAULT_PALETTE: Palette = {
   bg: "#0B0B0F",
   surface: "#151520",
@@ -284,9 +297,10 @@ export default function WebsitePreview() {
   const { id } = useParams<{ id: string }>();
   const [params] = useSearchParams();
   const navigate = useNavigate();
-  const [site, setSite] = useState<Website | null>(null);
-  const [pages, setPages] = useState<Page[]>([]);
-  const [loading, setLoading] = useState(true);
+  const initialCache = useMemo(() => readPreviewCache(id), [id]);
+  const [site, setSite] = useState<Website | null>(() => initialCache?.website ?? null);
+  const [pages, setPages] = useState<Page[]>(() => initialCache?.pages ?? []);
+  const [loading, setLoading] = useState(() => !initialCache);
   const [error, setError] = useState<string | null>(null);
   const [activeSlug, setActiveSlug] = useState<string>(params.get("page") ?? "home");
 
@@ -295,7 +309,7 @@ export default function WebsitePreview() {
     let cancelled = false;
     (async () => {
       try {
-        setLoading(true);
+        setLoading(!initialCache);
         setError(null);
 
         // The preview runs in a fresh iframe document. Wait for the persisted
@@ -313,16 +327,26 @@ export default function WebsitePreview() {
 
         setSite(siteResult.data as unknown as Website);
         setPages((pagesResult.data ?? []) as unknown as Page[]);
+        try {
+          localStorage.setItem(
+            `nazai_website_preview_${id}`,
+            JSON.stringify({ website: siteResult.data, pages: pagesResult.data ?? [], cachedAt: Date.now() }),
+          );
+        } catch {
+          // Cache is best-effort; a successful database render does not depend on it.
+        }
       } catch (e) {
         if (!cancelled) {
-          setError(e instanceof Error ? e.message : "Could not load this website preview");
+          // Keep a valid cached preview visible if iframe auth/network hydration
+          // is temporarily unavailable instead of replacing it with a dark pane.
+          if (!initialCache) setError(e instanceof Error ? e.message : "Could not load this website preview");
         }
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [id]);
+  }, [id, initialCache]);
 
   const theme = useMemo<Theme>(() => {
     const t = site?.theme;
@@ -395,7 +419,7 @@ export default function WebsitePreview() {
     if (!root) return;
 
     // Reveal
-    const revealEls = root.querySelectorAll<HTMLElement>("[data-reveal]");
+    const revealEls = root.querySelectorAll<HTMLElement>("[data-reveal], [data-reveal-stagger]");
     const io = new IntersectionObserver((entries) => {
       entries.forEach((e) => {
         if (e.isIntersecting) {
@@ -542,9 +566,9 @@ export default function WebsitePreview() {
     .nz-input { background: color-mix(in srgb, var(--text) 6%, transparent); border: 1px solid var(--border); color: var(--text); }
     .nz-input:focus { outline: none; border-color: var(--accent); }
     .nz-hl { background: linear-gradient(120deg, color-mix(in srgb, var(--accent) 22%, transparent), transparent 60%); padding: 0 .12em; border-radius: 2px; }
-    [data-reveal] { opacity: 0; transform: translateY(24px); transition: opacity .8s cubic-bezier(.2,.7,.2,1), transform .8s cubic-bezier(.2,.7,.2,1); }
+    [data-reveal] { opacity: 1; transform: none; transition: opacity .8s cubic-bezier(.2,.7,.2,1), transform .8s cubic-bezier(.2,.7,.2,1); }
     [data-reveal][data-in="1"] { opacity: 1; transform: none; }
-    [data-reveal-stagger] > * { opacity: 0; transform: translateY(20px); transition: opacity .7s cubic-bezier(.2,.7,.2,1), transform .7s cubic-bezier(.2,.7,.2,1); }
+    [data-reveal-stagger] > * { opacity: 1; transform: none; transition: opacity .7s cubic-bezier(.2,.7,.2,1), transform .7s cubic-bezier(.2,.7,.2,1); }
     [data-reveal-stagger][data-in="1"] > * { opacity: 1; transform: none; }
     [data-reveal-stagger][data-in="1"] > *:nth-child(1) { transition-delay: .05s; }
     [data-reveal-stagger][data-in="1"] > *:nth-child(2) { transition-delay: .15s; }

@@ -102,14 +102,11 @@ serve(async (req) => {
       });
     }
 
-    // 3) If nothing to analyze beyond the bare prompt, return early with a
-    //    passthrough enriched prompt.
+    // 3) If nothing to analyze beyond the bare prompt, let the downstream
+    // compiler perform the single high-quality reasoning pass.
     if (resolved.length === 0) {
       const extras = tone ? `\n\n--- Additional context ---\nDesired tone/style: ${tone}.` : "";
-      return json({
-        analysis: null,
-        enrichedPrompt: `${prompt}${extras}`,
-      });
+      return json({ analysis: null, enrichedPrompt: `${prompt}${extras}` });
     }
 
     // 4) Run Lovable AI to extract a structured analysis.
