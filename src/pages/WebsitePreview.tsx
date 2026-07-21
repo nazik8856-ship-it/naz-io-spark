@@ -419,7 +419,7 @@ export default function WebsitePreview() {
     if (!root) return;
 
     // Reveal
-    const revealEls = root.querySelectorAll<HTMLElement>("[data-reveal]");
+    const revealEls = root.querySelectorAll<HTMLElement>("[data-reveal], [data-reveal-stagger]");
     const io = new IntersectionObserver((entries) => {
       entries.forEach((e) => {
         if (e.isIntersecting) {
@@ -566,9 +566,9 @@ export default function WebsitePreview() {
     .nz-input { background: color-mix(in srgb, var(--text) 6%, transparent); border: 1px solid var(--border); color: var(--text); }
     .nz-input:focus { outline: none; border-color: var(--accent); }
     .nz-hl { background: linear-gradient(120deg, color-mix(in srgb, var(--accent) 22%, transparent), transparent 60%); padding: 0 .12em; border-radius: 2px; }
-    [data-reveal] { opacity: 0; transform: translateY(24px); transition: opacity .8s cubic-bezier(.2,.7,.2,1), transform .8s cubic-bezier(.2,.7,.2,1); }
+    [data-reveal] { opacity: 1; transform: none; transition: opacity .8s cubic-bezier(.2,.7,.2,1), transform .8s cubic-bezier(.2,.7,.2,1); }
     [data-reveal][data-in="1"] { opacity: 1; transform: none; }
-    [data-reveal-stagger] > * { opacity: 0; transform: translateY(20px); transition: opacity .7s cubic-bezier(.2,.7,.2,1), transform .7s cubic-bezier(.2,.7,.2,1); }
+    [data-reveal-stagger] > * { opacity: 1; transform: none; transition: opacity .7s cubic-bezier(.2,.7,.2,1), transform .7s cubic-bezier(.2,.7,.2,1); }
     [data-reveal-stagger][data-in="1"] > * { opacity: 1; transform: none; }
     [data-reveal-stagger][data-in="1"] > *:nth-child(1) { transition-delay: .05s; }
     [data-reveal-stagger][data-in="1"] > *:nth-child(2) { transition-delay: .15s; }
