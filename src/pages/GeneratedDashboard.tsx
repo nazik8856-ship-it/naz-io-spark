@@ -28,6 +28,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import AgentCockpit, { type AgentManifest } from "@/components/agents/AgentCockpit";
 import LiveAgentChat from "@/components/agents/LiveAgentChat";
+import { analyzeAndBuildContext } from "@/components/generator/PromptExtras";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -43,12 +44,15 @@ type Params = { kind: string; id: string };
 
 type ChatTurn = { role: "user" | "assistant"; content: string; time: string };
 
+const previewCacheKey = (websiteId: string) => `nazai_website_preview_${websiteId}`;
 
-
-
-
-
-
+function cacheWebsitePreview(websiteId: string, website: unknown, pages: unknown[]) {
+  try {
+    localStorage.setItem(previewCacheKey(websiteId), JSON.stringify({ website, pages, cachedAt: Date.now() }));
+  } catch {
+    // The database remains authoritative; cache is only an immediate iframe fallback.
+  }
+}
 
 export default function GeneratedDashboard() {
   const { kind, id } = useParams<Params>();
@@ -99,6 +103,7 @@ export default function GeneratedDashboard() {
           if (cancelled) return;
           setWebsite(site);
           setPages(pgs || []);
+          cacheWebsitePreview(id, site, pgs || []);
           setTurns([
             { role: "user", content: site.prompt || site.name || "Generate my website", time: "just now" },
             {
@@ -144,14 +149,21 @@ export default function GeneratedDashboard() {
     setTurns((t) => [...t, { role: "user", content: text, time: "just now" }]);
     setChatBusy(true);
     try {
+      // Analyze every website follow-up as a design brief before execution. The
+      // compiler still receives the current manifest, so this enriches intent
+      // without regenerating or discarding untouched work.
+      const { enrichedPrompt } = await analyzeAndBuildContext(text, null, [], "website");
       const { data: sess } = await supabase.auth.getSession();
       const token = sess.session?.access_token;
       const resp = await supabase.functions.invoke("compile-website-manifest", {
         body: {
-          prompt: text,
+          prompt: enrichedPrompt,
           previousWebsiteId: id,
           refine: true,
           save: true,
+          recentTurns: [...turns, { role: "user", content: text }]
+            .slice(-6)
+            .map(({ role, content }) => ({ role, content })),
         },
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });
@@ -162,6 +174,7 @@ export default function GeneratedDashboard() {
       const { data: pgs } = await supabase.from("website_pages").select("*").eq("website_id", id).order("order_index", { ascending: true });
       if (site) setWebsite(site);
       if (pgs) setPages(pgs);
+      if (site && pgs) cacheWebsitePreview(id, site, pgs);
       setPreviewKey((k) => k + 1);
       setTurns((t) => [...t, { role: "assistant", content: `✓ ${summary} _(${intent} edit — preview refreshed)_`, time: "just now" }]);
     } catch (e) {
@@ -195,7 +208,7 @@ export default function GeneratedDashboard() {
   const liveUrl = id ? `${typeof window !== "undefined" ? window.location.origin : ""}/website-preview/${id}` : "";
   const currentPage = pages.find((p) => p.slug === selectedPage) || pages[0];
   const previewSrc = id
-    ? `/website-preview/${id}${currentPage?.slug ? `#${currentPage.slug}` : ""}`
+    ? `/website-preview/${id}${currentPage?.slug ? `?page=${encodeURIComponent(currentPage.slug)}` : ""}`
     : "";
   const refreshPreview = () => setPreviewKey((k) => k + 1);
   const copyShare = async () => {

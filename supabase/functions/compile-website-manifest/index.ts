@@ -286,7 +286,7 @@ serve(async (req) => {
     if (!key) return json({ error: "Missing LOVABLE_API_KEY" }, 500);
 
     const body = await req.json().catch(() => ({}));
-    const { prompt, save = true, previousWebsiteId, refine = false } = body || {};
+    const { prompt, save = true, previousWebsiteId, refine = false, recentTurns = [] } = body || {};
     if (!prompt || typeof prompt !== "string") return json({ error: "prompt required" }, 400);
 
     const authHeader = req.headers.get("Authorization") ?? "";
@@ -312,6 +312,13 @@ serve(async (req) => {
           slug: p.slug, title: p.title, seo_description: p.seo_description, sections: p.sections || [],
         })),
       };
+      const conversation = Array.isArray(recentTurns)
+        ? recentTurns.slice(-6).map((turn: any) => {
+          const role = turn?.role === "assistant" ? "NazAI" : "User";
+          const content = typeof turn?.content === "string" ? turn.content.slice(0, 2000) : "";
+          return `${role}: ${content}`;
+        }).filter(Boolean).join("\n")
+        : "";
 
       let refined: { intent?: string; summary?: string; manifest?: unknown } = {};
       try {
@@ -322,7 +329,7 @@ serve(async (req) => {
             model: MODEL,
             messages: [
               { role: "system", content: `${REFINE_DOC}\n\n${SCHEMA_DOC}` },
-              { role: "user", content: `CURRENT MANIFEST (do not regenerate untouched parts):\n${JSON.stringify(currentManifest)}\n\nUSER REQUEST:\n${prompt}\n\nReturn the JSON envelope { intent, summary, manifest }.` },
+              { role: "user", content: `CURRENT MANIFEST (do not regenerate untouched parts):\n${JSON.stringify(currentManifest)}\n\n${conversation ? `RECENT CONVERSATION (use only to resolve references and continuity):\n${conversation}\n\n` : ""}USER REQUEST + ANALYZED INTENT:\n${prompt}\n\nFirst infer the user's real expectation, then execute it as a coordinated design change: visual signature, palette, typography, copy, hierarchy, imagery, and micro-interactions must still feel like one deliberate system. Preserve every detail not requested or required for coherence. Return the JSON envelope { intent, summary, manifest }.` },
             ],
             temperature: 0.4,
           }),

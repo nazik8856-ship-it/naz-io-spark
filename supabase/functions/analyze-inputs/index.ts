@@ -102,20 +102,12 @@ serve(async (req) => {
       });
     }
 
-    // 3) If nothing to analyze beyond the bare prompt, return early with a
-    //    passthrough enriched prompt.
-    if (resolved.length === 0) {
-      const extras = tone ? `\n\n--- Additional context ---\nDesired tone/style: ${tone}.` : "";
-      return json({
-        analysis: null,
-        enrichedPrompt: `${prompt}${extras}`,
-      });
-    }
-
-    // 4) Run Lovable AI to extract a structured analysis.
+    // 3) Run Lovable AI to extract a structured analysis. This also runs for a
+    // bare prompt: understanding intent and implied design expectations is
+    // valuable even when the user did not attach reference material.
     const inputsBlock = resolved
       .map((r, i) => `# Attachment ${i + 1} — ${r.label} [${r.source}]\n${r.text}`)
-      .join("\n\n");
+      .join("\n\n") || "(No attachments — analyze the brief itself deeply.)";
 
     const system = `You are an input analyst for NazAI. The user is about to generate a ${kind} (website, AI agent, or similar). Read their brief AND every attached input carefully, then extract a compact structured analysis they can rely on downstream.
 
@@ -165,7 +157,7 @@ Rules:
       console.error("analyze-inputs AI failure", e);
     }
 
-    // 5) Build the enriched prompt block passed to downstream compilers.
+    // 4) Build the enriched prompt block passed to downstream compilers.
     const lines: string[] = [prompt];
     lines.push("", "--- Analyzed context (AI-read from attachments) ---");
     if (tone) lines.push(`Desired tone/style: ${tone}.`);

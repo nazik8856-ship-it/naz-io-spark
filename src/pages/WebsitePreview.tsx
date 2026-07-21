@@ -32,6 +32,19 @@ type Website = {
   theme: Partial<Theme> | null;
 };
 
+type PreviewCache = { website: Website; pages: Page[]; cachedAt?: number };
+
+function readPreviewCache(id?: string): PreviewCache | null {
+  if (!id || typeof window === "undefined") return null;
+  try {
+    const parsed = JSON.parse(localStorage.getItem(`nazai_website_preview_${id}`) || "null") as PreviewCache | null;
+    if (!parsed?.website?.id || parsed.website.id !== id || !Array.isArray(parsed.pages)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 const DEFAULT_PALETTE: Palette = {
   bg: "#0B0B0F",
   surface: "#151520",
@@ -284,9 +297,10 @@ export default function WebsitePreview() {
   const { id } = useParams<{ id: string }>();
   const [params] = useSearchParams();
   const navigate = useNavigate();
-  const [site, setSite] = useState<Website | null>(null);
-  const [pages, setPages] = useState<Page[]>([]);
-  const [loading, setLoading] = useState(true);
+  const initialCache = useMemo(() => readPreviewCache(id), [id]);
+  const [site, setSite] = useState<Website | null>(() => initialCache?.website ?? null);
+  const [pages, setPages] = useState<Page[]>(() => initialCache?.pages ?? []);
+  const [loading, setLoading] = useState(() => !initialCache);
   const [error, setError] = useState<string | null>(null);
   const [activeSlug, setActiveSlug] = useState<string>(params.get("page") ?? "home");
 
@@ -295,7 +309,7 @@ export default function WebsitePreview() {
     let cancelled = false;
     (async () => {
       try {
-        setLoading(true);
+        setLoading(!initialCache);
         setError(null);
 
         // The preview runs in a fresh iframe document. Wait for the persisted
@@ -313,16 +327,26 @@ export default function WebsitePreview() {
 
         setSite(siteResult.data as unknown as Website);
         setPages((pagesResult.data ?? []) as unknown as Page[]);
+        try {
+          localStorage.setItem(
+            `nazai_website_preview_${id}`,
+            JSON.stringify({ website: siteResult.data, pages: pagesResult.data ?? [], cachedAt: Date.now() }),
+          );
+        } catch {
+          // Cache is best-effort; a successful database render does not depend on it.
+        }
       } catch (e) {
         if (!cancelled) {
-          setError(e instanceof Error ? e.message : "Could not load this website preview");
+          // Keep a valid cached preview visible if iframe auth/network hydration
+          // is temporarily unavailable instead of replacing it with a dark pane.
+          if (!initialCache) setError(e instanceof Error ? e.message : "Could not load this website preview");
         }
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [id]);
+  }, [id, initialCache]);
 
   const theme = useMemo<Theme>(() => {
     const t = site?.theme;
