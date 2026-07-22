@@ -779,6 +779,7 @@ export default function WebsitePreview() {
   `;
 
   return (
+    <CtaNavCtx.Provider value={ctaNav}>
     <div ref={rootRef} className="nz-root min-h-screen">
       <style>{scopedCss}</style>
       <div className="nz-pattern" aria-hidden="true" />
