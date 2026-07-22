@@ -13,9 +13,9 @@ const json = (b: unknown, s = 200) =>
   new Response(JSON.stringify(b), { status: s, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
 const LOVABLE_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
-const MODEL = "google/gemini-2.5-flash";
+const MODEL = "google/gemini-3.6-flash";
 
-type InAtt = { id?: string; label?: string; contextText?: string; url?: string; kind?: string };
+type InAtt = { id?: string; label?: string; contextText?: string; url?: string; assetUrl?: string; mimeType?: string; kind?: string };
 
 function stripFences(s: string) {
   return s.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "");
@@ -71,14 +71,24 @@ serve(async (req) => {
     const userId = userData?.user?.id;
 
     // 1) Resolve every attachment into readable text.
-    const resolved: { label: string; source: string; text: string }[] = [];
+    const resolved: { label: string; source: string; text: string; assetUrl?: string; mimeType?: string; kind?: string }[] = [];
     for (const a of attachments) {
       const label = a.label || a.id || "attachment";
-      if (a.url) {
+      if (a.kind === "image" && (a.assetUrl || a.url)) {
+        const assetUrl = a.assetUrl || a.url!;
+        resolved.push({
+          label,
+          source: `image:${assetUrl}`,
+          text: `${a.contextText || "User-provided reference image."}\nExact reusable asset URL: ${assetUrl}`,
+          assetUrl,
+          mimeType: a.mimeType || "image/*",
+          kind: "image",
+        });
+      } else if (a.url) {
         const text = await fetchUrlText(a.url);
-        resolved.push({ label, source: `url:${a.url}`, text });
+        resolved.push({ label, source: `url:${a.url}`, text: `${a.contextText || ""}\n${text}`.trim(), assetUrl: a.assetUrl, mimeType: a.mimeType, kind: a.kind });
       } else if (a.contextText) {
-        resolved.push({ label, source: a.kind || "inline", text: a.contextText.slice(0, 12000) });
+        resolved.push({ label, source: a.kind || "inline", text: a.contextText.slice(0, 12000), assetUrl: a.assetUrl, mimeType: a.mimeType, kind: a.kind });
       }
     }
 
@@ -135,6 +145,13 @@ Rules:
 - If attachments contradict the brief, prefer the brief and note the conflict in "requirements".`;
 
     const userMsg = `USER BRIEF:\n${prompt}\n\n${tone ? `USER TONE PREFERENCE: ${tone}\n\n` : ""}ATTACHED INPUTS (${resolved.length}):\n\n${inputsBlock}`;
+    const visualInputs = resolved.filter((r) => r.kind === "image" && r.assetUrl);
+    const userContent = visualInputs.length
+      ? [
+          { type: "text", text: userMsg },
+          ...visualInputs.map((r) => ({ type: "image_url", image_url: { url: r.assetUrl } })),
+        ]
+      : userMsg;
 
     let analysis: Record<string, unknown> | null = null;
     try {
@@ -145,7 +162,7 @@ Rules:
           model: MODEL,
           messages: [
             { role: "system", content: system },
-            { role: "user", content: userMsg },
+            { role: "user", content: userContent },
           ],
           temperature: 0.2,
           response_format: { type: "json_object" },
@@ -190,6 +207,11 @@ Rules:
       }
       if (analysis.user_specified_style) {
         lines.push("NOTE: user gave explicit style direction — follow it strictly.");
+      }
+      const reusableAssets = resolved.filter((r) => r.assetUrl);
+      if (reusableAssets.length) {
+        lines.push("Exact user-provided assets (do not replace with generated/stock imagery when placement is requested):");
+        reusableAssets.forEach((r) => lines.push(`- ${r.label}: ${r.assetUrl}`));
       }
     } else {
       // Fallback if analyzer failed: attach cleaned raw text so nothing is lost.

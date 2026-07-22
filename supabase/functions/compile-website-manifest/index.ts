@@ -10,7 +10,7 @@ const corsHeaders = {
 };
 
 const LOVABLE_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
-const MODEL = "google/gemini-3-flash-preview";
+const MODEL = "google/gemini-3.6-flash";
 
 const SECTION_TYPES = [
   "hero", "about", "services", "testimonials", "gallery", "contact",
@@ -139,13 +139,13 @@ Shape: {
 Allowed section types: hero, about, services, testimonials, gallery, contact, pricing, faq, stats, process, cta, logos, feature-split, custom.
 
 Section content shapes (fill with REAL, specific copy — never lorem ipsum, never "Feature 1"):
-- hero:         { "eyebrow"?: string, "headline": string, "subheadline": string, "cta_primary": string, "cta_secondary"?: string, "image_prompt": string, "media_style"?: "photo"|"illustration"|"gradient"|"pattern", "stats"?: [{"label":string,"value":string}] }
+- hero:         { "eyebrow"?: string, "headline": string, "subheadline": string, "cta_primary": string, "cta_secondary"?: string, "image_prompt": string, "asset_url"?: string, "media_style"?: "photo"|"illustration"|"gradient"|"pattern", "stats"?: [{"label":string,"value":string}] }
   hero.variant: "centered" | "split-image" | "full-bleed" | "editorial-lede" | "asymmetric-mark" | "minimal-luxury"
-- about:        { "heading": string, "body": string, "bullets": string[], "image_prompt"?: string, "pull_quote"?: string }
+- about:        { "heading": string, "body": string, "bullets": string[], "image_prompt"?: string, "asset_url"?: string, "pull_quote"?: string }
 - services:     { "heading": string, "items": [ { "title": string, "description": string, "icon"?: string, "image_prompt"?: string } ] }
   services.variant: "cards" | "list" | "numbered" | "zigzag"
 - testimonials: { "heading": string, "items": [ { "quote": string, "author": string, "role"?: string } ] }
-- gallery:      { "heading": string, "items": [ { "caption": string, "image_prompt": string } ] }
+- gallery:      { "heading": string, "items": [ { "caption": string, "image_prompt": string, "asset_url"?: string } ] }
   gallery.variant: "masonry" | "grid" | "strip" | "showcase"
 - contact:      { "heading": string, "body": string, "email"?: string, "phone"?: string, "address"?: string, "form_fields": string[] }
 - pricing:      { "heading": string, "tiers": [ { "name": string, "price": string, "period"?: string, "features": string[], "cta": string, "featured"?: boolean } ] }
@@ -154,7 +154,7 @@ Section content shapes (fill with REAL, specific copy — never lorem ipsum, nev
 - process:      { "heading": string, "steps": [ { "title": string, "description": string } ] }
 - cta:          { "headline": string, "subheadline"?: string, "cta_primary": string, "cta_secondary"?: string }
 - logos:        { "heading"?: string, "items": [ { "name": string } ] }
-- feature-split:{ "heading": string, "body": string, "bullets"?: string[], "image_prompt": string, "reverse"?: boolean }
+- feature-split:{ "heading": string, "body": string, "bullets"?: string[], "image_prompt": string, "asset_url"?: string, "reverse"?: boolean }
 - custom:       { "kind": "calculator"|"booking"|"quote"|"newsletter"|"map"|"embed",
                   "heading"?: string, "body"?: string,
                   "fields"?: [{"name":string,"label":string,"type":"number"|"text"|"email"|"date"|"select","options"?:string[],"unit"?:string}],
@@ -162,6 +162,7 @@ Section content shapes (fill with REAL, specific copy — never lorem ipsum, nev
                   "output_label"?: string, "output_unit"?: string }
 
 Image prompts: for EVERY visual section (hero, about with image, feature-split, gallery items, service items when relevant) provide a SPECIFIC image_prompt — subject, mood, lighting, palette hint. Example: "aerial photo of a wooden pilates studio at golden hour, warm shadows, muted earth tones".
+When the user supplies an exact image URL or uploaded image and asks to place/use it, copy that URL byte-for-byte into the target section/item's asset_url. asset_url always takes precedence over image_prompt; never claim an image was added unless asset_url is present in the updated manifest.
 
 Rules:
 - 3-6 pages total. First page slug MUST be "home" and MUST start with a hero.
@@ -352,6 +353,8 @@ Your job in 3 steps:
    - "structural": rename site, change tagline, major restructure
    - "mixed": any combination
 3. Produce an UPDATED full manifest. PRESERVE everything the user did NOT ask to change — do not regenerate untouched sections, do not swap the palette when they only asked for a copy tweak, do not rewrite copy when they only asked for a color change. Apply the minimum edits that satisfy intent, then keep everything else byte-identical to the current manifest.
+4. EXECUTE, do not merely describe. If the user asks to add an uploaded/linked photo, put its exact URL in asset_url on the requested hero/section/gallery item. If they provide imported data, turn real rows/facts into the requested visible copy, cards, stats, pricing, gallery, or page content. If they provide a reference site, extract the requested design traits without copying protected copy.
+5. SELF-CHECK the final manifest against the request. The summary must name only changes that are visibly present in the returned manifest. Never say an edit was applied if the relevant field/content is absent.
 
 Return STRICT JSON only:
 {
@@ -428,6 +431,19 @@ serve(async (req) => {
 
       const nextManifest = normalize(refined.manifest ?? currentManifest, existing.prompt || prompt);
 
+      // A linked/uploaded asset is an executable instruction, not prose. If the
+      // model omitted the exact URL, fail visibly instead of claiming success.
+      const requestedAssetUrls = Array.from(prompt.matchAll(/https?:\/\/[^\s)\]}>"']+/g))
+        .map((match) => match[0])
+        .filter((url) => /(?:\/storage\/v1\/object\/public\/|\.(?:avif|gif|jpe?g|png|webp)(?:[?#]|$))/i.test(url));
+      if (requestedAssetUrls.length) {
+        const serializedManifest = JSON.stringify(nextManifest);
+        const missingAssets = requestedAssetUrls.filter((url) => !serializedManifest.includes(url));
+        if (missingAssets.length) {
+          return json({ error: "The requested image could not be placed in the website. Please attach it again or provide a direct image URL." }, 422);
+        }
+      }
+
       const pageRows = nextManifest.pages.map((p, i) => ({
         website_id: previousWebsiteId,
         slug: p.slug, title: p.title,
@@ -464,7 +480,7 @@ serve(async (req) => {
       return json({
         manifest: nextManifest,
         website_id: previousWebsiteId,
-        pages: pagesOut,
+        pages: nextManifest.pages,
         intent: refined.intent || "mixed",
         summary: refined.summary || "Applied your changes.",
         refined: true,

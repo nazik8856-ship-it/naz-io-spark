@@ -10,6 +10,8 @@ export type Attachment = {
   label: string;
   contextText: string; // what gets appended to the prompt (fallback)
   url?: string;        // for URL attachments — fetched & analyzed server-side
+  assetUrl?: string;   // exact uploaded/reference asset URL for the generated output
+  mimeType?: string;
   kind?: string;       // "file" | "data" | "url" | "project" | "integration" | "image"
 };
 
@@ -121,14 +123,14 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
       if (!providers.length) { setConnected([]); return; }
       const { data: snaps } = await supabase
         .from("integration_snapshots")
-        .select("provider, summary, created_at")
+        .select("provider, kind, data, created_at")
         .eq("user_id", user.id)
         .order("created_at", { ascending: false })
         .limit(50);
       const byProv = new Map<string, string>();
       (snaps || []).forEach((s: any) => {
         const p = String(s.provider).toLowerCase();
-        if (!byProv.has(p)) byProv.set(p, typeof s.summary === "string" ? s.summary : JSON.stringify(s.summary));
+        if (!byProv.has(p)) byProv.set(p, JSON.stringify(s.data ?? {}));
       });
       setConnected(providers.map((p) => ({ provider: p, hasSnapshot: byProv.has(p), snapshotText: byProv.get(p) })));
     })();
@@ -139,41 +141,69 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
 
   const handleFiles = async (files: FileList | null, isCsv: boolean) => {
     if (!files) return;
+    const next: Attachment[] = [];
     for (const f of Array.from(files)) {
       const isText = /\.(csv|txt|md|json|tsv|log|xml|yaml|yml)$/i.test(f.name) || f.type.startsWith("text/");
       if (isText && f.size < 500_000) {
         try {
           const txt = await readFileAsText(f);
           const snippet = txt.length > 6000 ? txt.slice(0, 6000) + "\n…(truncated)" : txt;
-          add({
+          next.push({
             id: crypto.randomUUID(),
             label: `${isCsv ? "Data" : "File"} · ${f.name}`,
             kind: isCsv ? "data" : "file",
+            mimeType: f.type || "text/plain",
             contextText: `${isCsv ? "Imported data" : "Attached file"} "${f.name}":\n${snippet}`,
           });
         } catch {
           toast.error(`Couldn't read ${f.name}`);
         }
       } else {
-        add({
-          id: crypto.randomUUID(),
-          label: `${f.type.startsWith("image/") ? "Image" : "File"} · ${f.name}`,
-          kind: f.type.startsWith("image/") ? "image" : "file",
-          contextText: `${f.type.startsWith("image/") ? "Reference image" : "File"} attached: ${f.name} (${Math.round(f.size / 1024)}KB, ${f.type || "unknown"}). Use context clues from the filename.`,
-        });
+        if (!user?.id) {
+          toast.error(`Sign in to attach ${f.name}`);
+          continue;
+        }
+        try {
+          const safeName = f.name.replace(/[^a-zA-Z0-9._-]+/g, "-");
+          const path = `${user.id}/prompt-inputs/${crypto.randomUUID()}-${safeName}`;
+          const { error } = await supabase.storage.from("mission-assets").upload(path, f, {
+            contentType: f.type || undefined,
+            upsert: false,
+          });
+          if (error) throw error;
+          const { data } = supabase.storage.from("mission-assets").getPublicUrl(path);
+          const assetUrl = data.publicUrl;
+          next.push({
+            id: crypto.randomUUID(),
+            label: `${f.type.startsWith("image/") ? "Image" : "File"} · ${f.name}`,
+            kind: f.type.startsWith("image/") ? "image" : "file",
+            mimeType: f.type || "application/octet-stream",
+            url: assetUrl,
+            assetUrl,
+            contextText: `${f.type.startsWith("image/") ? "Reference image" : "Uploaded file"} "${f.name}" is available at ${assetUrl}. Analyze its actual contents and use this exact asset when the request asks to place it in the website.`,
+          });
+        } catch (error) {
+          toast.error(`Couldn't upload ${f.name}: ${error instanceof Error ? error.message : "upload failed"}`);
+        }
       }
     }
+    if (next.length) onChange([...attachments, ...next]);
   };
 
   const attachUrl = () => {
     const u = urlInput.trim();
     if (!u) return;
+    const isImage = /\.(avif|gif|jpe?g|png|webp)(?:[?#].*)?$/i.test(u);
     add({
       id: crypto.randomUUID(),
       label: `URL · ${u.slice(0, 40)}`,
-      contextText: `Reference URL: ${u}`,
+      contextText: isImage
+        ? `Reference image URL: ${u}. Analyze the image and use this exact asset in the website when requested.`
+        : `Reference URL: ${u}`,
       url: u,
-      kind: "url",
+      assetUrl: isImage ? u : undefined,
+      mimeType: isImage ? "image/*" : undefined,
+      kind: isImage ? "image" : "url",
     });
     setUrlInput("");
     setPlusOpen(false);
@@ -391,6 +421,8 @@ export async function analyzeAndBuildContext(
           label: a.label,
           contextText: a.contextText,
           url: a.url,
+          assetUrl: a.assetUrl,
+          mimeType: a.mimeType,
           kind: a.kind,
         })),
       }),
