@@ -557,6 +557,14 @@ export default function GeneratedDashboard() {
               streaming={chatBusy}
               fullSpec={website?.theme?.design_rationale || website?.prompt || ""}
               onSend={sendWebsiteEdit}
+              composerExtras={
+                <PromptExtras
+                  attachments={chatAttachments}
+                  onChange={setChatAttachments}
+                  tone={chatTone}
+                  onToneChange={setChatTone}
+                />
+              }
             />
           </div>
         )}
