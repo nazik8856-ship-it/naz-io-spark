@@ -1,9 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Plus, SlidersHorizontal, X, Upload, Link2, Box, FileSpreadsheet, Database, Check } from "lucide-react";
 import { supabase, SUPABASE_FUNCTIONS_URL, SUPABASE_ANON } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
+import IntegrationConnectModal from "@/components/agents/IntegrationConnectModal";
 
 export type Attachment = {
   id: string;
@@ -55,6 +56,7 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
   const tunerPanelRef = useRef<HTMLDivElement>(null);
   const [plusPos, setPlusPos] = useState<{ left: number; bottom: number } | null>(null);
   const [tunerPos, setTunerPos] = useState<{ left: number; bottom: number } | null>(null);
+  const [connectOpen, setConnectOpen] = useState(false);
 
   const computePos = (btn: HTMLButtonElement | null) => {
     if (!btn) return null;
@@ -110,31 +112,33 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
     })();
   }, [plusOpen, user?.id, projects.length]);
 
-  // Load connected integrations + latest snapshot summary when tuner opens
+  const loadConnected = useCallback(async () => {
+    if (!user?.id) { setConnected([]); return; }
+    const { data: ints } = await supabase
+      .from("agent_integrations")
+      .select("provider")
+      .eq("user_id", user.id)
+      .eq("status", "connected");
+    const providers = Array.from(new Set((ints || []).map((i: any) => String(i.provider).toLowerCase())));
+    if (!providers.length) { setConnected([]); return; }
+    const { data: snaps } = await supabase
+      .from("integration_snapshots")
+      .select("provider, kind, data, created_at")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(50);
+    const byProv = new Map<string, string>();
+    (snaps || []).forEach((s: any) => {
+      const p = String(s.provider).toLowerCase();
+      if (!byProv.has(p)) byProv.set(p, JSON.stringify(s.data ?? {}));
+    });
+    setConnected(providers.map((p) => ({ provider: p, hasSnapshot: byProv.has(p), snapshotText: byProv.get(p) })));
+  }, [user?.id]);
+
   useEffect(() => {
-    if (!tunerOpen || !user?.id || connected.length) return;
-    (async () => {
-      const { data: ints } = await supabase
-        .from("agent_integrations")
-        .select("provider")
-        .eq("user_id", user.id)
-        .eq("status", "connected");
-      const providers = Array.from(new Set((ints || []).map((i: any) => String(i.provider).toLowerCase())));
-      if (!providers.length) { setConnected([]); return; }
-      const { data: snaps } = await supabase
-        .from("integration_snapshots")
-        .select("provider, kind, data, created_at")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false })
-        .limit(50);
-      const byProv = new Map<string, string>();
-      (snaps || []).forEach((s: any) => {
-        const p = String(s.provider).toLowerCase();
-        if (!byProv.has(p)) byProv.set(p, JSON.stringify(s.data ?? {}));
-      });
-      setConnected(providers.map((p) => ({ provider: p, hasSnapshot: byProv.has(p), snapshotText: byProv.get(p) })));
-    })();
-  }, [tunerOpen, user?.id, connected.length]);
+    if (!tunerOpen || !user?.id) return;
+    loadConnected();
+  }, [tunerOpen, user?.id, loadConnected]);
 
   const add = (a: Attachment) => onChange([...attachments, a]);
   const remove = (id: string) => onChange(attachments.filter((a) => a.id !== id));
@@ -309,34 +313,56 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
             {INTEGRATIONS.map((i) => {
               const c = connected.find((x) => x.provider === i.id || x.provider.includes(i.id.split("_")[1] || i.id));
               const already = attachments.some((a) => a.id === `int-${i.id}`);
+              const attach = () => {
+                if (!c) return;
+                add({
+                  id: `int-${i.id}`,
+                  label: `Data · ${i.label}`,
+                  kind: "integration",
+                  contextText: c.hasSnapshot && c.snapshotText
+                    ? `Live data from ${i.label} (connected):\n${c.snapshotText.slice(0, 3000)}`
+                    : `User has ${i.label} connected via OAuth. Assume relevant data is available and shape output accordingly.`,
+                });
+                setTunerOpen(false);
+              };
               return (
-                <button
+                <div
                   key={i.id}
-                  disabled={!c || already}
-                  onClick={() => {
-                    if (!c) return;
-                    add({
-                      id: `int-${i.id}`,
-                      label: `Data · ${i.label}`,
-                      kind: "integration",
-                      contextText: c.hasSnapshot && c.snapshotText
-                        ? `Live data from ${i.label} (connected):\n${c.snapshotText.slice(0, 3000)}`
-                        : `User has ${i.label} connected via OAuth. Assume relevant data is available and shape output accordingly.`,
-                    });
-                    setTunerOpen(false);
-                  }}
-                  className="w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-xs hover:bg-white/5 disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-xs hover:bg-white/5"
                 >
-                  <span className="flex items-center gap-2 text-zinc-300">
+                  <button
+                    type="button"
+                    disabled={!c || already}
+                    onClick={attach}
+                    className="flex items-center gap-2 text-zinc-300 disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
                     <Database className="h-3.5 w-3.5 text-purple-300" /> {i.label}
-                  </span>
-                  <span className="text-[10px] text-zinc-500">
-                    {already ? <Check className="h-3 w-3 inline text-emerald-400" /> : c ? "connected" : "not connected"}
-                  </span>
-                </button>
+                  </button>
+                  {already ? (
+                    <span className="flex items-center gap-1 text-[10px] text-emerald-400">
+                      <Check className="h-3 w-3" /> attached
+                    </span>
+                  ) : c ? (
+                    <span className="flex items-center gap-1 text-[10px] text-emerald-400">
+                      <Check className="h-3 w-3" /> connected
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setConnectOpen(true);
+                      }}
+                      className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-purple-500/20 border border-purple-400/50 text-purple-200 hover:bg-purple-500/30 hover:text-white transition"
+                    >
+                      Connect
+                    </button>
+                  )}
+                </div>
               );
             })}
           </div>
+
 
           <div className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 mb-2">Import from CSV / export</div>
           <button
@@ -370,6 +396,28 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
           <button onClick={() => remove(a.id)} className="hover:text-white shrink-0"><X className="h-3 w-3" /></button>
         </span>
       ))}
+
+      {connectOpen && (
+        <IntegrationConnectModal
+          integration={{
+            name: "Google",
+            category: "Google",
+            method: "Sign in",
+            examples: [
+              "Gmail — read & send email",
+              "Google Docs — read & edit",
+              "Google Sheets — read & edit",
+              "Google Calendar — read & schedule",
+              "Google Analytics — read metrics",
+            ],
+            steps: ["Sign in with Google", "Grant access to all Google surfaces"],
+          }}
+          agentId={null}
+          accent="#a78bfa"
+          onClose={() => setConnectOpen(false)}
+          onChange={() => { loadConnected(); }}
+        />
+      )}
     </div>
   );
 }
