@@ -182,7 +182,7 @@ Rules:
     // 5) Build the enriched prompt block passed to downstream compilers.
     const lines: string[] = [prompt];
     lines.push("", "--- Analyzed context (AI-read from attachments) ---");
-    if (tone) lines.push(`Desired tone/style: ${tone}.`);
+    if (tone) lines.push(`Desired tone/style: ${tone}. Apply this tone to every piece of copy you write or rewrite.`);
     if (analysis) {
       if (analysis.intent) lines.push(`Intent: ${analysis.intent}`);
       const arr = (k: string) =>
@@ -197,21 +197,16 @@ Rules:
       if (analysis.data_summary) lines.push(`Data summary: ${analysis.data_summary}`);
       const facts = arr("key_facts");
       if (facts.length) {
-        lines.push("Key facts from attachments:");
+        lines.push("Key facts from attachments (MUST appear as real, visible content in the output — not just referenced):");
         facts.slice(0, 12).forEach((f) => lines.push(`- ${f}`));
       }
       const reqs = arr("requirements");
       if (reqs.length) {
-        lines.push("Explicit requirements:");
+        lines.push("Explicit requirements (MUST be implemented):");
         reqs.forEach((r) => lines.push(`- ${r}`));
       }
       if (analysis.user_specified_style) {
         lines.push("NOTE: user gave explicit style direction — follow it strictly.");
-      }
-      const reusableAssets = resolved.filter((r) => r.assetUrl);
-      if (reusableAssets.length) {
-        lines.push("Exact user-provided assets (do not replace with generated/stock imagery when placement is requested):");
-        reusableAssets.forEach((r) => lines.push(`- ${r.label}: ${r.assetUrl}`));
       }
     } else {
       // Fallback if analyzer failed: attach cleaned raw text so nothing is lost.
@@ -220,7 +215,29 @@ Rules:
       });
     }
 
+    // Always attach exact reusable assets (uploaded images/files) so the compiler
+    // can byte-copy their URLs into asset_url fields.
+    const reusableAssets = resolved.filter((r) => r.assetUrl);
+    if (reusableAssets.length) {
+      lines.push("", "Exact user-provided assets (place these URLs byte-for-byte into asset_url; do not substitute with generated/stock imagery):");
+      reusableAssets.forEach((r) => lines.push(`- ${r.label} [${r.mimeType || "asset"}]: ${r.assetUrl}`));
+    }
+
+    // Always attach raw content for non-image attachments (CSVs, JSON, docs,
+    // integration snapshots, project references). The structured analysis is a
+    // summary; the raw block is what lets the compiler actually turn rows into
+    // pricing tiers, gallery items, service cards, stats, etc.
+    const rawSources = resolved.filter((r) => r.kind !== "image" && r.text && r.text.trim().length);
+    if (rawSources.length) {
+      lines.push("", "Raw attached content (use as the source of truth for concrete facts, rows, names, numbers, and copy — turn this data into real, visible sections/items in the output):");
+      rawSources.slice(0, 6).forEach((r) => {
+        const snippet = r.text.length > 3500 ? r.text.slice(0, 3500) + "\n…(truncated)" : r.text;
+        lines.push(`\n### ${r.label} [${r.source}]\n${snippet}`);
+      });
+    }
+
     return json({ analysis, enrichedPrompt: lines.join("\n") });
+
   } catch (e) {
     console.error("analyze-inputs error", e);
     return json({ error: (e as Error).message }, 500);
