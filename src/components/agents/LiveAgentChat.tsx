@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowUp, ChevronDown, ChevronUp, Bot } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 
@@ -13,6 +13,7 @@ type Props = {
   streaming: boolean;
   fullSpec: string;
   onSend: (text: string) => void;
+  composerExtras?: ReactNode;
 };
 
 export default function LiveAgentChat({
