@@ -637,6 +637,30 @@ export default function WebsitePreview() {
     layout === "minimal-luxury" ? "max-w-4xl" :
     "max-w-6xl";
 
+  const ctaNav: CtaNav = useMemo(() => ({
+    pages: pages.map((pg) => ({ slug: pg.slug, title: pg.title })),
+    go: (url: string) => {
+      if (!url) return;
+      if (url.startsWith("#")) {
+        const el = document.getElementById(url.slice(1));
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+        return;
+      }
+      const page = pages.find((pg) => pg.slug === url);
+      if (page) {
+        setActiveSlug(page.slug);
+        try {
+          const sp = new URLSearchParams(window.location.search);
+          sp.set("page", page.slug);
+          window.history.replaceState({}, "", `${window.location.pathname}?${sp.toString()}`);
+        } catch {
+          /* ignore */
+        }
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+    },
+  }), [pages]);
+
   // Scoped CSS — palette + fonts + animations
   const scopedCss = `
     .nz-root {
