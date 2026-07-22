@@ -260,10 +260,10 @@ function fallbackManifest(prompt: string): Manifest {
         title: "Our Story",
         seo_description: `Learn about the ideas, standards, and people behind ${name}.`.slice(0, 160),
         sections: [
-          { type: "hero", variant: "editorial-lede", content: { eyebrow: "Our story", headline: `Made for people who ~notice details~.`, subheadline: `${name} began with a simple belief: useful things can also carry soul.`, cta_primary: "See what we offer", image_prompt: `${name} origin story, authentic workspace, candid editorial light`, media_style: "illustration" } },
+          { type: "hero", variant: "editorial-lede", content: { eyebrow: "Our story", headline: `Made for people who ~notice details~.`, subheadline: `${name} began with a simple belief: useful things can also carry soul.`, cta_primary: "See what we offer", cta_primary_href: "services", image_prompt: `${name} origin story, authentic workspace, candid editorial light`, media_style: "illustration" } },
           { type: "about", content: { heading: `Standards you can ~feel~.`, body: `We bring discipline and imagination to every touchpoint, balancing expressive ideas with a calm, reliable experience.`, bullets: ["Care before speed", "Clarity before clutter", "Character without compromise"], pull_quote: "The smallest details shape the strongest memories." } },
           { type: "process", variant: "zigzag", content: { heading: `How the ~experience~ unfolds.`, steps: [{ title: "Discover", description: "Explore the collection and find the direction that feels right." }, { title: "Choose", description: "Compare clear options without friction or unnecessary complexity." }, { title: "Enjoy", description: "Move forward with confidence and support when you need it." }] } },
-          { type: "cta", content: { headline: `See ${name} in ~action~.`, cta_primary: "Explore now", cta_secondary: "Ask a question" } },
+          { type: "cta", content: { headline: `See ${name} in ~action~.`, cta_primary: "Explore now", cta_primary_href: "home", cta_secondary: "Ask a question", cta_secondary_href: "contact" } },
         ],
       },
       {
@@ -271,7 +271,7 @@ function fallbackManifest(prompt: string): Manifest {
         title: "Contact",
         seo_description: `Contact ${name} to ask a question, request details, or begin your next step.`.slice(0, 160),
         sections: [
-          { type: "hero", variant: "asymmetric-mark", content: { eyebrow: "Start here", headline: `Let’s make the next step ~simple~.`, subheadline: "Tell us what you need and we’ll point you in the right direction.", cta_primary: "Send a message", image_prompt: `${name}, welcoming abstract composition, open forms, warm directional light`, media_style: "gradient" } },
+          { type: "hero", variant: "asymmetric-mark", content: { eyebrow: "Start here", headline: `Let’s make the next step ~simple~.`, subheadline: "Tell us what you need and we’ll point you in the right direction.", cta_primary: "Send a message", cta_primary_href: "#contact-form", image_prompt: `${name}, welcoming abstract composition, open forms, warm directional light`, media_style: "gradient" } },
           { type: "contact", content: { heading: `We’d love to ~hear from you~.`, body: "Share a few details and we’ll respond with a clear next step.", email: "hello@example.com", form_fields: ["Name", "Email", "What can we help with?"] } },
           { type: "faq", content: { heading: `Good questions, ~clear answers~.`, items: [{ q: "How quickly will you reply?", a: "We aim to respond within one business day." }, { q: "Can I ask for something custom?", a: "Yes. Tell us what you have in mind and we’ll explain the best route." }, { q: "Where should I begin?", a: "Start with the message form and include the outcome you want." }] } },
         ],
