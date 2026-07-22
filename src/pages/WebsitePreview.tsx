@@ -1211,9 +1211,12 @@ function SectionBlock({
                         </li>
                       ))}
                     </ul>
-                    <button className={featured ? "nz-btn-primary mt-6 w-full rounded-lg py-2.5 font-semibold" : "nz-btn-ghost mt-6 w-full rounded-lg py-2.5 font-semibold"}>
-                      {fieldStr(t, "cta", "Choose")}
-                    </button>
+                    <CtaButton
+                      label={fieldStr(t, "cta", "Choose")}
+                      href={fieldStr(t, "cta_href")}
+                      variant={featured ? "primary" : "ghost"}
+                      className={featured ? "nz-btn-primary mt-6 w-full rounded-lg py-2.5 font-semibold" : "nz-btn-ghost mt-6 w-full rounded-lg py-2.5 font-semibold"}
+                    />
                   </div>
                 );
               })}
