@@ -1263,6 +1263,8 @@ function Hero({
   const subheadline = fieldStr(c, "subheadline");
   const ctaP = fieldStr(c, "cta_primary");
   const ctaS = fieldStr(c, "cta_secondary");
+  const ctaPHref = fieldStr(c, "cta_primary_href");
+  const ctaSHref = fieldStr(c, "cta_secondary_href");
   const img = fieldStr(c, "image_prompt") || fieldStr(c, "asset_url");
   const stats = fieldArr<Record<string, unknown>>(c, "stats");
 
@@ -1274,8 +1276,8 @@ function Hero({
   );
   const ctas = (
     <div className="flex items-center gap-3 flex-wrap">
-      {ctaP && <button className="nz-btn-primary px-6 py-3 rounded-lg font-semibold">{ctaP}</button>}
-      {ctaS && <button className="nz-btn-ghost px-6 py-3 rounded-lg font-semibold">{ctaS}</button>}
+      {ctaP && <CtaButton label={ctaP} href={ctaPHref} variant="primary" />}
+      {ctaS && <CtaButton label={ctaS} href={ctaSHref} variant="ghost" />}
     </div>
   );
 
