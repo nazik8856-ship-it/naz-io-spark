@@ -313,34 +313,56 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
             {INTEGRATIONS.map((i) => {
               const c = connected.find((x) => x.provider === i.id || x.provider.includes(i.id.split("_")[1] || i.id));
               const already = attachments.some((a) => a.id === `int-${i.id}`);
+              const attach = () => {
+                if (!c) return;
+                add({
+                  id: `int-${i.id}`,
+                  label: `Data · ${i.label}`,
+                  kind: "integration",
+                  contextText: c.hasSnapshot && c.snapshotText
+                    ? `Live data from ${i.label} (connected):\n${c.snapshotText.slice(0, 3000)}`
+                    : `User has ${i.label} connected via OAuth. Assume relevant data is available and shape output accordingly.`,
+                });
+                setTunerOpen(false);
+              };
               return (
-                <button
+                <div
                   key={i.id}
-                  disabled={!c || already}
-                  onClick={() => {
-                    if (!c) return;
-                    add({
-                      id: `int-${i.id}`,
-                      label: `Data · ${i.label}`,
-                      kind: "integration",
-                      contextText: c.hasSnapshot && c.snapshotText
-                        ? `Live data from ${i.label} (connected):\n${c.snapshotText.slice(0, 3000)}`
-                        : `User has ${i.label} connected via OAuth. Assume relevant data is available and shape output accordingly.`,
-                    });
-                    setTunerOpen(false);
-                  }}
-                  className="w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-xs hover:bg-white/5 disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-xs hover:bg-white/5"
                 >
-                  <span className="flex items-center gap-2 text-zinc-300">
+                  <button
+                    type="button"
+                    disabled={!c || already}
+                    onClick={attach}
+                    className="flex items-center gap-2 text-zinc-300 disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
                     <Database className="h-3.5 w-3.5 text-purple-300" /> {i.label}
-                  </span>
-                  <span className="text-[10px] text-zinc-500">
-                    {already ? <Check className="h-3 w-3 inline text-emerald-400" /> : c ? "connected" : "not connected"}
-                  </span>
-                </button>
+                  </button>
+                  {already ? (
+                    <span className="flex items-center gap-1 text-[10px] text-emerald-400">
+                      <Check className="h-3 w-3" /> attached
+                    </span>
+                  ) : c ? (
+                    <span className="flex items-center gap-1 text-[10px] text-emerald-400">
+                      <Check className="h-3 w-3" /> connected
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setConnectOpen(true);
+                      }}
+                      className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-purple-500/20 border border-purple-400/50 text-purple-200 hover:bg-purple-500/30 hover:text-white transition"
+                    >
+                      Connect
+                    </button>
+                  )}
+                </div>
               );
             })}
           </div>
+
 
           <div className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 mb-2">Import from CSV / export</div>
           <button
