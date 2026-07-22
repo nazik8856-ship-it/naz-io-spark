@@ -182,7 +182,7 @@ export default function GeneratedDashboard() {
       // Analyze every website follow-up as a design brief before execution. The
       // compiler still receives the current manifest, so this enriches intent
       // without regenerating or discarding untouched work.
-      const { enrichedPrompt } = await analyzeAndBuildContext(text, chatTone, chatAttachments, "website");
+      const { enrichedPrompt, analysis } = await analyzeAndBuildContext(text, chatTone, chatAttachments, "website");
       const { data: sess } = await supabase.auth.getSession();
       const token = sess.session?.access_token;
       const resp = await supabase.functions.invoke("compile-website-manifest", {
@@ -198,16 +198,43 @@ export default function GeneratedDashboard() {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });
       if (resp.error) throw new Error(resp.error.message || "Refine failed");
-      const summary = (resp.data as any)?.summary || "Updated.";
-      const intent = (resp.data as any)?.intent || "mixed";
+      const responseData = (resp.data as any) || {};
+      const summary = responseData.summary || "Updated.";
+      const intent = responseData.intent || "mixed";
+      const manifest = responseData.manifest;
+
+      // Paint the compiler's verified manifest immediately. Waiting for a
+      // second database round-trip could reload stale rows into the iframe and
+      // make a successful edit appear to have done nothing.
+      if (manifest?.pages?.length) {
+        const immediateWebsite = {
+          ...website,
+          id,
+          name: manifest.name,
+          title: manifest.name,
+          tagline: manifest.tagline,
+          theme: manifest.theme,
+        };
+        const immediatePages = manifest.pages.map((page: any, index: number) => ({
+          ...page,
+          id: `${id}:${page.slug}`,
+          website_id: id,
+          order_index: index,
+        }));
+        setWebsite(immediateWebsite);
+        setPages(immediatePages);
+        cacheWebsitePreview(id, immediateWebsite, immediatePages);
+      }
       const { data: site } = await supabase.from("websites").select("*").eq("id", id).maybeSingle();
       const { data: pgs } = await supabase.from("website_pages").select("*").eq("website_id", id).order("order_index", { ascending: true });
       if (site) setWebsite(site);
       if (pgs) setPages(pgs);
       if (site && pgs) cacheWebsitePreview(id, site, pgs);
       setPreviewKey((k) => k + 1);
-      setTurns((t) => [...t, { role: "assistant", content: `✓ ${summary} _(${intent} edit — preview refreshed)_`, time: "just now" }]);
+      const analyzedNote = analysis ? " I read and analyzed the attached context before applying it." : "";
+      setTurns((t) => [...t, { role: "assistant", content: `✓ ${summary}${analyzedNote} _(${intent} edit — visible in the refreshed preview)_`, time: "just now" }]);
       setChatAttachments([]);
+      setChatTone(null);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setTurns((t) => [...t, { role: "assistant", content: `Couldn't apply that: ${msg}`, time: "just now" }]);
