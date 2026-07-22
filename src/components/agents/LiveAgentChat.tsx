@@ -25,6 +25,7 @@ export default function LiveAgentChat({
   streaming,
   fullSpec,
   onSend,
+  composerExtras,
 }: Props) {
   const [input, setInput] = useState("");
   const [showSpec, setShowSpec] = useState(false);
