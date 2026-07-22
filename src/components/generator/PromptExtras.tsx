@@ -112,31 +112,33 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
     })();
   }, [plusOpen, user?.id, projects.length]);
 
-  // Load connected integrations + latest snapshot summary when tuner opens
+  const loadConnected = useCallback(async () => {
+    if (!user?.id) { setConnected([]); return; }
+    const { data: ints } = await supabase
+      .from("agent_integrations")
+      .select("provider")
+      .eq("user_id", user.id)
+      .eq("status", "connected");
+    const providers = Array.from(new Set((ints || []).map((i: any) => String(i.provider).toLowerCase())));
+    if (!providers.length) { setConnected([]); return; }
+    const { data: snaps } = await supabase
+      .from("integration_snapshots")
+      .select("provider, kind, data, created_at")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(50);
+    const byProv = new Map<string, string>();
+    (snaps || []).forEach((s: any) => {
+      const p = String(s.provider).toLowerCase();
+      if (!byProv.has(p)) byProv.set(p, JSON.stringify(s.data ?? {}));
+    });
+    setConnected(providers.map((p) => ({ provider: p, hasSnapshot: byProv.has(p), snapshotText: byProv.get(p) })));
+  }, [user?.id]);
+
   useEffect(() => {
-    if (!tunerOpen || !user?.id || connected.length) return;
-    (async () => {
-      const { data: ints } = await supabase
-        .from("agent_integrations")
-        .select("provider")
-        .eq("user_id", user.id)
-        .eq("status", "connected");
-      const providers = Array.from(new Set((ints || []).map((i: any) => String(i.provider).toLowerCase())));
-      if (!providers.length) { setConnected([]); return; }
-      const { data: snaps } = await supabase
-        .from("integration_snapshots")
-        .select("provider, kind, data, created_at")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false })
-        .limit(50);
-      const byProv = new Map<string, string>();
-      (snaps || []).forEach((s: any) => {
-        const p = String(s.provider).toLowerCase();
-        if (!byProv.has(p)) byProv.set(p, JSON.stringify(s.data ?? {}));
-      });
-      setConnected(providers.map((p) => ({ provider: p, hasSnapshot: byProv.has(p), snapshotText: byProv.get(p) })));
-    })();
-  }, [tunerOpen, user?.id, connected.length]);
+    if (!tunerOpen || !user?.id) return;
+    loadConnected();
+  }, [tunerOpen, user?.id, loadConnected]);
 
   const add = (a: Attachment) => onChange([...attachments, a]);
   const remove = (id: string) => onChange(attachments.filter((a) => a.id !== id));
