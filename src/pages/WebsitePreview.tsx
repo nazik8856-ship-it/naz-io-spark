@@ -1117,14 +1117,19 @@ function SectionBlock({
             )}
             <div className="mt-8 flex items-center justify-center gap-3 flex-wrap">
               {fieldStr(c, "cta_primary") && (
-                <button className="px-6 py-3 rounded-lg font-semibold" style={{ background: palette.bg, color: palette.text }}>
-                  {fieldStr(c, "cta_primary")}
-                </button>
+                <CtaButton
+                  label={fieldStr(c, "cta_primary")}
+                  href={fieldStr(c, "cta_primary_href")}
+                  className="px-6 py-3 rounded-lg font-semibold"
+                />
               )}
               {fieldStr(c, "cta_secondary") && (
-                <button className="px-6 py-3 rounded-lg font-semibold border" style={{ borderColor: palette.bg, color: palette.bg }}>
-                  {fieldStr(c, "cta_secondary")}
-                </button>
+                <CtaButton
+                  label={fieldStr(c, "cta_secondary")}
+                  href={fieldStr(c, "cta_secondary_href")}
+                  variant="ghost"
+                  className="px-6 py-3 rounded-lg font-semibold border"
+                />
               )}
             </div>
           </div>
