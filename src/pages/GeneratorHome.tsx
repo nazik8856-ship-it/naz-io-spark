@@ -206,6 +206,34 @@ export default function GeneratorHome() {
           setCompiling(false);
           return;
         }
+        // Seed the standalone preview before navigation. The database remains
+        // authoritative, but this removes the empty-frame window while the new
+        // workspace performs its first owner-protected read.
+        if (body?.manifest && Array.isArray(body.manifest.pages)) {
+          try {
+            localStorage.setItem(
+              `nazai_website_preview_${body.website_id}`,
+              JSON.stringify({
+                website: {
+                  id: body.website_id,
+                  name: body.manifest.name,
+                  tagline: body.manifest.tagline,
+                  theme: body.manifest.theme,
+                  prompt: p,
+                },
+                pages: body.manifest.pages.map((page: Record<string, unknown>, index: number) => ({
+                  ...page,
+                  id: `compiled-${body.website_id}-${index}`,
+                  order_index: index,
+                })),
+                cachedAt: Date.now(),
+              }),
+            );
+          } catch {
+            // Storage can be unavailable in privacy modes; the cloud read below
+            // still opens the same generated website.
+          }
+        }
         // Unified dashboard for any generated thing.
         navigate(`/generated/website/${body.website_id}`);
       } catch (e) {
