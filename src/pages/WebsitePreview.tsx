@@ -1,4 +1,4 @@
-import { Component, useEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from "react";
+import { Component, createContext, useContext, useEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -324,6 +324,79 @@ function safeCalc(formula: string, vars: Record<string, number>): number | null 
   } catch { return null; }
 }
 
+type CtaNav = {
+  pages: { slug: string; title: string }[];
+  go: (url: string) => void;
+};
+const CtaNavCtx = createContext<CtaNav | null>(null);
+
+function resolveCtaTarget(
+  href: string | undefined,
+  label: string,
+  pages: { slug: string; title: string }[],
+): { kind: "external" | "internal" | "anchor" | "none"; url: string } {
+  const raw = (href ?? "").trim();
+  if (raw) {
+    if (/^https?:\/\//i.test(raw) || raw.startsWith("mailto:") || raw.startsWith("tel:")) {
+      return { kind: "external", url: raw };
+    }
+    if (raw.startsWith("#")) return { kind: "anchor", url: raw };
+    const cleaned = raw.replace(/^\//, "").split(/[?#]/)[0];
+    const hit = pages.find((p) => p.slug === cleaned);
+    if (hit) return { kind: "internal", url: hit.slug };
+  }
+  // Auto-map by CTA copy so "Book Now" → booking page, "Contact" → contact, etc.
+  const l = label.toLowerCase();
+  const map: { re: RegExp; want: string[] }[] = [
+    { re: /contact|get in touch|reach|message|inquire|talk|hello/, want: ["contact", "reach", "hello"] },
+    { re: /book|reserve|schedule|appointment/, want: ["book", "booking", "reserve", "reservations", "schedule"] },
+    { re: /quote|estimate/, want: ["quote", "estimate"] },
+    { re: /price|plan|pricing|packages/, want: ["pricing", "plans", "packages"] },
+    { re: /about|story|team|who we are/, want: ["about", "story", "team"] },
+    { re: /service|offering|what we do/, want: ["services", "offerings"] },
+    { re: /gallery|portfolio|work|showcase/, want: ["gallery", "portfolio", "work"] },
+    { re: /menu|shop|store|order/, want: ["menu", "shop", "store", "order"] },
+    { re: /faq|help|question/, want: ["faq", "help"] },
+    { re: /sign up|signup|join|subscribe|start|get started|begin/, want: ["signup", "join", "start", "get-started"] },
+    { re: /home/, want: ["home"] },
+  ];
+  for (const m of map) {
+    if (m.re.test(l)) {
+      const hit = pages.find((p) =>
+        m.want.some((w) => p.slug === w || p.slug.includes(w) || p.title.toLowerCase().includes(w)),
+      );
+      if (hit) return { kind: "internal", url: hit.slug };
+    }
+  }
+  return { kind: "none", url: "" };
+}
+
+function CtaButton({
+  label, href, variant = "primary", className,
+}: { label: string; href?: string; variant?: "primary" | "ghost"; className?: string }) {
+  const ctx = useContext(CtaNavCtx);
+  if (!label) return null;
+  const cls = className ?? (variant === "primary"
+    ? "nz-btn-primary px-6 py-3 rounded-lg font-semibold"
+    : "nz-btn-ghost px-6 py-3 rounded-lg font-semibold");
+  const target = resolveCtaTarget(href, label, ctx?.pages ?? []);
+  if (target.kind === "external") {
+    return <a href={target.url} target={target.url.startsWith("http") ? "_blank" : undefined} rel="noopener noreferrer" className={cls}>{label}</a>;
+  }
+  return (
+    <button
+      type="button"
+      className={cls}
+      onClick={() => {
+        if (target.kind === "none") return;
+        ctx?.go(target.url);
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
 export default function WebsitePreview() {
   const { id } = useParams<{ id: string }>();
   const [params] = useSearchParams();
@@ -564,6 +637,30 @@ export default function WebsitePreview() {
     layout === "minimal-luxury" ? "max-w-4xl" :
     "max-w-6xl";
 
+  const ctaNav: CtaNav = useMemo(() => ({
+    pages: pages.map((pg) => ({ slug: pg.slug, title: pg.title })),
+    go: (url: string) => {
+      if (!url) return;
+      if (url.startsWith("#")) {
+        const el = document.getElementById(url.slice(1));
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+        return;
+      }
+      const page = pages.find((pg) => pg.slug === url);
+      if (page) {
+        setActiveSlug(page.slug);
+        try {
+          const sp = new URLSearchParams(window.location.search);
+          sp.set("page", page.slug);
+          window.history.replaceState({}, "", `${window.location.pathname}?${sp.toString()}`);
+        } catch {
+          /* ignore */
+        }
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+    },
+  }), [pages]);
+
   // Scoped CSS — palette + fonts + animations
   const scopedCss = `
     .nz-root {
@@ -682,6 +779,7 @@ export default function WebsitePreview() {
   `;
 
   return (
+    <CtaNavCtx.Provider value={ctaNav}>
     <div ref={rootRef} className="nz-root min-h-screen">
       <style>{scopedCss}</style>
       <div className="nz-pattern" aria-hidden="true" />
@@ -765,6 +863,7 @@ export default function WebsitePreview() {
         © {new Date().getFullYear()} {site.name} · {site.tagline}
       </footer>
     </div>
+    </CtaNavCtx.Provider>
   );
 }
 
@@ -1018,14 +1117,19 @@ function SectionBlock({
             )}
             <div className="mt-8 flex items-center justify-center gap-3 flex-wrap">
               {fieldStr(c, "cta_primary") && (
-                <button className="px-6 py-3 rounded-lg font-semibold" style={{ background: palette.bg, color: palette.text }}>
-                  {fieldStr(c, "cta_primary")}
-                </button>
+                <CtaButton
+                  label={fieldStr(c, "cta_primary")}
+                  href={fieldStr(c, "cta_primary_href")}
+                  className="px-6 py-3 rounded-lg font-semibold"
+                />
               )}
               {fieldStr(c, "cta_secondary") && (
-                <button className="px-6 py-3 rounded-lg font-semibold border" style={{ borderColor: palette.bg, color: palette.bg }}>
-                  {fieldStr(c, "cta_secondary")}
-                </button>
+                <CtaButton
+                  label={fieldStr(c, "cta_secondary")}
+                  href={fieldStr(c, "cta_secondary_href")}
+                  variant="ghost"
+                  className="px-6 py-3 rounded-lg font-semibold border"
+                />
               )}
             </div>
           </div>
@@ -1107,9 +1211,12 @@ function SectionBlock({
                         </li>
                       ))}
                     </ul>
-                    <button className={featured ? "nz-btn-primary mt-6 w-full rounded-lg py-2.5 font-semibold" : "nz-btn-ghost mt-6 w-full rounded-lg py-2.5 font-semibold"}>
-                      {fieldStr(t, "cta", "Choose")}
-                    </button>
+                    <CtaButton
+                      label={fieldStr(t, "cta", "Choose")}
+                      href={fieldStr(t, "cta_href")}
+                      variant={featured ? "primary" : "ghost"}
+                      className={featured ? "nz-btn-primary mt-6 w-full rounded-lg py-2.5 font-semibold" : "nz-btn-ghost mt-6 w-full rounded-lg py-2.5 font-semibold"}
+                    />
                   </div>
                 );
               })}
@@ -1164,6 +1271,8 @@ function Hero({
   const subheadline = fieldStr(c, "subheadline");
   const ctaP = fieldStr(c, "cta_primary");
   const ctaS = fieldStr(c, "cta_secondary");
+  const ctaPHref = fieldStr(c, "cta_primary_href");
+  const ctaSHref = fieldStr(c, "cta_secondary_href");
   const img = fieldStr(c, "image_prompt") || fieldStr(c, "asset_url");
   const stats = fieldArr<Record<string, unknown>>(c, "stats");
 
@@ -1175,8 +1284,8 @@ function Hero({
   );
   const ctas = (
     <div className="flex items-center gap-3 flex-wrap">
-      {ctaP && <button className="nz-btn-primary px-6 py-3 rounded-lg font-semibold">{ctaP}</button>}
-      {ctaS && <button className="nz-btn-ghost px-6 py-3 rounded-lg font-semibold">{ctaS}</button>}
+      {ctaP && <CtaButton label={ctaP} href={ctaPHref} variant="primary" />}
+      {ctaS && <CtaButton label={ctaS} href={ctaSHref} variant="ghost" />}
     </div>
   );
 

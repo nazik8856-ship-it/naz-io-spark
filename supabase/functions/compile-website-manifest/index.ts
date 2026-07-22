@@ -139,7 +139,7 @@ Shape: {
 Allowed section types: hero, about, services, testimonials, gallery, contact, pricing, faq, stats, process, cta, logos, feature-split, custom.
 
 Section content shapes (fill with REAL, specific copy — never lorem ipsum, never "Feature 1"):
-- hero:         { "eyebrow"?: string, "headline": string, "subheadline": string, "cta_primary": string, "cta_secondary"?: string, "image_prompt": string, "asset_url"?: string, "media_style"?: "photo"|"illustration"|"gradient"|"pattern", "stats"?: [{"label":string,"value":string}] }
+- hero:         { "eyebrow"?: string, "headline": string, "subheadline": string, "cta_primary": string, "cta_primary_href"?: string, "cta_secondary"?: string, "cta_secondary_href"?: string, "image_prompt": string, "asset_url"?: string, "media_style"?: "photo"|"illustration"|"gradient"|"pattern", "stats"?: [{"label":string,"value":string}] }
   hero.variant: "centered" | "split-image" | "full-bleed" | "editorial-lede" | "asymmetric-mark" | "minimal-luxury"
 - about:        { "heading": string, "body": string, "bullets": string[], "image_prompt"?: string, "asset_url"?: string, "pull_quote"?: string }
 - services:     { "heading": string, "items": [ { "title": string, "description": string, "icon"?: string, "image_prompt"?: string } ] }
@@ -148,11 +148,11 @@ Section content shapes (fill with REAL, specific copy — never lorem ipsum, nev
 - gallery:      { "heading": string, "items": [ { "caption": string, "image_prompt": string, "asset_url"?: string } ] }
   gallery.variant: "masonry" | "grid" | "strip" | "showcase"
 - contact:      { "heading": string, "body": string, "email"?: string, "phone"?: string, "address"?: string, "form_fields": string[] }
-- pricing:      { "heading": string, "tiers": [ { "name": string, "price": string, "period"?: string, "features": string[], "cta": string, "featured"?: boolean } ] }
+- pricing:      { "heading": string, "tiers": [ { "name": string, "price": string, "period"?: string, "features": string[], "cta": string, "cta_href"?: string, "featured"?: boolean } ] }
 - faq:          { "heading": string, "items": [ { "q": string, "a": string } ] }
 - stats:        { "heading"?: string, "items": [ { "value": string, "label": string } ] }
 - process:      { "heading": string, "steps": [ { "title": string, "description": string } ] }
-- cta:          { "headline": string, "subheadline"?: string, "cta_primary": string, "cta_secondary"?: string }
+- cta:          { "headline": string, "subheadline"?: string, "cta_primary": string, "cta_primary_href"?: string, "cta_secondary"?: string, "cta_secondary_href"?: string }
 - logos:        { "heading"?: string, "items": [ { "name": string } ] }
 - feature-split:{ "heading": string, "body": string, "bullets"?: string[], "image_prompt": string, "asset_url"?: string, "reverse"?: boolean }
 - custom:       { "kind": "calculator"|"booking"|"quote"|"newsletter"|"map"|"embed",
@@ -171,7 +171,18 @@ Rules:
 - Copy must be specific to the described business — mention what it actually does, for whom, with real language.
 - No lorem ipsum, no "Coming soon", no placeholder text.
 - Palette must have readable contrast between bg and text (WCAG AA).
-- Fonts must be real Google Fonts families.`;
+- Fonts must be real Google Fonts families.
+
+MULTIPAGE NAVIGATION — every CTA is a real link, not decoration:
+- Create dedicated pages for anything the brief mentions that deserves its own destination (booking, contact form, pricing, menu, gallery, portfolio, story, quote request, sign up, etc.). Common slugs: "home", "about", "services", "pricing", "gallery", "menu", "contact", "book", "quote", "faq".
+- EVERY hero CTA and EVERY cta section CTA MUST set "cta_primary_href" (and "cta_secondary_href" when a second button exists). Every pricing tier CTA MUST set "cta_href".
+- href values are one of:
+  * a page slug from this manifest ("contact", "book", "pricing", "menu", "gallery", "about", "services", "quote", "faq") — the renderer switches pages and scrolls to top,
+  * "#section-id" for in-page anchors,
+  * full "https://...", "mailto:...", or "tel:..." for real external destinations the brief supplied.
+- Match CTA copy to destination: "Book a table" -> "book" page (containing custom section kind:"booking"); "Get a quote" -> "quote" page (custom kind:"quote"); "Contact us" -> "contact" page; "See pricing" -> "pricing" page; "View menu" -> "menu" page; "Subscribe" -> custom kind:"newsletter".
+- When a CTA promises an action (book/quote/subscribe/contact), the destination page MUST exist in "pages" AND MUST contain a section that actually performs it (contact form, custom booking/quote/newsletter, or pricing table). Never link to a dead page.
+- If the brief supplies external URLs (Calendly, Stripe checkout, phone), copy them byte-for-byte into the corresponding href.`;
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -237,11 +248,11 @@ function fallbackManifest(prompt: string): Manifest {
         title: "Home",
         seo_description: `${name} offers ${offering} with a distinctive, carefully considered experience.`.slice(0, 160),
         sections: [
-          { type: "hero", variant: "split-image", content: { eyebrow: "Crafted with intent", headline: `Meet the ~remarkable~ side of ${name}.`, subheadline: `Discover ${offering} shaped around the people who expect more from every detail.`, cta_primary: "Explore our work", cta_secondary: "Start a conversation", image_prompt: `${name}, expressive editorial composition, tactile details, dramatic directional light`, media_style: "illustration", stats: [{ value: "100%", label: "Made with care" }, { value: "01", label: "Distinct point of view" }] } },
+          { type: "hero", variant: "split-image", content: { eyebrow: "Crafted with intent", headline: `Meet the ~remarkable~ side of ${name}.`, subheadline: `Discover ${offering} shaped around the people who expect more from every detail.`, cta_primary: "Explore our work", cta_primary_href: "services", cta_secondary: "Start a conversation", cta_secondary_href: "contact", image_prompt: `${name}, expressive editorial composition, tactile details, dramatic directional light`, media_style: "illustration", stats: [{ value: "100%", label: "Made with care" }, { value: "01", label: "Distinct point of view" }] } },
           { type: "stats", content: { heading: "Built around what matters", items: [{ value: "01", label: "Clear promise" }, { value: "03", label: "Ways to explore" }, { value: "24/7", label: "Digital access" }] } },
           { type: "feature-split", variant: "editorial", content: { heading: `A more ~considered~ experience.`, body: `Every part of ${name} is designed to feel coherent, useful, and unmistakably its own.`, bullets: ["A focused, memorable identity", "Details shaped around real needs", "Clear paths from interest to action"], image_prompt: `${name}, close-up material study, refined craftsmanship, category-specific objects`, media_style: isFood ? "photo" : "pattern", reverse: true } },
           { type: "services", variant: "numbered", content: { heading: `What makes us ~different~.`, items: [{ title: "Purposeful craft", description: "Every choice supports a clear outcome instead of adding noise." }, { title: "Personal attention", description: "A thoughtful experience that respects context, taste, and time." }, { title: "Lasting character", description: "Work designed to remain distinctive long after the first impression." }] } },
-          { type: "cta", content: { headline: `Ready to find your ~new favorite~?`, subheadline: `Step inside ${name} and see what thoughtful craft can feel like.`, cta_primary: "Get started", cta_secondary: "Contact us" } },
+          { type: "cta", content: { headline: `Ready to find your ~new favorite~?`, subheadline: `Step inside ${name} and see what thoughtful craft can feel like.`, cta_primary: "Get started", cta_primary_href: "contact", cta_secondary: "Contact us", cta_secondary_href: "contact" } },
         ],
       },
       {
@@ -249,10 +260,10 @@ function fallbackManifest(prompt: string): Manifest {
         title: "Our Story",
         seo_description: `Learn about the ideas, standards, and people behind ${name}.`.slice(0, 160),
         sections: [
-          { type: "hero", variant: "editorial-lede", content: { eyebrow: "Our story", headline: `Made for people who ~notice details~.`, subheadline: `${name} began with a simple belief: useful things can also carry soul.`, cta_primary: "See what we offer", image_prompt: `${name} origin story, authentic workspace, candid editorial light`, media_style: "illustration" } },
+          { type: "hero", variant: "editorial-lede", content: { eyebrow: "Our story", headline: `Made for people who ~notice details~.`, subheadline: `${name} began with a simple belief: useful things can also carry soul.`, cta_primary: "See what we offer", cta_primary_href: "services", image_prompt: `${name} origin story, authentic workspace, candid editorial light`, media_style: "illustration" } },
           { type: "about", content: { heading: `Standards you can ~feel~.`, body: `We bring discipline and imagination to every touchpoint, balancing expressive ideas with a calm, reliable experience.`, bullets: ["Care before speed", "Clarity before clutter", "Character without compromise"], pull_quote: "The smallest details shape the strongest memories." } },
           { type: "process", variant: "zigzag", content: { heading: `How the ~experience~ unfolds.`, steps: [{ title: "Discover", description: "Explore the collection and find the direction that feels right." }, { title: "Choose", description: "Compare clear options without friction or unnecessary complexity." }, { title: "Enjoy", description: "Move forward with confidence and support when you need it." }] } },
-          { type: "cta", content: { headline: `See ${name} in ~action~.`, cta_primary: "Explore now", cta_secondary: "Ask a question" } },
+          { type: "cta", content: { headline: `See ${name} in ~action~.`, cta_primary: "Explore now", cta_primary_href: "home", cta_secondary: "Ask a question", cta_secondary_href: "contact" } },
         ],
       },
       {
@@ -260,7 +271,7 @@ function fallbackManifest(prompt: string): Manifest {
         title: "Contact",
         seo_description: `Contact ${name} to ask a question, request details, or begin your next step.`.slice(0, 160),
         sections: [
-          { type: "hero", variant: "asymmetric-mark", content: { eyebrow: "Start here", headline: `Let’s make the next step ~simple~.`, subheadline: "Tell us what you need and we’ll point you in the right direction.", cta_primary: "Send a message", image_prompt: `${name}, welcoming abstract composition, open forms, warm directional light`, media_style: "gradient" } },
+          { type: "hero", variant: "asymmetric-mark", content: { eyebrow: "Start here", headline: `Let’s make the next step ~simple~.`, subheadline: "Tell us what you need and we’ll point you in the right direction.", cta_primary: "Send a message", cta_primary_href: "#contact-form", image_prompt: `${name}, welcoming abstract composition, open forms, warm directional light`, media_style: "gradient" } },
           { type: "contact", content: { heading: `We’d love to ~hear from you~.`, body: "Share a few details and we’ll respond with a clear next step.", email: "hello@example.com", form_fields: ["Name", "Email", "What can we help with?"] } },
           { type: "faq", content: { heading: `Good questions, ~clear answers~.`, items: [{ q: "How quickly will you reply?", a: "We aim to respond within one business day." }, { q: "Can I ask for something custom?", a: "Yes. Tell us what you have in mind and we’ll explain the best route." }, { q: "Where should I begin?", a: "Start with the message form and include the outcome you want." }] } },
         ],
@@ -360,6 +371,7 @@ Your job in 5 steps:
    - Referenced project (agent/site) → mirror the concrete facts (name, role, goal, tagline) into the requested section.
    - Tone selection → rewrite the copy of any section you touch to match that tone; if user asked for a tone shift only, apply it across all copy.
    - Palette/layout hints from analysis → apply them to theme when relevant.
+   - Requested navigation/redirect ("Book Now button should open a booking form", "add a Contact page and link the hero CTA to it", "Learn More should go to /services") → create the destination page if missing, ensure it contains the interactive section (booking/quote/newsletter/contact/pricing), and set the correct "cta_primary_href"/"cta_secondary_href"/"cta_href" on the source button. If the user supplies an external URL (Calendly, Stripe, mailto:, tel:), copy it verbatim into the href.
 5. SELF-CHECK the final manifest against the request AND every listed key fact / requirement / exact asset. The summary must name only changes that are visibly present in the returned manifest. Never say an edit was applied if the relevant field/content is absent.
 
 Return STRICT JSON only:
