@@ -182,7 +182,7 @@ export default function GeneratedDashboard() {
       // Analyze every website follow-up as a design brief before execution. The
       // compiler still receives the current manifest, so this enriches intent
       // without regenerating or discarding untouched work.
-      const { enrichedPrompt } = await analyzeAndBuildContext(text, null, [], "website");
+      const { enrichedPrompt } = await analyzeAndBuildContext(text, chatTone, chatAttachments, "website");
       const { data: sess } = await supabase.auth.getSession();
       const token = sess.session?.access_token;
       const resp = await supabase.functions.invoke("compile-website-manifest", {
