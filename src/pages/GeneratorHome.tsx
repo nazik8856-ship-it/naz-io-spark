@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Globe, Building2, ShoppingBag, Palette, Code2, FileText, Zap, Clock, ChevronRight, Sparkles, Loader2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
-import { useProjects } from "@/hooks/useProjects";
 import { supabase, SUPABASE_FUNCTIONS_URL, SUPABASE_ANON } from "@/integrations/supabase/client";
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
@@ -20,9 +19,12 @@ const TYPES = [
 export default function GeneratorHome() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { recentProjects, loading } = useProjects(user?.id);
   const [prompt, setPrompt] = useState("");
   const [activeType, setActiveType] = useState("website");
+
+  type RecentWebsite = { id: string; name: string | null; tagline: string | null; created_at: string };
+  const [recentWebsites, setRecentWebsites] = useState<RecentWebsite[]>([]);
+  const [websitesLoading, setWebsitesLoading] = useState(false);
 
   // Recent AI Agents — surfaced here (previously shown inside the generation
   // workspace's "Your Agents" tab). Everything the user has generated lands in
@@ -37,6 +39,32 @@ export default function GeneratorHome() {
   // Last 7 scheduled runs per agent (cron-scheduled agents only).
   const [agentRunHistory, setAgentRunHistory] = useState<Record<string, RunOutcome[]>>({});
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!user?.id) {
+      setRecentWebsites([]);
+      setWebsitesLoading(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setWebsitesLoading(true);
+      const { data, error } = await supabase
+        .from("websites")
+        .select("id, name, tagline, created_at")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(10);
+      if (cancelled) return;
+      if (error) {
+        console.error("WEBSITES_FETCH_ERROR:", error);
+        toast.error("Failed to load saved websites");
+      }
+      setRecentWebsites((data as RecentWebsite[]) || []);
+      setWebsitesLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -313,19 +341,16 @@ export default function GeneratorHome() {
         <div className="mt-16">
           <div className="flex items-center justify-between mb-5">
             <div className="text-[11px] font-mono tracking-[0.3em] text-zinc-500">RECENT</div>
-            {(recentProjects.length > 0 || recentAgents.length > 0) && (
-              <button
-                onClick={() => navigate("/dashboard/all-projects")}
-                className="flex items-center gap-1 text-sm text-purple-300 hover:text-purple-200"
-              >
-                All projects <ChevronRight className="h-4 w-4" />
-              </button>
+            {(recentWebsites.length > 0 || recentAgents.length > 0) && (
+              <span className="flex items-center gap-1 text-sm text-zinc-500">
+                Saved in NazAI Cloud <ChevronRight className="h-4 w-4" />
+              </span>
             )}
           </div>
 
-          {loading || agentsLoading ? (
+          {websitesLoading || agentsLoading ? (
             <div className="text-sm text-zinc-600">Loading…</div>
-          ) : recentProjects.length === 0 && recentAgents.length === 0 ? (
+          ) : recentWebsites.length === 0 && recentAgents.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-white/10 p-10 text-center">
               <p className="text-zinc-500 text-sm">
                 Your recent projects and AI agents will appear here once you start creating.
@@ -456,28 +481,29 @@ export default function GeneratorHome() {
                 </section>
               )}
 
-              {recentProjects.length > 0 && (
+              {recentWebsites.length > 0 && (
                 <section>
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="text-sm font-medium text-zinc-300">Websites</h3>
-                    <span className="text-xs text-zinc-500">{recentProjects.length}</span>
+                    <span className="text-xs text-zinc-500">{recentWebsites.length}</span>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                    {recentProjects.map((p) => {
-                      const initial = (p.directive || "?").trim()[0]?.toUpperCase() || "N";
-                      const ago = formatDistanceToNow(new Date(p.updated_at || p.created_at), { addSuffix: true });
+                    {recentWebsites.map((site) => {
+                      const initial = (site.name || "?").trim()[0]?.toUpperCase() || "N";
+                      const ago = formatDistanceToNow(new Date(site.created_at), { addSuffix: true });
                       return (
                         <button
-                          key={p.id}
-                          onClick={() => navigate("/workspace")}
+                          key={site.id}
+                          onClick={() => navigate(`/generated/website/${site.id}`)}
                           className="text-left rounded-2xl border border-white/10 bg-white/[0.02] hover:bg-white/[0.05] hover:border-purple-400/40 transition-all p-5"
                         >
                           <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-purple-500 to-cyan-400 flex items-center justify-center font-bold text-black mb-4">
                             {initial}
                           </div>
                           <div className="font-semibold truncate">
-                            {(p.directive || "Untitled").slice(0, 40)}
+                            {(site.name || "Untitled website").slice(0, 40)}
                           </div>
+                          {site.tagline && <div className="text-xs text-zinc-400 line-clamp-2 mt-1">{site.tagline}</div>}
                           <div className="flex items-center gap-1.5 mt-2 text-xs text-zinc-500">
                             <Clock className="h-3 w-3" />
                             {ago}
