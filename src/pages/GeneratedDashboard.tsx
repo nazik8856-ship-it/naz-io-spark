@@ -87,6 +87,8 @@ export default function GeneratedDashboard() {
   const [savingDomain, setSavingDomain] = useState(false);
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [chatBusy, setChatBusy] = useState(false);
+  const [chatAttachments, setChatAttachments] = useState<Attachment[]>([]);
+  const [chatTone, setChatTone] = useState<string | null>(null);
   const [previewKey, setPreviewKey] = useState(0);
   const pageMenuRef = useRef<HTMLDivElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
