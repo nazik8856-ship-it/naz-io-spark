@@ -207,6 +207,7 @@ export default function GeneratedDashboard() {
       if (site && pgs) cacheWebsitePreview(id, site, pgs);
       setPreviewKey((k) => k + 1);
       setTurns((t) => [...t, { role: "assistant", content: `✓ ${summary} _(${intent} edit — preview refreshed)_`, time: "just now" }]);
+      setChatAttachments([]);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setTurns((t) => [...t, { role: "assistant", content: `Couldn't apply that: ${msg}`, time: "just now" }]);
