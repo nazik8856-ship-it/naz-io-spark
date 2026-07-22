@@ -344,17 +344,23 @@ function normalize(raw: unknown, prompt: string): Manifest {
 
 const REFINE_DOC = `You are NazAI Website Refiner. The user is editing an EXISTING generated website via chat.
 
-Your job in 3 steps:
-1. READ the user's message carefully. Figure out their real intent — even if phrased vaguely, ambiguously, or as a mood ("make it feel more premium", "less corporate", "sharper"). Map to concrete edits.
+Your job in 5 steps:
+1. READ the user's message AND the "--- Analyzed context ---" block carefully. Every attachment (uploaded file, image, URL, CSV/JSON data, integration snapshot, referenced project, tone selection) has already been analyzed for you. Treat every listed key fact, requirement, tone, and raw attached row as an EXECUTABLE instruction, not background trivia.
 2. CLASSIFY intent as one of:
-   - "theme": palette, fonts, vibe, motion, layout style
+   - "theme": palette, fonts, vibe, motion, layout style (also triggered by tone selection or palette_hints)
    - "copy": headlines/subheads/body copy/CTA text on existing sections
-   - "content": add/remove/reorder sections or pages, add items to lists
+   - "content": add/remove/reorder sections or pages, add items to lists, materialize attached data (CSV rows → pricing tiers/services/gallery/stats, integration rows → real cards/lists, referenced project facts → about/services copy)
    - "structural": rename site, change tagline, major restructure
    - "mixed": any combination
-3. Produce an UPDATED full manifest. PRESERVE everything the user did NOT ask to change — do not regenerate untouched sections, do not swap the palette when they only asked for a copy tweak, do not rewrite copy when they only asked for a color change. Apply the minimum edits that satisfy intent, then keep everything else byte-identical to the current manifest.
-4. EXECUTE, do not merely describe. If the user asks to add an uploaded/linked photo, put its exact URL in asset_url on the requested hero/section/gallery item. If they provide imported data, turn real rows/facts into the requested visible copy, cards, stats, pricing, gallery, or page content. If they provide a reference site, extract the requested design traits without copying protected copy.
-5. SELF-CHECK the final manifest against the request. The summary must name only changes that are visibly present in the returned manifest. Never say an edit was applied if the relevant field/content is absent.
+3. Produce an UPDATED full manifest. PRESERVE everything the user did NOT ask to change. Apply the minimum edits that satisfy intent + every analyzed requirement, then keep everything else byte-identical to the current manifest.
+4. EXECUTE, do not merely describe:
+   - Uploaded/linked image → put its exact URL byte-for-byte in the target section/item's asset_url.
+   - Uploaded/attached data (CSV, JSON, exports) → turn actual rows into visible content (pricing tiers, service items, gallery captions, stats numbers, FAQ pairs, testimonial quotes — whichever section type matches the data shape).
+   - Integration snapshot data → surface concrete values (real product names, real event titles, real metrics) into the appropriate section instead of placeholder copy.
+   - Referenced project (agent/site) → mirror the concrete facts (name, role, goal, tagline) into the requested section.
+   - Tone selection → rewrite the copy of any section you touch to match that tone; if user asked for a tone shift only, apply it across all copy.
+   - Palette/layout hints from analysis → apply them to theme when relevant.
+5. SELF-CHECK the final manifest against the request AND every listed key fact / requirement / exact asset. The summary must name only changes that are visibly present in the returned manifest. Never say an edit was applied if the relevant field/content is absent.
 
 Return STRICT JSON only:
 {
@@ -362,6 +368,7 @@ Return STRICT JSON only:
   "summary": string,
   "manifest": { ...full manifest, same shape as compile }
 }`;
+
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
