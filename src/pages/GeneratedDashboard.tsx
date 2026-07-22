@@ -54,6 +54,18 @@ function cacheWebsitePreview(websiteId: string, website: unknown, pages: unknown
   }
 }
 
+function readCachedWebsitePreview(websiteId: string) {
+  try {
+    const cached = JSON.parse(localStorage.getItem(previewCacheKey(websiteId)) || "null");
+    if (cached?.website?.id === websiteId && Array.isArray(cached?.pages) && cached.pages.length > 0) {
+      return cached as { website: any; pages: any[] };
+    }
+  } catch {
+    // Ignore malformed or unavailable browser storage.
+  }
+  return null;
+}
+
 export default function GeneratedDashboard() {
   const { kind, id } = useParams<Params>();
   const navigate = useNavigate();
@@ -134,7 +146,22 @@ export default function GeneratedDashboard() {
           throw new Error(`Unsupported kind: ${kind}`);
         }
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+        if (!cancelled && kind === "website") {
+          const cached = readCachedWebsitePreview(id);
+          if (cached) {
+            setWebsite(cached.website);
+            setPages(cached.pages);
+            setTurns([
+              { role: "user", content: cached.website.prompt || cached.website.name || "Generate my website", time: "just now" },
+              { role: "assistant", content: `Built "${cached.website.name || "your site"}" — the live preview is ready.`, time: "just now" },
+            ]);
+            setError(null);
+          } else {
+            setError(e instanceof Error ? e.message : String(e));
+          }
+        } else if (!cancelled) {
+          setError(e instanceof Error ? e.message : String(e));
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
