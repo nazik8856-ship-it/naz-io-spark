@@ -347,6 +347,27 @@ serve(async (req) => {
 
       const nextManifest = normalize(refined.manifest ?? currentManifest, existing.prompt || prompt);
 
+      const pageRows = nextManifest.pages.map((p, i) => ({
+        website_id: previousWebsiteId,
+        slug: p.slug, title: p.title,
+        seo_description: p.seo_description ?? null,
+        sections: p.sections, order_index: i,
+      }));
+      // Upsert first so a failed refinement can never delete the currently
+      // visible website. Only stale pages are removed after replacements exist.
+      const { data: pagesOut, error: pagesErr } = await supabase
+        .from("website_pages")
+        .upsert(pageRows, { onConflict: "website_id,slug" })
+        .select("id, slug, title, order_index");
+      if (pagesErr) return json({ error: pagesErr.message }, 500);
+
+      const nextSlugs = new Set(nextManifest.pages.map((p) => p.slug));
+      const stalePageIds = (existingPages || []).filter((p: any) => !nextSlugs.has(p.slug)).map((p: any) => p.id);
+      if (stalePageIds.length) {
+        const { error: cleanupErr } = await supabase.from("website_pages").delete().in("id", stalePageIds);
+        if (cleanupErr) console.warn("stale website page cleanup failed", cleanupErr);
+      }
+
       const { error: uErr } = await supabase
         .from("websites")
         .update({
@@ -358,16 +379,6 @@ serve(async (req) => {
         .eq("id", previousWebsiteId)
         .eq("user_id", user.id);
       if (uErr) return json({ error: uErr.message }, 500);
-
-      await supabase.from("website_pages").delete().eq("website_id", previousWebsiteId);
-      const pageRows = nextManifest.pages.map((p, i) => ({
-        website_id: previousWebsiteId,
-        slug: p.slug, title: p.title,
-        seo_description: p.seo_description ?? null,
-        sections: p.sections, order_index: i,
-      }));
-      const { data: pagesOut, error: pagesErr } = await supabase.from("website_pages").insert(pageRows).select("id, slug, title, order_index");
-      if (pagesErr) return json({ error: pagesErr.message }, 500);
 
       return json({
         manifest: nextManifest,
@@ -443,6 +454,8 @@ serve(async (req) => {
 
     if (pagesErr) {
       console.error("website_pages insert failed", pagesErr);
+      // Avoid leaving a saved project that can only render as an empty preview.
+      await supabase.from("websites").delete().eq("id", siteRow.id).eq("user_id", user.id);
       return json({ manifest, website_id: siteRow.id, error: pagesErr.message }, 500);
     }
 

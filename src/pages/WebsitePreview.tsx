@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Component, useEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -33,6 +33,32 @@ type Website = {
 };
 
 type PreviewCache = { website: Website; pages: Page[]; cachedAt?: number };
+
+class SectionRenderBoundary extends Component<
+  { children: ReactNode; palette: Palette },
+  { failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("[WebsitePreview] section render failed", error, info.componentStack);
+  }
+
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <section className="mx-auto max-w-6xl px-6 py-16">
+        <div className="border px-5 py-4 text-sm" style={{ borderColor: this.props.palette.border, color: this.props.palette.muted }}>
+          This section could not be rendered. The rest of the website remains available.
+        </div>
+      </section>
+    );
+  }
+}
 
 function readPreviewCache(id?: string): PreviewCache | null {
   if (!id || typeof window === "undefined") return null;
@@ -683,15 +709,17 @@ export default function WebsitePreview() {
 
       {activePage?.sections.map((s, idx) => (
         <div key={idx}>
-          <SectionBlock
-            section={s}
-            palette={p}
-            layout={layout}
-            containerMax={containerMax}
-            index={idx}
-            displayFont={theme.font.display}
-            motif={motif}
-          />
+          <SectionRenderBoundary palette={p}>
+            <SectionBlock
+              section={s}
+              palette={p}
+              layout={layout}
+              containerMax={containerMax}
+              index={idx}
+              displayFont={theme.font.display}
+              motif={motif}
+            />
+          </SectionRenderBoundary>
           {idx < (activePage?.sections.length ?? 0) - 1 && s.type !== "hero" && (
             <SectionDivider path={motif.path} palette={p} />
           )}
@@ -1110,7 +1138,15 @@ function SectionBlock({
       return <CustomBlock c={c} palette={palette} container={container} heading={heading} eyebrow={eyebrow} displayFont={displayFont} />;
 
     default:
-      return null;
+      return (
+        <section className={container} data-reveal>
+          <div className="nz-card p-8">
+            <div className={eyebrow} style={{ color: palette.accent }}>Custom section</div>
+            <h2 className={heading}>{renderHeadline(fieldStr(c, "heading", "Explore more"), palette, displayFont)}</h2>
+            {fieldStr(c, "body") && <p className="max-w-2xl opacity-80">{fieldStr(c, "body")}</p>}
+          </div>
+        </section>
+      );
   }
 }
 

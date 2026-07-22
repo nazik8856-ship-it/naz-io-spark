@@ -99,7 +99,8 @@ export default function GeneratedDashboard() {
           const { data: site, error: sErr } = await supabase.from("websites").select("*").eq("id", id).maybeSingle();
           if (sErr) throw sErr;
           if (!site) throw new Error("Website not found");
-          const { data: pgs } = await supabase.from("website_pages").select("*").eq("website_id", id).order("order_index", { ascending: true });
+          const { data: pgs, error: pErr } = await supabase.from("website_pages").select("*").eq("website_id", id).order("order_index", { ascending: true });
+          if (pErr) throw pErr;
           if (cancelled) return;
           setWebsite(site);
           setPages(pgs || []);
@@ -293,6 +294,22 @@ export default function GeneratedDashboard() {
       .select()
       .maybeSingle();
     if (error || !data) return toast.error(error?.message || "Duplicate failed");
+    if (pages.length > 0) {
+      const { error: pagesError } = await supabase.from("website_pages").insert(
+        pages.map((page, index) => ({
+          website_id: data.id,
+          slug: page.slug,
+          title: page.title,
+          seo_description: page.seo_description,
+          sections: page.sections,
+          order_index: index,
+        })),
+      );
+      if (pagesError) {
+        await supabase.from("websites").delete().eq("id", data.id);
+        return toast.error(`Duplicate failed: ${pagesError.message}`);
+      }
+    }
     toast.success("Duplicated");
     navigate(`/generated/website/${data.id}`);
   };
