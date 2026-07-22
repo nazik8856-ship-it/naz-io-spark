@@ -139,7 +139,7 @@ Shape: {
 Allowed section types: hero, about, services, testimonials, gallery, contact, pricing, faq, stats, process, cta, logos, feature-split, custom.
 
 Section content shapes (fill with REAL, specific copy — never lorem ipsum, never "Feature 1"):
-- hero:         { "eyebrow"?: string, "headline": string, "subheadline": string, "cta_primary": string, "cta_secondary"?: string, "image_prompt": string, "asset_url"?: string, "media_style"?: "photo"|"illustration"|"gradient"|"pattern", "stats"?: [{"label":string,"value":string}] }
+- hero:         { "eyebrow"?: string, "headline": string, "subheadline": string, "cta_primary": string, "cta_primary_href"?: string, "cta_secondary"?: string, "cta_secondary_href"?: string, "image_prompt": string, "asset_url"?: string, "media_style"?: "photo"|"illustration"|"gradient"|"pattern", "stats"?: [{"label":string,"value":string}] }
   hero.variant: "centered" | "split-image" | "full-bleed" | "editorial-lede" | "asymmetric-mark" | "minimal-luxury"
 - about:        { "heading": string, "body": string, "bullets": string[], "image_prompt"?: string, "asset_url"?: string, "pull_quote"?: string }
 - services:     { "heading": string, "items": [ { "title": string, "description": string, "icon"?: string, "image_prompt"?: string } ] }
@@ -148,11 +148,11 @@ Section content shapes (fill with REAL, specific copy — never lorem ipsum, nev
 - gallery:      { "heading": string, "items": [ { "caption": string, "image_prompt": string, "asset_url"?: string } ] }
   gallery.variant: "masonry" | "grid" | "strip" | "showcase"
 - contact:      { "heading": string, "body": string, "email"?: string, "phone"?: string, "address"?: string, "form_fields": string[] }
-- pricing:      { "heading": string, "tiers": [ { "name": string, "price": string, "period"?: string, "features": string[], "cta": string, "featured"?: boolean } ] }
+- pricing:      { "heading": string, "tiers": [ { "name": string, "price": string, "period"?: string, "features": string[], "cta": string, "cta_href"?: string, "featured"?: boolean } ] }
 - faq:          { "heading": string, "items": [ { "q": string, "a": string } ] }
 - stats:        { "heading"?: string, "items": [ { "value": string, "label": string } ] }
 - process:      { "heading": string, "steps": [ { "title": string, "description": string } ] }
-- cta:          { "headline": string, "subheadline"?: string, "cta_primary": string, "cta_secondary"?: string }
+- cta:          { "headline": string, "subheadline"?: string, "cta_primary": string, "cta_primary_href"?: string, "cta_secondary"?: string, "cta_secondary_href"?: string }
 - logos:        { "heading"?: string, "items": [ { "name": string } ] }
 - feature-split:{ "heading": string, "body": string, "bullets"?: string[], "image_prompt": string, "asset_url"?: string, "reverse"?: boolean }
 - custom:       { "kind": "calculator"|"booking"|"quote"|"newsletter"|"map"|"embed",
