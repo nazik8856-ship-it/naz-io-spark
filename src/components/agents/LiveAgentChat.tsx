@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowUp, ChevronDown, ChevronUp, Bot } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 
@@ -13,6 +13,7 @@ type Props = {
   streaming: boolean;
   fullSpec: string;
   onSend: (text: string) => void;
+  composerExtras?: ReactNode;
 };
 
 export default function LiveAgentChat({
@@ -24,6 +25,7 @@ export default function LiveAgentChat({
   streaming,
   fullSpec,
   onSend,
+  composerExtras,
 }: Props) {
   const [input, setInput] = useState("");
   const [showSpec, setShowSpec] = useState(false);
@@ -110,6 +112,7 @@ export default function LiveAgentChat({
 
         {/* Composer */}
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+          {composerExtras && <div className="mb-2">{composerExtras}</div>}
           <textarea
             ref={inputRef}
             value={input}

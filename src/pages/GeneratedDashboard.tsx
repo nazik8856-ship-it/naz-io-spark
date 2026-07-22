@@ -28,7 +28,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import AgentCockpit, { type AgentManifest } from "@/components/agents/AgentCockpit";
 import LiveAgentChat from "@/components/agents/LiveAgentChat";
-import { analyzeAndBuildContext } from "@/components/generator/PromptExtras";
+import PromptExtras, { analyzeAndBuildContext, type Attachment } from "@/components/generator/PromptExtras";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -87,6 +87,8 @@ export default function GeneratedDashboard() {
   const [savingDomain, setSavingDomain] = useState(false);
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [chatBusy, setChatBusy] = useState(false);
+  const [chatAttachments, setChatAttachments] = useState<Attachment[]>([]);
+  const [chatTone, setChatTone] = useState<string | null>(null);
   const [previewKey, setPreviewKey] = useState(0);
   const pageMenuRef = useRef<HTMLDivElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
@@ -180,7 +182,7 @@ export default function GeneratedDashboard() {
       // Analyze every website follow-up as a design brief before execution. The
       // compiler still receives the current manifest, so this enriches intent
       // without regenerating or discarding untouched work.
-      const { enrichedPrompt } = await analyzeAndBuildContext(text, null, [], "website");
+      const { enrichedPrompt } = await analyzeAndBuildContext(text, chatTone, chatAttachments, "website");
       const { data: sess } = await supabase.auth.getSession();
       const token = sess.session?.access_token;
       const resp = await supabase.functions.invoke("compile-website-manifest", {
@@ -205,6 +207,7 @@ export default function GeneratedDashboard() {
       if (site && pgs) cacheWebsitePreview(id, site, pgs);
       setPreviewKey((k) => k + 1);
       setTurns((t) => [...t, { role: "assistant", content: `✓ ${summary} _(${intent} edit — preview refreshed)_`, time: "just now" }]);
+      setChatAttachments([]);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setTurns((t) => [...t, { role: "assistant", content: `Couldn't apply that: ${msg}`, time: "just now" }]);
@@ -554,6 +557,14 @@ export default function GeneratedDashboard() {
               streaming={chatBusy}
               fullSpec={website?.theme?.design_rationale || website?.prompt || ""}
               onSend={sendWebsiteEdit}
+              composerExtras={
+                <PromptExtras
+                  attachments={chatAttachments}
+                  onChange={setChatAttachments}
+                  tone={chatTone}
+                  onToneChange={setChatTone}
+                />
+              }
             />
           </div>
         )}
