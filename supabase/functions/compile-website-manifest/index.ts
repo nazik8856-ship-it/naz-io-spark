@@ -370,6 +370,7 @@ Your job in 5 steps:
    - Integration snapshot data → surface concrete values (real product names, real event titles, real metrics) into the appropriate section instead of placeholder copy.
    - Referenced project (agent/site) → mirror the concrete facts (name, role, goal, tagline) into the requested section.
    - Tone selection → rewrite the copy of any section you touch to match that tone; if user asked for a tone shift only, apply it across all copy.
+   - Palette/layout hints from analysis → apply them to theme when relevant.
    - Requested navigation/redirect ("Book Now button should open a booking form", "add a Contact page and link the hero CTA to it", "Learn More should go to /services") → create the destination page if missing, ensure it contains the interactive section (booking/quote/newsletter/contact/pricing), and set the correct "cta_primary_href"/"cta_secondary_href"/"cta_href" on the source button. If the user supplies an external URL (Calendly, Stripe, mailto:, tel:), copy it verbatim into the href.
 5. SELF-CHECK the final manifest against the request AND every listed key fact / requirement / exact asset. The summary must name only changes that are visibly present in the returned manifest. Never say an edit was applied if the relevant field/content is absent.
 
