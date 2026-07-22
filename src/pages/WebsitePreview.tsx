@@ -863,6 +863,7 @@ export default function WebsitePreview() {
         © {new Date().getFullYear()} {site.name} · {site.tagline}
       </footer>
     </div>
+    </CtaNavCtx.Provider>
   );
 }
 
