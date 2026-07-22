@@ -171,7 +171,18 @@ Rules:
 - Copy must be specific to the described business — mention what it actually does, for whom, with real language.
 - No lorem ipsum, no "Coming soon", no placeholder text.
 - Palette must have readable contrast between bg and text (WCAG AA).
-- Fonts must be real Google Fonts families.`;
+- Fonts must be real Google Fonts families.
+
+MULTIPAGE NAVIGATION — every CTA is a real link, not decoration:
+- Create dedicated pages for anything the brief mentions that deserves its own destination (booking, contact form, pricing, menu, gallery, portfolio, story, quote request, sign up, etc.). Common slugs: "home", "about", "services", "pricing", "gallery", "menu", "contact", "book", "quote", "faq".
+- EVERY hero CTA and EVERY cta section CTA MUST set "cta_primary_href" (and "cta_secondary_href" when a second button exists). Every pricing tier CTA MUST set "cta_href".
+- href values are one of:
+  * a page slug from this manifest ("contact", "book", "pricing", "menu", "gallery", "about", "services", "quote", "faq") — the renderer switches pages and scrolls to top,
+  * "#section-id" for in-page anchors,
+  * full "https://...", "mailto:...", or "tel:..." for real external destinations the brief supplied.
+- Match CTA copy to destination: "Book a table" -> "book" page (containing custom section kind:"booking"); "Get a quote" -> "quote" page (custom kind:"quote"); "Contact us" -> "contact" page; "See pricing" -> "pricing" page; "View menu" -> "menu" page; "Subscribe" -> custom kind:"newsletter".
+- When a CTA promises an action (book/quote/subscribe/contact), the destination page MUST exist in "pages" AND MUST contain a section that actually performs it (contact form, custom booking/quote/newsletter, or pricing table). Never link to a dead page.
+- If the brief supplies external URLs (Calendly, Stripe checkout, phone), copy them byte-for-byte into the corresponding href.`;
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
