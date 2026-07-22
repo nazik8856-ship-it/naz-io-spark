@@ -112,6 +112,7 @@ export default function LiveAgentChat({
 
         {/* Composer */}
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+          {composerExtras && <div className="mb-2">{composerExtras}</div>}
           <textarea
             ref={inputRef}
             value={input}
