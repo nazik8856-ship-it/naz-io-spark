@@ -396,6 +396,28 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
           <button onClick={() => remove(a.id)} className="hover:text-white shrink-0"><X className="h-3 w-3" /></button>
         </span>
       ))}
+
+      {connectOpen && (
+        <IntegrationConnectModal
+          integration={{
+            name: "Google",
+            category: "Google",
+            method: "Sign in",
+            examples: [
+              "Gmail — read & send email",
+              "Google Docs — read & edit",
+              "Google Sheets — read & edit",
+              "Google Calendar — read & schedule",
+              "Google Analytics — read metrics",
+            ],
+            steps: ["Sign in with Google", "Grant access to all Google surfaces"],
+          }}
+          agentId={null}
+          accent="#a78bfa"
+          onClose={() => setConnectOpen(false)}
+          onChange={() => { loadConnected(); }}
+        />
+      )}
     </div>
   );
 }
