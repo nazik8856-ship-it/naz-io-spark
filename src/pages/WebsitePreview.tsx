@@ -324,6 +324,79 @@ function safeCalc(formula: string, vars: Record<string, number>): number | null 
   } catch { return null; }
 }
 
+type CtaNav = {
+  pages: { slug: string; title: string }[];
+  go: (url: string) => void;
+};
+const CtaNavCtx = createContext<CtaNav | null>(null);
+
+function resolveCtaTarget(
+  href: string | undefined,
+  label: string,
+  pages: { slug: string; title: string }[],
+): { kind: "external" | "internal" | "anchor" | "none"; url: string } {
+  const raw = (href ?? "").trim();
+  if (raw) {
+    if (/^https?:\/\//i.test(raw) || raw.startsWith("mailto:") || raw.startsWith("tel:")) {
+      return { kind: "external", url: raw };
+    }
+    if (raw.startsWith("#")) return { kind: "anchor", url: raw };
+    const cleaned = raw.replace(/^\//, "").split(/[?#]/)[0];
+    const hit = pages.find((p) => p.slug === cleaned);
+    if (hit) return { kind: "internal", url: hit.slug };
+  }
+  // Auto-map by CTA copy so "Book Now" → booking page, "Contact" → contact, etc.
+  const l = label.toLowerCase();
+  const map: { re: RegExp; want: string[] }[] = [
+    { re: /contact|get in touch|reach|message|inquire|talk|hello/, want: ["contact", "reach", "hello"] },
+    { re: /book|reserve|schedule|appointment/, want: ["book", "booking", "reserve", "reservations", "schedule"] },
+    { re: /quote|estimate/, want: ["quote", "estimate"] },
+    { re: /price|plan|pricing|packages/, want: ["pricing", "plans", "packages"] },
+    { re: /about|story|team|who we are/, want: ["about", "story", "team"] },
+    { re: /service|offering|what we do/, want: ["services", "offerings"] },
+    { re: /gallery|portfolio|work|showcase/, want: ["gallery", "portfolio", "work"] },
+    { re: /menu|shop|store|order/, want: ["menu", "shop", "store", "order"] },
+    { re: /faq|help|question/, want: ["faq", "help"] },
+    { re: /sign up|signup|join|subscribe|start|get started|begin/, want: ["signup", "join", "start", "get-started"] },
+    { re: /home/, want: ["home"] },
+  ];
+  for (const m of map) {
+    if (m.re.test(l)) {
+      const hit = pages.find((p) =>
+        m.want.some((w) => p.slug === w || p.slug.includes(w) || p.title.toLowerCase().includes(w)),
+      );
+      if (hit) return { kind: "internal", url: hit.slug };
+    }
+  }
+  return { kind: "none", url: "" };
+}
+
+function CtaButton({
+  label, href, variant = "primary", className,
+}: { label: string; href?: string; variant?: "primary" | "ghost"; className?: string }) {
+  const ctx = useContext(CtaNavCtx);
+  if (!label) return null;
+  const cls = className ?? (variant === "primary"
+    ? "nz-btn-primary px-6 py-3 rounded-lg font-semibold"
+    : "nz-btn-ghost px-6 py-3 rounded-lg font-semibold");
+  const target = resolveCtaTarget(href, label, ctx?.pages ?? []);
+  if (target.kind === "external") {
+    return <a href={target.url} target={target.url.startsWith("http") ? "_blank" : undefined} rel="noopener noreferrer" className={cls}>{label}</a>;
+  }
+  return (
+    <button
+      type="button"
+      className={cls}
+      onClick={() => {
+        if (target.kind === "none") return;
+        ctx?.go(target.url);
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
 export default function WebsitePreview() {
   const { id } = useParams<{ id: string }>();
   const [params] = useSearchParams();
