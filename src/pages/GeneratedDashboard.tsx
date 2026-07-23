@@ -206,7 +206,20 @@ export default function GeneratedDashboard() {
         },
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });
-      if (resp.error) throw new Error(resp.error.message || "Refine failed");
+      if (resp.error) {
+        let detail = resp.error.message || "Refine failed";
+        try {
+          const ctx: any = (resp.error as any).context;
+          if (ctx && typeof ctx.json === "function") {
+            const body = await ctx.json();
+            if (body?.error) detail = body.error;
+          } else if (ctx && typeof ctx.text === "function") {
+            const txt = await ctx.text();
+            try { const parsed = JSON.parse(txt); if (parsed?.error) detail = parsed.error; } catch { if (txt) detail = txt; }
+          }
+        } catch { /* keep base message */ }
+        throw new Error(detail);
+      }
       const responseData = (resp.data as any) || {};
       const summary = responseData.summary || "Updated.";
       const intent = responseData.intent || "mixed";

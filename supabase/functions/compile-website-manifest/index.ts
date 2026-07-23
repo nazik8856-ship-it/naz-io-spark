@@ -457,6 +457,13 @@ serve(async (req) => {
         refined = JSON.parse(stripFences(typeof raw === "string" ? raw : JSON.stringify(raw)));
       } catch (err) {
         console.error("refine AI failure", err);
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes("credits unavailable")) {
+          return json({ error: "AI credits exhausted for this workspace. Add credits in Settings → Plans & credits to keep refining." }, 402);
+        }
+        if (msg.includes("rate limited")) {
+          return json({ error: "AI is rate-limited right now. Try again in a moment." }, 429);
+        }
         return json({ error: "Could not understand that request. Try rephrasing more specifically." }, 500);
       }
 
