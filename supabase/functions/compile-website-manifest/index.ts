@@ -389,7 +389,10 @@ serve(async (req) => {
     if (!key) return json({ error: "Missing LOVABLE_API_KEY" }, 500);
 
     const body = await req.json().catch(() => ({}));
-    const { prompt, save = true, previousWebsiteId, refine = false, recentTurns = [] } = body || {};
+    const { prompt, save = true, previousWebsiteId, refine = false, recentTurns = [], attachments = [] } = body || {};
+    const visualAttachments = Array.isArray(attachments)
+      ? attachments.filter((a: any) => a && a.kind === "image" && (a.assetUrl || a.url)).slice(0, 6)
+      : [];
     if (!prompt || typeof prompt !== "string") return json({ error: "prompt required" }, 400);
 
     const authHeader = req.headers.get("Authorization") ?? "";
@@ -432,9 +435,18 @@ serve(async (req) => {
             model: MODEL,
             messages: [
               { role: "system", content: `${REFINE_DOC}\n\n${SCHEMA_DOC}` },
-              { role: "user", content: `CURRENT MANIFEST (do not regenerate untouched parts):\n${JSON.stringify(currentManifest)}\n\n${conversation ? `RECENT CONVERSATION (use only to resolve references and continuity):\n${conversation}\n\n` : ""}USER REQUEST + ANALYZED INTENT:\n${prompt}\n\nFirst infer the user's real expectation, then execute it as a coordinated design change: visual signature, palette, typography, copy, hierarchy, imagery, and micro-interactions must still feel like one deliberate system. Preserve every detail not requested or required for coherence. Return the JSON envelope { intent, summary, manifest }.` },
+              {
+                role: "user",
+                content: visualAttachments.length
+                  ? [
+                      { type: "text", text: `CURRENT MANIFEST (do not regenerate untouched parts):\n${JSON.stringify(currentManifest)}\n\n${conversation ? `RECENT CONVERSATION (use only to resolve references and continuity):\n${conversation}\n\n` : ""}USER REQUEST + ANALYZED INTENT:\n${prompt}\n\nAttached images are shown below — copy their exact URLs byte-for-byte into the target section/item's asset_url so they render in the site. First infer the user's real expectation, then execute it as a coordinated design change: visual signature, palette, typography, copy, hierarchy, imagery, and micro-interactions must still feel like one deliberate system. Preserve every detail not requested or required for coherence. Return the JSON envelope { intent, summary, manifest }.` },
+                      ...visualAttachments.map((a: any) => ({ type: "image_url", image_url: { url: a.assetUrl || a.url } })),
+                    ]
+                  : `CURRENT MANIFEST (do not regenerate untouched parts):\n${JSON.stringify(currentManifest)}\n\n${conversation ? `RECENT CONVERSATION (use only to resolve references and continuity):\n${conversation}\n\n` : ""}USER REQUEST + ANALYZED INTENT:\n${prompt}\n\nFirst infer the user's real expectation, then execute it as a coordinated design change: visual signature, palette, typography, copy, hierarchy, imagery, and micro-interactions must still feel like one deliberate system. Preserve every detail not requested or required for coherence. Return the JSON envelope { intent, summary, manifest }.`,
+              },
             ],
             temperature: 0.4,
+            response_format: { type: "json_object" },
           }),
         });
         if (resp.status === 429) throw new Error("gateway rate limited");
