@@ -194,6 +194,15 @@ export default function GeneratedDashboard() {
           recentTurns: [...turns, { role: "user", content: text }]
             .slice(-6)
             .map(({ role, content }) => ({ role, content })),
+          attachments: chatAttachments.map((a) => ({
+            id: a.id,
+            label: a.label,
+            kind: a.kind,
+            mimeType: a.mimeType,
+            url: a.url,
+            assetUrl: a.assetUrl,
+            contextText: a.contextText,
+          })),
         },
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });
