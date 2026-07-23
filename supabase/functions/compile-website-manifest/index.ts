@@ -389,7 +389,10 @@ serve(async (req) => {
     if (!key) return json({ error: "Missing LOVABLE_API_KEY" }, 500);
 
     const body = await req.json().catch(() => ({}));
-    const { prompt, save = true, previousWebsiteId, refine = false, recentTurns = [] } = body || {};
+    const { prompt, save = true, previousWebsiteId, refine = false, recentTurns = [], attachments = [] } = body || {};
+    const visualAttachments = Array.isArray(attachments)
+      ? attachments.filter((a: any) => a && a.kind === "image" && (a.assetUrl || a.url)).slice(0, 6)
+      : [];
     if (!prompt || typeof prompt !== "string") return json({ error: "prompt required" }, 400);
 
     const authHeader = req.headers.get("Authorization") ?? "";
