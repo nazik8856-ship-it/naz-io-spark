@@ -322,7 +322,8 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
           <div className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 mb-2">Pull data from integration</div>
           <div className="space-y-1 mb-3">
             {INTEGRATIONS.map((i) => {
-              const c = connected.find((x) => x.provider === i.id || x.provider.includes(i.id.split("_")[1] || i.id));
+              const pk = i.providerKey.toLowerCase();
+              const c = connected.find((x) => x.provider === pk || x.provider === i.id || x.provider.includes(i.id.split("_")[1] || i.id));
               const already = attachments.some((a) => a.id === `int-${i.id}`);
               const attach = () => {
                 if (!c) return;
@@ -362,7 +363,7 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        setConnectOpen(true);
+                        setConnectTarget({ name: i.providerKey, category: i.providerKey === "Gmail" ? "Google" : i.providerKey });
                       }}
                       className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-purple-500/20 border border-purple-400/50 text-purple-200 hover:bg-purple-500/30 hover:text-white transition"
                     >
