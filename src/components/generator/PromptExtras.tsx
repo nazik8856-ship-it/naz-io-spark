@@ -409,24 +409,18 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
         </span>
       ))}
 
-      {connectOpen && (
+      {connectTarget && (
         <IntegrationConnectModal
           integration={{
-            name: "Google",
-            category: "Google",
+            name: connectTarget.name,
+            category: connectTarget.category,
             method: "Sign in",
-            examples: [
-              "Gmail — read & send email",
-              "Google Docs — read & edit",
-              "Google Sheets — read & edit",
-              "Google Calendar — read & schedule",
-              "Google Analytics — read metrics",
-            ],
-            steps: ["Sign in with Google", "Grant access to all Google surfaces"],
+            examples: [],
+            steps: [`Sign in with ${connectTarget.name}`],
           }}
           agentId={null}
           accent="#a78bfa"
-          onClose={() => setConnectOpen(false)}
+          onClose={() => setConnectTarget(null)}
           onChange={() => { loadConnected(); }}
         />
       )}
