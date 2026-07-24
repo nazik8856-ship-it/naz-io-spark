@@ -149,6 +149,15 @@ serve(async (req) => {
       .select("key, value, source").eq("agent_id", agentId).eq("user_id", userId)
       .order("created_at", { ascending: false }).limit(40);
 
+    // Load org-level learned patterns (Phase 2 org memory).
+    const { data: orgInsights } = await supabase.from("org_insights")
+      .select("insight, kind, confidence, evidence_count, last_confirmed_at")
+      .eq("user_id", userId)
+      .order("evidence_count", { ascending: false })
+      .order("last_confirmed_at", { ascending: false })
+      .limit(8);
+
+
     // Load connected integrations + their most recent synced snapshot so the
     // agent grounds its reasoning in real business data instead of guessing.
     const { data: integrations } = await supabase.from("agent_integrations")
