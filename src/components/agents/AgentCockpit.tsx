@@ -72,7 +72,7 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
   const loadEvents = useCallback(async () => {
     const { data, error } = await supabase
       .from("agent_events")
-      .select("id, run_id, kind, payload, created_at")
+      .select("id, run_id, kind, payload, created_at, reasoning, confidence")
       .eq("agent_id", agentId)
       .order("created_at", { ascending: true })
       .limit(200);
