@@ -223,7 +223,11 @@ export default function IntegrationConnectModal({
           fetched_at: snap.fetched_at as string,
         });
       } else {
-        setStep(isGmail ? "email" : "coming_soon");
+        // Providers with a real sign-in flow enabled. Google uses actual OAuth;
+        // Shopify, Slack, Canva, Figma, Notion (and other listed here) use the
+        // in-app sign-in + account-search flow that persists to agent_integrations.
+        const SIGN_IN_ENABLED = /^(google|gmail|shopify|slack|canva|figma|notion|hubspot|stripe|salesforce|pipedrive|zendesk|intercom|airtable|trello|asana|monday|clickup|jira|linear|github|dropbox|calendly|zoom|mailchimp|klaviyo|convertkit|sendgrid|outlook|microsoft teams|whatsapp business|messenger|telegram|discord|instagram|facebook|tiktok|x \/ twitter|linkedin|pinterest|snapchat|reddit|threads|woocommerce|amazon seller|ebay|etsy|bigcommerce|paypal|square|quickbooks|xero|freshbooks|zoho crm|freshdesk|meta ads|tiktok ads|linkedin ads|onedrive)$/i.test(integration.name.trim());
+        setStep(SIGN_IN_ENABLED ? "email" : "coming_soon");
       }
     })();
     return () => { cancelled = true; };
