@@ -45,6 +45,7 @@ const WebsitePreview = lazyWithReload(() => import("./pages/WebsitePreview"));
 const GeneratedDashboard = lazyWithReload(() => import("./pages/GeneratedDashboard"));
 const Privacy = lazyWithReload(() => import("./pages/Privacy"));
 const Terms = lazyWithReload(() => import("./pages/Terms"));
+const Insights = lazyWithReload(() => import("./pages/Insights"));
 
 const queryClient = new QueryClient();
 
