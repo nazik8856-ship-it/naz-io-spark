@@ -387,33 +387,36 @@ export default function IntegrationConnectModal({
     }
   };
 
-  const startGmailOAuth = async () => {
+  const startOAuth = async (
+    kind: "gmail" | "figma",
+    opts: { functionName: string; source: string; label: string },
+  ) => {
     setError(null);
     setOauthLoading(true);
     try {
-      const { data, error: fnErr } = await supabase.functions.invoke("gmail-oauth-start", {
+      const { data, error: fnErr } = await supabase.functions.invoke(opts.functionName, {
         body: { agentId: agentId || null, origin: window.location.origin },
       });
-      if (fnErr) throw new Error(fnErr.message || "Failed to start Gmail OAuth");
-      const url = (data as { url?: string }).url;
-      if (!url) throw new Error("No authorization URL returned");
-      const popup = window.open(url, "gmail_oauth", "width=520,height=680");
+      if (fnErr) throw new Error(fnErr.message || `Failed to start ${opts.label} OAuth`);
+      const url = (data as { url?: string; error?: string }).url;
+      const errMsg = (data as { url?: string; error?: string }).error;
+      if (!url) throw new Error(errMsg || "No authorization URL returned");
+      const popup = window.open(url, `${kind}_oauth`, "width=560,height=720");
       if (!popup) throw new Error("Popup blocked. Please allow popups and retry.");
       const handler = (ev: MessageEvent) => {
         const payload = ev.data as { source?: string; ok?: boolean; message?: string } | null;
-        if (!payload || payload.source !== "nazai-gmail-oauth") return;
+        if (!payload || payload.source !== opts.source) return;
         window.removeEventListener("message", handler);
         setOauthLoading(false);
         if (payload.ok) {
-          toast.success("Gmail connected");
+          toast.success(`${opts.label} connected`);
           reloadConnected();
         } else {
-          setError(payload.message || "Gmail connection failed");
-          toast.error(payload.message || "Gmail connection failed");
+          setError(payload.message || `${opts.label} connection failed`);
+          toast.error(payload.message || `${opts.label} connection failed`);
         }
       };
       window.addEventListener("message", handler);
-      // Fallback: if popup closes without a message, stop the spinner.
       const timer = setInterval(() => {
         if (popup.closed) {
           clearInterval(timer);
@@ -422,10 +425,17 @@ export default function IntegrationConnectModal({
       }, 500);
     } catch (e) {
       setOauthLoading(false);
-      setError(e instanceof Error ? e.message : "Failed to start Gmail OAuth");
-      toast.error(e instanceof Error ? e.message : "Failed to start Gmail OAuth");
+      setError(e instanceof Error ? e.message : `Failed to start ${opts.label} OAuth`);
+      toast.error(e instanceof Error ? e.message : `Failed to start ${opts.label} OAuth`);
     }
   };
+
+  const startGmailOAuth = () =>
+    startOAuth("gmail", { functionName: "gmail-oauth-start", source: "nazai-gmail-oauth", label: "Gmail" });
+
+  const startFigmaOAuth = () =>
+    startOAuth("figma", { functionName: "figma-oauth-start", source: "nazai-figma-oauth", label: "Figma" });
+
 
   const submitEmail = (e: React.FormEvent) => {
     e.preventDefault();
