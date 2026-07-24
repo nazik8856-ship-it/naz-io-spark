@@ -276,7 +276,14 @@ export default function GeneratorHome() {
           <ArrowLeft className="h-5 w-5" />
           <span className="text-sm font-mono uppercase tracking-wider">Back</span>
         </button>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => navigate("/insights")}
+            className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-mono uppercase tracking-wider border border-[#00A3FF]/30 bg-[#00A3FF]/5 text-[#7cc8ff] hover:bg-[#00A3FF]/15 transition-colors"
+            title="What NazAI has learned about your business"
+          >
+            <Sparkles className="h-3.5 w-3.5" /> Insights
+          </button>
           <div className="h-8 w-8 rounded-full bg-gradient-to-br from-purple-500 to-cyan-400 flex items-center justify-center text-xs font-bold">
             {user?.email?.[0]?.toUpperCase() || "N"}
           </div>
