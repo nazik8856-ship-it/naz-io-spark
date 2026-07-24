@@ -46,7 +46,7 @@ export type Automation = {
   requiresApproval?: boolean;
 };
 
-type AgentEvent = { id: string; kind: string; payload: Record<string, unknown>; created_at: string; run_id?: string | null };
+type AgentEvent = { id: string; kind: string; payload: Record<string, unknown>; created_at: string; run_id?: string | null; reasoning?: string | null; confidence?: string | null };
 type Manifest = {
   name: string; goal: string;
   tools: { name: string; description: string; kind: string; config: Record<string, unknown> }[];
