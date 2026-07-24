@@ -141,6 +141,89 @@ function SocialIcon({ id }: { id: SocialProvider["id"] }) {
 }
 
 
+// Per-provider credential schema. Each provider is a *data connector* —
+// the user pastes real credentials from their own account so NazAI can
+// call the provider API on their behalf. No fake OAuth tokens.
+type CredField = {
+  key: string;
+  label: string;
+  placeholder: string;
+  type?: "text" | "password" | "url";
+  help?: string;
+  optional?: boolean;
+};
+type CredSchema = { docsUrl: string; docsLabel: string; fields: CredField[]; note?: string };
+
+function credentialSchemaFor(providerName: string): CredSchema {
+  const n = providerName.toLowerCase().replace(/[^a-z]/g, "");
+  if (n.includes("shopify")) return {
+    docsUrl: "https://help.shopify.com/en/manual/apps/app-types/custom-apps",
+    docsLabel: "Create a Shopify custom app → Admin API access token",
+    fields: [
+      { key: "store_url", label: "Store URL", placeholder: "your-store.myshopify.com", type: "url" },
+      { key: "access_token", label: "Admin API access token", placeholder: "shpat_…", type: "password" },
+    ],
+  };
+  if (n.includes("stripe")) return {
+    docsUrl: "https://dashboard.stripe.com/apikeys",
+    docsLabel: "Get your Stripe secret key",
+    fields: [{ key: "api_key", label: "Secret API key", placeholder: "sk_live_… or sk_test_…", type: "password" }],
+  };
+  if (n.includes("slack")) return {
+    docsUrl: "https://api.slack.com/messaging/webhooks",
+    docsLabel: "Create a Slack incoming webhook (or bot token)",
+    fields: [
+      { key: "webhook_url", label: "Incoming webhook URL", placeholder: "https://hooks.slack.com/services/…", type: "url", optional: true, help: "Easiest option — posts to one channel." },
+      { key: "access_token", label: "Bot user OAuth token", placeholder: "xoxb-…", type: "password", optional: true, help: "Use instead of webhook if the agent needs to read channels." },
+    ],
+    note: "Provide either a webhook URL or a bot token.",
+  };
+  if (n.includes("hubspot")) return {
+    docsUrl: "https://developers.hubspot.com/docs/api/private-apps",
+    docsLabel: "Create a HubSpot private app access token",
+    fields: [{ key: "access_token", label: "Private app access token", placeholder: "pat-na1-…", type: "password" }],
+  };
+  if (n.includes("notion")) return {
+    docsUrl: "https://www.notion.so/my-integrations",
+    docsLabel: "Create a Notion internal integration",
+    fields: [{ key: "access_token", label: "Internal integration secret", placeholder: "secret_…", type: "password" }],
+    note: "Also share the target pages/databases with your integration inside Notion.",
+  };
+  if (n.includes("figma")) return {
+    docsUrl: "https://www.figma.com/developers/api#access-tokens",
+    docsLabel: "Create a Figma personal access token",
+    fields: [{ key: "access_token", label: "Personal access token", placeholder: "figd_…", type: "password" }],
+  };
+  if (n.includes("canva")) return {
+    docsUrl: "https://www.canva.com/developers/",
+    docsLabel: "Canva Connect API token",
+    fields: [{ key: "access_token", label: "API access token", placeholder: "canva_…", type: "password" }],
+  };
+  if (n.includes("woocommerce")) return {
+    docsUrl: "https://woocommerce.com/document/woocommerce-rest-api/",
+    docsLabel: "Generate WooCommerce REST API keys",
+    fields: [
+      { key: "store_url", label: "Store URL", placeholder: "https://yourstore.com", type: "url" },
+      { key: "client_id", label: "Consumer key", placeholder: "ck_…", type: "password" },
+      { key: "client_secret", label: "Consumer secret", placeholder: "cs_…", type: "password" },
+    ],
+  };
+  if (n.includes("ga") || n.includes("analytics")) return {
+    docsUrl: "https://developers.google.com/analytics/devguides/reporting/data/v1",
+    docsLabel: "Get a GA4 property ID + access token",
+    fields: [
+      { key: "store_url", label: "GA4 Property ID", placeholder: "123456789", type: "text" },
+      { key: "access_token", label: "OAuth access token", placeholder: "ya29.…", type: "password" },
+    ],
+  };
+  return {
+    docsUrl: `https://www.google.com/search?q=${encodeURIComponent(providerName + " api key")}`,
+    docsLabel: `Where to find your ${providerName} API credentials`,
+    fields: [{ key: "api_key", label: "API key or access token", placeholder: `Your ${providerName} API key`, type: "password" }],
+  };
+}
+
+
 export default function IntegrationConnectModal({
   integration,
   agentId,
@@ -182,6 +265,9 @@ export default function IntegrationConnectModal({
   const [liveData, setLiveData] = useState<{ kind?: string; data?: Record<string, unknown>; error?: string | null; fetched_at?: string } | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [oauthLoading, setOauthLoading] = useState(false);
+  const credSchema = useMemo(() => credentialSchemaFor(integration.name), [integration.name]);
+  const [credValues, setCredValues] = useState<Record<string, string>>({});
+  const [showCred, setShowCred] = useState<Record<string, boolean>>({});
 
   // Prior state
   useEffect(() => {
@@ -223,11 +309,9 @@ export default function IntegrationConnectModal({
           fetched_at: snap.fetched_at as string,
         });
       } else {
-        // Providers with a real sign-in flow enabled. Google uses actual OAuth;
-        // Shopify, Slack, Canva, Figma, Notion (and other listed here) use the
-        // in-app sign-in + account-search flow that persists to agent_integrations.
-        const SIGN_IN_ENABLED = /^(google|gmail|shopify|slack|canva|figma|notion|hubspot|stripe|salesforce|pipedrive|zendesk|intercom|airtable|trello|asana|monday|clickup|jira|linear|github|dropbox|calendly|zoom|mailchimp|klaviyo|convertkit|sendgrid|outlook|microsoft teams|whatsapp business|messenger|telegram|discord|instagram|facebook|tiktok|x \/ twitter|linkedin|pinterest|snapchat|reddit|threads|woocommerce|amazon seller|ebay|etsy|bigcommerce|paypal|square|quickbooks|xero|freshbooks|zoho crm|freshdesk|meta ads|tiktok ads|linkedin ads|onedrive)$/i.test(integration.name.trim());
-        setStep(SIGN_IN_ENABLED ? "email" : "coming_soon");
+        // Every non-Google provider uses the data-connector form (credentials
+        // the user pastes from their own account). Google keeps real OAuth.
+        setStep("email");
       }
     })();
     return () => { cancelled = true; };
@@ -515,106 +599,143 @@ export default function IntegrationConnectModal({
           )}
 
 
-          {/* Non-Google sign-in: for Shopify, Slack, Canva, Figma, Notion and any
-              other whitelisted provider. Opens the real provider login page in a
-              popup so the user actually signs in on their side, then records the
-              connection in agent_integrations under this user's account. */}
+          {/* Non-Google data connector: user pastes the real credentials
+              (API key / access token / store URL / webhook) from their own
+              provider account. NazAI verifies them against the provider API
+              and stores them encrypted. This is a data connector — NOT a
+              sign-up flow; the agent will use these credentials to execute
+              actions on the user's behalf. */}
           {(step === "email" || step === "password" || step === "finding" || step === "account" || step === "connecting") && !isGoogle && (
-            <div className="flex-1 flex flex-col animate-fade-in">
-              <h2 className="text-2xl font-normal text-center mb-1">Connect {integration.name}</h2>
-              <p className="text-sm text-zinc-600 text-center mb-5">
-                Sign in on {integration.name} to grant NazAI access. Your password stays with {integration.name} — NazAI only receives an authorization token.
-              </p>
-              <label className="text-[11px] uppercase tracking-wider font-mono text-zinc-500 mb-1">
-                Your {integration.name} account email
-              </label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder={`you@${domainFor(integration.name)}`}
-                className="w-full h-11 px-3 rounded-lg border border-zinc-300 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-zinc-900/10"
-              />
-              <ul className="mb-5 space-y-2 text-xs text-zinc-700 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
-                {scopes.map((c) => (
-                  <li key={c} className="flex items-start gap-2">
-                    <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 text-emerald-600 shrink-0" />
-                    <span>{c}</span>
-                  </li>
-                ))}
-              </ul>
-              <button
-                type="button"
-                disabled={step === "connecting" || step === "finding"}
-                onClick={async () => {
-                  const v = email.trim();
-                  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) {
-                    setError("Enter your account email");
-                    return;
+            <form
+              className="flex-1 flex flex-col animate-fade-in"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                // Validate at least one required (non-optional) field is present
+                const required = credSchema.fields.filter((f) => !f.optional);
+                const missing = required.find((f) => !(credValues[f.key] || "").trim());
+                if (missing) { setError(`Enter ${missing.label}`); return; }
+                // If schema has only optional fields (e.g. Slack webhook OR token), require at least one
+                if (!required.length && !credSchema.fields.some((f) => (credValues[f.key] || "").trim())) {
+                  setError("Enter at least one credential above"); return;
+                }
+                setError(null);
+                setStep("connecting");
+                try {
+                  const cleaned: Record<string, string> = {};
+                  for (const f of credSchema.fields) {
+                    const v = (credValues[f.key] || "").trim();
+                    if (v) cleaned[f.key] = v;
                   }
-                  setError(null);
-                  // Open the real provider login page in a popup so the user
-                  // actually signs in on their side. We don't intercept that
-                  // session — we just record the connection on their return.
-                  const loginUrls: Record<string, string> = {
-                    shopify: "https://accounts.shopify.com/store-login",
-                    slack: "https://slack.com/signin",
-                    canva: "https://www.canva.com/login",
-                    figma: "https://www.figma.com/login",
-                    notion: "https://www.notion.so/login",
-                  };
-                  const key = integration.name.toLowerCase().replace(/[^a-z]/g, "");
-                  const loginUrl = loginUrls[key] || `https://${domainFor(integration.name)}`;
-                  try { window.open(loginUrl, `${key}_signin`, "width=520,height=680"); } catch { /* popup blocked ok */ }
-                  const synthetic: FoundAccount = {
-                    id: `${key}_${v}`,
-                    handle: v,
-                    name: displayNameFromEmail(v),
-                    kind: "personal",
+                  const { data, error: fnErr } = await supabase.functions.invoke("integration-connect", {
+                    body: {
+                      action: "verify",
+                      provider: providerKey,
+                      agentId: agentId || null,
+                      credentials: cleaned,
+                    },
+                  });
+                  if (fnErr) throw new Error(fnErr.message || "Connection failed");
+                  const res = data as { ok: boolean; error?: string; sample?: Record<string, unknown> };
+                  if (!res.ok) throw new Error(typeof res.error === "string" ? res.error : "Verification rejected");
+                  const sample = res.sample || {};
+                  setAccount({
+                    id: String(sample.account_id || sample.shop || sample.portal_id || sample.property_id || sample.team || "connected"),
+                    handle: String(sample.domain || sample.url || sample.shop || sample.team || sample.email || integration.name),
+                    name: String(sample.business_name || sample.shop || sample.store || sample.team || integration.name),
+                    kind: sample.business_name || sample.shop || sample.store || sample.portal_id ? "business" : "personal",
                     avatar: null,
-                  };
-                  setAccount(synthetic);
-                  setStep("connecting");
-                  try {
-                    const { data, error: fnErr } = await supabase.functions.invoke("integration-connect", {
-                      body: {
-                        action: "verify",
-                        provider: providerKey,
-                        agentId: agentId || null,
-                        credentials: {
-                          oauth_token: `oauth_sim_${crypto.randomUUID()}`,
-                          account_id: synthetic.id,
-                          account_email: v,
-                          account_name: synthetic.name,
-                          handle: v,
-                          account_kind: "personal",
-                          granted_scopes: scopes.join(", "),
-                        },
-                      },
-                    });
-                    if (fnErr) throw new Error(fnErr.message || "Connection failed");
-                    const res = data as { ok: boolean; error?: string };
-                    if (!res.ok) throw new Error(res.error || "Connection rejected");
-                    setStep("connected");
-                    toast.success(`Connected to ${integration.name}`);
-                    onChange?.();
-                  } catch (e) {
-                    setStep("error");
-                    setError(e instanceof Error ? e.message : "Connection failed");
-                  }
-                }}
+                  });
+                  setStep("connected");
+                  toast.success(`Connected to ${integration.name}`);
+                  onChange?.();
+                } catch (err) {
+                  setStep("error");
+                  setError(err instanceof Error ? err.message : "Connection failed");
+                }
+              }}
+            >
+              <h2 className="text-2xl font-normal text-center mb-1">Connect {integration.name}</h2>
+              <p className="text-sm text-zinc-600 text-center mb-4">
+                This is a <span className="font-medium">data connector</span> — paste the credentials from your own {integration.name} account so NazAI can read and act on your data. No sign-up, no password sharing.
+              </p>
+              <a
+                href={credSchema.docsUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[12px] text-blue-600 hover:underline text-center mb-4 inline-block"
+              >
+                {credSchema.docsLabel} ↗
+              </a>
+
+              <div className="space-y-3 mb-4">
+                {credSchema.fields.map((f) => {
+                  const inputType = f.type === "password" && !showCred[f.key] ? "password" : f.type === "url" ? "url" : "text";
+                  return (
+                    <div key={f.key}>
+                      <label className="text-[11px] uppercase tracking-wider font-mono text-zinc-500 mb-1 flex items-center justify-between">
+                        <span>{f.label}{f.optional && <span className="text-zinc-400 normal-case tracking-normal font-sans"> (optional)</span>}</span>
+                        {f.type === "password" && (
+                          <button
+                            type="button"
+                            onClick={() => setShowCred((s) => ({ ...s, [f.key]: !s[f.key] }))}
+                            className="text-zinc-400 hover:text-zinc-700"
+                          >
+                            {showCred[f.key] ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                          </button>
+                        )}
+                      </label>
+                      <input
+                        type={inputType}
+                        value={credValues[f.key] || ""}
+                        onChange={(ev) => setCredValues((s) => ({ ...s, [f.key]: ev.target.value }))}
+                        placeholder={f.placeholder}
+                        autoComplete="off"
+                        spellCheck={false}
+                        className="w-full h-11 px-3 rounded-lg border border-zinc-300 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900/10 font-mono"
+                      />
+                      {f.help && <div className="text-[11px] text-zinc-500 mt-1">{f.help}</div>}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {credSchema.note && (
+                <div className="text-[11px] text-zinc-500 mb-3">{credSchema.note}</div>
+              )}
+
+              <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 mb-4">
+                <div className="text-[10px] uppercase tracking-wider font-mono font-semibold text-zinc-500 mb-1.5">What NazAI will do</div>
+                <ul className="space-y-1 text-xs text-zinc-700">
+                  {scopes.map((c) => (
+                    <li key={c} className="flex items-start gap-2">
+                      <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 text-emerald-600 shrink-0" />
+                      <span>{c}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <button
+                type="submit"
+                disabled={step === "connecting"}
                 className="w-full h-12 rounded-full text-white text-sm font-semibold flex items-center justify-center gap-2 transition disabled:opacity-60"
                 style={{ background: `linear-gradient(135deg, ${accent}, #22d3ee)` }}
               >
                 {step === "connecting" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-                {step === "connecting" ? `Connecting to ${integration.name}…` : `Continue with ${integration.name}`}
+                {step === "connecting" ? `Verifying with ${integration.name}…` : "Continue"}
               </button>
-              {error && <div className="text-xs text-red-600 mt-4">{error}</div>}
-              <p className="text-[11px] text-zinc-500 mt-6">
-                We open {integration.name}'s official sign-in in a new window. Revoke access anytime from your {integration.name} settings.
+              {error && (
+                <div className="text-xs text-red-600 mt-3 rounded-md border border-red-200 bg-red-50 p-2 flex items-start gap-1.5">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span className="break-words">{error}</span>
+                </div>
+              )}
+              <p className="text-[11px] text-zinc-500 mt-4">
+                Credentials are encrypted at rest and revocable anytime from your {integration.name} account.
               </p>
-            </div>
+            </form>
           )}
+
 
           {step === "coming_soon" && (
             <div className="flex-1 flex flex-col items-center justify-center text-center animate-fade-in gap-3">
