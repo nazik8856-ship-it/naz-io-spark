@@ -141,6 +141,89 @@ function SocialIcon({ id }: { id: SocialProvider["id"] }) {
 }
 
 
+// Per-provider credential schema. Each provider is a *data connector* —
+// the user pastes real credentials from their own account so NazAI can
+// call the provider API on their behalf. No fake OAuth tokens.
+type CredField = {
+  key: string;
+  label: string;
+  placeholder: string;
+  type?: "text" | "password" | "url";
+  help?: string;
+  optional?: boolean;
+};
+type CredSchema = { docsUrl: string; docsLabel: string; fields: CredField[]; note?: string };
+
+function credentialSchemaFor(providerName: string): CredSchema {
+  const n = providerName.toLowerCase().replace(/[^a-z]/g, "");
+  if (n.includes("shopify")) return {
+    docsUrl: "https://help.shopify.com/en/manual/apps/app-types/custom-apps",
+    docsLabel: "Create a Shopify custom app → Admin API access token",
+    fields: [
+      { key: "store_url", label: "Store URL", placeholder: "your-store.myshopify.com", type: "url" },
+      { key: "access_token", label: "Admin API access token", placeholder: "shpat_…", type: "password" },
+    ],
+  };
+  if (n.includes("stripe")) return {
+    docsUrl: "https://dashboard.stripe.com/apikeys",
+    docsLabel: "Get your Stripe secret key",
+    fields: [{ key: "api_key", label: "Secret API key", placeholder: "sk_live_… or sk_test_…", type: "password" }],
+  };
+  if (n.includes("slack")) return {
+    docsUrl: "https://api.slack.com/messaging/webhooks",
+    docsLabel: "Create a Slack incoming webhook (or bot token)",
+    fields: [
+      { key: "webhook_url", label: "Incoming webhook URL", placeholder: "https://hooks.slack.com/services/…", type: "url", optional: true, help: "Easiest option — posts to one channel." },
+      { key: "access_token", label: "Bot user OAuth token", placeholder: "xoxb-…", type: "password", optional: true, help: "Use instead of webhook if the agent needs to read channels." },
+    ],
+    note: "Provide either a webhook URL or a bot token.",
+  };
+  if (n.includes("hubspot")) return {
+    docsUrl: "https://developers.hubspot.com/docs/api/private-apps",
+    docsLabel: "Create a HubSpot private app access token",
+    fields: [{ key: "access_token", label: "Private app access token", placeholder: "pat-na1-…", type: "password" }],
+  };
+  if (n.includes("notion")) return {
+    docsUrl: "https://www.notion.so/my-integrations",
+    docsLabel: "Create a Notion internal integration",
+    fields: [{ key: "access_token", label: "Internal integration secret", placeholder: "secret_…", type: "password" }],
+    note: "Also share the target pages/databases with your integration inside Notion.",
+  };
+  if (n.includes("figma")) return {
+    docsUrl: "https://www.figma.com/developers/api#access-tokens",
+    docsLabel: "Create a Figma personal access token",
+    fields: [{ key: "access_token", label: "Personal access token", placeholder: "figd_…", type: "password" }],
+  };
+  if (n.includes("canva")) return {
+    docsUrl: "https://www.canva.com/developers/",
+    docsLabel: "Canva Connect API token",
+    fields: [{ key: "access_token", label: "API access token", placeholder: "canva_…", type: "password" }],
+  };
+  if (n.includes("woocommerce")) return {
+    docsUrl: "https://woocommerce.com/document/woocommerce-rest-api/",
+    docsLabel: "Generate WooCommerce REST API keys",
+    fields: [
+      { key: "store_url", label: "Store URL", placeholder: "https://yourstore.com", type: "url" },
+      { key: "client_id", label: "Consumer key", placeholder: "ck_…", type: "password" },
+      { key: "client_secret", label: "Consumer secret", placeholder: "cs_…", type: "password" },
+    ],
+  };
+  if (n.includes("ga") || n.includes("analytics")) return {
+    docsUrl: "https://developers.google.com/analytics/devguides/reporting/data/v1",
+    docsLabel: "Get a GA4 property ID + access token",
+    fields: [
+      { key: "store_url", label: "GA4 Property ID", placeholder: "123456789", type: "text" },
+      { key: "access_token", label: "OAuth access token", placeholder: "ya29.…", type: "password" },
+    ],
+  };
+  return {
+    docsUrl: `https://www.google.com/search?q=${encodeURIComponent(providerName + " api key")}`,
+    docsLabel: `Where to find your ${providerName} API credentials`,
+    fields: [{ key: "api_key", label: "API key or access token", placeholder: `Your ${providerName} API key`, type: "password" }],
+  };
+}
+
+
 export default function IntegrationConnectModal({
   integration,
   agentId,
