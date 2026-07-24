@@ -61,7 +61,7 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
   const tunerPanelRef = useRef<HTMLDivElement>(null);
   const [plusPos, setPlusPos] = useState<{ left: number; bottom: number } | null>(null);
   const [tunerPos, setTunerPos] = useState<{ left: number; bottom: number } | null>(null);
-  const [connectOpen, setConnectOpen] = useState(false);
+  const [connectTarget, setConnectTarget] = useState<{ name: string; category: string } | null>(null);
 
   const computePos = (btn: HTMLButtonElement | null) => {
     if (!btn) return null;
