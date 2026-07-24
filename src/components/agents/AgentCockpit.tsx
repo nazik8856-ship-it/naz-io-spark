@@ -49,6 +49,8 @@ type AgentEvent = {
   kind: string;
   payload: Record<string, unknown>;
   created_at: string;
+  reasoning?: string | null;
+  confidence?: string | null;
 };
 
 
