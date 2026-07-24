@@ -214,9 +214,34 @@ export default function GeneratedAgentDashboard({
           {modal?.kind === "report" ? (
             <RichMarkdown text={modal.body} />
           ) : modal?.kind === "payload" ? (
-            <pre className="text-[11px] text-cyan-200 font-mono whitespace-pre-wrap break-all bg-black/40 rounded-lg p-3 border border-white/10">
-              {JSON.stringify(modal.payload, null, 2)}
-            </pre>
+            <div className="space-y-3">
+              {(modal.reasoning || modal.confidence) && (
+                <div className="rounded-lg border border-white/10 bg-white/5 p-3 space-y-1.5">
+                  <div className="font-mono text-[9.5px] uppercase tracking-widest text-zinc-500">Why this action</div>
+                  {modal.reasoning && (
+                    <div className="text-[12px] text-zinc-200 leading-relaxed">{modal.reasoning}</div>
+                  )}
+                  {modal.confidence && (
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-[9.5px] uppercase tracking-widest text-zinc-500">Confidence</span>
+                      <span
+                        className="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded border"
+                        style={{
+                          color: modal.confidence === "high" ? "#34d399" : modal.confidence === "medium" ? "#fbbf24" : "#fb7185",
+                          borderColor: modal.confidence === "high" ? "#34d39955" : modal.confidence === "medium" ? "#fbbf2455" : "#fb718555",
+                          background: modal.confidence === "high" ? "#34d39914" : modal.confidence === "medium" ? "#fbbf2414" : "#fb718514",
+                        }}
+                      >
+                        {modal.confidence}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+              <pre className="text-[11px] text-cyan-200 font-mono whitespace-pre-wrap break-all bg-black/40 rounded-lg p-3 border border-white/10">
+                {JSON.stringify(modal.payload, null, 2)}
+              </pre>
+            </div>
           ) : null}
         </DialogContent>
       </Dialog>
