@@ -599,54 +599,43 @@ export default function IntegrationConnectModal({
           )}
 
 
-          {/* Non-Google data connector: user pastes the real credentials
-              (API key / access token / store URL / webhook) from their own
-              provider account. NazAI verifies them against the provider API
-              and stores them encrypted. This is a data connector — NOT a
-              sign-up flow; the agent will use these credentials to execute
-              actions on the user's behalf. */}
+          {/* Non-Google data connector: no credentials collected up-front.
+              User presses Continue to grant intent; the real provider data
+              is captured contextually later (when the agent actually needs
+              it), so there's no token field here. */}
           {(step === "email" || step === "password" || step === "finding" || step === "account" || step === "connecting") && !isGoogle && (
             <form
               className="flex-1 flex flex-col animate-fade-in"
               onSubmit={async (e) => {
                 e.preventDefault();
-                // Validate at least one required (non-optional) field is present
-                const required = credSchema.fields.filter((f) => !f.optional);
-                const missing = required.find((f) => !(credValues[f.key] || "").trim());
-                if (missing) { setError(`Enter ${missing.label}`); return; }
-                // If schema has only optional fields (e.g. Slack webhook OR token), require at least one
-                if (!required.length && !credSchema.fields.some((f) => (credValues[f.key] || "").trim())) {
-                  setError("Enter at least one credential above"); return;
-                }
                 setError(null);
                 setStep("connecting");
                 try {
-                  const cleaned: Record<string, string> = {};
-                  for (const f of credSchema.fields) {
-                    const v = (credValues[f.key] || "").trim();
-                    if (v) cleaned[f.key] = v;
-                  }
                   const { data, error: fnErr } = await supabase.functions.invoke("integration-connect", {
                     body: {
                       action: "verify",
                       provider: providerKey,
                       agentId: agentId || null,
-                      credentials: cleaned,
+                      credentials: {
+                        pending: true,
+                        connected_intent_at: new Date().toISOString(),
+                        source: "connect_modal",
+                      },
                     },
                   });
                   if (fnErr) throw new Error(fnErr.message || "Connection failed");
                   const res = data as { ok: boolean; error?: string; sample?: Record<string, unknown> };
-                  if (!res.ok) throw new Error(typeof res.error === "string" ? res.error : "Verification rejected");
+                  if (!res.ok) throw new Error(typeof res.error === "string" ? res.error : "Connection rejected");
                   const sample = res.sample || {};
                   setAccount({
-                    id: String(sample.account_id || sample.shop || sample.portal_id || sample.property_id || sample.team || "connected"),
-                    handle: String(sample.domain || sample.url || sample.shop || sample.team || sample.email || integration.name),
-                    name: String(sample.business_name || sample.shop || sample.store || sample.team || integration.name),
-                    kind: sample.business_name || sample.shop || sample.store || sample.portal_id ? "business" : "personal",
+                    id: String(sample.account_id || "pending"),
+                    handle: String(sample.handle || integration.name),
+                    name: String(sample.name || integration.name),
+                    kind: "personal",
                     avatar: null,
                   });
                   setStep("connected");
-                  toast.success(`Connected to ${integration.name}`);
+                  toast.success(`${integration.name} ready — NazAI will ask for details when it runs`);
                   onChange?.();
                 } catch (err) {
                   setStep("error");
@@ -655,55 +644,11 @@ export default function IntegrationConnectModal({
               }}
             >
               <h2 className="text-2xl font-normal text-center mb-1">Connect {integration.name}</h2>
-              <p className="text-sm text-zinc-600 text-center mb-4">
-                This is a <span className="font-medium">data connector</span> — paste the credentials from your own {integration.name} account so NazAI can read and act on your data. No sign-up, no password sharing.
+              <p className="text-sm text-zinc-600 text-center mb-5">
+                This is a <span className="font-medium">data connector</span> — press Continue and NazAI will ask for your {integration.name} details in-context when the agent actually needs them. No sign-up, no password sharing.
               </p>
-              <a
-                href={credSchema.docsUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="text-[12px] text-blue-600 hover:underline text-center mb-4 inline-block"
-              >
-                {credSchema.docsLabel} ↗
-              </a>
 
-              <div className="space-y-3 mb-4">
-                {credSchema.fields.map((f) => {
-                  const inputType = f.type === "password" && !showCred[f.key] ? "password" : f.type === "url" ? "url" : "text";
-                  return (
-                    <div key={f.key}>
-                      <label className="text-[11px] uppercase tracking-wider font-mono text-zinc-500 mb-1 flex items-center justify-between">
-                        <span>{f.label}{f.optional && <span className="text-zinc-400 normal-case tracking-normal font-sans"> (optional)</span>}</span>
-                        {f.type === "password" && (
-                          <button
-                            type="button"
-                            onClick={() => setShowCred((s) => ({ ...s, [f.key]: !s[f.key] }))}
-                            className="text-zinc-400 hover:text-zinc-700"
-                          >
-                            {showCred[f.key] ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                          </button>
-                        )}
-                      </label>
-                      <input
-                        type={inputType}
-                        value={credValues[f.key] || ""}
-                        onChange={(ev) => setCredValues((s) => ({ ...s, [f.key]: ev.target.value }))}
-                        placeholder={f.placeholder}
-                        autoComplete="off"
-                        spellCheck={false}
-                        className="w-full h-11 px-3 rounded-lg border border-zinc-300 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900/10 font-mono"
-                      />
-                      {f.help && <div className="text-[11px] text-zinc-500 mt-1">{f.help}</div>}
-                    </div>
-                  );
-                })}
-              </div>
-
-              {credSchema.note && (
-                <div className="text-[11px] text-zinc-500 mb-3">{credSchema.note}</div>
-              )}
-
-              <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 mb-4">
+              <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 mb-5">
                 <div className="text-[10px] uppercase tracking-wider font-mono font-semibold text-zinc-500 mb-1.5">What NazAI will do</div>
                 <ul className="space-y-1 text-xs text-zinc-700">
                   {scopes.map((c) => (
@@ -722,7 +667,7 @@ export default function IntegrationConnectModal({
                 style={{ background: `linear-gradient(135deg, ${accent}, #22d3ee)` }}
               >
                 {step === "connecting" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-                {step === "connecting" ? `Verifying with ${integration.name}…` : "Continue"}
+                {step === "connecting" ? "Preparing…" : "Continue"}
               </button>
               {error && (
                 <div className="text-xs text-red-600 mt-3 rounded-md border border-red-200 bg-red-50 p-2 flex items-start gap-1.5">
@@ -731,10 +676,11 @@ export default function IntegrationConnectModal({
                 </div>
               )}
               <p className="text-[11px] text-zinc-500 mt-4">
-                Credentials are encrypted at rest and revocable anytime from your {integration.name} account.
+                You can revoke or reconfigure this connection anytime from {integration.name}.
               </p>
             </form>
           )}
+
 
 
           {step === "coming_soon" && (
