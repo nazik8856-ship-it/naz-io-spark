@@ -360,6 +360,8 @@ export default function IntegrationConnectModal({
           fetched_at: snap.fetched_at as string,
         });
       } else {
+        // Placeholder providers: honest "Coming soon" state, no fake flow.
+        if (isComingSoon) { setStep("coming_soon"); return; }
         // Every non-Google provider uses the data-connector form (credentials
         // the user pastes from their own account). Google keeps real OAuth.
         setStep("email");
