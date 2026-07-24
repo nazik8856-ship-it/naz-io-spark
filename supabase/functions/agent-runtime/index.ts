@@ -542,8 +542,9 @@ ${toolDescriptions}
 {"action":"think","thought":"..."}
 \`\`\`
 \`\`\`json
-{"action":"tool","tool":"<name>","input":{...}}
+{"action":"tool","tool":"<name>","input":{...},"reasoning":"<one short sentence WHY you chose this action now>","confidence":"high|medium|low"}
 \`\`\`
+For any REAL WRITE action (send_email, reply_email, create_doc, edit_doc, create_sheet, edit_sheet, create_calendar_event, upsert_client_note) the "reasoning" and "confidence" fields are REQUIRED. For read-only or internal tools they are optional.
 \`\`\`json
 {"action":"decide","decision":"...","rationale":"..."}
 \`\`\`
