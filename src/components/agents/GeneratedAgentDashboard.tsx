@@ -46,7 +46,7 @@ export type Automation = {
   requiresApproval?: boolean;
 };
 
-type AgentEvent = { id: string; kind: string; payload: Record<string, unknown>; created_at: string; run_id?: string | null };
+type AgentEvent = { id: string; kind: string; payload: Record<string, unknown>; created_at: string; run_id?: string | null; reasoning?: string | null; confidence?: string | null };
 type Manifest = {
   name: string; goal: string;
   tools: { name: string; description: string; kind: string; config: Record<string, unknown> }[];
@@ -87,7 +87,7 @@ export default function GeneratedAgentDashboard({
   // Shared modal state for artifacts/execution_flow chip clicks.
   const [modal, setModal] = useState<
     | { kind: "report"; title: string; body: string }
-    | { kind: "payload"; title: string; payload: Record<string, unknown> }
+    | { kind: "payload"; title: string; payload: Record<string, unknown>; reasoning?: string | null; confidence?: string | null }
     | null
   >(null);
 
@@ -214,9 +214,34 @@ export default function GeneratedAgentDashboard({
           {modal?.kind === "report" ? (
             <RichMarkdown text={modal.body} />
           ) : modal?.kind === "payload" ? (
-            <pre className="text-[11px] text-cyan-200 font-mono whitespace-pre-wrap break-all bg-black/40 rounded-lg p-3 border border-white/10">
-              {JSON.stringify(modal.payload, null, 2)}
-            </pre>
+            <div className="space-y-3">
+              {(modal.reasoning || modal.confidence) && (
+                <div className="rounded-lg border border-white/10 bg-white/5 p-3 space-y-1.5">
+                  <div className="font-mono text-[9.5px] uppercase tracking-widest text-zinc-500">Why this action</div>
+                  {modal.reasoning && (
+                    <div className="text-[12px] text-zinc-200 leading-relaxed">{modal.reasoning}</div>
+                  )}
+                  {modal.confidence && (
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-[9.5px] uppercase tracking-widest text-zinc-500">Confidence</span>
+                      <span
+                        className="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded border"
+                        style={{
+                          color: modal.confidence === "high" ? "#34d399" : modal.confidence === "medium" ? "#fbbf24" : "#fb7185",
+                          borderColor: modal.confidence === "high" ? "#34d39955" : modal.confidence === "medium" ? "#fbbf2455" : "#fb718555",
+                          background: modal.confidence === "high" ? "#34d39914" : modal.confidence === "medium" ? "#fbbf2414" : "#fb718514",
+                        }}
+                      >
+                        {modal.confidence}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+              <pre className="text-[11px] text-cyan-200 font-mono whitespace-pre-wrap break-all bg-black/40 rounded-lg p-3 border border-white/10">
+                {JSON.stringify(modal.payload, null, 2)}
+              </pre>
+            </div>
           ) : null}
         </DialogContent>
       </Dialog>
@@ -313,7 +338,7 @@ function CardHeading({ label, accent, right }: { label: string; accent: string; 
 
 type ModalPayload =
   | { kind: "report"; title: string; body: string }
-  | { kind: "payload"; title: string; payload: Record<string, unknown> };
+  | { kind: "payload"; title: string; payload: Record<string, unknown>; reasoning?: string | null; confidence?: string | null };
 
 function WidgetCard({
   widget, events, demo, manifest, stats, accent, accent2, agentId, onOpen,
@@ -1028,7 +1053,7 @@ function ExecutionFlowWidget({
                               if (report) {
                                 onOpen({ kind: "report", title: report.title, body: report.body_markdown });
                               } else {
-                                onOpen({ kind: "payload", title: `${type} · ${relTime(a.created_at)}`, payload: a.payload });
+                                onOpen({ kind: "payload", title: `${type} · ${relTime(a.created_at)}`, payload: a.payload, reasoning: a.reasoning ?? null, confidence: a.confidence ?? null });
                               }
                             }}
                             className="text-[10px] font-mono px-1.5 py-0.5 rounded transition-colors hover:brightness-125"

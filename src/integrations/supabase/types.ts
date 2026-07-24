@@ -130,28 +130,34 @@ export type Database = {
       agent_events: {
         Row: {
           agent_id: string
+          confidence: string | null
           created_at: string
           id: string
           kind: string
           payload: Json
+          reasoning: string | null
           run_id: string
           user_id: string
         }
         Insert: {
           agent_id: string
+          confidence?: string | null
           created_at?: string
           id?: string
           kind: string
           payload?: Json
+          reasoning?: string | null
           run_id: string
           user_id: string
         }
         Update: {
           agent_id?: string
+          confidence?: string | null
           created_at?: string
           id?: string
           kind?: string
           payload?: Json
+          reasoning?: string | null
           run_id?: string
           user_id?: string
         }

@@ -374,6 +374,9 @@ serve(async (req) => {
       if (insErr || !ins) return { ok: false, reason: insErr?.message || "insert failed" };
       return { ok: true, clientId: ins.id };
     };
+    // Decision provenance staged by the parser for the next `action` event.
+    const pendingProvenance: { reasoning?: string; confidence?: string } = {};
+
     const logEvent = async (kind: string, payload: Record<string, unknown>) => {
       if (kind === "tool_result" || kind === "action") {
         const p = payload as { ok?: unknown; tool?: unknown; type?: unknown };
@@ -405,8 +408,19 @@ serve(async (req) => {
           }).then(() => {}, () => {});
         }
       }
-      return supabase.from("agent_events").insert({ run_id: runId, agent_id: agentId, user_id: userId, kind, payload });
+      // Attach decision provenance (reasoning + confidence) to the next action
+      // event when the model provided it alongside the tool call. Purely
+      // additive — old rows have these columns null.
+      const row: Record<string, unknown> = { run_id: runId, agent_id: agentId, user_id: userId, kind, payload };
+      if (kind === "action" && (pendingProvenance.reasoning || pendingProvenance.confidence)) {
+        if (pendingProvenance.reasoning) row.reasoning = pendingProvenance.reasoning;
+        if (pendingProvenance.confidence) row.confidence = pendingProvenance.confidence;
+        pendingProvenance.reasoning = undefined;
+        pendingProvenance.confidence = undefined;
+      }
+      return supabase.from("agent_events").insert(row);
     };
+
 
 
 
@@ -542,8 +556,9 @@ ${toolDescriptions}
 {"action":"think","thought":"..."}
 \`\`\`
 \`\`\`json
-{"action":"tool","tool":"<name>","input":{...}}
+{"action":"tool","tool":"<name>","input":{...},"reasoning":"<one short sentence WHY you chose this action now>","confidence":"high|medium|low"}
 \`\`\`
+For any REAL WRITE action (send_email, reply_email, create_doc, edit_doc, create_sheet, edit_sheet, create_calendar_event, upsert_client_note) the "reasoning" and "confidence" fields are REQUIRED. For read-only or internal tools they are optional.
 \`\`\`json
 {"action":"decide","decision":"...","rationale":"..."}
 \`\`\`
@@ -634,8 +649,18 @@ Rules:
           failGuard.state = null;
         }
 
+        // Stage decision provenance (reasoning + confidence) from the model's
+        // action block. Consumed by the next `action` event write.
+        if (ACTION_CAPPED_KINDS.has(tool.kind)) {
+          const r = typeof parsed.reasoning === "string" ? parsed.reasoning.trim().slice(0, 400) : "";
+          const cRaw = typeof parsed.confidence === "string" ? parsed.confidence.trim().toLowerCase() : "";
+          const c = cRaw === "high" || cRaw === "medium" || cRaw === "low" ? cRaw : "";
+          if (r) pendingProvenance.reasoning = r;
+          if (c) pendingProvenance.confidence = c;
+        }
 
         await logEvent("tool_call", { tool: tool.name, kind: tool.kind, input });
+
 
         // Daily action cap gate — blocks verified action executors once used>=cap for today (UTC).
         if (ACTION_CAPPED_KINDS.has(tool.kind) && dailyActionCap > 0) {
