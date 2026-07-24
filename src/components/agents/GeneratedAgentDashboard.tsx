@@ -87,7 +87,7 @@ export default function GeneratedAgentDashboard({
   // Shared modal state for artifacts/execution_flow chip clicks.
   const [modal, setModal] = useState<
     | { kind: "report"; title: string; body: string }
-    | { kind: "payload"; title: string; payload: Record<string, unknown> }
+    | { kind: "payload"; title: string; payload: Record<string, unknown>; reasoning?: string | null; confidence?: string | null }
     | null
   >(null);
 
