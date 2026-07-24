@@ -229,12 +229,42 @@ Rules:
     // pricing tiers, gallery items, service cards, stats, etc.
     const rawSources = resolved.filter((r) => r.kind !== "image" && r.text && r.text.trim().length);
     if (rawSources.length) {
-      lines.push("", "Raw attached content (use as the source of truth for concrete facts, rows, names, numbers, and copy — turn this data into real, visible sections/items in the output):");
-      rawSources.slice(0, 6).forEach((r) => {
-        const snippet = r.text.length > 3500 ? r.text.slice(0, 3500) + "\n…(truncated)" : r.text;
-        lines.push(`\n### ${r.label} [${r.source}]\n${snippet}`);
+      lines.push(
+        "",
+        "Raw attached content (AUTHORITATIVE source of truth — every row/entry below MUST be materialized as real, visible content in the site: names, numbers, prices, descriptions, images. Pick the section shape that matches the columns: pricing table, service grid, gallery, stats, FAQ, testimonials, menu, team, feature list, etc. Do NOT invent placeholder rows when real ones are supplied.):",
+      );
+      rawSources.slice(0, 8).forEach((r) => {
+        // Give CSV/JSON extra room since each row is a first-class content item.
+        const isData = r.kind === "data" || /(csv|json|tsv|xml|yaml)/i.test(r.mimeType || "") || /(csv|json|tsv|xml|yaml)/i.test(r.source);
+        const cap = isData ? 12000 : 4000;
+        const snippet = r.text.length > cap ? r.text.slice(0, cap) + "\n…(truncated)" : r.text;
+        let shape = "";
+        if (isData) {
+          try {
+            if (/^\s*[\[{]/.test(r.text)) {
+              const parsed = JSON.parse(r.text);
+              if (Array.isArray(parsed)) {
+                const first = parsed[0];
+                const keys = first && typeof first === "object" ? Object.keys(first).slice(0, 20).join(", ") : "";
+                shape = `\nDetected shape: JSON array of ${parsed.length} objects${keys ? ` — fields: ${keys}` : ""}.`;
+              } else if (parsed && typeof parsed === "object") {
+                shape = `\nDetected shape: JSON object with keys: ${Object.keys(parsed).slice(0, 20).join(", ")}.`;
+              }
+            } else {
+              const firstLines = r.text.split(/\r?\n/).slice(0, 3);
+              const delim = firstLines[0].includes("\t") ? "\t" : ",";
+              const headers = firstLines[0].split(delim).map((h) => h.trim()).filter(Boolean);
+              const rowCount = r.text.split(/\r?\n/).filter((l) => l.trim().length).length - 1;
+              if (headers.length >= 2) {
+                shape = `\nDetected shape: ${delim === "\t" ? "TSV" : "CSV"} with ~${Math.max(0, rowCount)} rows — columns: ${headers.slice(0, 20).join(" | ")}.`;
+              }
+            }
+          } catch { /* leave shape empty */ }
+        }
+        lines.push(`\n### ${r.label} [${r.source}]${shape}\n${snippet}`);
       });
     }
+
 
     return json({ analysis, enrichedPrompt: lines.join("\n") });
 
