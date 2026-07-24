@@ -140,6 +140,40 @@ function SocialIcon({ id }: { id: SocialProvider["id"] }) {
   );
 }
 
+// The real platform URL we open in a popup when the user presses Continue.
+// User signs in / signs up / authorizes on the actual provider site, then
+// closes the window; NazAI marks the connection as ready.
+function providerLoginUrl(providerName: string): string {
+  const n = providerName.toLowerCase().replace(/[^a-z]/g, "");
+  if (n.includes("shopify")) return "https://accounts.shopify.com/store-login";
+  if (n.includes("stripe")) return "https://dashboard.stripe.com/login";
+  if (n.includes("slack")) return "https://slack.com/signin";
+  if (n.includes("notion")) return "https://www.notion.so/login";
+  if (n.includes("figma")) return "https://www.figma.com/login";
+  if (n.includes("canva")) return "https://www.canva.com/login";
+  if (n.includes("hubspot")) return "https://app.hubspot.com/login";
+  if (n.includes("salesforce")) return "https://login.salesforce.com/";
+  if (n.includes("airtable")) return "https://airtable.com/login";
+  if (n.includes("linkedin")) return "https://www.linkedin.com/login";
+  if (n.includes("instagram")) return "https://www.instagram.com/accounts/login/";
+  if (n.includes("facebook") || n.includes("meta")) return "https://www.facebook.com/login";
+  if (n.includes("tiktok")) return "https://www.tiktok.com/login";
+  if (n.includes("youtube") || n.includes("google") || n.includes("gmail") || n.includes("analytics")) return "https://accounts.google.com/";
+  if (n === "x" || n.includes("twitter")) return "https://x.com/i/flow/login";
+  if (n.includes("quickbooks") || n.includes("intuit")) return "https://accounts.intuit.com/";
+  if (n.includes("xero")) return "https://login.xero.com/";
+  if (n.includes("woocommerce")) return "https://woocommerce.com/log-in/";
+  if (n.includes("mailchimp")) return "https://login.mailchimp.com/";
+  if (n.includes("klaviyo")) return "https://www.klaviyo.com/login";
+  if (n.includes("zoom")) return "https://zoom.us/signin";
+  if (n.includes("github")) return "https://github.com/login";
+  if (n.includes("discord")) return "https://discord.com/login";
+  if (n.includes("dropbox")) return "https://www.dropbox.com/login";
+  return `https://www.google.com/search?q=${encodeURIComponent(providerName + " login")}`;
+}
+
+
+
 
 // Per-provider credential schema. Each provider is a *data connector* —
 // the user pastes real credentials from their own account so NazAI can
