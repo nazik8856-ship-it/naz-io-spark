@@ -149,6 +149,15 @@ serve(async (req) => {
       .select("key, value, source").eq("agent_id", agentId).eq("user_id", userId)
       .order("created_at", { ascending: false }).limit(40);
 
+    // Load org-level learned patterns (Phase 2 org memory).
+    const { data: orgInsights } = await supabase.from("org_insights")
+      .select("insight, kind, confidence, evidence_count, last_confirmed_at")
+      .eq("user_id", userId)
+      .order("evidence_count", { ascending: false })
+      .order("last_confirmed_at", { ascending: false })
+      .limit(8);
+
+
     // Load connected integrations + their most recent synced snapshot so the
     // agent grounds its reasoning in real business data instead of guessing.
     const { data: integrations } = await supabase.from("agent_integrations")
@@ -437,6 +446,10 @@ serve(async (req) => {
     const memoryBlock = (memory && memory.length)
       ? `\n# What you remember about this business (recent facts)\n${memory.map((m) => `- [${m.source}] ${m.key} = ${m.value}`).join("\n")}`
       : "";
+    const insightsBlock = (orgInsights && orgInsights.length)
+      ? `\n# Known patterns from this business's history (learned across past agent runs — factor these in when deciding)\n${orgInsights.map((i) => `- (${i.kind}, confidence: ${i.confidence}, seen ${i.evidence_count}x) ${i.insight}`).join("\n")}`
+      : "";
+
 
     const integrationsBlock = connectedIntegrations.length
       ? `\n# Connected business tools (${connectedIntegrations.length}) — you must cite them by name in your reasoning\n${connectedIntegrations.map((i) => {
@@ -527,6 +540,7 @@ serve(async (req) => {
 ${profileBlock}
 ${integrationsBlock}
 ${memoryBlock}
+${insightsBlock}
 
 # Live-data contract
 - Whenever you cite a number, name the connected tool it came from (e.g. "Shopify: 47 orders in the last 24h").

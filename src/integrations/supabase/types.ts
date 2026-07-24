@@ -687,6 +687,48 @@ export type Database = {
         }
         Relationships: []
       }
+      org_insights: {
+        Row: {
+          confidence: string
+          created_at: string
+          evidence_count: number
+          first_observed_at: string
+          id: string
+          insight: string
+          kind: string
+          last_confirmed_at: string
+          source_agent_ids: string[]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          confidence?: string
+          created_at?: string
+          evidence_count?: number
+          first_observed_at?: string
+          id?: string
+          insight: string
+          kind?: string
+          last_confirmed_at?: string
+          source_agent_ids?: string[]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          confidence?: string
+          created_at?: string
+          evidence_count?: number
+          first_observed_at?: string
+          id?: string
+          insight?: string
+          kind?: string
+          last_confirmed_at?: string
+          source_agent_ids?: string[]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string
