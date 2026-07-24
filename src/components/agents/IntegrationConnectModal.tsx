@@ -274,6 +274,8 @@ export default function IntegrationConnectModal({
   const scopes = useMemo(() => scopesFor(integration), [integration]);
   const socials = useMemo(() => socialProvidersFor(integration.name), [integration.name]);
   const isGoogle = useMemo(() => /^(google|gmail)$/i.test(integration.name.trim()), [integration.name]);
+  const isFigma = useMemo(() => /^figma$/i.test(integration.name.trim()), [integration.name]);
+  const isRealOAuth = isGoogle || isFigma;
   const isGmail = isGoogle; // legacy alias
   // The Google tile grants all 6 Google surfaces via a single OAuth. Backend
   // still stores the connection under provider key "Gmail" for continuity with
@@ -286,6 +288,14 @@ export default function IntegrationConnectModal({
     "Google Calendar — read & schedule",
     "Google Analytics — read metrics",
     "YouTube — read channel & videos",
+  ];
+  const FIGMA_CAPABILITIES = [
+    "Read your Figma files & pages",
+    "Read & write file variables (design tokens)",
+    "Post & resolve comments on files",
+    "Read & write dev-mode resources on frames",
+    "Read library analytics for your team",
+    "Create & manage file webhooks",
   ];
   const [step, setStep] = useState<Step>("loading");
   const [email, setEmail] = useState("");
