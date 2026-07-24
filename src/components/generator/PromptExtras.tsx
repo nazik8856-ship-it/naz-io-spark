@@ -25,11 +25,16 @@ interface Props {
 
 const TONES = ["Playful", "Professional", "Luxury", "Minimal", "Bold"];
 const INTEGRATIONS = [
-  { id: "gmail", label: "Gmail" },
-  { id: "google_docs", label: "Google Docs" },
-  { id: "google_sheets", label: "Google Sheets" },
-  { id: "google_calendar", label: "Google Calendar" },
-  { id: "google_analytics", label: "Google Analytics" },
+  { id: "gmail", label: "Gmail", providerKey: "Gmail" },
+  { id: "google_docs", label: "Google Docs", providerKey: "Gmail" },
+  { id: "google_sheets", label: "Google Sheets", providerKey: "Gmail" },
+  { id: "google_calendar", label: "Google Calendar", providerKey: "Gmail" },
+  { id: "google_analytics", label: "Google Analytics", providerKey: "Gmail" },
+  { id: "shopify", label: "Shopify", providerKey: "Shopify" },
+  { id: "slack", label: "Slack", providerKey: "Slack" },
+  { id: "notion", label: "Notion", providerKey: "Notion" },
+  { id: "canva", label: "Canva", providerKey: "Canva" },
+  { id: "figma", label: "Figma", providerKey: "Figma" },
 ];
 
 async function readFileAsText(file: File): Promise<string> {
@@ -56,7 +61,7 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
   const tunerPanelRef = useRef<HTMLDivElement>(null);
   const [plusPos, setPlusPos] = useState<{ left: number; bottom: number } | null>(null);
   const [tunerPos, setTunerPos] = useState<{ left: number; bottom: number } | null>(null);
-  const [connectOpen, setConnectOpen] = useState(false);
+  const [connectTarget, setConnectTarget] = useState<{ name: string; category: string } | null>(null);
 
   const computePos = (btn: HTMLButtonElement | null) => {
     if (!btn) return null;
@@ -317,7 +322,8 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
           <div className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 mb-2">Pull data from integration</div>
           <div className="space-y-1 mb-3">
             {INTEGRATIONS.map((i) => {
-              const c = connected.find((x) => x.provider === i.id || x.provider.includes(i.id.split("_")[1] || i.id));
+              const pk = i.providerKey.toLowerCase();
+              const c = connected.find((x) => x.provider === pk || x.provider === i.id || x.provider.includes(i.id.split("_")[1] || i.id));
               const already = attachments.some((a) => a.id === `int-${i.id}`);
               const attach = () => {
                 if (!c) return;
@@ -357,7 +363,7 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        setConnectOpen(true);
+                        setConnectTarget({ name: i.providerKey, category: i.providerKey === "Gmail" ? "Google" : i.providerKey });
                       }}
                       className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-purple-500/20 border border-purple-400/50 text-purple-200 hover:bg-purple-500/30 hover:text-white transition"
                     >
@@ -403,24 +409,18 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
         </span>
       ))}
 
-      {connectOpen && (
+      {connectTarget && (
         <IntegrationConnectModal
           integration={{
-            name: "Google",
-            category: "Google",
+            name: connectTarget.name,
+            category: connectTarget.category,
             method: "Sign in",
-            examples: [
-              "Gmail — read & send email",
-              "Google Docs — read & edit",
-              "Google Sheets — read & edit",
-              "Google Calendar — read & schedule",
-              "Google Analytics — read metrics",
-            ],
-            steps: ["Sign in with Google", "Grant access to all Google surfaces"],
+            examples: [],
+            steps: [`Sign in with ${connectTarget.name}`],
           }}
           agentId={null}
           accent="#a78bfa"
-          onClose={() => setConnectOpen(false)}
+          onClose={() => setConnectTarget(null)}
           onChange={() => { loadConnected(); }}
         />
       )}

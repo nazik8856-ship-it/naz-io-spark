@@ -157,7 +157,9 @@ const MASTER_CATALOG: Integration[] = [
   { name: "LinkedIn Ads", category: "Ads", method: "Sign in", examples: ["Pipeline attribution"], steps: ["Sign in with LinkedIn"] },
 
   // Productivity & Storage
-  { name: "Notion", category: "Productivity", method: "Sign in", examples: ["Log decisions", "Update wiki"], steps: ["Sign in with Notion"] },
+  { name: "Notion", category: "Productivity", method: "Sign in", examples: ["Log decisions", "Update wiki", "Create pages from tickets"], steps: ["Sign in with Notion"] },
+  { name: "Canva", category: "Design", method: "Sign in", examples: ["Generate branded graphics", "Auto-resize for socials", "Export brand-kit assets"], steps: ["Sign in with Canva"] },
+  { name: "Figma", category: "Design", method: "Sign in", examples: ["Read design files", "Export frames as assets", "Comment on drafts"], steps: ["Sign in with Figma"] },
   { name: "Airtable", category: "Productivity", method: "Sign in", examples: ["Read/write bases"], steps: ["Sign in with Airtable"] },
   { name: "Dropbox", category: "Storage", method: "Sign in", examples: ["Save reports", "Read shared files"], steps: ["Sign in with Dropbox"] },
   { name: "OneDrive", category: "Storage", method: "Sign in", examples: ["Read shared files"], steps: ["Sign in with Microsoft"] },
