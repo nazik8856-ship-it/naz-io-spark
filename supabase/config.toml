@@ -51,5 +51,8 @@ verify_jwt = true
 [functions.gmail-oauth-callback]
 verify_jwt = false
 
+[functions.analyze-org-insights]
+verify_jwt = true
+
 
 
