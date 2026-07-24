@@ -25,11 +25,16 @@ interface Props {
 
 const TONES = ["Playful", "Professional", "Luxury", "Minimal", "Bold"];
 const INTEGRATIONS = [
-  { id: "gmail", label: "Gmail" },
-  { id: "google_docs", label: "Google Docs" },
-  { id: "google_sheets", label: "Google Sheets" },
-  { id: "google_calendar", label: "Google Calendar" },
-  { id: "google_analytics", label: "Google Analytics" },
+  { id: "gmail", label: "Gmail", providerKey: "Gmail" },
+  { id: "google_docs", label: "Google Docs", providerKey: "Gmail" },
+  { id: "google_sheets", label: "Google Sheets", providerKey: "Gmail" },
+  { id: "google_calendar", label: "Google Calendar", providerKey: "Gmail" },
+  { id: "google_analytics", label: "Google Analytics", providerKey: "Gmail" },
+  { id: "shopify", label: "Shopify", providerKey: "Shopify" },
+  { id: "slack", label: "Slack", providerKey: "Slack" },
+  { id: "notion", label: "Notion", providerKey: "Notion" },
+  { id: "canva", label: "Canva", providerKey: "Canva" },
+  { id: "figma", label: "Figma", providerKey: "Figma" },
 ];
 
 async function readFileAsText(file: File): Promise<string> {
