@@ -140,6 +140,40 @@ function SocialIcon({ id }: { id: SocialProvider["id"] }) {
   );
 }
 
+// The real platform URL we open in a popup when the user presses Continue.
+// User signs in / signs up / authorizes on the actual provider site, then
+// closes the window; NazAI marks the connection as ready.
+function providerLoginUrl(providerName: string): string {
+  const n = providerName.toLowerCase().replace(/[^a-z]/g, "");
+  if (n.includes("shopify")) return "https://accounts.shopify.com/store-login";
+  if (n.includes("stripe")) return "https://dashboard.stripe.com/login";
+  if (n.includes("slack")) return "https://slack.com/signin";
+  if (n.includes("notion")) return "https://www.notion.so/login";
+  if (n.includes("figma")) return "https://www.figma.com/login";
+  if (n.includes("canva")) return "https://www.canva.com/login";
+  if (n.includes("hubspot")) return "https://app.hubspot.com/login";
+  if (n.includes("salesforce")) return "https://login.salesforce.com/";
+  if (n.includes("airtable")) return "https://airtable.com/login";
+  if (n.includes("linkedin")) return "https://www.linkedin.com/login";
+  if (n.includes("instagram")) return "https://www.instagram.com/accounts/login/";
+  if (n.includes("facebook") || n.includes("meta")) return "https://www.facebook.com/login";
+  if (n.includes("tiktok")) return "https://www.tiktok.com/login";
+  if (n.includes("youtube") || n.includes("google") || n.includes("gmail") || n.includes("analytics")) return "https://accounts.google.com/";
+  if (n === "x" || n.includes("twitter")) return "https://x.com/i/flow/login";
+  if (n.includes("quickbooks") || n.includes("intuit")) return "https://accounts.intuit.com/";
+  if (n.includes("xero")) return "https://login.xero.com/";
+  if (n.includes("woocommerce")) return "https://woocommerce.com/log-in/";
+  if (n.includes("mailchimp")) return "https://login.mailchimp.com/";
+  if (n.includes("klaviyo")) return "https://www.klaviyo.com/login";
+  if (n.includes("zoom")) return "https://zoom.us/signin";
+  if (n.includes("github")) return "https://github.com/login";
+  if (n.includes("discord")) return "https://discord.com/login";
+  if (n.includes("dropbox")) return "https://www.dropbox.com/login";
+  return `https://www.google.com/search?q=${encodeURIComponent(providerName + " login")}`;
+}
+
+
+
 
 // Per-provider credential schema. Each provider is a *data connector* —
 // the user pastes real credentials from their own account so NazAI can
@@ -609,7 +643,26 @@ export default function IntegrationConnectModal({
               onSubmit={async (e) => {
                 e.preventDefault();
                 setError(null);
+                // 1. Open the real provider login/signup window so the user
+                //    enters their real credentials on the actual platform.
+                const loginUrl = providerLoginUrl(integration.name);
+                const popup = window.open(
+                  loginUrl,
+                  `nazai_connect_${integration.name}`,
+                  "width=560,height=720,menubar=no,toolbar=no,location=yes",
+                );
+                if (!popup) {
+                  setError("Popup blocked. Please allow popups and try again.");
+                  return;
+                }
                 setStep("connecting");
+                // 2. Wait for the user to finish on the provider site and
+                //    close the window. Then return to NazAI and mark ready.
+                await new Promise<void>((resolve) => {
+                  const timer = setInterval(() => {
+                    if (popup.closed) { clearInterval(timer); resolve(); }
+                  }, 500);
+                });
                 try {
                   const { data, error: fnErr } = await supabase.functions.invoke("integration-connect", {
                     body: {
@@ -619,7 +672,8 @@ export default function IntegrationConnectModal({
                       credentials: {
                         pending: true,
                         connected_intent_at: new Date().toISOString(),
-                        source: "connect_modal",
+                        source: "connect_modal_popup",
+                        login_url: loginUrl,
                       },
                     },
                   });
@@ -635,7 +689,7 @@ export default function IntegrationConnectModal({
                     avatar: null,
                   });
                   setStep("connected");
-                  toast.success(`${integration.name} ready — NazAI will ask for details when it runs`);
+                  toast.success(`${integration.name} connected — NazAI can now use your account`);
                   onChange?.();
                 } catch (err) {
                   setStep("error");
@@ -645,7 +699,7 @@ export default function IntegrationConnectModal({
             >
               <h2 className="text-2xl font-normal text-center mb-1">Connect {integration.name}</h2>
               <p className="text-sm text-zinc-600 text-center mb-5">
-                This is a <span className="font-medium">data connector</span> — press Continue and NazAI will ask for your {integration.name} details in-context when the agent actually needs them. No sign-up, no password sharing.
+                Press Continue to open the real <span className="font-medium">{integration.name}</span> sign-in window. Enter your credentials there — NazAI never sees your password. When you finish, come back here and NazAI can use your {integration.name} account for further work.
               </p>
 
               <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 mb-5">
@@ -667,7 +721,7 @@ export default function IntegrationConnectModal({
                 style={{ background: `linear-gradient(135deg, ${accent}, #22d3ee)` }}
               >
                 {step === "connecting" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-                {step === "connecting" ? "Preparing…" : "Continue"}
+                {step === "connecting" ? `Waiting for ${integration.name}…` : "Continue"}
               </button>
               {error && (
                 <div className="text-xs text-red-600 mt-3 rounded-md border border-red-200 bg-red-50 p-2 flex items-start gap-1.5">
@@ -675,6 +729,7 @@ export default function IntegrationConnectModal({
                   <span className="break-words">{error}</span>
                 </div>
               )}
+
               <p className="text-[11px] text-zinc-500 mt-4">
                 You can revoke or reconfigure this connection anytime from {integration.name}.
               </p>
