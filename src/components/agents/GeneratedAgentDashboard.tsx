@@ -313,7 +313,7 @@ function CardHeading({ label, accent, right }: { label: string; accent: string; 
 
 type ModalPayload =
   | { kind: "report"; title: string; body: string }
-  | { kind: "payload"; title: string; payload: Record<string, unknown> };
+  | { kind: "payload"; title: string; payload: Record<string, unknown>; reasoning?: string | null; confidence?: string | null };
 
 function WidgetCard({
   widget, events, demo, manifest, stats, accent, accent2, agentId, onOpen,
