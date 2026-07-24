@@ -649,8 +649,18 @@ Rules:
           failGuard.state = null;
         }
 
+        // Stage decision provenance (reasoning + confidence) from the model's
+        // action block. Consumed by the next `action` event write.
+        if (ACTION_CAPPED_KINDS.has(tool.kind)) {
+          const r = typeof parsed.reasoning === "string" ? parsed.reasoning.trim().slice(0, 400) : "";
+          const cRaw = typeof parsed.confidence === "string" ? parsed.confidence.trim().toLowerCase() : "";
+          const c = cRaw === "high" || cRaw === "medium" || cRaw === "low" ? cRaw : "";
+          if (r) pendingProvenance.reasoning = r;
+          if (c) pendingProvenance.confidence = c;
+        }
 
         await logEvent("tool_call", { tool: tool.name, kind: tool.kind, input });
+
 
         // Daily action cap gate — blocks verified action executors once used>=cap for today (UTC).
         if (ACTION_CAPPED_KINDS.has(tool.kind) && dailyActionCap > 0) {
