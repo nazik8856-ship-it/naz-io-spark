@@ -374,6 +374,9 @@ serve(async (req) => {
       if (insErr || !ins) return { ok: false, reason: insErr?.message || "insert failed" };
       return { ok: true, clientId: ins.id };
     };
+    // Decision provenance staged by the parser for the next `action` event.
+    const pendingProvenance: { reasoning?: string; confidence?: string } = {};
+
     const logEvent = async (kind: string, payload: Record<string, unknown>) => {
       if (kind === "tool_result" || kind === "action") {
         const p = payload as { ok?: unknown; tool?: unknown; type?: unknown };
@@ -405,8 +408,19 @@ serve(async (req) => {
           }).then(() => {}, () => {});
         }
       }
-      return supabase.from("agent_events").insert({ run_id: runId, agent_id: agentId, user_id: userId, kind, payload });
+      // Attach decision provenance (reasoning + confidence) to the next action
+      // event when the model provided it alongside the tool call. Purely
+      // additive — old rows have these columns null.
+      const row: Record<string, unknown> = { run_id: runId, agent_id: agentId, user_id: userId, kind, payload };
+      if (kind === "action" && (pendingProvenance.reasoning || pendingProvenance.confidence)) {
+        if (pendingProvenance.reasoning) row.reasoning = pendingProvenance.reasoning;
+        if (pendingProvenance.confidence) row.confidence = pendingProvenance.confidence;
+        pendingProvenance.reasoning = undefined;
+        pendingProvenance.confidence = undefined;
+      }
+      return supabase.from("agent_events").insert(row);
     };
+
 
 
 
