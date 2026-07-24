@@ -274,8 +274,15 @@ export default function IntegrationConnectModal({
   const scopes = useMemo(() => scopesFor(integration), [integration]);
   const socials = useMemo(() => socialProvidersFor(integration.name), [integration.name]);
   const isGoogle = useMemo(() => /^(google|gmail)$/i.test(integration.name.trim()), [integration.name]);
-  const isFigma = useMemo(() => /^figma$/i.test(integration.name.trim()), [integration.name]);
-  const isRealOAuth = isGoogle || isFigma;
+  // Figma, Canva, Notion, Slack, Shopify are placeholders until real
+  // per-platform OAuth is implemented. Show honest "Coming soon" instead of
+  // a fake login / permissions flow.
+  const isComingSoon = useMemo(
+    () => /^(figma|canva|notion|slack|shopify)$/i.test(integration.name.trim()),
+    [integration.name],
+  );
+  const isFigma = false; // real Figma OAuth disabled until per-platform build
+  const isRealOAuth = isGoogle;
   const isGmail = isGoogle; // legacy alias
   // The Google tile grants all 6 Google surfaces via a single OAuth. Backend
   // still stores the connection under provider key "Gmail" for continuity with
@@ -353,6 +360,8 @@ export default function IntegrationConnectModal({
           fetched_at: snap.fetched_at as string,
         });
       } else {
+        // Placeholder providers: honest "Coming soon" state, no fake flow.
+        if (isComingSoon) { setStep("coming_soon"); return; }
         // Every non-Google provider uses the data-connector form (credentials
         // the user pastes from their own account). Google keeps real OAuth.
         setStep("email");
