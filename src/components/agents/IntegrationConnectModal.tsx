@@ -274,15 +274,14 @@ export default function IntegrationConnectModal({
   const scopes = useMemo(() => scopesFor(integration), [integration]);
   const socials = useMemo(() => socialProvidersFor(integration.name), [integration.name]);
   const isGoogle = useMemo(() => /^(google|gmail)$/i.test(integration.name.trim()), [integration.name]);
-  // Figma, Canva, Notion, Slack, Shopify are placeholders until real
-  // per-platform OAuth is implemented. Show honest "Coming soon" instead of
-  // a fake login / permissions flow.
+  // Canva, Notion, Slack, Shopify are placeholders until real per-platform
+  // OAuth is implemented. Show honest "Coming soon" instead of a fake flow.
   const isComingSoon = useMemo(
-    () => /^(figma|canva|notion|slack|shopify)$/i.test(integration.name.trim()),
+    () => /^(canva|notion|slack|shopify)$/i.test(integration.name.trim()),
     [integration.name],
   );
-  const isFigma = false; // real Figma OAuth disabled until per-platform build
-  const isRealOAuth = isGoogle;
+  const isFigma = useMemo(() => /^figma$/i.test(integration.name.trim()), [integration.name]);
+  const isRealOAuth = isGoogle || isFigma;
   const isGmail = isGoogle; // legacy alias
   // The Google tile grants all 6 Google surfaces via a single OAuth. Backend
   // still stores the connection under provider key "Gmail" for continuity with
