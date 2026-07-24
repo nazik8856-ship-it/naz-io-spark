@@ -148,21 +148,27 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
     const next: Attachment[] = [];
     for (const f of Array.from(files)) {
       const isText = /\.(csv|txt|md|json|tsv|log|xml|yaml|yml)$/i.test(f.name) || f.type.startsWith("text/");
-      if (isText && f.size < 500_000) {
+      // Read text/data files inline (up to 2MB) so the compiler sees actual rows,
+      // not just a link. Anything larger still uploads and gets fetched server-side.
+      if (isText && f.size < 2_000_000) {
         try {
           const txt = await readFileAsText(f);
-          const snippet = txt.length > 6000 ? txt.slice(0, 6000) + "\n…(truncated)" : txt;
+          const snippet = txt.length > 20000 ? txt.slice(0, 20000) + "\n…(truncated)" : txt;
+          const isJson = /\.json$/i.test(f.name) || f.type.includes("json");
+          const isCsvLike = /\.(csv|tsv)$/i.test(f.name) || isCsv;
+          const label = isCsvLike ? "CSV" : isJson ? "JSON" : isCsv ? "Data" : "File";
           next.push({
             id: crypto.randomUUID(),
-            label: `${isCsv ? "Data" : "File"} · ${f.name}`,
-            kind: isCsv ? "data" : "file",
-            mimeType: f.type || "text/plain",
-            contextText: `${isCsv ? "Imported data" : "Attached file"} "${f.name}":\n${snippet}`,
+            label: `${label} · ${f.name}`,
+            kind: isCsvLike || isJson || isCsv ? "data" : "file",
+            mimeType: f.type || (isJson ? "application/json" : isCsvLike ? "text/csv" : "text/plain"),
+            contextText: `${isCsvLike ? "Imported CSV/TSV data" : isJson ? "Imported JSON data" : "Attached file"} "${f.name}" (${f.size} bytes). Every row/entry below is authoritative source data — turn it into real visible content in the site (pricing tiers, service cards, gallery items, stats, FAQs, testimonials, menu items, etc. — pick the section shape that fits the columns).\n\n${snippet}`,
           });
         } catch {
           toast.error(`Couldn't read ${f.name}`);
         }
       } else {
+
         if (!user?.id) {
           toast.error(`Sign in to attach ${f.name}`);
           continue;
