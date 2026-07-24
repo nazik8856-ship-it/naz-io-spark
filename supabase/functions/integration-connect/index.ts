@@ -166,6 +166,11 @@ async function verifyGA4(c: Credentials) {
 
 async function verify(provider: string, c: Credentials) {
   const p = provider.toLowerCase();
+  // Pending intent: user pressed Continue without providing credentials —
+  // NazAI collects them contextually when the agent actually needs to run.
+  if ((c as Record<string, unknown>).pending) {
+    return { ok: true, sample: { note: "Intent stored. NazAI will request details in-context when needed.", pending: true } };
+  }
   if (p.includes("stripe")) return verifyStripe(c);
   if (p.includes("shopify")) return verifyShopify(c);
   if (p.includes("woocommerce")) return verifyWoo(c);
@@ -174,11 +179,12 @@ async function verify(provider: string, c: Credentials) {
   if (p.includes("ga4") || p.includes("analytics")) return verifyGA4(c);
   // Generic: accept whatever the user provided. Mark as connected; downstream
   // agent tools will surface real errors when called.
-  if (Object.values(c).some((v) => v?.trim())) {
+  if (Object.values(c).some((v) => typeof v === "string" && v.trim())) {
     return { ok: true, sample: { note: "Stored. Live verification not available for this provider yet." } };
   }
   return { ok: false, error: "No credentials provided" };
 }
+
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
