@@ -446,6 +446,10 @@ serve(async (req) => {
     const memoryBlock = (memory && memory.length)
       ? `\n# What you remember about this business (recent facts)\n${memory.map((m) => `- [${m.source}] ${m.key} = ${m.value}`).join("\n")}`
       : "";
+    const insightsBlock = (orgInsights && orgInsights.length)
+      ? `\n# Known patterns from this business's history (learned across past agent runs — factor these in when deciding)\n${orgInsights.map((i) => `- (${i.kind}, confidence: ${i.confidence}, seen ${i.evidence_count}x) ${i.insight}`).join("\n")}`
+      : "";
+
 
     const integrationsBlock = connectedIntegrations.length
       ? `\n# Connected business tools (${connectedIntegrations.length}) — you must cite them by name in your reasoning\n${connectedIntegrations.map((i) => {
