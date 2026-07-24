@@ -265,6 +265,9 @@ export default function IntegrationConnectModal({
   const [liveData, setLiveData] = useState<{ kind?: string; data?: Record<string, unknown>; error?: string | null; fetched_at?: string } | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [oauthLoading, setOauthLoading] = useState(false);
+  const credSchema = useMemo(() => credentialSchemaFor(integration.name), [integration.name]);
+  const [credValues, setCredValues] = useState<Record<string, string>>({});
+  const [showCred, setShowCred] = useState<Record<string, boolean>>({});
 
   // Prior state
   useEffect(() => {
