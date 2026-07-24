@@ -1028,7 +1028,7 @@ function ExecutionFlowWidget({
                               if (report) {
                                 onOpen({ kind: "report", title: report.title, body: report.body_markdown });
                               } else {
-                                onOpen({ kind: "payload", title: `${type} · ${relTime(a.created_at)}`, payload: a.payload });
+                                onOpen({ kind: "payload", title: `${type} · ${relTime(a.created_at)}`, payload: a.payload, reasoning: a.reasoning ?? null, confidence: a.confidence ?? null });
                               }
                             }}
                             className="text-[10px] font-mono px-1.5 py-0.5 rounded transition-colors hover:brightness-125"
