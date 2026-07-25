@@ -789,6 +789,30 @@ export type Database = {
         }
         Relationships: []
       }
+      scenario_simulations: {
+        Row: {
+          created_at: string
+          id: string
+          question: string
+          response: Json
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          question: string
+          response?: Json
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          question?: string
+          response?: Json
+          user_id?: string
+        }
+        Relationships: []
+      }
       shared_websites: {
         Row: {
           created_at: string
