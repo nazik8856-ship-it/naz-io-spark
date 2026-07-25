@@ -42,8 +42,18 @@ serve(async (req) => {
 
     const admin = createClient(supabaseUrl, serviceKey);
 
-    // Pull recent real signals.
-    const [{ data: actions }, { data: runs }, { data: notes }] = await Promise.all([
+    // Pull aggregated business context (Phase 3 unified layer).
+    const { data: ctx, error: ctxErr } = await admin.rpc("get_business_context", { _user_id: userId });
+    if (ctxErr) {
+      return new Response(JSON.stringify({ error: "context_failed", details: ctxErr.message }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    const context = (ctx || {}) as Record<string, unknown>;
+    const recentReports = (context.recent_reports as Array<Record<string, unknown>>) || [];
+    const clients = (context.clients as Array<Record<string, unknown>>) || [];
+    const artifacts = (context.recent_artifacts as Array<Record<string, unknown>>) || [];
+
+    // Actions + runs still need direct queries — not part of the aggregate stats block.
+    const [{ data: actions }, { data: runs }] = await Promise.all([
       admin.from("agent_events")
         .select("agent_id, payload, created_at")
         .eq("user_id", userId)
@@ -56,14 +66,9 @@ serve(async (req) => {
         .eq("user_id", userId)
         .order("finished_at", { ascending: false })
         .limit(60),
-      admin.from("agent_clients")
-        .select("agent_id, name, company, notes, updated_at")
-        .eq("user_id", userId)
-        .order("updated_at", { ascending: false })
-        .limit(60),
     ]);
 
-    const totalSignals = (actions?.length || 0) + (runs?.length || 0) + (notes?.length || 0);
+    const totalSignals = (actions?.length || 0) + (runs?.length || 0) + clients.length + recentReports.length + artifacts.length;
     if (totalSignals < 3) {
       return new Response(JSON.stringify({ ok: true, inserted: 0, updated: 0, reason: "not_enough_signal" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -75,7 +80,7 @@ serve(async (req) => {
     const runsBlob = (runs || []).map((r) =>
       `- [${r.finished_at}] agent:${r.agent_id} ${r.status}/${r.outcome ?? ""} → ${String(r.summary ?? "").slice(0, 200)}`
     ).join("\n").slice(0, 4000);
-    const notesBlob = (notes || []).map((n) =>
+    const notesBlob = clients.slice(0, 60).map((n) =>
       `- agent:${n.agent_id} client:${n.name || n.company || "?"} → ${String(n.notes ?? "").slice(0, 200)}`
     ).join("\n").slice(0, 3000);
 
