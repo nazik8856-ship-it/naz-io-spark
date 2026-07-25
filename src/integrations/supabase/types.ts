@@ -944,6 +944,7 @@ export type Database = {
         Args: { payload: Json; queue_name: string }
         Returns: number
       }
+      get_business_context: { Args: { _user_id: string }; Returns: Json }
       move_to_dlq: {
         Args: {
           dlq_name: string
