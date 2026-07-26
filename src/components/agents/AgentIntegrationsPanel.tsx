@@ -98,6 +98,7 @@ const ROLE_DEFAULTS: Record<string, IntegrationsSpec> = {
 // side — e.g. "Continue with Facebook" for Instagram). No API keys shown.
 const MASTER_CATALOG: Integration[] = [
   { name: "Google", category: "Google", method: "Sign in", examples: ["Gmail — read & send email","Google Docs — read & edit","Google Sheets — read & edit","Google Calendar — read & schedule","Google Analytics — read metrics"], steps: ["Sign in once with Google","One consent grants all 5 Workspace surfaces"] },
+  { name: "YouTube", category: "Video", method: "Sign in", examples: ["Read channel & videos","Read views, likes, comments","Read playlists & subscriptions"], steps: ["Sign in with YouTube (separate Google consent)","Grant read-only YouTube access"] },
   // Social & Content
   { name: "Instagram", category: "Social", method: "Sign in", examples: ["Reply to DMs & comments", "Draft & schedule posts/reels", "Track follower growth"], steps: ["Sign in with Instagram or Facebook", "Pick business account", "Approve posting scope"] },
   { name: "Facebook", category: "Social", method: "Sign in", examples: ["Manage Page posts & comments", "Reply to Messenger DMs", "Insights digest"], steps: ["Sign in with Facebook", "Pick Page", "Approve scopes"] },
