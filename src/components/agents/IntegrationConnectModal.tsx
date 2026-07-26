@@ -402,7 +402,7 @@ export default function IntegrationConnectModal({
   };
 
   const startOAuth = async (
-    kind: "gmail" | "figma",
+    kind: "gmail" | "figma" | "youtube",
     opts: { functionName: string; source: string; label: string },
   ) => {
     setError(null);
@@ -449,6 +449,9 @@ export default function IntegrationConnectModal({
 
   const startFigmaOAuth = () =>
     startOAuth("figma", { functionName: "figma-oauth-start", source: "nazai-figma-oauth", label: "Figma" });
+
+  const startYoutubeOAuth = () =>
+    startOAuth("youtube", { functionName: "youtube-oauth-start", source: "nazai-youtube-oauth", label: "YouTube" });
 
 
   const submitEmail = (e: React.FormEvent) => {
