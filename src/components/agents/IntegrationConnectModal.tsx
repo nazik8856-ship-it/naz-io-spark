@@ -274,6 +274,7 @@ export default function IntegrationConnectModal({
   const scopes = useMemo(() => scopesFor(integration), [integration]);
   const socials = useMemo(() => socialProvidersFor(integration.name), [integration.name]);
   const isGoogle = useMemo(() => /^(google|gmail)$/i.test(integration.name.trim()), [integration.name]);
+  const isYoutube = useMemo(() => /^youtube$/i.test(integration.name.trim()), [integration.name]);
   // Canva, Notion, Slack, Shopify are placeholders until real per-platform
   // OAuth is implemented. Show honest "Coming soon" instead of a fake flow.
   const isComingSoon = useMemo(
@@ -281,19 +282,24 @@ export default function IntegrationConnectModal({
     [integration.name],
   );
   const isFigma = useMemo(() => /^figma$/i.test(integration.name.trim()), [integration.name]);
-  const isRealOAuth = isGoogle || isFigma;
+  const isRealOAuth = isGoogle || isFigma || isYoutube;
   const isGmail = isGoogle; // legacy alias
-  // The Google tile grants all 6 Google surfaces via a single OAuth. Backend
-  // still stores the connection under provider key "Gmail" for continuity with
-  // existing rows and edge-function logic.
-  const providerKey = isGoogle ? "Gmail" : integration.name;
+  // The Google tile grants all 5 Google Workspace surfaces via a single
+  // OAuth. YouTube uses its own separate OAuth (Google rejects
+  // youtube.readonly + drive.file in one consent request), stored under
+  // provider key "YouTube".
+  const providerKey = isGoogle ? "Gmail" : isYoutube ? "YouTube" : integration.name;
   const GOOGLE_CAPABILITIES = [
     "Gmail — read & send email",
     "Google Docs — read & edit",
     "Google Sheets — read & edit",
     "Google Calendar — read & schedule",
     "Google Analytics — read metrics",
-    "YouTube — read channel & videos",
+  ];
+  const YOUTUBE_CAPABILITIES = [
+    "Read your YouTube channel & videos",
+    "Read video statistics (views, likes, comments)",
+    "Read playlists & subscriptions",
   ];
   const FIGMA_CAPABILITIES = [
     "Read your Figma files & pages",
