@@ -78,12 +78,21 @@ export async function verifyState(token: string): Promise<Record<string, unknown
 }
 
 export function buildAuthUrl(state: string, loginHint?: string): string {
+  return buildGoogleAuthUrl(state, GMAIL_SCOPES, GMAIL_REDIRECT_URI, loginHint);
+}
+
+export function buildGoogleAuthUrl(
+  state: string,
+  scopes: string[],
+  redirectUri: string,
+  loginHint?: string,
+): string {
   const clientId = Deno.env.get("GOOGLE_OAUTH_CLIENT_ID") || "";
   const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
   url.searchParams.set("client_id", clientId);
-  url.searchParams.set("redirect_uri", GMAIL_REDIRECT_URI);
+  url.searchParams.set("redirect_uri", redirectUri);
   url.searchParams.set("response_type", "code");
-  url.searchParams.set("scope", GMAIL_SCOPES.join(" "));
+  url.searchParams.set("scope", scopes.join(" "));
   url.searchParams.set("access_type", "offline");
   url.searchParams.set("prompt", "consent");
   url.searchParams.set("include_granted_scopes", "true");
@@ -93,6 +102,10 @@ export function buildAuthUrl(state: string, loginHint?: string): string {
 }
 
 export async function exchangeCode(code: string) {
+  return exchangeGoogleCode(code, GMAIL_REDIRECT_URI);
+}
+
+export async function exchangeGoogleCode(code: string, redirectUri: string) {
   const r = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -100,7 +113,7 @@ export async function exchangeCode(code: string) {
       code,
       client_id: Deno.env.get("GOOGLE_OAUTH_CLIENT_ID") || "",
       client_secret: Deno.env.get("GOOGLE_OAUTH_CLIENT_SECRET") || "",
-      redirect_uri: GMAIL_REDIRECT_URI,
+      redirect_uri: redirectUri,
       grant_type: "authorization_code",
     }),
   });
