@@ -25,11 +25,8 @@ interface Props {
 
 const TONES = ["Playful", "Professional", "Luxury", "Minimal", "Bold"];
 const INTEGRATIONS = [
-  { id: "gmail", label: "Gmail", providerKey: "Gmail" },
-  { id: "google_docs", label: "Google Docs", providerKey: "Gmail" },
-  { id: "google_sheets", label: "Google Sheets", providerKey: "Gmail" },
-  { id: "google_calendar", label: "Google Calendar", providerKey: "Gmail" },
-  { id: "google_analytics", label: "Google Analytics", providerKey: "Gmail" },
+  { id: "google", label: "Google (Gmail · Docs · Sheets · Calendar · Analytics)", providerKey: "Gmail" },
+  { id: "youtube", label: "YouTube", providerKey: "YouTube" },
   { id: "shopify", label: "Shopify", providerKey: "Shopify" },
   { id: "slack", label: "Slack", providerKey: "Slack" },
   { id: "notion", label: "Notion", providerKey: "Notion" },
