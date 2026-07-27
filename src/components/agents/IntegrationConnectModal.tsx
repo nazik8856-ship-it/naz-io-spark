@@ -394,11 +394,15 @@ export default function IntegrationConnectModal({
         });
       } else {
         if (isComingSoon) { setStep("coming_soon"); return; }
+        // Canva starts on the NazAI pre-consent screen where the user picks
+        // which permissions to grant before we redirect to Canva.
+        if (isCanva) { setStep("canva_consent"); return; }
         setStep("email");
       }
     })();
     return () => { cancelled = true; };
-  }, [integration.name, agentId, isGoogle, googleKind, providerKey, googleServiceLabel, isComingSoon, onChange, onClose]);
+  }, [integration.name, agentId, isGoogle, googleKind, providerKey, googleServiceLabel, isComingSoon, isCanva, onChange, onClose]);
+
 
   const reloadConnected = async () => {
     const { data: { user } } = await supabase.auth.getUser();
