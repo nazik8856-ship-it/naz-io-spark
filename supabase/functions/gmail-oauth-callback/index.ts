@@ -5,7 +5,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { verifyState, exchangeCode, fetchUserInfo } from "../_shared/gmail.ts";
 import { createSecret, updateSecret, readSecret } from "../_shared/integration-secrets.ts";
 
-const html = (title: string, msg: string, ok: boolean) => `<!doctype html>
+const html = (title: string, msg: string, ok: boolean, service: string | null = null) => `<!doctype html>
 <html><head><meta charset="utf-8"><title>${title}</title>
 <style>
   body{margin:0;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;background:#0a0a0a;color:#e5e5e5;
@@ -18,10 +18,10 @@ const html = (title: string, msg: string, ok: boolean) => `<!doctype html>
 <script>
 try {
   if (window.opener) {
-    window.opener.postMessage({ source:"nazai-gmail-oauth", ok:${ok}, message:${JSON.stringify(msg)} }, "*");
+    window.opener.postMessage({ source:"nazai-gmail-oauth", ok:${ok}, service:${JSON.stringify(service)}, message:${JSON.stringify(msg)} }, "*");
   }
 } catch(e){}
-setTimeout(function(){ window.close(); }, 1200);
+setTimeout(function(){ window.close(); }, 120);
 </script></body></html>`;
 
 Deno.serve(async (req) => {
@@ -29,8 +29,8 @@ Deno.serve(async (req) => {
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
   const errParam = url.searchParams.get("error");
-  const respond = (title: string, msg: string, ok: boolean, status = 200) =>
-    new Response(html(title, msg, ok), { status, headers: { "Content-Type": "text/html; charset=utf-8" } });
+  const respond = (title: string, msg: string, ok: boolean, status = 200, service: string | null = null) =>
+    new Response(html(title, msg, ok, service), { status, headers: { "Content-Type": "text/html; charset=utf-8" } });
 
   if (errParam) return respond("Gmail connection cancelled", errParam, false, 400);
   if (!code || !state) return respond("Invalid callback", "Missing code or state.", false, 400);
@@ -114,7 +114,7 @@ Deno.serve(async (req) => {
         { onConflict: "user_id,provider,agent_id" },
       );
     if (error) throw new Error(error.message);
-    return respond("Google connected", `Connected as ${info?.email || "Google account"}. You can close this window.`, true);
+    return respond("Google connected", `Connected as ${info?.email || "Google account"}. You can close this window.`, true, 200, serviceKind);
   } catch (e) {
     return respond("Google connection failed", e instanceof Error ? e.message : "Unknown error", false, 500);
   }

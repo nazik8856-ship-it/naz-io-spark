@@ -432,13 +432,9 @@ export default function IntegrationConnectModal({
         if (payload.ok) {
           toast.success(`${opts.label} connected`);
           onChange?.();
-          // Skip the full-screen "Connected" card for Google services — the
-          // catalogue button turns green automatically on the next refresh.
-          if (kind === "gmail") {
-            onClose();
-          } else {
-            reloadConnected();
-          }
+          // Close immediately — the catalogue button flips green from the same
+          // postMessage via optimistic update, no need to hold the modal open.
+          onClose();
         } else {
           setError(payload.message || `${opts.label} connection failed`);
           toast.error(payload.message || `${opts.label} connection failed`);
@@ -448,9 +444,9 @@ export default function IntegrationConnectModal({
       const timer = setInterval(() => {
         if (popup.closed) {
           clearInterval(timer);
-          setTimeout(() => setOauthLoading(false), 500);
+          setOauthLoading(false);
         }
-      }, 500);
+      }, 300);
     } catch (e) {
       setOauthLoading(false);
       setError(e instanceof Error ? e.message : `Failed to start ${opts.label} OAuth`);
