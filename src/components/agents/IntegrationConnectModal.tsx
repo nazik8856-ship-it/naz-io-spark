@@ -431,7 +431,7 @@ export default function IntegrationConnectModal({
   };
 
   const startOAuth = async (
-    kind: "gmail" | "figma",
+    kind: "gmail" | "figma" | "canva",
     opts: { functionName: string; source: string; label: string; extraBody?: Record<string, unknown> },
   ) => {
     setError(null);
@@ -441,9 +441,14 @@ export default function IntegrationConnectModal({
         body: { agentId: agentId || null, origin: window.location.origin, ...(opts.extraBody || {}) },
       });
       if (fnErr) throw new Error(fnErr.message || `Failed to start ${opts.label} OAuth`);
-      const url = (data as { url?: string; error?: string }).url;
+      const url = (data as { url?: string; error?: string; not_configured?: boolean }).url;
       const errMsg = (data as { url?: string; error?: string }).error;
-      if (!url) throw new Error(errMsg || "No authorization URL returned");
+      const notConfigured = (data as { not_configured?: boolean }).not_configured;
+      if (!url) {
+        // Surface a friendly "not configured yet" message instead of a raw error.
+        if (notConfigured) throw new Error(errMsg || `${opts.label} OAuth is not configured yet.`);
+        throw new Error(errMsg || "No authorization URL returned");
+      }
       const popup = window.open(url, `${kind}_oauth`, "width=560,height=720");
       if (!popup) throw new Error("Popup blocked. Please allow popups and retry.");
       const handler = (ev: MessageEvent) => {
@@ -487,13 +492,33 @@ export default function IntegrationConnectModal({
   const startFigmaOAuth = () =>
     startOAuth("figma", { functionName: "figma-oauth-start", source: "nazai-figma-oauth", label: "Figma" });
 
+  const startCanvaOAuth = () => {
+    const selected = Object.entries(canvaGroups).filter(([, v]) => v).map(([k]) => k);
+    if (!selected.length) {
+      setError("Select at least one permission to continue.");
+      return;
+    }
+    // Move into the popup-loading state so the same "Opening Canva consent…"
+    // UI used by Google/Figma is shown.
+    setStep("email");
+    startOAuth("canva", {
+      functionName: "canva-oauth-start",
+      source: "nazai-canva-oauth",
+      label: "Canva",
+      extraBody: { groups: selected },
+    });
+  };
+
   useEffect(() => {
     if (step !== "email") return;
     if (!isRealOAuth || oauthLoading) return;
+    // Canva does NOT auto-start — the user must confirm scopes on the
+    // canva_consent screen first, which then calls startCanvaOAuth().
     if (isGoogle) startGmailOAuth();
     else if (isFigma) startFigmaOAuth();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, isRealOAuth]);
+
 
 
   const submitEmail = (e: React.FormEvent) => {
