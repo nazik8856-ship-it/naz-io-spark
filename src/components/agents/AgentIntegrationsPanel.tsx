@@ -300,12 +300,21 @@ export default function AgentIntegrationsPanel({
 
   useEffect(() => { refresh(); }, [refresh, openIntegration, hubOpen]);
 
-  // Instant refresh the moment an OAuth popup posts success back to us.
+  // Instant flip the moment an OAuth popup posts success back to us — optimistic
+  // update by service name, then refetch for source of truth.
   useEffect(() => {
     const onMsg = (ev: MessageEvent) => {
-      const p = ev.data as { source?: string; ok?: boolean } | null;
+      const p = ev.data as { source?: string; ok?: boolean; service?: string } | null;
       if (!p || !p.ok) return;
       if (p.source === "nazai-gmail-oauth" || p.source === "nazai-figma-oauth") {
+        const svc = String(p.service || "").toLowerCase();
+        const optimistic =
+          p.source === "nazai-figma-oauth" ? "figma"
+          : svc === "drive" ? "google drive"
+          : svc === "calendar" ? "google calendar"
+          : svc === "analytics" ? "google analytics"
+          : "gmail";
+        setConnectedNames((prev) => (prev.has(optimistic) ? prev : new Set([...prev, optimistic])));
         refresh();
       }
     };
