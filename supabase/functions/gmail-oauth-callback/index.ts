@@ -29,8 +29,8 @@ Deno.serve(async (req) => {
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
   const errParam = url.searchParams.get("error");
-  const respond = (title: string, msg: string, ok: boolean, status = 200) =>
-    new Response(html(title, msg, ok), { status, headers: { "Content-Type": "text/html; charset=utf-8" } });
+  const respond = (title: string, msg: string, ok: boolean, status = 200, service: string | null = null) =>
+    new Response(html(title, msg, ok, service), { status, headers: { "Content-Type": "text/html; charset=utf-8" } });
 
   if (errParam) return respond("Gmail connection cancelled", errParam, false, 400);
   if (!code || !state) return respond("Invalid callback", "Missing code or state.", false, 400);
