@@ -78,7 +78,7 @@ const ROLE_DEFAULTS: Record<string, IntegrationsSpec> = {
   custom: {
     summary: "The agent can connect to any of your business systems. Start with the essentials below; add more later.",
     integrations: [
-      { name: "Gmail", category: "Google", method: "Sign in", status: "recommended", examples: ["Read email metadata","Send email on your behalf"], steps: ["Sign in with Google","Grant Gmail scope only"] },
+      { name: "Google Drive", category: "Google", method: "Sign in", status: "recommended", examples: ["Read & write files the agent creates"], steps: ["Sign in with Google","Grant Drive (file) scope only"] },
       { name: "HubSpot", category: "CRM", method: "OAuth", status: "optional", examples: ["Sync contacts and deals"], steps: ["Connect workspace", "Authorize"] },
       { name: "Salesforce", category: "CRM", method: "OAuth", status: "optional", examples: ["Sync accounts + opps"], steps: ["Connected App", "Authorize"] },
       { name: "Stripe", category: "Payments", method: "API key", status: "optional", examples: ["Revenue + churn KPIs"], steps: ["Restricted key", "Save"] },
