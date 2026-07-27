@@ -271,7 +271,7 @@ Deno.serve(async (req) => {
       agent_id: agentId,
       provider,
       credentials_secret_id: secretId,
-      credentials: null,
+      
       metadata: result.ok ? (result.sample || {}) : {},
       status: result.ok ? "connected" : "error",
       last_verified_at: new Date().toISOString(),
