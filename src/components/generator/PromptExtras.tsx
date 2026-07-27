@@ -168,10 +168,15 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
     const onMsg = (ev: MessageEvent) => {
       const p = ev.data as { source?: string; ok?: boolean; service?: string } | null;
       if (!p || !p.ok) return;
-      if (p.source === "nazai-gmail-oauth" || p.source === "nazai-figma-oauth") {
+      if (
+        p.source === "nazai-gmail-oauth" ||
+        p.source === "nazai-figma-oauth" ||
+        p.source === "nazai-canva-oauth"
+      ) {
         const svc = String(p.service || "").toLowerCase();
         const optimisticKey =
           p.source === "nazai-figma-oauth" ? "figma"
+          : p.source === "nazai-canva-oauth" ? "canva"
           : svc === "drive" ? "google drive"
           : svc === "calendar" ? "google calendar"
           : svc === "analytics" ? "google analytics"
@@ -184,6 +189,7 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
         loadConnected();
       }
     };
+
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
   }, [user?.id, loadConnected]);

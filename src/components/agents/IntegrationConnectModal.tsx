@@ -25,6 +25,7 @@ type Integration = {
 type Step =
   | "loading"
   | "coming_soon"
+  | "canva_consent"  // NazAI pre-consent: pick which Canva permissions to grant
   | "email"
   | "password"
   | "finding"
@@ -34,6 +35,7 @@ type Step =
   | "connecting"
   | "connected"
   | "error";
+
 
 type FoundAccount = {
   id: string;
@@ -288,11 +290,12 @@ export default function IntegrationConnectModal({
   }, [integration.name]);
   const isGoogle = googleKind !== null;
   const isComingSoon = useMemo(
-    () => /^(canva|notion|slack|shopify|youtube)$/i.test(integration.name.trim()),
+    () => /^(notion|slack|shopify|youtube)$/i.test(integration.name.trim()),
     [integration.name],
   );
   const isFigma = useMemo(() => /^figma$/i.test(integration.name.trim()), [integration.name]);
-  const isRealOAuth = isGoogle || isFigma;
+  const isCanva = useMemo(() => /^canva$/i.test(integration.name.trim()), [integration.name]);
+  const isRealOAuth = isGoogle || isFigma || isCanva;
   const isGmail = isGoogle; // legacy alias
   const providerKey = isGoogle ? "Gmail" : integration.name;
   const googleServiceLabel = googleKind === "drive" ? "Google Drive"
@@ -307,6 +310,21 @@ export default function IntegrationConnectModal({
     "Read library analytics for your team",
     "Create & manage file webhooks",
   ];
+  // Canva Connect capabilities — each maps to a scope group in
+  // supabase/functions/_shared/canva.ts. User checks the ones they want
+  // and only those scopes are sent to Canva's consent screen.
+  const CANVA_CAPABILITIES: Array<{ id: string; label: string; hint: string; defaultOn?: boolean }> = [
+    { id: "design_read_write", label: "Designs — view & edit", hint: "Read, create and edit your Canva designs", defaultOn: true },
+    { id: "folder_read", label: "Folders — read", hint: "See how your designs are organised", defaultOn: true },
+    { id: "brand_templates_read", label: "Brand templates — read", hint: "Access your team's brand templates" },
+    { id: "asset_read_write", label: "Assets — view & upload", hint: "Read your uploaded assets and upload new ones" },
+    { id: "profile_read", label: "Profile — read", hint: "Read basic account info (name, email)", defaultOn: true },
+    { id: "comment_read_write", label: "Comments — view & post", hint: "Read and post comments on designs" },
+  ];
+  const [canvaGroups, setCanvaGroups] = useState<Record<string, boolean>>(
+    () => Object.fromEntries(CANVA_CAPABILITIES.map((c) => [c.id, !!c.defaultOn])),
+  );
+
   const [step, setStep] = useState<Step>("loading");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -376,11 +394,15 @@ export default function IntegrationConnectModal({
         });
       } else {
         if (isComingSoon) { setStep("coming_soon"); return; }
+        // Canva starts on the NazAI pre-consent screen where the user picks
+        // which permissions to grant before we redirect to Canva.
+        if (isCanva) { setStep("canva_consent"); return; }
         setStep("email");
       }
     })();
     return () => { cancelled = true; };
-  }, [integration.name, agentId, isGoogle, googleKind, providerKey, googleServiceLabel, isComingSoon, onChange, onClose]);
+  }, [integration.name, agentId, isGoogle, googleKind, providerKey, googleServiceLabel, isComingSoon, isCanva, onChange, onClose]);
+
 
   const reloadConnected = async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -409,7 +431,7 @@ export default function IntegrationConnectModal({
   };
 
   const startOAuth = async (
-    kind: "gmail" | "figma",
+    kind: "gmail" | "figma" | "canva",
     opts: { functionName: string; source: string; label: string; extraBody?: Record<string, unknown> },
   ) => {
     setError(null);
@@ -419,9 +441,14 @@ export default function IntegrationConnectModal({
         body: { agentId: agentId || null, origin: window.location.origin, ...(opts.extraBody || {}) },
       });
       if (fnErr) throw new Error(fnErr.message || `Failed to start ${opts.label} OAuth`);
-      const url = (data as { url?: string; error?: string }).url;
+      const url = (data as { url?: string; error?: string; not_configured?: boolean }).url;
       const errMsg = (data as { url?: string; error?: string }).error;
-      if (!url) throw new Error(errMsg || "No authorization URL returned");
+      const notConfigured = (data as { not_configured?: boolean }).not_configured;
+      if (!url) {
+        // Surface a friendly "not configured yet" message instead of a raw error.
+        if (notConfigured) throw new Error(errMsg || `${opts.label} OAuth is not configured yet.`);
+        throw new Error(errMsg || "No authorization URL returned");
+      }
       const popup = window.open(url, `${kind}_oauth`, "width=560,height=720");
       if (!popup) throw new Error("Popup blocked. Please allow popups and retry.");
       const handler = (ev: MessageEvent) => {
@@ -465,13 +492,33 @@ export default function IntegrationConnectModal({
   const startFigmaOAuth = () =>
     startOAuth("figma", { functionName: "figma-oauth-start", source: "nazai-figma-oauth", label: "Figma" });
 
+  const startCanvaOAuth = () => {
+    const selected = Object.entries(canvaGroups).filter(([, v]) => v).map(([k]) => k);
+    if (!selected.length) {
+      setError("Select at least one permission to continue.");
+      return;
+    }
+    // Move into the popup-loading state so the same "Opening Canva consent…"
+    // UI used by Google/Figma is shown.
+    setStep("email");
+    startOAuth("canva", {
+      functionName: "canva-oauth-start",
+      source: "nazai-canva-oauth",
+      label: "Canva",
+      extraBody: { groups: selected },
+    });
+  };
+
   useEffect(() => {
     if (step !== "email") return;
     if (!isRealOAuth || oauthLoading) return;
+    // Canva does NOT auto-start — the user must confirm scopes on the
+    // canva_consent screen first, which then calls startCanvaOAuth().
     if (isGoogle) startGmailOAuth();
     else if (isFigma) startFigmaOAuth();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, isRealOAuth]);
+
 
 
   const submitEmail = (e: React.FormEvent) => {
@@ -699,6 +746,83 @@ export default function IntegrationConnectModal({
               )}
             </div>
           )}
+
+          {step === "canva_consent" && isCanva && (
+            <div className="flex-1 flex flex-col animate-fade-in">
+              <h2 className="text-xl font-semibold text-center mb-1">Connect Canva to NazAI</h2>
+              <p className="text-sm text-zinc-600 text-center mb-5 max-w-sm mx-auto">
+                Choose which parts of your Canva account NazAI can access. Only the boxes you check are sent to Canva's consent screen.
+              </p>
+              <div className="rounded-2xl border border-zinc-200 divide-y divide-zinc-100 mb-4 bg-white">
+                {CANVA_CAPABILITIES.map((cap) => {
+                  const on = !!canvaGroups[cap.id];
+                  return (
+                    <label
+                      key={cap.id}
+                      className="flex items-start gap-3 p-3 cursor-pointer hover:bg-zinc-50 transition"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={(e) =>
+                          setCanvaGroups((prev) => ({ ...prev, [cap.id]: e.target.checked }))
+                        }
+                        className="mt-0.5 h-4 w-4 accent-emerald-600"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium text-zinc-900">{cap.label}</div>
+                        <div className="text-xs text-zinc-500">{cap.hint}</div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+              <button
+                type="button"
+                onClick={startCanvaOAuth}
+                disabled={oauthLoading}
+                className="w-full h-12 rounded-full text-white text-sm font-semibold flex items-center justify-center gap-2 transition disabled:opacity-60"
+                style={{ background: `linear-gradient(135deg, ${accent}, #22d3ee)` }}
+              >
+                {oauthLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+                {oauthLoading ? "Opening Canva…" : "Continue to Canva"}
+              </button>
+              {error && (
+                <div className="text-xs text-red-600 mt-3 rounded-md border border-red-200 bg-red-50 p-2 flex items-start gap-1.5">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span className="break-words">{error}</span>
+                </div>
+              )}
+              <p className="text-[11px] text-zinc-500 mt-4 text-center">
+                You'll approve these permissions on Canva's own site. You can revoke access anytime from Canva.
+              </p>
+            </div>
+          )}
+
+          {step === "email" && isCanva && (
+            <div className="flex-1 flex flex-col items-center justify-center animate-fade-in text-center">
+              <Loader2 className="h-6 w-6 animate-spin text-zinc-500 mb-4" />
+              <h2 className="text-lg font-normal mb-1">Opening Canva consent…</h2>
+              <p className="text-xs text-zinc-500 mb-6 max-w-xs">
+                Canva's real consent screen has opened in a popup. Approve there to finish the connection.
+              </p>
+              <button
+                type="button"
+                onClick={() => setStep("canva_consent")}
+                disabled={oauthLoading}
+                className="text-xs px-3 py-1.5 rounded-full border border-zinc-300 hover:bg-zinc-50 text-zinc-700 disabled:opacity-60"
+              >
+                {oauthLoading ? "Waiting…" : "Change permissions"}
+              </button>
+              {error && (
+                <div className="text-xs text-red-600 mt-4 rounded-md border border-red-200 bg-red-50 p-2 flex items-start gap-1.5 max-w-xs">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span className="break-words">{error}</span>
+                </div>
+              )}
+            </div>
+          )}
+
 
 
 

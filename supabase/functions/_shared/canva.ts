@@ -1,0 +1,234 @@
+// Shared Canva Connect OAuth2 helpers. Mirrors the Figma helper: HMAC-signed
+// state, authorization URL builder, code exchange, token refresh, and an
+// authed fetch wrapper that refreshes on 401. Credentials are stored in
+// Supabase Vault via integration-secrets helpers.
+//
+// Canva uses PKCE + Basic-auth on the token endpoint per its Connect API docs
+// (https://www.canva.dev/docs/connect/authentication/).
+import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { readSecret, updateSecret } from "./integration-secrets.ts";
+
+// Grouped scope catalogue shown in the NazAI pre-consent screen. Only the
+// groups the user checks are actually included in the authorization URL sent
+// to Canva.
+export const CANVA_SCOPE_GROUPS: Record<string, string[]> = {
+  designs: ["design:content:read", "design:content:write", "design:meta:read"],
+  folders: ["folder:read", "folder:write"],
+  brands:  ["brandtemplate:content:read", "brandtemplate:meta:read"],
+  assets:  ["asset:read", "asset:write"],
+  profile: ["profile:read"],
+  comments:["comment:read", "comment:write"],
+};
+
+export function resolveCanvaScopes(groups: string[]): string[] {
+  const set = new Set<string>();
+  for (const g of groups) {
+    const scopes = CANVA_SCOPE_GROUPS[g];
+    if (scopes) for (const s of scopes) set.add(s);
+  }
+  // profile:read is always safe/useful — but only include it if the user
+  // actually checked it. Do NOT quietly widen scope beyond what they picked.
+  return Array.from(set);
+}
+
+export const CANVA_REDIRECT_URI = `${Deno.env.get("SUPABASE_URL")}/functions/v1/canva-oauth-callback`;
+
+const enc = new TextEncoder();
+const b64urlEncode = (bytes: Uint8Array) =>
+  btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+const b64urlEncodeStr = (s: string) => b64urlEncode(enc.encode(s));
+const b64urlDecode = (s: string) => {
+  const pad = s.length % 4 ? 4 - (s.length % 4) : 0;
+  return atob(s.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat(pad));
+};
+
+async function hmacKey(): Promise<CryptoKey> {
+  const secret = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "fallback";
+  return await crypto.subtle.importKey(
+    "raw",
+    enc.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign", "verify"],
+  );
+}
+
+export async function signState(payload: Record<string, unknown>): Promise<string> {
+  const body = b64urlEncodeStr(JSON.stringify({ ...payload, iat: Date.now() }));
+  const key = await hmacKey();
+  const sig = new Uint8Array(await crypto.subtle.sign("HMAC", key, enc.encode(body)));
+  return `${body}.${b64urlEncode(sig)}`;
+}
+
+export async function verifyState(token: string): Promise<Record<string, unknown> | null> {
+  const [body, sig] = token.split(".");
+  if (!body || !sig) return null;
+  const key = await hmacKey();
+  const sigBytes = Uint8Array.from(b64urlDecode(sig), (c) => c.charCodeAt(0));
+  const ok = await crypto.subtle.verify("HMAC", key, sigBytes, enc.encode(body));
+  if (!ok) return null;
+  try {
+    const parsed = JSON.parse(b64urlDecode(body));
+    if (typeof parsed.iat === "number" && Date.now() - parsed.iat > 10 * 60 * 1000) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+// PKCE — Canva requires code_challenge on the auth request and the matching
+// code_verifier on the token exchange. We stash the verifier inside our
+// signed state so we don't need any server-side session storage.
+export function generatePkce(): { verifier: string; challenge: Promise<string> } {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  const verifier = b64urlEncode(bytes);
+  const challenge = crypto.subtle.digest("SHA-256", enc.encode(verifier))
+    .then((buf) => b64urlEncode(new Uint8Array(buf)));
+  return { verifier, challenge };
+}
+
+export function buildAuthUrl(state: string, scopes: string[], codeChallenge: string): string {
+  const clientId = Deno.env.get("CANVA_CLIENT_ID") || "";
+  const url = new URL("https://www.canva.com/api/oauth/authorize");
+  url.searchParams.set("client_id", clientId);
+  url.searchParams.set("redirect_uri", CANVA_REDIRECT_URI);
+  url.searchParams.set("scope", scopes.join(" "));
+  url.searchParams.set("state", state);
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("code_challenge", codeChallenge);
+  url.searchParams.set("code_challenge_method", "S256");
+  return url.toString();
+}
+
+type CanvaTokenResponse = {
+  access_token: string;
+  refresh_token?: string;
+  expires_in: number;
+  token_type?: string;
+  scope?: string;
+};
+
+function basicAuthHeader(): string {
+  const clientId = Deno.env.get("CANVA_CLIENT_ID") || "";
+  const clientSecret = Deno.env.get("CANVA_CLIENT_SECRET") || "";
+  return "Basic " + btoa(`${clientId}:${clientSecret}`);
+}
+
+export async function exchangeCode(code: string, codeVerifier: string): Promise<CanvaTokenResponse> {
+  const r = await fetch("https://api.canva.com/rest/v1/oauth/token", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Authorization: basicAuthHeader(),
+    },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: CANVA_REDIRECT_URI,
+      code_verifier: codeVerifier,
+    }),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    throw new Error(data?.message || data?.error_description || data?.error || `Canva token exchange failed (${r.status})`);
+  }
+  return data as CanvaTokenResponse;
+}
+
+export async function refreshToken(refresh_token: string): Promise<CanvaTokenResponse> {
+  const r = await fetch("https://api.canva.com/rest/v1/oauth/token", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Authorization: basicAuthHeader(),
+    },
+    body: new URLSearchParams({ grant_type: "refresh_token", refresh_token }),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    const e = new Error(data?.message || data?.error || `Canva refresh failed (${r.status})`);
+    if (r.status === 400 || r.status === 401) (e as unknown as { code?: string }).code = "invalid_grant";
+    throw e;
+  }
+  return data as CanvaTokenResponse;
+}
+
+export async function fetchUserInfo(access_token: string) {
+  const r = await fetch("https://api.canva.com/rest/v1/users/me/profile", {
+    headers: { Authorization: `Bearer ${access_token}` },
+  });
+  if (!r.ok) return null;
+  const data = await r.json().catch(() => ({}));
+  const profile = (data?.profile ?? data) as Record<string, unknown>;
+  return {
+    id: profile?.user_id as string | undefined,
+    email: profile?.email as string | undefined,
+    display_name: profile?.display_name as string | undefined,
+    avatar: profile?.avatar_url as string | undefined,
+  };
+}
+
+export function isConfigured(): boolean {
+  return !!(Deno.env.get("CANVA_CLIENT_ID") && Deno.env.get("CANVA_CLIENT_SECRET"));
+}
+
+export async function ensureAccessToken(
+  admin: SupabaseClient,
+  row: { id: string; credentials_secret_id: string | null; credentials?: Record<string, unknown> },
+  opts?: { force?: boolean },
+): Promise<string | null> {
+  const creds = row.credentials ?? await readSecret(admin, row.credentials_secret_id);
+  const access = creds.access_token as string | undefined;
+  const refresh = creds.refresh_token as string | undefined;
+  const expiresAt = Number(creds.expires_at || 0);
+  if (!opts?.force && access && expiresAt > Date.now() + 5 * 60_000) return access;
+  if (!refresh) return access || null;
+  try {
+    const tok = await refreshToken(refresh);
+    const newCreds = {
+      ...creds,
+      access_token: tok.access_token,
+      expires_at: Date.now() + tok.expires_in * 1000,
+      ...(tok.refresh_token ? { refresh_token: tok.refresh_token } : {}),
+    };
+    if (row.credentials_secret_id) await updateSecret(admin, row.credentials_secret_id, newCreds);
+    await admin.from("agent_integrations").update({
+      status: "connected",
+      last_error: null,
+      last_verified_at: new Date().toISOString(),
+    }).eq("id", row.id);
+    return tok.access_token;
+  } catch (e) {
+    const code = (e as { code?: string })?.code;
+    const msg = e instanceof Error ? e.message : String(e);
+    await admin.from("agent_integrations").update({
+      status: code === "invalid_grant" ? "error" : "connected",
+      last_error: code === "invalid_grant"
+        ? "Canva refresh token expired — reconnect required."
+        : `Canva token refresh transient failure: ${msg}`.slice(0, 500),
+    }).eq("id", row.id);
+    return null;
+  }
+}
+
+export async function canvaAuthedFetch(
+  admin: SupabaseClient,
+  row: { id: string; credentials_secret_id: string | null; credentials?: Record<string, unknown> },
+  url: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  let access = await ensureAccessToken(admin, row);
+  if (!access) return new Response(JSON.stringify({ error: "no_access_token" }), { status: 401 });
+  const doFetch = (tok: string) => fetch(url, {
+    ...init,
+    headers: { ...(init.headers || {}), Authorization: `Bearer ${tok}` },
+  });
+  let r = await doFetch(access);
+  if (r.status === 401) {
+    access = await ensureAccessToken(admin, row, { force: true });
+    if (!access) return r;
+    r = await doFetch(access);
+  }
+  return r;
+}
