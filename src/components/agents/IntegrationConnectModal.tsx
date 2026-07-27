@@ -913,16 +913,11 @@ export default function IntegrationConnectModal({
               {isGoogle && (
                 <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-3 mb-4">
                   <div className="text-[11px] uppercase tracking-wider font-mono font-semibold text-emerald-800 mb-2">
-                    Google surfaces granted
+                    {googleServiceLabel} scope granted
                   </div>
-                  <ul className="grid grid-cols-1 gap-1.5 text-xs text-zinc-800">
-                    {GOOGLE_CAPABILITIES.map((c) => (
-                      <li key={c} className="flex items-start gap-2">
-                        <CheckCircle2 className="h-4 w-4 mt-0.5 text-emerald-600 shrink-0" />
-                        <span>{c}</span>
-                      </li>
-                    ))}
-                  </ul>
+                  <p className="text-xs text-zinc-700">
+                    You've granted NazAI access to this Google surface only. Connect other Google services separately from the catalogue to add more.
+                  </p>
                 </div>
               )}
 
