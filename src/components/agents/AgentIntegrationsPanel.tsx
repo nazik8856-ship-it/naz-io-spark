@@ -284,6 +284,19 @@ export default function AgentIntegrationsPanel({
 
   useEffect(() => { refresh(); }, [refresh, openIntegration, hubOpen]);
 
+  // Instant refresh the moment an OAuth popup posts success back to us.
+  useEffect(() => {
+    const onMsg = (ev: MessageEvent) => {
+      const p = ev.data as { source?: string; ok?: boolean } | null;
+      if (!p || !p.ok) return;
+      if (p.source === "nazai-gmail-oauth" || p.source === "nazai-figma-oauth") {
+        refresh();
+      }
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, [refresh]);
+
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent<{ agentId?: string }>).detail;
