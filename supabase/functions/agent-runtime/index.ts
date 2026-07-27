@@ -482,7 +482,7 @@ serve(async (req) => {
       { name: "read_email", kind: "read_email", description: "Read the full body/thread of a Gmail message. Give a message_id, thread_id, or a Gmail search query (e.g. 'from:x@y.com newer_than:2d'). Returns decoded plain-text content, not just metadata.", config: {} },
       { name: "reply_email", kind: "reply_email", description: "Reply inside an existing Gmail thread by thread_id (proper In-Reply-To/References headers). Same approval-gating as send_email.", config: {} },
       { name: "read_analytics", kind: "read_analytics", description: "Fetch last 30 days of sessions and users from a Google Analytics 4 property via the GA4 Data API. Requires property_id.", config: {} },
-      { name: "read_youtube_stats", kind: "read_youtube_stats", description: "Fetch subscriber/view/video counts for a YouTube channel via the YouTube Data API. Defaults to the authed Google account's own channel when channel_id is omitted.", config: {} },
+      
       { name: "http_post", kind: "http_post", description: "POST a JSON payload to an allow-listed URL to trigger or adjust an external system. URL must be https and either match this agent's configured webhook_url or a whitelisted domain.", config: {} },
       { name: "webhook", kind: "http_post", description: "Alias for http_post — POST a JSON payload to an allow-listed URL.", config: {} },
       { name: "schedule_followup", kind: "schedule_followup", description: "Schedule this agent to run again at a specific future time, carrying an instruction forward.", config: {} },
