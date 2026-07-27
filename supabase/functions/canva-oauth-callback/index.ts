@@ -1,9 +1,9 @@
-// canva-oauth-callback — Canva redirects here with ?code & ?state. We exchange
-// the code for tokens, upsert an agent_integrations row under provider "Canva"
-// with credentials encrypted in Supabase Vault (secret name "canva-<user>-global"),
-// then render a small page that notifies the opener window and closes.
+// canva-oauth-callback — Canva redirects here with ?code and ?state.
+// We exchange the code (with PKCE verifier from state) for tokens and persist
+// them in agent_integrations under provider="Canva". Uses the same
+// Vault upsert pattern as gmail-oauth-callback.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import { verifyState, exchangeCode, fetchUserInfo, scopesForGroups } from "../_shared/canva.ts";
+import { verifyState, exchangeCode, fetchUserInfo } from "../_shared/canva.ts";
 import { createSecret, updateSecret, readSecret } from "../_shared/integration-secrets.ts";
 
 const html = (title: string, msg: string, ok: boolean) => `<!doctype html>
@@ -39,29 +39,25 @@ Deno.serve(async (req) => {
   const parsed = await verifyState(state);
   if (!parsed) return respond("Invalid state", "OAuth state failed verification. Please try again.", false, 400);
   const userId = parsed.u as string;
-  const agentId: string | null = null;
+  const verifier = parsed.v as string;
   const groups = Array.isArray(parsed.g) ? (parsed.g as string[]) : [];
 
   try {
-    const tok = await exchangeCode(code);
+    const tok = await exchangeCode(code, verifier);
     const info = await fetchUserInfo(tok.access_token);
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const now = new Date().toISOString();
-    const grantedScopes = scopesForGroups(groups);
-    const credentials: Record<string, unknown> = {
+    const credentials = {
       access_token: tok.access_token,
       refresh_token: tok.refresh_token || null,
-      expires_at: Date.now() + (tok.expires_in || 0) * 1000,
-      scope: tok.scope || grantedScopes.join(" "),
-      canva_user_id: info?.id || null,
-      handle: info?.display_name || info?.email || "Canva",
+      expires_at: Date.now() + tok.expires_in * 1000,
+      scope: tok.scope,
+      email: info?.email || null,
       account_name: info?.display_name || info?.email || "Canva",
       account_email: info?.email || null,
+      avatar: info?.avatar || null,
     };
 
-    // Reuse the existing Vault secret id (upsert pattern, avoids
-    // secrets_name_idx collisions), preserving refresh_token if Canva
-    // omitted one on this exchange.
     const { data: existing } = await admin
       .from("agent_integrations")
       .select("id, credentials_secret_id, metadata")
@@ -92,14 +88,14 @@ Deno.serve(async (req) => {
       .upsert(
         {
           user_id: userId,
-          agent_id: agentId,
+          agent_id: null,
           provider: "Canva",
           credentials_secret_id: secretId,
           metadata: {
             account_email: info?.email,
             account_name: info?.display_name || info?.email,
+            avatar: info?.avatar,
             groups: mergedGroups,
-            granted_scopes: grantedScopes,
           },
           status: "connected",
           last_verified_at: now,
@@ -108,11 +104,7 @@ Deno.serve(async (req) => {
         { onConflict: "user_id,provider,agent_id" },
       );
     if (error) throw new Error(error.message);
-    return respond(
-      "Canva connected",
-      `Connected as ${info?.display_name || info?.email || "Canva account"}. You can close this window.`,
-      true,
-    );
+    return respond("Canva connected", `Connected as ${info?.display_name || info?.email || "Canva account"}. You can close this window.`, true, 200);
   } catch (e) {
     return respond("Canva connection failed", e instanceof Error ? e.message : "Unknown error", false, 500);
   }
