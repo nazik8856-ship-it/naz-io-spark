@@ -87,7 +87,7 @@ Deno.serve(async (req) => {
           agent_id: agentId,
           provider: "Figma",
           credentials_secret_id: secretId,
-          credentials: null,
+          
           metadata: {
             account_email: info?.email,
             account_name: info?.handle || info?.email,
