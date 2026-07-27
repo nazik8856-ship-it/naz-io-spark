@@ -25,6 +25,7 @@ type Integration = {
 type Step =
   | "loading"
   | "coming_soon"
+  | "canva_consent"  // NazAI pre-consent: pick which Canva permissions to grant
   | "email"
   | "password"
   | "finding"
@@ -34,6 +35,7 @@ type Step =
   | "connecting"
   | "connected"
   | "error";
+
 
 type FoundAccount = {
   id: string;
