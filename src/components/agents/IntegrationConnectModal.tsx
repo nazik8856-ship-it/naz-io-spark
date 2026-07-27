@@ -410,13 +410,13 @@ export default function IntegrationConnectModal({
 
   const startOAuth = async (
     kind: "gmail" | "figma" | "youtube",
-    opts: { functionName: string; source: string; label: string },
+    opts: { functionName: string; source: string; label: string; extraBody?: Record<string, unknown> },
   ) => {
     setError(null);
     setOauthLoading(true);
     try {
       const { data, error: fnErr } = await supabase.functions.invoke(opts.functionName, {
-        body: { agentId: agentId || null, origin: window.location.origin },
+        body: { agentId: agentId || null, origin: window.location.origin, ...(opts.extraBody || {}) },
       });
       if (fnErr) throw new Error(fnErr.message || `Failed to start ${opts.label} OAuth`);
       const url = (data as { url?: string; error?: string }).url;
@@ -452,13 +452,29 @@ export default function IntegrationConnectModal({
   };
 
   const startGmailOAuth = () =>
-    startOAuth("gmail", { functionName: "gmail-oauth-start", source: "nazai-gmail-oauth", label: "Gmail" });
+    startOAuth("gmail", {
+      functionName: "gmail-oauth-start",
+      source: "nazai-gmail-oauth",
+      label: googleServiceLabel,
+      extraBody: { kind: googleKind || "gmail" },
+    });
 
   const startFigmaOAuth = () =>
     startOAuth("figma", { functionName: "figma-oauth-start", source: "nazai-figma-oauth", label: "Figma" });
 
   const startYoutubeOAuth = () =>
     startOAuth("youtube", { functionName: "youtube-oauth-start", source: "nazai-youtube-oauth", label: "YouTube" });
+
+  // Auto-launch OAuth on mount for real-OAuth providers so users skip the
+  // NazAI pre-consent screen and go straight to the provider's own consent.
+  useEffect(() => {
+    if (step !== "email") return;
+    if (!isRealOAuth || oauthLoading) return;
+    if (isGoogle) startGmailOAuth();
+    else if (isFigma) startFigmaOAuth();
+    else if (isYoutube) startYoutubeOAuth();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, isRealOAuth]);
 
 
   const submitEmail = (e: React.FormEvent) => {
