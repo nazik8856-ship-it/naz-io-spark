@@ -144,6 +144,20 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
     loadConnected();
   }, [tunerOpen, user?.id, loadConnected]);
 
+  // React instantly to OAuth popup success postMessage — no polling delay.
+  useEffect(() => {
+    if (!user?.id) return;
+    const onMsg = (ev: MessageEvent) => {
+      const p = ev.data as { source?: string; ok?: boolean } | null;
+      if (!p || !p.ok) return;
+      if (p.source === "nazai-gmail-oauth" || p.source === "nazai-figma-oauth") {
+        loadConnected();
+      }
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, [user?.id, loadConnected]);
+
   const add = (a: Attachment) => onChange([...attachments, a]);
   const remove = (id: string) => onChange(attachments.filter((a) => a.id !== id));
 
