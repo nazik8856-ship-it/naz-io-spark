@@ -100,7 +100,7 @@ const MASTER_CATALOG: Integration[] = [
   { name: "Google Drive", category: "Google", method: "Sign in", examples: ["Read & write files the agent creates"], steps: ["Sign in with Google", "Grant Drive (file) scope only"] },
   { name: "Google Calendar", category: "Google", method: "Sign in", examples: ["Read events", "Schedule new events"], steps: ["Sign in with Google", "Grant Calendar scope only"] },
   { name: "Google Analytics", category: "Google", method: "Sign in", examples: ["Read GA4 metrics", "Read audience data"], steps: ["Sign in with Google", "Grant Analytics scope only"] },
-  { name: "YouTube", category: "Video", method: "Sign in", examples: ["Read channel & videos","Read views, likes, comments","Read playlists & subscriptions"], steps: ["Sign in with YouTube (separate Google consent)","Grant read-only YouTube access"] },
+  
   // Social & Content
   { name: "Instagram", category: "Social", method: "Sign in", examples: ["Reply to DMs & comments", "Draft & schedule posts/reels", "Track follower growth"], steps: ["Sign in with Instagram or Facebook", "Pick business account", "Approve posting scope"] },
   { name: "Facebook", category: "Social", method: "Sign in", examples: ["Manage Page posts & comments", "Reply to Messenger DMs", "Insights digest"], steps: ["Sign in with Facebook", "Pick Page", "Approve scopes"] },

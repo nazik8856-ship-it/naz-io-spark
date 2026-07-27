@@ -28,7 +28,7 @@ const INTEGRATIONS = [
   { id: "gdrive", label: "Google Drive", providerKey: "Google Drive" },
   { id: "gcal", label: "Google Calendar", providerKey: "Google Calendar" },
   { id: "ganalytics", label: "Google Analytics", providerKey: "Google Analytics" },
-  { id: "youtube", label: "YouTube", providerKey: "YouTube" },
+  
   { id: "shopify", label: "Shopify", providerKey: "Shopify" },
   { id: "slack", label: "Slack", providerKey: "Slack" },
   { id: "notion", label: "Notion", providerKey: "Notion" },
