@@ -7,29 +7,16 @@ import { readSecret, updateSecret } from "./integration-secrets.ts";
 // `include_granted_scopes=true`, so users can incrementally add surfaces.
 export const GOOGLE_BASE_SCOPES = ["openid", "email", "profile"];
 export const GOOGLE_SCOPE_SETS: Record<string, string[]> = {
-  gmail: [
-    "https://www.googleapis.com/auth/gmail.send",
-    "https://www.googleapis.com/auth/gmail.metadata",
-  ],
-  docs: [
-    "https://www.googleapis.com/auth/documents",
-    "https://www.googleapis.com/auth/drive.file",
-  ],
-  sheets: [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive.file",
-  ],
+  drive: ["https://www.googleapis.com/auth/drive.file"],
   calendar: ["https://www.googleapis.com/auth/calendar.events"],
   analytics: ["https://www.googleapis.com/auth/analytics.readonly"],
 };
 export function scopesForGoogleKind(kind: string): string[] {
-  return [...(GOOGLE_SCOPE_SETS[kind] || GOOGLE_SCOPE_SETS.gmail), ...GOOGLE_BASE_SCOPES];
+  return [...(GOOGLE_SCOPE_SETS[kind] || GOOGLE_SCOPE_SETS.drive), ...GOOGLE_BASE_SCOPES];
 }
-// Legacy bundled scopes (kept for callers that still expect one big consent).
+// Legacy alias — Gmail/Docs/Sheets have been removed pending Google verification.
 export const GMAIL_SCOPES = [
-  ...GOOGLE_SCOPE_SETS.gmail,
-  ...GOOGLE_SCOPE_SETS.docs,
-  ...GOOGLE_SCOPE_SETS.sheets,
+  ...GOOGLE_SCOPE_SETS.drive,
   ...GOOGLE_SCOPE_SETS.calendar,
   ...GOOGLE_SCOPE_SETS.analytics,
   ...GOOGLE_BASE_SCOPES,
