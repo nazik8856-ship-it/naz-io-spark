@@ -120,11 +120,29 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
     if (!user?.id) { setConnected([]); return; }
     const { data: ints } = await supabase
       .from("agent_integrations")
-      .select("provider")
+      .select("provider, metadata")
       .eq("user_id", user.id)
       .eq("status", "connected");
-    const providers = Array.from(new Set((ints || []).map((i: any) => String(i.provider).toLowerCase())));
-    if (!providers.length) { setConnected([]); return; }
+    const providers = new Set<string>();
+    (ints || []).forEach((i: any) => {
+      const p = String(i.provider || "").toLowerCase();
+      if (p) providers.add(p);
+      // The shared "Gmail" row records each granted Google surface in
+      // metadata.services (e.g. ["drive","calendar","analytics"]). Expand
+      // those into their catalogue names so per-service Connect buttons can
+      // show a live green "Connected" state across every project.
+      if (p === "gmail") {
+        const services = Array.isArray(i.metadata?.services) ? (i.metadata.services as string[]) : [];
+        services.forEach((s) => {
+          const key = String(s).toLowerCase();
+          if (key === "drive") providers.add("google drive");
+          else if (key === "calendar") providers.add("google calendar");
+          else if (key === "analytics") providers.add("google analytics");
+        });
+      }
+    });
+    const list = Array.from(providers);
+    if (!list.length) { setConnected([]); return; }
     const { data: snaps } = await supabase
       .from("integration_snapshots")
       .select("provider, kind, data, created_at")
@@ -136,7 +154,7 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
       const p = String(s.provider).toLowerCase();
       if (!byProv.has(p)) byProv.set(p, JSON.stringify(s.data ?? {}));
     });
-    setConnected(providers.map((p) => ({ provider: p, hasSnapshot: byProv.has(p), snapshotText: byProv.get(p) })));
+    setConnected(list.map((p) => ({ provider: p, hasSnapshot: byProv.has(p), snapshotText: byProv.get(p) })));
   }, [user?.id]);
 
   useEffect(() => {

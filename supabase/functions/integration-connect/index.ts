@@ -208,12 +208,14 @@ Deno.serve(async (req) => {
     const agentId = (body.agentId as string) || null;
 
     if (action === "list") {
-      let query = supabase
+      // Integrations are user-level: always return every connected row for
+      // the current user, regardless of which agent_id (or none) it was
+      // originally attached to. This keeps a Google/Figma/etc. connection
+      // visible in every project the user opens.
+      const { data, error } = await supabase
         .from("agent_integrations")
-        .select("provider, status, metadata, last_verified_at, last_error")
+        .select("provider, status, metadata, last_verified_at, last_error, agent_id")
         .eq("user_id", user.id);
-      if (agentId) query = query.eq("agent_id", agentId);
-      const { data, error } = await query;
       if (error) return j(500, { error: error.message });
       return j(200, { integrations: data || [] });
     }

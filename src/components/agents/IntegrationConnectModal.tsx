@@ -329,16 +329,28 @@ export default function IntegrationConnectModal({
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { if (!cancelled) setStep("email"); return; }
+      // Google connections are user-level and shared across every project —
+      // always look up by (user_id, provider="Gmail", agent_id IS NULL).
       let q = supabase
         .from("agent_integrations")
         .select("status, metadata")
         .eq("user_id", user.id)
         .eq("provider", providerKey);
-      q = agentId ? q.eq("agent_id", agentId) : q.is("agent_id", null);
+      q = isGoogle || !agentId ? q.is("agent_id", null) : q.eq("agent_id", agentId);
       const { data } = await q.maybeSingle();
       if (cancelled) return;
-      if (data?.status === "connected") {
-        const meta = (data.metadata as Record<string, unknown>) || {};
+      const meta = (data?.metadata as Record<string, unknown>) || {};
+      const services = Array.isArray(meta.services) ? (meta.services as string[]) : [];
+      const googleServiceConnected = isGoogle && googleKind && services.includes(googleKind);
+      if (data?.status === "connected" && (!isGoogle || googleServiceConnected)) {
+        // No full-screen "Connected" card for Google services — just close
+        // and let the catalogue reflect the green state.
+        if (isGoogle) {
+          toast.success(`${googleServiceLabel} already connected`);
+          onChange?.();
+          onClose();
+          return;
+        }
         setAccount({
           id: String(meta.account_id || meta.account_name || "connected"),
           handle: String(meta.handle || meta.account_name || "Your account"),
@@ -363,15 +375,12 @@ export default function IntegrationConnectModal({
           fetched_at: snap.fetched_at as string,
         });
       } else {
-        // Placeholder providers: honest "Coming soon" state, no fake flow.
         if (isComingSoon) { setStep("coming_soon"); return; }
-        // Every non-Google provider uses the data-connector form (credentials
-        // the user pastes from their own account). Google keeps real OAuth.
         setStep("email");
       }
     })();
     return () => { cancelled = true; };
-  }, [integration.name, agentId]);
+  }, [integration.name, agentId, isGoogle, googleKind, providerKey, googleServiceLabel, isComingSoon, onChange, onClose]);
 
   const reloadConnected = async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -422,7 +431,14 @@ export default function IntegrationConnectModal({
         setOauthLoading(false);
         if (payload.ok) {
           toast.success(`${opts.label} connected`);
-          reloadConnected();
+          onChange?.();
+          // Skip the full-screen "Connected" card for Google services — the
+          // catalogue button turns green automatically on the next refresh.
+          if (kind === "gmail") {
+            onClose();
+          } else {
+            reloadConnected();
+          }
         } else {
           setError(payload.message || `${opts.label} connection failed`);
           toast.error(payload.message || `${opts.label} connection failed`);
