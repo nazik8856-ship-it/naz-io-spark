@@ -278,8 +278,24 @@ export default function AgentIntegrationsPanel({
       body: { action: "list", agentId: agentId || null },
     });
     if (error || !data) return;
-    const rows = ((data as { integrations?: { provider: string; status: string }[] }).integrations) || [];
-    setConnectedNames(new Set(rows.filter((r) => r.status === "connected").map((r) => r.provider)));
+    const rows = ((data as { integrations?: { provider: string; status: string; metadata?: Record<string, unknown> }[] }).integrations) || [];
+    const names = new Set<string>();
+    rows.filter((r) => r.status === "connected").forEach((r) => {
+      names.add(r.provider);
+      // Expand the shared "Gmail" row into its granted per-service names so
+      // each Google catalogue entry (Drive/Calendar/Analytics) shows its own
+      // green "Connected" state.
+      if (r.provider === "Gmail") {
+        const services = Array.isArray(r.metadata?.services) ? (r.metadata!.services as string[]) : [];
+        services.forEach((s) => {
+          const k = String(s).toLowerCase();
+          if (k === "drive") names.add("Google Drive");
+          else if (k === "calendar") names.add("Google Calendar");
+          else if (k === "analytics") names.add("Google Analytics");
+        });
+      }
+    });
+    setConnectedNames(names);
   }, [agentId]);
 
   useEffect(() => { refresh(); }, [refresh, openIntegration, hubOpen]);
