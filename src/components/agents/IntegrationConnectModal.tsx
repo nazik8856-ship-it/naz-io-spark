@@ -680,40 +680,26 @@ export default function IntegrationConnectModal({
           )}
 
           {step === "email" && isFigma && (
-            <div className="flex-1 flex flex-col animate-fade-in">
-              <h2 className="text-2xl font-normal text-center mb-1">Connect Figma</h2>
-              <p className="text-sm text-zinc-600 text-center mb-5">
-                You'll be redirected to Figma's real consent screen. NazAI receives an OAuth token
-                stored encrypted in Vault — you can revoke access anytime from your Figma account
-                settings.
+            <div className="flex-1 flex flex-col items-center justify-center animate-fade-in text-center">
+              <Loader2 className="h-6 w-6 animate-spin text-zinc-500 mb-4" />
+              <h2 className="text-lg font-normal mb-1">Opening Figma consent…</h2>
+              <p className="text-xs text-zinc-500 mb-6 max-w-xs">
+                Figma's real consent screen has opened in a popup. Approve there to finish the connection.
               </p>
-              <ul className="mb-6 space-y-2 text-xs text-zinc-700 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
-                {FIGMA_CAPABILITIES.map((c) => (
-                  <li key={c} className="flex items-start gap-2">
-                    <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 text-emerald-600 shrink-0" />
-                    <span>{c}</span>
-                  </li>
-                ))}
-              </ul>
               <button
                 type="button"
                 onClick={startFigmaOAuth}
                 disabled={oauthLoading}
-                className="w-full h-12 rounded-full text-white text-sm font-semibold flex items-center justify-center gap-2 transition disabled:opacity-60"
-                style={{ background: "linear-gradient(135deg, #0ACF83, #A259FF)" }}
+                className="text-xs px-3 py-1.5 rounded-full border border-zinc-300 hover:bg-zinc-50 text-zinc-700 disabled:opacity-60"
               >
-                {oauthLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-                {oauthLoading ? "Waiting for Figma…" : "Continue with Figma"}
+                {oauthLoading ? "Waiting…" : "Reopen consent window"}
               </button>
               {error && (
-                <div className="text-xs text-red-600 mt-3 rounded-md border border-red-200 bg-red-50 p-2 flex items-start gap-1.5">
+                <div className="text-xs text-red-600 mt-4 rounded-md border border-red-200 bg-red-50 p-2 flex items-start gap-1.5 max-w-xs">
                   <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
                   <span className="break-words">{error}</span>
                 </div>
               )}
-              <p className="text-[11px] text-zinc-500 mt-6">
-                Requires FIGMA_CLIENT_ID and FIGMA_CLIENT_SECRET configured in project secrets.
-              </p>
             </div>
           )}
 
