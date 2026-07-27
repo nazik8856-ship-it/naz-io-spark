@@ -1,38 +1,37 @@
-// Shared Canva OAuth2 helpers. Mirrors the Figma helper: HMAC-signed state,
-// authorization URL builder, code exchange, token refresh, user info fetch.
-// Credentials will be stored encrypted in Supabase Vault via
-// agent_integrations.credentials_secret_id (same pattern as Google/Figma).
+// Shared Canva Connect OAuth2 helpers. Mirrors the Figma helper: HMAC-signed
+// state, authorization URL builder, code exchange, token refresh, and an
+// authed fetch wrapper that refreshes on 401. Credentials are stored in
+// Supabase Vault via integration-secrets helpers.
 //
-// NOTE: Client credentials (CANVA_CLIENT_ID / CANVA_CLIENT_SECRET) are not
-// wired yet — this scaffolding lets the UI be built now. `isConfigured()`
-// tells callers when the flow can actually run.
+// Canva uses PKCE + Basic-auth on the token endpoint per its Connect API docs
+// (https://www.canva.dev/docs/connect/authentication/).
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { readSecret, updateSecret } from "./integration-secrets.ts";
 
-// Canva Connect API scopes. Grouped in the UI as human-readable capabilities;
-// each capability maps to one or more of these raw scopes.
-export const CANVA_SCOPE_GROUPS: Record<string, { label: string; scopes: string[] }> = {
-  design_read_write: { label: "Designs — view & edit", scopes: ["design:content:read", "design:content:write", "design:meta:read"] },
-  folder_read: { label: "Folders — read", scopes: ["folder:read"] },
-  brand_templates_read: { label: "Brand templates — read", scopes: ["brandtemplate:content:read", "brandtemplate:meta:read"] },
-  asset_read_write: { label: "Assets — view & upload", scopes: ["asset:read", "asset:write"] },
-  profile_read: { label: "Profile — read", scopes: ["profile:read"] },
-  comment_read_write: { label: "Comments — view & post", scopes: ["comment:read", "comment:write"] },
+// Grouped scope catalogue shown in the NazAI pre-consent screen. Only the
+// groups the user checks are actually included in the authorization URL sent
+// to Canva.
+export const CANVA_SCOPE_GROUPS: Record<string, string[]> = {
+  designs: ["design:content:read", "design:content:write", "design:meta:read"],
+  folders: ["folder:read", "folder:write"],
+  brands:  ["brandtemplate:content:read", "brandtemplate:meta:read"],
+  assets:  ["asset:read", "asset:write"],
+  profile: ["profile:read"],
+  comments:["comment:read", "comment:write"],
 };
 
-export function scopesForGroups(groupIds: string[]): string[] {
-  const out = new Set<string>();
-  groupIds.forEach((g) => {
-    (CANVA_SCOPE_GROUPS[g]?.scopes || []).forEach((s) => out.add(s));
-  });
-  return Array.from(out);
+export function resolveCanvaScopes(groups: string[]): string[] {
+  const set = new Set<string>();
+  for (const g of groups) {
+    const scopes = CANVA_SCOPE_GROUPS[g];
+    if (scopes) for (const s of scopes) set.add(s);
+  }
+  // profile:read is always safe/useful — but only include it if the user
+  // actually checked it. Do NOT quietly widen scope beyond what they picked.
+  return Array.from(set);
 }
 
 export const CANVA_REDIRECT_URI = `${Deno.env.get("SUPABASE_URL")}/functions/v1/canva-oauth-callback`;
-
-export function isConfigured(): boolean {
-  return Boolean(Deno.env.get("CANVA_CLIENT_ID") && Deno.env.get("CANVA_CLIENT_SECRET"));
-}
 
 const enc = new TextEncoder();
 const b64urlEncode = (bytes: Uint8Array) =>
@@ -77,7 +76,19 @@ export async function verifyState(token: string): Promise<Record<string, unknown
   }
 }
 
-export function buildAuthUrl(state: string, scopes: string[]): string {
+// PKCE — Canva requires code_challenge on the auth request and the matching
+// code_verifier on the token exchange. We stash the verifier inside our
+// signed state so we don't need any server-side session storage.
+export function generatePkce(): { verifier: string; challenge: Promise<string> } {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  const verifier = b64urlEncode(bytes);
+  const challenge = crypto.subtle.digest("SHA-256", enc.encode(verifier))
+    .then((buf) => b64urlEncode(new Uint8Array(buf)));
+  return { verifier, challenge };
+}
+
+export function buildAuthUrl(state: string, scopes: string[], codeChallenge: string): string {
   const clientId = Deno.env.get("CANVA_CLIENT_ID") || "";
   const url = new URL("https://www.canva.com/api/oauth/authorize");
   url.searchParams.set("client_id", clientId);
@@ -85,8 +96,8 @@ export function buildAuthUrl(state: string, scopes: string[]): string {
   url.searchParams.set("scope", scopes.join(" "));
   url.searchParams.set("state", state);
   url.searchParams.set("response_type", "code");
-  // Canva Connect requires PKCE (code_challenge). Wire that in when
-  // real client credentials are added; for now the flow is scaffolding.
+  url.searchParams.set("code_challenge", codeChallenge);
+  url.searchParams.set("code_challenge_method", "S256");
   return url.toString();
 }
 
@@ -94,23 +105,28 @@ type CanvaTokenResponse = {
   access_token: string;
   refresh_token?: string;
   expires_in: number;
-  scope?: string;
   token_type?: string;
+  scope?: string;
 };
 
-export async function exchangeCode(code: string): Promise<CanvaTokenResponse> {
+function basicAuthHeader(): string {
   const clientId = Deno.env.get("CANVA_CLIENT_ID") || "";
   const clientSecret = Deno.env.get("CANVA_CLIENT_SECRET") || "";
+  return "Basic " + btoa(`${clientId}:${clientSecret}`);
+}
+
+export async function exchangeCode(code: string, codeVerifier: string): Promise<CanvaTokenResponse> {
   const r = await fetch("https://api.canva.com/rest/v1/oauth/token", {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
-      Authorization: "Basic " + btoa(`${clientId}:${clientSecret}`),
+      Authorization: basicAuthHeader(),
     },
     body: new URLSearchParams({
       grant_type: "authorization_code",
       code,
       redirect_uri: CANVA_REDIRECT_URI,
+      code_verifier: codeVerifier,
     }),
   });
   const data = await r.json().catch(() => ({}));
@@ -121,13 +137,11 @@ export async function exchangeCode(code: string): Promise<CanvaTokenResponse> {
 }
 
 export async function refreshToken(refresh_token: string): Promise<CanvaTokenResponse> {
-  const clientId = Deno.env.get("CANVA_CLIENT_ID") || "";
-  const clientSecret = Deno.env.get("CANVA_CLIENT_SECRET") || "";
   const r = await fetch("https://api.canva.com/rest/v1/oauth/token", {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
-      Authorization: "Basic " + btoa(`${clientId}:${clientSecret}`),
+      Authorization: basicAuthHeader(),
     },
     body: new URLSearchParams({ grant_type: "refresh_token", refresh_token }),
   });
@@ -146,12 +160,17 @@ export async function fetchUserInfo(access_token: string) {
   });
   if (!r.ok) return null;
   const data = await r.json().catch(() => ({}));
-  const profile = data?.profile || data;
+  const profile = (data?.profile ?? data) as Record<string, unknown>;
   return {
-    id: profile?.user_id || profile?.id || null,
-    display_name: profile?.display_name || profile?.name || null,
-    email: profile?.email || null,
-  } as { id: string | null; display_name: string | null; email: string | null };
+    id: profile?.user_id as string | undefined,
+    email: profile?.email as string | undefined,
+    display_name: profile?.display_name as string | undefined,
+    avatar: profile?.avatar_url as string | undefined,
+  };
+}
+
+export function isConfigured(): boolean {
+  return !!(Deno.env.get("CANVA_CLIENT_ID") && Deno.env.get("CANVA_CLIENT_SECRET"));
 }
 
 export async function ensureAccessToken(
@@ -191,4 +210,25 @@ export async function ensureAccessToken(
     }).eq("id", row.id);
     return null;
   }
+}
+
+export async function canvaAuthedFetch(
+  admin: SupabaseClient,
+  row: { id: string; credentials_secret_id: string | null; credentials?: Record<string, unknown> },
+  url: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  let access = await ensureAccessToken(admin, row);
+  if (!access) return new Response(JSON.stringify({ error: "no_access_token" }), { status: 401 });
+  const doFetch = (tok: string) => fetch(url, {
+    ...init,
+    headers: { ...(init.headers || {}), Authorization: `Bearer ${tok}` },
+  });
+  let r = await doFetch(access);
+  if (r.status === 401) {
+    access = await ensureAccessToken(admin, row, { force: true });
+    if (!access) return r;
+    r = await doFetch(access);
+  }
+  return r;
 }
