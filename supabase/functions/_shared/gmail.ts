@@ -2,17 +2,37 @@
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { readSecret, updateSecret } from "./integration-secrets.ts";
 
+// Per-service scope sets. Each Connect button in the catalogue requests only
+// the scopes it needs — Google grants are cumulative on the account thanks to
+// `include_granted_scopes=true`, so users can incrementally add surfaces.
+export const GOOGLE_BASE_SCOPES = ["openid", "email", "profile"];
+export const GOOGLE_SCOPE_SETS: Record<string, string[]> = {
+  gmail: [
+    "https://www.googleapis.com/auth/gmail.send",
+    "https://www.googleapis.com/auth/gmail.metadata",
+  ],
+  docs: [
+    "https://www.googleapis.com/auth/documents",
+    "https://www.googleapis.com/auth/drive.file",
+  ],
+  sheets: [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive.file",
+  ],
+  calendar: ["https://www.googleapis.com/auth/calendar.events"],
+  analytics: ["https://www.googleapis.com/auth/analytics.readonly"],
+};
+export function scopesForGoogleKind(kind: string): string[] {
+  return [...(GOOGLE_SCOPE_SETS[kind] || GOOGLE_SCOPE_SETS.gmail), ...GOOGLE_BASE_SCOPES];
+}
+// Legacy bundled scopes (kept for callers that still expect one big consent).
 export const GMAIL_SCOPES = [
-  "https://www.googleapis.com/auth/gmail.send",
-  "https://www.googleapis.com/auth/gmail.metadata",
-  "https://www.googleapis.com/auth/documents",
-  "https://www.googleapis.com/auth/spreadsheets",
-  "https://www.googleapis.com/auth/drive.file",
-  "https://www.googleapis.com/auth/calendar.events",
-  "https://www.googleapis.com/auth/analytics.readonly",
-  "openid",
-  "email",
-  "profile",
+  ...GOOGLE_SCOPE_SETS.gmail,
+  ...GOOGLE_SCOPE_SETS.docs,
+  ...GOOGLE_SCOPE_SETS.sheets,
+  ...GOOGLE_SCOPE_SETS.calendar,
+  ...GOOGLE_SCOPE_SETS.analytics,
+  ...GOOGLE_BASE_SCOPES,
 ];
 
 // YouTube uses a separate OAuth consent — Google rejects

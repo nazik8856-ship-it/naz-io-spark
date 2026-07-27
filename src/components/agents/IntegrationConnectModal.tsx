@@ -273,10 +273,23 @@ export default function IntegrationConnectModal({
 }) {
   const scopes = useMemo(() => scopesFor(integration), [integration]);
   const socials = useMemo(() => socialProvidersFor(integration.name), [integration.name]);
-  const isGoogle = useMemo(() => /^(google|gmail)$/i.test(integration.name.trim()), [integration.name]);
+  // Google-service detection: each Google surface (Gmail, Docs, Sheets,
+  // Calendar, Analytics) is its own catalogue entry now and requests only its
+  // own scope. All tokens still land under provider "Gmail" so the shared
+  // agent-runtime Google lookups keep working — Google's
+  // `include_granted_scopes=true` means each new consent adds to the existing
+  // grant on the account.
+  const googleKind = useMemo<null | "gmail" | "docs" | "sheets" | "calendar" | "analytics">(() => {
+    const n = integration.name.trim().toLowerCase();
+    if (/^gmail$/.test(n) || /^google$/.test(n)) return "gmail";
+    if (/docs?$/.test(n) || n.includes("google docs")) return "docs";
+    if (/sheets?$/.test(n) || n.includes("google sheets")) return "sheets";
+    if (n.includes("calendar")) return "calendar";
+    if (n.includes("analytics") || n === "ga4") return "analytics";
+    return null;
+  }, [integration.name]);
+  const isGoogle = googleKind !== null;
   const isYoutube = useMemo(() => /^youtube$/i.test(integration.name.trim()), [integration.name]);
-  // Canva, Notion, Slack, Shopify are placeholders until real per-platform
-  // OAuth is implemented. Show honest "Coming soon" instead of a fake flow.
   const isComingSoon = useMemo(
     () => /^(canva|notion|slack|shopify)$/i.test(integration.name.trim()),
     [integration.name],
@@ -284,18 +297,12 @@ export default function IntegrationConnectModal({
   const isFigma = useMemo(() => /^figma$/i.test(integration.name.trim()), [integration.name]);
   const isRealOAuth = isGoogle || isFigma || isYoutube;
   const isGmail = isGoogle; // legacy alias
-  // The Google tile grants all 5 Google Workspace surfaces via a single
-  // OAuth. YouTube uses its own separate OAuth (Google rejects
-  // youtube.readonly + drive.file in one consent request), stored under
-  // provider key "YouTube".
   const providerKey = isGoogle ? "Gmail" : isYoutube ? "YouTube" : integration.name;
-  const GOOGLE_CAPABILITIES = [
-    "Gmail — read & send email",
-    "Google Docs — read & edit",
-    "Google Sheets — read & edit",
-    "Google Calendar — read & schedule",
-    "Google Analytics — read metrics",
-  ];
+  const googleServiceLabel = googleKind === "docs" ? "Google Docs"
+    : googleKind === "sheets" ? "Google Sheets"
+    : googleKind === "calendar" ? "Google Calendar"
+    : googleKind === "analytics" ? "Google Analytics"
+    : "Gmail";
   const YOUTUBE_CAPABILITIES = [
     "Read your YouTube channel & videos",
     "Read video statistics (views, likes, comments)",
@@ -403,13 +410,13 @@ export default function IntegrationConnectModal({
 
   const startOAuth = async (
     kind: "gmail" | "figma" | "youtube",
-    opts: { functionName: string; source: string; label: string },
+    opts: { functionName: string; source: string; label: string; extraBody?: Record<string, unknown> },
   ) => {
     setError(null);
     setOauthLoading(true);
     try {
       const { data, error: fnErr } = await supabase.functions.invoke(opts.functionName, {
-        body: { agentId: agentId || null, origin: window.location.origin },
+        body: { agentId: agentId || null, origin: window.location.origin, ...(opts.extraBody || {}) },
       });
       if (fnErr) throw new Error(fnErr.message || `Failed to start ${opts.label} OAuth`);
       const url = (data as { url?: string; error?: string }).url;
@@ -445,13 +452,29 @@ export default function IntegrationConnectModal({
   };
 
   const startGmailOAuth = () =>
-    startOAuth("gmail", { functionName: "gmail-oauth-start", source: "nazai-gmail-oauth", label: "Gmail" });
+    startOAuth("gmail", {
+      functionName: "gmail-oauth-start",
+      source: "nazai-gmail-oauth",
+      label: googleServiceLabel,
+      extraBody: { kind: googleKind || "gmail" },
+    });
 
   const startFigmaOAuth = () =>
     startOAuth("figma", { functionName: "figma-oauth-start", source: "nazai-figma-oauth", label: "Figma" });
 
   const startYoutubeOAuth = () =>
     startOAuth("youtube", { functionName: "youtube-oauth-start", source: "nazai-youtube-oauth", label: "YouTube" });
+
+  // Auto-launch OAuth on mount for real-OAuth providers so users skip the
+  // NazAI pre-consent screen and go straight to the provider's own consent.
+  useEffect(() => {
+    if (step !== "email") return;
+    if (!isRealOAuth || oauthLoading) return;
+    if (isGoogle) startGmailOAuth();
+    else if (isFigma) startFigmaOAuth();
+    else if (isYoutube) startYoutubeOAuth();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, isRealOAuth]);
 
 
   const submitEmail = (e: React.FormEvent) => {
@@ -638,102 +661,64 @@ export default function IntegrationConnectModal({
           )}
 
           {step === "email" && isGoogle && (
-            <div className="flex-1 flex flex-col animate-fade-in">
-              <h2 className="text-2xl font-normal text-center mb-1">Connect Google</h2>
-              <p className="text-sm text-zinc-600 text-center mb-5">
-                One sign-in grants NazAI access to all your Google surfaces below. Tokens are revocable at any time.
+            <div className="flex-1 flex flex-col items-center justify-center animate-fade-in text-center">
+              <Loader2 className="h-6 w-6 animate-spin text-zinc-500 mb-4" />
+              <h2 className="text-lg font-normal mb-1">Opening {googleServiceLabel} consent…</h2>
+              <p className="text-xs text-zinc-500 mb-6 max-w-xs">
+                Google's real consent screen has opened in a popup. Complete sign-in there to finish the connection.
               </p>
-              <ul className="mb-6 space-y-2 text-xs text-zinc-700 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
-                {GOOGLE_CAPABILITIES.map((c) => (
-                  <li key={c} className="flex items-start gap-2">
-                    <span className="mt-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full border border-zinc-300 bg-white text-zinc-400">
-                      <span className="h-1.5 w-1.5 rounded-full bg-zinc-300" />
-                    </span>
-                    <span>{c}</span>
-                  </li>
-                ))}
-              </ul>
               <button
                 type="button"
                 onClick={startGmailOAuth}
                 disabled={oauthLoading}
-                className="w-full h-12 rounded-full border border-zinc-300 bg-white hover:bg-zinc-50 flex items-center justify-center gap-3 text-sm font-medium text-zinc-800 transition disabled:opacity-60"
+                className="text-xs px-3 py-1.5 rounded-full border border-zinc-300 hover:bg-zinc-50 text-zinc-700 disabled:opacity-60"
               >
-                {oauthLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <SocialIcon id="google" />}
-                {oauthLoading ? "Waiting for Google…" : "Continue with Google"}
+                {oauthLoading ? "Waiting…" : "Reopen consent window"}
               </button>
               {error && <div className="text-xs text-red-600 mt-4">{error}</div>}
-              <p className="text-[11px] text-zinc-500 mt-6">
-                You can revoke access anytime from your Google account or by disconnecting here.
-              </p>
             </div>
           )}
 
           {step === "email" && isFigma && (
-            <div className="flex-1 flex flex-col animate-fade-in">
-              <h2 className="text-2xl font-normal text-center mb-1">Connect Figma</h2>
-              <p className="text-sm text-zinc-600 text-center mb-5">
-                You'll be redirected to Figma's real consent screen. NazAI receives an OAuth token
-                stored encrypted in Vault — you can revoke access anytime from your Figma account
-                settings.
+            <div className="flex-1 flex flex-col items-center justify-center animate-fade-in text-center">
+              <Loader2 className="h-6 w-6 animate-spin text-zinc-500 mb-4" />
+              <h2 className="text-lg font-normal mb-1">Opening Figma consent…</h2>
+              <p className="text-xs text-zinc-500 mb-6 max-w-xs">
+                Figma's real consent screen has opened in a popup. Approve there to finish the connection.
               </p>
-              <ul className="mb-6 space-y-2 text-xs text-zinc-700 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
-                {FIGMA_CAPABILITIES.map((c) => (
-                  <li key={c} className="flex items-start gap-2">
-                    <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 text-emerald-600 shrink-0" />
-                    <span>{c}</span>
-                  </li>
-                ))}
-              </ul>
               <button
                 type="button"
                 onClick={startFigmaOAuth}
                 disabled={oauthLoading}
-                className="w-full h-12 rounded-full text-white text-sm font-semibold flex items-center justify-center gap-2 transition disabled:opacity-60"
-                style={{ background: "linear-gradient(135deg, #0ACF83, #A259FF)" }}
+                className="text-xs px-3 py-1.5 rounded-full border border-zinc-300 hover:bg-zinc-50 text-zinc-700 disabled:opacity-60"
               >
-                {oauthLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-                {oauthLoading ? "Waiting for Figma…" : "Continue with Figma"}
+                {oauthLoading ? "Waiting…" : "Reopen consent window"}
               </button>
               {error && (
-                <div className="text-xs text-red-600 mt-3 rounded-md border border-red-200 bg-red-50 p-2 flex items-start gap-1.5">
+                <div className="text-xs text-red-600 mt-4 rounded-md border border-red-200 bg-red-50 p-2 flex items-start gap-1.5 max-w-xs">
                   <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
                   <span className="break-words">{error}</span>
                 </div>
               )}
-              <p className="text-[11px] text-zinc-500 mt-6">
-                Requires FIGMA_CLIENT_ID and FIGMA_CLIENT_SECRET configured in project secrets.
-              </p>
             </div>
           )}
 
           {step === "email" && isYoutube && (
-            <div className="flex-1 flex flex-col animate-fade-in">
-              <h2 className="text-2xl font-normal text-center mb-1">Connect YouTube</h2>
-              <p className="text-sm text-zinc-600 text-center mb-5">
-                YouTube uses its own Google consent screen (separate from the other Google surfaces). Read-only access to your channel data.
+            <div className="flex-1 flex flex-col items-center justify-center animate-fade-in text-center">
+              <Loader2 className="h-6 w-6 animate-spin text-zinc-500 mb-4" />
+              <h2 className="text-lg font-normal mb-1">Opening YouTube consent…</h2>
+              <p className="text-xs text-zinc-500 mb-6 max-w-xs">
+                YouTube's Google consent screen has opened in a popup. Approve there to finish the connection.
               </p>
-              <ul className="mb-6 space-y-2 text-xs text-zinc-700 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
-                {YOUTUBE_CAPABILITIES.map((c) => (
-                  <li key={c} className="flex items-start gap-2">
-                    <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 text-emerald-600 shrink-0" />
-                    <span>{c}</span>
-                  </li>
-                ))}
-              </ul>
               <button
                 type="button"
                 onClick={startYoutubeOAuth}
                 disabled={oauthLoading}
-                className="w-full h-12 rounded-full border border-zinc-300 bg-white hover:bg-zinc-50 flex items-center justify-center gap-3 text-sm font-medium text-zinc-800 transition disabled:opacity-60"
+                className="text-xs px-3 py-1.5 rounded-full border border-zinc-300 hover:bg-zinc-50 text-zinc-700 disabled:opacity-60"
               >
-                {oauthLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <SocialIcon id="google" />}
-                {oauthLoading ? "Waiting for YouTube…" : "Continue with YouTube"}
+                {oauthLoading ? "Waiting…" : "Reopen consent window"}
               </button>
               {error && <div className="text-xs text-red-600 mt-4">{error}</div>}
-              <p className="text-[11px] text-zinc-500 mt-6">
-                You can revoke access anytime from your Google account or by disconnecting here.
-              </p>
             </div>
           )}
 
@@ -903,16 +888,11 @@ export default function IntegrationConnectModal({
               {isGoogle && (
                 <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-3 mb-4">
                   <div className="text-[11px] uppercase tracking-wider font-mono font-semibold text-emerald-800 mb-2">
-                    Google surfaces granted
+                    {googleServiceLabel} scope granted
                   </div>
-                  <ul className="grid grid-cols-1 gap-1.5 text-xs text-zinc-800">
-                    {GOOGLE_CAPABILITIES.map((c) => (
-                      <li key={c} className="flex items-start gap-2">
-                        <CheckCircle2 className="h-4 w-4 mt-0.5 text-emerald-600 shrink-0" />
-                        <span>{c}</span>
-                      </li>
-                    ))}
-                  </ul>
+                  <p className="text-xs text-zinc-700">
+                    You've granted NazAI access to this Google surface only. Connect other Google services separately from the catalogue to add more.
+                  </p>
                 </div>
               )}
 

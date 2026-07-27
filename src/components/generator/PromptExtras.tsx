@@ -25,7 +25,11 @@ interface Props {
 
 const TONES = ["Playful", "Professional", "Luxury", "Minimal", "Bold"];
 const INTEGRATIONS = [
-  { id: "google", label: "Google (Gmail · Docs · Sheets · Calendar · Analytics)", providerKey: "Gmail" },
+  { id: "gmail", label: "Gmail", providerKey: "Gmail" },
+  { id: "gdocs", label: "Google Docs", providerKey: "Google Docs" },
+  { id: "gsheets", label: "Google Sheets", providerKey: "Google Sheets" },
+  { id: "gcal", label: "Google Calendar", providerKey: "Google Calendar" },
+  { id: "ganalytics", label: "Google Analytics", providerKey: "Google Analytics" },
   { id: "youtube", label: "YouTube", providerKey: "YouTube" },
   { id: "shopify", label: "Shopify", providerKey: "Shopify" },
   { id: "slack", label: "Slack", providerKey: "Slack" },
@@ -360,7 +364,7 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        setConnectTarget({ name: i.providerKey, category: i.providerKey === "Gmail" ? "Google" : i.providerKey });
+                        setConnectTarget({ name: i.providerKey, category: /Google|Gmail/i.test(i.providerKey) ? "Google" : i.providerKey });
                       }}
                       className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-purple-500/20 border border-purple-400/50 text-purple-200 hover:bg-purple-500/30 hover:text-white transition"
                     >

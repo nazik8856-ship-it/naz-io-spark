@@ -2,7 +2,7 @@
 // user and return it. Client opens it in a popup / new tab; Google redirects
 // to gmail-oauth-callback which stores tokens in agent_integrations.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import { signState, buildAuthUrl } from "../_shared/gmail.ts";
+import { signState, buildGoogleAuthUrl, scopesForGoogleKind, GMAIL_REDIRECT_URI } from "../_shared/gmail.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -33,8 +33,9 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const agentId = typeof body.agentId === "string" ? body.agentId : null;
     const origin = typeof body.origin === "string" ? body.origin : "";
-    const state = await signState({ u: user.id, a: agentId, o: origin });
-    const url = buildAuthUrl(state, user.email ?? undefined);
+    const kind = typeof body.kind === "string" ? body.kind : "gmail";
+    const state = await signState({ u: user.id, a: agentId, o: origin, k: kind });
+    const url = buildGoogleAuthUrl(state, scopesForGoogleKind(kind), GMAIL_REDIRECT_URI, user.email ?? undefined);
     return new Response(JSON.stringify({ url }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
