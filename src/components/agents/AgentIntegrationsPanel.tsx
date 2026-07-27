@@ -34,7 +34,7 @@ const ROLE_DEFAULTS: Record<string, IntegrationsSpec> = {
       { name: "HubSpot", category: "CRM", method: "OAuth", scopes: "contacts.read/write, deals.read/write", status: "recommended", examples: ["Create/update contacts", "Move deals through stages", "Score leads vs ICP"], steps: ["Sign in to HubSpot", "Pick workspace", "Grant contact + deal scopes"] },
       { name: "Salesforce", category: "CRM", method: "OAuth", scopes: "api, refresh_token", status: "optional", examples: ["Sync accounts and opportunities", "Run SOQL reports"], steps: ["Create Connected App", "Paste keys", "Authorize sandbox first"] },
       { name: "Pipedrive", category: "CRM", method: "API key", status: "optional", examples: ["Sync deals + activities"], steps: ["Settings → Personal → API", "Paste key"] },
-      { name: "Google", category: "Google", method: "Sign in", status: "recommended", examples: ["Gmail — read & send email","Google Docs — read & edit","Google Sheets — read & edit","Google Calendar — read & schedule","Google Analytics — read metrics"], steps: ["Sign in with Google","Grant access to all Google surfaces"] },
+      { name: "Gmail", category: "Google", method: "Sign in", status: "recommended", examples: ["Read email metadata","Send email on your behalf"], steps: ["Sign in with Google","Grant Gmail scope only"] },
       { name: "Slack", category: "Notifications", method: "OAuth", status: "recommended", examples: ["Ping on hot replies", "Daily pipeline digest"], steps: ["Connect workspace", "Pick channel"] },
     ],
     security: ["Outbound emails require one-click approval.", "Discounts above ceiling are escalated.", "Tokens encrypted; minimum scopes only."],
@@ -44,7 +44,7 @@ const ROLE_DEFAULTS: Record<string, IntegrationsSpec> = {
     integrations: [
       { name: "Zendesk", category: "Support", method: "OAuth + Webhook", scopes: "tickets.read/write", status: "recommended", examples: ["Triage + tag tickets", "Draft brand-tone replies", "Auto-escalate refund/legal"], steps: ["Sign in", "Authorize scopes", "Subscribe to ticket events"] },
       { name: "Intercom", category: "Support", method: "OAuth", status: "optional", examples: ["Reply suggestions", "Tag conversations"], steps: ["Connect workspace", "Approve scopes"] },
-      { name: "Google", category: "Google", method: "Sign in", status: "recommended", examples: ["Gmail — read & send email","Google Docs — read & edit","Google Sheets — read & edit","Google Calendar — read & schedule","Google Analytics — read metrics"], steps: ["Sign in with Google","Grant access to all Google surfaces"] },
+      { name: "Gmail", category: "Google", method: "Sign in", status: "recommended", examples: ["Read email metadata","Send email on your behalf"], steps: ["Sign in with Google","Grant Gmail scope only"] },
       { name: "Slack", category: "Notifications", method: "OAuth", status: "recommended", examples: ["Page on-call for P1", "SLA reports"], steps: ["Connect workspace", "Pick channel"] },
       { name: "Stripe", category: "Payments", method: "API key", scopes: "read-only", status: "optional", examples: ["Attach plan + LTV to tickets"], steps: ["Create restricted key", "Save"] },
     ],
@@ -78,7 +78,7 @@ const ROLE_DEFAULTS: Record<string, IntegrationsSpec> = {
   custom: {
     summary: "The agent can connect to any of your business systems. Start with the essentials below; add more later.",
     integrations: [
-      { name: "Google", category: "Google", method: "Sign in", status: "recommended", examples: ["Gmail — read & send email","Google Docs — read & edit","Google Sheets — read & edit","Google Calendar — read & schedule","Google Analytics — read metrics"], steps: ["Sign in with Google","Grant access to all Google surfaces"] },
+      { name: "Gmail", category: "Google", method: "Sign in", status: "recommended", examples: ["Read email metadata","Send email on your behalf"], steps: ["Sign in with Google","Grant Gmail scope only"] },
       { name: "HubSpot", category: "CRM", method: "OAuth", status: "optional", examples: ["Sync contacts and deals"], steps: ["Connect workspace", "Authorize"] },
       { name: "Salesforce", category: "CRM", method: "OAuth", status: "optional", examples: ["Sync accounts + opps"], steps: ["Connected App", "Authorize"] },
       { name: "Stripe", category: "Payments", method: "API key", status: "optional", examples: ["Revenue + churn KPIs"], steps: ["Restricted key", "Save"] },
