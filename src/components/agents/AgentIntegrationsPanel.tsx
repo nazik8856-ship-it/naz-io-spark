@@ -34,7 +34,7 @@ const ROLE_DEFAULTS: Record<string, IntegrationsSpec> = {
       { name: "HubSpot", category: "CRM", method: "OAuth", scopes: "contacts.read/write, deals.read/write", status: "recommended", examples: ["Create/update contacts", "Move deals through stages", "Score leads vs ICP"], steps: ["Sign in to HubSpot", "Pick workspace", "Grant contact + deal scopes"] },
       { name: "Salesforce", category: "CRM", method: "OAuth", scopes: "api, refresh_token", status: "optional", examples: ["Sync accounts and opportunities", "Run SOQL reports"], steps: ["Create Connected App", "Paste keys", "Authorize sandbox first"] },
       { name: "Pipedrive", category: "CRM", method: "API key", status: "optional", examples: ["Sync deals + activities"], steps: ["Settings → Personal → API", "Paste key"] },
-      { name: "Gmail", category: "Google", method: "Sign in", status: "recommended", examples: ["Read email metadata","Send email on your behalf"], steps: ["Sign in with Google","Grant Gmail scope only"] },
+      { name: "Google Drive", category: "Google", method: "Sign in", status: "recommended", examples: ["Read & write files the agent creates"], steps: ["Sign in with Google","Grant Drive (file) scope only"] },
       { name: "Slack", category: "Notifications", method: "OAuth", status: "recommended", examples: ["Ping on hot replies", "Daily pipeline digest"], steps: ["Connect workspace", "Pick channel"] },
     ],
     security: ["Outbound emails require one-click approval.", "Discounts above ceiling are escalated.", "Tokens encrypted; minimum scopes only."],
