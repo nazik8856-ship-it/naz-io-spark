@@ -273,10 +273,23 @@ export default function IntegrationConnectModal({
 }) {
   const scopes = useMemo(() => scopesFor(integration), [integration]);
   const socials = useMemo(() => socialProvidersFor(integration.name), [integration.name]);
-  const isGoogle = useMemo(() => /^(google|gmail)$/i.test(integration.name.trim()), [integration.name]);
+  // Google-service detection: each Google surface (Gmail, Docs, Sheets,
+  // Calendar, Analytics) is its own catalogue entry now and requests only its
+  // own scope. All tokens still land under provider "Gmail" so the shared
+  // agent-runtime Google lookups keep working — Google's
+  // `include_granted_scopes=true` means each new consent adds to the existing
+  // grant on the account.
+  const googleKind = useMemo<null | "gmail" | "docs" | "sheets" | "calendar" | "analytics">(() => {
+    const n = integration.name.trim().toLowerCase();
+    if (/^gmail$/.test(n) || /^google$/.test(n)) return "gmail";
+    if (/docs?$/.test(n) || n.includes("google docs")) return "docs";
+    if (/sheets?$/.test(n) || n.includes("google sheets")) return "sheets";
+    if (n.includes("calendar")) return "calendar";
+    if (n.includes("analytics") || n === "ga4") return "analytics";
+    return null;
+  }, [integration.name]);
+  const isGoogle = googleKind !== null;
   const isYoutube = useMemo(() => /^youtube$/i.test(integration.name.trim()), [integration.name]);
-  // Canva, Notion, Slack, Shopify are placeholders until real per-platform
-  // OAuth is implemented. Show honest "Coming soon" instead of a fake flow.
   const isComingSoon = useMemo(
     () => /^(canva|notion|slack|shopify)$/i.test(integration.name.trim()),
     [integration.name],
@@ -284,18 +297,12 @@ export default function IntegrationConnectModal({
   const isFigma = useMemo(() => /^figma$/i.test(integration.name.trim()), [integration.name]);
   const isRealOAuth = isGoogle || isFigma || isYoutube;
   const isGmail = isGoogle; // legacy alias
-  // The Google tile grants all 5 Google Workspace surfaces via a single
-  // OAuth. YouTube uses its own separate OAuth (Google rejects
-  // youtube.readonly + drive.file in one consent request), stored under
-  // provider key "YouTube".
   const providerKey = isGoogle ? "Gmail" : isYoutube ? "YouTube" : integration.name;
-  const GOOGLE_CAPABILITIES = [
-    "Gmail — read & send email",
-    "Google Docs — read & edit",
-    "Google Sheets — read & edit",
-    "Google Calendar — read & schedule",
-    "Google Analytics — read metrics",
-  ];
+  const googleServiceLabel = googleKind === "docs" ? "Google Docs"
+    : googleKind === "sheets" ? "Google Sheets"
+    : googleKind === "calendar" ? "Google Calendar"
+    : googleKind === "analytics" ? "Google Analytics"
+    : "Gmail";
   const YOUTUBE_CAPABILITIES = [
     "Read your YouTube channel & videos",
     "Read video statistics (views, likes, comments)",
