@@ -287,24 +287,18 @@ export default function IntegrationConnectModal({
     return null;
   }, [integration.name]);
   const isGoogle = googleKind !== null;
-  const isYoutube = useMemo(() => /^youtube$/i.test(integration.name.trim()), [integration.name]);
   const isComingSoon = useMemo(
-    () => /^(canva|notion|slack|shopify)$/i.test(integration.name.trim()),
+    () => /^(canva|notion|slack|shopify|youtube)$/i.test(integration.name.trim()),
     [integration.name],
   );
   const isFigma = useMemo(() => /^figma$/i.test(integration.name.trim()), [integration.name]);
-  const isRealOAuth = isGoogle || isFigma || isYoutube;
+  const isRealOAuth = isGoogle || isFigma;
   const isGmail = isGoogle; // legacy alias
-  const providerKey = isGoogle ? "Gmail" : isYoutube ? "YouTube" : integration.name;
+  const providerKey = isGoogle ? "Gmail" : integration.name;
   const googleServiceLabel = googleKind === "drive" ? "Google Drive"
     : googleKind === "calendar" ? "Google Calendar"
     : googleKind === "analytics" ? "Google Analytics"
     : "Google";
-  const YOUTUBE_CAPABILITIES = [
-    "Read your YouTube channel & videos",
-    "Read video statistics (views, likes, comments)",
-    "Read playlists & subscriptions",
-  ];
   const FIGMA_CAPABILITIES = [
     "Read your Figma files & pages",
     "Read & write file variables (design tokens)",
@@ -406,7 +400,7 @@ export default function IntegrationConnectModal({
   };
 
   const startOAuth = async (
-    kind: "gmail" | "figma" | "youtube",
+    kind: "gmail" | "figma",
     opts: { functionName: string; source: string; label: string; extraBody?: Record<string, unknown> },
   ) => {
     setError(null);
@@ -459,17 +453,11 @@ export default function IntegrationConnectModal({
   const startFigmaOAuth = () =>
     startOAuth("figma", { functionName: "figma-oauth-start", source: "nazai-figma-oauth", label: "Figma" });
 
-  const startYoutubeOAuth = () =>
-    startOAuth("youtube", { functionName: "youtube-oauth-start", source: "nazai-youtube-oauth", label: "YouTube" });
-
-  // Auto-launch OAuth on mount for real-OAuth providers so users skip the
-  // NazAI pre-consent screen and go straight to the provider's own consent.
   useEffect(() => {
     if (step !== "email") return;
     if (!isRealOAuth || oauthLoading) return;
     if (isGoogle) startGmailOAuth();
     else if (isFigma) startFigmaOAuth();
-    else if (isYoutube) startYoutubeOAuth();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, isRealOAuth]);
 
@@ -700,24 +688,6 @@ export default function IntegrationConnectModal({
             </div>
           )}
 
-          {step === "email" && isYoutube && (
-            <div className="flex-1 flex flex-col items-center justify-center animate-fade-in text-center">
-              <Loader2 className="h-6 w-6 animate-spin text-zinc-500 mb-4" />
-              <h2 className="text-lg font-normal mb-1">Opening YouTube consent…</h2>
-              <p className="text-xs text-zinc-500 mb-6 max-w-xs">
-                YouTube's Google consent screen has opened in a popup. Approve there to finish the connection.
-              </p>
-              <button
-                type="button"
-                onClick={startYoutubeOAuth}
-                disabled={oauthLoading}
-                className="text-xs px-3 py-1.5 rounded-full border border-zinc-300 hover:bg-zinc-50 text-zinc-700 disabled:opacity-60"
-              >
-                {oauthLoading ? "Waiting…" : "Reopen consent window"}
-              </button>
-              {error && <div className="text-xs text-red-600 mt-4">{error}</div>}
-            </div>
-          )}
 
 
 

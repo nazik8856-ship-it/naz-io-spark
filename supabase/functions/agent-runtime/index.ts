@@ -482,7 +482,7 @@ serve(async (req) => {
       { name: "read_email", kind: "read_email", description: "Read the full body/thread of a Gmail message. Give a message_id, thread_id, or a Gmail search query (e.g. 'from:x@y.com newer_than:2d'). Returns decoded plain-text content, not just metadata.", config: {} },
       { name: "reply_email", kind: "reply_email", description: "Reply inside an existing Gmail thread by thread_id (proper In-Reply-To/References headers). Same approval-gating as send_email.", config: {} },
       { name: "read_analytics", kind: "read_analytics", description: "Fetch last 30 days of sessions and users from a Google Analytics 4 property via the GA4 Data API. Requires property_id.", config: {} },
-      { name: "read_youtube_stats", kind: "read_youtube_stats", description: "Fetch subscriber/view/video counts for a YouTube channel via the YouTube Data API. Defaults to the authed Google account's own channel when channel_id is omitted.", config: {} },
+      
       { name: "http_post", kind: "http_post", description: "POST a JSON payload to an allow-listed URL to trigger or adjust an external system. URL must be https and either match this agent's configured webhook_url or a whitelisted domain.", config: {} },
       { name: "webhook", kind: "http_post", description: "Alias for http_post — POST a JSON payload to an allow-listed URL.", config: {} },
       { name: "schedule_followup", kind: "schedule_followup", description: "Schedule this agent to run again at a specific future time, carrying an instruction forward.", config: {} },
@@ -520,7 +520,7 @@ serve(async (req) => {
         case "reply_email": usage = `reply_email(thread_id: string, body: string, subject?: string)  // replies inside an existing Gmail thread with proper threading headers; approval-gated like send_email`; break;
 
         case "read_analytics": usage = `read_analytics(property_id: string)  // GA4 Data API: last 30 days sessions & totalUsers for the given property`; break;
-        case "read_youtube_stats": usage = `read_youtube_stats(channel_id?: string)  // YouTube Data API: subscriber/view/video counts. Omit channel_id for the authed user's own channel.`; break;
+        
         case "http_post": usage = `http_post(url: string, body: object)  // POSTs JSON to an allow-listed https URL (per-agent webhook_url or whitelisted domain)`; break;
         case "schedule_followup": usage = `schedule_followup(run_at_iso: string, instruction: string)  // queues a future run of this same agent`; break;
         case "upsert_client_note": usage = `upsert_client_note(email?: string, name?: string, company?: string, note: string, tags?: string[])  // creates/updates the agent's private client record and appends a timestamped note. Edits to existing notes may require approval per client_write_mode.`; break;
@@ -1562,12 +1562,11 @@ Rules:
 
 
 
-        if (tool.kind === "read_analytics" || tool.kind === "read_youtube_stats") {
+        if (tool.kind === "read_analytics") {
           const kind = tool.kind;
           const propertyId = String(input.property_id || "").trim();
-          const channelId = String(input.channel_id || "").trim();
-          const target = kind === "read_analytics" ? propertyId : (channelId || "mine");
-          if (kind === "read_analytics" && !propertyId) {
+          const target = propertyId;
+          if (!propertyId) {
             const msg = "read_analytics requires property_id (GA4 numeric property ID).";
             await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
             await logEvent("action", { type: kind, target, ok: false, result_ref: null, summary: msg });
@@ -1584,7 +1583,7 @@ Rules:
               .order("agent_id", { ascending: false, nullsFirst: false });
             const gmail = (gmailRows || []).find((r) => r.agent_id === agentId) || (gmailRows || [])[0];
             if (!gmail) {
-              const msg = `${kind} needs a connected Google account — connect Gmail in Integrations first.`;
+              const msg = `${kind} needs a connected Google account — connect Google Analytics in Integrations first.`;
               await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
               await logEvent("action", { type: kind, target, ok: false, result_ref: null, summary: msg });
               messages.push({ role: "user", content: `${msg} Continue.` });
@@ -1593,72 +1592,40 @@ Rules:
             const { ensureAccessToken } = await import("../_shared/gmail.ts");
             const access = await ensureAccessToken(supabase, { id: gmail.id, credentials_secret_id: (gmail.credentials_secret_id as string | null) ?? null });
             if (!access) {
-              const msg = "Google token invalid — please reconnect Gmail.";
+              const msg = "Google token invalid — please reconnect Google Analytics.";
               await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
               await logEvent("action", { type: kind, target, ok: false, result_ref: null, summary: msg });
               messages.push({ role: "user", content: `${msg} Continue.` });
               continue;
             }
 
-            if (kind === "read_analytics") {
-              const r = await fetch(
-                `https://analyticsdata.googleapis.com/v1beta/properties/${encodeURIComponent(propertyId)}:runReport`,
-                {
-                  method: "POST",
-                  headers: { Authorization: `Bearer ${access}`, "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    dateRanges: [{ startDate: "30daysAgo", endDate: "today" }],
-                    metrics: [{ name: "sessions" }, { name: "totalUsers" }],
-                  }),
-                },
-              );
-              const rb = await r.json().catch(() => ({}));
-              if (!r.ok) {
-                const msg = `GA4 runReport failed: ${rb?.error?.message || `HTTP ${r.status}`}`;
-                await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
-                await logEvent("action", { type: kind, target, ok: false, result_ref: null, summary: msg });
-                messages.push({ role: "user", content: `${msg} Continue.` });
-                continue;
-              }
-              const row = rb.rows?.[0]?.metricValues || [];
-              const sessions = row[0]?.value ?? "0";
-              const users = row[1]?.value ?? "0";
-              const summary = `GA4 property ${propertyId} (last 30d): sessions=${sessions}, totalUsers=${users}`;
-              await logEvent("tool_result", { tool: tool.name, ok: true, summary });
-              await logEvent("action", { type: kind, target, ok: true, result_ref: propertyId, summary });
-              messages.push({ role: "user", content: `${summary}\n\nContinue.` });
-              continue;
-            } else {
-              const qs = channelId
-                ? `part=statistics,snippet&id=${encodeURIComponent(channelId)}`
-                : `part=statistics,snippet&mine=true`;
-              const r = await fetch(`https://www.googleapis.com/youtube/v3/channels?${qs}`, {
-                headers: { Authorization: `Bearer ${access}` },
-              });
-              const rb = await r.json().catch(() => ({}));
-              if (!r.ok) {
-                const msg = `YouTube channels.list failed: ${rb?.error?.message || `HTTP ${r.status}`}`;
-                await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
-                await logEvent("action", { type: kind, target, ok: false, result_ref: null, summary: msg });
-                messages.push({ role: "user", content: `${msg} Continue.` });
-                continue;
-              }
-              const ch = rb.items?.[0];
-              if (!ch) {
-                const msg = channelId ? `No channel found for id ${channelId}.` : "Authed Google account has no YouTube channel.";
-                await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
-                await logEvent("action", { type: kind, target, ok: false, result_ref: null, summary: msg });
-                messages.push({ role: "user", content: `${msg} Continue.` });
-                continue;
-              }
-              const s = ch.statistics || {};
-              const title = ch.snippet?.title || ch.id;
-              const summary = `YouTube "${title}" (id=${ch.id}): subscribers=${s.subscriberCount ?? "hidden"}, views=${s.viewCount ?? "0"}, videos=${s.videoCount ?? "0"}`;
-              await logEvent("tool_result", { tool: tool.name, ok: true, summary });
-              await logEvent("action", { type: kind, target: ch.id, ok: true, result_ref: ch.id, summary });
-              messages.push({ role: "user", content: `${summary}\n\nContinue.` });
+            const r = await fetch(
+              `https://analyticsdata.googleapis.com/v1beta/properties/${encodeURIComponent(propertyId)}:runReport`,
+              {
+                method: "POST",
+                headers: { Authorization: `Bearer ${access}`, "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  dateRanges: [{ startDate: "30daysAgo", endDate: "today" }],
+                  metrics: [{ name: "sessions" }, { name: "totalUsers" }],
+                }),
+              },
+            );
+            const rb = await r.json().catch(() => ({}));
+            if (!r.ok) {
+              const msg = `GA4 runReport failed: ${rb?.error?.message || `HTTP ${r.status}`}`;
+              await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
+              await logEvent("action", { type: kind, target, ok: false, result_ref: null, summary: msg });
+              messages.push({ role: "user", content: `${msg} Continue.` });
               continue;
             }
+            const row = rb.rows?.[0]?.metricValues || [];
+            const sessions = row[0]?.value ?? "0";
+            const users = row[1]?.value ?? "0";
+            const summary = `GA4 property ${propertyId} (last 30d): sessions=${sessions}, totalUsers=${users}`;
+            await logEvent("tool_result", { tool: tool.name, ok: true, summary });
+            await logEvent("action", { type: kind, target, ok: true, result_ref: propertyId, summary });
+            messages.push({ role: "user", content: `${summary}\n\nContinue.` });
+            continue;
           } catch (e) {
             const msg = `${kind} exception: ${e instanceof Error ? e.message : "unknown"}`;
             await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
@@ -1667,6 +1634,7 @@ Rules:
             continue;
           }
         }
+
 
 
 

@@ -22,16 +22,6 @@ export const GMAIL_SCOPES = [
   ...GOOGLE_BASE_SCOPES,
 ];
 
-// YouTube uses a separate OAuth consent — Google rejects
-// youtube.readonly combined with drive.file in a single request
-// ("scopes that cannot be requested together").
-export const YOUTUBE_SCOPES = [
-  "https://www.googleapis.com/auth/youtube.readonly",
-  "openid",
-  "email",
-  "profile",
-];
-export const YOUTUBE_REDIRECT_URI = `${Deno.env.get("SUPABASE_URL")}/functions/v1/youtube-oauth-callback`;
 
 export const GMAIL_REDIRECT_URI = `${Deno.env.get("SUPABASE_URL")}/functions/v1/gmail-oauth-callback`;
 
