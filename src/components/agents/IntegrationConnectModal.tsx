@@ -747,6 +747,83 @@ export default function IntegrationConnectModal({
             </div>
           )}
 
+          {step === "canva_consent" && isCanva && (
+            <div className="flex-1 flex flex-col animate-fade-in">
+              <h2 className="text-xl font-semibold text-center mb-1">Connect Canva to NazAI</h2>
+              <p className="text-sm text-zinc-600 text-center mb-5 max-w-sm mx-auto">
+                Choose which parts of your Canva account NazAI can access. Only the boxes you check are sent to Canva's consent screen.
+              </p>
+              <div className="rounded-2xl border border-zinc-200 divide-y divide-zinc-100 mb-4 bg-white">
+                {CANVA_CAPABILITIES.map((cap) => {
+                  const on = !!canvaGroups[cap.id];
+                  return (
+                    <label
+                      key={cap.id}
+                      className="flex items-start gap-3 p-3 cursor-pointer hover:bg-zinc-50 transition"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={(e) =>
+                          setCanvaGroups((prev) => ({ ...prev, [cap.id]: e.target.checked }))
+                        }
+                        className="mt-0.5 h-4 w-4 accent-emerald-600"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium text-zinc-900">{cap.label}</div>
+                        <div className="text-xs text-zinc-500">{cap.hint}</div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+              <button
+                type="button"
+                onClick={startCanvaOAuth}
+                disabled={oauthLoading}
+                className="w-full h-12 rounded-full text-white text-sm font-semibold flex items-center justify-center gap-2 transition disabled:opacity-60"
+                style={{ background: `linear-gradient(135deg, ${accent}, #22d3ee)` }}
+              >
+                {oauthLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+                {oauthLoading ? "Opening Canva…" : "Continue to Canva"}
+              </button>
+              {error && (
+                <div className="text-xs text-red-600 mt-3 rounded-md border border-red-200 bg-red-50 p-2 flex items-start gap-1.5">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span className="break-words">{error}</span>
+                </div>
+              )}
+              <p className="text-[11px] text-zinc-500 mt-4 text-center">
+                You'll approve these permissions on Canva's own site. You can revoke access anytime from Canva.
+              </p>
+            </div>
+          )}
+
+          {step === "email" && isCanva && (
+            <div className="flex-1 flex flex-col items-center justify-center animate-fade-in text-center">
+              <Loader2 className="h-6 w-6 animate-spin text-zinc-500 mb-4" />
+              <h2 className="text-lg font-normal mb-1">Opening Canva consent…</h2>
+              <p className="text-xs text-zinc-500 mb-6 max-w-xs">
+                Canva's real consent screen has opened in a popup. Approve there to finish the connection.
+              </p>
+              <button
+                type="button"
+                onClick={() => setStep("canva_consent")}
+                disabled={oauthLoading}
+                className="text-xs px-3 py-1.5 rounded-full border border-zinc-300 hover:bg-zinc-50 text-zinc-700 disabled:opacity-60"
+              >
+                {oauthLoading ? "Waiting…" : "Change permissions"}
+              </button>
+              {error && (
+                <div className="text-xs text-red-600 mt-4 rounded-md border border-red-200 bg-red-50 p-2 flex items-start gap-1.5 max-w-xs">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span className="break-words">{error}</span>
+                </div>
+              )}
+            </div>
+          )}
+
+
 
 
 
