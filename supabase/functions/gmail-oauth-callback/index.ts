@@ -114,7 +114,7 @@ Deno.serve(async (req) => {
         { onConflict: "user_id,provider,agent_id" },
       );
     if (error) throw new Error(error.message);
-    return respond("Google connected", `Connected as ${info?.email || "Google account"}. You can close this window.`, true);
+    return respond("Google connected", `Connected as ${info?.email || "Google account"}. You can close this window.`, true, 200, serviceKind);
   } catch (e) {
     return respond("Google connection failed", e instanceof Error ? e.message : "Unknown error", false, 500);
   }
