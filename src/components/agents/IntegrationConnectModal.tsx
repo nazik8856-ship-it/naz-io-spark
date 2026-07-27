@@ -279,11 +279,9 @@ export default function IntegrationConnectModal({
   // agent-runtime Google lookups keep working — Google's
   // `include_granted_scopes=true` means each new consent adds to the existing
   // grant on the account.
-  const googleKind = useMemo<null | "gmail" | "docs" | "sheets" | "calendar" | "analytics">(() => {
+  const googleKind = useMemo<null | "drive" | "calendar" | "analytics">(() => {
     const n = integration.name.trim().toLowerCase();
-    if (/^gmail$/.test(n) || /^google$/.test(n)) return "gmail";
-    if (/docs?$/.test(n) || n.includes("google docs")) return "docs";
-    if (/sheets?$/.test(n) || n.includes("google sheets")) return "sheets";
+    if (n.includes("drive")) return "drive";
     if (n.includes("calendar")) return "calendar";
     if (n.includes("analytics") || n === "ga4") return "analytics";
     return null;
@@ -298,11 +296,10 @@ export default function IntegrationConnectModal({
   const isRealOAuth = isGoogle || isFigma || isYoutube;
   const isGmail = isGoogle; // legacy alias
   const providerKey = isGoogle ? "Gmail" : isYoutube ? "YouTube" : integration.name;
-  const googleServiceLabel = googleKind === "docs" ? "Google Docs"
-    : googleKind === "sheets" ? "Google Sheets"
+  const googleServiceLabel = googleKind === "drive" ? "Google Drive"
     : googleKind === "calendar" ? "Google Calendar"
     : googleKind === "analytics" ? "Google Analytics"
-    : "Gmail";
+    : "Google";
   const YOUTUBE_CAPABILITIES = [
     "Read your YouTube channel & videos",
     "Read video statistics (views, likes, comments)",
