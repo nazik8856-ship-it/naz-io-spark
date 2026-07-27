@@ -162,13 +162,25 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
     loadConnected();
   }, [tunerOpen, user?.id, loadConnected]);
 
-  // React instantly to OAuth popup success postMessage — no polling delay.
+  // React instantly to OAuth popup success postMessage — optimistic flip, then refetch.
   useEffect(() => {
     if (!user?.id) return;
     const onMsg = (ev: MessageEvent) => {
-      const p = ev.data as { source?: string; ok?: boolean } | null;
+      const p = ev.data as { source?: string; ok?: boolean; service?: string } | null;
       if (!p || !p.ok) return;
       if (p.source === "nazai-gmail-oauth" || p.source === "nazai-figma-oauth") {
+        const svc = String(p.service || "").toLowerCase();
+        const optimisticKey =
+          p.source === "nazai-figma-oauth" ? "figma"
+          : svc === "drive" ? "google drive"
+          : svc === "calendar" ? "google calendar"
+          : svc === "analytics" ? "google analytics"
+          : "gmail";
+        setConnected((prev) =>
+          prev.some((c) => c.provider === optimisticKey)
+            ? prev
+            : [...prev, { provider: optimisticKey, hasSnapshot: false }],
+        );
         loadConnected();
       }
     };
