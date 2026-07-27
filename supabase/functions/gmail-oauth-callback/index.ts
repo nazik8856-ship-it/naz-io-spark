@@ -21,7 +21,7 @@ try {
     window.opener.postMessage({ source:"nazai-gmail-oauth", ok:${ok}, message:${JSON.stringify(msg)} }, "*");
   }
 } catch(e){}
-setTimeout(function(){ window.close(); }, 1200);
+setTimeout(function(){ window.close(); }, 150);
 </script></body></html>`;
 
 Deno.serve(async (req) => {
