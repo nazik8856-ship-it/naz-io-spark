@@ -38,7 +38,12 @@ Deno.serve(async (req) => {
   const parsed = await verifyState(state);
   if (!parsed) return respond("Invalid state", "OAuth state failed verification. Please try again.", false, 400);
   const userId = parsed.u as string;
-  const agentId = (parsed.a as string | null) ?? null;
+  // User-level storage: connections are shared across every project a user
+  // owns. We deliberately ignore any agentId that may have been signed into
+  // the state so a Google connection made in project A auto-appears in
+  // project B without re-consenting.
+  const agentId: string | null = null;
+  const serviceKind = typeof parsed.k === "string" ? String(parsed.k) : "gmail";
 
   try {
     const tok = await exchangeCode(code);
@@ -51,21 +56,23 @@ Deno.serve(async (req) => {
       expires_at: Date.now() + tok.expires_in * 1000,
       scope: tok.scope,
       email: info?.email || null,
-      account_name: info?.name || info?.email || "Gmail",
-      handle: info?.email || "Gmail",
+      account_name: info?.name || info?.email || "Google",
+      handle: info?.email || "Google",
       account_email: info?.email || null,
       avatar: info?.picture || null,
     };
 
     // Look up any existing row so we can (a) preserve a previous refresh_token
-    // if Google didn't return one this time, and (b) reuse the existing Vault
-    // secret id instead of orphaning it.
+    // if Google didn't return one this time, (b) reuse the existing Vault
+    // secret id instead of orphaning it, and (c) merge the newly-granted
+    // service into metadata.services so the UI shows the correct per-service
+    // green "Connected" state across every project.
     const { data: existing } = await admin
       .from("agent_integrations")
-      .select("id, credentials_secret_id")
+      .select("id, credentials_secret_id, metadata")
       .eq("user_id", userId)
       .eq("provider", "Gmail")
-      .eq("agent_id", agentId)
+      .is("agent_id", null)
       .maybeSingle();
 
     if (!tok.refresh_token && existing?.credentials_secret_id) {
@@ -79,8 +86,12 @@ Deno.serve(async (req) => {
     if (secretId) {
       await updateSecret(admin, secretId, credentials);
     } else {
-      secretId = await createSecret(admin, credentials, `gmail-${userId}-${agentId ?? "global"}`);
+      secretId = await createSecret(admin, credentials, `gmail-${userId}-global`);
     }
+
+    const prevMeta = (existing?.metadata as Record<string, unknown> | null) || {};
+    const prevServices = Array.isArray(prevMeta.services) ? (prevMeta.services as string[]) : [];
+    const services = Array.from(new Set([...prevServices, serviceKind]));
 
     const { error } = await admin
       .from("agent_integrations")
@@ -90,11 +101,11 @@ Deno.serve(async (req) => {
           agent_id: agentId,
           provider: "Gmail",
           credentials_secret_id: secretId,
-          
           metadata: {
             account_email: info?.email,
             account_name: info?.name || info?.email,
             avatar: info?.picture,
+            services,
           },
           status: "connected",
           last_verified_at: now,
@@ -103,8 +114,8 @@ Deno.serve(async (req) => {
         { onConflict: "user_id,provider,agent_id" },
       );
     if (error) throw new Error(error.message);
-    return respond("Gmail connected", `Connected as ${info?.email || "Gmail account"}. You can close this window.`, true);
+    return respond("Google connected", `Connected as ${info?.email || "Google account"}. You can close this window.`, true);
   } catch (e) {
-    return respond("Gmail connection failed", e instanceof Error ? e.message : "Unknown error", false, 500);
+    return respond("Google connection failed", e instanceof Error ? e.message : "Unknown error", false, 500);
   }
 });
