@@ -44,7 +44,7 @@ const ROLE_DEFAULTS: Record<string, IntegrationsSpec> = {
     integrations: [
       { name: "Zendesk", category: "Support", method: "OAuth + Webhook", scopes: "tickets.read/write", status: "recommended", examples: ["Triage + tag tickets", "Draft brand-tone replies", "Auto-escalate refund/legal"], steps: ["Sign in", "Authorize scopes", "Subscribe to ticket events"] },
       { name: "Intercom", category: "Support", method: "OAuth", status: "optional", examples: ["Reply suggestions", "Tag conversations"], steps: ["Connect workspace", "Approve scopes"] },
-      { name: "Gmail", category: "Google", method: "Sign in", status: "recommended", examples: ["Read email metadata","Send email on your behalf"], steps: ["Sign in with Google","Grant Gmail scope only"] },
+      { name: "Google Drive", category: "Google", method: "Sign in", status: "recommended", examples: ["Read & write files the agent creates"], steps: ["Sign in with Google","Grant Drive (file) scope only"] },
       { name: "Slack", category: "Notifications", method: "OAuth", status: "recommended", examples: ["Page on-call for P1", "SLA reports"], steps: ["Connect workspace", "Pick channel"] },
       { name: "Stripe", category: "Payments", method: "API key", scopes: "read-only", status: "optional", examples: ["Attach plan + LTV to tickets"], steps: ["Create restricted key", "Save"] },
     ],
