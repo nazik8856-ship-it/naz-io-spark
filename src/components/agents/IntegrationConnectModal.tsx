@@ -431,7 +431,14 @@ export default function IntegrationConnectModal({
         setOauthLoading(false);
         if (payload.ok) {
           toast.success(`${opts.label} connected`);
-          reloadConnected();
+          onChange?.();
+          // Skip the full-screen "Connected" card for Google services — the
+          // catalogue button turns green automatically on the next refresh.
+          if (kind === "gmail") {
+            onClose();
+          } else {
+            reloadConnected();
+          }
         } else {
           setError(payload.message || `${opts.label} connection failed`);
           toast.error(payload.message || `${opts.label} connection failed`);
