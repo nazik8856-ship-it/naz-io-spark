@@ -97,9 +97,7 @@ const ROLE_DEFAULTS: Record<string, IntegrationsSpec> = {
 // user-facing sign-in (email + password + native social login on the modal
 // side — e.g. "Continue with Facebook" for Instagram). No API keys shown.
 const MASTER_CATALOG: Integration[] = [
-  { name: "Gmail", category: "Google", method: "Sign in", examples: ["Read email metadata", "Send email on your behalf"], steps: ["Sign in with Google", "Grant Gmail scope only"] },
-  { name: "Google Docs", category: "Google", method: "Sign in", examples: ["Read & edit documents", "Create new docs"], steps: ["Sign in with Google", "Grant Docs scope only"] },
-  { name: "Google Sheets", category: "Google", method: "Sign in", examples: ["Read & edit spreadsheets", "Append rows"], steps: ["Sign in with Google", "Grant Sheets scope only"] },
+  { name: "Google Drive", category: "Google", method: "Sign in", examples: ["Read & write files the agent creates"], steps: ["Sign in with Google", "Grant Drive (file) scope only"] },
   { name: "Google Calendar", category: "Google", method: "Sign in", examples: ["Read events", "Schedule new events"], steps: ["Sign in with Google", "Grant Calendar scope only"] },
   { name: "Google Analytics", category: "Google", method: "Sign in", examples: ["Read GA4 metrics", "Read audience data"], steps: ["Sign in with Google", "Grant Analytics scope only"] },
   { name: "YouTube", category: "Video", method: "Sign in", examples: ["Read channel & videos","Read views, likes, comments","Read playlists & subscriptions"], steps: ["Sign in with YouTube (separate Google consent)","Grant read-only YouTube access"] },
