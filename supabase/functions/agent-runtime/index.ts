@@ -520,7 +520,7 @@ serve(async (req) => {
         case "reply_email": usage = `reply_email(thread_id: string, body: string, subject?: string)  // replies inside an existing Gmail thread with proper threading headers; approval-gated like send_email`; break;
 
         case "read_analytics": usage = `read_analytics(property_id: string)  // GA4 Data API: last 30 days sessions & totalUsers for the given property`; break;
-        case "read_youtube_stats": usage = `read_youtube_stats(channel_id?: string)  // YouTube Data API: subscriber/view/video counts. Omit channel_id for the authed user's own channel.`; break;
+        
         case "http_post": usage = `http_post(url: string, body: object)  // POSTs JSON to an allow-listed https URL (per-agent webhook_url or whitelisted domain)`; break;
         case "schedule_followup": usage = `schedule_followup(run_at_iso: string, instruction: string)  // queues a future run of this same agent`; break;
         case "upsert_client_note": usage = `upsert_client_note(email?: string, name?: string, company?: string, note: string, tags?: string[])  // creates/updates the agent's private client record and appends a timestamped note. Edits to existing notes may require approval per client_write_mode.`; break;
