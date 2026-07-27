@@ -51,6 +51,14 @@ verify_jwt = true
 [functions.gmail-oauth-callback]
 verify_jwt = false
 
+[functions.canva-oauth-start]
+verify_jwt = true
+
+[functions.canva-oauth-callback]
+verify_jwt = false
+
+
+
 
 [functions.analyze-org-insights]
 verify_jwt = true
