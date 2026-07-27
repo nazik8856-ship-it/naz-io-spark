@@ -115,7 +115,11 @@ export function buildGoogleAuthUrl(
   url.searchParams.set("scope", scopes.join(" "));
   url.searchParams.set("access_type", "offline");
   url.searchParams.set("prompt", "consent");
-  url.searchParams.set("include_granted_scopes", "true");
+  // NOTE: intentionally NOT setting include_granted_scopes. When enabled,
+  // Google carries every previously-granted scope forward into each new
+  // authorization request, which causes youtube.readonly + drive.file (Sheets/
+  // Docs) to be requested together and rejected as "scopes that cannot be
+  // requested together". Each Connect button must send only its own scopes.
   url.searchParams.set("state", state);
   if (loginHint) url.searchParams.set("login_hint", loginHint);
   return url.toString();
