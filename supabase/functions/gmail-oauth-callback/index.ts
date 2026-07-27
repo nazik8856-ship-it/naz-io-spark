@@ -5,7 +5,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { verifyState, exchangeCode, fetchUserInfo } from "../_shared/gmail.ts";
 import { createSecret, updateSecret, readSecret } from "../_shared/integration-secrets.ts";
 
-const html = (title: string, msg: string, ok: boolean) => `<!doctype html>
+const html = (title: string, msg: string, ok: boolean, service: string | null = null) => `<!doctype html>
 <html><head><meta charset="utf-8"><title>${title}</title>
 <style>
   body{margin:0;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;background:#0a0a0a;color:#e5e5e5;
@@ -18,10 +18,10 @@ const html = (title: string, msg: string, ok: boolean) => `<!doctype html>
 <script>
 try {
   if (window.opener) {
-    window.opener.postMessage({ source:"nazai-gmail-oauth", ok:${ok}, message:${JSON.stringify(msg)} }, "*");
+    window.opener.postMessage({ source:"nazai-gmail-oauth", ok:${ok}, service:${JSON.stringify(service)}, message:${JSON.stringify(msg)} }, "*");
   }
 } catch(e){}
-setTimeout(function(){ window.close(); }, 150);
+setTimeout(function(){ window.close(); }, 120);
 </script></body></html>`;
 
 Deno.serve(async (req) => {
