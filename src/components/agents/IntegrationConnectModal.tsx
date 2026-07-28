@@ -437,8 +437,21 @@ export default function IntegrationConnectModal({
     setError(null);
     setOauthLoading(true);
     try {
+      let { data: sessionData } = await supabase.auth.getSession();
+      const expiresSoon = !sessionData.session?.expires_at
+        || sessionData.session.expires_at * 1000 <= Date.now() + 60_000;
+      if (sessionData.session && expiresSoon) {
+        const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
+        if (refreshError) throw new Error("Your sign-in expired. Please sign in again before connecting Canva.");
+        sessionData = refreshed;
+      }
+      const accessToken = sessionData.session?.access_token;
+      if (!accessToken) {
+        throw new Error(`Sign in to NazAI before connecting ${opts.label}.`);
+      }
       const { data, error: fnErr } = await supabase.functions.invoke(opts.functionName, {
         body: { agentId: agentId || null, origin: window.location.origin, ...(opts.extraBody || {}) },
+        headers: { Authorization: `Bearer ${accessToken}` },
       });
       if (fnErr) throw new Error(fnErr.message || `Failed to start ${opts.label} OAuth`);
       const url = (data as { url?: string; error?: string; not_configured?: boolean }).url;
