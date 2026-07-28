@@ -83,26 +83,25 @@ Deno.serve(async (req) => {
     const prevGroups = Array.isArray(prevMeta.groups) ? (prevMeta.groups as string[]) : [];
     const mergedGroups = Array.from(new Set([...prevGroups, ...groups]));
 
-    const { error } = await admin
-      .from("agent_integrations")
-      .upsert(
-        {
-          user_id: userId,
-          agent_id: null,
-          provider: "Canva",
-          credentials_secret_id: secretId,
-          metadata: {
-            account_email: info?.email,
-            account_name: info?.display_name || info?.email,
-            avatar: info?.avatar,
-            groups: mergedGroups,
-          },
-          status: "connected",
-          last_verified_at: now,
-          last_error: null,
-        },
-        { onConflict: "user_id,provider,agent_id" },
-      );
+    const integrationRow = {
+      user_id: userId,
+      agent_id: null,
+      provider: "Canva",
+      credentials_secret_id: secretId,
+      metadata: {
+        account_email: info?.email,
+        account_name: info?.display_name || info?.email,
+        avatar: info?.avatar,
+        groups: mergedGroups,
+      },
+      status: "connected",
+      last_verified_at: now,
+      last_error: null,
+    };
+    const persistence = existing?.id
+      ? admin.from("agent_integrations").update(integrationRow).eq("id", existing.id)
+      : admin.from("agent_integrations").insert(integrationRow);
+    const { error } = await persistence;
     if (error) throw new Error(error.message);
     return respond("Canva connected", `Connected as ${info?.display_name || info?.email || "Canva account"}. You can close this window.`, true, 200);
   } catch (e) {
