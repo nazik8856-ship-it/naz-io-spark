@@ -68,8 +68,5 @@ verify_jwt = false
 [functions.analyze-org-insights]
 verify_jwt = true
 
-[functions.simulate-scenario]
-verify_jwt = true
-
 
 
