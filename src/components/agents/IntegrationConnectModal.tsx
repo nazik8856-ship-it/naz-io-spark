@@ -314,12 +314,12 @@ export default function IntegrationConnectModal({
   // supabase/functions/_shared/canva.ts. User checks the ones they want
   // and only those scopes are sent to Canva's consent screen.
   const CANVA_CAPABILITIES: Array<{ id: string; label: string; hint: string; defaultOn?: boolean }> = [
-    { id: "design_read_write", label: "Designs — view & edit", hint: "Read, create and edit your Canva designs", defaultOn: true },
-    { id: "folder_read", label: "Folders — read", hint: "See how your designs are organised", defaultOn: true },
-    { id: "brand_templates_read", label: "Brand templates — read", hint: "Access your team's brand templates" },
-    { id: "asset_read_write", label: "Assets — view & upload", hint: "Read your uploaded assets and upload new ones" },
-    { id: "profile_read", label: "Profile — read", hint: "Read basic account info (name, email)", defaultOn: true },
-    { id: "comment_read_write", label: "Comments — view & post", hint: "Read and post comments on designs" },
+    { id: "designs", label: "Designs — view & edit", hint: "Read, create and edit your Canva designs", defaultOn: true },
+    { id: "folders", label: "Folders — read", hint: "See how your designs are organised", defaultOn: true },
+    { id: "brands", label: "Brand templates — read", hint: "Access your team's brand templates" },
+    { id: "assets", label: "Assets — view & upload", hint: "Read your uploaded assets and upload new ones" },
+    { id: "profile", label: "Profile — read", hint: "Read basic account info (name, email)", defaultOn: true },
+    { id: "comments", label: "Comments — view & post", hint: "Read and post comments on designs" },
   ];
   const [canvaGroups, setCanvaGroups] = useState<Record<string, boolean>>(
     () => Object.fromEntries(CANVA_CAPABILITIES.map((c) => [c.id, !!c.defaultOn])),
@@ -437,8 +437,21 @@ export default function IntegrationConnectModal({
     setError(null);
     setOauthLoading(true);
     try {
+      let { data: sessionData } = await supabase.auth.getSession();
+      const expiresSoon = !sessionData.session?.expires_at
+        || sessionData.session.expires_at * 1000 <= Date.now() + 60_000;
+      if (sessionData.session && expiresSoon) {
+        const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
+        if (refreshError) throw new Error("Your sign-in expired. Please sign in again before connecting Canva.");
+        sessionData = refreshed;
+      }
+      const accessToken = sessionData.session?.access_token;
+      if (!accessToken) {
+        throw new Error(`Sign in to NazAI before connecting ${opts.label}.`);
+      }
       const { data, error: fnErr } = await supabase.functions.invoke(opts.functionName, {
         body: { agentId: agentId || null, origin: window.location.origin, ...(opts.extraBody || {}) },
+        headers: { Authorization: `Bearer ${accessToken}` },
       });
       if (fnErr) throw new Error(fnErr.message || `Failed to start ${opts.label} OAuth`);
       const url = (data as { url?: string; error?: string; not_configured?: boolean }).url;
