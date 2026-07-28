@@ -51,7 +51,6 @@ verify_jwt = true
 [functions.gmail-oauth-callback]
 verify_jwt = false
 
-[functions.canva-oauth-start]
 [functions.simulate-scenario]
 verify_jwt = true
 
