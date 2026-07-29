@@ -796,7 +796,7 @@ export default function IntegrationConnectModal({
                 disabled={oauthLoading}
                 className="text-xs px-3 py-1.5 rounded-full border border-zinc-300 hover:bg-zinc-50 text-zinc-700 disabled:opacity-60"
               >
-                {oauthLoading ? "Waiting…" : "Reopen consent window"}
+                {oauthLoading ? "Waiting…" : "Change permissions"}
               </button>
               {error && (
                 <div className="text-xs text-red-600 mt-4 rounded-md border border-red-200 bg-red-50 p-2 flex items-start gap-1.5 max-w-xs">
