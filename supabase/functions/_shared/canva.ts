@@ -53,15 +53,18 @@ export async function generatePkce(): Promise<{ verifier: string; challenge: str
 
 export function buildAuthUrl(state: string, scopes: string[], codeChallenge: string): string {
   const clientId = Deno.env.get("CANVA_CLIENT_ID") || "";
-  const url = new URL("https://www.canva.com/api/oauth/authorize");
-  url.searchParams.set("client_id", clientId);
-  url.searchParams.set("redirect_uri", CANVA_REDIRECT_URI);
-  url.searchParams.set("scope", scopes.join(" "));
-  url.searchParams.set("state", state);
-  url.searchParams.set("response_type", "code");
-  url.searchParams.set("code_challenge", codeChallenge);
-  url.searchParams.set("code_challenge_method", "S256");
-  return url.toString();
+  // Build manually so `scope` is space-separated with %20 (not `+`). Canva's
+  // authorization server rejects `+` between scopes as invalid_scope.
+  const params = [
+    ["code_challenge", codeChallenge],
+    ["code_challenge_method", "S256"],
+    ["scope", scopes.join(" ")],
+    ["response_type", "code"],
+    ["client_id", clientId],
+    ["state", state],
+    ["redirect_uri", CANVA_REDIRECT_URI],
+  ].map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v).replace(/%20/g, "%20")}`).join("&");
+  return `https://www.canva.com/api/oauth/authorize?${params}`;
 }
 
 type CanvaTokenResponse = {
