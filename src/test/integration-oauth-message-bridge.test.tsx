@@ -1,5 +1,4 @@
-import { useState } from "react";
-import { act } from "react-dom/test-utils";
+import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 import IntegrationOAuthMessageBridge from "@/components/integrations/IntegrationOAuthMessageBridge";
