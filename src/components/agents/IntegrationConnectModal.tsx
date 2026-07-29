@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { useIntegrationOAuthMessages } from "@/hooks/useIntegrationOAuthMessages";
 
 type Integration = {
   name: string;
@@ -367,6 +368,7 @@ export default function IntegrationConnectModal({
   const [liveData, setLiveData] = useState<{ kind?: string; data?: Record<string, unknown>; error?: string | null; fetched_at?: string } | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [oauthLoading, setOauthLoading] = useState(false);
+  const [pendingOAuth, setPendingOAuth] = useState<{ source: string; label: string } | null>(null);
   const credSchema = useMemo(() => credentialSchemaFor(integration.name), [integration.name]);
   const [credValues, setCredValues] = useState<Record<string, string>>({});
   const [showCred, setShowCred] = useState<Record<string, boolean>>({});
@@ -466,6 +468,24 @@ export default function IntegrationConnectModal({
     }
   };
 
+  useIntegrationOAuthMessages(
+    (info) => {
+      if (!pendingOAuth || info.source !== pendingOAuth.source) return;
+      setOauthLoading(false);
+      setPendingOAuth(null);
+      toast.success(`${pendingOAuth.label} connected`);
+      onClose();
+    },
+    (info) => {
+      if (!pendingOAuth || info.source !== pendingOAuth.source) return;
+      const message = info.message || `${pendingOAuth.label} connection failed`;
+      setOauthLoading(false);
+      setPendingOAuth(null);
+      setError(message);
+      toast.error(message);
+    },
+  );
+
   const startOAuth = async (
     kind: "gmail" | "figma" | "canva" | "shopify" | "slack",
     opts: { functionName: string; source: string; label: string; extraBody?: Record<string, unknown> },
@@ -500,27 +520,10 @@ export default function IntegrationConnectModal({
       }
       const popup = window.open(url, `${kind}_oauth`, "width=560,height=720");
       if (!popup) throw new Error("Popup blocked. Please allow popups and retry.");
-      const handler = (ev: MessageEvent) => {
-        const payload = ev.data as { source?: string; ok?: boolean; message?: string } | null;
-        if (!payload || payload.source !== opts.source) return;
-        window.removeEventListener("message", handler);
-        setOauthLoading(false);
-        if (payload.ok) {
-          toast.success(`${opts.label} connected`);
-          onChange?.();
-          // Close immediately — the catalogue button flips green from the same
-          // postMessage via optimistic update, no need to hold the modal open.
-          onClose();
-        } else {
-          setError(payload.message || `${opts.label} connection failed`);
-          toast.error(payload.message || `${opts.label} connection failed`);
-        }
-      };
-      window.addEventListener("message", handler);
+      setPendingOAuth({ source: opts.source, label: opts.label });
       const timer = setInterval(() => {
         if (popup.closed) {
           clearInterval(timer);
-          setOauthLoading(false);
         }
       }, 300);
     } catch (e) {

@@ -186,8 +186,7 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
         ? prev
         : [...prev, { provider: optimisticKey, hasSnapshot: false }],
     );
-    loadConnected();
-  }, [user?.id, loadConnected]));
+  }, [user?.id]));
 
   const add = (a: Attachment) => onChange([...attachments, a]);
   const remove = (id: string) => onChange(attachments.filter((a) => a.id !== id));

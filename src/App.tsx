@@ -7,6 +7,7 @@ import EntranceSplash from "@/components/EntranceSplash";
 import PaymentWindow from "@/components/payments/PaymentWindow";
 import OutOfCreditsModal from "@/components/payments/OutOfCreditsModal";
 import OAuthReturnHandler from "@/components/OAuthReturnHandler";
+import IntegrationOAuthMessageBridge from "@/components/integrations/IntegrationOAuthMessageBridge";
 
 // ─── Route Components ─────────────────────────────────────────────────────────
 // Retry lazy imports once after a hard reload when the browser is holding a
@@ -64,6 +65,7 @@ const App = () => (
     <AuthProvider>
       <BrowserRouter>
         <main className="min-h-screen bg-[#020617] selection:bg-[#00A3FF]/30">
+          <IntegrationOAuthMessageBridge />
           <EntranceSplash>
             <OAuthReturnHandler />
             <Suspense fallback={<PageSkeleton />}>

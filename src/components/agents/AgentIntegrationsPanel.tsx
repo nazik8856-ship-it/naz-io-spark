@@ -271,6 +271,7 @@ export default function AgentIntegrationsPanel({
   const [openIntegration, setOpenIntegration] = useState<Integration | null>(null);
   const [query, setQuery] = useState("");
   const [connectedNames, setConnectedNames] = useState<Set<string>>(new Set());
+  const [optimisticConnectedNames, setOptimisticConnectedNames] = useState<Set<string>>(new Set());
 
   const refresh = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -305,13 +306,17 @@ export default function AgentIntegrationsPanel({
   // so every current + future integration gets fast UI updates automatically.
   useIntegrationOAuthMessages(useCallback((info) => {
     const keys = expandConnectedKeys(info);
-    setConnectedNames((prev) => {
+    setOptimisticConnectedNames((prev) => {
       const next = new Set(prev);
       keys.forEach((k) => next.add(k));
       return next;
     });
-    refresh();
-  }, [refresh]));
+  }, []));
+
+  const isConnectedName = useCallback(
+    (name: string) => connectedNames.has(name) || optimisticConnectedNames.has(name),
+    [connectedNames, optimisticConnectedNames],
+  );
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -338,14 +343,14 @@ export default function AgentIntegrationsPanel({
       : spec.integrations;
     // Sort: connected → recommended → alphabetical
     return [...base].sort((a, b) => {
-      const ac = connectedNames.has(a.name) ? 0 : recommendedNames.has(a.name) ? 1 : 2;
-      const bc = connectedNames.has(b.name) ? 0 : recommendedNames.has(b.name) ? 1 : 2;
+      const ac = isConnectedName(a.name) ? 0 : recommendedNames.has(a.name) ? 1 : 2;
+      const bc = isConnectedName(b.name) ? 0 : recommendedNames.has(b.name) ? 1 : 2;
       if (ac !== bc) return ac - bc;
       return a.name.localeCompare(b.name);
     });
-  }, [query, spec.integrations, connectedNames, recommendedNames]);
+  }, [query, spec.integrations, isConnectedName, recommendedNames]);
 
-  const connectedCount = connectedNames.size;
+  const connectedCount = new Set([...connectedNames, ...optimisticConnectedNames]).size;
   const total = spec.integrations.length;
 
 
@@ -463,7 +468,7 @@ export default function AgentIntegrationsPanel({
 
             <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-3 overflow-y-auto">
               {filtered.map((it) => {
-                const isConnected = connectedNames.has(it.name);
+                const isConnected = isConnectedName(it.name);
                 const isRecommended = recommendedNames.has(it.name);
                 return (
                   <div key={it.name}

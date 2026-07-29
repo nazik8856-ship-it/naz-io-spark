@@ -1,4 +1,8 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
+import {
+  subscribeToIntegrationOAuthMessages,
+  type OAuthMessageInfo,
+} from "@/components/integrations/IntegrationOAuthMessageBridge";
 
 /**
  * Shared listener for OAuth popup postMessage events. Every integration
@@ -11,46 +15,23 @@ import { useEffect } from "react";
  *  - `service`  is the sub-service for the Google bundle (drive/calendar/analytics)
  *  - `raw`      is the raw message payload for callers that need more context
  */
-export type OAuthSuccessInfo = {
-  provider: "Gmail" | "Figma" | "Canva" | "Notion" | "Slack" | "Shopify";
-  service?: string;
-  ok: boolean;
-  message?: string;
-  raw: Record<string, unknown>;
-};
-
-const SOURCE_TO_PROVIDER: Record<string, OAuthSuccessInfo["provider"]> = {
-  "nazai-gmail-oauth": "Gmail",
-  "nazai-figma-oauth": "Figma",
-  "nazai-canva-oauth": "Canva",
-  "nazai-notion-oauth": "Notion",
-  "nazai-slack-oauth": "Slack",
-  "nazai-shopify-oauth": "Shopify",
-};
+export type OAuthSuccessInfo = OAuthMessageInfo & { ok: true };
 
 export function useIntegrationOAuthMessages(
   onSuccess: (info: OAuthSuccessInfo) => void,
+  onFailure?: (info: OAuthMessageInfo) => void,
 ) {
+  const successRef = useRef(onSuccess);
+  const failureRef = useRef(onFailure);
+  successRef.current = onSuccess;
+  failureRef.current = onFailure;
+
   useEffect(() => {
-    const handler = (ev: MessageEvent) => {
-      const p = ev.data as
-        | { source?: string; ok?: boolean; service?: string; message?: string }
-        | null;
-      if (!p || typeof p.source !== "string") return;
-      const provider = SOURCE_TO_PROVIDER[p.source];
-      if (!provider) return;
-      if (!p.ok) return;
-      onSuccess({
-        provider,
-        service: typeof p.service === "string" ? p.service : undefined,
-        ok: true,
-        message: typeof p.message === "string" ? p.message : undefined,
-        raw: p as Record<string, unknown>,
-      });
-    };
-    window.addEventListener("message", handler);
-    return () => window.removeEventListener("message", handler);
-  }, [onSuccess]);
+    return subscribeToIntegrationOAuthMessages((info) => {
+      if (info.ok) successRef.current(info as OAuthSuccessInfo);
+      else failureRef.current?.(info);
+    });
+  }, []);
 }
 
 /**
