@@ -5,6 +5,7 @@ import { supabase, SUPABASE_FUNCTIONS_URL, SUPABASE_ANON } from "@/integrations/
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import IntegrationConnectModal from "@/components/agents/IntegrationConnectModal";
+import { useIntegrationOAuthMessages } from "@/hooks/useIntegrationOAuthMessages";
 
 export type Attachment = {
   id: string;
@@ -162,37 +163,31 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
     loadConnected();
   }, [tunerOpen, user?.id, loadConnected]);
 
-  // React instantly to OAuth popup success postMessage — optimistic flip, then refetch.
-  useEffect(() => {
+  // Shared listener — every integration popup (Google bundle, Figma, Canva,
+  // plus any future provider) routes through the same handler so the "Connected"
+  // pill flips instantly instead of waiting for a refetch.
+  useIntegrationOAuthMessages(useCallback((info) => {
     if (!user?.id) return;
-    const onMsg = (ev: MessageEvent) => {
-      const p = ev.data as { source?: string; ok?: boolean; service?: string } | null;
-      if (!p || !p.ok) return;
-      if (
-        p.source === "nazai-gmail-oauth" ||
-        p.source === "nazai-figma-oauth" ||
-        p.source === "nazai-canva-oauth"
-      ) {
-        const svc = String(p.service || "").toLowerCase();
-        const optimisticKey =
-          p.source === "nazai-figma-oauth" ? "figma"
-          : p.source === "nazai-canva-oauth" ? "canva"
-          : svc === "drive" ? "google drive"
-          : svc === "calendar" ? "google calendar"
-          : svc === "analytics" ? "google analytics"
-          : "gmail";
-        setConnected((prev) =>
-          prev.some((c) => c.provider === optimisticKey)
-            ? prev
-            : [...prev, { provider: optimisticKey, hasSnapshot: false }],
-        );
-        loadConnected();
-      }
-    };
-
-    window.addEventListener("message", onMsg);
-    return () => window.removeEventListener("message", onMsg);
-  }, [user?.id, loadConnected]);
+    const optimisticKey =
+      info.provider === "Figma" ? "figma"
+      : info.provider === "Canva" ? "canva"
+      : info.provider === "Notion" ? "notion"
+      : info.provider === "Slack" ? "slack"
+      : info.provider === "Shopify" ? "shopify"
+      : (() => {
+          const svc = (info.service || "").toLowerCase();
+          if (svc === "drive") return "google drive";
+          if (svc === "calendar") return "google calendar";
+          if (svc === "analytics") return "google analytics";
+          return "gmail";
+        })();
+    setConnected((prev) =>
+      prev.some((c) => c.provider === optimisticKey)
+        ? prev
+        : [...prev, { provider: optimisticKey, hasSnapshot: false }],
+    );
+    loadConnected();
+  }, [user?.id, loadConnected]));
 
   const add = (a: Attachment) => onChange([...attachments, a]);
   const remove = (id: string) => onChange(attachments.filter((a) => a.id !== id));

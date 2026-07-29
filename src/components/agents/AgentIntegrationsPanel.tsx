@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import IntegrationConnectModal from "./IntegrationConnectModal";
 import { supabase } from "@/integrations/supabase/client";
+import { useIntegrationOAuthMessages, expandConnectedKeys } from "@/hooks/useIntegrationOAuthMessages";
 
 type Integration = {
   name: string;
@@ -300,33 +301,17 @@ export default function AgentIntegrationsPanel({
 
   useEffect(() => { refresh(); }, [refresh, openIntegration, hubOpen]);
 
-  // Instant flip the moment an OAuth popup posts success back to us — optimistic
-  // update by service name, then refetch for source of truth.
-  useEffect(() => {
-    const onMsg = (ev: MessageEvent) => {
-      const p = ev.data as { source?: string; ok?: boolean; service?: string } | null;
-      if (!p || !p.ok) return;
-      if (
-        p.source === "nazai-gmail-oauth" ||
-        p.source === "nazai-figma-oauth" ||
-        p.source === "nazai-canva-oauth"
-      ) {
-        const svc = String(p.service || "").toLowerCase();
-        const optimistic =
-          p.source === "nazai-figma-oauth" ? "figma"
-          : p.source === "nazai-canva-oauth" ? "canva"
-          : svc === "drive" ? "google drive"
-          : svc === "calendar" ? "google calendar"
-          : svc === "analytics" ? "google analytics"
-          : "gmail";
-        setConnectedNames((prev) => (prev.has(optimistic) ? prev : new Set([...prev, optimistic])));
-        refresh();
-      }
-    };
-
-    window.addEventListener("message", onMsg);
-    return () => window.removeEventListener("message", onMsg);
-  }, [refresh]);
+  // Instant flip the moment ANY OAuth popup posts success back — shared handler
+  // so every current + future integration gets fast UI updates automatically.
+  useIntegrationOAuthMessages(useCallback((info) => {
+    const keys = expandConnectedKeys(info);
+    setConnectedNames((prev) => {
+      const next = new Set(prev);
+      keys.forEach((k) => next.add(k));
+      return next;
+    });
+    refresh();
+  }, [refresh]));
 
   useEffect(() => {
     const handler = (e: Event) => {
