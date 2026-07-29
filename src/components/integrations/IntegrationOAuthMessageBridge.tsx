@@ -55,7 +55,9 @@ export function parseIntegrationOAuthMessage(data: unknown): OAuthMessageInfo | 
 
 export function subscribeToIntegrationOAuthMessages(subscriber: OAuthMessageSubscriber) {
   subscribers.add(subscriber);
-  return () => subscribers.delete(subscriber);
+  return () => {
+    subscribers.delete(subscriber);
+  };
 }
 
 /**
