@@ -75,15 +75,18 @@ export async function verifyState(token: string): Promise<Record<string, unknown
   }
 }
 
-export function buildAuthUrl(state: string): string {
+export function buildAuthUrl(state: string, scopes: string[] = FIGMA_SCOPES): string {
   const clientId = Deno.env.get("FIGMA_CLIENT_ID") || "";
-  const url = new URL("https://www.figma.com/oauth");
-  url.searchParams.set("client_id", clientId);
-  url.searchParams.set("redirect_uri", FIGMA_REDIRECT_URI);
-  url.searchParams.set("scope", FIGMA_SCOPES.join(" "));
-  url.searchParams.set("state", state);
-  url.searchParams.set("response_type", "code");
-  return url.toString();
+  // Manually construct so scopes stay comma-separated (Figma accepts either
+  // spaces or commas; connector spec requires commas).
+  const params = [
+    `client_id=${encodeURIComponent(clientId)}`,
+    `redirect_uri=${encodeURIComponent(FIGMA_REDIRECT_URI)}`,
+    `scope=${scopes.map(encodeURIComponent).join(",")}`,
+    `state=${encodeURIComponent(state)}`,
+    `response_type=code`,
+  ].join("&");
+  return `https://www.figma.com/oauth?${params}`;
 }
 
 type FigmaTokenResponse = {
