@@ -441,7 +441,7 @@ export default function IntegrationConnectModal({
   };
 
   const startOAuth = async (
-    kind: "gmail" | "figma" | "canva",
+    kind: "gmail" | "figma" | "canva" | "shopify",
     opts: { functionName: string; source: string; label: string; extraBody?: Record<string, unknown> },
   ) => {
     setError(null);
