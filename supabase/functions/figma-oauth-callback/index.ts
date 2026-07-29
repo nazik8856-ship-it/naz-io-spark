@@ -40,6 +40,10 @@ Deno.serve(async (req) => {
   if (!parsed) return respond("Invalid state", "OAuth state failed verification. Please try again.", false, 400);
   const userId = parsed.u as string;
   const agentId = (parsed.a as string | null) ?? null;
+  const grantedGroups: string[] = Array.isArray(parsed.g) && (parsed.g as unknown[]).length
+    ? (parsed.g as string[]).filter((g) => typeof g === "string")
+    : FIGMA_DEFAULT_GROUPS;
+  const grantedScopes = scopesForGroups(grantedGroups);
 
   try {
     const tok = await exchangeCode(code);
