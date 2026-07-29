@@ -807,6 +807,58 @@ export default function IntegrationConnectModal({
             </div>
           )}
 
+          {step === "figma_consent" && isFigma && (
+            <div className="flex-1 flex flex-col animate-fade-in">
+              <h2 className="text-xl font-semibold text-center mb-1">Connect Figma to NazAI</h2>
+              <p className="text-sm text-zinc-600 text-center mb-5 max-w-sm mx-auto">
+                Choose which parts of your Figma account NazAI can access. Only the boxes you check are sent to Figma's consent screen.
+              </p>
+              <div className="rounded-2xl border border-zinc-200 divide-y divide-zinc-100 mb-4 bg-white">
+                {FIGMA_CAPABILITIES.map((cap) => {
+                  const on = !!figmaGroups[cap.id];
+                  return (
+                    <label
+                      key={cap.id}
+                      className="flex items-start gap-3 p-3 cursor-pointer hover:bg-zinc-50 transition"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={(e) =>
+                          setFigmaGroups((prev) => ({ ...prev, [cap.id]: e.target.checked }))
+                        }
+                        className="mt-0.5 h-4 w-4 accent-emerald-600"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium text-zinc-900">{cap.label}</div>
+                        <div className="text-xs text-zinc-500">{cap.hint}</div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+              <button
+                type="button"
+                onClick={startFigmaOAuth}
+                disabled={oauthLoading}
+                className="w-full h-12 rounded-full text-white text-sm font-semibold flex items-center justify-center gap-2 transition disabled:opacity-60"
+                style={{ background: `linear-gradient(135deg, ${accent}, #22d3ee)` }}
+              >
+                {oauthLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+                {oauthLoading ? "Opening Figma…" : "Continue to Figma"}
+              </button>
+              {error && (
+                <div className="text-xs text-red-600 mt-3 rounded-md border border-red-200 bg-red-50 p-2 flex items-start gap-1.5">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span className="break-words">{error}</span>
+                </div>
+              )}
+              <p className="text-[11px] text-zinc-500 mt-4 text-center">
+                You'll approve these permissions on Figma's own site. You can revoke access anytime from Figma.
+              </p>
+            </div>
+          )}
+
           {step === "canva_consent" && isCanva && (
             <div className="flex-1 flex flex-col animate-fade-in">
               <h2 className="text-xl font-semibold text-center mb-1">Connect Canva to NazAI</h2>
