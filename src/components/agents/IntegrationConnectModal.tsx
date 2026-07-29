@@ -292,12 +292,14 @@ export default function IntegrationConnectModal({
   }, [integration.name]);
   const isGoogle = googleKind !== null;
   const isComingSoon = useMemo(
-    () => /^(notion|slack|shopify|youtube)$/i.test(integration.name.trim()),
+    () => /^(notion|slack|youtube)$/i.test(integration.name.trim()),
     [integration.name],
   );
   const isFigma = useMemo(() => /^figma$/i.test(integration.name.trim()), [integration.name]);
   const isCanva = useMemo(() => /^canva$/i.test(integration.name.trim()), [integration.name]);
-  const isRealOAuth = isGoogle || isFigma || isCanva;
+  const isShopify = useMemo(() => /^shopify$/i.test(integration.name.trim()), [integration.name]);
+  const isRealOAuth = isGoogle || isFigma || isCanva || isShopify;
+
   const isGmail = isGoogle; // legacy alias
   const providerKey = isGoogle ? "Gmail" : integration.name;
   const googleServiceLabel = googleKind === "drive" ? "Google Drive"
