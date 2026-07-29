@@ -1,7 +1,7 @@
-// Shared Canva Connect OAuth2 helpers. Mirrors the Figma helper: HMAC-signed
-// state, authorization URL builder, code exchange, token refresh, and an
-// authed fetch wrapper that refreshes on 401. Credentials are stored in
-// Supabase Vault via integration-secrets helpers.
+// Shared Canva Connect OAuth2 helpers: PKCE generation, authorization URL
+// building, code exchange, token refresh, and an authed fetch wrapper that
+// refreshes on 401. OAuth transactions are stored server-side and credentials
+// are stored encrypted at rest via integration-secrets helpers.
 //
 // Canva uses PKCE + Basic-auth on the token endpoint per its Connect API docs
 // (https://www.canva.dev/docs/connect/authentication/).
@@ -34,58 +34,21 @@ export function resolveCanvaScopes(groups: string[]): string[] {
 export const CANVA_REDIRECT_URI = `${Deno.env.get("SUPABASE_URL")}/functions/v1/canva-oauth-callback`;
 
 const enc = new TextEncoder();
-const b64urlEncode = (bytes: Uint8Array) =>
+export const b64urlEncode = (bytes: Uint8Array) =>
   btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-const b64urlEncodeStr = (s: string) => b64urlEncode(enc.encode(s));
-const b64urlDecode = (s: string) => {
-  const pad = s.length % 4 ? 4 - (s.length % 4) : 0;
-  return atob(s.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat(pad));
-};
 
-async function hmacKey(): Promise<CryptoKey> {
-  const secret = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "fallback";
-  return await crypto.subtle.importKey(
-    "raw",
-    enc.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign", "verify"],
-  );
-}
-
-export async function signState(payload: Record<string, unknown>): Promise<string> {
-  const body = b64urlEncodeStr(JSON.stringify({ ...payload, iat: Date.now() }));
-  const key = await hmacKey();
-  const sig = new Uint8Array(await crypto.subtle.sign("HMAC", key, enc.encode(body)));
-  return `${body}.${b64urlEncode(sig)}`;
-}
-
-export async function verifyState(token: string): Promise<Record<string, unknown> | null> {
-  const [body, sig] = token.split(".");
-  if (!body || !sig) return null;
-  const key = await hmacKey();
-  const sigBytes = Uint8Array.from(b64urlDecode(sig), (c) => c.charCodeAt(0));
-  const ok = await crypto.subtle.verify("HMAC", key, sigBytes, enc.encode(body));
-  if (!ok) return null;
-  try {
-    const parsed = JSON.parse(b64urlDecode(body));
-    if (typeof parsed.iat === "number" && Date.now() - parsed.iat > 10 * 60 * 1000) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-// PKCE — Canva requires code_challenge on the auth request and the matching
-// code_verifier on the token exchange. We stash the verifier inside our
-// signed state so we don't need any server-side session storage.
-export function generatePkce(): { verifier: string; challenge: Promise<string> } {
-  const bytes = new Uint8Array(32);
+export function generateRandomBase64Url(byteLength: number): string {
+  const bytes = new Uint8Array(byteLength);
   crypto.getRandomValues(bytes);
-  const verifier = b64urlEncode(bytes);
-  const challenge = crypto.subtle.digest("SHA-256", enc.encode(verifier))
-    .then((buf) => b64urlEncode(new Uint8Array(buf)));
-  return { verifier, challenge };
+  return b64urlEncode(bytes);
+}
+
+// A 96-byte random verifier base64url-encodes to exactly 128 characters,
+// within RFC 7636's required 43–128 character range.
+export async function generatePkce(): Promise<{ verifier: string; challenge: string }> {
+  const verifier = generateRandomBase64Url(96);
+  const digest = await crypto.subtle.digest("SHA-256", enc.encode(verifier));
+  return { verifier, challenge: b64urlEncode(new Uint8Array(digest)) };
 }
 
 export function buildAuthUrl(state: string, scopes: string[], codeChallenge: string): string {

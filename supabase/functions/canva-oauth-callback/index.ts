@@ -1,9 +1,10 @@
 // canva-oauth-callback — Canva redirects here with ?code and ?state.
-// We exchange the code (with PKCE verifier from state) for tokens and persist
+// We atomically consume the server-side PKCE verifier keyed by state, exchange
+// the code for tokens, and persist
 // them in agent_integrations under provider="Canva". Uses the same
 // Vault upsert pattern as gmail-oauth-callback.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import { verifyState, exchangeCode, fetchUserInfo } from "../_shared/canva.ts";
+import { exchangeCode, fetchUserInfo } from "../_shared/canva.ts";
 import { createSecret, updateSecret, readSecret } from "../_shared/integration-secrets.ts";
 
 const html = (title: string, msg: string, ok: boolean) => `<!doctype html>
@@ -36,16 +37,26 @@ Deno.serve(async (req) => {
   if (errParam) return respond("Canva connection cancelled", errParam, false, 400);
   if (!code || !state) return respond("Invalid callback", "Missing code or state.", false, 400);
 
-  const parsed = await verifyState(state);
-  if (!parsed) return respond("Invalid state", "OAuth state failed verification. Please try again.", false, 400);
-  const userId = parsed.u as string;
-  const verifier = parsed.v as string;
-  const groups = Array.isArray(parsed.g) ? (parsed.g as string[]) : [];
-
   try {
+    const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    const { data: transactionRows, error: transactionError } = await admin.rpc(
+      "consume_canva_oauth_transaction",
+      { _state: state },
+    );
+    const transaction = Array.isArray(transactionRows) ? transactionRows[0] : null;
+    if (transactionError || !transaction) {
+      return respond("Invalid state", "OAuth state is invalid, expired, or already used. Please try again.", false, 400);
+    }
+
+    const userId = transaction.user_id as string;
+    const verifier = transaction.code_verifier as string;
+    const groups = Array.isArray(transaction.scope_groups) ? transaction.scope_groups as string[] : [];
+    if (!userId || !verifier) {
+      return respond("Invalid state", "OAuth transaction data is incomplete. Please try again.", false, 400);
+    }
+
     const tok = await exchangeCode(code, verifier);
     const info = await fetchUserInfo(tok.access_token);
-    const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const now = new Date().toISOString();
     const credentials = {
       access_token: tok.access_token,

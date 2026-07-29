@@ -490,6 +490,36 @@ export type Database = {
         }
         Relationships: []
       }
+      canva_oauth_transactions: {
+        Row: {
+          code_verifier: string
+          created_at: string
+          expires_at: string
+          request_origin: string | null
+          scope_groups: string[]
+          state: string
+          user_id: string
+        }
+        Insert: {
+          code_verifier: string
+          created_at?: string
+          expires_at?: string
+          request_origin?: string | null
+          scope_groups?: string[]
+          state: string
+          user_id: string
+        }
+        Update: {
+          code_verifier?: string
+          created_at?: string
+          expires_at?: string
+          request_origin?: string | null
+          scope_groups?: string[]
+          state?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       credit_transactions: {
         Row: {
           amount: number
@@ -953,6 +983,15 @@ export type Database = {
     }
     Functions: {
       add_credits: { Args: { amount: number }; Returns: number }
+      consume_canva_oauth_transaction: {
+        Args: { _state: string }
+        Returns: {
+          code_verifier: string
+          request_origin: string
+          scope_groups: string[]
+          user_id: string
+        }[]
+      }
       create_integration_secret: {
         Args: { label?: string; payload: Json }
         Returns: string

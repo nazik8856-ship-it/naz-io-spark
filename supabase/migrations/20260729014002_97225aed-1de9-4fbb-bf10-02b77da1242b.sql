@@ -1,0 +1,2 @@
+ALTER TABLE public.canva_oauth_transactions
+DROP CONSTRAINT IF EXISTS canva_oauth_transactions_user_id_fkey;
