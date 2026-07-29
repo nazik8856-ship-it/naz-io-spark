@@ -1126,6 +1126,27 @@ export default function IntegrationConnectModal({
             </div>
           )}
 
+          {step === "email" && isNotion && (
+            <div className="flex-1 flex flex-col items-center justify-center animate-fade-in text-center">
+              <Loader2 className="h-6 w-6 animate-spin text-zinc-500 mb-4" />
+              <h2 className="text-lg font-normal mb-1">Opening Notion consent…</h2>
+              <p className="text-xs text-zinc-500 mb-6 max-w-xs">
+                Notion's real consent screen has opened in a popup. Pick the workspace and pages to share, then approve to finish the connection.
+              </p>
+              {error && (
+                <div className="text-xs text-red-600 mt-4 rounded-md border border-red-200 bg-red-50 p-2 flex items-start gap-1.5 max-w-xs">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span className="break-words">{error}</span>
+                </div>
+              )}
+              <p className="text-[11px] text-zinc-500 mt-4 max-w-xs">
+                You can connect multiple workspaces — each is stored separately.
+              </p>
+            </div>
+          )}
+
+
+
 
           {/* Non-Google, non-Figma data connector: no credentials collected
               up-front. User presses Continue to grant intent; the real
