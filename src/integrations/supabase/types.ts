@@ -717,6 +717,30 @@ export type Database = {
         }
         Relationships: []
       }
+      notion_oauth_transactions: {
+        Row: {
+          created_at: string
+          expires_at: string
+          request_origin: string | null
+          state: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          expires_at?: string
+          request_origin?: string | null
+          state: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string
+          request_origin?: string | null
+          state?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       org_insights: {
         Row: {
           confidence: string
@@ -1043,6 +1067,13 @@ export type Database = {
           code_verifier: string
           request_origin: string
           scope_groups: string[]
+          user_id: string
+        }[]
+      }
+      consume_notion_oauth_transaction: {
+        Args: { _state: string }
+        Returns: {
+          request_origin: string
           user_id: string
         }[]
       }
