@@ -839,6 +839,75 @@ export default function IntegrationConnectModal({
             </div>
           )}
 
+          {step === "shopify_shop" && isShopify && (
+            <form
+              className="flex-1 flex flex-col animate-fade-in"
+              onSubmit={(e) => { e.preventDefault(); startShopifyOAuth(); }}
+            >
+              <h2 className="text-xl font-semibold text-center mb-1">Connect your Shopify store</h2>
+              <p className="text-sm text-zinc-600 text-center mb-5 max-w-sm mx-auto">
+                Enter your store's <span className="font-medium">.myshopify.com</span> domain. You'll approve permissions on Shopify's own consent screen.
+              </p>
+              <label className="text-[10px] uppercase tracking-wider font-mono font-semibold text-zinc-500 mb-1.5">
+                Store domain
+              </label>
+              <input
+                type="text"
+                value={shopifyShop}
+                onChange={(e) => { setShopifyShop(e.target.value); if (error) setError(null); }}
+                placeholder="mystore.myshopify.com"
+                autoFocus
+                className="w-full h-11 px-3 rounded-lg border border-zinc-300 bg-white text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500"
+              />
+              <p className="text-[11px] text-zinc-500 mt-1.5">
+                Find it in your Shopify admin URL (e.g. <span className="font-mono">admin.shopify.com/store/<b>mystore</b></span> → <span className="font-mono">mystore.myshopify.com</span>).
+              </p>
+              <button
+                type="submit"
+                disabled={oauthLoading}
+                className="mt-5 w-full h-12 rounded-full text-white text-sm font-semibold flex items-center justify-center gap-2 transition disabled:opacity-60"
+                style={{ background: `linear-gradient(135deg, ${accent}, #22d3ee)` }}
+              >
+                {oauthLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+                {oauthLoading ? "Opening Shopify…" : "Continue to Shopify"}
+              </button>
+              {error && (
+                <div className="text-xs text-red-600 mt-3 rounded-md border border-red-200 bg-red-50 p-2 flex items-start gap-1.5">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span className="break-words">{error}</span>
+                </div>
+              )}
+              <p className="text-[11px] text-zinc-500 mt-4 text-center">
+                You can connect multiple stores — each one is authorized separately.
+              </p>
+            </form>
+          )}
+
+          {step === "email" && isShopify && (
+            <div className="flex-1 flex flex-col items-center justify-center animate-fade-in text-center">
+              <Loader2 className="h-6 w-6 animate-spin text-zinc-500 mb-4" />
+              <h2 className="text-lg font-normal mb-1">Opening Shopify consent…</h2>
+              <p className="text-xs text-zinc-500 mb-6 max-w-xs">
+                Shopify's real consent screen has opened in a popup. Approve there to finish the connection.
+              </p>
+              <button
+                type="button"
+                onClick={() => setStep("shopify_shop")}
+                disabled={oauthLoading}
+                className="text-xs px-3 py-1.5 rounded-full border border-zinc-300 hover:bg-zinc-50 text-zinc-700 disabled:opacity-60"
+              >
+                {oauthLoading ? "Waiting…" : "Change store"}
+              </button>
+              {error && (
+                <div className="text-xs text-red-600 mt-4 rounded-md border border-red-200 bg-red-50 p-2 flex items-start gap-1.5 max-w-xs">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span className="break-words">{error}</span>
+                </div>
+              )}
+            </div>
+          )}
+
+
           {step === "email" && isCanva && (
             <div className="flex-1 flex flex-col items-center justify-center animate-fade-in text-center">
               <Loader2 className="h-6 w-6 animate-spin text-zinc-500 mb-4" />
