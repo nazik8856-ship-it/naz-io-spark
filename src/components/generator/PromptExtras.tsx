@@ -5,6 +5,7 @@ import { supabase, SUPABASE_FUNCTIONS_URL, SUPABASE_ANON } from "@/integrations/
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import IntegrationConnectModal from "@/components/agents/IntegrationConnectModal";
+import { useIntegrationOAuthMessages } from "@/hooks/useIntegrationOAuthMessages";
 
 export type Attachment = {
   id: string;
