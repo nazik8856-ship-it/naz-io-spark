@@ -35,8 +35,18 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const agentId = typeof body.agentId === "string" ? body.agentId : null;
     const origin = typeof body.origin === "string" ? body.origin : "";
-    const state = await signState({ u: user.id, a: agentId, o: origin });
-    return new Response(JSON.stringify({ url: buildAuthUrl(state) }), {
+    const requestedGroups: string[] = Array.isArray(body.groups) && body.groups.length
+      ? body.groups.filter((g: unknown): g is string => typeof g === "string")
+      : FIGMA_DEFAULT_GROUPS;
+    const scopes = scopesForGroups(requestedGroups);
+    if (!scopes.length) {
+      return new Response(JSON.stringify({ error: "No valid scopes selected." }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const state = await signState({ u: user.id, a: agentId, o: origin, g: requestedGroups });
+    return new Response(JSON.stringify({ url: buildAuthUrl(state, scopes) }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
