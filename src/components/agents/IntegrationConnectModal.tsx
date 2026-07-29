@@ -431,11 +431,12 @@ export default function IntegrationConnectModal({
         // Shopify needs the shop domain first (foo.myshopify.com) — each
         // store is a separate authorization surface.
         if (isShopify) { setStep("shopify_shop"); return; }
+        if (isSlack) { setStep("slack_consent"); return; }
         setStep("email");
       }
     })();
     return () => { cancelled = true; };
-  }, [integration.name, agentId, isGoogle, googleKind, providerKey, googleServiceLabel, isComingSoon, isCanva, isShopify, onChange, onClose]);
+  }, [integration.name, agentId, isGoogle, googleKind, providerKey, googleServiceLabel, isComingSoon, isCanva, isShopify, isSlack, onChange, onClose]);
 
 
 
@@ -466,7 +467,7 @@ export default function IntegrationConnectModal({
   };
 
   const startOAuth = async (
-    kind: "gmail" | "figma" | "canva" | "shopify",
+    kind: "gmail" | "figma" | "canva" | "shopify" | "slack",
     opts: { functionName: string; source: string; label: string; extraBody?: Record<string, unknown> },
   ) => {
     setError(null);
