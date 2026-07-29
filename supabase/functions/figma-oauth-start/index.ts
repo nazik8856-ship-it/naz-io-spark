@@ -2,7 +2,7 @@
 // current authenticated NazAI user and returns it. The client opens the URL
 // in a popup; Figma redirects back to figma-oauth-callback with ?code.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import { signState, buildAuthUrl } from "../_shared/figma.ts";
+import { signState, buildAuthUrl, scopesForGroups, FIGMA_DEFAULT_GROUPS } from "../_shared/figma.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
