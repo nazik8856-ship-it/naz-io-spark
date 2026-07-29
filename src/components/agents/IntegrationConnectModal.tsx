@@ -586,6 +586,21 @@ export default function IntegrationConnectModal({
     });
   };
 
+  const startSlackOAuth = () => {
+    const selected = Object.entries(slackGroups).filter(([, v]) => v).map(([k]) => k);
+    if (!selected.length) {
+      setError("Select at least one permission to continue.");
+      return;
+    }
+    setStep("email");
+    startOAuth("slack", {
+      functionName: "slack-oauth-start",
+      source: "nazai-slack-oauth",
+      label: "Slack",
+      extraBody: { groups: selected },
+    });
+  };
+
 
   useEffect(() => {
     if (step !== "email") return;
