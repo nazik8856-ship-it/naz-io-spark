@@ -573,10 +573,9 @@ export default function IntegrationConnectModal({
   useEffect(() => {
     if (step !== "email") return;
     if (!isRealOAuth || oauthLoading) return;
-    // Canva does NOT auto-start — the user must confirm scopes on the
-    // canva_consent screen first, which then calls startCanvaOAuth().
+    // Canva & Figma do NOT auto-start — the user must confirm scopes on the
+    // pre-consent screen first, which then calls the start function.
     if (isGoogle) startGmailOAuth();
-    else if (isFigma) startFigmaOAuth();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, isRealOAuth]);
 
