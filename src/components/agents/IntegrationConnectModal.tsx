@@ -26,6 +26,7 @@ type Step =
   | "loading"
   | "coming_soon"
   | "canva_consent"  // NazAI pre-consent: pick which Canva permissions to grant
+  | "shopify_shop"   // Shopify per-store prompt: user enters foo.myshopify.com
   | "email"
   | "password"
   | "finding"
@@ -35,6 +36,7 @@ type Step =
   | "connecting"
   | "connected"
   | "error";
+
 
 
 type FoundAccount = {
