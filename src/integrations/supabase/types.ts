@@ -894,6 +894,33 @@ export type Database = {
         }
         Relationships: []
       }
+      slack_oauth_transactions: {
+        Row: {
+          created_at: string
+          expires_at: string
+          request_origin: string | null
+          scope_groups: string[]
+          state: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          expires_at?: string
+          request_origin?: string | null
+          scope_groups?: string[]
+          state: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string
+          request_origin?: string | null
+          scope_groups?: string[]
+          state?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       suppressed_emails: {
         Row: {
           created_at: string
@@ -1024,6 +1051,14 @@ export type Database = {
         Returns: {
           request_origin: string
           shop_domain: string
+          user_id: string
+        }[]
+      }
+      consume_slack_oauth_transaction: {
+        Args: { _state: string }
+        Returns: {
+          request_origin: string
+          scope_groups: string[]
           user_id: string
         }[]
       }

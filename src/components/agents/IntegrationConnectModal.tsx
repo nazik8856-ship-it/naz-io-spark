@@ -28,6 +28,7 @@ type Step =
   | "canva_consent"  // NazAI pre-consent: pick which Canva permissions to grant
   | "figma_consent"  // NazAI pre-consent: pick which Figma permissions to grant
   | "shopify_shop"   // Shopify per-store prompt: user enters foo.myshopify.com
+  | "slack_consent"  // NazAI pre-consent: pick which Slack permissions to grant
   | "email"
   | "password"
   | "finding"
@@ -293,13 +294,14 @@ export default function IntegrationConnectModal({
   }, [integration.name]);
   const isGoogle = googleKind !== null;
   const isComingSoon = useMemo(
-    () => /^(notion|slack|youtube)$/i.test(integration.name.trim()),
+    () => /^(notion|youtube)$/i.test(integration.name.trim()),
     [integration.name],
   );
   const isFigma = useMemo(() => /^figma$/i.test(integration.name.trim()), [integration.name]);
   const isCanva = useMemo(() => /^canva$/i.test(integration.name.trim()), [integration.name]);
   const isShopify = useMemo(() => /^shopify$/i.test(integration.name.trim()), [integration.name]);
-  const isRealOAuth = isGoogle || isFigma || isCanva || isShopify;
+  const isSlack = useMemo(() => /^slack$/i.test(integration.name.trim()), [integration.name]);
+  const isRealOAuth = isGoogle || isFigma || isCanva || isShopify || isSlack;
 
   const isGmail = isGoogle; // legacy alias
   const providerKey = isGoogle ? "Gmail" : integration.name;
@@ -335,6 +337,20 @@ export default function IntegrationConnectModal({
   ];
   const [canvaGroups, setCanvaGroups] = useState<Record<string, boolean>>(
     () => Object.fromEntries(CANVA_CAPABILITIES.map((c) => [c.id, !!c.defaultOn])),
+  );
+  // Slack bot scope groups — mirror the pre-consent flow used for Canva/Figma.
+  // Each id maps to a scope group in supabase/functions/_shared/slack.ts and
+  // only the boxes the user checks are forwarded to Slack.
+  const SLACK_CAPABILITIES: Array<{ id: string; label: string; hint: string; defaultOn?: boolean }> = [
+    { id: "channels_read", label: "Channels — view", hint: "See the list of public channels in your workspace", defaultOn: true },
+    { id: "channels_history", label: "Channel messages — read", hint: "Read messages posted in public channels", defaultOn: true },
+    { id: "groups_read", label: "Private channels — view", hint: "See private channels the bot is a member of" },
+    { id: "groups_history", label: "Private channel messages — read", hint: "Read messages in private channels the bot joins" },
+    { id: "users_read", label: "Users — view profiles", hint: "See workspace members' names and profile info", defaultOn: true },
+    { id: "chat_write", label: "Post messages", hint: "Send messages as the NazAI Slack bot", defaultOn: true },
+  ];
+  const [slackGroups, setSlackGroups] = useState<Record<string, boolean>>(
+    () => Object.fromEntries(SLACK_CAPABILITIES.map((c) => [c.id, !!c.defaultOn])),
   );
 
   const [step, setStep] = useState<Step>("loading");
@@ -415,11 +431,12 @@ export default function IntegrationConnectModal({
         // Shopify needs the shop domain first (foo.myshopify.com) — each
         // store is a separate authorization surface.
         if (isShopify) { setStep("shopify_shop"); return; }
+        if (isSlack) { setStep("slack_consent"); return; }
         setStep("email");
       }
     })();
     return () => { cancelled = true; };
-  }, [integration.name, agentId, isGoogle, googleKind, providerKey, googleServiceLabel, isComingSoon, isCanva, isShopify, onChange, onClose]);
+  }, [integration.name, agentId, isGoogle, googleKind, providerKey, googleServiceLabel, isComingSoon, isCanva, isShopify, isSlack, onChange, onClose]);
 
 
 
@@ -450,7 +467,7 @@ export default function IntegrationConnectModal({
   };
 
   const startOAuth = async (
-    kind: "gmail" | "figma" | "canva" | "shopify",
+    kind: "gmail" | "figma" | "canva" | "shopify" | "slack",
     opts: { functionName: string; source: string; label: string; extraBody?: Record<string, unknown> },
   ) => {
     setError(null);
@@ -566,6 +583,21 @@ export default function IntegrationConnectModal({
       source: "nazai-shopify-oauth",
       label: "Shopify",
       extraBody: { shop },
+    });
+  };
+
+  const startSlackOAuth = () => {
+    const selected = Object.entries(slackGroups).filter(([, v]) => v).map(([k]) => k);
+    if (!selected.length) {
+      setError("Select at least one permission to continue.");
+      return;
+    }
+    setStep("email");
+    startOAuth("slack", {
+      functionName: "slack-oauth-start",
+      source: "nazai-slack-oauth",
+      label: "Slack",
+      extraBody: { groups: selected },
     });
   };
 
@@ -1004,9 +1036,81 @@ export default function IntegrationConnectModal({
             </div>
           )}
 
+          {step === "slack_consent" && isSlack && (
+            <div className="flex-1 flex flex-col animate-fade-in">
+              <h2 className="text-xl font-semibold text-center mb-1">Connect Slack to NazAI</h2>
+              <p className="text-sm text-zinc-600 text-center mb-5 max-w-sm mx-auto">
+                Choose which parts of your Slack workspace NazAI can access. Only the boxes you check are sent to Slack's consent screen.
+              </p>
+              <div className="rounded-2xl border border-zinc-200 divide-y divide-zinc-100 mb-4 bg-white">
+                {SLACK_CAPABILITIES.map((cap) => {
+                  const on = !!slackGroups[cap.id];
+                  return (
+                    <label
+                      key={cap.id}
+                      className="flex items-start gap-3 p-3 cursor-pointer hover:bg-zinc-50 transition"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={(e) =>
+                          setSlackGroups((prev) => ({ ...prev, [cap.id]: e.target.checked }))
+                        }
+                        className="mt-0.5 h-4 w-4 accent-emerald-600"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium text-zinc-900">{cap.label}</div>
+                        <div className="text-xs text-zinc-500">{cap.hint}</div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+              <button
+                type="button"
+                onClick={startSlackOAuth}
+                disabled={oauthLoading}
+                className="w-full h-12 rounded-full text-white text-sm font-semibold flex items-center justify-center gap-2 transition disabled:opacity-60"
+                style={{ background: `linear-gradient(135deg, ${accent}, #22d3ee)` }}
+              >
+                {oauthLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+                {oauthLoading ? "Opening Slack…" : "Continue to Slack"}
+              </button>
+              {error && (
+                <div className="text-xs text-red-600 mt-3 rounded-md border border-red-200 bg-red-50 p-2 flex items-start gap-1.5">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span className="break-words">{error}</span>
+                </div>
+              )}
+              <p className="text-[11px] text-zinc-500 mt-4 text-center">
+                You'll approve these permissions on Slack's own site. You can connect multiple workspaces — each is stored separately.
+              </p>
+            </div>
+          )}
 
-
-
+          {step === "email" && isSlack && (
+            <div className="flex-1 flex flex-col items-center justify-center animate-fade-in text-center">
+              <Loader2 className="h-6 w-6 animate-spin text-zinc-500 mb-4" />
+              <h2 className="text-lg font-normal mb-1">Opening Slack consent…</h2>
+              <p className="text-xs text-zinc-500 mb-6 max-w-xs">
+                Slack's real consent screen has opened in a popup. Approve there to finish the connection.
+              </p>
+              <button
+                type="button"
+                onClick={() => setStep("slack_consent")}
+                disabled={oauthLoading}
+                className="text-xs px-3 py-1.5 rounded-full border border-zinc-300 hover:bg-zinc-50 text-zinc-700 disabled:opacity-60"
+              >
+                {oauthLoading ? "Waiting…" : "Change permissions"}
+              </button>
+              {error && (
+                <div className="text-xs text-red-600 mt-4 rounded-md border border-red-200 bg-red-50 p-2 flex items-start gap-1.5 max-w-xs">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span className="break-words">{error}</span>
+                </div>
+              )}
+            </div>
+          )}
 
 
           {/* Non-Google, non-Figma data connector: no credentials collected
