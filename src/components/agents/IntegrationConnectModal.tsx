@@ -338,6 +338,20 @@ export default function IntegrationConnectModal({
   const [canvaGroups, setCanvaGroups] = useState<Record<string, boolean>>(
     () => Object.fromEntries(CANVA_CAPABILITIES.map((c) => [c.id, !!c.defaultOn])),
   );
+  // Slack bot scope groups — mirror the pre-consent flow used for Canva/Figma.
+  // Each id maps to a scope group in supabase/functions/_shared/slack.ts and
+  // only the boxes the user checks are forwarded to Slack.
+  const SLACK_CAPABILITIES: Array<{ id: string; label: string; hint: string; defaultOn?: boolean }> = [
+    { id: "channels_read", label: "Channels — view", hint: "See the list of public channels in your workspace", defaultOn: true },
+    { id: "channels_history", label: "Channel messages — read", hint: "Read messages posted in public channels", defaultOn: true },
+    { id: "groups_read", label: "Private channels — view", hint: "See private channels the bot is a member of" },
+    { id: "groups_history", label: "Private channel messages — read", hint: "Read messages in private channels the bot joins" },
+    { id: "users_read", label: "Users — view profiles", hint: "See workspace members' names and profile info", defaultOn: true },
+    { id: "chat_write", label: "Post messages", hint: "Send messages as the NazAI Slack bot", defaultOn: true },
+  ];
+  const [slackGroups, setSlackGroups] = useState<Record<string, boolean>>(
+    () => Object.fromEntries(SLACK_CAPABILITIES.map((c) => [c.id, !!c.defaultOn])),
+  );
 
   const [step, setStep] = useState<Step>("loading");
   const [shopifyShop, setShopifyShop] = useState("");
