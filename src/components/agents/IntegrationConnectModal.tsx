@@ -439,7 +439,7 @@ export default function IntegrationConnectModal({
       }
     })();
     return () => { cancelled = true; };
-  }, [integration.name, agentId, isGoogle, googleKind, providerKey, googleServiceLabel, isComingSoon, isCanva, isShopify, isSlack, onChange, onClose]);
+  }, [integration.name, agentId, isGoogle, googleKind, providerKey, googleServiceLabel, isComingSoon, isCanva, isShopify, isSlack, isNotion, onChange, onClose]);
 
 
 
@@ -488,7 +488,7 @@ export default function IntegrationConnectModal({
   );
 
   const startOAuth = async (
-    kind: "gmail" | "figma" | "canva" | "shopify" | "slack",
+    kind: "gmail" | "figma" | "canva" | "shopify" | "slack" | "notion",
     opts: { functionName: string; source: string; label: string; extraBody?: Record<string, unknown> },
   ) => {
     setError(null);
@@ -606,12 +606,22 @@ export default function IntegrationConnectModal({
   };
 
 
+  const startNotionOAuth = () =>
+    startOAuth("notion", {
+      functionName: "notion-oauth-start",
+      source: "nazai-notion-oauth",
+      label: "Notion",
+    });
+
+
   useEffect(() => {
     if (step !== "email") return;
     if (!isRealOAuth || oauthLoading) return;
-    // Canva & Figma do NOT auto-start — the user must confirm scopes on the
+    // Canva, Figma & Slack do NOT auto-start — the user must confirm scopes on the
     // pre-consent screen first, which then calls the start function.
+    // Notion has no per-request scopes (fixed on the integration) so it goes straight through.
     if (isGoogle) startGmailOAuth();
+    else if (isNotion) startNotionOAuth();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, isRealOAuth]);
 
