@@ -54,7 +54,7 @@ Deno.serve(async (req) => {
       access_token: tok.access_token,
       refresh_token: tok.refresh_token || null,
       expires_at: Date.now() + tok.expires_in * 1000,
-      scope: FIGMA_SCOPES.join(" "),
+      scope: grantedScopes.join(" "),
       figma_user_id: info?.id || tok.user_id || null,
       handle: info?.handle || info?.email || "Figma",
       account_name: info?.handle || info?.email || "Figma",
