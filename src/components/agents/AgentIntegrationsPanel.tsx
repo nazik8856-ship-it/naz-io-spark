@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import IntegrationConnectModal from "./IntegrationConnectModal";
 import { supabase } from "@/integrations/supabase/client";
+import { useIntegrationOAuthMessages, expandConnectedKeys } from "@/hooks/useIntegrationOAuthMessages";
 
 type Integration = {
   name: string;
