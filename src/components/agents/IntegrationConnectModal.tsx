@@ -307,14 +307,21 @@ export default function IntegrationConnectModal({
     : googleKind === "calendar" ? "Google Calendar"
     : googleKind === "analytics" ? "Google Analytics"
     : "Google";
-  const FIGMA_CAPABILITIES = [
-    "Read your Figma files & pages",
-    "Read & write file variables (design tokens)",
-    "Post & resolve comments on files",
-    "Read & write dev-mode resources on frames",
-    "Read library analytics for your team",
-    "Create & manage file webhooks",
+  // Figma Connect capabilities — each id maps to a scope group in
+  // supabase/functions/_shared/figma.ts. User checks the ones they want and
+  // only those scopes are sent to Figma's consent screen.
+  const FIGMA_CAPABILITIES: Array<{ id: string; label: string; hint: string; defaultOn?: boolean }> = [
+    { id: "profile", label: "Your profile", hint: "Read basic account info (name, email, avatar)", defaultOn: true },
+    { id: "files_content", label: "Files — view content", hint: "Read design content of files you can access", defaultOn: true },
+    { id: "files_metadata", label: "Files — view info", hint: "Read file names, dates and other metadata", defaultOn: true },
+    { id: "comments_read", label: "Comments — view", hint: "Read comments on your files" },
+    { id: "comments_write", label: "Comments — post", hint: "Post and reply to comments on your files" },
+    { id: "library", label: "Design libraries — view", hint: "Read components, styles and variables from your libraries" },
+    { id: "projects", label: "Projects — view", hint: "Read project names and file listings" },
   ];
+  const [figmaGroups, setFigmaGroups] = useState<Record<string, boolean>>(
+    () => Object.fromEntries(FIGMA_CAPABILITIES.map((c) => [c.id, !!c.defaultOn])),
+  );
   // Canva Connect capabilities — each maps to a scope group in
   // supabase/functions/_shared/canva.ts. User checks the ones they want
   // and only those scopes are sent to Canva's consent screen.
