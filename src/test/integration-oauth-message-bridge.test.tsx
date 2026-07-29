@@ -1,5 +1,6 @@
-import { render } from "@testing-library/react";
 import { useState } from "react";
+import { act } from "react-dom/test-utils";
+import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 import IntegrationOAuthMessageBridge from "@/components/integrations/IntegrationOAuthMessageBridge";
 import { useIntegrationOAuthMessages } from "@/hooks/useIntegrationOAuthMessages";
@@ -24,23 +25,33 @@ function CatalogueProbe() {
 describe("IntegrationOAuthMessageBridge", () => {
   it("uses one browser listener and synchronously broadcasts every OAuth source", () => {
     const addEventListener = vi.spyOn(window, "addEventListener");
-    const view = render(
-      <>
-        <IntegrationOAuthMessageBridge />
-        <CatalogueProbe />
-        <CatalogueProbe />
-      </>,
-    );
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    act(() => {
+      root.render(
+        <>
+          <IntegrationOAuthMessageBridge />
+          <CatalogueProbe />
+          <CatalogueProbe />
+        </>,
+      );
+    });
 
     expect(addEventListener.mock.calls.filter(([type]) => type === "message")).toHaveLength(1);
 
     SOURCES.forEach(([source, provider, service]) => {
-      window.dispatchEvent(new MessageEvent("message", {
-        data: { source, ok: true, service },
-      }));
-      view.getAllByTestId("connected").forEach((probe) => {
+      act(() => {
+        window.dispatchEvent(new MessageEvent("message", {
+          data: { source, ok: true, service },
+        }));
+      });
+      container.querySelectorAll('[data-testid="connected"]').forEach((probe) => {
         expect(probe.textContent).toContain(`${provider}:${service || ""}`);
       });
     });
+
+    act(() => root.unmount());
+    container.remove();
   });
 });
