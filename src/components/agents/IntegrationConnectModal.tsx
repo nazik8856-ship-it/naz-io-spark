@@ -28,6 +28,7 @@ type Step =
   | "canva_consent"  // NazAI pre-consent: pick which Canva permissions to grant
   | "figma_consent"  // NazAI pre-consent: pick which Figma permissions to grant
   | "shopify_shop"   // Shopify per-store prompt: user enters foo.myshopify.com
+  | "slack_consent"  // NazAI pre-consent: pick which Slack permissions to grant
   | "email"
   | "password"
   | "finding"
@@ -293,13 +294,14 @@ export default function IntegrationConnectModal({
   }, [integration.name]);
   const isGoogle = googleKind !== null;
   const isComingSoon = useMemo(
-    () => /^(notion|slack|youtube)$/i.test(integration.name.trim()),
+    () => /^(notion|youtube)$/i.test(integration.name.trim()),
     [integration.name],
   );
   const isFigma = useMemo(() => /^figma$/i.test(integration.name.trim()), [integration.name]);
   const isCanva = useMemo(() => /^canva$/i.test(integration.name.trim()), [integration.name]);
   const isShopify = useMemo(() => /^shopify$/i.test(integration.name.trim()), [integration.name]);
-  const isRealOAuth = isGoogle || isFigma || isCanva || isShopify;
+  const isSlack = useMemo(() => /^slack$/i.test(integration.name.trim()), [integration.name]);
+  const isRealOAuth = isGoogle || isFigma || isCanva || isShopify || isSlack;
 
   const isGmail = isGoogle; // legacy alias
   const providerKey = isGoogle ? "Gmail" : integration.name;
