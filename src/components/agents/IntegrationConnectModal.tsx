@@ -403,11 +403,15 @@ export default function IntegrationConnectModal({
         // Canva starts on the NazAI pre-consent screen where the user picks
         // which permissions to grant before we redirect to Canva.
         if (isCanva) { setStep("canva_consent"); return; }
+        // Shopify needs the shop domain first (foo.myshopify.com) — each
+        // store is a separate authorization surface.
+        if (isShopify) { setStep("shopify_shop"); return; }
         setStep("email");
       }
     })();
     return () => { cancelled = true; };
-  }, [integration.name, agentId, isGoogle, googleKind, providerKey, googleServiceLabel, isComingSoon, isCanva, onChange, onClose]);
+  }, [integration.name, agentId, isGoogle, googleKind, providerKey, googleServiceLabel, isComingSoon, isCanva, isShopify, onChange, onClose]);
+
 
 
   const reloadConnected = async () => {
