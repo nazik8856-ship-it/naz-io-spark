@@ -295,14 +295,15 @@ export default function IntegrationConnectModal({
   }, [integration.name]);
   const isGoogle = googleKind !== null;
   const isComingSoon = useMemo(
-    () => /^(notion|youtube)$/i.test(integration.name.trim()),
+    () => /^(youtube)$/i.test(integration.name.trim()),
     [integration.name],
   );
   const isFigma = useMemo(() => /^figma$/i.test(integration.name.trim()), [integration.name]);
   const isCanva = useMemo(() => /^canva$/i.test(integration.name.trim()), [integration.name]);
   const isShopify = useMemo(() => /^shopify$/i.test(integration.name.trim()), [integration.name]);
   const isSlack = useMemo(() => /^slack$/i.test(integration.name.trim()), [integration.name]);
-  const isRealOAuth = isGoogle || isFigma || isCanva || isShopify || isSlack;
+  const isNotion = useMemo(() => /^notion$/i.test(integration.name.trim()), [integration.name]);
+  const isRealOAuth = isGoogle || isFigma || isCanva || isShopify || isSlack || isNotion;
 
   const isGmail = isGoogle; // legacy alias
   const providerKey = isGoogle ? "Gmail" : integration.name;
@@ -438,7 +439,7 @@ export default function IntegrationConnectModal({
       }
     })();
     return () => { cancelled = true; };
-  }, [integration.name, agentId, isGoogle, googleKind, providerKey, googleServiceLabel, isComingSoon, isCanva, isShopify, isSlack, onChange, onClose]);
+  }, [integration.name, agentId, isGoogle, googleKind, providerKey, googleServiceLabel, isComingSoon, isCanva, isShopify, isSlack, isNotion, onChange, onClose]);
 
 
 
@@ -487,7 +488,7 @@ export default function IntegrationConnectModal({
   );
 
   const startOAuth = async (
-    kind: "gmail" | "figma" | "canva" | "shopify" | "slack",
+    kind: "gmail" | "figma" | "canva" | "shopify" | "slack" | "notion",
     opts: { functionName: string; source: string; label: string; extraBody?: Record<string, unknown> },
   ) => {
     setError(null);
@@ -605,12 +606,22 @@ export default function IntegrationConnectModal({
   };
 
 
+  const startNotionOAuth = () =>
+    startOAuth("notion", {
+      functionName: "notion-oauth-start",
+      source: "nazai-notion-oauth",
+      label: "Notion",
+    });
+
+
   useEffect(() => {
     if (step !== "email") return;
     if (!isRealOAuth || oauthLoading) return;
-    // Canva & Figma do NOT auto-start — the user must confirm scopes on the
+    // Canva, Figma & Slack do NOT auto-start — the user must confirm scopes on the
     // pre-consent screen first, which then calls the start function.
+    // Notion has no per-request scopes (fixed on the integration) so it goes straight through.
     if (isGoogle) startGmailOAuth();
+    else if (isNotion) startNotionOAuth();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, isRealOAuth]);
 
@@ -1114,6 +1125,27 @@ export default function IntegrationConnectModal({
               )}
             </div>
           )}
+
+          {step === "email" && isNotion && (
+            <div className="flex-1 flex flex-col items-center justify-center animate-fade-in text-center">
+              <Loader2 className="h-6 w-6 animate-spin text-zinc-500 mb-4" />
+              <h2 className="text-lg font-normal mb-1">Opening Notion consent…</h2>
+              <p className="text-xs text-zinc-500 mb-6 max-w-xs">
+                Notion's real consent screen has opened in a popup. Pick the workspace and pages to share, then approve to finish the connection.
+              </p>
+              {error && (
+                <div className="text-xs text-red-600 mt-4 rounded-md border border-red-200 bg-red-50 p-2 flex items-start gap-1.5 max-w-xs">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span className="break-words">{error}</span>
+                </div>
+              )}
+              <p className="text-[11px] text-zinc-500 mt-4 max-w-xs">
+                You can connect multiple workspaces — each is stored separately.
+              </p>
+            </div>
+          )}
+
+
 
 
           {/* Non-Google, non-Figma data connector: no credentials collected

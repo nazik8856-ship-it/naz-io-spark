@@ -1,0 +1,65 @@
+// notion-oauth-start — mints a short-lived server-side state row and returns
+// the Notion authorize URL. The client opens it in a popup; Notion redirects
+// back to notion-oauth-callback with ?code & ?state. Notion capabilities are
+// fixed on the integration itself, so we don't request per-scope consent.
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { buildAuthUrl, isConfigured } from "../_shared/notion.ts";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
+function randomState(): string {
+  const bytes = new Uint8Array(24);
+  crypto.getRandomValues(bytes);
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  try {
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_ANON_KEY")!,
+      { global: { headers: { Authorization: req.headers.get("Authorization") || "" } } },
+    );
+    const { data: { user }, error } = await supabase.auth.getUser();
+    if (error || !user) {
+      return new Response(JSON.stringify({ error: "Not authenticated" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    if (!isConfigured()) {
+      return new Response(JSON.stringify({
+        not_configured: true,
+        error: "Notion OAuth is not configured yet. Add NOTION_CLIENT_ID and NOTION_CLIENT_SECRET in Project Settings → Secrets.",
+      }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    const body = await req.json().catch(() => ({}));
+    const origin = typeof body.origin === "string" ? body.origin : "";
+
+    const admin = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+    const state = randomState();
+    await admin.from("notion_oauth_transactions").delete().lt("expires_at", new Date().toISOString());
+    const { error: txErr } = await admin.from("notion_oauth_transactions").insert({
+      state,
+      user_id: user.id,
+      request_origin: origin || null,
+    });
+    if (txErr) throw new Error(`Could not initialize Notion OAuth: ${txErr.message}`);
+
+    return new Response(JSON.stringify({ url: buildAuthUrl(state) }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  } catch (e) {
+    return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+});

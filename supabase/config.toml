@@ -72,6 +72,12 @@ verify_jwt = false
 [functions.slack-oauth-callback]
 verify_jwt = false
 
+[functions.notion-oauth-start]
+verify_jwt = false
+
+[functions.notion-oauth-callback]
+verify_jwt = false
+
 
 
 
