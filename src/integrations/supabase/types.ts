@@ -867,6 +867,33 @@ export type Database = {
         }
         Relationships: []
       }
+      shopify_oauth_transactions: {
+        Row: {
+          created_at: string
+          expires_at: string
+          request_origin: string | null
+          shop_domain: string
+          state: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          expires_at?: string
+          request_origin?: string | null
+          shop_domain: string
+          state: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string
+          request_origin?: string | null
+          shop_domain?: string
+          state?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       suppressed_emails: {
         Row: {
           created_at: string
@@ -989,6 +1016,14 @@ export type Database = {
           code_verifier: string
           request_origin: string
           scope_groups: string[]
+          user_id: string
+        }[]
+      }
+      consume_shopify_oauth_transaction: {
+        Args: { _state: string }
+        Returns: {
+          request_origin: string
+          shop_domain: string
           user_id: string
         }[]
       }
