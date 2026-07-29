@@ -792,7 +792,7 @@ export default function IntegrationConnectModal({
               </p>
               <button
                 type="button"
-                onClick={startFigmaOAuth}
+                onClick={() => setStep("figma_consent")}
                 disabled={oauthLoading}
                 className="text-xs px-3 py-1.5 rounded-full border border-zinc-300 hover:bg-zinc-50 text-zinc-700 disabled:opacity-60"
               >
