@@ -330,6 +330,8 @@ export default function IntegrationConnectModal({
   );
 
   const [step, setStep] = useState<Step>("loading");
+  const [shopifyShop, setShopifyShop] = useState("");
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
