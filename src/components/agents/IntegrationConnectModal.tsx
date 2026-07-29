@@ -411,6 +411,7 @@ export default function IntegrationConnectModal({
         // Canva starts on the NazAI pre-consent screen where the user picks
         // which permissions to grant before we redirect to Canva.
         if (isCanva) { setStep("canva_consent"); return; }
+        if (isFigma) { setStep("figma_consent"); return; }
         // Shopify needs the shop domain first (foo.myshopify.com) — each
         // store is a separate authorization surface.
         if (isShopify) { setStep("shopify_shop"); return; }
