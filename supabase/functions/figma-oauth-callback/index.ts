@@ -3,7 +3,7 @@
 // Vault via agent_integrations.credentials_secret_id, then render a small
 // page that notifies the opener window and closes.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import { verifyState, exchangeCode, fetchUserInfo, FIGMA_SCOPES } from "../_shared/figma.ts";
+import { verifyState, exchangeCode, fetchUserInfo, FIGMA_SCOPES, FIGMA_DEFAULT_GROUPS, scopesForGroups } from "../_shared/figma.ts";
 import { createSecret, updateSecret, readSecret } from "../_shared/integration-secrets.ts";
 
 const html = (title: string, msg: string, ok: boolean) => `<!doctype html>
@@ -40,6 +40,10 @@ Deno.serve(async (req) => {
   if (!parsed) return respond("Invalid state", "OAuth state failed verification. Please try again.", false, 400);
   const userId = parsed.u as string;
   const agentId = (parsed.a as string | null) ?? null;
+  const grantedGroups: string[] = Array.isArray(parsed.g) && (parsed.g as unknown[]).length
+    ? (parsed.g as string[]).filter((g) => typeof g === "string")
+    : FIGMA_DEFAULT_GROUPS;
+  const grantedScopes = scopesForGroups(grantedGroups);
 
   try {
     const tok = await exchangeCode(code);
@@ -50,7 +54,7 @@ Deno.serve(async (req) => {
       access_token: tok.access_token,
       refresh_token: tok.refresh_token || null,
       expires_at: Date.now() + tok.expires_in * 1000,
-      scope: FIGMA_SCOPES.join(" "),
+      scope: grantedScopes.join(" "),
       figma_user_id: info?.id || tok.user_id || null,
       handle: info?.handle || info?.email || "Figma",
       account_name: info?.handle || info?.email || "Figma",
@@ -93,7 +97,8 @@ Deno.serve(async (req) => {
             account_name: info?.handle || info?.email,
             handle: info?.handle,
             avatar: info?.img_url,
-            granted_scopes: FIGMA_SCOPES,
+            granted_scopes: grantedScopes,
+            granted_groups: grantedGroups,
           },
           status: "connected",
           last_verified_at: now,

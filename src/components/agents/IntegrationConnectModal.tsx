@@ -26,6 +26,7 @@ type Step =
   | "loading"
   | "coming_soon"
   | "canva_consent"  // NazAI pre-consent: pick which Canva permissions to grant
+  | "figma_consent"  // NazAI pre-consent: pick which Figma permissions to grant
   | "shopify_shop"   // Shopify per-store prompt: user enters foo.myshopify.com
   | "email"
   | "password"
@@ -306,14 +307,21 @@ export default function IntegrationConnectModal({
     : googleKind === "calendar" ? "Google Calendar"
     : googleKind === "analytics" ? "Google Analytics"
     : "Google";
-  const FIGMA_CAPABILITIES = [
-    "Read your Figma files & pages",
-    "Read & write file variables (design tokens)",
-    "Post & resolve comments on files",
-    "Read & write dev-mode resources on frames",
-    "Read library analytics for your team",
-    "Create & manage file webhooks",
+  // Figma Connect capabilities — each id maps to a scope group in
+  // supabase/functions/_shared/figma.ts. User checks the ones they want and
+  // only those scopes are sent to Figma's consent screen.
+  const FIGMA_CAPABILITIES: Array<{ id: string; label: string; hint: string; defaultOn?: boolean }> = [
+    { id: "profile", label: "Your profile", hint: "Read basic account info (name, email, avatar)", defaultOn: true },
+    { id: "files_content", label: "Files — view content", hint: "Read design content of files you can access", defaultOn: true },
+    { id: "files_metadata", label: "Files — view info", hint: "Read file names, dates and other metadata", defaultOn: true },
+    { id: "comments_read", label: "Comments — view", hint: "Read comments on your files" },
+    { id: "comments_write", label: "Comments — post", hint: "Post and reply to comments on your files" },
+    { id: "library", label: "Design libraries — view", hint: "Read components, styles and variables from your libraries" },
+    { id: "projects", label: "Projects — view", hint: "Read project names and file listings" },
   ];
+  const [figmaGroups, setFigmaGroups] = useState<Record<string, boolean>>(
+    () => Object.fromEntries(FIGMA_CAPABILITIES.map((c) => [c.id, !!c.defaultOn])),
+  );
   // Canva Connect capabilities — each maps to a scope group in
   // supabase/functions/_shared/canva.ts. User checks the ones they want
   // and only those scopes are sent to Canva's consent screen.
@@ -403,6 +411,7 @@ export default function IntegrationConnectModal({
         // Canva starts on the NazAI pre-consent screen where the user picks
         // which permissions to grant before we redirect to Canva.
         if (isCanva) { setStep("canva_consent"); return; }
+        if (isFigma) { setStep("figma_consent"); return; }
         // Shopify needs the shop domain first (foo.myshopify.com) — each
         // store is a separate authorization surface.
         if (isShopify) { setStep("shopify_shop"); return; }
@@ -512,8 +521,20 @@ export default function IntegrationConnectModal({
       extraBody: { kind: googleKind || "gmail" },
     });
 
-  const startFigmaOAuth = () =>
-    startOAuth("figma", { functionName: "figma-oauth-start", source: "nazai-figma-oauth", label: "Figma" });
+  const startFigmaOAuth = () => {
+    const selected = Object.entries(figmaGroups).filter(([, v]) => v).map(([k]) => k);
+    if (!selected.length) {
+      setError("Select at least one permission to continue.");
+      return;
+    }
+    setStep("email");
+    startOAuth("figma", {
+      functionName: "figma-oauth-start",
+      source: "nazai-figma-oauth",
+      label: "Figma",
+      extraBody: { groups: selected },
+    });
+  };
 
   const startCanvaOAuth = () => {
     const selected = Object.entries(canvaGroups).filter(([, v]) => v).map(([k]) => k);
@@ -552,10 +573,9 @@ export default function IntegrationConnectModal({
   useEffect(() => {
     if (step !== "email") return;
     if (!isRealOAuth || oauthLoading) return;
-    // Canva does NOT auto-start — the user must confirm scopes on the
-    // canva_consent screen first, which then calls startCanvaOAuth().
+    // Canva & Figma do NOT auto-start — the user must confirm scopes on the
+    // pre-consent screen first, which then calls the start function.
     if (isGoogle) startGmailOAuth();
-    else if (isFigma) startFigmaOAuth();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, isRealOAuth]);
 
@@ -772,11 +792,11 @@ export default function IntegrationConnectModal({
               </p>
               <button
                 type="button"
-                onClick={startFigmaOAuth}
+                onClick={() => setStep("figma_consent")}
                 disabled={oauthLoading}
                 className="text-xs px-3 py-1.5 rounded-full border border-zinc-300 hover:bg-zinc-50 text-zinc-700 disabled:opacity-60"
               >
-                {oauthLoading ? "Waiting…" : "Reopen consent window"}
+                {oauthLoading ? "Waiting…" : "Change permissions"}
               </button>
               {error && (
                 <div className="text-xs text-red-600 mt-4 rounded-md border border-red-200 bg-red-50 p-2 flex items-start gap-1.5 max-w-xs">
@@ -784,6 +804,58 @@ export default function IntegrationConnectModal({
                   <span className="break-words">{error}</span>
                 </div>
               )}
+            </div>
+          )}
+
+          {step === "figma_consent" && isFigma && (
+            <div className="flex-1 flex flex-col animate-fade-in">
+              <h2 className="text-xl font-semibold text-center mb-1">Connect Figma to NazAI</h2>
+              <p className="text-sm text-zinc-600 text-center mb-5 max-w-sm mx-auto">
+                Choose which parts of your Figma account NazAI can access. Only the boxes you check are sent to Figma's consent screen.
+              </p>
+              <div className="rounded-2xl border border-zinc-200 divide-y divide-zinc-100 mb-4 bg-white">
+                {FIGMA_CAPABILITIES.map((cap) => {
+                  const on = !!figmaGroups[cap.id];
+                  return (
+                    <label
+                      key={cap.id}
+                      className="flex items-start gap-3 p-3 cursor-pointer hover:bg-zinc-50 transition"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={(e) =>
+                          setFigmaGroups((prev) => ({ ...prev, [cap.id]: e.target.checked }))
+                        }
+                        className="mt-0.5 h-4 w-4 accent-emerald-600"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium text-zinc-900">{cap.label}</div>
+                        <div className="text-xs text-zinc-500">{cap.hint}</div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+              <button
+                type="button"
+                onClick={startFigmaOAuth}
+                disabled={oauthLoading}
+                className="w-full h-12 rounded-full text-white text-sm font-semibold flex items-center justify-center gap-2 transition disabled:opacity-60"
+                style={{ background: `linear-gradient(135deg, ${accent}, #22d3ee)` }}
+              >
+                {oauthLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+                {oauthLoading ? "Opening Figma…" : "Continue to Figma"}
+              </button>
+              {error && (
+                <div className="text-xs text-red-600 mt-3 rounded-md border border-red-200 bg-red-50 p-2 flex items-start gap-1.5">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span className="break-words">{error}</span>
+                </div>
+              )}
+              <p className="text-[11px] text-zinc-500 mt-4 text-center">
+                You'll approve these permissions on Figma's own site. You can revoke access anytime from Figma.
+              </p>
             </div>
           )}
 

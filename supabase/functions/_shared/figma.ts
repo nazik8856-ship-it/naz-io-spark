@@ -4,19 +4,31 @@
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { readSecret, updateSecret } from "./integration-secrets.ts";
 
-// Full granular scope set — request what the agent actually needs on Figma
-// files. Space-separated per Figma's OAuth spec.
-export const FIGMA_SCOPES = [
-  "files:read",
-  "file_variables:read",
-  "file_variables:write",
-  "file_comments:write",
-  "file_dev_resources:read",
-  "file_dev_resources:write",
-  "library_analytics:read",
-  "current_user:read",
-  "webhooks:write",
-];
+// Scope groups shown on NazAI's pre-consent screen. The user checks which
+// capabilities to grant; only those scopes are forwarded to Figma's consent
+// screen. Scopes are comma-separated in the auth URL per the connector spec.
+export const FIGMA_SCOPE_GROUPS: Record<string, string[]> = {
+  profile: ["current_user:read"],
+  files_content: ["file_content:read"],
+  files_metadata: ["file_metadata:read"],
+  comments_read: ["file_comments:read"],
+  comments_write: ["file_comments:write"],
+  library: ["library_content:read"],
+  projects: ["project_metadata:read"],
+};
+
+export const FIGMA_DEFAULT_GROUPS = Object.keys(FIGMA_SCOPE_GROUPS);
+
+export function scopesForGroups(groups: string[]): string[] {
+  const out = new Set<string>();
+  for (const g of groups) {
+    for (const s of FIGMA_SCOPE_GROUPS[g] || []) out.add(s);
+  }
+  return [...out];
+}
+
+// Full scope set — used by refresh/backward-compat code paths.
+export const FIGMA_SCOPES = scopesForGroups(FIGMA_DEFAULT_GROUPS);
 
 export const FIGMA_REDIRECT_URI = `${Deno.env.get("SUPABASE_URL")}/functions/v1/figma-oauth-callback`;
 
@@ -63,15 +75,18 @@ export async function verifyState(token: string): Promise<Record<string, unknown
   }
 }
 
-export function buildAuthUrl(state: string): string {
+export function buildAuthUrl(state: string, scopes: string[] = FIGMA_SCOPES): string {
   const clientId = Deno.env.get("FIGMA_CLIENT_ID") || "";
-  const url = new URL("https://www.figma.com/oauth");
-  url.searchParams.set("client_id", clientId);
-  url.searchParams.set("redirect_uri", FIGMA_REDIRECT_URI);
-  url.searchParams.set("scope", FIGMA_SCOPES.join(" "));
-  url.searchParams.set("state", state);
-  url.searchParams.set("response_type", "code");
-  return url.toString();
+  // Manually construct so scopes stay comma-separated (Figma accepts either
+  // spaces or commas; connector spec requires commas).
+  const params = [
+    `client_id=${encodeURIComponent(clientId)}`,
+    `redirect_uri=${encodeURIComponent(FIGMA_REDIRECT_URI)}`,
+    `scope=${scopes.map(encodeURIComponent).join(",")}`,
+    `state=${encodeURIComponent(state)}`,
+    `response_type=code`,
+  ].join("&");
+  return `https://www.figma.com/oauth?${params}`;
 }
 
 type FigmaTokenResponse = {
