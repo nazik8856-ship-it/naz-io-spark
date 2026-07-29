@@ -521,8 +521,20 @@ export default function IntegrationConnectModal({
       extraBody: { kind: googleKind || "gmail" },
     });
 
-  const startFigmaOAuth = () =>
-    startOAuth("figma", { functionName: "figma-oauth-start", source: "nazai-figma-oauth", label: "Figma" });
+  const startFigmaOAuth = () => {
+    const selected = Object.entries(figmaGroups).filter(([, v]) => v).map(([k]) => k);
+    if (!selected.length) {
+      setError("Select at least one permission to continue.");
+      return;
+    }
+    setStep("email");
+    startOAuth("figma", {
+      functionName: "figma-oauth-start",
+      source: "nazai-figma-oauth",
+      label: "Figma",
+      extraBody: { groups: selected },
+    });
+  };
 
   const startCanvaOAuth = () => {
     const selected = Object.entries(canvaGroups).filter(([, v]) => v).map(([k]) => k);
