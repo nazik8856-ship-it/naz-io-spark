@@ -295,14 +295,15 @@ export default function IntegrationConnectModal({
   }, [integration.name]);
   const isGoogle = googleKind !== null;
   const isComingSoon = useMemo(
-    () => /^(notion|youtube)$/i.test(integration.name.trim()),
+    () => /^(youtube)$/i.test(integration.name.trim()),
     [integration.name],
   );
   const isFigma = useMemo(() => /^figma$/i.test(integration.name.trim()), [integration.name]);
   const isCanva = useMemo(() => /^canva$/i.test(integration.name.trim()), [integration.name]);
   const isShopify = useMemo(() => /^shopify$/i.test(integration.name.trim()), [integration.name]);
   const isSlack = useMemo(() => /^slack$/i.test(integration.name.trim()), [integration.name]);
-  const isRealOAuth = isGoogle || isFigma || isCanva || isShopify || isSlack;
+  const isNotion = useMemo(() => /^notion$/i.test(integration.name.trim()), [integration.name]);
+  const isRealOAuth = isGoogle || isFigma || isCanva || isShopify || isSlack || isNotion;
 
   const isGmail = isGoogle; // legacy alias
   const providerKey = isGoogle ? "Gmail" : integration.name;
