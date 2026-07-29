@@ -531,6 +531,23 @@ export default function IntegrationConnectModal({
       extraBody: { groups: selected },
     });
   };
+  const startShopifyOAuth = () => {
+    const shop = shopifyShop.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+    if (!/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/i.test(shop)) {
+      setError("Enter a valid store domain, e.g. mystore.myshopify.com");
+      return;
+    }
+    setError(null);
+    // Show the popup-loading UI while Shopify's consent page opens.
+    setStep("email");
+    startOAuth("shopify", {
+      functionName: "shopify-oauth-start",
+      source: "nazai-shopify-oauth",
+      label: "Shopify",
+      extraBody: { shop },
+    });
+  };
+
 
   useEffect(() => {
     if (step !== "email") return;
