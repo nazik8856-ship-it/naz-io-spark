@@ -225,6 +225,17 @@ export default function GeneratedDashboard() {
       const intent = responseData.intent || "mixed";
       const manifest = responseData.manifest;
 
+      // The chat agent routes the prompt itself: a separate new site opens in a
+      // fresh workspace, a rebuild replaces this one, everything else is an edit.
+      if (responseData.created_new && responseData.website_id && responseData.website_id !== id) {
+        setTurns((t) => [...t, { role: "assistant", content: `✓ ${summary}`, time: "just now" }]);
+        setChatAttachments([]);
+        setChatTone(null);
+        toast.success("New website created");
+        navigate(`/generated/website/${responseData.website_id}`);
+        return;
+      }
+
       // Paint the compiler's verified manifest immediately. Waiting for a
       // second database round-trip could reload stale rows into the iframe and
       // make a successful edit appear to have done nothing.
@@ -246,6 +257,9 @@ export default function GeneratedDashboard() {
         setWebsite(immediateWebsite);
         setPages(immediatePages);
         cacheWebsitePreview(id, immediateWebsite, immediatePages);
+        if (!immediatePages.some((p: any) => p.slug === selectedPage)) {
+          setSelectedPage(immediatePages[0]?.slug || "");
+        }
       }
       const { data: site } = await supabase.from("websites").select("*").eq("id", id).maybeSingle();
       const { data: pgs } = await supabase.from("website_pages").select("*").eq("website_id", id).order("order_index", { ascending: true });
@@ -254,7 +268,11 @@ export default function GeneratedDashboard() {
       if (site && pgs) cacheWebsitePreview(id, site, pgs);
       setPreviewKey((k) => k + 1);
       const analyzedNote = analysis ? " I read and analyzed the attached context before applying it." : "";
-      setTurns((t) => [...t, { role: "assistant", content: `✓ ${summary}${analyzedNote} _(${intent} edit — visible in the refreshed preview)_`, time: "just now" }]);
+      const tail = responseData.rebuilt
+        ? " _(full regeneration — the preview now shows the new build)_"
+        : ` _(${intent} edit — visible in the refreshed preview)_`;
+      setTurns((t) => [...t, { role: "assistant", content: `✓ ${summary}${analyzedNote}${tail}`, time: "just now" }]);
+
       setChatAttachments([]);
       setChatTone(null);
     } catch (e) {
