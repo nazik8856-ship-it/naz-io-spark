@@ -592,7 +592,7 @@ serve(async (req) => {
       });
     }
 
-    // ============ FRESH COMPILE PATH ============
+    // ============ FRESH COMPILE PATH (also used for rebuild / new-site chat routes) ============
     let manifest: Manifest;
     try {
       const resp = await fetch(LOVABLE_URL, {
@@ -602,7 +602,7 @@ serve(async (req) => {
           model: MODEL,
           messages: [
             { role: "system", content: `You are NazAI Website Compiler.\n\n${SCHEMA_DOC}` },
-            { role: "user", content: `Compile this website brief into the JSON manifest. Follow user-specified style STRICTLY; invent a distinct identity where the brief is silent. Return only the JSON object.\n\nBRIEF:\n${prompt}` },
+            { role: "user", content: `Compile this website brief into the JSON manifest. Follow user-specified style STRICTLY; invent a distinct identity where the brief is silent. Return only the JSON object.\n\nBRIEF:\n${compilePrompt}` },
           ],
           temperature: 0.85,
         }),
@@ -613,13 +613,59 @@ serve(async (req) => {
       const data = await resp.json();
       const raw = data?.choices?.[0]?.message?.content ?? "{}";
       const parsed = JSON.parse(stripFences(typeof raw === "string" ? raw : JSON.stringify(raw)));
-      manifest = normalize(parsed, prompt);
+      manifest = normalize(parsed, compilePrompt);
     } catch (err) {
       console.error("compile-website-manifest AI failure", err);
-      manifest = fallbackManifest(prompt);
+      manifest = fallbackManifest(compilePrompt);
     }
 
     if (!save || !user) return json({ manifest });
+
+    // REBUILD: regenerate this same website in place, replacing all of its pages.
+    if (rebuildWebsiteId) {
+      const { data: oldPages } = await supabase
+        .from("website_pages").select("id, slug").eq("website_id", rebuildWebsiteId);
+
+      const rebuildRows = manifest.pages.map((p, i) => ({
+        website_id: rebuildWebsiteId,
+        slug: p.slug,
+        title: p.title,
+        seo_description: p.seo_description ?? null,
+        sections: p.sections,
+        order_index: i,
+      }));
+      const { error: upErr } = await supabase
+        .from("website_pages")
+        .upsert(rebuildRows, { onConflict: "website_id,slug" });
+      if (upErr) return json({ error: upErr.message }, 500);
+
+      const keep = new Set(manifest.pages.map((p) => p.slug));
+      const staleIds = (oldPages || []).filter((p: any) => !keep.has(p.slug)).map((p: any) => p.id);
+      if (staleIds.length) await supabase.from("website_pages").delete().in("id", staleIds);
+
+      const { error: wErr } = await supabase
+        .from("websites")
+        .update({
+          name: manifest.name,
+          title: manifest.name,
+          tagline: manifest.tagline,
+          theme: manifest.theme,
+          prompt: compilePrompt,
+        })
+        .eq("id", rebuildWebsiteId)
+        .eq("user_id", user.id);
+      if (wErr) return json({ error: wErr.message }, 500);
+
+      return json({
+        manifest,
+        website_id: rebuildWebsiteId,
+        pages: manifest.pages,
+        intent: "rebuild",
+        rebuilt: true,
+        summary: `Regenerated "${manifest.name}" from scratch — ${manifest.pages.length} page${manifest.pages.length === 1 ? "" : "s"} with a completely new design.`,
+        route_reason: routeInfo.reason,
+      });
+    }
 
     const { data: siteRow, error: siteErr } = await supabase
       .from("websites")
@@ -629,7 +675,7 @@ serve(async (req) => {
         title: manifest.name,
         tagline: manifest.tagline,
         theme: manifest.theme,
-        prompt,
+        prompt: compilePrompt,
         html: "",
       })
       .select("id")
@@ -661,7 +707,19 @@ serve(async (req) => {
       return json({ manifest, website_id: siteRow.id, error: pagesErr.message }, 500);
     }
 
-    return json({ manifest, website_id: siteRow.id, pages: pagesOut });
+    return json({
+      manifest,
+      website_id: siteRow.id,
+      pages: pagesOut,
+      ...(routeInfo.route === "new"
+        ? {
+            intent: "new",
+            created_new: true,
+            summary: `Built a separate new website — "${manifest.name}" (${manifest.pages.length} page${manifest.pages.length === 1 ? "" : "s"}). Opening it now; your previous site is untouched.`,
+            route_reason: routeInfo.reason,
+          }
+        : {}),
+    });
   } catch (e) {
     console.error("compile-website-manifest error", e);
     return json({ error: (e as Error).message }, 500);
