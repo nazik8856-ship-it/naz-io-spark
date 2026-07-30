@@ -794,10 +794,14 @@ export default function IntegrationConnectModal({
           {/* Provider brand */}
           <div className="flex flex-col items-center text-center mb-6">
             <div
-              className="h-12 w-12 rounded-full flex items-center justify-center font-bold text-white text-xl mb-3"
-              style={{ background: `linear-gradient(135deg, ${accent}, #22d3ee)` }}
+              className="h-12 w-12 rounded-full flex items-center justify-center font-bold text-white text-xl mb-3 overflow-hidden"
+              style={
+                getIntegrationLogo(integration.name)
+                  ? { background: "#fff", border: "1px solid rgba(0,0,0,0.08)" }
+                  : { background: `linear-gradient(135deg, ${accent}, #22d3ee)` }
+              }
             >
-              {initial}
+              <IntegrationLogo name={integration.name} size={28} fallback={initial} />
             </div>
             <div className="text-[11px] uppercase tracking-[0.22em] font-medium text-zinc-500">
               Sign in to continue
