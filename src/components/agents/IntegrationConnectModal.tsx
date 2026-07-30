@@ -13,6 +13,7 @@ import {
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useIntegrationOAuthMessages } from "@/hooks/useIntegrationOAuthMessages";
+import { IntegrationLogo, getIntegrationLogo } from "@/components/IntegrationLogos";
 
 type Integration = {
   name: string;
