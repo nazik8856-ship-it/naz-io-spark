@@ -382,6 +382,54 @@ Return STRICT JSON only:
 }`;
 
 
+// Route a chat follow-up on an existing website into one of three actions.
+// "edit"    → surgical refinement of the current manifest (default, safest)
+// "rebuild" → regenerate this same website from scratch, replacing its pages
+// "new"     → compile a separate, additional website and open it
+async function routeWebsiteChatIntent(
+  key: string,
+  prompt: string,
+  siteName: string,
+): Promise<{ route: "edit" | "rebuild" | "new"; brief: string; reason: string }> {
+  const fallback = { route: "edit" as const, brief: prompt, reason: "defaulted to an edit" };
+  try {
+    const resp = await fetch(LOVABLE_URL, {
+      method: "POST",
+      headers: { "Lovable-API-Key": key, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "google/gemini-3.1-flash-lite",
+        messages: [
+          {
+            role: "system",
+            content: `You classify what a user wants when they message the chat agent attached to an existing generated website called "${siteName}".
+
+Return STRICT JSON: { "route": "edit" | "rebuild" | "new", "brief": string, "reason": string }
+
+Rules:
+- "edit" (DEFAULT): any change, addition, removal, restyle, copy tweak, new page/section on the CURRENT site. Use this whenever in doubt.
+- "rebuild": the user wants THIS SAME site regenerated from scratch / a totally different design for it ("start over", "redo it completely", "regenerate this site", "scrap it and make it again", "completely different design").
+- "new": the user wants an ADDITIONAL, separate website for a different business/topic ("make me another website for a gym", "create a new site for my bakery", "build a second site").
+- "brief": for "rebuild"/"new", a complete standalone website brief (subject, audience, style, pages, features) built from the user's message; for "edit", echo the user's message unchanged.
+- "reason": one short sentence.`,
+          },
+          { role: "user", content: prompt },
+        ],
+        temperature: 0,
+        response_format: { type: "json_object" },
+      }),
+    });
+    if (!resp.ok) return fallback;
+    const data = await resp.json();
+    const parsed = JSON.parse(stripFences(String(data?.choices?.[0]?.message?.content ?? "{}")));
+    const route = parsed?.route === "rebuild" || parsed?.route === "new" ? parsed.route : "edit";
+    const brief = typeof parsed?.brief === "string" && parsed.brief.trim().length > 12 ? parsed.brief.trim() : prompt;
+    return { route, brief: route === "edit" ? prompt : brief, reason: String(parsed?.reason || "") };
+  } catch (err) {
+    console.error("website intent routing failed", err);
+    return fallback;
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
