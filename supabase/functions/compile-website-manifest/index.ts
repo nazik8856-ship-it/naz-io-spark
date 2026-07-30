@@ -452,11 +452,30 @@ serve(async (req) => {
     const { data: userData } = await supabase.auth.getUser();
     const user = userData?.user;
 
+    // Follow-up chat on an existing website: decide edit vs rebuild vs new site.
+    let compilePrompt = prompt;
+    let rebuildWebsiteId: string | null = null;
+    let routeInfo: { route: "edit" | "rebuild" | "new"; reason: string } = { route: "edit", reason: "" };
+
     // ============ REFINE PATH ============
     if (refine && previousWebsiteId && user) {
       const { data: existing } = await supabase.from("websites").select("*").eq("id", previousWebsiteId).eq("user_id", user.id).maybeSingle();
       if (!existing) return json({ error: "Website not found" }, 404);
       const { data: existingPages } = await supabase.from("website_pages").select("*").eq("website_id", previousWebsiteId).order("order_index", { ascending: true });
+
+      const routed = await routeWebsiteChatIntent(key, prompt, String(existing.name || "this website"));
+      routeInfo = { route: routed.route, reason: routed.reason };
+      if (routed.route !== "edit") {
+        compilePrompt = routed.brief;
+        rebuildWebsiteId = routed.route === "rebuild" ? String(previousWebsiteId) : null;
+      }
+    }
+
+    if (refine && previousWebsiteId && user && routeInfo.route === "edit") {
+      const { data: existing } = await supabase.from("websites").select("*").eq("id", previousWebsiteId).eq("user_id", user.id).maybeSingle();
+      if (!existing) return json({ error: "Website not found" }, 404);
+      const { data: existingPages } = await supabase.from("website_pages").select("*").eq("website_id", previousWebsiteId).order("order_index", { ascending: true });
+
 
       const currentManifest = {
         name: existing.name,
