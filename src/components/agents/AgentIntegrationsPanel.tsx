@@ -11,6 +11,7 @@ import {
 import IntegrationConnectModal from "./IntegrationConnectModal";
 import { supabase } from "@/integrations/supabase/client";
 import { useIntegrationOAuthMessages, expandConnectedKeys } from "@/hooks/useIntegrationOAuthMessages";
+import { IntegrationLogo } from "@/components/IntegrationLogos";
 
 type Integration = {
   name: string;
@@ -476,6 +477,7 @@ export default function AgentIntegrationsPanel({
                     <div className="flex items-start justify-between gap-2 mb-2">
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
+                          <IntegrationLogo name={it.name} size={16} />
                           <div className="text-sm font-semibold text-white truncate">{it.name}</div>
                           {isConnected ? (
                             <span className="inline-flex items-center gap-1 text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded"

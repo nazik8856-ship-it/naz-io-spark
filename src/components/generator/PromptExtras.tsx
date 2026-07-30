@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Plus, SlidersHorizontal, X, Upload, Link2, Box, FileSpreadsheet, Database, Check } from "lucide-react";
+import { IntegrationLogo } from "@/components/IntegrationLogos";
 import { supabase, SUPABASE_FUNCTIONS_URL, SUPABASE_ANON } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
@@ -391,7 +392,11 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
                     onClick={attach}
                     className="flex items-center gap-2 text-zinc-300 disabled:opacity-60 disabled:cursor-not-allowed"
                   >
-                    <Database className="h-3.5 w-3.5 text-purple-300" /> {i.label}
+                    <IntegrationLogo
+                      name={i.label}
+                      size={16}
+                      fallback={<Database className="h-3.5 w-3.5 text-purple-300" />}
+                    /> {i.label}
                   </button>
                   {already ? (
                     <span className="flex items-center gap-1 text-[10px] text-emerald-400">
