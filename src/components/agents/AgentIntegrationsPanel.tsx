@@ -11,6 +11,7 @@ import {
 import IntegrationConnectModal from "./IntegrationConnectModal";
 import { supabase } from "@/integrations/supabase/client";
 import { useIntegrationOAuthMessages, expandConnectedKeys } from "@/hooks/useIntegrationOAuthMessages";
+import { IntegrationLogo } from "@/components/IntegrationLogos";
 
 type Integration = {
   name: string;
