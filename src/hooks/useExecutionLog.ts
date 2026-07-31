@@ -48,9 +48,11 @@ export function useExecutionLog() {
   /** Mark a step as in-flight. Auto-appends if it wasn't pre-declared. */
   const begin = useCallback((id: string, label?: string) => {
     setRunning(true);
-    patch(id, { status: "active", startedAt: Date.now(), label: label ?? undefined as unknown as string }, label);
-    if (label) patch(id, { label });
+    const next: Partial<ExecStep> = { status: "active", startedAt: Date.now() };
+    if (label) next.label = label;
+    patch(id, next, label);
   }, [patch]);
+
 
   const done = useCallback((id: string, note?: string) => {
     patch(id, { status: "done", endedAt: Date.now(), ...(note ? { note } : {}) });
