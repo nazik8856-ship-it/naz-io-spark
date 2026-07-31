@@ -17,12 +17,14 @@ export type ClarificationRequest = {
   options: string[];
   inputType: ClarificationInputType;
   accept?: string;
+  runId: string;
   createdAt: number;
   timeoutMs: number;
 };
 
 type EventLike = {
   id: string;
+  run_id?: string;
   kind: string;
   created_at: string;
   payload: Record<string, unknown> | null;
@@ -57,6 +59,7 @@ export function pendingClarification(events: EventLike[], agentId: string): Clar
       options,
       inputType,
       accept: typeof p.accept === "string" ? p.accept : undefined,
+      runId: e.run_id || "",
       createdAt: new Date(e.created_at).getTime(),
       timeoutMs: typeof p.response_timeout_ms === "number" ? p.response_timeout_ms : DEFAULT_TIMEOUT_MS,
     };
@@ -97,11 +100,15 @@ export async function submitClarificationAnswer(opts: {
   const { data: auth } = await supabase.auth.getUser();
   const userId = auth.user?.id;
 
-  await supabase.from("agent_events").insert({
-    agent_id: agentId,
-    kind: "clarification_answer",
-    payload: { ref: request.id, answer: answerText, file_url: opts.fileUrl ?? null },
-  });
+  if (userId) {
+    await supabase.from("agent_events").insert({
+      agent_id: agentId,
+      user_id: userId,
+      run_id: request.runId || crypto.randomUUID(),
+      kind: "clarification_answer",
+      payload: { ref: request.id, answer: answerText, file_url: opts.fileUrl ?? null },
+    });
+  }
 
   if (userId) {
     await supabase.from("agent_memory").insert({
