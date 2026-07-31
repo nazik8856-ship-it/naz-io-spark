@@ -11,6 +11,14 @@ import {
   MAX_TOOL_ATTEMPTS,
   type Corrector,
 } from "../_shared/tool-retry.ts";
+import {
+  providerForTool,
+  findOpenIssue,
+  recordIssue,
+  recordQuestionIssue,
+  loadKnownAnswers,
+  type IssueErrorType,
+} from "../_shared/integration-issues.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
