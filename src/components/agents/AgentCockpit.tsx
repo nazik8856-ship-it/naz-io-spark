@@ -77,6 +77,26 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
   const [gmailVerifying, setGmailVerifying] = useState(false);
   const feedRef = useRef<HTMLDivElement>(null);
 
+  // ---- Known non-retryable blockers (integration_issues) -------------------
+  const [issues, setIssues] = useState<IntegrationIssue[]>([]);
+  const [issueWindowOpen, setIssueWindowOpen] = useState(false);
+  const autoOpenedRef = useRef<string | null>(null);
+
+  const loadIssues = useCallback(async () => {
+    const rows = await fetchOpenIssues();
+    setIssues(rows);
+    return rows;
+  }, []);
+
+  useEffect(() => { loadIssues(); }, [loadIssues]);
+
+  // A successful (re)connect clears the matching blockers immediately.
+  useIntegrationOAuthMessages(async (info) => {
+    await clearIssuesForProvider(info.provider);
+    await loadIssues();
+  });
+
+
   const loadEvents = useCallback(async () => {
     const { data, error } = await supabase
       .from("agent_events")
