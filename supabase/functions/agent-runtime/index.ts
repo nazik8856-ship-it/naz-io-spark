@@ -642,7 +642,29 @@ Rules:
           messages.push({ role: "user", content: `Unknown tool "${toolName}". Available: ${effectiveTools.map((t) => t.name).join(", ")}` });
           continue;
         }
-        const input = (parsed.input && typeof parsed.input === "object") ? parsed.input as Record<string, unknown> : {};
+        const rawInput = (parsed.input && typeof parsed.input === "object") ? parsed.input as Record<string, unknown> : {};
+
+        // ---- Zod schema gate: validate BEFORE any executor runs ----
+        const validation = validateToolInput(tool.kind, tool.name, rawInput);
+        if (!validation.success) {
+          const payload = {
+            success: false,
+            error: "validation_error",
+            tool: tool.name,
+            kind: tool.kind,
+            details: validation.details,
+          };
+          await logEvent("tool_call", { tool: tool.name, kind: tool.kind, input: rawInput, rejected: true });
+          await logEvent("tool_error", { tool: tool.name, kind: tool.kind, message: `validation_error: ${validation.message}`, details: validation.details });
+          await logEvent("tool_result", { tool: tool.name, ok: false, summary: `validation_error — ${validation.message}` });
+          messages.push({
+            role: "user",
+            content: `Tool "${tool.name}" was NOT executed — its input failed schema validation.\n${JSON.stringify(payload)}\nFix the listed fields and re-emit a corrected action block, or choose a different tool.`,
+          });
+          continue;
+        }
+        const input = validation.data;
+
 
         // Retry-alternative-first guard: block ask_user until the model has
         // tried at least one different tool after the last failure.
