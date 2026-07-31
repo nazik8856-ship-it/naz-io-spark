@@ -113,11 +113,104 @@ export const TOOL_SCHEMAS: Record<string, z.ZodTypeAny> = {
   custom: z.record(z.unknown()),
 };
 
-export type ToolValidationIssue = { field: string; message: string; code: string };
+export type ToolValidationIssue = {
+  field: string;
+  label: string;
+  message: string;
+  friendly: string;
+  code: string;
+};
 
 export type ToolValidationResult =
   | { success: true; data: Record<string, unknown> }
-  | { success: false; error: "validation_error"; tool: string; details: ToolValidationIssue[]; message: string };
+  | {
+      success: false;
+      error: "validation_error";
+      tool: string;
+      details: ToolValidationIssue[];
+      /** Technical one-liner, kept for logs/model correction. */
+      message: string;
+      /** Plain-English explanation safe to show a non-technical user. */
+      humanMessage: string;
+    };
+
+// Plain-English names for every field the tools accept.
+const FIELD_LABELS: Record<string, string> = {
+  query: "search query",
+  url: "web address",
+  body: "message body",
+  expression: "calculation",
+  message: "message",
+  severity: "importance level",
+  key: "memory key",
+  value: "memory value",
+  question: "question for the user",
+  options: "answer options",
+  action: "action to approve",
+  payload: "action details",
+  risk: "risk level",
+  provider: "connected app",
+  subject: "subject",
+  context: "background context",
+  focus: "focus area",
+  objective: "objective",
+  constraints: "constraints",
+  to: "recipient email address",
+  thread_id: "email conversation",
+  message_id: "email message",
+  max: "number of emails",
+  title: "title",
+  kind: "document type",
+  body_markdown: "document content",
+  doc_id: "document",
+  mode: "edit mode",
+  sheet_id: "spreadsheet",
+  range: "cell range",
+  values: "spreadsheet rows",
+  start_iso: "start date & time",
+  end_iso: "end date & time",
+  description: "description",
+  property_id: "analytics property",
+  run_at_iso: "scheduled date & time",
+  instruction: "follow-up instruction",
+  email: "email address",
+  name: "name",
+  company: "company",
+  note: "note",
+  tags: "tags",
+  "(root)": "the information provided",
+};
+
+function labelFor(field: string): string {
+  if (FIELD_LABELS[field]) return FIELD_LABELS[field];
+  const leaf = field.split(".").pop() ?? field;
+  if (FIELD_LABELS[leaf]) return FIELD_LABELS[leaf];
+  return leaf.replace(/[._]/g, " ");
+}
+
+// Turn a raw Zod issue into a sentence a normal person can read.
+function friendlyFor(label: string, issue: { code: string; message: string; expected?: unknown; received?: unknown }): string {
+  const m = issue.message;
+  if (issue.code === "invalid_type" && issue.received === "undefined") {
+    return `The ${label} is missing — it needs to be filled in.`;
+  }
+  if (issue.code === "invalid_type") {
+    return `The ${label} is the wrong kind of value (expected ${String(issue.expected)}, got ${String(issue.received)}).`;
+  }
+  if (/is required/i.test(m)) return `The ${label} is missing — it needs to be filled in.`;
+  if (/valid absolute URL|http:\/\//i.test(m)) return `The ${label} isn't a valid link — it should start with https://`;
+  if (/valid email/i.test(m)) return `The ${label} isn't a valid email address.`;
+  if (/ISO 8601/i.test(m)) return `The ${label} isn't a valid date and time.`;
+  if (/end_iso must be after/i.test(m)) return `The end time has to come after the start time.`;
+  if (/Sheet1!A2/i.test(m)) return `The ${label} isn't in the right format — it should look like "Sheet1!A2:C10".`;
+  if (issue.code === "too_big") return `The ${label} is too long.`;
+  if (issue.code === "too_small") return `The ${label} is too short or empty.`;
+  if (issue.code === "invalid_enum_value") return `The ${label} isn't one of the allowed choices (${m.replace(/^.*expected\s*/i, "")}).`;
+  if (/provide at least one/i.test(m)) {
+    return `Not enough information was given — ${m.replace(/^provide at least one of?\s*:?\s*/i, "at least one of these is needed: ")}.`;
+  }
+  return `The ${label} isn't valid: ${m}`;
+}
 
 export function validateToolInput(
   kind: string,
@@ -128,16 +221,27 @@ export function validateToolInput(
   const value = input && typeof input === "object" && !Array.isArray(input) ? input : {};
   const parsed = schema.safeParse(value);
   if (parsed.success) return { success: true, data: parsed.data as Record<string, unknown> };
-  const details: ToolValidationIssue[] = parsed.error.issues.map((i) => ({
-    field: i.path.length ? i.path.join(".") : "(root)",
-    message: i.message,
-    code: i.code,
-  }));
+  const details: ToolValidationIssue[] = parsed.error.issues.map((i) => {
+    const field = i.path.length ? i.path.join(".") : "(root)";
+    const label = labelFor(field);
+    return {
+      field,
+      label,
+      message: i.message,
+      friendly: friendlyFor(label, i as unknown as { code: string; message: string; expected?: unknown; received?: unknown }),
+      code: i.code,
+    };
+  });
+  const humanMessage =
+    `I couldn't run "${toolName}" because the information it was given wasn't usable: ` +
+    details.map((d) => d.friendly).join(" ");
   return {
     success: false,
     error: "validation_error",
     tool: toolName,
     details,
     message: details.map((d) => `${d.field}: ${d.message}`).join("; "),
+    humanMessage,
   };
 }
+

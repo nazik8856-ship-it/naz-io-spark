@@ -653,15 +653,29 @@ Rules:
             error: "validation_error",
             tool: tool.name,
             kind: tool.kind,
+            explanation: validation.humanMessage,
             details: validation.details,
           };
           await logEvent("tool_call", { tool: tool.name, kind: tool.kind, input: rawInput, rejected: true });
-          await logEvent("tool_error", { tool: tool.name, kind: tool.kind, message: `validation_error: ${validation.message}`, details: validation.details });
-          await logEvent("tool_result", { tool: tool.name, ok: false, summary: `validation_error — ${validation.message}` });
+          await logEvent("tool_error", {
+            tool: tool.name,
+            kind: tool.kind,
+            message: validation.humanMessage,
+            technical: `validation_error: ${validation.message}`,
+            details: validation.details,
+          });
+          await logEvent("tool_result", {
+            tool: tool.name,
+            ok: false,
+            summary: validation.humanMessage,
+            reason: validation.humanMessage,
+            details: validation.details,
+          });
           messages.push({
             role: "user",
-            content: `Tool "${tool.name}" was NOT executed — its input failed schema validation.\n${JSON.stringify(payload)}\nFix the listed fields and re-emit a corrected action block, or choose a different tool.`,
+            content: `Tool "${tool.name}" was NOT executed — its input failed validation.\n${validation.humanMessage}\n${JSON.stringify(payload)}\nFix the listed fields and re-emit a corrected action block, or choose a different tool. When you explain this to the user, use plain everyday language — no schema or field-code jargon.`,
           });
+
           continue;
         }
         const input = validation.data;
