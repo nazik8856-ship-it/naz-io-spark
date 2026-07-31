@@ -387,7 +387,44 @@ serve(async (req) => {
     // Decision provenance staged by the parser for the next `action` event.
     const pendingProvenance: { reasoning?: string; confidence?: string } = {};
 
+    // Output-validation guard: when a tool reports success but its result is
+    // missing required keys, we downgrade the event to an incomplete_result
+    // error and stage a corrective instruction for the next model turn.
+    const outputGuard: { pending: string | null; retried: Record<string, number> } = { pending: null, retried: {} };
+
     const logEvent = async (kind: string, payload: Record<string, unknown>) => {
+      // ---- Per-tool OUTPUT validation gate: runs after the executor succeeds,
+      // before the result reaches the user. Incomplete "successes" never ship.
+      if (kind === "action" && (payload as { ok?: unknown }).ok === true) {
+        const p = payload as Record<string, unknown>;
+        const outKind = String(p.type || "");
+        const outName = String(p.tool || p.type || outKind || "tool");
+        const check = validateToolOutput(outKind, outName, p);
+        if (!check.success) {
+          const attempts = (outputGuard.retried[outKind] || 0) + 1;
+          outputGuard.retried[outKind] = attempts;
+          // Rewrite the delivered payload: this is NOT a success.
+          payload.ok = false;
+          payload.error = "incomplete_result";
+          payload.missing = check.missing;
+          payload.summary = check.humanMessage;
+          payload.reason = check.humanMessage;
+          outputGuard.pending = attempts <= 1
+            ? `${check.humanMessage}\nRetry this step ONCE — re-run the same tool with corrected input so the missing pieces come back. If the retry is also incomplete, try a different approach before escalating. Explain any failure to the user in plain everyday language.`
+            : `${check.humanMessage}\nThis step has now failed output validation ${attempts} times. Stop retrying it, try a different approach, and if nothing works tell the user plainly what could not be confirmed.`;
+          // Separate, queryable failure record.
+          supabase.from("agent_events").insert({
+            run_id: runId, agent_id: agentId, user_id: userId,
+            kind: "output_validation_failed",
+            payload: {
+              tool: outName, kind: outKind, attempt: attempts,
+              missing: check.missing,
+              message: check.humanMessage,
+              technical: check.message,
+            },
+          }).then(() => {}, () => {});
+        }
+      }
       if (kind === "tool_result" || kind === "action") {
         const p = payload as { ok?: unknown; tool?: unknown; type?: unknown };
         const toolName = String(p.tool || p.type || "unknown");
@@ -397,6 +434,7 @@ serve(async (req) => {
           failGuard.state = null;
         }
       }
+
       // Mirror verified outputs into agent_artifacts so the Outputs panel is
       // fast, durable, and survives event pruning.
       if (kind === "action") {
