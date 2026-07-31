@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import ExecutionLog from "@/components/execution/ExecutionLog";
+import { useExecutionLog } from "@/hooks/useExecutionLog";
 import {
   ArrowLeft,
   ArrowUp,
@@ -248,6 +250,8 @@ export default function GenerationWorkspace() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [prompt, setPrompt] = useState("");
+  // Live deploy pipeline steps (event-driven, replaces the old fake checkpoints).
+  const deployLog = useExecutionLog();
   const [activeTab, setActiveTab] = useState<"preview" | "dashboard">("preview");
   // Preview toolbar controls
   const [previewDevice, setPreviewDevice] = useState<"desktop" | "tablet" | "phone">("desktop");
@@ -929,7 +933,16 @@ export default function GenerationWorkspace() {
     const existingAgentId = priorApproved?.agentDbId ?? null;
     const isEdit = !!existingAgentId;
 
+    deployLog.start([
+      { id: "session", label: "Validating your session…" },
+      { id: "research", label: "Researching your business context…" },
+      { id: "intake", label: "Collecting the details the agent can't infer…" },
+      { id: "compile", label: "Compiling the executable agent manifest…" },
+      { id: "persist", label: "Saving the agent to your workspace…" },
+      { id: "runtime", label: "Launching the first autonomous run…" },
+    ]);
     try {
+      deployLog.begin("session");
       // Require a signed-in user — without it, the edge function can't insert
       // under RLS and agentId comes back null (silent failure that produced
       // the infinite "Booting autonomous runtime…" screen).
@@ -938,6 +951,8 @@ export default function GenerationWorkspace() {
         throw new Error("Sign in to deploy a real autonomous agent.");
       }
       const headers = await authedFunctionHeaders();
+      deployLog.done("session", "Signed in");
+      deployLog.begin("research");
 
       // STAGE 0 — Auto-research the business so the agent ships pre-synced.
       let businessProfileId: string | null = null;
@@ -958,12 +973,23 @@ export default function GenerationWorkspace() {
       } catch (e) {
         console.warn("business research failed (non-fatal)", e);
       }
+      deployLog.done(
+        "research",
+        (businessProfile as { company_name?: string } | null)?.company_name
+          ? `Synced with ${(businessProfile as { company_name?: string }).company_name}`
+          : "No external profile found — using your brief",
+      );
 
       // STAGE 0.5 — Ask the user only the essentials the agent can't infer.
       // Non-blocking failure: if intake fails for any reason, deploy with defaults
       // so the agent ALWAYS becomes visible. SKIPPED on incremental edits — the
       // original intake answers are already stored on the existing agent.
       let intakeAnswers: Record<string, string> = {};
+      if (isEdit) {
+        deployLog.skip("intake", "Incremental edit — reusing your earlier answers");
+      } else {
+        deployLog.begin("intake");
+      }
       if (!isEdit) {
         try {
           const intakeResp = await fetch(functionUrl("agent-intake"), {
@@ -989,6 +1015,13 @@ export default function GenerationWorkspace() {
       // the `agents` row in one round trip (server-side, scoped to auth.uid()).
       // On incremental edits we pass existingAgentId so the backend UPDATEs the
       // same row instead of creating a duplicate.
+      if (!isEdit) {
+        deployLog.done(
+          "intake",
+          Object.keys(intakeAnswers).length ? "Your answers captured" : "Nothing else needed",
+        );
+      }
+      deployLog.begin("compile", isEdit ? "Applying targeted changes to the existing agent…" : "Compiling the executable agent manifest…");
       console.info("[Deploy] Stage A: compiling manifest…", { isEdit, existingAgentId });
       const compileResp = await resilientFetch(functionUrl("compile-agent-manifest"), {
         method: "POST",
@@ -1022,6 +1055,8 @@ export default function GenerationWorkspace() {
       if (!manifest || !manifest.name) throw new Error("Manifest did not parse.");
       if (!agentId) throw new Error(compileBody.error || "Could not persist agent — backend rejected the row.");
 
+      deployLog.done("compile", `Manifest ready — ${manifest.tools?.length ?? 0} tool(s) wired`);
+      deployLog.begin("persist");
       const name = manifest.name;
       console.info("[Deploy] Stage B: agent persisted", { agentId, name });
       updateMsg(id, {
@@ -1053,6 +1088,8 @@ export default function GenerationWorkspace() {
 
       // STAGE C — Fire-and-forget the first autonomous run. The cockpit subscribes
       // to agent_events via realtime, so live reasoning will appear as it streams.
+      deployLog.done("persist", compileMode === "updated" ? "Existing agent updated" : "Agent saved");
+      deployLog.begin("runtime");
       console.info("[Deploy] Stage C: starting runtime…");
       void fetch(functionUrl("agent-runtime"), {
         method: "POST",
@@ -1064,11 +1101,15 @@ export default function GenerationWorkspace() {
           console.warn("[Deploy] runtime start non-OK", r.status, t);
         }
       }).catch((err) => console.warn("initial agent run failed", err));
+      deployLog.done("runtime", "Runtime started — live reasoning streams in the cockpit");
+      deployLog.finish("Agent is live");
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : "Could not deploy agent.";
       // Generation must ALWAYS appear. If the backend failed, build a fully
       // local manifest from the spec so the AI Agent cockpit still renders —
       // the user never sees a blank/dead-end screen.
+      const activeDeployStep = deployLog.steps.find((st) => st.status === "active");
+      deployLog.fail(activeDeployStep?.id || "compile", errMsg);
       console.warn("[Deploy] backend failed, rendering local agent:", errMsg);
       toast.error(`Backend unavailable — showing local agent preview. (${errMsg})`);
       const salvaged = cleanAgentSpecOutput(sourceSpec, { final: true }) || sourceSpec;
@@ -2052,23 +2093,27 @@ export default function GenerationWorkspace() {
                               <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" />
                               Generation Console
                             </div>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                              {checkpoints.map((cp, i) => (
-                                <div
-                                  key={i}
-                                  className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 text-xs font-mono transition-all ${
-                                    cp.done
-                                      ? "border-emerald-400/40 bg-emerald-400/5 text-emerald-200"
-                                      : "border-white/10 bg-white/[0.02] text-zinc-500"
-                                  }`}
-                                >
-                                  <span className={`h-2 w-2 rounded-full ${cp.done ? "bg-emerald-400" : "bg-zinc-600 animate-pulse"}`} />
-                                  <span className="shrink-0 text-[10px] opacity-60">[{String(i + 1).padStart(2, "0")}]</span>
-                                  <span className="truncate">{cp.label}</span>
-                                  {cp.done && <span className="ml-auto text-emerald-400">✓</span>}
-                                </div>
-                              ))}
-                            </div>
+                            {deployLog.steps.length > 0 ? (
+                              <ExecutionLog steps={deployLog.steps} title="Deploy pipeline" accent="#22d3ee" />
+                            ) : (
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                {checkpoints.map((cp, i) => (
+                                  <div
+                                    key={i}
+                                    className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 text-xs font-mono transition-all ${
+                                      cp.done
+                                        ? "border-emerald-400/40 bg-emerald-400/5 text-emerald-200"
+                                        : "border-white/10 bg-white/[0.02] text-zinc-500"
+                                    }`}
+                                  >
+                                    <span className={`h-2 w-2 rounded-full ${cp.done ? "bg-emerald-400" : "bg-zinc-600 animate-pulse"}`} />
+                                    <span className="shrink-0 text-[10px] opacity-60">[{String(i + 1).padStart(2, "0")}]</span>
+                                    <span className="truncate">{cp.label}</span>
+                                    {cp.done && <span className="ml-auto text-emerald-400">✓</span>}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                             <div className="rounded-lg border border-cyan-400/20 bg-black/70 p-4 max-h-[420px] overflow-y-auto">
                               <div className="text-[10px] uppercase tracking-[0.2em] text-cyan-400/70 mb-2 font-mono flex items-center justify-between">
                                 <span>▮ nazai@agent-forge:~$ compile --deploy</span>

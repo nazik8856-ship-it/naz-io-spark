@@ -30,6 +30,8 @@ import AgentCockpit, { type AgentManifest } from "@/components/agents/AgentCockp
 import LiveAgentChat from "@/components/agents/LiveAgentChat";
 import PromptExtras, { analyzeAndBuildContext, type Attachment } from "@/components/generator/PromptExtras";
 import { cn } from "@/lib/utils";
+import ExecutionLog from "@/components/execution/ExecutionLog";
+import { useExecutionLog } from "@/hooks/useExecutionLog";
 import { toast } from "sonner";
 
 type WebsiteView = "preview" | "code";
@@ -87,6 +89,8 @@ export default function GeneratedDashboard() {
   const [savingDomain, setSavingDomain] = useState(false);
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [chatBusy, setChatBusy] = useState(false);
+  // Real-time step log for website chat actions (replaces the generic spinner).
+  const websiteLog = useExecutionLog();
   const [chatAttachments, setChatAttachments] = useState<Attachment[]>([]);
   const [chatTone, setChatTone] = useState<string | null>(null);
   const [previewKey, setPreviewKey] = useState(0);
@@ -178,13 +182,26 @@ export default function GeneratedDashboard() {
     if (!id) return;
     setTurns((t) => [...t, { role: "user", content: text, time: "just now" }]);
     setChatBusy(true);
+    websiteLog.start([
+      { id: "analyze", label: "Analyzing your request…" },
+      { id: "auth", label: "Validating session…" },
+      { id: "compile", label: "Asking the website compiler to apply changes…" },
+      { id: "apply", label: "Applying the updated design…" },
+      { id: "persist", label: "Saving and re-reading the saved pages…" },
+      { id: "preview", label: "Refreshing the live preview…" },
+    ]);
     try {
+      websiteLog.begin("analyze");
       // Analyze every website follow-up as a design brief before execution. The
       // compiler still receives the current manifest, so this enriches intent
       // without regenerating or discarding untouched work.
       const { enrichedPrompt, analysis } = await analyzeAndBuildContext(text, chatTone, chatAttachments, "website");
+      websiteLog.done("analyze", analysis ? "Brief and attachments analyzed" : "Brief understood");
+      websiteLog.begin("auth");
       const { data: sess } = await supabase.auth.getSession();
       const token = sess.session?.access_token;
+      websiteLog.done("auth", "Session valid");
+      websiteLog.begin("compile");
       const resp = await supabase.functions.invoke("compile-website-manifest", {
         body: {
           prompt: enrichedPrompt,
@@ -224,6 +241,14 @@ export default function GeneratedDashboard() {
       const summary = responseData.summary || "Updated.";
       const intent = responseData.intent || "mixed";
       const manifest = responseData.manifest;
+      websiteLog.done(
+        "compile",
+        responseData.created_new
+          ? "New website generated"
+          : responseData.rebuilt
+          ? "Full rebuild produced"
+          : `${intent} edit produced`,
+      );
 
       // The chat agent routes the prompt itself: a separate new site opens in a
       // fresh workspace, a rebuild replaces this one, everything else is an edit.
@@ -231,6 +256,7 @@ export default function GeneratedDashboard() {
         setTurns((t) => [...t, { role: "assistant", content: `✓ ${summary}`, time: "just now" }]);
         setChatAttachments([]);
         setChatTone(null);
+        websiteLog.finish("Opening the new website workspace…");
         toast.success("New website created");
         navigate(`/generated/website/${responseData.website_id}`);
         return;
@@ -239,6 +265,7 @@ export default function GeneratedDashboard() {
       // Paint the compiler's verified manifest immediately. Waiting for a
       // second database round-trip could reload stale rows into the iframe and
       // make a successful edit appear to have done nothing.
+      websiteLog.begin("apply");
       if (manifest?.pages?.length) {
         const immediateWebsite = {
           ...website,
@@ -261,12 +288,18 @@ export default function GeneratedDashboard() {
           setSelectedPage(immediatePages[0]?.slug || "");
         }
       }
+      websiteLog.done("apply", manifest?.pages?.length ? `${manifest.pages.length} page(s) updated` : "No structural changes");
+      websiteLog.begin("persist");
       const { data: site } = await supabase.from("websites").select("*").eq("id", id).maybeSingle();
       const { data: pgs } = await supabase.from("website_pages").select("*").eq("website_id", id).order("order_index", { ascending: true });
       if (site) setWebsite(site);
       if (pgs) setPages(pgs);
       if (site && pgs) cacheWebsitePreview(id, site, pgs);
+      websiteLog.done("persist", "Changes saved");
+      websiteLog.begin("preview");
       setPreviewKey((k) => k + 1);
+      websiteLog.done("preview", "Preview reloaded");
+      websiteLog.finish("Done");
       const analyzedNote = analysis ? " I read and analyzed the attached context before applying it." : "";
       const tail = responseData.rebuilt
         ? " _(full regeneration — the preview now shows the new build)_"
@@ -277,6 +310,8 @@ export default function GeneratedDashboard() {
       setChatTone(null);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
+      const activeStep = websiteLog.steps.find((s2) => s2.status === "active");
+      websiteLog.fail(activeStep?.id || "compile", msg);
       setTurns((t) => [...t, { role: "assistant", content: `Couldn't apply that: ${msg}`, time: "just now" }]);
       toast.error(msg);
     } finally {
@@ -622,6 +657,11 @@ export default function GeneratedDashboard() {
                 "Tighten the copy",
               ]}
               streaming={chatBusy}
+              executionLog={
+                websiteLog.steps.length > 0 ? (
+                  <ExecutionLog steps={websiteLog.steps} title="Working" accent="#22d3ee" compact />
+                ) : null
+              }
               fullSpec={website?.theme?.design_rationale || website?.prompt || ""}
               onSend={sendWebsiteEdit}
               composerExtras={
