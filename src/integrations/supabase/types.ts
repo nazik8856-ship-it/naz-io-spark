@@ -643,6 +643,72 @@ export type Database = {
         }
         Relationships: []
       }
+      integration_issues: {
+        Row: {
+          agent_id: string | null
+          created_at: string
+          error_type: string
+          fix_action: string
+          human_message: string
+          id: string
+          issue_key: string
+          last_seen_at: string
+          occurrences: number
+          provider: string
+          resolution: Json
+          resolved_at: string | null
+          scope_hint: string | null
+          status: string
+          technical: string | null
+          title: string
+          tool_kind: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          agent_id?: string | null
+          created_at?: string
+          error_type: string
+          fix_action?: string
+          human_message: string
+          id?: string
+          issue_key: string
+          last_seen_at?: string
+          occurrences?: number
+          provider: string
+          resolution?: Json
+          resolved_at?: string | null
+          scope_hint?: string | null
+          status?: string
+          technical?: string | null
+          title: string
+          tool_kind?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          agent_id?: string | null
+          created_at?: string
+          error_type?: string
+          fix_action?: string
+          human_message?: string
+          id?: string
+          issue_key?: string
+          last_seen_at?: string
+          occurrences?: number
+          provider?: string
+          resolution?: Json
+          resolved_at?: string | null
+          scope_hint?: string | null
+          status?: string
+          technical?: string | null
+          title?: string
+          tool_kind?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       integration_snapshots: {
         Row: {
           agent_id: string | null
