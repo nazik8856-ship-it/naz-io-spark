@@ -1990,20 +1990,52 @@ Rules:
           });
         } else {
           const f = outcome.failure!;
+          // Non-retryable classes (expired token, missing scope, revoked
+          // permission, exhausted quota) are persisted as a known issue so
+          // future runs skip straight to the human fix message.
+          let known: { human_message: string; id: string } | null = null;
+          if (!f.retryable) {
+            const provider = providerForTool(tool.kind, input);
+            const rec = await recordIssue(supabase, {
+              userId,
+              agentId,
+              provider,
+              toolKind: tool.kind,
+              errorType: f.category as IssueErrorType,
+              technical: f.technical,
+            }).catch(() => null);
+            if (rec) {
+              known = { human_message: rec.human_message, id: rec.id };
+              blockedIssueCache.set(`${provider}::${tool.kind}`, true);
+              await logEvent("integration_issue", {
+                issue_id: rec.id,
+                provider,
+                tool: tool.name,
+                kind: tool.kind,
+                error_type: rec.error_type,
+                fix_action: rec.fix_action,
+                scope_hint: rec.scope_hint,
+                title: rec.title,
+                humanMessage: rec.human_message,
+                message: rec.human_message,
+              });
+            }
+          }
           await logEvent("tool_result", {
             tool: tool.name,
             ok: false,
-            summary: f.userMessage,
-            humanMessage: f.userMessage,
+            summary: known?.human_message || f.userMessage,
+            humanMessage: known?.human_message || f.userMessage,
             category: f.category,
             attempts: outcome.attempts.length,
             retryable: f.retryable,
+            issue_id: known?.id ?? null,
           });
           failGuard.state = { failedTool: tool.name, nudged: false };
           messages.push({
             role: "user",
             content: f.surfacedToUser
-              ? `Tool "${tool.name}" failed with a ${f.category} that you CANNOT fix by retrying (${f.technical}). Do not retry it. Tell the operator in plain everyday language that this connection needs to be reconnected or granted permission, then either continue with a different approach or finish.`
+              ? `Tool "${tool.name}" failed with a ${f.category} that you CANNOT fix by retrying (${f.technical}). Do not retry it or any other tool on the same connection this run. The operator has been shown this message: "${known?.human_message || f.userMessage}". Continue with a different approach that doesn't need that connection, or finish and state the blocker plainly.`
               : `Tool "${tool.name}" failed after ${outcome.attempts.length} attempt(s) — the retry budget is exhausted (${f.technical}). Do NOT call it again with the same approach. Try a genuinely different tool or sub-goal, or finish and report plainly what didn't work.`,
           });
         }
