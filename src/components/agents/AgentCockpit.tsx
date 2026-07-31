@@ -7,6 +7,10 @@ import { toast } from "sonner";
 import GeneratedAgentDashboard, { type AgentUiSpec } from "./GeneratedAgentDashboard";
 import AgentEmployeePanel from "./AgentEmployeePanel";
 import AgentIntegrationsPanel from "./AgentIntegrationsPanel";
+import IntegrationIssueWindow from "@/components/integrations/IntegrationIssueWindow";
+import { fetchOpenIssues, clearIssuesForProvider, type IntegrationIssue } from "@/lib/integration-issues";
+import { useIntegrationOAuthMessages } from "@/hooks/useIntegrationOAuthMessages";
+import { AlertTriangle } from "lucide-react";
 
 type OutputItem = {
   id: string;
