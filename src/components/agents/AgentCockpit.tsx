@@ -11,6 +11,8 @@ import IntegrationIssueWindow from "@/components/integrations/IntegrationIssueWi
 import { fetchOpenIssues, clearIssuesForProvider, type IntegrationIssue } from "@/lib/integration-issues";
 import { useIntegrationOAuthMessages } from "@/hooks/useIntegrationOAuthMessages";
 import { AlertTriangle } from "lucide-react";
+import AskUserPrompt from "./AskUserPrompt";
+import { pendingClarification } from "@/lib/agent-clarifications";
 
 type OutputItem = {
   id: string;
@@ -202,6 +204,16 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
     const hardError = slice.some((e) => e.kind === "error" || e.kind === "guardrail_block");
     const last = events[events.length - 1];
 
+    const awaitingInput = slice.some(
+      (e) =>
+        e.kind === "clarification_request" &&
+        !events.some((x) => x.kind === "clarification_answer" && (x.payload as { ref?: string })?.ref === e.id),
+    );
+    if (awaitingInput) {
+      setRunning(false);
+      setLastRunStatus("waiting");
+      return;
+    }
     if (last.kind === "run_started" || (!finished && slice.length > 0 && last.kind !== "error")) {
       setRunning(true);
     } else {
@@ -285,7 +297,26 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
           break;
         case "ask_user":
         case "clarification":
-          steps.push({ id: `${e.id}`, label: "Waiting for your answer", status: "active", note: str(p.question) || str(p.text), startedAt: t });
+        case "clarification_request": {
+          // Never leave the ask_user tool call spinning — it isn't processing,
+          // it's waiting on a human, and the prompt UI is rendered above.
+          const idx = pushed.get("tool:ask_user");
+          if (idx !== undefined && steps[idx]) {
+            steps[idx] = { ...steps[idx], label: "Asked you a question", status: "done", endedAt: t };
+            pushed.delete("tool:ask_user");
+          }
+          steps.push({
+            id: `${e.id}`,
+            label: "Waiting for your input",
+            status: "skipped",
+            note: str(p.question) || str(p.humanMessage) || str(p.text),
+            startedAt: t,
+            endedAt: t,
+          });
+          break;
+        }
+        case "clarification_answer":
+          steps.push({ id: `${e.id}`, label: "You replied — resuming", status: "done", note: str(p.answer), startedAt: t, endedAt: t });
           break;
         case "guardrail_block":
           steps.push({ id: `${e.id}`, label: "Blocked by a guardrail", status: "error", note: str(p.rule) || str(p.reason), startedAt: t, endedAt: t });
@@ -302,6 +333,9 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
     }
     return steps;
   }, [events]);
+
+  // The live ask_user request (if any) — rendered as a real input widget.
+  const pendingAsk = useMemo(() => pendingClarification(events, agentId), [events, agentId]);
 
   const [needsIntegrations, setNeedsIntegrations] = useState(false);
 
@@ -460,6 +494,10 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
       )}
 
 
+
+      {pendingAsk && (
+        <AskUserPrompt request={pendingAsk} onAnswered={loadEvents} />
+      )}
 
       {(running || liveSteps.length > 0) && (
         <ExecutionLog
