@@ -859,11 +859,65 @@ Rules:
           }
         }
 
+        // ---- Known-issue gate: skip execution entirely for a blocker the
+        // user already knows about and hasn't fixed yet. No retries, no
+        // rediscovery — just the same plain-language fix message.
+        if (ACTION_CAPPED_KINDS.has(tool.kind) || tool.kind === "integration_query" || tool.kind === "sync_integrations") {
+          const provider = providerForTool(tool.kind, input);
+          const cacheKey = `${provider}::${tool.kind}`;
+          if (blockedIssueCache.get(cacheKey) !== false) {
+            const known = await findOpenIssue(supabase, userId, provider, tool.kind).catch(() => null);
+            blockedIssueCache.set(cacheKey, !known);
+            if (known) {
+              await logEvent("blocked_known_issue", {
+                tool: tool.name,
+                kind: tool.kind,
+                provider,
+                issue_id: known.id,
+                error_type: known.error_type,
+                fix_action: known.fix_action,
+                scope_hint: known.scope_hint,
+                title: known.title,
+                humanMessage: known.human_message,
+                message: known.human_message,
+              });
+              await logEvent("tool_result", {
+                tool: tool.name,
+                ok: false,
+                skipped: true,
+                summary: known.human_message,
+                humanMessage: known.human_message,
+                category: known.error_type,
+              });
+              messages.push({
+                role: "user",
+                content: `"${tool.name}" was NOT run. There is a known unresolved blocker on ${provider} that only the operator can fix: ${known.human_message} Do not retry this tool or any other ${provider} tool this run. Continue with work that doesn't need ${provider}, or finish and state this blocker plainly.`,
+              });
+              continue;
+            }
+          }
+        }
+
         // Built-in interactive tools pause the run
         if (tool.kind === "ask_user") {
           const question = String(input.question || "").slice(0, 400);
           const options = Array.isArray(input.options) ? (input.options as string[]).slice(0, 4) : undefined;
-          await logEvent("clarification_request", { question, options });
+          // If the operator already answered this exact question before, reuse
+          // the stored answer instead of pausing the run again.
+          const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim();
+          const prior = knownAnswers.find((a) => norm(a.question) === norm(question));
+          if (prior) {
+            await logEvent("reason", {
+              thought: `Skipped asking the operator — this was already answered previously: "${prior.answer}".`,
+            });
+            messages.push({
+              role: "user",
+              content: `The operator already answered "${question}" previously: ${prior.answer}\nUse that answer and continue — do not ask again.`,
+            });
+            continue;
+          }
+          await recordQuestionIssue(supabase, { userId, agentId, question, options }).catch(() => null);
+          await logEvent("clarification_request", { question, options, fix_action: "input", humanMessage: question });
           paused = true;
           finalSummary = "Paused: waiting on operator clarification.";
           break;
