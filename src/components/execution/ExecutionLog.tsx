@@ -13,12 +13,14 @@ export default function ExecutionLog({
   accent = "#22d3ee",
   compact = false,
   className = "",
+  theme = "dark",
 }: {
   steps: ExecStep[];
   title?: string;
   accent?: string;
   compact?: boolean;
   className?: string;
+  theme?: "dark" | "light";
 }) {
   // 100ms tick keeps the active step's elapsed counter feeling instant.
   const [, force] = useState(0);
@@ -36,7 +38,7 @@ export default function ExecutionLog({
 
   return (
     <div
-      className={`rounded-xl border bg-black/50 ${compact ? "p-3" : "p-4"} ${className}`}
+      className={`rounded-xl border ${theme === "light" ? "bg-zinc-50" : "bg-black/50"} ${compact ? "p-3" : "p-4"} ${className}`}
       style={{ borderColor: `${accent}33` }}
       role="log"
       aria-live="polite"
@@ -51,7 +53,7 @@ export default function ExecutionLog({
         </span>
       </div>
 
-      <div className="h-0.5 w-full rounded-full bg-white/5 overflow-hidden mb-3">
+      <div className={`h-0.5 w-full rounded-full overflow-hidden mb-3 ${theme === "light" ? "bg-zinc-200" : "bg-white/5"}`}>
         <div
           className="h-full transition-all duration-200"
           style={{ width: `${pct}%`, background: `linear-gradient(90deg, ${accent}, #a855f7)` }}
@@ -64,11 +66,11 @@ export default function ExecutionLog({
             s.startedAt ? Math.max(0, (s.endedAt ?? Date.now()) - s.startedAt) : null;
           const tone =
             s.status === "done"
-              ? "text-emerald-200"
+              ? theme === "light" ? "text-emerald-700" : "text-emerald-200"
               : s.status === "error"
-              ? "text-red-300"
+              ? theme === "light" ? "text-red-600" : "text-red-300"
               : s.status === "active"
-              ? "text-white"
+              ? theme === "light" ? "text-zinc-900" : "text-white"
               : s.status === "skipped"
               ? "text-zinc-500 line-through"
               : "text-zinc-500";
