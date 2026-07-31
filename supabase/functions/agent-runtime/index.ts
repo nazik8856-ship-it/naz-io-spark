@@ -4,7 +4,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { readSecret } from "../_shared/integration-secrets.ts";
-import { validateToolInput } from "../_shared/tool-schemas.ts";
+import { validateToolInput, validateToolOutput } from "../_shared/tool-schemas.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
