@@ -14,6 +14,8 @@ type Props = {
   fullSpec: string;
   onSend: (text: string) => void;
   composerExtras?: ReactNode;
+  /** Live multi-step progress rendered instead of a generic "thinking…" dot. */
+  executionLog?: ReactNode;
 };
 
 export default function LiveAgentChat({
@@ -26,6 +28,7 @@ export default function LiveAgentChat({
   fullSpec,
   onSend,
   composerExtras,
+  executionLog,
 }: Props) {
   const [input, setInput] = useState("");
   const [showSpec, setShowSpec] = useState(false);
@@ -82,6 +85,8 @@ export default function LiveAgentChat({
                 <div className="max-w-[85%] rounded-2xl px-4 py-2.5 bg-white/[0.04] border border-white/10 text-sm text-zinc-100 prose prose-invert prose-sm max-w-none prose-p:my-1.5 prose-headings:text-white prose-pre:bg-black/60 prose-pre:border prose-pre:border-white/10 prose-code:text-cyan-300">
                   {t.content ? (
                     <ReactMarkdown>{t.content}</ReactMarkdown>
+                  ) : executionLog ? (
+                    <div className="not-prose w-full">{executionLog}</div>
                   ) : (
                     <span className="inline-flex gap-1 items-center text-zinc-500 text-xs not-prose">
                       <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" />
@@ -92,6 +97,14 @@ export default function LiveAgentChat({
               )}
             </div>
           ))}
+          {/* Streaming with no assistant placeholder yet — still show live steps. */}
+          {streaming && executionLog && turns[turns.length - 1]?.role !== "assistant" && (
+            <div className="flex justify-start">
+              <div className="max-w-[85%] w-full rounded-2xl px-3 py-2.5 bg-white/[0.04] border border-white/10">
+                {executionLog}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Suggestions */}
