@@ -448,6 +448,19 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
         </button>
       </div>
 
+      {issueWindowOpen && (
+        <IntegrationIssueWindow
+          issues={issues}
+          onClose={() => setIssueWindowOpen(false)}
+          onChanged={async () => {
+            const rows = await loadIssues();
+            if (!rows.length) setIssueWindowOpen(false);
+          }}
+        />
+      )}
+
+
+
       {(running || liveSteps.length > 0) && (
         <ExecutionLog
           steps={
