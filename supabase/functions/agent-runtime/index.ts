@@ -5,6 +5,12 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { readSecret } from "../_shared/integration-secrets.ts";
 import { validateToolInput, validateToolOutput } from "../_shared/tool-schemas.ts";
+import {
+  runToolWithSelfCorrection,
+  buildCorrectionPrompt,
+  MAX_TOOL_ATTEMPTS,
+  type Corrector,
+} from "../_shared/tool-retry.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -649,6 +655,36 @@ Rules:
         ? `Trigger: ${trigger}. Operator instruction: ${userInstruction}\nBegin.`
         : `Trigger: ${trigger}. Pursue your goal autonomously for the business above. Begin.` },
     ];
+
+    // Ask the model to repair failed tool input from the exact error + stack.
+    // Bounded by the wrapper's attempt ceiling; returns null to stop retrying.
+    const correctToolInput: Corrector = async (ctx) => {
+      try {
+        const resp = await fetch(LOVABLE_URL, {
+          method: "POST",
+          headers: { "Lovable-API-Key": key, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: MODEL,
+            temperature: 0.1,
+            messages: [
+              { role: "system", content: "You repair failed tool-call inputs. Output ONLY the requested fenced JSON block." },
+              { role: "user", content: buildCorrectionPrompt(ctx) },
+            ],
+          }),
+        });
+        if (!resp.ok) return null;
+        const data = await resp.json();
+        const raw: string = data?.choices?.[0]?.message?.content ?? "";
+        const block = extractAction(raw);
+        const nextInput = block?.input;
+        const explanation = typeof block?.explanation === "string" ? block.explanation.slice(0, 300) : "corrected input";
+        if (!nextInput || typeof nextInput !== "object" || Array.isArray(nextInput)) return null;
+        if (JSON.stringify(nextInput) === JSON.stringify(ctx.input)) return null; // no change = no point retrying
+        return { input: nextInput as Record<string, unknown>, explanation };
+      } catch {
+        return null;
+      }
+    };
 
     let finalSummary = "Run ended without explicit summary.";
     let steps = 0, finished = false, paused = false;
@@ -1848,9 +1884,54 @@ Rules:
           continue;
         }
 
-        const result = await executeTool(tool, input, supabase, agentId, runId, userId, logEvent);
-        await logEvent("tool_result", { tool: tool.name, ok: !result.error, summary: result.summary });
-        messages.push({ role: "user", content: `Tool "${tool.name}" returned:\n${result.summary}\n\nContinue.` });
+        // Self-correcting wrapper: catches thrown exceptions AND ok:false
+        // results, classifies the error, and — only for model-correctable
+        // classes — feeds the error + stack back to the model for at most
+        // MAX_TOOL_ATTEMPTS total attempts. Auth/permission/quota errors are
+        // never retried; they surface straight to the user.
+        const outcome = await runToolWithSelfCorrection({
+          tool: tool.name,
+          kind: tool.kind,
+          input,
+          maxAttempts: MAX_TOOL_ATTEMPTS,
+          logEvent,
+          execute: (nextInput) => executeTool(tool, nextInput, supabase, agentId, runId, userId, logEvent),
+          isFailure: (r) => ({ failed: !!r.error, message: r.summary }),
+          correct: correctToolInput,
+        });
+
+        if (outcome.ok && outcome.result) {
+          const retried = outcome.attempts.length > 1;
+          await logEvent("tool_result", {
+            tool: tool.name,
+            ok: true,
+            summary: outcome.result.summary,
+            attempts: outcome.attempts.length,
+            self_corrected: retried,
+          });
+          messages.push({
+            role: "user",
+            content: `Tool "${tool.name}" returned:\n${outcome.result.summary}\n\nContinue.`,
+          });
+        } else {
+          const f = outcome.failure!;
+          await logEvent("tool_result", {
+            tool: tool.name,
+            ok: false,
+            summary: f.userMessage,
+            humanMessage: f.userMessage,
+            category: f.category,
+            attempts: outcome.attempts.length,
+            retryable: f.retryable,
+          });
+          failGuard.state = { failedTool: tool.name, nudged: false };
+          messages.push({
+            role: "user",
+            content: f.surfacedToUser
+              ? `Tool "${tool.name}" failed with a ${f.category} that you CANNOT fix by retrying (${f.technical}). Do not retry it. Tell the operator in plain everyday language that this connection needs to be reconnected or granted permission, then either continue with a different approach or finish.`
+              : `Tool "${tool.name}" failed after ${outcome.attempts.length} attempt(s) — the retry budget is exhausted (${f.technical}). Do NOT call it again with the same approach. Try a genuinely different tool or sub-goal, or finish and report plainly what didn't work.`,
+          });
+        }
       }
     }
 
