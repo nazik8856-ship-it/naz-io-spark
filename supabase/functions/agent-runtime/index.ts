@@ -586,7 +586,7 @@ serve(async (req) => {
         case "calc": usage = `calc(expression: string)`; break;
         case "notify": usage = `notify(message: string, severity?: "info"|"warn"|"alert")`; break;
         case "remember": usage = `remember(key: string, value: string)  // persist a fact for future runs`; break;
-        case "ask_user": usage = `ask_user(question: string, options?: string[])  // pauses the agent until the operator answers`; break;
+        case "ask_user": usage = `ask_user(question: string, options?: string[], input_type?: "text"|"choice"|"file", accept?: string)  // pauses the run and shows the operator a real input widget. Use input_type:"file" (with accept, e.g. ".csv") whenever you need the operator to upload something, "choice" with options for a decision, otherwise "text".`; break;
         case "request_approval": usage = `request_approval(action: string, payload: object, risk?: "low"|"med"|"high")  // queue an external action`; break;
         case "sync_integrations": usage = `sync_now(provider?: string)  // refreshes live data from connected tools`; break;
         case "integration_query": usage = `read_data(provider: string)  // returns the latest synced snapshot for a connected tool`; break;
@@ -916,11 +916,56 @@ Rules:
             });
             continue;
           }
+          // Work out what widget the operator actually needs so the UI can
+          // render a real control (upload box / choice buttons / text field)
+          // instead of an endless "Calling ask_user…" spinner.
+          const q = question.toLowerCase();
+          const declared = String(input.input_type || "").toLowerCase();
+          let inputType: "text" | "choice" | "file" =
+            declared === "file" || declared === "choice" || declared === "text"
+              ? (declared as "text" | "choice" | "file")
+              : options && options.length
+                ? "choice"
+                : /\b(upload|attach|csv|spreadsheet|export file|send (me|us) the file|screenshot|pdf|image|logo|document file)\b/.test(q)
+                  ? "file"
+                  : "text";
+          if (inputType === "choice" && !(options && options.length)) inputType = "text";
+          const accept = String(input.accept || "").slice(0, 120) ||
+            (inputType === "file"
+              ? /\bcsv\b/.test(q) ? ".csv,text/csv"
+                : /\b(sheet|spreadsheet|xlsx|excel)\b/.test(q) ? ".csv,.xlsx,.xls"
+                  : /\b(image|screenshot|logo|photo)\b/.test(q) ? "image/*"
+                    : /\bpdf\b/.test(q) ? ".pdf" : ""
+              : "");
+
           await recordQuestionIssue(supabase, { userId, agentId, question, options }).catch(() => null);
-          await logEvent("clarification_request", { question, options, fix_action: "input", humanMessage: question });
+          await logEvent("clarification_request", {
+            question,
+            options,
+            input_type: inputType,
+            accept: accept || undefined,
+            fix_action: "input",
+            humanMessage: question,
+            requested_at: new Date().toISOString(),
+            // The UI stops waiting silently after this and shows a persistent
+            // "Waiting for your input" notice instead of a busy spinner.
+            response_timeout_ms: 180_000,
+          });
+          // Close out the tool call so the log never shows an in-flight spinner
+          // for a step that is actually just waiting on a human.
+          await logEvent("tool_result", {
+            tool: tool.name,
+            kind: "ask_user",
+            ok: true,
+            waiting_for_user: true,
+            input_type: inputType,
+            summary: `Asked you: ${question}`,
+            humanMessage: `Waiting for your input: ${question}`,
+          });
           paused = true;
-          finalSummary = "Paused: waiting on operator clarification.";
+          finalSummary = `Paused — waiting for your input: ${question}`;
           break;
+
 
         }
         if (tool.kind === "request_approval") {

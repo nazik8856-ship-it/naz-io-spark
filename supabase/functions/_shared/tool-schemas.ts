@@ -30,6 +30,8 @@ export const TOOL_SCHEMAS: Record<string, z.ZodTypeAny> = {
   ask_user: z.object({
     question: nonEmpty("question").max(1000),
     options: z.array(str).max(8).optional(),
+    input_type: z.enum(["text", "choice", "file"]).optional(),
+    accept: str.optional(),
   }).passthrough(),
   request_approval: z.object({
     action: nonEmpty("action").max(300),
