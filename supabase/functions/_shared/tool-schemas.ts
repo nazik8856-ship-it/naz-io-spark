@@ -245,3 +245,152 @@ export function validateToolInput(
   };
 }
 
+
+// ============================================================================
+// OUTPUT VALIDATION
+// ----------------------------------------------------------------------------
+// Runs AFTER a tool executor reports success but BEFORE the result is shown to
+// the user / handed back to the model. Each tool declares the exact keys its
+// output must carry; a "successful" result that is missing any of them is NOT
+// delivered — it is downgraded to an `incomplete_result` error state so the
+// engine can retry or escalate. Definitions are per-tool on purpose: a doc
+// needs a document id + link, an email needs a recipient + message id, a
+// report needs a stored row id, and so on.
+// ============================================================================
+
+export type OutputRequirement = {
+  /** Keys that must exist and be non-null/non-empty on the result payload. */
+  required: string[];
+  /** Groups where at least ONE key must be present (e.g. url OR result_ref). */
+  anyOf?: string[][];
+  /** Plain-language name for each key, used in the human message. */
+  labels?: Record<string, string>;
+};
+
+export const TOOL_OUTPUT_REQUIREMENTS: Record<string, OutputRequirement> = {
+  send_email: {
+    required: ["target", "result_ref"],
+    labels: { target: "recipient address", result_ref: "sent-message ID from Gmail" },
+  },
+  reply_email: {
+    required: ["target", "result_ref"],
+    labels: { target: "recipient address", result_ref: "sent-message ID from Gmail" },
+  },
+  read_email: {
+    required: ["summary"],
+    labels: { summary: "email contents that were read" },
+  },
+  create_doc: {
+    required: ["target", "result_ref", "url"],
+    labels: { target: "document title", result_ref: "Google Doc ID", url: "shareable document link" },
+  },
+  edit_doc: {
+    required: ["result_ref", "url"],
+    labels: { result_ref: "Google Doc ID", url: "shareable document link" },
+  },
+  create_sheet: {
+    required: ["target", "result_ref", "url"],
+    labels: { target: "spreadsheet title", result_ref: "Google Sheet ID", url: "shareable spreadsheet link" },
+  },
+  edit_sheet: {
+    required: ["result_ref", "url"],
+    labels: { result_ref: "Google Sheet ID", url: "shareable spreadsheet link" },
+  },
+  create_calendar_event: {
+    required: ["target", "result_ref", "url"],
+    labels: { target: "event title", result_ref: "calendar event ID", url: "link to the event" },
+  },
+  generate_report: {
+    required: ["target", "result_ref", "summary"],
+    labels: { target: "report title", result_ref: "saved report ID", summary: "report preview" },
+  },
+  upsert_client_note: {
+    required: ["target", "result_ref"],
+    labels: { target: "client identifier", result_ref: "client record ID" },
+  },
+  read_analytics: {
+    required: ["target", "summary"],
+    labels: { target: "analytics property", summary: "the numbers that were read" },
+  },
+  schedule_followup: {
+    required: ["target", "result_ref"],
+    labels: { target: "scheduled time", result_ref: "scheduled run ID" },
+  },
+  http_post: {
+    required: ["target", "summary"],
+    labels: { target: "endpoint that was called", summary: "response from the endpoint" },
+  },
+  sync_integrations: {
+    required: ["summary"],
+    labels: { summary: "data pulled from the connected tools" },
+  },
+  integration_query: {
+    required: ["summary"],
+    labels: { summary: "data read from the connected tool" },
+  },
+  notify: {
+    required: ["message"],
+    labels: { message: "notification text" },
+  },
+};
+
+export type ToolOutputValidation =
+  | { success: true }
+  | {
+      success: false;
+      error: "incomplete_result";
+      tool: string;
+      missing: { key: string; label: string }[];
+      message: string;
+      humanMessage: string;
+    };
+
+function isPresent(v: unknown): boolean {
+  if (v === null || v === undefined) return false;
+  if (typeof v === "string") return v.trim().length > 0;
+  if (Array.isArray(v)) return v.length > 0;
+  if (typeof v === "object") return Object.keys(v as object).length > 0;
+  return true;
+}
+
+/**
+ * Validate a *successful* tool result against that tool's required output keys.
+ * Tools with no declared requirements pass through untouched.
+ */
+export function validateToolOutput(
+  kind: string,
+  toolName: string,
+  output: Record<string, unknown>,
+): ToolOutputValidation {
+  const spec = TOOL_OUTPUT_REQUIREMENTS[kind];
+  if (!spec) return { success: true };
+
+  const labelOf = (k: string) => spec.labels?.[k] ?? k.replace(/[._]/g, " ");
+  const missing: { key: string; label: string }[] = [];
+
+  for (const k of spec.required) {
+    if (!isPresent(output[k])) missing.push({ key: k, label: labelOf(k) });
+  }
+  for (const group of spec.anyOf ?? []) {
+    if (!group.some((k) => isPresent(output[k]))) {
+      missing.push({ key: group.join("|"), label: group.map(labelOf).join(" or ") });
+    }
+  }
+
+  if (!missing.length) return { success: true };
+
+  const list = missing.map((m) => m.label);
+  const humanMessage =
+    `"${toolName}" reported success, but the result came back incomplete — ` +
+    `${list.length === 1 ? "this is missing" : "these are missing"}: ${list.join(", ")}. ` +
+    `Nothing was shown as finished because we can't confirm it actually worked.`;
+
+  return {
+    success: false,
+    error: "incomplete_result",
+    tool: toolName,
+    missing,
+    message: `incomplete_result: missing ${missing.map((m) => m.key).join(", ")}`,
+    humanMessage,
+  };
+}
