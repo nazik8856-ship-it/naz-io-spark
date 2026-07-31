@@ -625,6 +625,7 @@ ${profileBlock}
 ${integrationsBlock}
 ${memoryBlock}
 ${insightsBlock}
+${knownAnswersBlock}
 
 # Live-data contract
 - Whenever you cite a number, name the connected tool it came from (e.g. "Shopify: 47 orders in the last 24h").
