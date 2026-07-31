@@ -11,6 +11,14 @@ import {
   MAX_TOOL_ATTEMPTS,
   type Corrector,
 } from "../_shared/tool-retry.ts";
+import {
+  providerForTool,
+  findOpenIssue,
+  recordIssue,
+  recordQuestionIssue,
+  loadKnownAnswers,
+  type IssueErrorType,
+} from "../_shared/integration-issues.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -503,6 +511,18 @@ serve(async (req) => {
     }
     await logEvent("reason", { thought: `Agent activated (${trigger}). Reviewing business context and memory before acting.` });
 
+    // ---- Known-issue memory -------------------------------------------------
+    // Blockers the user has already been told about (and not yet fixed), plus
+    // answers they have already given. Both are checked before any tool runs so
+    // the same failure is never rediscovered and the same question never asked
+    // twice.
+    const knownAnswers = await loadKnownAnswers(supabase, userId).catch(() => []);
+    const knownAnswersBlock = knownAnswers.length
+      ? `\n# Answers the operator already gave (never ask these again — use the answer directly)\n${knownAnswers.map((a) => `- Q: ${a.question}\n  A: ${a.answer}`).join("\n")}`
+      : "";
+    const blockedIssueCache = new Map<string, boolean>();
+
+
     // Build system prompt with business + memory context
     const profileBlock = profile
       ? `\n# Business you work for\n- Company: ${profile.company_name}\n- One-liner: ${profile.one_liner}\n- Industry: ${profile.industry}\n- Tone: ${profile.tone}\n- Audience: ${profile.audience}\n- Offers: ${JSON.stringify(profile.offers)}\n- Channels: ${JSON.stringify(profile.channels)}`
@@ -605,6 +625,7 @@ ${profileBlock}
 ${integrationsBlock}
 ${memoryBlock}
 ${insightsBlock}
+${knownAnswersBlock}
 
 # Live-data contract
 - Whenever you cite a number, name the connected tool it came from (e.g. "Shopify: 47 orders in the last 24h").
@@ -838,11 +859,65 @@ Rules:
           }
         }
 
+        // ---- Known-issue gate: skip execution entirely for a blocker the
+        // user already knows about and hasn't fixed yet. No retries, no
+        // rediscovery — just the same plain-language fix message.
+        if (ACTION_CAPPED_KINDS.has(tool.kind) || tool.kind === "integration_query" || tool.kind === "sync_integrations") {
+          const provider = providerForTool(tool.kind, input);
+          const cacheKey = `${provider}::${tool.kind}`;
+          if (blockedIssueCache.get(cacheKey) !== false) {
+            const known = await findOpenIssue(supabase, userId, provider, tool.kind).catch(() => null);
+            blockedIssueCache.set(cacheKey, !known);
+            if (known) {
+              await logEvent("blocked_known_issue", {
+                tool: tool.name,
+                kind: tool.kind,
+                provider,
+                issue_id: known.id,
+                error_type: known.error_type,
+                fix_action: known.fix_action,
+                scope_hint: known.scope_hint,
+                title: known.title,
+                humanMessage: known.human_message,
+                message: known.human_message,
+              });
+              await logEvent("tool_result", {
+                tool: tool.name,
+                ok: false,
+                skipped: true,
+                summary: known.human_message,
+                humanMessage: known.human_message,
+                category: known.error_type,
+              });
+              messages.push({
+                role: "user",
+                content: `"${tool.name}" was NOT run. There is a known unresolved blocker on ${provider} that only the operator can fix: ${known.human_message} Do not retry this tool or any other ${provider} tool this run. Continue with work that doesn't need ${provider}, or finish and state this blocker plainly.`,
+              });
+              continue;
+            }
+          }
+        }
+
         // Built-in interactive tools pause the run
         if (tool.kind === "ask_user") {
           const question = String(input.question || "").slice(0, 400);
           const options = Array.isArray(input.options) ? (input.options as string[]).slice(0, 4) : undefined;
-          await logEvent("clarification_request", { question, options });
+          // If the operator already answered this exact question before, reuse
+          // the stored answer instead of pausing the run again.
+          const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim();
+          const prior = knownAnswers.find((a) => norm(a.question) === norm(question));
+          if (prior) {
+            await logEvent("reason", {
+              thought: `Skipped asking the operator — this was already answered previously: "${prior.answer}".`,
+            });
+            messages.push({
+              role: "user",
+              content: `The operator already answered "${question}" previously: ${prior.answer}\nUse that answer and continue — do not ask again.`,
+            });
+            continue;
+          }
+          await recordQuestionIssue(supabase, { userId, agentId, question, options }).catch(() => null);
+          await logEvent("clarification_request", { question, options, fix_action: "input", humanMessage: question });
           paused = true;
           finalSummary = "Paused: waiting on operator clarification.";
           break;
@@ -1915,20 +1990,52 @@ Rules:
           });
         } else {
           const f = outcome.failure!;
+          // Non-retryable classes (expired token, missing scope, revoked
+          // permission, exhausted quota) are persisted as a known issue so
+          // future runs skip straight to the human fix message.
+          let known: { human_message: string; id: string } | null = null;
+          if (!f.retryable) {
+            const provider = providerForTool(tool.kind, input);
+            const rec = await recordIssue(supabase, {
+              userId,
+              agentId,
+              provider,
+              toolKind: tool.kind,
+              errorType: f.category as IssueErrorType,
+              technical: f.technical,
+            }).catch(() => null);
+            if (rec) {
+              known = { human_message: rec.human_message, id: rec.id };
+              blockedIssueCache.set(`${provider}::${tool.kind}`, true);
+              await logEvent("integration_issue", {
+                issue_id: rec.id,
+                provider,
+                tool: tool.name,
+                kind: tool.kind,
+                error_type: rec.error_type,
+                fix_action: rec.fix_action,
+                scope_hint: rec.scope_hint,
+                title: rec.title,
+                humanMessage: rec.human_message,
+                message: rec.human_message,
+              });
+            }
+          }
           await logEvent("tool_result", {
             tool: tool.name,
             ok: false,
-            summary: f.userMessage,
-            humanMessage: f.userMessage,
+            summary: known?.human_message || f.userMessage,
+            humanMessage: known?.human_message || f.userMessage,
             category: f.category,
             attempts: outcome.attempts.length,
             retryable: f.retryable,
+            issue_id: known?.id ?? null,
           });
           failGuard.state = { failedTool: tool.name, nudged: false };
           messages.push({
             role: "user",
             content: f.surfacedToUser
-              ? `Tool "${tool.name}" failed with a ${f.category} that you CANNOT fix by retrying (${f.technical}). Do not retry it. Tell the operator in plain everyday language that this connection needs to be reconnected or granted permission, then either continue with a different approach or finish.`
+              ? `Tool "${tool.name}" failed with a ${f.category} that you CANNOT fix by retrying (${f.technical}). Do not retry it or any other tool on the same connection this run. The operator has been shown this message: "${known?.human_message || f.userMessage}". Continue with a different approach that doesn't need that connection, or finish and state the blocker plainly.`
               : `Tool "${tool.name}" failed after ${outcome.attempts.length} attempt(s) — the retry budget is exhausted (${f.technical}). Do NOT call it again with the same approach. Try a genuinely different tool or sub-goal, or finish and report plainly what didn't work.`,
           });
         }

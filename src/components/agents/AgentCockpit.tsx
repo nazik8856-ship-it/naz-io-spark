@@ -7,6 +7,10 @@ import { toast } from "sonner";
 import GeneratedAgentDashboard, { type AgentUiSpec } from "./GeneratedAgentDashboard";
 import AgentEmployeePanel from "./AgentEmployeePanel";
 import AgentIntegrationsPanel from "./AgentIntegrationsPanel";
+import IntegrationIssueWindow from "@/components/integrations/IntegrationIssueWindow";
+import { fetchOpenIssues, clearIssuesForProvider, type IntegrationIssue } from "@/lib/integration-issues";
+import { useIntegrationOAuthMessages } from "@/hooks/useIntegrationOAuthMessages";
+import { AlertTriangle } from "lucide-react";
 
 type OutputItem = {
   id: string;
@@ -72,6 +76,26 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
   const [gmailAcct, setGmailAcct] = useState<{ email: string | null; verified: string | null; status: string } | null>(null);
   const [gmailVerifying, setGmailVerifying] = useState(false);
   const feedRef = useRef<HTMLDivElement>(null);
+
+  // ---- Known non-retryable blockers (integration_issues) -------------------
+  const [issues, setIssues] = useState<IntegrationIssue[]>([]);
+  const [issueWindowOpen, setIssueWindowOpen] = useState(false);
+  const autoOpenedRef = useRef<string | null>(null);
+
+  const loadIssues = useCallback(async () => {
+    const rows = await fetchOpenIssues();
+    setIssues(rows);
+    return rows;
+  }, []);
+
+  useEffect(() => { loadIssues(); }, [loadIssues]);
+
+  // A successful (re)connect clears the matching blockers immediately.
+  useIntegrationOAuthMessages(async (info) => {
+    await clearIssuesForProvider(info.provider);
+    await loadIssues();
+  });
+
 
   const loadEvents = useCallback(async () => {
     const { data, error } = await supabase
@@ -142,6 +166,19 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
   useEffect(() => {
     if (feedRef.current) feedRef.current.scrollTop = feedRef.current.scrollHeight;
   }, [events.length]);
+
+  // When the runtime reports a blocker (fresh or already-known), refresh the
+  // issue list and surface the human fix window once per event.
+  useEffect(() => {
+    const blocker = [...events].reverse().find((e) =>
+      ["integration_issue", "blocked_known_issue", "needs_human"].includes(e.kind),
+    );
+    if (!blocker || autoOpenedRef.current === blocker.id) return;
+    autoOpenedRef.current = blocker.id;
+    loadIssues().then((rows) => { if (rows.length) setIssueWindowOpen(true); });
+  }, [events, loadIssues]);
+
+
 
   // Derive status from the most recent run's events.
   // We only flag ERROR when the latest run finished AND produced no usable output
@@ -381,6 +418,18 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
             {outputs.length}
           </span>
         </button>
+        {issues.length > 0 && (
+          <button
+            onClick={() => setIssueWindowOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-amber-400/30 bg-amber-400/10 text-xs text-amber-200 hover:bg-amber-400/20"
+          >
+            <AlertTriangle className="h-3.5 w-3.5" />
+            Needs you
+            <span className="ml-1 px-1.5 py-0.5 rounded bg-amber-400/20 text-amber-100 text-[10px] font-mono">
+              {issues.length}
+            </span>
+          </button>
+        )}
         {onOpenBlueprint && (
           <button
             onClick={onOpenBlueprint}
@@ -398,6 +447,19 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
           {statusPill.label}
         </button>
       </div>
+
+      {issueWindowOpen && (
+        <IntegrationIssueWindow
+          issues={issues}
+          onClose={() => setIssueWindowOpen(false)}
+          onChanged={async () => {
+            const rows = await loadIssues();
+            if (!rows.length) setIssueWindowOpen(false);
+          }}
+        />
+      )}
+
+
 
       {(running || liveSteps.length > 0) && (
         <ExecutionLog
