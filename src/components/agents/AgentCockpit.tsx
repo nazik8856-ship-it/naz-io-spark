@@ -167,6 +167,19 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
     if (feedRef.current) feedRef.current.scrollTop = feedRef.current.scrollHeight;
   }, [events.length]);
 
+  // When the runtime reports a blocker (fresh or already-known), refresh the
+  // issue list and surface the human fix window once per event.
+  useEffect(() => {
+    const blocker = [...events].reverse().find((e) =>
+      ["integration_issue", "blocked_known_issue", "needs_human"].includes(e.kind),
+    );
+    if (!blocker || autoOpenedRef.current === blocker.id) return;
+    autoOpenedRef.current = blocker.id;
+    loadIssues().then((rows) => { if (rows.length) setIssueWindowOpen(true); });
+  }, [events, loadIssues]);
+
+
+
   // Derive status from the most recent run's events.
   // We only flag ERROR when the latest run finished AND produced no usable output
   // (i.e. errored before any reasoning/action/finished step). Transient tool
