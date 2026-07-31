@@ -511,6 +511,18 @@ serve(async (req) => {
     }
     await logEvent("reason", { thought: `Agent activated (${trigger}). Reviewing business context and memory before acting.` });
 
+    // ---- Known-issue memory -------------------------------------------------
+    // Blockers the user has already been told about (and not yet fixed), plus
+    // answers they have already given. Both are checked before any tool runs so
+    // the same failure is never rediscovered and the same question never asked
+    // twice.
+    const knownAnswers = await loadKnownAnswers(supabase, userId).catch(() => []);
+    const knownAnswersBlock = knownAnswers.length
+      ? `\n# Answers the operator already gave (never ask these again — use the answer directly)\n${knownAnswers.map((a) => `- Q: ${a.question}\n  A: ${a.answer}`).join("\n")}`
+      : "";
+    const blockedIssueCache = new Map<string, boolean>();
+
+
     // Build system prompt with business + memory context
     const profileBlock = profile
       ? `\n# Business you work for\n- Company: ${profile.company_name}\n- One-liner: ${profile.one_liner}\n- Industry: ${profile.industry}\n- Tone: ${profile.tone}\n- Audience: ${profile.audience}\n- Offers: ${JSON.stringify(profile.offers)}\n- Channels: ${JSON.stringify(profile.channels)}`
