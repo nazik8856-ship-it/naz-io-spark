@@ -639,6 +639,13 @@ Rules:
 
     while (steps < MAX_STEPS && !finished && !paused) {
       steps++;
+      // Deliver any pending output-validation failure before the next turn so
+      // the model retries / re-routes instead of treating the step as done.
+      if (outputGuard.pending) {
+        messages.push({ role: "user", content: `OUTPUT VALIDATION FAILED — the result was withheld from the user.\n${outputGuard.pending}` });
+        outputGuard.pending = null;
+      }
+
       const resp = await fetch(LOVABLE_URL, {
         method: "POST",
         headers: { "Lovable-API-Key": key, "Content-Type": "application/json" },
