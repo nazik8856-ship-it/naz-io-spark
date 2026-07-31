@@ -4,7 +4,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { readSecret } from "../_shared/integration-secrets.ts";
-import { validateToolInput } from "../_shared/tool-schemas.ts";
+import { validateToolInput, validateToolOutput } from "../_shared/tool-schemas.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -387,7 +387,63 @@ serve(async (req) => {
     // Decision provenance staged by the parser for the next `action` event.
     const pendingProvenance: { reasoning?: string; confidence?: string } = {};
 
+    // Output-validation guard: when a tool reports success but its result is
+    // missing required keys, we downgrade the event to an incomplete_result
+    // error and stage a corrective instruction for the next model turn.
+    const outputGuard: { pending: string | null; retried: Record<string, number> } = { pending: null, retried: {} };
+
     const logEvent = async (kind: string, payload: Record<string, unknown>) => {
+      // ---- Per-tool OUTPUT validation gate: runs after the executor succeeds,
+      // before the result reaches the user. Incomplete "successes" never ship.
+      if (kind === "action" && (payload as { ok?: unknown }).ok === true) {
+        const p = payload as Record<string, unknown>;
+        const outKind = String(p.type || "");
+        const outName = String(p.tool || p.type || outKind || "tool");
+        const check = validateToolOutput(outKind, outName, p);
+        if (!check.success) {
+          const attempts = (outputGuard.retried[outKind] || 0) + 1;
+          outputGuard.retried[outKind] = attempts;
+          // Rewrite the delivered payload: this is NOT a success.
+          payload.ok = false;
+          payload.error = "incomplete_result";
+          payload.missing = check.missing;
+          payload.summary = check.humanMessage;
+          payload.reason = check.humanMessage;
+          outputGuard.pending = attempts <= 1
+            ? `${check.humanMessage}\nRetry this step ONCE — re-run the same tool with corrected input so the missing pieces come back. If the retry is also incomplete, try a different approach before escalating. Explain any failure to the user in plain everyday language.`
+            : `${check.humanMessage}\nThis step has now failed output validation ${attempts} times. Stop retrying it, try a different approach, and if nothing works tell the user plainly what could not be confirmed.`;
+          // Separate, queryable failure record.
+          supabase.from("agent_events").insert({
+            run_id: runId, agent_id: agentId, user_id: userId,
+            kind: "output_validation_failed",
+            payload: {
+              tool: outName, kind: outKind, attempt: attempts,
+              missing: check.missing,
+              message: check.humanMessage,
+              technical: check.message,
+            },
+          }).then(() => {}, () => {});
+        }
+      }
+      // Same gate for tool_result events that carry an explicit tool kind
+      // (executors that report results without a paired `action` event).
+      if (kind === "tool_result" && (payload as { ok?: unknown }).ok === true && (payload as { kind?: unknown }).kind) {
+        const p = payload as Record<string, unknown>;
+        const outKind = String(p.kind || "");
+        const outName = String(p.tool || outKind);
+        const check = validateToolOutput(outKind, outName, p);
+        if (!check.success) {
+          const attempts = (outputGuard.retried[outKind] || 0) + 1;
+          outputGuard.retried[outKind] = attempts;
+          payload.ok = false;
+          payload.error = "incomplete_result";
+          payload.missing = check.missing;
+          payload.summary = check.humanMessage;
+          payload.reason = check.humanMessage;
+          outputGuard.pending = `${check.humanMessage}\n${attempts <= 1 ? "Retry this step once with corrected input." : "Stop retrying this step and try a different approach."} Explain any failure to the user in plain everyday language.`;
+        }
+      }
+
       if (kind === "tool_result" || kind === "action") {
         const p = payload as { ok?: unknown; tool?: unknown; type?: unknown };
         const toolName = String(p.tool || p.type || "unknown");
@@ -397,6 +453,7 @@ serve(async (req) => {
           failGuard.state = null;
         }
       }
+
       // Mirror verified outputs into agent_artifacts so the Outputs panel is
       // fast, durable, and survives event pruning.
       if (kind === "action") {
@@ -601,6 +658,13 @@ Rules:
 
     while (steps < MAX_STEPS && !finished && !paused) {
       steps++;
+      // Deliver any pending output-validation failure before the next turn so
+      // the model retries / re-routes instead of treating the step as done.
+      if (outputGuard.pending) {
+        messages.push({ role: "user", content: `OUTPUT VALIDATION FAILED — the result was withheld from the user.\n${outputGuard.pending}` });
+        outputGuard.pending = null;
+      }
+
       const resp = await fetch(LOVABLE_URL, {
         method: "POST",
         headers: { "Lovable-API-Key": key, "Content-Type": "application/json" },
