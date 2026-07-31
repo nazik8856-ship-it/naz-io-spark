@@ -425,6 +425,25 @@ serve(async (req) => {
           }).then(() => {}, () => {});
         }
       }
+      // Same gate for tool_result events that carry an explicit tool kind
+      // (executors that report results without a paired `action` event).
+      if (kind === "tool_result" && (payload as { ok?: unknown }).ok === true && (payload as { kind?: unknown }).kind) {
+        const p = payload as Record<string, unknown>;
+        const outKind = String(p.kind || "");
+        const outName = String(p.tool || outKind);
+        const check = validateToolOutput(outKind, outName, p);
+        if (!check.success) {
+          const attempts = (outputGuard.retried[outKind] || 0) + 1;
+          outputGuard.retried[outKind] = attempts;
+          payload.ok = false;
+          payload.error = "incomplete_result";
+          payload.missing = check.missing;
+          payload.summary = check.humanMessage;
+          payload.reason = check.humanMessage;
+          outputGuard.pending = `${check.humanMessage}\n${attempts <= 1 ? "Retry this step once with corrected input." : "Stop retrying this step and try a different approach."} Explain any failure to the user in plain everyday language.`;
+        }
+      }
+
       if (kind === "tool_result" || kind === "action") {
         const p = payload as { ok?: unknown; tool?: unknown; type?: unknown };
         const toolName = String(p.tool || p.type || "unknown");
