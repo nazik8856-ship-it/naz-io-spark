@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import ExecutionLog from "@/components/execution/ExecutionLog";
+import type { ExecStep } from "@/hooks/useExecutionLog";
 import { Loader2, Play, Plug, X, Package, FileText, Sheet, Mail, Calendar, ExternalLink, FileEdit } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -173,6 +175,97 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
     }
   }, [events]);
 
+  // Live multi-step execution log for the CURRENT run, derived from the real
+  // agent_events stream (never a timer): each tool call becomes its own step
+  // and flips to done/error the instant its result event lands.
+  const liveSteps = useMemo<ExecStep[]>(() => {
+    if (!events.length) return [];
+    let startIdx = 0;
+    for (let i = events.length - 1; i >= 0; i--) {
+      if (events[i].kind === "run_started") { startIdx = i; break; }
+    }
+    const slice = events.slice(startIdx);
+    const steps: ExecStep[] = [];
+    const pushed = new Map<string, number>();
+    const str = (v: unknown) => (typeof v === "string" ? v : undefined);
+
+    for (const e of slice) {
+      const p = (e.payload || {}) as Record<string, unknown>;
+      const t = new Date(e.created_at).getTime();
+      const toolName = str(p.tool) || str(p.name) || str(p.kind) || "tool";
+      switch (e.kind) {
+        case "run_started":
+          steps.push({ id: `${e.id}`, label: "Run started — loading agent context", status: "done", startedAt: t, endedAt: t });
+          break;
+        case "reasoning":
+          steps.push({
+            id: `${e.id}`,
+            label: "Thinking through the next step",
+            status: "done",
+            note: (str(p.text) || e.reasoning || "").slice(0, 180) || undefined,
+            startedAt: t,
+            endedAt: t,
+          });
+          break;
+        case "tool_call": {
+          const key = `tool:${toolName}`;
+          steps.push({ id: `${e.id}`, label: `Calling ${toolName}…`, status: "active", startedAt: t });
+          pushed.set(key, steps.length - 1);
+          break;
+        }
+        case "tool_result":
+        case "action": {
+          const key = `tool:${toolName}`;
+          const idx = pushed.get(key);
+          const ok = p.ok !== false && p.success !== false;
+          const human = str(p.humanMessage) || str(p.summary) || str(p.error);
+          if (idx !== undefined && steps[idx] && steps[idx].status === "active") {
+            steps[idx] = {
+              ...steps[idx],
+              label: ok ? `${toolName} completed` : `${toolName} failed`,
+              status: ok ? "done" : "error",
+              note: human,
+              endedAt: t,
+            };
+            pushed.delete(key);
+          } else {
+            steps.push({
+              id: `${e.id}`,
+              label: ok ? `${toolName} completed` : `${toolName} failed`,
+              status: ok ? "done" : "error",
+              note: human,
+              startedAt: t,
+              endedAt: t,
+            });
+          }
+          break;
+        }
+        case "output_validation_failed":
+          steps.push({ id: `${e.id}`, label: "Result was incomplete — retrying", status: "error", note: str(p.humanMessage) || str(p.error), startedAt: t, endedAt: t });
+          break;
+        case "pending_approval":
+          steps.push({ id: `${e.id}`, label: "Waiting for your approval", status: "active", note: str(p.summary), startedAt: t });
+          break;
+        case "ask_user":
+        case "clarification":
+          steps.push({ id: `${e.id}`, label: "Waiting for your answer", status: "active", note: str(p.question) || str(p.text), startedAt: t });
+          break;
+        case "guardrail_block":
+          steps.push({ id: `${e.id}`, label: "Blocked by a guardrail", status: "error", note: str(p.rule) || str(p.reason), startedAt: t, endedAt: t });
+          break;
+        case "error":
+          steps.push({ id: `${e.id}`, label: "Run error", status: "error", note: str(p.humanMessage) || str(p.error) || str(p.message), startedAt: t, endedAt: t });
+          break;
+        case "finished":
+          steps.push({ id: `${e.id}`, label: "Done", status: "done", note: str(p.summary) || str(p.completion), startedAt: t, endedAt: t });
+          break;
+        default:
+          break;
+      }
+    }
+    return steps;
+  }, [events]);
+
   const [needsIntegrations, setNeedsIntegrations] = useState(false);
 
   const checkIntegrations = useCallback(async (): Promise<boolean> => {
@@ -305,6 +398,18 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
           {statusPill.label}
         </button>
       </div>
+
+      {(running || liveSteps.length > 0) && (
+        <ExecutionLog
+          steps={
+            liveSteps.length > 0
+              ? liveSteps
+              : [{ id: "boot", label: "Starting the run…", status: "active", startedAt: Date.now() }]
+          }
+          title={running ? "Live execution" : "Last run"}
+          accent="#34d399"
+        />
+      )}
 
       {outputsOpen && (
         <div
