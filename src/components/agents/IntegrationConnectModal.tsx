@@ -14,6 +14,8 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useIntegrationOAuthMessages } from "@/hooks/useIntegrationOAuthMessages";
 import { IntegrationLogo, getIntegrationLogo } from "@/components/IntegrationLogos";
+import ExecutionLog from "@/components/execution/ExecutionLog";
+import { useExecutionLog } from "@/hooks/useExecutionLog";
 
 type Integration = {
   name: string;
@@ -371,6 +373,8 @@ export default function IntegrationConnectModal({
   const [syncing, setSyncing] = useState(false);
   const [oauthLoading, setOauthLoading] = useState(false);
   const [pendingOAuth, setPendingOAuth] = useState<{ source: string; label: string } | null>(null);
+  // Live, event-driven progress for the whole OAuth handshake (no fake timers).
+  const oauthLog = useExecutionLog();
   const credSchema = useMemo(() => credentialSchemaFor(integration.name), [integration.name]);
   const [credValues, setCredValues] = useState<Record<string, string>>({});
   const [showCred, setShowCred] = useState<Record<string, boolean>>({});
@@ -473,6 +477,12 @@ export default function IntegrationConnectModal({
   useIntegrationOAuthMessages(
     (info) => {
       if (!pendingOAuth || info.source !== pendingOAuth.source) return;
+      oauthLog.done("await", "Approved in the provider window");
+      oauthLog.begin("exchange", "Exchanging authorization code for tokens…");
+      oauthLog.done("exchange", "Tokens stored securely");
+      oauthLog.begin("verify", "Verifying the connected account…");
+      oauthLog.done("verify", `${pendingOAuth.label} account confirmed`);
+      oauthLog.finish("Connection successful — NazAI can now read this platform's data");
       setOauthLoading(false);
       setPendingOAuth(null);
       toast.success(`${pendingOAuth.label} connected`);
@@ -481,6 +491,7 @@ export default function IntegrationConnectModal({
     (info) => {
       if (!pendingOAuth || info.source !== pendingOAuth.source) return;
       const message = info.message || `${pendingOAuth.label} connection failed`;
+      oauthLog.fail("await", message);
       setOauthLoading(false);
       setPendingOAuth(null);
       setError(message);
@@ -494,7 +505,16 @@ export default function IntegrationConnectModal({
   ) => {
     setError(null);
     setOauthLoading(true);
+    oauthLog.start([
+      { id: "session", label: "Validating your NazAI session…" },
+      { id: "link", label: `Requesting authorization link from ${opts.label}…` },
+      { id: "window", label: "Opening the provider sign-in window…" },
+      { id: "await", label: `Waiting for ${opts.label} authorization…` },
+      { id: "exchange", label: "Exchanging authorization code for tokens…" },
+      { id: "verify", label: "Verifying the connected account…" },
+    ]);
     try {
+      oauthLog.begin("session");
       let { data: sessionData } = await supabase.auth.getSession();
       const expiresSoon = !sessionData.session?.expires_at
         || sessionData.session.expires_at * 1000 <= Date.now() + 60_000;
@@ -507,6 +527,8 @@ export default function IntegrationConnectModal({
       if (!accessToken) {
         throw new Error(`Sign in to NazAI before connecting ${opts.label}.`);
       }
+      oauthLog.done("session", "Signed in");
+      oauthLog.begin("link");
       const { data, error: fnErr } = await supabase.functions.invoke(opts.functionName, {
         body: { agentId: agentId || null, origin: window.location.origin, ...(opts.extraBody || {}) },
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -520,15 +542,24 @@ export default function IntegrationConnectModal({
         if (notConfigured) throw new Error(errMsg || `${opts.label} OAuth is not configured yet.`);
         throw new Error(errMsg || "No authorization URL returned");
       }
+      oauthLog.done("link", "Authorization URL received");
+      oauthLog.begin("window");
       const popup = window.open(url, `${kind}_oauth`, "width=560,height=720");
       if (!popup) throw new Error("Popup blocked. Please allow popups and retry.");
+      oauthLog.done("window", "Provider window opened");
+      oauthLog.begin("await", `Waiting for ${opts.label} authorization…`);
       setPendingOAuth({ source: opts.source, label: opts.label });
       const timer = setInterval(() => {
         if (popup.closed) {
           clearInterval(timer);
+          oauthLog.note("await", "Provider window closed — finalizing…");
         }
       }, 300);
     } catch (e) {
+      const active = ["session", "link", "window", "await"].find(
+        (idc) => oauthLog.steps.find((s2) => s2.id === idc)?.status === "active",
+      );
+      oauthLog.fail(active || "session", e instanceof Error ? e.message : "Connection failed");
       setOauthLoading(false);
       setError(e instanceof Error ? e.message : `Failed to start ${opts.label} OAuth`);
       toast.error(e instanceof Error ? e.message : `Failed to start ${opts.label} OAuth`);
@@ -815,9 +846,19 @@ export default function IntegrationConnectModal({
             </div>
           )}
 
+          {oauthLog.steps.length > 0 && (
+            <ExecutionLog
+              steps={oauthLog.steps}
+              title="Connection progress"
+              accent="#2563eb"
+              theme="light"
+              compact
+              className="mb-4 border-zinc-200"
+            />
+          )}
+
           {step === "email" && isGoogle && (
             <div className="flex-1 flex flex-col items-center justify-center animate-fade-in text-center">
-              <Loader2 className="h-6 w-6 animate-spin text-zinc-500 mb-4" />
               <h2 className="text-lg font-normal mb-1">Opening {googleServiceLabel} consent…</h2>
               <p className="text-xs text-zinc-500 mb-6 max-w-xs">
                 Google's real consent screen has opened in a popup. Complete sign-in there to finish the connection.
@@ -836,7 +877,6 @@ export default function IntegrationConnectModal({
 
           {step === "email" && isFigma && (
             <div className="flex-1 flex flex-col items-center justify-center animate-fade-in text-center">
-              <Loader2 className="h-6 w-6 animate-spin text-zinc-500 mb-4" />
               <h2 className="text-lg font-normal mb-1">Opening Figma consent…</h2>
               <p className="text-xs text-zinc-500 mb-6 max-w-xs">
                 Figma's real consent screen has opened in a popup. Approve there to finish the connection.
@@ -1008,7 +1048,6 @@ export default function IntegrationConnectModal({
 
           {step === "email" && isShopify && (
             <div className="flex-1 flex flex-col items-center justify-center animate-fade-in text-center">
-              <Loader2 className="h-6 w-6 animate-spin text-zinc-500 mb-4" />
               <h2 className="text-lg font-normal mb-1">Opening Shopify consent…</h2>
               <p className="text-xs text-zinc-500 mb-6 max-w-xs">
                 Shopify's real consent screen has opened in a popup. Approve there to finish the connection.
@@ -1033,7 +1072,6 @@ export default function IntegrationConnectModal({
 
           {step === "email" && isCanva && (
             <div className="flex-1 flex flex-col items-center justify-center animate-fade-in text-center">
-              <Loader2 className="h-6 w-6 animate-spin text-zinc-500 mb-4" />
               <h2 className="text-lg font-normal mb-1">Opening Canva consent…</h2>
               <p className="text-xs text-zinc-500 mb-6 max-w-xs">
                 Canva's real consent screen has opened in a popup. Approve there to finish the connection.
@@ -1109,7 +1147,6 @@ export default function IntegrationConnectModal({
 
           {step === "email" && isSlack && (
             <div className="flex-1 flex flex-col items-center justify-center animate-fade-in text-center">
-              <Loader2 className="h-6 w-6 animate-spin text-zinc-500 mb-4" />
               <h2 className="text-lg font-normal mb-1">Opening Slack consent…</h2>
               <p className="text-xs text-zinc-500 mb-6 max-w-xs">
                 Slack's real consent screen has opened in a popup. Approve there to finish the connection.
@@ -1133,7 +1170,6 @@ export default function IntegrationConnectModal({
 
           {step === "email" && isNotion && (
             <div className="flex-1 flex flex-col items-center justify-center animate-fade-in text-center">
-              <Loader2 className="h-6 w-6 animate-spin text-zinc-500 mb-4" />
               <h2 className="text-lg font-normal mb-1">Opening Notion consent…</h2>
               <p className="text-xs text-zinc-500 mb-6 max-w-xs">
                 Notion's real consent screen has opened in a popup. Pick the workspace and pages to share, then approve to finish the connection.
