@@ -80,7 +80,7 @@ export function classifyToolError(raw: {
 
   if (status === 401 || /\b(401|unauthori[sz]ed|invalid[_ ]grant|token (has )?expired|expired token|invalid token|not authenticated|reconnect|re-?authoriz)/.test(text)) {
     category = "auth_error";
-  } else if (status === 403 || /\b(403|forbidden|permission|insufficient (scope|permission)|access denied|not authorized|scope)/.test(text)) {
+  } else if (status === 403 || /\b(403|forbidden|permission|insufficient (scope|permission)|insufficient authentication scopes|access_token_scope_insufficient|insufficient_scope|access denied|not authorized|scope)/.test(text)) {
     category = "permission_error";
   } else if (status === 402 || /\b(402|quota|billing|credits? (exhausted|exceeded)|payment required|out of credits)/.test(text)) {
     category = "quota_error";
