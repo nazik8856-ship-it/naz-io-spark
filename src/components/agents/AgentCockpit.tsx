@@ -418,6 +418,18 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
             {outputs.length}
           </span>
         </button>
+        {issues.length > 0 && (
+          <button
+            onClick={() => setIssueWindowOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-amber-400/30 bg-amber-400/10 text-xs text-amber-200 hover:bg-amber-400/20"
+          >
+            <AlertTriangle className="h-3.5 w-3.5" />
+            Needs you
+            <span className="ml-1 px-1.5 py-0.5 rounded bg-amber-400/20 text-amber-100 text-[10px] font-mono">
+              {issues.length}
+            </span>
+          </button>
+        )}
         {onOpenBlueprint && (
           <button
             onClick={onOpenBlueprint}
