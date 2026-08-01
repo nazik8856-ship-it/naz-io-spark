@@ -61,6 +61,18 @@ type AgentEvent = {
   confidence?: string | null;
 };
 
+/** One row of decision provenance — "why did the agent do this?" */
+type DecisionRow = {
+  id: string;
+  agent_run_id: string | null;
+  decision: string;
+  reasoning: string | null;
+  alternatives_considered: unknown;
+  confidence_score: number | null;
+  created_at: string;
+};
+
+
 
 interface Props {
   agentId: string;
@@ -73,6 +85,8 @@ interface Props {
 
 export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Props) {
   const [events, setEvents] = useState<AgentEvent[]>([]);
+  const [decisions, setDecisions] = useState<DecisionRow[]>([]);
+
   const [running, setRunning] = useState(false);
   const [lastRunStatus, setLastRunStatus] = useState<string>("");
   const [gmailAcct, setGmailAcct] = useState<{ email: string | null; verified: string | null; status: string } | null>(null);
