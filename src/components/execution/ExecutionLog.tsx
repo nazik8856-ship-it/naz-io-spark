@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { Check, X, Loader2, Minus, Circle } from "lucide-react";
+import { Check, X, Loader2, Minus, Circle, ChevronDown, ChevronRight, HelpCircle } from "lucide-react";
 import type { ExecStep } from "@/hooks/useExecutionLog";
+
 
 /**
  * Multi-step live execution log — the shared replacement for generic spinners

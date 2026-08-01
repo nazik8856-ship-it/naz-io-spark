@@ -10,6 +10,15 @@ import { useCallback, useRef, useState } from "react";
  */
 export type ExecStatus = "pending" | "active" | "done" | "error" | "skipped";
 
+/** Decision provenance attached to a step — "why did the agent do this?" */
+export type ExecProvenance = {
+  decision: string;
+  reasoning: string;
+  alternatives: string[];
+  confidenceScore: number;
+  at?: string;
+};
+
 export type ExecStep = {
   id: string;
   label: string;
@@ -17,7 +26,9 @@ export type ExecStep = {
   note?: string;
   startedAt?: number;
   endedAt?: number;
+  provenance?: ExecProvenance;
 };
+
 
 export type ExecStepInit = { id: string; label: string };
 
