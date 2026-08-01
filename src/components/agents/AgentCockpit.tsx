@@ -185,12 +185,13 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
       )
       .subscribe();
     // Lightweight safety-net poll (in case realtime drops a message).
-    const iv = setInterval(loadEvents, 8000);
+    const iv = setInterval(() => { loadEvents(); loadDecisions(); }, 8000);
     return () => {
       supabase.removeChannel(channel);
       clearInterval(iv);
     };
-  }, [agentId, loadEvents]);
+  }, [agentId, loadEvents, loadDecisions]);
+
 
   // Auto-scroll feed
   useEffect(() => {
@@ -399,7 +400,8 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
       }
     }
     return steps;
-  }, [events]);
+  }, [events, decisions]);
+
 
   // The live ask_user request (if any) — rendered as a real input widget.
   const pendingAsk = useMemo(() => pendingClarification(events, agentId), [events, agentId]);
