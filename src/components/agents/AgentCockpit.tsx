@@ -109,6 +109,18 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
     if (!error && data) setEvents(data as AgentEvent[]);
   }, [agentId]);
 
+  // Decision provenance: why the agent chose each step (see agent_decisions).
+  const loadDecisions = useCallback(async () => {
+    const { data } = await supabase
+      .from("agent_decisions")
+      .select("id, agent_run_id, decision, reasoning, alternatives_considered, confidence_score, created_at")
+      .eq("agent_id", agentId)
+      .order("created_at", { ascending: true })
+      .limit(200);
+    if (data) setDecisions(data as DecisionRow[]);
+  }, [agentId]);
+
+
   const loadGmail = useCallback(async () => {
     const { data } = await supabase
       .from("agent_integrations")
