@@ -25,12 +25,14 @@ export default function ExecutionLog({
 }) {
   // 100ms tick keeps the active step's elapsed counter feeling instant.
   const [, force] = useState(0);
+  const [openWhy, setOpenWhy] = useState<Record<string, boolean>>({});
   const hasActive = steps.some((s) => s.status === "active");
   useEffect(() => {
     if (!hasActive) return;
     const iv = setInterval(() => force((n) => n + 1), 100);
     return () => clearInterval(iv);
   }, [hasActive]);
+
 
   if (!steps.length) return null;
 
