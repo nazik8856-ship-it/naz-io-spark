@@ -401,6 +401,52 @@ serve(async (req) => {
     // Decision provenance staged by the parser for the next `action` event.
     const pendingProvenance: { reasoning?: string; confidence?: string } = {};
 
+    // ---- Decision provenance log -------------------------------------------
+    // Every branch point (which tool, which strategy, which source) is written
+    // to agent_decisions with the model's own reasoning, the alternatives it
+    // weighed and a 0-100 self-reported confidence score.
+    const scoreFromLabel = (label: string): number =>
+      label === "high" ? 90 : label === "medium" ? 65 : label === "low" ? 35 : 50;
+    const labelFromScore = (n: number): "high" | "medium" | "low" =>
+      n >= 80 ? "high" : n >= 50 ? "medium" : "low";
+    const readConfidence = (p: Record<string, unknown>): { score: number; label: string } => {
+      const rawScore = p.confidence_score;
+      let score: number | null = null;
+      if (typeof rawScore === "number" && Number.isFinite(rawScore)) score = rawScore;
+      else if (typeof rawScore === "string" && rawScore.trim() !== "" && !Number.isNaN(Number(rawScore))) score = Number(rawScore);
+      const labelRaw = typeof p.confidence === "string" ? p.confidence.trim().toLowerCase() : "";
+      const label = labelRaw === "high" || labelRaw === "medium" || labelRaw === "low" ? labelRaw : "";
+      if (score === null) return { score: label ? scoreFromLabel(label) : 50, label: label || "medium" };
+      score = Math.max(0, Math.min(100, Math.round(score)));
+      return { score, label: label || labelFromScore(score) };
+    };
+    const logDecision = async (d: {
+      decision: string;
+      reasoning: string;
+      alternatives: unknown;
+      score: number;
+      stepIndex?: number;
+    }) => {
+      const alts = Array.isArray(d.alternatives)
+        ? d.alternatives.map((a) => String(a).slice(0, 200)).slice(0, 8)
+        : typeof d.alternatives === "string" && d.alternatives.trim()
+        ? [d.alternatives.slice(0, 200)]
+        : [];
+      try {
+        await supabase.from("agent_decisions").insert({
+          user_id: userId,
+          agent_id: agentId,
+          agent_run_id: runId,
+          step_index: d.stepIndex ?? null,
+          decision: d.decision.slice(0, 400) || "unspecified",
+          reasoning: d.reasoning.slice(0, 800),
+          alternatives_considered: alts,
+          confidence_score: Math.max(0, Math.min(100, Math.round(d.score))),
+        });
+      } catch { /* provenance must never break a run */ }
+    };
+
+
     // Output-validation guard: when a tool reports success but its result is
     // missing required keys, we downgrade the event to an incomplete_result
     // error and stage a corrective instruction for the next model turn.
@@ -655,12 +701,14 @@ ${toolDescriptions}
 {"action":"think","thought":"..."}
 \`\`\`
 \`\`\`json
-{"action":"tool","tool":"<name>","input":{...},"reasoning":"<one short sentence WHY you chose this action now>","confidence":"high|medium|low"}
+{"action":"tool","tool":"<name>","input":{...},"reasoning":"<one short sentence WHY you chose this action now>","alternatives_considered":["<other option you weighed and rejected>","..."],"confidence_score":0-100,"confidence":"high|medium|low"}
 \`\`\`
 For any REAL WRITE action (send_email, reply_email, create_doc, edit_doc, create_sheet, edit_sheet, create_calendar_event, upsert_client_note) the "reasoning" and "confidence" fields are REQUIRED. For read-only or internal tools they are optional.
+Decision provenance (ALL tool + decide blocks): include "alternatives_considered" (the other tools/strategies/data sources you genuinely weighed for this step — empty array only if there truly was no alternative) and "confidence_score", an integer 0-100 that honestly reflects how certain YOU are in this specific choice given the data you actually have. Never emit a fixed or habitual number: lower it when data is stale, missing or ambiguous, raise it when you verified the inputs.
 \`\`\`json
-{"action":"decide","decision":"...","rationale":"..."}
+{"action":"decide","decision":"...","rationale":"...","alternatives_considered":["..."],"confidence_score":0-100}
 \`\`\`
+
 \`\`\`json
 {"action":"finish","summary":"..."}
 \`\`\`
@@ -748,10 +796,23 @@ Rules:
       if (parsed.action === "think") {
         await logEvent("reason", { thought: String(parsed.thought || "").slice(0, 600) });
       } else if (parsed.action === "decide") {
+        const decisionText = String(parsed.decision || "").slice(0, 400);
+        const rationale = String(parsed.rationale || "").slice(0, 400);
+        const conf = readConfidence(parsed as Record<string, unknown>);
         await logEvent("decision", {
-          decision: String(parsed.decision || "").slice(0, 400),
-          rationale: String(parsed.rationale || "").slice(0, 400),
+          decision: decisionText,
+          rationale,
+          confidence_score: conf.score,
+          alternatives_considered: (parsed as Record<string, unknown>).alternatives_considered ?? [],
         });
+        await logDecision({
+          decision: decisionText,
+          reasoning: rationale,
+          alternatives: (parsed as Record<string, unknown>).alternatives_considered,
+          score: conf.score,
+          stepIndex: steps,
+        });
+
       } else if (parsed.action === "finish") {
         finalSummary = String(parsed.summary || finalSummary).slice(0, 600);
         await logEvent("finished", { summary: finalSummary });
@@ -822,14 +883,25 @@ Rules:
         }
 
         // Stage decision provenance (reasoning + confidence) from the model's
-        // action block. Consumed by the next `action` event write.
-        if (ACTION_CAPPED_KINDS.has(tool.kind)) {
-          const r = typeof parsed.reasoning === "string" ? parsed.reasoning.trim().slice(0, 400) : "";
-          const cRaw = typeof parsed.confidence === "string" ? parsed.confidence.trim().toLowerCase() : "";
-          const c = cRaw === "high" || cRaw === "medium" || cRaw === "low" ? cRaw : "";
-          if (r) pendingProvenance.reasoning = r;
-          if (c) pendingProvenance.confidence = c;
+        // action block, and log the full provenance record for EVERY tool
+        // choice — what it picked, why, what else it weighed, how sure it is.
+        {
+          const p = parsed as Record<string, unknown>;
+          const r = typeof p.reasoning === "string" ? p.reasoning.trim().slice(0, 400) : "";
+          const conf = readConfidence(p);
+          if (ACTION_CAPPED_KINDS.has(tool.kind)) {
+            if (r) pendingProvenance.reasoning = r;
+            pendingProvenance.confidence = conf.label;
+          }
+          await logDecision({
+            decision: `Call tool "${tool.name}"`,
+            reasoning: r || "No reasoning provided by the model for this step.",
+            alternatives: p.alternatives_considered,
+            score: conf.score,
+            stepIndex: steps,
+          });
         }
+
 
         await logEvent("tool_call", { tool: tool.name, kind: tool.kind, input });
 
