@@ -170,8 +170,10 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
   // Initial load + realtime subscription on this agent's events.
   useEffect(() => {
     loadEvents();
+    loadDecisions();
     loadGmail();
     const channel = supabase
+
       .channel(`agent_events:${agentId}`)
       .on(
         "postgres_changes",
@@ -252,7 +254,8 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
 
   // Live multi-step execution log for the CURRENT run, derived from the real
   // agent_events stream (never a timer): each tool call becomes its own step
-  // and flips to done/error the instant its result event lands.
+  // and flips to done/error the instant its result event lands. Decision
+  // provenance rows are matched onto the step they explain.
   const liveSteps = useMemo<ExecStep[]>(() => {
     if (!events.length) return [];
     let startIdx = 0;
@@ -263,6 +266,26 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
     const steps: ExecStep[] = [];
     const pushed = new Map<string, number>();
     const str = (v: unknown) => (typeof v === "string" ? v : undefined);
+
+    // Decisions for the current run, consumed in order per tool name.
+    const runId = slice[0]?.run_id;
+    const runDecisions = decisions.filter((d) => !runId || d.agent_run_id === runId);
+    const usedDecision = new Set<string>();
+    const toProvenance = (d: DecisionRow) => ({
+      decision: d.decision,
+      reasoning: d.reasoning || "",
+      alternatives: Array.isArray(d.alternatives_considered)
+        ? (d.alternatives_considered as unknown[]).map((a) => String(a))
+        : [],
+      confidenceScore: typeof d.confidence_score === "number" ? d.confidence_score : 50,
+      at: d.created_at,
+    });
+    const takeDecision = (match: (d: DecisionRow) => boolean) => {
+      const d = runDecisions.find((x) => !usedDecision.has(x.id) && match(x));
+      if (!d) return undefined;
+      usedDecision.add(d.id);
+      return toProvenance(d);
+    };
 
     for (const e of slice) {
       const p = (e.payload || {}) as Record<string, unknown>;
@@ -282,12 +305,30 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
             endedAt: t,
           });
           break;
+        case "decision":
+          steps.push({
+            id: `${e.id}`,
+            label: "Chose a strategy",
+            status: "done",
+            note: str(p.decision),
+            startedAt: t,
+            endedAt: t,
+            provenance: takeDecision((d) => !d.decision.startsWith('Call tool')),
+          });
+          break;
         case "tool_call": {
           const key = `tool:${toolName}`;
-          steps.push({ id: `${e.id}`, label: `Calling ${toolName}…`, status: "active", startedAt: t });
+          steps.push({
+            id: `${e.id}`,
+            label: `Calling ${toolName}…`,
+            status: "active",
+            startedAt: t,
+            provenance: takeDecision((d) => d.decision.includes(`"${toolName}"`)),
+          });
           pushed.set(key, steps.length - 1);
           break;
         }
+
         case "tool_result":
         case "action": {
           const key = `tool:${toolName}`;
