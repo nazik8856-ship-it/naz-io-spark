@@ -127,6 +127,63 @@ export type Database = {
           },
         ]
       }
+      agent_decisions: {
+        Row: {
+          agent_id: string | null
+          agent_run_id: string | null
+          alternatives_considered: Json
+          confidence_score: number
+          created_at: string
+          decision: string
+          id: string
+          org_id: string | null
+          reasoning: string
+          step_index: number | null
+          user_id: string
+        }
+        Insert: {
+          agent_id?: string | null
+          agent_run_id?: string | null
+          alternatives_considered?: Json
+          confidence_score?: number
+          created_at?: string
+          decision: string
+          id?: string
+          org_id?: string | null
+          reasoning?: string
+          step_index?: number | null
+          user_id: string
+        }
+        Update: {
+          agent_id?: string | null
+          agent_run_id?: string | null
+          alternatives_considered?: Json
+          confidence_score?: number
+          created_at?: string
+          decision?: string
+          id?: string
+          org_id?: string | null
+          reasoning?: string
+          step_index?: number | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_decisions_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_decisions_agent_run_id_fkey"
+            columns: ["agent_run_id"]
+            isOneToOne: false
+            referencedRelation: "agent_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       agent_events: {
         Row: {
           agent_id: string

@@ -61,6 +61,18 @@ type AgentEvent = {
   confidence?: string | null;
 };
 
+/** One row of decision provenance — "why did the agent do this?" */
+type DecisionRow = {
+  id: string;
+  agent_run_id: string | null;
+  decision: string;
+  reasoning: string | null;
+  alternatives_considered: unknown;
+  confidence_score: number | null;
+  created_at: string;
+};
+
+
 
 interface Props {
   agentId: string;
@@ -73,6 +85,8 @@ interface Props {
 
 export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Props) {
   const [events, setEvents] = useState<AgentEvent[]>([]);
+  const [decisions, setDecisions] = useState<DecisionRow[]>([]);
+
   const [running, setRunning] = useState(false);
   const [lastRunStatus, setLastRunStatus] = useState<string>("");
   const [gmailAcct, setGmailAcct] = useState<{ email: string | null; verified: string | null; status: string } | null>(null);
@@ -109,6 +123,18 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
     if (!error && data) setEvents(data as AgentEvent[]);
   }, [agentId]);
 
+  // Decision provenance: why the agent chose each step (see agent_decisions).
+  const loadDecisions = useCallback(async () => {
+    const { data } = await supabase
+      .from("agent_decisions")
+      .select("id, agent_run_id, decision, reasoning, alternatives_considered, confidence_score, created_at")
+      .eq("agent_id", agentId)
+      .order("created_at", { ascending: true })
+      .limit(200);
+    if (data) setDecisions(data as DecisionRow[]);
+  }, [agentId]);
+
+
   const loadGmail = useCallback(async () => {
     const { data } = await supabase
       .from("agent_integrations")
@@ -144,8 +170,10 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
   // Initial load + realtime subscription on this agent's events.
   useEffect(() => {
     loadEvents();
+    loadDecisions();
     loadGmail();
     const channel = supabase
+
       .channel(`agent_events:${agentId}`)
       .on(
         "postgres_changes",
@@ -157,12 +185,13 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
       )
       .subscribe();
     // Lightweight safety-net poll (in case realtime drops a message).
-    const iv = setInterval(loadEvents, 8000);
+    const iv = setInterval(() => { loadEvents(); loadDecisions(); }, 8000);
     return () => {
       supabase.removeChannel(channel);
       clearInterval(iv);
     };
-  }, [agentId, loadEvents]);
+  }, [agentId, loadEvents, loadDecisions]);
+
 
   // Auto-scroll feed
   useEffect(() => {
@@ -226,7 +255,8 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
 
   // Live multi-step execution log for the CURRENT run, derived from the real
   // agent_events stream (never a timer): each tool call becomes its own step
-  // and flips to done/error the instant its result event lands.
+  // and flips to done/error the instant its result event lands. Decision
+  // provenance rows are matched onto the step they explain.
   const liveSteps = useMemo<ExecStep[]>(() => {
     if (!events.length) return [];
     let startIdx = 0;
@@ -237,6 +267,26 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
     const steps: ExecStep[] = [];
     const pushed = new Map<string, number>();
     const str = (v: unknown) => (typeof v === "string" ? v : undefined);
+
+    // Decisions for the current run, consumed in order per tool name.
+    const runId = slice[0]?.run_id;
+    const runDecisions = decisions.filter((d) => !runId || d.agent_run_id === runId);
+    const usedDecision = new Set<string>();
+    const toProvenance = (d: DecisionRow) => ({
+      decision: d.decision,
+      reasoning: d.reasoning || "",
+      alternatives: Array.isArray(d.alternatives_considered)
+        ? (d.alternatives_considered as unknown[]).map((a) => String(a))
+        : [],
+      confidenceScore: typeof d.confidence_score === "number" ? d.confidence_score : 50,
+      at: d.created_at,
+    });
+    const takeDecision = (match: (d: DecisionRow) => boolean) => {
+      const d = runDecisions.find((x) => !usedDecision.has(x.id) && match(x));
+      if (!d) return undefined;
+      usedDecision.add(d.id);
+      return toProvenance(d);
+    };
 
     for (const e of slice) {
       const p = (e.payload || {}) as Record<string, unknown>;
@@ -256,12 +306,30 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
             endedAt: t,
           });
           break;
+        case "decision":
+          steps.push({
+            id: `${e.id}`,
+            label: "Chose a strategy",
+            status: "done",
+            note: str(p.decision),
+            startedAt: t,
+            endedAt: t,
+            provenance: takeDecision((d) => !d.decision.startsWith('Call tool')),
+          });
+          break;
         case "tool_call": {
           const key = `tool:${toolName}`;
-          steps.push({ id: `${e.id}`, label: `Calling ${toolName}…`, status: "active", startedAt: t });
+          steps.push({
+            id: `${e.id}`,
+            label: `Calling ${toolName}…`,
+            status: "active",
+            startedAt: t,
+            provenance: takeDecision((d) => d.decision.includes(`"${toolName}"`)),
+          });
           pushed.set(key, steps.length - 1);
           break;
         }
+
         case "tool_result":
         case "action": {
           const key = `tool:${toolName}`;
@@ -332,7 +400,8 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
       }
     }
     return steps;
-  }, [events]);
+  }, [events, decisions]);
+
 
   // The live ask_user request (if any) — rendered as a real input widget.
   const pendingAsk = useMemo(() => pendingClarification(events, agentId), [events, agentId]);

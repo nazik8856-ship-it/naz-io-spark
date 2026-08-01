@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { Check, X, Loader2, Minus, Circle } from "lucide-react";
+import { Check, X, Loader2, Minus, Circle, ChevronDown, ChevronRight, HelpCircle } from "lucide-react";
 import type { ExecStep } from "@/hooks/useExecutionLog";
+
 
 /**
  * Multi-step live execution log — the shared replacement for generic spinners
@@ -24,12 +25,14 @@ export default function ExecutionLog({
 }) {
   // 100ms tick keeps the active step's elapsed counter feeling instant.
   const [, force] = useState(0);
+  const [openWhy, setOpenWhy] = useState<Record<string, boolean>>({});
   const hasActive = steps.some((s) => s.status === "active");
   useEffect(() => {
     if (!hasActive) return;
     const iv = setInterval(() => force((n) => n + 1), 100);
     return () => clearInterval(iv);
   }, [hasActive]);
+
 
   if (!steps.length) return null;
 
@@ -94,7 +97,64 @@ export default function ExecutionLog({
                 {s.note && (
                   <span className="block text-[10px] text-zinc-500 break-words mt-0.5">{s.note}</span>
                 )}
+                {s.provenance && (
+                  <span className="block mt-1">
+                    <button
+                      type="button"
+                      onClick={() => setOpenWhy((o) => ({ ...o, [s.id]: !o[s.id] }))}
+                      className="inline-flex items-center gap-1 text-[10px] hover:opacity-80 transition-opacity"
+                      style={{ color: accent }}
+                      aria-expanded={!!openWhy[s.id]}
+                    >
+                      {openWhy[s.id] ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                      <HelpCircle className="h-3 w-3" />
+                      Why did the agent do this?
+                      <span className="text-zinc-500">· {s.provenance.confidenceScore}% sure</span>
+                    </button>
+                    {openWhy[s.id] && (
+                      <span
+                        className={`block mt-1.5 rounded-lg p-2.5 space-y-1.5 ${theme === "light" ? "bg-white" : "bg-white/[0.03]"}`}
+                        style={{ border: `1px solid ${accent}22` }}
+                      >
+                        <span className="block text-[10px] text-zinc-400">
+                          <span className="text-zinc-500 uppercase tracking-wider">Decision · </span>
+                          {s.provenance.decision}
+                        </span>
+                        <span className="block text-[10px] text-zinc-300 leading-relaxed">
+                          <span className="text-zinc-500 uppercase tracking-wider">Reasoning · </span>
+                          {s.provenance.reasoning || "No reasoning recorded for this step."}
+                        </span>
+                        <span className="block text-[10px] text-zinc-400">
+                          <span className="text-zinc-500 uppercase tracking-wider">Alternatives considered · </span>
+                          {s.provenance.alternatives.length
+                            ? s.provenance.alternatives.join(" · ")
+                            : "none — no other viable option at this point"}
+                        </span>
+                        <span className="block">
+                          <span className="inline-block h-1 w-full max-w-[160px] rounded-full overflow-hidden bg-white/10 align-middle">
+                            <span
+                              className="block h-full"
+                              style={{
+                                width: `${s.provenance.confidenceScore}%`,
+                                background:
+                                  s.provenance.confidenceScore >= 80
+                                    ? "#34d399"
+                                    : s.provenance.confidenceScore >= 50
+                                    ? "#fbbf24"
+                                    : "#f87171",
+                              }}
+                            />
+                          </span>
+                          <span className="ml-2 text-[10px] text-zinc-500 align-middle">
+                            confidence {s.provenance.confidenceScore}/100
+                          </span>
+                        </span>
+                      </span>
+                    )}
+                  </span>
+                )}
               </span>
+
               {elapsed !== null && (s.status === "active" || s.status === "done" || s.status === "error") && (
                 <span className="shrink-0 text-[10px] text-zinc-600 tabular-nums">
                   {elapsed < 1000 ? `${elapsed}ms` : `${(elapsed / 1000).toFixed(1)}s`}
