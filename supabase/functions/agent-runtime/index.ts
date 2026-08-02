@@ -939,13 +939,34 @@ Rules:
           confidence_score: conf.score,
           alternatives_considered: (parsed as Record<string, unknown>).alternatives_considered ?? [],
         });
-        await logDecision({
+        const lowConfidence = conf.score < confidenceThreshold;
+        const decisionId = await logDecision({
           decision: decisionText,
           reasoning: rationale,
           alternatives: (parsed as Record<string, unknown>).alternatives_considered,
           score: conf.score,
           stepIndex: steps,
+          escalated: lowConfidence,
         });
+        if (lowConfidence) {
+          const gate = await escalateLowConfidence({
+            decisionText,
+            reasoning: rationale,
+            alternatives: (parsed as Record<string, unknown>).alternatives_considered,
+            score: conf.score,
+            decisionId,
+            stepIndex: steps,
+          });
+          if (gate.outcome === "blocked") {
+            messages.push({ role: "user", content: gate.message! });
+            continue;
+          }
+          if (gate.outcome === "paused") {
+            paused = true;
+            finalSummary = `Paused — waiting for your approval on a low-confidence decision (${conf.score}%): ${decisionText}`;
+            break;
+          }
+        }
 
       } else if (parsed.action === "finish") {
         finalSummary = String(parsed.summary || finalSummary).slice(0, 600);
