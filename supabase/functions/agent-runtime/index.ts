@@ -620,7 +620,7 @@ serve(async (req) => {
           human_response: answer.slice(0, 1000),
           override_of: decisionId,
           escalated: true,
-        }).select("id").single().catch?.(() => null);
+        });
       }
     };
     await loadEscalationVerdicts().catch(() => {});
