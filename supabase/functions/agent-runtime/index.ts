@@ -315,6 +315,12 @@ serve(async (req) => {
       "upsert_client_note",
     ]);
     const dailyActionCap = Math.max(0, Number((agent as { daily_action_cap?: number }).daily_action_cap ?? 20));
+    // Confidence-escalation threshold (per-agent, default 60): any tool call or
+    // decide block the model reports BELOW this score is paused for a human.
+    const confidenceThreshold = Math.max(
+      0,
+      Math.min(100, Math.round(Number((agent as { confidence_threshold?: number }).confidence_threshold ?? 60))),
+    );
     const clientWriteMode = String((agent as { client_write_mode?: string }).client_write_mode || "hybrid");
     const actionCapState: { blocked: boolean; loggedOnce: boolean; usedToday: number } = { blocked: false, loggedOnce: false, usedToday: 0 };
 
