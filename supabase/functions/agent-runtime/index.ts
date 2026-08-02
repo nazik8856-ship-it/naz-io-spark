@@ -426,20 +426,23 @@ serve(async (req) => {
       score = Math.max(0, Math.min(100, Math.round(score)));
       return { score, label: label || labelFromScore(score) };
     };
+    const normalizeAlternatives = (alternatives: unknown): string[] =>
+      Array.isArray(alternatives)
+        ? alternatives.map((a) => String(a).slice(0, 200)).slice(0, 8)
+        : typeof alternatives === "string" && alternatives.trim()
+        ? [alternatives.slice(0, 200)]
+        : [];
     const logDecision = async (d: {
       decision: string;
       reasoning: string;
       alternatives: unknown;
       score: number;
       stepIndex?: number;
-    }) => {
-      const alts = Array.isArray(d.alternatives)
-        ? d.alternatives.map((a) => String(a).slice(0, 200)).slice(0, 8)
-        : typeof d.alternatives === "string" && d.alternatives.trim()
-        ? [d.alternatives.slice(0, 200)]
-        : [];
+      escalated?: boolean;
+    }): Promise<string | null> => {
+      const alts = normalizeAlternatives(d.alternatives);
       try {
-        await supabase.from("agent_decisions").insert({
+        const { data } = await supabase.from("agent_decisions").insert({
           user_id: userId,
           agent_id: agentId,
           agent_run_id: runId,
@@ -448,8 +451,11 @@ serve(async (req) => {
           reasoning: d.reasoning.slice(0, 800),
           alternatives_considered: alts,
           confidence_score: Math.max(0, Math.min(100, Math.round(d.score))),
-        });
-      } catch { /* provenance must never break a run */ }
+          source: "model",
+          escalated: d.escalated ?? false,
+        }).select("id").single();
+        return (data as { id?: string } | null)?.id ?? null;
+      } catch { /* provenance must never break a run */ return null; }
     };
 
 
