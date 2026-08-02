@@ -560,7 +560,129 @@ serve(async (req) => {
       return supabase.from("agent_events").insert(row);
     };
 
+    // ---- Confidence-based escalation gate -----------------------------------
+    // A low-confidence choice (< the agent's confidence_threshold) is never
+    // executed blind: the run pauses BEFORE the step, the operator sees the
+    // decision / reasoning / alternatives, and their verdict is logged back to
+    // agent_decisions as a `human_override` row linked to the model's entry.
+    type EscalationVerdict = {
+      requestId: string;
+      answer: string;
+      decisionId: string | null;
+      verdict: "approve" | "reject" | "alternative";
+    };
+    const escalationVerdicts = new Map<string, EscalationVerdict>();
+    const escKey = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim().slice(0, 160);
+    const classifyVerdict = (answer: string): "approve" | "reject" | "alternative" => {
+      const a = answer.trim().toLowerCase();
+      if (/^(approve|approved|yes|go ahead|proceed|ok|okay|do it)\b/.test(a)) return "approve";
+      if (/^(reject|rejected|no|stop|don'?t|do not|cancel|skip)\b/.test(a)) return "reject";
+      return "alternative";
+    };
+    // Load past escalation questions + the operator's answers, and back-fill an
+    // override row for any answered escalation that hasn't been logged yet.
+    const loadEscalationVerdicts = async () => {
+      const { data: evs } = await supabase.from("agent_events")
+        .select("id, kind, payload, created_at")
+        .eq("agent_id", agentId).eq("user_id", userId)
+        .in("kind", ["clarification_request", "clarification_answer"])
+        .order("created_at", { ascending: false }).limit(200);
+      const rows = (evs || []) as { id: string; kind: string; payload: Record<string, unknown> }[];
+      const answersByRef = new Map<string, string>();
+      for (const r of rows) {
+        if (r.kind !== "clarification_answer") continue;
+        const ref = String(r.payload?.ref || "");
+        const ans = String(r.payload?.answer || "").trim();
+        if (ref && ans && !answersByRef.has(ref)) answersByRef.set(ref, ans);
+      }
+      for (const r of rows) {
+        if (r.kind !== "clarification_request" || r.payload?.escalation !== true) continue;
+        const key = String(r.payload?.escalation_key || "");
+        const answer = answersByRef.get(r.id);
+        if (!key || !answer) continue;
+        const decisionId = (r.payload?.decision_id as string | null) ?? null;
+        const verdict = classifyVerdict(answer);
+        if (!escalationVerdicts.has(key)) escalationVerdicts.set(key, { requestId: r.id, answer, decisionId, verdict });
+        // Persist the human's call as an override row, once.
+        if (!decisionId) continue;
+        const { data: existing } = await supabase.from("agent_decisions")
+          .select("id").eq("override_of", decisionId).limit(1).maybeSingle();
+        if (existing) continue;
+        await supabase.from("agent_decisions").insert({
+          user_id: userId,
+          agent_id: agentId,
+          agent_run_id: runId,
+          decision: `Operator ${verdict === "approve" ? "approved" : verdict === "reject" ? "rejected" : "redirected"}: ${String(r.payload?.decision_text || "low-confidence step").slice(0, 300)}`,
+          reasoning: `Human override after confidence escalation. Operator answered: ${answer.slice(0, 600)}`,
+          alternatives_considered: normalizeAlternatives(r.payload?.alternatives),
+          confidence_score: 100,
+          source: "human_override",
+          human_response: answer.slice(0, 1000),
+          override_of: decisionId,
+          escalated: true,
+        }).select("id").single().catch?.(() => null);
+      }
+    };
+    await loadEscalationVerdicts().catch(() => {});
 
+    // Returns "proceed" when the step may run, or a message to feed the model.
+    const escalateLowConfidence = async (args: {
+      decisionText: string;
+      reasoning: string;
+      alternatives: unknown;
+      score: number;
+      decisionId: string | null;
+      stepIndex: number;
+    }): Promise<{ outcome: "proceed" | "blocked" | "paused"; message?: string }> => {
+      const key = escKey(args.decisionText);
+      const prior = escalationVerdicts.get(key);
+      if (prior) {
+        if (prior.verdict === "approve") {
+          await logEvent("reason", { thought: `Low-confidence step (${args.score}%) already approved by the operator: "${prior.answer}". Proceeding.` });
+          return { outcome: "proceed" };
+        }
+        return {
+          outcome: "blocked",
+          message: prior.verdict === "reject"
+            ? `The operator REJECTED this low-confidence step ("${args.decisionText}"). Do not run it. Choose a different approach or finish and explain plainly.`
+            : `The operator redirected this low-confidence step ("${args.decisionText}"). Their instruction: ${prior.answer}\nFollow it instead of your original plan.`,
+        };
+      }
+      const alternatives = normalizeAlternatives(args.alternatives);
+      const question =
+        `I'm only ${args.score}% sure about this step: ${args.decisionText}.\nWhy I want to do it: ${args.reasoning || "no reasoning recorded"}.\n` +
+        (alternatives.length ? `Other options I weighed: ${alternatives.join(" · ")}.\n` : "") +
+        `Should I go ahead, skip it, or take a different option?`;
+      const options = ["Approve — go ahead", "Reject — don't do this", ...alternatives.map((a) => `Do instead: ${a}`)].slice(0, 6);
+      await logEvent("confidence_escalation", {
+        decision: args.decisionText,
+        reasoning: args.reasoning,
+        alternatives,
+        confidence_score: args.score,
+        threshold: confidenceThreshold,
+        decision_id: args.decisionId,
+        humanMessage: question,
+      });
+      await logEvent("clarification_request", {
+        question,
+        options,
+        input_type: "choice",
+        fix_action: "input",
+        humanMessage: question,
+        requested_at: new Date().toISOString(),
+        response_timeout_ms: 180_000,
+        // Escalation metadata — distinguishes this from a normal ask_user.
+        escalation: true,
+        escalation_key: key,
+        decision_id: args.decisionId,
+        decision_text: args.decisionText,
+        reasoning: args.reasoning,
+        alternatives,
+        confidence_score: args.score,
+        threshold: confidenceThreshold,
+      });
+      return { outcome: "paused" };
+    };
 
 
     await logEvent("run_started", { trigger, goal: manifest.goal });
