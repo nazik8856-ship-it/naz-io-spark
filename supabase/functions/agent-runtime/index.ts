@@ -315,6 +315,12 @@ serve(async (req) => {
       "upsert_client_note",
     ]);
     const dailyActionCap = Math.max(0, Number((agent as { daily_action_cap?: number }).daily_action_cap ?? 20));
+    // Confidence-escalation threshold (per-agent, default 60): any tool call or
+    // decide block the model reports BELOW this score is paused for a human.
+    const confidenceThreshold = Math.max(
+      0,
+      Math.min(100, Math.round(Number((agent as { confidence_threshold?: number }).confidence_threshold ?? 60))),
+    );
     const clientWriteMode = String((agent as { client_write_mode?: string }).client_write_mode || "hybrid");
     const actionCapState: { blocked: boolean; loggedOnce: boolean; usedToday: number } = { blocked: false, loggedOnce: false, usedToday: 0 };
 
@@ -420,20 +426,23 @@ serve(async (req) => {
       score = Math.max(0, Math.min(100, Math.round(score)));
       return { score, label: label || labelFromScore(score) };
     };
+    const normalizeAlternatives = (alternatives: unknown): string[] =>
+      Array.isArray(alternatives)
+        ? alternatives.map((a) => String(a).slice(0, 200)).slice(0, 8)
+        : typeof alternatives === "string" && alternatives.trim()
+        ? [alternatives.slice(0, 200)]
+        : [];
     const logDecision = async (d: {
       decision: string;
       reasoning: string;
       alternatives: unknown;
       score: number;
       stepIndex?: number;
-    }) => {
-      const alts = Array.isArray(d.alternatives)
-        ? d.alternatives.map((a) => String(a).slice(0, 200)).slice(0, 8)
-        : typeof d.alternatives === "string" && d.alternatives.trim()
-        ? [d.alternatives.slice(0, 200)]
-        : [];
+      escalated?: boolean;
+    }): Promise<string | null> => {
+      const alts = normalizeAlternatives(d.alternatives);
       try {
-        await supabase.from("agent_decisions").insert({
+        const { data } = await supabase.from("agent_decisions").insert({
           user_id: userId,
           agent_id: agentId,
           agent_run_id: runId,
@@ -442,8 +451,11 @@ serve(async (req) => {
           reasoning: d.reasoning.slice(0, 800),
           alternatives_considered: alts,
           confidence_score: Math.max(0, Math.min(100, Math.round(d.score))),
-        });
-      } catch { /* provenance must never break a run */ }
+          source: "model",
+          escalated: d.escalated ?? false,
+        }).select("id").single();
+        return (data as { id?: string } | null)?.id ?? null;
+      } catch { /* provenance must never break a run */ return null; }
     };
 
 
@@ -548,7 +560,129 @@ serve(async (req) => {
       return supabase.from("agent_events").insert(row);
     };
 
+    // ---- Confidence-based escalation gate -----------------------------------
+    // A low-confidence choice (< the agent's confidence_threshold) is never
+    // executed blind: the run pauses BEFORE the step, the operator sees the
+    // decision / reasoning / alternatives, and their verdict is logged back to
+    // agent_decisions as a `human_override` row linked to the model's entry.
+    type EscalationVerdict = {
+      requestId: string;
+      answer: string;
+      decisionId: string | null;
+      verdict: "approve" | "reject" | "alternative";
+    };
+    const escalationVerdicts = new Map<string, EscalationVerdict>();
+    const escKey = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim().slice(0, 160);
+    const classifyVerdict = (answer: string): "approve" | "reject" | "alternative" => {
+      const a = answer.trim().toLowerCase();
+      if (/^(approve|approved|yes|go ahead|proceed|ok|okay|do it)\b/.test(a)) return "approve";
+      if (/^(reject|rejected|no|stop|don'?t|do not|cancel|skip)\b/.test(a)) return "reject";
+      return "alternative";
+    };
+    // Load past escalation questions + the operator's answers, and back-fill an
+    // override row for any answered escalation that hasn't been logged yet.
+    const loadEscalationVerdicts = async () => {
+      const { data: evs } = await supabase.from("agent_events")
+        .select("id, kind, payload, created_at")
+        .eq("agent_id", agentId).eq("user_id", userId)
+        .in("kind", ["clarification_request", "clarification_answer"])
+        .order("created_at", { ascending: false }).limit(200);
+      const rows = (evs || []) as { id: string; kind: string; payload: Record<string, unknown> }[];
+      const answersByRef = new Map<string, string>();
+      for (const r of rows) {
+        if (r.kind !== "clarification_answer") continue;
+        const ref = String(r.payload?.ref || "");
+        const ans = String(r.payload?.answer || "").trim();
+        if (ref && ans && !answersByRef.has(ref)) answersByRef.set(ref, ans);
+      }
+      for (const r of rows) {
+        if (r.kind !== "clarification_request" || r.payload?.escalation !== true) continue;
+        const key = String(r.payload?.escalation_key || "");
+        const answer = answersByRef.get(r.id);
+        if (!key || !answer) continue;
+        const decisionId = (r.payload?.decision_id as string | null) ?? null;
+        const verdict = classifyVerdict(answer);
+        if (!escalationVerdicts.has(key)) escalationVerdicts.set(key, { requestId: r.id, answer, decisionId, verdict });
+        // Persist the human's call as an override row, once.
+        if (!decisionId) continue;
+        const { data: existing } = await supabase.from("agent_decisions")
+          .select("id").eq("override_of", decisionId).limit(1).maybeSingle();
+        if (existing) continue;
+        await supabase.from("agent_decisions").insert({
+          user_id: userId,
+          agent_id: agentId,
+          agent_run_id: runId,
+          decision: `Operator ${verdict === "approve" ? "approved" : verdict === "reject" ? "rejected" : "redirected"}: ${String(r.payload?.decision_text || "low-confidence step").slice(0, 300)}`,
+          reasoning: `Human override after confidence escalation. Operator answered: ${answer.slice(0, 600)}`,
+          alternatives_considered: normalizeAlternatives(r.payload?.alternatives),
+          confidence_score: 100,
+          source: "human_override",
+          human_response: answer.slice(0, 1000),
+          override_of: decisionId,
+          escalated: true,
+        });
+      }
+    };
+    await loadEscalationVerdicts().catch(() => {});
 
+    // Returns "proceed" when the step may run, or a message to feed the model.
+    const escalateLowConfidence = async (args: {
+      decisionText: string;
+      reasoning: string;
+      alternatives: unknown;
+      score: number;
+      decisionId: string | null;
+      stepIndex: number;
+    }): Promise<{ outcome: "proceed" | "blocked" | "paused"; message?: string }> => {
+      const key = escKey(args.decisionText);
+      const prior = escalationVerdicts.get(key);
+      if (prior) {
+        if (prior.verdict === "approve") {
+          await logEvent("reason", { thought: `Low-confidence step (${args.score}%) already approved by the operator: "${prior.answer}". Proceeding.` });
+          return { outcome: "proceed" };
+        }
+        return {
+          outcome: "blocked",
+          message: prior.verdict === "reject"
+            ? `The operator REJECTED this low-confidence step ("${args.decisionText}"). Do not run it. Choose a different approach or finish and explain plainly.`
+            : `The operator redirected this low-confidence step ("${args.decisionText}"). Their instruction: ${prior.answer}\nFollow it instead of your original plan.`,
+        };
+      }
+      const alternatives = normalizeAlternatives(args.alternatives);
+      const question =
+        `I'm only ${args.score}% sure about this step: ${args.decisionText}.\nWhy I want to do it: ${args.reasoning || "no reasoning recorded"}.\n` +
+        (alternatives.length ? `Other options I weighed: ${alternatives.join(" · ")}.\n` : "") +
+        `Should I go ahead, skip it, or take a different option?`;
+      const options = ["Approve — go ahead", "Reject — don't do this", ...alternatives.map((a) => `Do instead: ${a}`)].slice(0, 6);
+      await logEvent("confidence_escalation", {
+        decision: args.decisionText,
+        reasoning: args.reasoning,
+        alternatives,
+        confidence_score: args.score,
+        threshold: confidenceThreshold,
+        decision_id: args.decisionId,
+        humanMessage: question,
+      });
+      await logEvent("clarification_request", {
+        question,
+        options,
+        input_type: "choice",
+        fix_action: "input",
+        humanMessage: question,
+        requested_at: new Date().toISOString(),
+        response_timeout_ms: 180_000,
+        // Escalation metadata — distinguishes this from a normal ask_user.
+        escalation: true,
+        escalation_key: key,
+        decision_id: args.decisionId,
+        decision_text: args.decisionText,
+        reasoning: args.reasoning,
+        alternatives,
+        confidence_score: args.score,
+        threshold: confidenceThreshold,
+      });
+      return { outcome: "paused" };
+    };
 
 
     await logEvent("run_started", { trigger, goal: manifest.goal });
@@ -805,13 +939,34 @@ Rules:
           confidence_score: conf.score,
           alternatives_considered: (parsed as Record<string, unknown>).alternatives_considered ?? [],
         });
-        await logDecision({
+        const lowConfidence = conf.score < confidenceThreshold;
+        const decisionId = await logDecision({
           decision: decisionText,
           reasoning: rationale,
           alternatives: (parsed as Record<string, unknown>).alternatives_considered,
           score: conf.score,
           stepIndex: steps,
+          escalated: lowConfidence,
         });
+        if (lowConfidence) {
+          const gate = await escalateLowConfidence({
+            decisionText,
+            reasoning: rationale,
+            alternatives: (parsed as Record<string, unknown>).alternatives_considered,
+            score: conf.score,
+            decisionId,
+            stepIndex: steps,
+          });
+          if (gate.outcome === "blocked") {
+            messages.push({ role: "user", content: gate.message! });
+            continue;
+          }
+          if (gate.outcome === "paused") {
+            paused = true;
+            finalSummary = `Paused — waiting for your approval on a low-confidence decision (${conf.score}%): ${decisionText}`;
+            break;
+          }
+        }
 
       } else if (parsed.action === "finish") {
         finalSummary = String(parsed.summary || finalSummary).slice(0, 600);
@@ -893,13 +1048,56 @@ Rules:
             if (r) pendingProvenance.reasoning = r;
             pendingProvenance.confidence = conf.label;
           }
-          await logDecision({
-            decision: `Call tool "${tool.name}"`,
+          const decisionText = `Call tool "${tool.name}"`;
+          const lowConfidence =
+            conf.score < confidenceThreshold &&
+            !["ask_user", "request_approval", "remember"].includes(tool.kind);
+          const decisionId = await logDecision({
+            decision: decisionText,
             reasoning: r || "No reasoning provided by the model for this step.",
             alternatives: p.alternatives_considered,
             score: conf.score,
             stepIndex: steps,
+            escalated: lowConfidence,
           });
+
+          // Escalation gate: pause BEFORE executing anything the model is
+          // not confident enough about.
+          if (lowConfidence) {
+            const gate = await escalateLowConfidence({
+              decisionText,
+              reasoning: r,
+              alternatives: p.alternatives_considered,
+              score: conf.score,
+              decisionId,
+              stepIndex: steps,
+            });
+            if (gate.outcome === "blocked") {
+              await logEvent("tool_result", {
+                tool: tool.name,
+                ok: false,
+                skipped: true,
+                summary: gate.message,
+                humanMessage: gate.message,
+              });
+              messages.push({ role: "user", content: gate.message! });
+              continue;
+            }
+            if (gate.outcome === "paused") {
+              await logEvent("tool_result", {
+                tool: tool.name,
+                kind: tool.kind,
+                ok: true,
+                waiting_for_user: true,
+                input_type: "choice",
+                summary: `Paused for your approval — only ${conf.score}% sure about ${tool.name}.`,
+                humanMessage: `Waiting for your decision before running ${tool.name} (confidence ${conf.score}%, threshold ${confidenceThreshold}%).`,
+              });
+              paused = true;
+              finalSummary = `Paused — waiting for your approval on a low-confidence step (${conf.score}%): ${decisionText}`;
+              break;
+            }
+          }
         }
 
 

@@ -135,9 +135,13 @@ export type Database = {
           confidence_score: number
           created_at: string
           decision: string
+          escalated: boolean
+          human_response: string | null
           id: string
           org_id: string | null
+          override_of: string | null
           reasoning: string
+          source: string
           step_index: number | null
           user_id: string
         }
@@ -148,9 +152,13 @@ export type Database = {
           confidence_score?: number
           created_at?: string
           decision: string
+          escalated?: boolean
+          human_response?: string | null
           id?: string
           org_id?: string | null
+          override_of?: string | null
           reasoning?: string
+          source?: string
           step_index?: number | null
           user_id: string
         }
@@ -161,9 +169,13 @@ export type Database = {
           confidence_score?: number
           created_at?: string
           decision?: string
+          escalated?: boolean
+          human_response?: string | null
           id?: string
           org_id?: string | null
+          override_of?: string | null
           reasoning?: string
+          source?: string
           step_index?: number | null
           user_id?: string
         }
@@ -180,6 +192,13 @@ export type Database = {
             columns: ["agent_run_id"]
             isOneToOne: false
             referencedRelation: "agent_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_decisions_override_of_fkey"
+            columns: ["override_of"]
+            isOneToOne: false
+            referencedRelation: "agent_decisions"
             referencedColumns: ["id"]
           },
         ]
@@ -419,6 +438,7 @@ export type Database = {
           autonomy: string
           business_profile_id: string | null
           client_write_mode: string
+          confidence_threshold: number
           created_at: string
           daily_action_cap: number
           daily_run_cap: number
@@ -442,6 +462,7 @@ export type Database = {
           autonomy?: string
           business_profile_id?: string | null
           client_write_mode?: string
+          confidence_threshold?: number
           created_at?: string
           daily_action_cap?: number
           daily_run_cap?: number
@@ -465,6 +486,7 @@ export type Database = {
           autonomy?: string
           business_profile_id?: string | null
           client_write_mode?: string
+          confidence_threshold?: number
           created_at?: string
           daily_action_cap?: number
           daily_run_cap?: number
