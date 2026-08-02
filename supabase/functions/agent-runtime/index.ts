@@ -1027,13 +1027,56 @@ Rules:
             if (r) pendingProvenance.reasoning = r;
             pendingProvenance.confidence = conf.label;
           }
-          await logDecision({
-            decision: `Call tool "${tool.name}"`,
+          const decisionText = `Call tool "${tool.name}"`;
+          const lowConfidence =
+            conf.score < confidenceThreshold &&
+            !["ask_user", "request_approval", "remember"].includes(tool.kind);
+          const decisionId = await logDecision({
+            decision: decisionText,
             reasoning: r || "No reasoning provided by the model for this step.",
             alternatives: p.alternatives_considered,
             score: conf.score,
             stepIndex: steps,
+            escalated: lowConfidence,
           });
+
+          // Escalation gate: pause BEFORE executing anything the model is
+          // not confident enough about.
+          if (lowConfidence) {
+            const gate = await escalateLowConfidence({
+              decisionText,
+              reasoning: r,
+              alternatives: p.alternatives_considered,
+              score: conf.score,
+              decisionId,
+              stepIndex: steps,
+            });
+            if (gate.outcome === "blocked") {
+              await logEvent("tool_result", {
+                tool: tool.name,
+                ok: false,
+                skipped: true,
+                summary: gate.message,
+                humanMessage: gate.message,
+              });
+              messages.push({ role: "user", content: gate.message! });
+              continue;
+            }
+            if (gate.outcome === "paused") {
+              await logEvent("tool_result", {
+                tool: tool.name,
+                kind: tool.kind,
+                ok: true,
+                waiting_for_user: true,
+                input_type: "choice",
+                summary: `Paused for your approval — only ${conf.score}% sure about ${tool.name}.`,
+                humanMessage: `Waiting for your decision before running ${tool.name} (confidence ${conf.score}%, threshold ${confidenceThreshold}%).`,
+              });
+              paused = true;
+              finalSummary = `Paused — waiting for your approval on a low-confidence step (${conf.score}%): ${decisionText}`;
+              break;
+            }
+          }
         }
 
 
