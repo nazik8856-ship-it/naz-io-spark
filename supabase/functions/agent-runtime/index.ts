@@ -1054,16 +1054,21 @@ Rules:
         const decisionText = String(parsed.decision || "").slice(0, 400);
         const rationale = String(parsed.rationale || "").slice(0, 400);
         const conf = readConfidence(parsed as Record<string, unknown>);
+        // Phase 4: let measured outcomes of similar past decisions move the
+        // confidence (bounded) and be recorded in the provenance reasoning.
+        const hist = applyOutcomeHistory(decisionText, rationale, conf.score);
+        conf.score = hist.score;
         await logEvent("decision", {
           decision: decisionText,
-          rationale,
+          rationale: hist.reasoning,
           confidence_score: conf.score,
+          outcome_history_applied: hist.adjusted ? { note: hist.note, delta: hist.delta } : null,
           alternatives_considered: (parsed as Record<string, unknown>).alternatives_considered ?? [],
         });
         const lowConfidence = conf.score < confidenceThreshold;
         const decisionId = await logDecision({
           decision: decisionText,
-          reasoning: rationale,
+          reasoning: hist.reasoning,
           alternatives: (parsed as Record<string, unknown>).alternatives_considered,
           score: conf.score,
           stepIndex: steps,
