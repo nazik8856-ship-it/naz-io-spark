@@ -926,6 +926,7 @@ ${profileBlock}
 ${integrationsBlock}
 ${memoryBlock}
 ${insightsBlock}
+${outcomeHistoryBlock}
 ${knownAnswersBlock}
 
 # Live-data contract
