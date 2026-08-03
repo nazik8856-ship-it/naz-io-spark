@@ -635,6 +635,88 @@ export type Database = {
         }
         Relationships: []
       }
+      decision_outcomes: {
+        Row: {
+          agent_id: string | null
+          baseline_value: number | null
+          created_at: string
+          decision_id: string
+          delta: number | null
+          delta_pct: number | null
+          direction: string
+          evidence: Json
+          id: string
+          linked_metric: string
+          measured_at: string
+          org_insight_id: string | null
+          provider: string | null
+          result_value: number | null
+          updated_at: string
+          user_id: string
+          window_days: number
+        }
+        Insert: {
+          agent_id?: string | null
+          baseline_value?: number | null
+          created_at?: string
+          decision_id: string
+          delta?: number | null
+          delta_pct?: number | null
+          direction?: string
+          evidence?: Json
+          id?: string
+          linked_metric: string
+          measured_at?: string
+          org_insight_id?: string | null
+          provider?: string | null
+          result_value?: number | null
+          updated_at?: string
+          user_id: string
+          window_days?: number
+        }
+        Update: {
+          agent_id?: string | null
+          baseline_value?: number | null
+          created_at?: string
+          decision_id?: string
+          delta?: number | null
+          delta_pct?: number | null
+          direction?: string
+          evidence?: Json
+          id?: string
+          linked_metric?: string
+          measured_at?: string
+          org_insight_id?: string | null
+          provider?: string | null
+          result_value?: number | null
+          updated_at?: string
+          user_id?: string
+          window_days?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "decision_outcomes_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "decision_outcomes_decision_id_fkey"
+            columns: ["decision_id"]
+            isOneToOne: false
+            referencedRelation: "agent_decisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "decision_outcomes_org_insight_id_fkey"
+            columns: ["org_insight_id"]
+            isOneToOne: false
+            referencedRelation: "org_insights"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       email_send_log: {
         Row: {
           created_at: string
