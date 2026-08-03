@@ -1175,12 +1175,29 @@ Rules:
             pendingProvenance.confidence = conf.label;
           }
           const decisionText = `Call tool "${tool.name}"`;
+          // Phase 4: enrich this choice with the measured outcomes of similar
+          // past tool decisions (same provider and/or similar decision text).
+          const providerHint = typeof (input as Record<string, unknown>).provider === "string"
+            ? String((input as Record<string, unknown>).provider)
+            : connectedIntegrations.map((i) => String(i.provider))
+                .find((p2) => `${tool.name} ${tool.kind}`.toLowerCase().includes(p2.toLowerCase()));
+          const hist = applyOutcomeHistory(
+            `${decisionText} ${tool.kind} ${r}`,
+            r || "No reasoning provided by the model for this step.",
+            conf.score,
+            providerHint,
+          );
+          conf.score = hist.score;
+          if (hist.adjusted) {
+            await logEvent("reason", { thought: hist.note!, outcome_history_delta: hist.delta });
+            if (ACTION_CAPPED_KINDS.has(tool.kind)) pendingProvenance.reasoning = hist.reasoning.slice(0, 400);
+          }
           const lowConfidence =
             conf.score < confidenceThreshold &&
             !["ask_user", "request_approval", "remember"].includes(tool.kind);
           const decisionId = await logDecision({
             decision: decisionText,
-            reasoning: r || "No reasoning provided by the model for this step.",
+            reasoning: hist.reasoning,
             alternatives: p.alternatives_considered,
             score: conf.score,
             stepIndex: steps,
