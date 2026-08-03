@@ -748,6 +748,93 @@ serve(async (req) => {
       ? `\n# Known patterns from this business's history (learned across past agent runs — factor these in when deciding)\n${orgInsights.map((i) => `- (${i.kind}, confidence: ${i.confidence}, seen ${i.evidence_count}x) ${i.insight}`).join("\n")}`
       : "";
 
+    // ---- Phase 4: outcome-aware reasoning ---------------------------------
+    // Similarity is deliberately simple and transparent: shared meaningful
+    // words between the new decision text and a past decision, plus an exact
+    // provider match. No behaviour is auto-changed — the history is injected
+    // into the prompt, and the model's own confidence is nudged within a
+    // small bounded band, with the adjustment written into provenance.
+    const STOPWORDS = new Set(["the", "a", "an", "to", "for", "of", "and", "with", "call", "tool", "use", "on", "in", "this", "that", "from", "by", "at", "is", "it"]);
+    const tokens = (s: string) =>
+      new Set(
+        s.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/)
+          .filter((w) => w.length > 2 && !STOPWORDS.has(w)),
+      );
+    const similarity = (a: string, b: string) => {
+      const ta = tokens(a), tb = tokens(b);
+      if (!ta.size || !tb.size) return 0;
+      let shared = 0;
+      for (const t of ta) if (tb.has(t)) shared++;
+      return shared / Math.min(ta.size, tb.size);
+    };
+    const MAX_CONFIDENCE_NUDGE = 10;
+    /**
+     * Find measured outcomes of past decisions similar to the one about to be
+     * made. Returns a bounded confidence adjustment plus a human-readable note
+     * for the provenance record.
+     */
+    const outcomeAdjustment = (decisionText: string, providerHint?: string) => {
+      if (!outcomeHistory.length) return null;
+      const matches = outcomeHistory
+        .map((o) => {
+          const providerMatch = !!providerHint && !!o.provider &&
+            o.provider.toLowerCase() === providerHint.toLowerCase();
+          const sim = similarity(decisionText, `${o.decision} ${o.reasoning}`);
+          return { o, score: sim + (providerMatch ? 0.4 : 0) };
+        })
+        .filter((m) => m.score >= 0.4)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 4);
+      if (!matches.length) return null;
+      const pos = matches.filter((m) => m.o.direction === "positive").length;
+      const neg = matches.filter((m) => m.o.direction === "negative").length;
+      if (pos === neg) {
+        return {
+          delta: 0,
+          note: `Outcome history: ${matches.length} similar past decision(s) with mixed measured results — confidence left unchanged.`,
+          matches: matches.map((m) => m.o),
+        };
+      }
+      const net = pos - neg;
+      const delta = Math.max(-MAX_CONFIDENCE_NUDGE, Math.min(MAX_CONFIDENCE_NUDGE, net * 5));
+      const example = matches[0].o;
+      return {
+        delta,
+        note:
+          `Outcome history: ${pos} similar past decision(s) measured positive, ${neg} negative ` +
+          `(e.g. "${example.decision}" → ${example.provider} ${example.metric} ${example.deltaPct >= 0 ? "+" : ""}${example.deltaPct}% over ${example.windowDays}d, ${example.direction}). ` +
+          `Confidence adjusted ${delta >= 0 ? "+" : ""}${delta} based on that real history.`,
+        matches: matches.map((m) => m.o),
+      };
+    };
+    /** Apply the adjustment to a model-reported score + reasoning string. */
+    const applyOutcomeHistory = (
+      decisionText: string,
+      reasoning: string,
+      score: number,
+      providerHint?: string,
+    ) => {
+      const adj = outcomeAdjustment(decisionText, providerHint);
+      if (!adj) return { score, reasoning, adjusted: false as const };
+      return {
+        score: Math.max(0, Math.min(100, score + adj.delta)),
+        reasoning: `${reasoning} [${adj.note}]`.trim(),
+        adjusted: true as const,
+        note: adj.note,
+        delta: adj.delta,
+      };
+    };
+
+    const outcomeHistoryBlock = outcomeHistory.length
+      ? `\n# Measured outcomes of past decisions (what actually happened after similar choices — use this before repeating or avoiding them)\n${
+          outcomeHistory.slice(0, 12).map((o) =>
+            `- "${o.decision}" → ${o.provider || "metric"} ${o.metric} ${o.deltaPct >= 0 ? "+" : ""}${o.deltaPct}% over ${o.windowDays}d = ${o.direction.toUpperCase()}`
+          ).join("\n")
+        }\n- When your next step resembles one of these, say so explicitly in "reasoning" and let it move your confidence_score: raise it when the comparable past decisions measured positive, lower it when they measured negative, leave it when results were mixed.`
+      : "";
+
+
+
 
     const integrationsBlock = connectedIntegrations.length
       ? `\n# Connected business tools (${connectedIntegrations.length}) — you must cite them by name in your reasoning\n${connectedIntegrations.map((i) => {
