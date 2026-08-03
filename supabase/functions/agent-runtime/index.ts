@@ -172,6 +172,40 @@ serve(async (req) => {
       .order("last_confirmed_at", { ascending: false })
       .limit(8);
 
+    // Phase 4 — outcome history: past decisions of this org whose real-world
+    // effect was already measured (decision_outcomes, written by the
+    // measure-decision-outcomes job). Injected into the prompt so the agent
+    // reasons from what actually worked, not just from what it once chose.
+    const { data: outcomeRows } = await supabase.from("decision_outcomes")
+      .select("provider, linked_metric, direction, delta_pct, window_days, measured_at, agent_decisions(decision, reasoning)")
+      .eq("user_id", userId)
+      .neq("direction", "unknown")
+      .order("measured_at", { ascending: false })
+      .limit(60);
+    type OutcomeHistoryItem = {
+      decision: string;
+      reasoning: string;
+      provider: string;
+      metric: string;
+      direction: string;
+      deltaPct: number;
+      windowDays: number;
+    };
+    const outcomeHistory: OutcomeHistoryItem[] = (outcomeRows || []).map((o) => {
+      const d = (o as { agent_decisions?: { decision?: string; reasoning?: string } | null }).agent_decisions;
+      return {
+        decision: String(d?.decision || "").slice(0, 200),
+        reasoning: String(d?.reasoning || "").slice(0, 200),
+        provider: String((o as { provider?: string }).provider || ""),
+        metric: String((o as { linked_metric?: string }).linked_metric || ""),
+        direction: String((o as { direction?: string }).direction || "neutral"),
+        deltaPct: Number((o as { delta_pct?: number }).delta_pct ?? 0),
+        windowDays: Number((o as { window_days?: number }).window_days ?? 7),
+      };
+    }).filter((o) => o.decision);
+
+
+
 
     // Load connected integrations + their most recent synced snapshot so the
     // agent grounds its reasoning in real business data instead of guessing.
