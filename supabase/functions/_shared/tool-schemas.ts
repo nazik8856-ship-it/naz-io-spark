@@ -110,6 +110,53 @@ export const TOOL_SCHEMAS: Record<string, z.ZodTypeAny> = {
     (v) => !!(v.email || v.name || v.company),
     { message: "provide at least one identifier: email, name or company" },
   ),
+  slack_post_message: z.object({
+    channel: nonEmpty("channel"),
+    text: nonEmpty("text").max(4000),
+    thread_ts: str.optional(),
+  }).passthrough(),
+  notion_create_page: z.object({
+    parent_id: nonEmpty("parent_id"),
+    parent_type: z.enum(["page", "database"]).optional(),
+    title: nonEmpty("title").max(200),
+    body_markdown: str.optional(),
+  }).passthrough(),
+  notion_update_page: z.object({
+    page_id: nonEmpty("page_id"),
+    title: str.optional(),
+    append_markdown: str.optional(),
+    archived: z.boolean().optional(),
+  }).passthrough().refine(
+    (v) => !!(v.title || v.append_markdown || typeof v.archived === "boolean"),
+    { message: "provide at least one of title, append_markdown or archived" },
+  ),
+  canva_create_design: z.object({
+    title: nonEmpty("title").max(250),
+    design_type: z.enum(["presentation", "doc", "whiteboard"]).optional(),
+  }).passthrough(),
+  shopify_create_draft_order: z.object({
+    line_items: z.array(z.object({
+      title: str.optional(),
+      price: z.union([z.string(), z.number()]).optional(),
+      variant_id: z.union([z.string(), z.number()]).optional(),
+      quantity: z.number().int().min(1).optional(),
+    }).passthrough()).min(1, "at least one line item is required"),
+    email: z.string().trim().email("must be a valid email address").optional(),
+    note: str.optional(),
+    shop: str.optional(),
+  }).passthrough(),
+  shopify_update_product: z.object({
+    product_id: nonEmpty("product_id"),
+    title: str.optional(),
+    status: z.enum(["active", "draft", "archived"]).optional(),
+    body_html: str.optional(),
+    variants: z.array(z.object({
+      id: z.union([z.string(), z.number()]),
+      price: z.union([z.string(), z.number()]).optional(),
+      sku: str.optional(),
+    }).passthrough()).optional(),
+    shop: str.optional(),
+  }).passthrough(),
   // Free-form executors: accept any object, but keep them in the registry so
   // dispatch stays explicit rather than silently unvalidated.
   custom: z.record(z.unknown()),
@@ -329,6 +376,30 @@ export const TOOL_OUTPUT_REQUIREMENTS: Record<string, OutputRequirement> = {
   integration_query: {
     required: ["summary"],
     labels: { summary: "data read from the connected tool" },
+  },
+  slack_post_message: {
+    required: ["target", "result_ref"],
+    labels: { target: "Slack channel", result_ref: "Slack message timestamp (ts)" },
+  },
+  notion_create_page: {
+    required: ["target", "result_ref", "url"],
+    labels: { target: "page title", result_ref: "Notion page ID", url: "link to the page" },
+  },
+  notion_update_page: {
+    required: ["result_ref", "url"],
+    labels: { result_ref: "Notion page ID", url: "link to the page" },
+  },
+  canva_create_design: {
+    required: ["target", "result_ref"],
+    labels: { target: "design title", result_ref: "Canva design ID" },
+  },
+  shopify_create_draft_order: {
+    required: ["target", "result_ref"],
+    labels: { target: "draft order name", result_ref: "Shopify draft order ID" },
+  },
+  shopify_update_product: {
+    required: ["target", "result_ref"],
+    labels: { target: "product title", result_ref: "Shopify product ID" },
   },
   notify: {
     required: ["message"],

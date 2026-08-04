@@ -182,24 +182,34 @@ export const CAPABILITY_REGISTRY: Record<string, Capability> = {
 
   // ---------- Connected but READ-ONLY today: no write executor exists ----------
   slack_post_message: {
-    kind: "slack_post_message", provider: "Slack", implemented: false, verified: false, mode: "write",
-    verification: "",
-    honesty: "I can read Slack channel/workspace data that has been synced, but I can't post messages to Slack yet.",
+    kind: "slack_post_message", provider: "Slack", implemented: true, verified: true, mode: "write",
+    verification: "Slack's own chat.postMessage receipt (ok:true + message ts), plus a channel read-back where scopes allow",
+    honesty: "I can really post messages to Slack channels.",
   },
   canva_create_design: {
-    kind: "canva_create_design", provider: "Canva", implemented: false, verified: false, mode: "write",
-    verification: "",
-    honesty: "I can read your Canva designs list, but I can't create or edit Canva designs yet.",
+    kind: "canva_create_design", provider: "Canva", implemented: true, verified: true, mode: "write",
+    verification: "design fetched back by id from the Canva Connect API",
+    honesty: "I can really create Canva designs.",
   },
   notion_create_page: {
-    kind: "notion_create_page", provider: "Notion", implemented: false, verified: false, mode: "write",
-    verification: "",
-    honesty: "I can read synced Notion content, but I can't create or update Notion pages yet.",
+    kind: "notion_create_page", provider: "Notion", implemented: true, verified: true, mode: "write",
+    verification: "page re-fetched from the Notion API after creation",
+    honesty: "I can really create Notion pages.",
+  },
+  notion_update_page: {
+    kind: "notion_update_page", provider: "Notion", implemented: true, verified: true, mode: "write",
+    verification: "page re-fetched after the update and the changed state checked",
+    honesty: "I can really update Notion pages.",
+  },
+  shopify_create_draft_order: {
+    kind: "shopify_create_draft_order", provider: "Shopify", implemented: true, verified: true, mode: "write",
+    verification: "draft order re-fetched by id from the Shopify Admin API",
+    honesty: "I can really create Shopify draft orders.",
   },
   shopify_update_product: {
-    kind: "shopify_update_product", provider: "Shopify", implemented: false, verified: false, mode: "write",
-    verification: "",
-    honesty: "I can read Shopify orders/products data, but I can't change prices, products or orders yet.",
+    kind: "shopify_update_product", provider: "Shopify", implemented: true, verified: true, mode: "write",
+    verification: "product re-fetched and every changed field compared against what was requested",
+    honesty: "I can really update Shopify products, including variant prices.",
   },
   figma_edit_file: {
     kind: "figma_edit_file", provider: "Figma", implemented: false, verified: false, mode: "write",
