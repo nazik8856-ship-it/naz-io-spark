@@ -12,6 +12,11 @@ import {
   type Corrector,
 } from "../_shared/tool-retry.ts";
 import {
+  CAPABILITY_REGISTRY,
+  canOfferTool,
+  buildCapabilityBlock,
+} from "../_shared/capability-registry.ts";
+import {
   providerForTool,
   findOpenIssue,
   recordIssue,
@@ -874,10 +879,26 @@ serve(async (req) => {
       { name: "upsert_client_note", kind: "upsert_client_note", description: "Create/update a client (contact) record for THIS agent with a short interaction note. Looks up by email; if the client exists it appends a timestamped note. Respects the agent's client_write_mode (edits may require approval).", config: {} },
     ];
 
-    const effectiveTools: Tool[] = [
+    // Capability registry gate: only offer tools that are genuinely implemented,
+    // verified, AND whose provider account is actually connected for this org.
+    const connectedProviderNames = connectedIntegrations.map((i) => String(i.provider));
+    const allTools: Tool[] = [
       ...manifest.tools,
       ...builtInTools.filter((b) => !manifest.tools.some((t) => t.name === b.name || t.kind === b.kind)),
     ];
+    const withdrawnTools: { tool: Tool; message: string }[] = [];
+    const effectiveTools: Tool[] = allTools.filter((t) => {
+      const verdict = canOfferTool(t.kind, connectedProviderNames);
+      if (verdict.offerable) return true;
+      withdrawnTools.push({ tool: t, message: verdict.message });
+      return false;
+    });
+    const capabilityBlock = buildCapabilityBlock(connectedProviderNames);
+    const withdrawnBlock = withdrawnTools.length
+      ? `\n# Tools deliberately withheld this run (do NOT invent them)\n${
+        withdrawnTools.map((w) => `- ${w.tool.name} (${w.tool.kind}): ${w.message}`).join("\n")
+      }`
+      : "";
 
     const toolDescriptions = effectiveTools.map((t) => {
       let usage = "";
@@ -928,6 +949,8 @@ ${memoryBlock}
 ${insightsBlock}
 ${outcomeHistoryBlock}
 ${knownAnswersBlock}
+${capabilityBlock}
+${withdrawnBlock}
 
 # Live-data contract
 - Whenever you cite a number, name the connected tool it came from (e.g. "Shopify: 47 orders in the last 24h").
@@ -1247,6 +1270,38 @@ Rules:
 
         await logEvent("tool_call", { tool: tool.name, kind: tool.kind, input });
 
+
+        // ---- Capability registry gate: refuse stub / unverified / unconnected
+        // tools instead of letting them silently pretend to work.
+        {
+          const verdict = canOfferTool(tool.kind, connectedProviderNames);
+          if (!verdict.offerable) {
+            const cap = CAPABILITY_REGISTRY[tool.kind];
+            await logEvent("capability_blocked", {
+              tool: tool.name,
+              kind: tool.kind,
+              reason: verdict.reason,
+              provider: cap?.provider ?? null,
+              implemented: cap?.implemented ?? false,
+              verified: cap?.verified ?? false,
+              humanMessage: verdict.message,
+              message: verdict.message,
+            });
+            await logEvent("tool_result", {
+              tool: tool.name,
+              ok: false,
+              skipped: true,
+              summary: verdict.message,
+              humanMessage: verdict.message,
+              category: "capability",
+            });
+            messages.push({
+              role: "user",
+              content: `"${tool.name}" was NOT run and produced no real effect. ${verdict.message}\nDo not retry it, do not simulate it, and do not describe its outcome as if it happened. Either use a genuinely available tool or state this limitation plainly to the operator in your output.`,
+            });
+            continue;
+          }
+        }
 
         // Daily action cap gate — blocks verified action executors once used>=cap for today (UTC).
         if (ACTION_CAPPED_KINDS.has(tool.kind) && dailyActionCap > 0) {
