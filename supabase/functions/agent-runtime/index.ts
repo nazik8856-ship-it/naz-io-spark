@@ -11,6 +11,7 @@ import {
   MAX_TOOL_ATTEMPTS,
   type Corrector,
 } from "../_shared/tool-retry.ts";
+import { PROVIDER_WRITE_KINDS, runProviderWrite } from "../_shared/provider-writes.ts";
 import {
   CAPABILITY_REGISTRY,
   canOfferTool,
@@ -343,6 +344,10 @@ serve(async (req) => {
       create_calendar_event: "calendar_event",
       send_email: "email", reply_email: "email",
       generate_report: "report",
+      slack_post_message: "message",
+      notion_create_page: "notion_page", notion_update_page: "notion_page",
+      canva_create_design: "design",
+      shopify_create_draft_order: "draft_order", shopify_update_product: "product",
     };
 
     // Verified-action executor kinds subject to the daily action cap.
@@ -352,6 +357,10 @@ serve(async (req) => {
       "create_sheet", "edit_sheet",
       "create_calendar_event",
       "upsert_client_note",
+      "slack_post_message",
+      "notion_create_page", "notion_update_page",
+      "canva_create_design",
+      "shopify_create_draft_order", "shopify_update_product",
     ]);
     const dailyActionCap = Math.max(0, Number((agent as { daily_action_cap?: number }).daily_action_cap ?? 20));
     // Confidence-escalation threshold (per-agent, default 60): any tool call or
@@ -875,6 +884,12 @@ serve(async (req) => {
       
       { name: "http_post", kind: "http_post", description: "POST a JSON payload to an allow-listed URL to trigger or adjust an external system. URL must be https and either match this agent's configured webhook_url or a whitelisted domain.", config: {} },
       { name: "webhook", kind: "http_post", description: "Alias for http_post — POST a JSON payload to an allow-listed URL.", config: {} },
+      { name: "slack_post_message", kind: "slack_post_message", description: "Post a real message to a Slack channel via chat.postMessage using the connected workspace's bot token. Confirmed by Slack's own message receipt (ts) and a read-back where scopes allow.", config: {} },
+      { name: "notion_create_page", kind: "notion_create_page", description: "Create a real Notion page under a parent page or database, then re-fetch the page to confirm it exists before reporting success.", config: {} },
+      { name: "notion_update_page", kind: "notion_update_page", description: "Update an existing Notion page (title, archived state, or appended content) and re-fetch it to confirm the change landed.", config: {} },
+      { name: "canva_create_design", kind: "canva_create_design", description: "Create a real Canva design via the Canva Connect API, then fetch the design back by id to confirm it exists. Returns the edit URL.", config: {} },
+      { name: "shopify_create_draft_order", kind: "shopify_create_draft_order", description: "Create a real draft order in the connected Shopify store, then re-fetch it by id to confirm it exists. Returns the invoice URL.", config: {} },
+      { name: "shopify_update_product", kind: "shopify_update_product", description: "Update a real Shopify product (title, status, description, variant prices/SKUs) and re-fetch the product to confirm every changed field actually changed.", config: {} },
       { name: "schedule_followup", kind: "schedule_followup", description: "Schedule this agent to run again at a specific future time, carrying an instruction forward.", config: {} },
       { name: "upsert_client_note", kind: "upsert_client_note", description: "Create/update a client (contact) record for THIS agent with a short interaction note. Looks up by email; if the client exists it appends a timestamped note. Respects the agent's client_write_mode (edits may require approval).", config: {} },
     ];
@@ -928,6 +943,12 @@ serve(async (req) => {
         case "read_analytics": usage = `read_analytics(property_id: string)  // GA4 Data API: last 30 days sessions & totalUsers for the given property`; break;
         
         case "http_post": usage = `http_post(url: string, body: object)  // POSTs JSON to an allow-listed https URL (per-agent webhook_url or whitelisted domain)`; break;
+        case "slack_post_message": usage = `slack_post_message(channel: string, text: string, thread_ts?: string)  // really posts to Slack; verified by Slack's message receipt`; break;
+        case "notion_create_page": usage = `notion_create_page(parent_id: string, parent_type?: "page"|"database", title: string, body_markdown?: string)  // creates a real Notion page, verified by re-fetching it`; break;
+        case "notion_update_page": usage = `notion_update_page(page_id: string, title?: string, append_markdown?: string, archived?: boolean)  // updates a real Notion page, verified by re-fetching it`; break;
+        case "canva_create_design": usage = `canva_create_design(title: string, design_type?: "presentation"|"doc"|"whiteboard")  // creates a real Canva design, verified by fetching it back`; break;
+        case "shopify_create_draft_order": usage = `shopify_create_draft_order(line_items: [{title?, price?, variant_id?, quantity}], email?: string, note?: string)  // creates a real Shopify draft order, verified by re-fetching it`; break;
+        case "shopify_update_product": usage = `shopify_update_product(product_id: string, title?: string, status?: "active"|"draft"|"archived", body_html?: string, variants?: [{id, price?, sku?}])  // updates a real Shopify product, verified field-by-field by re-fetching it`; break;
         case "schedule_followup": usage = `schedule_followup(run_at_iso: string, instruction: string)  // queues a future run of this same agent`; break;
         case "upsert_client_note": usage = `upsert_client_note(email?: string, name?: string, company?: string, note: string, tags?: string[])  // creates/updates the agent's private client record and appends a timestamped note. Edits to existing notes may require approval per client_write_mode.`; break;
         default: usage = `${t.name}(...)  // CUSTOM — currently inert`;
@@ -982,7 +1003,7 @@ ${toolDescriptions}
 \`\`\`json
 {"action":"tool","tool":"<name>","input":{...},"reasoning":"<one short sentence WHY you chose this action now>","alternatives_considered":["<other option you weighed and rejected>","..."],"confidence_score":0-100,"confidence":"high|medium|low"}
 \`\`\`
-For any REAL WRITE action (send_email, reply_email, create_doc, edit_doc, create_sheet, edit_sheet, create_calendar_event, upsert_client_note) the "reasoning" and "confidence" fields are REQUIRED. For read-only or internal tools they are optional.
+For any REAL WRITE action (send_email, reply_email, create_doc, edit_doc, create_sheet, edit_sheet, create_calendar_event, upsert_client_note, slack_post_message, notion_create_page, notion_update_page, canva_create_design, shopify_create_draft_order, shopify_update_product) the "reasoning" and "confidence" fields are REQUIRED. For read-only or internal tools they are optional.
 Decision provenance (ALL tool + decide blocks): include "alternatives_considered" (the other tools/strategies/data sources you genuinely weighed for this step — empty array only if there truly was no alternative) and "confidence_score", an integer 0-100 that honestly reflects how certain YOU are in this specific choice given the data you actually have. Never emit a fixed or habitual number: lower it when data is stale, missing or ambiguous, raise it when you verified the inputs.
 \`\`\`json
 {"action":"decide","decision":"...","rationale":"...","alternatives_considered":["..."],"confidence_score":0-100}
@@ -2470,6 +2491,34 @@ Rules:
           await logEvent("tool_result", { tool: tool.name, ok: true, summary });
           await logEvent("action", { type: "schedule_followup", target: when.toISOString(), ok: true, result_ref: newRun.id, summary: instruction });
           messages.push({ role: "user", content: `${summary}\n\nContinue.` });
+          continue;
+        }
+
+        // ---- Real, verified provider writes (Slack / Notion / Canva / Shopify).
+        // Each one calls the external API for real and then re-fetches (or uses
+        // the provider's authoritative receipt) before reporting success.
+        if (PROVIDER_WRITE_KINDS.has(tool.kind)) {
+          let res;
+          try {
+            res = await runProviderWrite(tool.kind, supabase, userId, agentId, input);
+          } catch (e) {
+            res = { ok: false, summary: `${tool.kind} threw: ${e instanceof Error ? e.message : String(e)} — treat as NOT done.`, ref: null, url: null, target: null };
+          }
+          await logEvent("tool_result", { tool: tool.name, ok: res.ok, summary: res.summary });
+          await logEvent("action", {
+            type: tool.kind,
+            target: res.target ?? null,
+            ok: res.ok,
+            result_ref: res.ref ?? null,
+            url: res.url ?? null,
+            summary: res.summary,
+          });
+          messages.push({
+            role: "user",
+            content: res.ok
+              ? `${res.summary}${res.ref ? `\nid=${res.ref}` : ""}\n\nContinue.`
+              : `"${tool.name}" FAILED and produced no confirmed effect: ${res.summary}\nDo not claim it succeeded. Try one reasonable alternative or state this plainly to the operator.`,
+          });
           continue;
         }
 
