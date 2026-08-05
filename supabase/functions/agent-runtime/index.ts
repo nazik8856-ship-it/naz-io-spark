@@ -574,27 +574,51 @@ serve(async (req) => {
         }
       }
 
-      // Mirror verified outputs into agent_artifacts so the Outputs panel is
-      // fast, durable, and survives event pruning.
-      if (kind === "action") {
-        const p = payload as { ok?: unknown; type?: unknown; target?: unknown; summary?: unknown; url?: unknown; result_ref?: unknown };
-        const artifactKind = ARTIFACT_KINDS[String(p.type || "")];
-        if (p.ok === true && artifactKind && (p.url || p.result_ref)) {
-          const gmail = connectedIntegrations.find((i) => (i.provider as string) === "Gmail");
-          const gmailMeta = (gmail?.metadata as Record<string, unknown>) || {};
-          supabase.from("agent_artifacts").insert({
-            user_id: userId,
-            agent_id: agentId,
-            run_id: runId,
-            kind: artifactKind,
-            title: String(p.target || p.summary || p.type || "output"),
-            url: p.url ? String(p.url) : null,
-            ref: { result_ref: p.result_ref ?? null, summary: p.summary ?? null },
-            provider: artifactKind === "email" ? "Gmail" : (artifactKind === "doc" || artifactKind === "sheet" || artifactKind === "calendar_event" ? "Google" : null),
-            account_email: (gmailMeta.account_email as string) || null,
-          }).then(() => {}, () => {});
+      // ---- Automatic artifact recording -------------------------------------
+      // Any verified write that produced a real deliverable is mirrored into
+      // agent_artifacts here, inside the single event path every executor
+      // already goes through — no per-tool bookkeeping. Runs AFTER the output
+      // validation gate above, so downgraded "successes" never record.
+      if (kind === "action" || kind === "tool_result") {
+        const p = payload as Record<string, unknown>;
+        const rawKind = String(p.type || p.kind || "");
+        const artifactKind = ARTIFACT_KINDS[rawKind];
+        if (p.ok === true && artifactKind) {
+          const dedupeKey = `${rawKind}::${String(p.result_ref ?? p.ref ?? p.url ?? p.target ?? p.summary ?? "")}`;
+          if (!recordedArtifacts.has(dedupeKey)) {
+            recordedArtifacts.add(dedupeKey);
+            const provider = ARTIFACT_PROVIDERS[rawKind] ?? null;
+            const integ = provider
+              ? connectedIntegrations.find((i) => String(i.provider) === provider ||
+                  (provider === "Google" && String(i.provider).startsWith("Google")))
+              : undefined;
+            const meta = (integ?.metadata as Record<string, unknown>) || {};
+            const gmail = connectedIntegrations.find((i) => String(i.provider) === "Gmail");
+            const gmailMeta = (gmail?.metadata as Record<string, unknown>) || {};
+            const { error: artErr } = await supabase.from("agent_artifacts").insert({
+              user_id: userId,
+              agent_id: agentId,
+              run_id: runId,
+              kind: artifactKind,
+              title: String(p.target || p.title || p.summary || rawKind || "output").slice(0, 300),
+              url: p.url ? String(p.url) : null,
+              ref: {
+                result_ref: p.result_ref ?? p.ref ?? null,
+                tool: p.tool ?? rawKind,
+                tool_kind: rawKind,
+                summary: typeof p.summary === "string" ? p.summary.slice(0, 1000) : null,
+              },
+              provider,
+              account_email: (meta.account_email as string) || (gmailMeta.account_email as string) || null,
+            });
+            if (artErr) {
+              recordedArtifacts.delete(dedupeKey);
+              console.warn("agent_artifacts insert failed", rawKind, artErr.message);
+            }
+          }
         }
       }
+
       // Attach decision provenance (reasoning + confidence) to the next action
       // event when the model provided it alongside the tool call. Purely
       // additive — old rows have these columns null.
