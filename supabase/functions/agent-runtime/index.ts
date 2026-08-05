@@ -349,6 +349,21 @@ serve(async (req) => {
       canva_create_design: "design",
       shopify_create_draft_order: "draft_order", shopify_update_product: "product",
     };
+    // Which provider each deliverable belongs to (null = produced by NazAI itself).
+    const ARTIFACT_PROVIDERS: Record<string, string | null> = {
+      create_doc: "Google", edit_doc: "Google",
+      create_sheet: "Google", edit_sheet: "Google",
+      create_calendar_event: "Google",
+      send_email: "Gmail", reply_email: "Gmail",
+      generate_report: null,
+      slack_post_message: "Slack",
+      notion_create_page: "Notion", notion_update_page: "Notion",
+      canva_create_design: "Canva",
+      shopify_create_draft_order: "Shopify", shopify_update_product: "Shopify",
+    };
+    // Guards against double-recording when a tool emits both an `action` and a
+    // `tool_result` event for the same deliverable.
+    const recordedArtifacts = new Set<string>();
 
     // Verified-action executor kinds subject to the daily action cap.
     const ACTION_CAPPED_KINDS = new Set([
