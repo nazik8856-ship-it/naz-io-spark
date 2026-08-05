@@ -405,6 +405,40 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
         }
       }
 
+      // SLUG FALLBACK: even without an explicitEd existingAgentId, an agent with
+      // the same (user_id, slug) is the same agent — update it in place rather
+      // than inserting a duplicate row that would run its own cron in parallel.
+      if (!agentId) {
+        const { data: bySlug } = await supabase
+          .from("agents")
+          .select("id, schedule_cron")
+          .eq("user_id", user.id)
+          .eq("slug", slug)
+          .maybeSingle();
+        if (bySlug?.id) {
+          const cron = (bySlug.schedule_cron as string | null) || blueprint.schedule_cron;
+          const { error: updErr } = await supabase
+            .from("agents")
+            .update({
+              name: normalized.name, goal: normalized.goal,
+              manifest: normalized, source_plan: plan.slice(0, 8000),
+              role, schedule_cron: cron, schedule_label: blueprint.schedule_label,
+              next_run_at: nextRunFromCron(cron),
+              business_profile_id: businessProfileId ?? null,
+            })
+            .eq("id", bySlug.id)
+            .eq("user_id", user.id);
+          if (updErr) return json({ error: updErr.message, manifest: normalized, agentId: null }, 500);
+          agentId = bySlug.id as string;
+          mode = "updated";
+          const memRows: Record<string, unknown>[] = [];
+          for (const [k, v] of Object.entries(intakeAnswers || {})) {
+            memRows.push({ agent_id: agentId, user_id: user.id, key: `intake.${k}`, value: String(v).slice(0, 600), source: "intake" });
+          }
+          if (memRows.length) await supabase.from("agent_memory").upsert(memRows, { onConflict: "agent_id,key" }).select();
+        }
+      }
+
       if (!agentId) {
         const { data: inserted, error: insErr } = await supabase
           .from("agents")
