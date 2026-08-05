@@ -466,8 +466,10 @@ export default function GeneratorHome() {
                               {ago}
                             </div>
                           </button>
+                          <RecentOutcomes agentId={a.id} limit={3} className="mt-3 pt-3 border-t border-white/5" />
                           {isCron && runs.length > 0 && (
                             <div className="mt-3 pt-3 border-t border-white/5">
+
                               <button
                                 type="button"
                                 onClick={(e) => { e.stopPropagation(); setExpandedAgent(isExpanded ? null : a.id); }}
