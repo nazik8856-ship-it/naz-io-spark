@@ -405,7 +405,7 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
         }
       }
 
-      // SLUG FALLBACK: even without an explicitEd existingAgentId, an agent with
+      // SLUG FALLBACK: even without an explicit existingAgentId, an agent with
       // the same (user_id, slug) is the same agent — update it in place rather
       // than inserting a duplicate row that would run its own cron in parallel.
       if (!agentId) {
