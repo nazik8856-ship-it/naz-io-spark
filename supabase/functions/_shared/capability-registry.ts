@@ -211,10 +211,15 @@ export const CAPABILITY_REGISTRY: Record<string, Capability> = {
     verification: "product re-fetched and every changed field compared against what was requested",
     honesty: "I can really update Shopify products, including variant prices.",
   },
-  figma_edit_file: {
-    kind: "figma_edit_file", provider: "Figma", implemented: false, verified: false, mode: "write",
-    verification: "",
-    honesty: "I can read Figma file metadata, but I can't edit Figma files yet.",
+  figma_post_comment: {
+    kind: "figma_post_comment", provider: "Figma", implemented: true, verified: true, mode: "write",
+    verification: "the file's comments are re-fetched and the new comment id found",
+    honesty: "I can really post comments on Figma files (and pin them to a node). Figma's API can't create files or draw designs — for real design creation use Canva.",
+  },
+  figma_create_dev_resource: {
+    kind: "figma_create_dev_resource", provider: "Figma", implemented: true, verified: true, mode: "write",
+    verification: "the node's dev resources are re-fetched and the new link found",
+    honesty: "I can really attach dev resource links to Figma nodes. I can't create or edit the design itself — for real design creation use Canva.",
   },
 };
 

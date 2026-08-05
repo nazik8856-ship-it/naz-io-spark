@@ -134,6 +134,17 @@ export const TOOL_SCHEMAS: Record<string, z.ZodTypeAny> = {
     title: nonEmpty("title").max(250),
     design_type: z.enum(["presentation", "doc", "whiteboard"]).optional(),
   }).passthrough(),
+  figma_post_comment: z.object({
+    file_key: nonEmpty("file_key"),
+    message: nonEmpty("message").max(4000),
+    node_id: str.optional(),
+  }).passthrough(),
+  figma_create_dev_resource: z.object({
+    file_key: nonEmpty("file_key"),
+    node_id: nonEmpty("node_id"),
+    name: nonEmpty("name").max(200),
+    url: z.string().trim().url("must be a valid http(s) link"),
+  }).passthrough(),
   shopify_create_draft_order: z.object({
     line_items: z.array(z.object({
       title: str.optional(),
@@ -392,6 +403,14 @@ export const TOOL_OUTPUT_REQUIREMENTS: Record<string, OutputRequirement> = {
   canva_create_design: {
     required: ["target", "result_ref"],
     labels: { target: "design title", result_ref: "Canva design ID" },
+  },
+  figma_post_comment: {
+    required: ["target", "result_ref"],
+    labels: { target: "Figma file key", result_ref: "Figma comment ID" },
+  },
+  figma_create_dev_resource: {
+    required: ["target", "result_ref", "url"],
+    labels: { target: "Figma file/node", result_ref: "Figma dev resource ID", url: "attached link" },
   },
   shopify_create_draft_order: {
     required: ["target", "result_ref"],

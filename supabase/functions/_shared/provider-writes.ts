@@ -13,6 +13,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { readSecret } from "./integration-secrets.ts";
 import { canvaAuthedFetch } from "./canva.ts";
+import { figmaAuthedFetch } from "./figma.ts";
 
 export type WriteResult = {
   ok: boolean;
@@ -431,6 +432,136 @@ export async function shopifyUpdateProduct(
   };
 }
 
+// ---------------------------------------------------------------------------
+// FIGMA — the REST API cannot create files or draw shapes. The only real write
+// surfaces are comments and dev resources, both verified by re-fetching.
+// ---------------------------------------------------------------------------
+const figmaFileKey = (raw: string): string => {
+  const s = raw.trim();
+  const m = s.match(/figma\.com\/(?:file|design|board|proto)\/([A-Za-z0-9]+)/);
+  return m ? m[1] : s;
+};
+
+export async function figmaPostComment(
+  admin: SupabaseClient, userId: string, agentId: string, input: Record<string, unknown>,
+): Promise<WriteResult> {
+  const fileKey = figmaFileKey(String(input.file_key || input.file_url || ""));
+  const message = String(input.message || "").trim();
+  const nodeId = input.node_id ? String(input.node_id).trim() : "";
+  if (!fileKey || !message) return fail("figma_post_comment requires both file_key and message.");
+
+  const row = await loadProviderIntegration(admin, userId, agentId, "Figma");
+  if (!row) return notConnected("Figma", "figma_post_comment");
+
+  const payload: Record<string, unknown> = { message };
+  if (nodeId) payload.client_meta = { node_id: nodeId, node_offset: { x: 0, y: 0 } };
+
+  let created: Record<string, unknown>;
+  try {
+    const r = await figmaAuthedFetch(
+      admin, row, `https://api.figma.com/v1/files/${encodeURIComponent(fileKey)}/comments`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+    );
+    created = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      return fail(`Figma comment NOT posted: ${String((created as { message?: string })?.message || `HTTP ${r.status}`)}`);
+    }
+  } catch (e) {
+    return fail(`Figma comment failed: ${e instanceof Error ? e.message : String(e)} — nothing was posted.`);
+  }
+
+  const commentId = created?.id ? String(created.id) : "";
+  if (!commentId) return fail("Figma returned no comment id — treat the comment as NOT posted.");
+
+  // Verification: re-fetch the file's comments and find this one.
+  try {
+    const vr = await figmaAuthedFetch(
+      admin, row, `https://api.figma.com/v1/files/${encodeURIComponent(fileKey)}/comments`, { method: "GET" },
+    );
+    const vb = await vr.json().catch(() => ({}));
+    const list = Array.isArray(vb?.comments) ? vb.comments as Array<{ id?: string }> : [];
+    if (!vr.ok || !list.some((c) => String(c.id) === commentId)) {
+      return fail(
+        `Figma comment ${commentId} could NOT be found when re-reading the file's comments. Treat as failed.`,
+        commentId, fileKey,
+      );
+    }
+  } catch (e) {
+    return fail(`Figma comment verification failed: ${e instanceof Error ? e.message : String(e)}. Treat as failed.`, commentId, fileKey);
+  }
+
+  const url = `https://www.figma.com/file/${fileKey}?#${commentId}`;
+  return {
+    ok: true,
+    summary: `Posted a comment on Figma file ${fileKey}${nodeId ? ` (node ${nodeId})` : ""} and verified it by re-reading the file's comments (id ${commentId}).`,
+    ref: commentId, url, target: fileKey,
+  };
+}
+
+export async function figmaCreateDevResource(
+  admin: SupabaseClient, userId: string, agentId: string, input: Record<string, unknown>,
+): Promise<WriteResult> {
+  const fileKey = figmaFileKey(String(input.file_key || input.file_url || ""));
+  const nodeId = String(input.node_id || "").trim();
+  const name = String(input.name || "").trim();
+  const url = String(input.url || "").trim();
+  if (!fileKey || !nodeId || !name || !url) {
+    return fail("figma_create_dev_resource requires file_key, node_id, name and url.");
+  }
+  if (!/^https?:\/\//i.test(url)) return fail("figma_create_dev_resource url must be an http(s) link.");
+
+  const row = await loadProviderIntegration(admin, userId, agentId, "Figma");
+  if (!row) return notConnected("Figma", "figma_create_dev_resource");
+
+  let created: Record<string, unknown>;
+  try {
+    const r = await figmaAuthedFetch(admin, row, "https://api.figma.com/v1/dev_resources", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dev_resources: [{ name, url, file_key: fileKey, node_id: nodeId }] }),
+    });
+    created = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      return fail(`Figma dev resource NOT created: ${String((created as { message?: string })?.message || `HTTP ${r.status}`)}`);
+    }
+  } catch (e) {
+    return fail(`Figma dev resource failed: ${e instanceof Error ? e.message : String(e)} — nothing was attached.`);
+  }
+
+  const errs = Array.isArray(created?.errors) ? created.errors as Array<{ error?: string }> : [];
+  const links = Array.isArray(created?.links_created) ? created.links_created as Array<{ id?: string; url?: string }> : [];
+  if (!links.length) {
+    return fail(`Figma refused the dev resource: ${errs.map((e) => String(e?.error || "unknown")).join("; ") || "no link created"}.`);
+  }
+  const resourceId = String(links[0]?.id || "");
+  if (!resourceId) return fail("Figma returned no dev resource id — treat it as NOT attached.");
+
+  // Verification: re-fetch the node's dev resources and find this one.
+  try {
+    const vr = await figmaAuthedFetch(
+      admin, row,
+      `https://api.figma.com/v1/files/${encodeURIComponent(fileKey)}/dev_resources?node_ids=${encodeURIComponent(nodeId)}`,
+      { method: "GET" },
+    );
+    const vb = await vr.json().catch(() => ({}));
+    const list = Array.isArray(vb?.dev_resources) ? vb.dev_resources as Array<{ id?: string; url?: string }> : [];
+    if (!vr.ok || !list.some((d) => String(d.id) === resourceId || String(d.url) === url)) {
+      return fail(
+        `Figma dev resource ${resourceId} could NOT be found when re-reading node ${nodeId}. Treat as failed.`,
+        resourceId, fileKey,
+      );
+    }
+  } catch (e) {
+    return fail(`Figma dev resource verification failed: ${e instanceof Error ? e.message : String(e)}. Treat as failed.`, resourceId, fileKey);
+  }
+
+  return {
+    ok: true,
+    summary: `Attached dev resource "${name}" to Figma node ${nodeId} in file ${fileKey} and verified it by re-reading the node's dev resources (id ${resourceId}).`,
+    ref: resourceId, url, target: `${fileKey}:${nodeId}`,
+  };
+}
+
 export const PROVIDER_WRITE_KINDS = new Set([
   "slack_post_message",
   "notion_create_page",
@@ -438,6 +569,8 @@ export const PROVIDER_WRITE_KINDS = new Set([
   "canva_create_design",
   "shopify_create_draft_order",
   "shopify_update_product",
+  "figma_post_comment",
+  "figma_create_dev_resource",
 ]);
 
 export async function runProviderWrite(
@@ -450,6 +583,8 @@ export async function runProviderWrite(
     case "canva_create_design": return await canvaCreateDesign(admin, userId, agentId, input);
     case "shopify_create_draft_order": return await shopifyCreateDraftOrder(admin, userId, agentId, input);
     case "shopify_update_product": return await shopifyUpdateProduct(admin, userId, agentId, input);
+    case "figma_post_comment": return await figmaPostComment(admin, userId, agentId, input);
+    case "figma_create_dev_resource": return await figmaCreateDevResource(admin, userId, agentId, input);
     default: return fail(`Unknown provider write "${kind}".`);
   }
 }
