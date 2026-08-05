@@ -6,6 +6,8 @@ import { supabase, SUPABASE_FUNCTIONS_URL, SUPABASE_ANON } from "@/integrations/
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
 import PromptExtras, { analyzeAndBuildContext, type Attachment } from "@/components/generator/PromptExtras";
+import { RecentOutcomes } from "@/components/agents/RunOutcomes";
+
 
 const TYPES = [
   { id: "website", label: "Website", icon: Globe },
