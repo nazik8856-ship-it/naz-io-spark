@@ -1071,7 +1071,9 @@ function ExecutionFlowWidget({
                       })}
                     </span>
                   </div>
+                  <RunOutcomes runId={run.id} accent={accent} />
                 </li>
+
               );
             })}
           </ul>
