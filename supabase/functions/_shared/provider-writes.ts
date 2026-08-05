@@ -13,6 +13,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { readSecret } from "./integration-secrets.ts";
 import { canvaAuthedFetch } from "./canva.ts";
+import { figmaAuthedFetch } from "./figma.ts";
 
 export type WriteResult = {
   ok: boolean;
