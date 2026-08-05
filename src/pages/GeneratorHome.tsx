@@ -6,6 +6,8 @@ import { supabase, SUPABASE_FUNCTIONS_URL, SUPABASE_ANON } from "@/integrations/
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
 import PromptExtras, { analyzeAndBuildContext, type Attachment } from "@/components/generator/PromptExtras";
+import { RecentOutcomes } from "@/components/agents/RunOutcomes";
+
 
 const TYPES = [
   { id: "website", label: "Website", icon: Globe },
@@ -464,8 +466,10 @@ export default function GeneratorHome() {
                               {ago}
                             </div>
                           </button>
+                          <RecentOutcomes agentId={a.id} limit={3} className="mt-3 pt-3 border-t border-white/5" />
                           {isCron && runs.length > 0 && (
                             <div className="mt-3 pt-3 border-t border-white/5">
+
                               <button
                                 type="button"
                                 onClick={(e) => { e.stopPropagation(); setExpandedAgent(isExpanded ? null : a.id); }}
