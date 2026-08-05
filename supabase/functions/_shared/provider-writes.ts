@@ -582,6 +582,8 @@ export async function runProviderWrite(
     case "canva_create_design": return await canvaCreateDesign(admin, userId, agentId, input);
     case "shopify_create_draft_order": return await shopifyCreateDraftOrder(admin, userId, agentId, input);
     case "shopify_update_product": return await shopifyUpdateProduct(admin, userId, agentId, input);
+    case "figma_post_comment": return await figmaPostComment(admin, userId, agentId, input);
+    case "figma_create_dev_resource": return await figmaCreateDevResource(admin, userId, agentId, input);
     default: return fail(`Unknown provider write "${kind}".`);
   }
 }
