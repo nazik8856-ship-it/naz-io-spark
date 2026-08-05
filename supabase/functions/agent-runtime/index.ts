@@ -346,7 +346,7 @@ serve(async (req) => {
       generate_report: "report",
       slack_post_message: "message",
       notion_create_page: "notion_page", notion_update_page: "notion_page",
-      canva_create_design: "design",
+      canva_create_design: "design", canva_create_folder: "folder",
       figma_post_comment: "comment", figma_create_dev_resource: "dev_resource",
       shopify_create_draft_order: "draft_order", shopify_update_product: "product",
     };
@@ -359,7 +359,7 @@ serve(async (req) => {
       generate_report: null,
       slack_post_message: "Slack",
       notion_create_page: "Notion", notion_update_page: "Notion",
-      canva_create_design: "Canva",
+      canva_create_design: "Canva", canva_create_folder: "Canva",
       figma_post_comment: "Figma", figma_create_dev_resource: "Figma",
       shopify_create_draft_order: "Shopify", shopify_update_product: "Shopify",
     };
@@ -376,7 +376,7 @@ serve(async (req) => {
       "upsert_client_note",
       "slack_post_message",
       "notion_create_page", "notion_update_page",
-      "canva_create_design",
+      "canva_create_design", "canva_create_folder",
       "figma_post_comment", "figma_create_dev_resource",
       "shopify_create_draft_order", "shopify_update_product",
     ]);
@@ -930,6 +930,8 @@ serve(async (req) => {
       { name: "notion_create_page", kind: "notion_create_page", description: "Create a real Notion page under a parent page or database, then re-fetch the page to confirm it exists before reporting success.", config: {} },
       { name: "notion_update_page", kind: "notion_update_page", description: "Update an existing Notion page (title, archived state, or appended content) and re-fetch it to confirm the change landed.", config: {} },
       { name: "canva_create_design", kind: "canva_create_design", description: "Create a real Canva design via the Canva Connect API, then fetch the design back by id to confirm it exists. Returns the edit URL.", config: {} },
+      { name: "canva_list_designs", kind: "canva_list_designs", description: "List the user's existing Canva designs (id, title, thumbnail, edit/view URLs) via the Canva Connect API.", config: {} },
+      { name: "canva_create_folder", kind: "canva_create_folder", description: "Create a real Canva folder (project) via the Canva Connect API, then fetch it back by id to confirm it exists. Use its id as folder_id in canva_create_design.", config: {} },
       { name: "figma_post_comment", kind: "figma_post_comment", description: "Post a real comment on a Figma file (optionally pinned to a node), then re-read the file's comments to confirm it landed. Figma's API cannot create files or designs — use canva_create_design for real design creation.", config: {} },
       { name: "figma_create_dev_resource", kind: "figma_create_dev_resource", description: "Attach a real dev resource link to a Figma node, then re-read that node's dev resources to confirm it landed.", config: {} },
       { name: "shopify_create_draft_order", kind: "shopify_create_draft_order", description: "Create a real draft order in the connected Shopify store, then re-fetch it by id to confirm it exists. Returns the invoice URL.", config: {} },
@@ -990,7 +992,9 @@ serve(async (req) => {
         case "slack_post_message": usage = `slack_post_message(channel: string, text: string, thread_ts?: string)  // really posts to Slack; verified by Slack's message receipt`; break;
         case "notion_create_page": usage = `notion_create_page(parent_id: string, parent_type?: "page"|"database", title: string, body_markdown?: string)  // creates a real Notion page, verified by re-fetching it`; break;
         case "notion_update_page": usage = `notion_update_page(page_id: string, title?: string, append_markdown?: string, archived?: boolean)  // updates a real Notion page, verified by re-fetching it`; break;
-        case "canva_create_design": usage = `canva_create_design(title: string, design_type?: "presentation"|"doc"|"whiteboard")  // creates a real Canva design, verified by fetching it back`; break;
+        case "canva_create_design": usage = `canva_create_design(title: string, design_type?: "presentation"|"doc"|"whiteboard", folder_id?: string)  // creates a real Canva design (optionally inside a folder), verified by fetching it back`; break;
+        case "canva_list_designs": usage = `canva_list_designs(query?: string, folder_id?: string, limit?: number)  // lists the user's real Canva designs with ids, titles, thumbnails and URLs`; break;
+        case "canva_create_folder": usage = `canva_create_folder(name: string, parent_folder_id?: string)  // creates a real Canva folder (project), verified by fetching it back`; break;
         case "figma_post_comment": usage = `figma_post_comment(file_key: string, message: string, node_id?: string)  // really comments on a Figma file, verified by re-reading the file's comments`; break;
         case "figma_create_dev_resource": usage = `figma_create_dev_resource(file_key: string, node_id: string, name: string, url: string)  // really attaches a dev resource link to a Figma node, verified by re-reading it`; break;
         case "shopify_create_draft_order": usage = `shopify_create_draft_order(line_items: [{title?, price?, variant_id?, quantity}], email?: string, note?: string)  // creates a real Shopify draft order, verified by re-fetching it`; break;
@@ -1049,7 +1053,7 @@ ${toolDescriptions}
 \`\`\`json
 {"action":"tool","tool":"<name>","input":{...},"reasoning":"<one short sentence WHY you chose this action now>","alternatives_considered":["<other option you weighed and rejected>","..."],"confidence_score":0-100,"confidence":"high|medium|low"}
 \`\`\`
-For any REAL WRITE action (send_email, reply_email, create_doc, edit_doc, create_sheet, edit_sheet, create_calendar_event, upsert_client_note, slack_post_message, notion_create_page, notion_update_page, canva_create_design, figma_post_comment, figma_create_dev_resource, shopify_create_draft_order, shopify_update_product) the "reasoning" and "confidence" fields are REQUIRED. For read-only or internal tools they are optional.
+For any REAL WRITE action (send_email, reply_email, create_doc, edit_doc, create_sheet, edit_sheet, create_calendar_event, upsert_client_note, slack_post_message, notion_create_page, notion_update_page, canva_create_design, canva_create_folder, figma_post_comment, figma_create_dev_resource, shopify_create_draft_order, shopify_update_product) the "reasoning" and "confidence" fields are REQUIRED. For read-only or internal tools they are optional.
 Decision provenance (ALL tool + decide blocks): include "alternatives_considered" (the other tools/strategies/data sources you genuinely weighed for this step — empty array only if there truly was no alternative) and "confidence_score", an integer 0-100 that honestly reflects how certain YOU are in this specific choice given the data you actually have. Never emit a fixed or habitual number: lower it when data is stale, missing or ambiguous, raise it when you verified the inputs.
 \`\`\`json
 {"action":"decide","decision":"...","rationale":"...","alternatives_considered":["..."],"confidence_score":0-100}

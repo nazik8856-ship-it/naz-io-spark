@@ -133,6 +133,16 @@ export const TOOL_SCHEMAS: Record<string, z.ZodTypeAny> = {
   canva_create_design: z.object({
     title: nonEmpty("title").max(250),
     design_type: z.enum(["presentation", "doc", "whiteboard"]).optional(),
+    folder_id: str.optional(),
+  }).passthrough(),
+  canva_list_designs: z.object({
+    query: str.optional(),
+    folder_id: str.optional(),
+    limit: z.number().int().min(1).max(50).optional(),
+  }).passthrough(),
+  canva_create_folder: z.object({
+    name: nonEmpty("name").max(250),
+    parent_folder_id: str.optional(),
   }).passthrough(),
   figma_post_comment: z.object({
     file_key: nonEmpty("file_key"),
@@ -403,6 +413,14 @@ export const TOOL_OUTPUT_REQUIREMENTS: Record<string, OutputRequirement> = {
   canva_create_design: {
     required: ["target", "result_ref"],
     labels: { target: "design title", result_ref: "Canva design ID" },
+  },
+  canva_list_designs: {
+    required: ["result_ref"],
+    labels: { result_ref: "list of designs" },
+  },
+  canva_create_folder: {
+    required: ["target", "result_ref"],
+    labels: { target: "folder name", result_ref: "Canva folder ID" },
   },
   figma_post_comment: {
     required: ["target", "result_ref"],

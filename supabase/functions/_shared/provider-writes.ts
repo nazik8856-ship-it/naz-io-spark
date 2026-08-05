@@ -695,6 +695,8 @@ export const PROVIDER_WRITE_KINDS = new Set([
   "notion_create_page",
   "notion_update_page",
   "canva_create_design",
+  "canva_list_designs",
+  "canva_create_folder",
   "shopify_create_draft_order",
   "shopify_update_product",
   "figma_post_comment",
@@ -709,6 +711,8 @@ export async function runProviderWrite(
     case "notion_create_page": return await notionCreatePage(admin, userId, agentId, input);
     case "notion_update_page": return await notionUpdatePage(admin, userId, agentId, input);
     case "canva_create_design": return await canvaCreateDesign(admin, userId, agentId, input);
+    case "canva_list_designs": return await canvaListDesigns(admin, userId, agentId, input);
+    case "canva_create_folder": return await canvaCreateFolder(admin, userId, agentId, input);
     case "shopify_create_draft_order": return await shopifyCreateDraftOrder(admin, userId, agentId, input);
     case "shopify_update_product": return await shopifyUpdateProduct(admin, userId, agentId, input);
     case "figma_post_comment": return await figmaPostComment(admin, userId, agentId, input);
