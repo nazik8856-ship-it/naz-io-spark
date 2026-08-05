@@ -249,6 +249,7 @@ export async function canvaCreateDesign(
 ): Promise<WriteResult> {
   const title = String(input.title || "").trim();
   const designType = String(input.design_type || "presentation").toLowerCase();
+  const folderId = String(input.folder_id || "").trim();
   if (!title) return fail("canva_create_design requires a title.");
 
   const row = await loadProviderIntegration(admin, userId, agentId, "Canva");
@@ -279,6 +280,35 @@ export async function canvaCreateDesign(
   const designId = design?.id ? String(design.id) : "";
   if (!designId) return fail("Canva returned no design id — treat the design as NOT created.");
 
+  // Optional: move the new design into an existing folder (Canva's "project").
+  let folderNote = "";
+  if (folderId) {
+    try {
+      const mr = await canvaAuthedFetch(admin, row, `https://api.canva.com/rest/v1/folders/${folderId}/items`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ item_id: designId }),
+      });
+      if (!mr.ok) {
+        const mb = await mr.json().catch(() => ({}));
+        return fail(
+          `Canva design ${designId} was created but could NOT be placed in folder ${folderId}: ${
+            String((mb as { message?: string })?.message || `HTTP ${mr.status}`)
+          }.`,
+          designId, title,
+        );
+      }
+      folderNote = ` and placed it in folder ${folderId}`;
+    } catch (e) {
+      return fail(
+        `Canva design ${designId} was created but moving it into folder ${folderId} failed: ${
+          e instanceof Error ? e.message : String(e)
+        }.`,
+        designId, title,
+      );
+    }
+  }
+
   // Verification: fetch the design back by id.
   const vr = await canvaAuthedFetch(admin, row, `https://api.canva.com/rest/v1/designs/${designId}`, { method: "GET" });
   const vb = await vr.json().catch(() => ({}));
@@ -290,8 +320,106 @@ export async function canvaCreateDesign(
   const url = urls.edit_url || urls.view_url || null;
   return {
     ok: true,
-    summary: `Created Canva design "${title}" and verified it by fetching design ${designId} back${url ? ` — ${url}` : ""}.`,
+    summary: `Created Canva design "${title}"${folderNote} and verified it by fetching design ${designId} back${url ? ` — ${url}` : ""}.`,
     ref: designId, url, target: title,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// CANVA — list the user's existing designs (real read via the Connect API).
+// ---------------------------------------------------------------------------
+export async function canvaListDesigns(
+  admin: SupabaseClient, userId: string, agentId: string, input: Record<string, unknown>,
+): Promise<WriteResult> {
+  const row = await loadProviderIntegration(admin, userId, agentId, "Canva");
+  if (!row) return notConnected("Canva", "canva_list_designs");
+
+  const query = String(input.query || "").trim();
+  const limit = Math.max(1, Math.min(50, Number(input.limit ?? 20) || 20));
+  const params = new URLSearchParams();
+  if (query) params.set("query", query);
+  if (input.folder_id) params.set("folder_id", String(input.folder_id));
+  const qs = params.toString();
+
+  try {
+    const r = await canvaAuthedFetch(
+      admin, row, `https://api.canva.com/rest/v1/designs${qs ? `?${qs}` : ""}`, { method: "GET" },
+    );
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      return fail(`Canva designs could NOT be listed: ${String((body as { message?: string })?.message || `HTTP ${r.status}`)}`);
+    }
+    const items = (Array.isArray(body?.items) ? body.items : []) as Record<string, unknown>[];
+    const designs = items.slice(0, limit).map((d) => {
+      const urls = (d.urls as Record<string, string>) || {};
+      const thumb = (d.thumbnail as Record<string, unknown>) || {};
+      return {
+        id: String(d.id || ""),
+        title: String(d.title || "(untitled)"),
+        thumbnail: thumb.url ? String(thumb.url) : null,
+        edit_url: urls.edit_url || null,
+        view_url: urls.view_url || null,
+      };
+    });
+    return {
+      ok: true,
+      summary: designs.length
+        ? `Canva returned ${designs.length} design(s): ${
+          designs.map((d) => `${d.title} (${d.id})${d.view_url ? ` — ${d.view_url}` : ""}`).join("; ")
+        }`
+        : "Canva returned no designs for this account/query.",
+      ref: JSON.stringify(designs),
+      url: null,
+      target: query || "all designs",
+    };
+  } catch (e) {
+    return fail(`Canva list failed: ${e instanceof Error ? e.message : String(e)}.`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// CANVA — create a folder, then GET the folder back by id to verify.
+// ---------------------------------------------------------------------------
+export async function canvaCreateFolder(
+  admin: SupabaseClient, userId: string, agentId: string, input: Record<string, unknown>,
+): Promise<WriteResult> {
+  const name = String(input.name || input.title || "").trim();
+  if (!name) return fail("canva_create_folder requires a name.");
+  const parent = String(input.parent_folder_id || "root").trim() || "root";
+
+  const row = await loadProviderIntegration(admin, userId, agentId, "Canva");
+  if (!row) return notConnected("Canva", "canva_create_folder");
+
+  let created: Record<string, unknown>;
+  try {
+    const r = await canvaAuthedFetch(admin, row, "https://api.canva.com/rest/v1/folders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name.slice(0, 250), parent_folder_id: parent }),
+    });
+    created = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      return fail(`Canva folder NOT created: ${String((created as { message?: string })?.message || `HTTP ${r.status}`)}`);
+    }
+  } catch (e) {
+    return fail(`Canva folder creation failed: ${e instanceof Error ? e.message : String(e)} — no folder created.`);
+  }
+
+  const folder = (created.folder as Record<string, unknown>) || created;
+  const folderId = folder?.id ? String(folder.id) : "";
+  if (!folderId) return fail("Canva returned no folder id — treat the folder as NOT created.");
+
+  // Verification: fetch the folder back by id.
+  const vr = await canvaAuthedFetch(admin, row, `https://api.canva.com/rest/v1/folders/${folderId}`, { method: "GET" });
+  const vb = await vr.json().catch(() => ({}));
+  const verified = (vb?.folder as Record<string, unknown>) || vb;
+  if (!vr.ok || String(verified?.id || "") !== folderId) {
+    return fail(`Canva folder ${folderId} could NOT be fetched back for verification. Treat as failed.`, folderId, name);
+  }
+  return {
+    ok: true,
+    summary: `Created Canva folder "${name}" (id ${folderId}) and verified it by fetching it back. Pass folder_id:"${folderId}" to canva_create_design to create designs inside it.`,
+    ref: folderId, url: null, target: name,
   };
 }
 
@@ -567,6 +695,8 @@ export const PROVIDER_WRITE_KINDS = new Set([
   "notion_create_page",
   "notion_update_page",
   "canva_create_design",
+  "canva_list_designs",
+  "canva_create_folder",
   "shopify_create_draft_order",
   "shopify_update_product",
   "figma_post_comment",
@@ -581,6 +711,8 @@ export async function runProviderWrite(
     case "notion_create_page": return await notionCreatePage(admin, userId, agentId, input);
     case "notion_update_page": return await notionUpdatePage(admin, userId, agentId, input);
     case "canva_create_design": return await canvaCreateDesign(admin, userId, agentId, input);
+    case "canva_list_designs": return await canvaListDesigns(admin, userId, agentId, input);
+    case "canva_create_folder": return await canvaCreateFolder(admin, userId, agentId, input);
     case "shopify_create_draft_order": return await shopifyCreateDraftOrder(admin, userId, agentId, input);
     case "shopify_update_product": return await shopifyUpdateProduct(admin, userId, agentId, input);
     case "figma_post_comment": return await figmaPostComment(admin, userId, agentId, input);

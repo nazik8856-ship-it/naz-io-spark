@@ -191,6 +191,16 @@ export const CAPABILITY_REGISTRY: Record<string, Capability> = {
     verification: "design fetched back by id from the Canva Connect API",
     honesty: "I can really create Canva designs.",
   },
+  canva_list_designs: {
+    kind: "canva_list_designs", provider: "Canva", implemented: true, verified: true, mode: "read",
+    verification: "returns the designs the Canva Connect API actually returned",
+    honesty: "I can list your existing Canva designs for real.",
+  },
+  canva_create_folder: {
+    kind: "canva_create_folder", provider: "Canva", implemented: true, verified: true, mode: "write",
+    verification: "folder fetched back by id from the Canva Connect API",
+    honesty: "I can really create Canva folders (projects) and put new designs inside them.",
+  },
   notion_create_page: {
     kind: "notion_create_page", provider: "Notion", implemented: true, verified: true, mode: "write",
     verification: "page re-fetched from the Notion API after creation",
