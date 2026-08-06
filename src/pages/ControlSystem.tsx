@@ -1,28 +1,54 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import LiveAgentChat from "@/components/agents/LiveAgentChat";
+import DecisionCard, { type ControlDecision } from "@/components/control/DecisionCard";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "@/hooks/use-toast";
 
-type Turn = { role: "user" | "assistant"; content: string };
+type Turn = { role: "user" | "assistant"; content: string; node?: ReactNode };
 
 /**
- * AI CONTROL SYSTEM — chat shell only.
- * Backend decision-engine wiring comes later; this is just the entry surface.
+ * AI CONTROL SYSTEM
+ * Chat front-end for the shared decision engine (control-system-decide).
+ * Every verdict is logged to agent_decisions alongside agent-triggered ones.
  */
 export default function ControlSystem() {
   const navigate = useNavigate();
   const [turns, setTurns] = useState<Turn[]>([]);
+  const [streaming, setStreaming] = useState(false);
 
-  const handleSend = (text: string) => {
-    setTurns((t) => [
-      ...t,
-      { role: "user", content: text },
-      {
-        role: "assistant",
-        content:
-          "The Control System engine isn't wired up yet — this is the chat surface. Decision tracing, approvals and overrides land in the next step.",
-      },
-    ]);
+  const handleSend = async (text: string) => {
+    setTurns((t) => [...t, { role: "user", content: text }, { role: "assistant", content: "" }]);
+    setStreaming(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("control-system-decide", {
+        body: { message: text },
+      });
+      if (error) throw error;
+      const d = data as ControlDecision & { error?: string; message?: string };
+      if (d?.error) throw new Error(d.message || d.error);
+
+      setTurns((t) => {
+        const next = [...t];
+        next[next.length - 1] = {
+          role: "assistant",
+          content: d.reason,
+          node: <DecisionCard d={d} />,
+        };
+        return next;
+      });
+    } catch (e) {
+      const msg = (e as Error)?.message || "Something went wrong reviewing that action.";
+      toast({ title: "Decision failed", description: msg, variant: "destructive" });
+      setTurns((t) => {
+        const next = [...t];
+        next[next.length - 1] = { role: "assistant", content: msg };
+        return next;
+      });
+    } finally {
+      setStreaming(false);
+    }
   };
 
   return (
@@ -45,12 +71,12 @@ export default function ControlSystem() {
           goal="Your AI's decisions, explained and controlled"
           turns={turns}
           suggestions={[
-            "Why did my agent do that?",
-            "Show recent decisions",
-            "Pause risky actions",
+            "My agent wants to post to #general",
+            "Should I let this run: send email to all customers",
+            "Agent wants to update product prices in Shopify",
           ]}
-          streaming={false}
-          fullSpec="Control System spec will appear here once the decision engine is connected."
+          streaming={streaming}
+          fullSpec="Describe any action your AI wants to take. The Control System scores intent match, risk and confidence, then returns Allow, Modify, Block or Deferred — and logs it to your decision history."
           onSend={handleSend}
         />
       </div>
