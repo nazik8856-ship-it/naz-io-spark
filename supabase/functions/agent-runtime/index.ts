@@ -13,6 +13,11 @@ import {
 } from "../_shared/tool-retry.ts";
 import { PROVIDER_WRITE_KINDS, runProviderWrite } from "../_shared/provider-writes.ts";
 import {
+  readConfidence,
+  normalizeAlternatives,
+  logDecision as logDecisionRow,
+} from "../_shared/decision-scoring.ts";
+import {
   CAPABILITY_REGISTRY,
   canOfferTool,
   buildCapabilityBlock,
@@ -477,52 +482,16 @@ serve(async (req) => {
     // Every branch point (which tool, which strategy, which source) is written
     // to agent_decisions with the model's own reasoning, the alternatives it
     // weighed and a 0-100 self-reported confidence score.
-    const scoreFromLabel = (label: string): number =>
-      label === "high" ? 90 : label === "medium" ? 65 : label === "low" ? 35 : 50;
-    const labelFromScore = (n: number): "high" | "medium" | "low" =>
-      n >= 80 ? "high" : n >= 50 ? "medium" : "low";
-    const readConfidence = (p: Record<string, unknown>): { score: number; label: string } => {
-      const rawScore = p.confidence_score;
-      let score: number | null = null;
-      if (typeof rawScore === "number" && Number.isFinite(rawScore)) score = rawScore;
-      else if (typeof rawScore === "string" && rawScore.trim() !== "" && !Number.isNaN(Number(rawScore))) score = Number(rawScore);
-      const labelRaw = typeof p.confidence === "string" ? p.confidence.trim().toLowerCase() : "";
-      const label = labelRaw === "high" || labelRaw === "medium" || labelRaw === "low" ? labelRaw : "";
-      if (score === null) return { score: label ? scoreFromLabel(label) : 50, label: label || "medium" };
-      score = Math.max(0, Math.min(100, Math.round(score)));
-      return { score, label: label || labelFromScore(score) };
-    };
-    const normalizeAlternatives = (alternatives: unknown): string[] =>
-      Array.isArray(alternatives)
-        ? alternatives.map((a) => String(a).slice(0, 200)).slice(0, 8)
-        : typeof alternatives === "string" && alternatives.trim()
-        ? [alternatives.slice(0, 200)]
-        : [];
-    const logDecision = async (d: {
+    const logDecision = (d: {
       decision: string;
       reasoning: string;
       alternatives: unknown;
       score: number;
       stepIndex?: number;
       escalated?: boolean;
-    }): Promise<string | null> => {
-      const alts = normalizeAlternatives(d.alternatives);
-      try {
-        const { data } = await supabase.from("agent_decisions").insert({
-          user_id: userId,
-          agent_id: agentId,
-          agent_run_id: runId,
-          step_index: d.stepIndex ?? null,
-          decision: d.decision.slice(0, 400) || "unspecified",
-          reasoning: d.reasoning.slice(0, 800),
-          alternatives_considered: alts,
-          confidence_score: Math.max(0, Math.min(100, Math.round(d.score))),
-          source: "model",
-          escalated: d.escalated ?? false,
-        }).select("id").single();
-        return (data as { id?: string } | null)?.id ?? null;
-      } catch { /* provenance must never break a run */ return null; }
-    };
+    }): Promise<string | null> =>
+      logDecisionRow(supabase, { userId, agentId, runId }, d);
+
 
 
     // Output-validation guard: when a tool reports success but its result is
