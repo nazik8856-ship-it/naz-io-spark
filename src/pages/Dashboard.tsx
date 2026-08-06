@@ -1,17 +1,16 @@
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, LogOut, MessageSquare, Zap, Compass } from "lucide-react";
+import { ArrowLeft, LogOut, MessageSquare, ShieldCheck } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 
 /**
  * NAZAI DASHBOARD — MINIMAL V1
- * Three-window Command Center. All legacy Titan V27 logic archived at
- * src/pages/Dashboard.legacy.tsx.archive (Generator chat/missions, Automator
- * workflows, Others research, Credit system, Live preview, Settings, Pricing).
+ * Two-window Command Center. All legacy Titan V27 logic archived at
+ * src/pages/Dashboard.legacy.tsx.archive.
  */
 
 type Card = {
-  id: "generator" | "automator" | "others";
+  id: "generator" | "control-system";
   label: string;
   title: string;
   description: string;
@@ -32,24 +31,14 @@ const CARDS: Card[] = [
     route: "/generator-home",
   },
   {
-    id: "automator",
-    label: "AUTOPILOT",
-    title: "Automator",
+    id: "control-system",
+    label: "CONTROL",
+    title: "AI Control System",
     description:
-      "Automate anything. Emails, ads, follow-ups, campaigns — NazAI executes on autopilot.",
-    icon: Zap,
+      "Your AI's decisions, explained and controlled — nothing runs blind.",
+    icon: ShieldCheck,
     glow: "#a855f7",
-    route: "/dashboard/automator",
-  },
-  {
-    id: "others",
-    label: "STRATEGY",
-    title: "Others",
-    description:
-      "Strategic planning made simple. Deep research, competitor analysis, and winning AI agent strategies — on demand.",
-    icon: Compass,
-    glow: "#22c55e",
-    route: "/dashboard/others",
+    route: "/control-system",
   },
 ];
 
@@ -102,7 +91,7 @@ export default function Dashboard() {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-5">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5 max-w-4xl mx-auto">
           {CARDS.map((c) => {
             const Icon = c.icon;
             return (
