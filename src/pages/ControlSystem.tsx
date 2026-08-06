@@ -19,25 +19,27 @@ export default function ControlSystem() {
   const [streaming, setStreaming] = useState(false);
 
   const handleSend = async (text: string) => {
+    const history = turns
+      .filter((t) => t.content)
+      .map((t) => ({ role: t.role, content: t.content }));
     setTurns((t) => [...t, { role: "user", content: text }, { role: "assistant", content: "" }]);
     setStreaming(true);
     try {
       const { data, error } = await supabase.functions.invoke("control-system-decide", {
-        body: { message: text },
+        body: { message: text, history },
       });
       if (error) throw error;
-      const d = data as ControlDecision & { error?: string; message?: string };
+      const d = data as ControlDecision & { error?: string; message?: string; mode?: string; reply?: string };
       if (d?.error) throw new Error(d.message || d.error);
 
       setTurns((t) => {
         const next = [...t];
-        next[next.length - 1] = {
-          role: "assistant",
-          content: d.reason,
-          node: <DecisionCard d={d} />,
-        };
+        next[next.length - 1] = d?.mode === "chat"
+          ? { role: "assistant", content: d.reply || "" }
+          : { role: "assistant", content: d.reason, node: <DecisionCard d={d} /> };
         return next;
       });
+
     } catch (e) {
       const msg = (e as Error)?.message || "Something went wrong reviewing that action.";
       toast({ title: "Decision failed", description: msg, variant: "destructive" });
