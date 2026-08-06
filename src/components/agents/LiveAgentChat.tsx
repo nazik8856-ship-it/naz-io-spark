@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowUp, ChevronDown, ChevronUp, Bot } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 
-type AgentTurn = { role: "user" | "assistant"; content: string };
+type AgentTurn = { role: "user" | "assistant"; content: string; node?: ReactNode };
 
 type Props = {
   agentId: string;
@@ -83,7 +83,9 @@ export default function LiveAgentChat({
                 </div>
               ) : (
                 <div className="max-w-[85%] rounded-2xl px-4 py-2.5 bg-white/[0.04] border border-white/10 text-sm text-zinc-100 prose prose-invert prose-sm max-w-none prose-p:my-1.5 prose-headings:text-white prose-pre:bg-black/60 prose-pre:border prose-pre:border-white/10 prose-code:text-cyan-300">
-                  {t.content ? (
+                  {t.node ? (
+                    <div className="not-prose w-full">{t.node}</div>
+                  ) : t.content ? (
                     <ReactMarkdown>{t.content}</ReactMarkdown>
                   ) : executionLog ? (
                     <div className="not-prose w-full">{executionLog}</div>
