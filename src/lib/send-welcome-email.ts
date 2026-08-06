@@ -1,5 +1,6 @@
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
-const ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
+import { SUPABASE_ANON, SUPABASE_URL } from "@/integrations/supabase/client";
+
+const ANON_KEY = SUPABASE_ANON;
 
 type AuthUserLike = {
   id?: string | null;
