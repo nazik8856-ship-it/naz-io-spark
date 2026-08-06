@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowUp, ChevronDown, ChevronUp, Bot } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 
-type AgentTurn = { role: "user" | "assistant"; content: string };
+type AgentTurn = { role: "user" | "assistant"; content: string; node?: ReactNode };
 
 type Props = {
   agentId: string;
