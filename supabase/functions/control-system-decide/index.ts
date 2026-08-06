@@ -94,26 +94,57 @@ serve(async (req) => {
       if (Number.isFinite(t)) baseThreshold = Math.max(0, Math.min(100, Math.round(t)));
     }
 
+    // Recent decision history — lets the assistant explain past verdicts.
+    const { data: recent } = await supabase
+      .from("agent_decisions")
+      .select("decision, reasoning, confidence_score, created_at")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(10);
+    const historyBlock = (recent || []).length
+      ? (recent as Record<string, unknown>[])
+        .map((r) => `- ${r.created_at}: ${r.decision} (confidence ${r.confidence_score ?? "?"}) — ${String(r.reasoning || "").slice(0, 200)}`)
+        .join("\n")
+      : "(no decisions logged yet)";
+
+    const priorTurns = Array.isArray(body?.history)
+      ? (body.history as { role?: string; content?: string }[])
+        .filter((m) => (m?.role === "user" || m?.role === "assistant") && typeof m.content === "string" && m.content.trim())
+        .slice(-10)
+        .map((m) => ({ role: m.role as "user" | "assistant", content: String(m.content).slice(0, 4000) }))
+      : [];
+
     const res = await fetch(LOVABLE_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
       body: JSON.stringify({
         model: MODEL,
-        temperature: 0.2,
+        temperature: 0.3,
         messages: [
           {
             role: "system",
             content:
-              "You are the AI Control System. The user describes a proposed AI action. " +
-              "Assess it honestly: never assume an action is safe, never invent capabilities. " +
-              "Judge whether it matches the stated intent, whether it fits this business at all, " +
-              "and how risky it is (high = irreversible, external-facing, or mass-audience). " +
-              "Write every explanation in plain everyday language. Always call assess_action.",
+              "You are the AI Control System — a helpful assistant that also reviews proposed AI actions.\n\n" +
+              "TWO MODES:\n" +
+              "1) If (and only if) the user is describing a concrete proposed AI action to review " +
+              "(e.g. 'my agent wants to post to #general', 'should I let this run: email all customers'), " +
+              "call the assess_action tool. Assess honestly: never assume an action is safe, never invent capabilities. " +
+              "Judge whether it matches the stated intent, whether it fits this business, and how risky it is " +
+              "(high = irreversible, external-facing, or mass-audience).\n" +
+              "2) Otherwise, reply normally in plain text — answer questions about how the Control System works, " +
+              "explain past decisions, answer general questions, or ask ONE clarifying question when intent is ambiguous. " +
+              "Do NOT call the tool in this mode.\n\n" +
+              "Always write in plain everyday language.\n\n" +
+              "HOW YOU WORK (for explaining yourself): you parse a proposed action, score risk (low/medium/high) and " +
+              "confidence (0-100) against a threshold, then return one of four verdicts — Allow, Modify, Block, or " +
+              "Deferred (not a fit) — and log every verdict to the shared decision history that agents also write to.\n\n" +
+              `RECENT DECISION HISTORY:\n${historyBlock}`,
           },
+          ...priorTurns,
           { role: "user", content: message },
         ],
         tools: [ASSESS_TOOL],
-        tool_choice: { type: "function", function: { name: "assess_action" } },
+        tool_choice: "auto",
       }),
     });
 
@@ -122,10 +153,17 @@ serve(async (req) => {
     if (!res.ok) return json({ error: "gateway_error", message: (await res.text()).slice(0, 400) }, 502);
 
     const data = await res.json();
-    const call = data?.choices?.[0]?.message?.tool_calls?.[0];
+    const msg = data?.choices?.[0]?.message;
+    const call = msg?.tool_calls?.[0];
     let parsed: Record<string, unknown> = {};
     try { parsed = JSON.parse(call?.function?.arguments || "{}"); } catch { /* fall through */ }
-    if (!parsed.action_type) return json({ error: "parse_failed", message: "Couldn't read that as a proposed action. Describe what the AI wants to do." }, 422);
+    if (!parsed.action_type) {
+      // Not an action to review — normal conversational reply.
+      const reply = String(msg?.content || "").trim() ||
+        "Could you tell me a bit more about what you'd like the AI to do?";
+      return json({ mode: "chat", reply });
+    }
+
 
     const riskTier = ["low", "medium", "high"].includes(String(parsed.risk_tier)) ? String(parsed.risk_tier) : "medium";
     const intentMatch = String(parsed.intent_match || "partial");
