@@ -216,6 +216,7 @@ serve(async (req) => {
     });
 
     return json({
+      mode: "decision",
       decision_id: decisionId,
       decision,
       reason,
