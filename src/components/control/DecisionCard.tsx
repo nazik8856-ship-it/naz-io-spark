@@ -1,4 +1,4 @@
-import { Check, Pencil, Ban, Clock, ShieldCheck } from "lucide-react";
+import { Check, Pencil, Ban, Clock, ShieldCheck, Zap, ExternalLink, AlertTriangle } from "lucide-react";
 
 export type ControlDecision = {
   decision_id: string | null;
@@ -18,8 +18,19 @@ export type ControlDecision = {
   deferred: {
     why_not_now: string;
     what_would_change_it: string;
+    improvement_steps?: string[];
     reconsider_when: string;
   } | null;
+  executed?: boolean;
+  execution?: {
+    ok: boolean;
+    summary: string;
+    url?: string | null;
+    ref?: string | null;
+    target?: string | null;
+    verification?: string | null;
+  } | null;
+  execution_note?: string | null;
 };
 
 const STYLES = {
@@ -63,6 +74,14 @@ export default function DecisionCard({ d }: { d: ControlDecision }) {
         <div className="space-y-1.5 text-xs text-zinc-300 border-t border-white/10 pt-3">
           <div><span className="text-zinc-500">Why not now: </span>{d.deferred.why_not_now}</div>
           <div><span className="text-zinc-500">What would change it: </span>{d.deferred.what_would_change_it}</div>
+          {!!d.deferred.improvement_steps?.length && (
+            <div>
+              <span className="text-zinc-500">What would make it worth doing:</span>
+              <ul className="mt-1 list-disc pl-4 space-y-0.5">
+                {d.deferred.improvement_steps.map((s, i) => <li key={i}>{s}</li>)}
+              </ul>
+            </div>
+          )}
           <div><span className="text-zinc-500">Reconsider when: </span>{d.deferred.reconsider_when}</div>
         </div>
       )}
@@ -71,6 +90,36 @@ export default function DecisionCard({ d }: { d: ControlDecision }) {
         <div className="text-xs text-zinc-400">
           <span className="text-zinc-500">Other options weighed: </span>
           {d.alternatives.join(" · ")}
+        </div>
+      )}
+
+      {(d.execution || d.execution_note) && (
+        <div
+          className="rounded-lg border p-3 space-y-1.5 text-xs"
+          style={{
+            borderColor: d.executed ? "#22c55e55" : "#ffffff1a",
+            backgroundColor: d.executed ? "#22c55e0d" : "#ffffff08",
+          }}
+        >
+          <div className="flex items-center gap-1.5 font-semibold" style={{ color: d.executed ? "#22c55e" : "#a1a1aa" }}>
+            {d.executed ? <Zap className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
+            {d.executed ? "Action carried out" : "Not carried out — assessment only"}
+          </div>
+          {d.execution?.summary && <p className="text-zinc-300 leading-relaxed">{d.execution.summary}</p>}
+          {d.execution_note && <p className="text-zinc-400 leading-relaxed">{d.execution_note}</p>}
+          {d.execution?.verification && (
+            <p className="text-[11px] text-zinc-500">Verified by: {d.execution.verification}</p>
+          )}
+          {d.execution?.url && (
+            <a
+              href={d.execution.url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 text-[11px] text-sky-400 hover:underline"
+            >
+              <ExternalLink className="h-3 w-3" /> Open result
+            </a>
+          )}
         </div>
       )}
 

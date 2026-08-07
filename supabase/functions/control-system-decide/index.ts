@@ -1,18 +1,15 @@
-// AI Control System — the shared decision engine, reachable from chat.
-// Input: { message: string, agentId?: string }
-// Parses a proposed AI action with structured LLM output, scores risk +
-// confidence with the same helpers agent-runtime uses, returns one structured
-// verdict and logs it to agent_decisions (same table, same history).
+// AI Control System — chat front door for the shared decision engine.
+// Input: { message: string, history?: [{role, content}], agentId? }
+//
+// TWO MODES:
+//  1) The message describes a concrete proposed AI action -> extract
+//     { action_type, provider, description, params } with structured output and
+//     hand it to the control-engine function, which owns ALL scoring, the
+//     Allow/Modify/Block/Deferred verdict, real execution and the
+//     agent_decisions logging. No decision logic is duplicated here.
+//  2) Anything else -> normal conversational reply.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import {
-  readConfidence,
-  normalizeAlternatives,
-  logDecision,
-  thresholdForRisk,
-  shouldEscalate,
-  DEFAULT_CONFIDENCE_THRESHOLD,
-} from "../_shared/decision-scoring.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -28,35 +25,38 @@ const json = (body: unknown, status = 200) =>
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 
-// Structured output contract (mirrors the Zod-shaped schemas used elsewhere in
-// the agent engine — enforced here as a strict tool schema on the gateway).
-const ASSESS_TOOL = {
+// Structured extraction contract — mirrors control-engine's input shape.
+const EXTRACT_TOOL = {
   type: "function",
   function: {
-    name: "assess_action",
-    description: "Parse and assess a proposed AI action.",
+    name: "review_action",
+    description:
+      "Call ONLY when the user is describing a concrete proposed AI action to review. " +
+      "Extracts the action so the Control Engine can assess it.",
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        action_type: { type: "string", description: "e.g. send_email, post_message, update_product" },
-        provider: { type: "string", description: "Gmail, Slack, Notion, Shopify, Canva, Figma, Google, or 'unknown'" },
-        risk_tier: { type: "string", enum: ["low", "medium", "high"] },
-        intent_match: { type: "string", enum: ["matches", "partial", "mismatch"] },
-        fit_assessment: { type: "string", enum: ["fits", "unclear", "not_a_fit"] },
-        reasoning: { type: "string", description: "Plain-language reasoning, no jargon." },
-        alternatives: { type: "array", items: { type: "string" } },
-        confidence_score: { type: "number", description: "0-100 self-reported confidence" },
-        modification: { type: "string", description: "Safer variant if the action should be modified, else empty" },
-        why_not_now: { type: "string" },
-        what_would_change_it: { type: "string" },
-        reconsider_when: { type: "string" },
+        action_type: {
+          type: "string",
+          description:
+            "Canonical tool kind if you can tell (send_email, reply_email, create_doc, edit_doc, " +
+            "create_sheet, edit_sheet, create_calendar_event, slack_post_message, notion_create_page, " +
+            "notion_update_page, canva_create_design, canva_create_folder, shopify_create_draft_order, " +
+            "shopify_update_product, figma_post_comment, figma_create_dev_resource), else a short snake_case name.",
+        },
+        provider: {
+          type: "string",
+          description: "Gmail, Slack, Notion, Shopify, Canva, Figma, Google Docs, Google Sheets, Google Calendar, or 'unknown'.",
+        },
+        description: { type: "string", description: "Plain-language statement of what the user intends this action to do." },
+        params: {
+          type: "object",
+          additionalProperties: true,
+          description: "Concrete parameters mentioned by the user (channel, text, recipient, subject, product id, price...). Empty object if none.",
+        },
       },
-      required: [
-        "action_type", "provider", "risk_tier", "intent_match", "fit_assessment",
-        "reasoning", "alternatives", "confidence_score", "modification",
-        "why_not_now", "what_would_change_it", "reconsider_when",
-      ],
+      required: ["action_type", "provider", "description", "params"],
     },
   },
 };
@@ -81,18 +81,6 @@ serve(async (req) => {
     const message = String(body?.message || "").trim();
     const agentId: string | null = body?.agentId ? String(body.agentId) : null;
     if (!message) return json({ error: "message required" }, 400);
-
-    // Per-agent threshold when the action belongs to a known agent.
-    let baseThreshold = DEFAULT_CONFIDENCE_THRESHOLD;
-    if (agentId) {
-      const { data: agent } = await supabase
-        .from("agents").select("confidence_threshold, user_id").eq("id", agentId).maybeSingle();
-      if (agent && (agent as { user_id?: string }).user_id !== userId) {
-        return json({ error: "Not authorized for this agent" }, 403);
-      }
-      const t = Number((agent as { confidence_threshold?: number } | null)?.confidence_threshold);
-      if (Number.isFinite(t)) baseThreshold = Math.max(0, Math.min(100, Math.round(t)));
-    }
 
     // Recent decision history — lets the assistant explain past verdicts.
     const { data: recent } = await supabase
@@ -124,26 +112,27 @@ serve(async (req) => {
           {
             role: "system",
             content:
-              "You are the AI Control System — a helpful assistant that also reviews proposed AI actions.\n\n" +
+              "You are the AI Control System — a helpful assistant that also routes proposed AI actions to the Control Engine.\n\n" +
               "TWO MODES:\n" +
               "1) If (and only if) the user is describing a concrete proposed AI action to review " +
               "(e.g. 'my agent wants to post to #general', 'should I let this run: email all customers'), " +
-              "call the assess_action tool. Assess honestly: never assume an action is safe, never invent capabilities. " +
-              "Judge whether it matches the stated intent, whether it fits this business, and how risky it is " +
-              "(high = irreversible, external-facing, or mass-audience).\n" +
+              "call the review_action tool with the action extracted faithfully. Do NOT judge it yourself — " +
+              "the Control Engine does the intent, risk and fit checks. Never invent parameters the user didn't give.\n" +
               "2) Otherwise, reply normally in plain text — answer questions about how the Control System works, " +
               "explain past decisions, answer general questions, or ask ONE clarifying question when intent is ambiguous. " +
               "Do NOT call the tool in this mode.\n\n" +
               "Always write in plain everyday language.\n\n" +
-              "HOW YOU WORK (for explaining yourself): you parse a proposed action, score risk (low/medium/high) and " +
-              "confidence (0-100) against a threshold, then return one of four verdicts — Allow, Modify, Block, or " +
-              "Deferred (not a fit) — and log every verdict to the shared decision history that agents also write to.\n\n" +
+              "HOW YOU WORK (for explaining yourself): a proposed action is parsed, then the Control Engine scores intent match, " +
+              "risk (low/medium/high) and business fit, weighs confidence (0-100) against a threshold, and returns one of four " +
+              "verdicts — Allow, Modify, Block, or Deferred (not a fit). When a verdict is Allow and a real verified executor exists " +
+              "for that tool, the action is actually carried out and verified; otherwise only the assessment happens. " +
+              "Every verdict is logged to the shared decision history that agents also write to.\n\n" +
               `RECENT DECISION HISTORY:\n${historyBlock}`,
           },
           ...priorTurns,
           { role: "user", content: message },
         ],
-        tools: [ASSESS_TOOL],
+        tools: [EXTRACT_TOOL],
         tool_choice: "auto",
       }),
     });
@@ -157,6 +146,7 @@ serve(async (req) => {
     const call = msg?.tool_calls?.[0];
     let parsed: Record<string, unknown> = {};
     try { parsed = JSON.parse(call?.function?.arguments || "{}"); } catch { /* fall through */ }
+
     if (!parsed.action_type) {
       // Not an action to review — normal conversational reply.
       const reply = String(msg?.content || "").trim() ||
@@ -164,75 +154,30 @@ serve(async (req) => {
       return json({ mode: "chat", reply });
     }
 
+    // ---- Hand off to the shared Control Engine ----------------------------
+    const actionType = String(parsed.action_type);
+    const provider = String(parsed.provider || "unknown");
+    const description = String(parsed.description || message).slice(0, 2000);
+    const params = (parsed.params && typeof parsed.params === "object") ? parsed.params : {};
 
-    const riskTier = ["low", "medium", "high"].includes(String(parsed.risk_tier)) ? String(parsed.risk_tier) : "medium";
-    const intentMatch = String(parsed.intent_match || "partial");
-    const fit = String(parsed.fit_assessment || "unclear");
-    const conf = readConfidence(parsed);
-    const alternatives = normalizeAlternatives(parsed.alternatives);
-    const threshold = thresholdForRisk(riskTier, baseThreshold);
-    const escalated = shouldEscalate(conf.score, threshold);
-    const modification = String(parsed.modification || "").trim();
-
-    // ---- Verdict ----------------------------------------------------------
-    let decision: "allow" | "modify" | "block" | "deferred";
-    let reason: string;
-    if (fit === "not_a_fit") {
-      decision = "deferred";
-      reason = "This isn't a fit for how your business runs right now, so it's parked rather than run.";
-    } else if (intentMatch === "mismatch" || (riskTier === "high" && escalated)) {
-      decision = "block";
-      reason = riskTier === "high" && intentMatch !== "mismatch"
-        ? `High-risk action with only ${conf.score}% confidence (needs ${threshold}%). Blocked until a human signs off.`
-        : "What this action does doesn't match what you asked for, so it's blocked.";
-    } else if (escalated || modification) {
-      decision = "modify";
-      reason = modification
-        ? `Safer as: ${modification}`
-        : `Confidence is ${conf.score}% against a ${threshold}% bar for ${riskTier} risk — run a narrowed-down version first.`;
-    } else {
-      decision = "allow";
-      reason = `Matches your intent, ${riskTier} risk, ${conf.score}% confidence — safe to run.`;
+    const engineRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/control-engine`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+        apikey: Deno.env.get("SUPABASE_ANON_KEY") || "",
+      },
+      body: JSON.stringify({ action_type: actionType, provider, description, params, agentId }),
+    });
+    const engine = await engineRes.json().catch(() => ({}));
+    if (!engineRes.ok || engine?.error) {
+      return json(
+        { error: engine?.error || "control_engine_error", message: engine?.message || "The Control Engine couldn't review that action." },
+        engineRes.status === 200 ? 502 : engineRes.status,
+      );
     }
 
-    const deferred = decision === "deferred"
-      ? {
-          why_not_now: String(parsed.why_not_now || "It doesn't line up with what your business needs right now.").slice(0, 400),
-          what_would_change_it: String(parsed.what_would_change_it || "A clearer business reason, or the right integration being connected.").slice(0, 400),
-          reconsider_when: String(parsed.reconsider_when || "Revisit once the goal or setup changes.").slice(0, 400),
-        }
-      : null;
-
-    const reasoning = String(parsed.reasoning || reason);
-    const decisionText = `${decision.toUpperCase()} ${parsed.action_type} (${parsed.provider || "unknown"})`;
-
-    const decisionId = await logDecision(supabase, { userId, agentId, runId: null }, {
-      decision: decisionText,
-      reasoning: `${reason}\n${reasoning}`,
-      alternatives,
-      score: conf.score,
-      escalated,
-      source: "model",
-    });
-
-    return json({
-      mode: "decision",
-      decision_id: decisionId,
-      decision,
-      reason,
-      reasoning,
-      confidence_score: conf.score,
-      confidence_label: conf.label,
-      threshold,
-      escalated,
-      action_type: String(parsed.action_type),
-      provider: String(parsed.provider || "unknown"),
-      risk_tier: riskTier,
-      intent_match: intentMatch,
-      fit_assessment: fit,
-      alternatives,
-      deferred,
-    });
+    return json({ mode: "decision", description, params, ...engine });
   } catch (e) {
     return json({ error: "unexpected", message: String((e as Error)?.message || e) }, 500);
   }
