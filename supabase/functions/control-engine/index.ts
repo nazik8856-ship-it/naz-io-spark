@@ -33,7 +33,7 @@ const CHECK_TOOL = {
   type: "function",
   function: {
     name: "check_action",
-    description: "Intent-check and risk-check a proposed AI action.",
+    description: "Intent-check, risk-check and fit-check a proposed AI action.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -48,6 +48,12 @@ const CHECK_TOOL = {
           enum: ["low", "medium", "high"],
           description: "high = irreversible, external-facing, or mass-audience",
         },
+        fit_assessment: {
+          type: "string",
+          enum: ["fits", "unclear", "not_a_fit"],
+          description:
+            "Does this action genuinely serve the org's CURRENT priorities and constraints, given the business profile?",
+        },
         confidence_score: { type: "number", description: "0-100 confidence in this assessment" },
         reasoning: { type: "string", description: "Plain-language reasoning, no jargon." },
         alternatives: { type: "array", items: { type: "string" } },
@@ -55,14 +61,33 @@ const CHECK_TOOL = {
           type: "string",
           description: "A safer narrowed variant of the action, or empty string if none needed.",
         },
+        why_not_now: {
+          type: "string",
+          description: "If not_a_fit: why this doesn't serve the business right now. Else empty.",
+        },
+        what_would_change_it: {
+          type: "string",
+          description: "If not_a_fit: what would need to be true for this to be worth doing. Else empty.",
+        },
+        improvement_steps: {
+          type: "array",
+          items: { type: "string" },
+          description: "If not_a_fit: concrete steps that would make this action worthwhile. Else empty array.",
+        },
+        reconsider_when: {
+          type: "string",
+          description: "If not_a_fit: the trigger or timing to revisit this. Else empty.",
+        },
       },
       required: [
-        "intent_match", "risk_tier", "confidence_score",
+        "intent_match", "risk_tier", "fit_assessment", "confidence_score",
         "reasoning", "alternatives", "modification",
+        "why_not_now", "what_would_change_it", "improvement_steps", "reconsider_when",
       ],
     },
   },
 };
+
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
