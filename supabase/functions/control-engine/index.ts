@@ -33,7 +33,7 @@ const CHECK_TOOL = {
   type: "function",
   function: {
     name: "check_action",
-    description: "Intent-check and risk-check a proposed AI action.",
+    description: "Intent-check, risk-check and fit-check a proposed AI action.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -48,6 +48,12 @@ const CHECK_TOOL = {
           enum: ["low", "medium", "high"],
           description: "high = irreversible, external-facing, or mass-audience",
         },
+        fit_assessment: {
+          type: "string",
+          enum: ["fits", "unclear", "not_a_fit"],
+          description:
+            "Does this action genuinely serve the org's CURRENT priorities and constraints, given the business profile?",
+        },
         confidence_score: { type: "number", description: "0-100 confidence in this assessment" },
         reasoning: { type: "string", description: "Plain-language reasoning, no jargon." },
         alternatives: { type: "array", items: { type: "string" } },
@@ -55,14 +61,33 @@ const CHECK_TOOL = {
           type: "string",
           description: "A safer narrowed variant of the action, or empty string if none needed.",
         },
+        why_not_now: {
+          type: "string",
+          description: "If not_a_fit: why this doesn't serve the business right now. Else empty.",
+        },
+        what_would_change_it: {
+          type: "string",
+          description: "If not_a_fit: what would need to be true for this to be worth doing. Else empty.",
+        },
+        improvement_steps: {
+          type: "array",
+          items: { type: "string" },
+          description: "If not_a_fit: concrete steps that would make this action worthwhile. Else empty array.",
+        },
+        reconsider_when: {
+          type: "string",
+          description: "If not_a_fit: the trigger or timing to revisit this. Else empty.",
+        },
       },
       required: [
-        "intent_match", "risk_tier", "confidence_score",
+        "intent_match", "risk_tier", "fit_assessment", "confidence_score",
         "reasoning", "alternatives", "modification",
+        "why_not_now", "what_would_change_it", "improvement_steps", "reconsider_when",
       ],
     },
   },
 };
+
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -103,6 +128,27 @@ serve(async (req) => {
       if (Number.isFinite(t)) baseThreshold = Math.max(0, Math.min(100, Math.round(t)));
     }
 
+    // Business context for the FIT check — latest profile for this user.
+    const { data: profile } = await supabase
+      .from("business_profiles")
+      .select("company_name, one_liner, industry, tone, audience, offers, channels, inferred_kpis")
+      .eq("user_id", userId)
+      .order("version", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const profileBlock = profile
+      ? [
+          `company: ${(profile as Record<string, unknown>).company_name ?? "unknown"}`,
+          `what they do: ${(profile as Record<string, unknown>).one_liner ?? "unknown"}`,
+          `industry: ${(profile as Record<string, unknown>).industry ?? "unknown"}`,
+          `audience: ${(profile as Record<string, unknown>).audience ?? "unknown"}`,
+          `tone: ${(profile as Record<string, unknown>).tone ?? "unknown"}`,
+          `offers: ${JSON.stringify((profile as Record<string, unknown>).offers ?? []).slice(0, 800)}`,
+          `channels: ${JSON.stringify((profile as Record<string, unknown>).channels ?? []).slice(0, 500)}`,
+          `priorities/KPIs: ${JSON.stringify((profile as Record<string, unknown>).inferred_kpis ?? []).slice(0, 800)}`,
+        ].join("\n")
+      : "(no business profile on file — treat fit as 'unclear' unless the action is obviously generic and harmless)";
+
     const res = await fetch(LOVABLE_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
@@ -116,14 +162,20 @@ serve(async (req) => {
             role: "system",
             content:
               "You are the Control Engine. You review ONE proposed AI action before it runs.\n" +
-              "Do two checks, honestly — never assume an action is safe:\n" +
+              "Do three checks, honestly — never assume an action is safe or useful:\n" +
               "1) INTENT: does the action_type + params actually accomplish the stated description? " +
               "matches / partial / mismatch.\n" +
               "2) RISK: low / medium / high. High = irreversible, external-facing, or mass-audience " +
               "(e.g. emailing all customers, posting publicly, deleting data).\n" +
+              "3) FIT: given the BUSINESS PROFILE below, does this action genuinely serve the org's " +
+              "CURRENT priorities and constraints? fits / unclear / not_a_fit. Not_a_fit means it's " +
+              "technically safe but a distraction, off-audience, off-channel, or premature for where " +
+              "this business is right now. If not_a_fit, fill in why_not_now, what_would_change_it, " +
+              "improvement_steps (concrete), and reconsider_when — otherwise leave those empty.\n" +
               "Give a confidence score 0-100 for your own assessment, plain-language reasoning, " +
               "and a safer narrowed 'modification' if the action should be tightened before running.\n" +
-              "Always call the check_action tool.",
+              "Always call the check_action tool.\n\n" +
+              `BUSINESS PROFILE:\n${profileBlock}`,
           },
           {
             role: "user",
@@ -136,6 +188,7 @@ serve(async (req) => {
         ],
       }),
     });
+
 
     if (res.status === 429) return json({ error: "rate_limited", message: "Too many requests right now — try again in a moment." }, 429);
     if (res.status === 402) return json({ error: "payment_required", message: "AI credits are exhausted. Add credits to continue." }, 402);
@@ -150,6 +203,8 @@ serve(async (req) => {
       ? String(parsed.risk_tier) : "medium";
     const intentMatch = ["matches", "partial", "mismatch"].includes(String(parsed.intent_match))
       ? String(parsed.intent_match) : "partial";
+    const fit = ["fits", "unclear", "not_a_fit"].includes(String(parsed.fit_assessment))
+      ? String(parsed.fit_assessment) : "unclear";
     const conf = readConfidence(parsed);
     const alternatives = normalizeAlternatives(parsed.alternatives);
     const threshold = thresholdForRisk(riskTier, baseThreshold);
@@ -158,9 +213,12 @@ serve(async (req) => {
     const reasoning = String(parsed.reasoning || "").trim();
 
     // ---- Verdict ----------------------------------------------------------
-    let decision: "allow" | "modify" | "block";
+    let decision: "allow" | "modify" | "block" | "deferred";
     let reason: string;
-    if (intentMatch === "mismatch" || (riskTier === "high" && escalated)) {
+    if (fit === "not_a_fit") {
+      decision = "deferred";
+      reason = "This doesn't serve what your business is working on right now, so it's parked rather than run.";
+    } else if (intentMatch === "mismatch" || (riskTier === "high" && escalated)) {
       decision = "block";
       reason = intentMatch === "mismatch"
         ? "What this action does doesn't match what you asked for, so it's blocked."
@@ -174,6 +232,20 @@ serve(async (req) => {
       decision = "allow";
       reason = `Matches your intent, ${riskTier} risk, ${conf.score}% confidence — safe to run.`;
     }
+
+    const improvementSteps = Array.isArray(parsed.improvement_steps)
+      ? (parsed.improvement_steps as unknown[]).map((s) => String(s).slice(0, 240)).slice(0, 6)
+      : [];
+    const deferred = decision === "deferred"
+      ? {
+          why_not_now: String(parsed.why_not_now || "It doesn't line up with what your business needs right now.").slice(0, 400),
+          what_would_change_it: String(parsed.what_would_change_it || "A clearer business reason, or the right setup being in place.").slice(0, 400),
+          improvement_steps: improvementSteps.length
+            ? improvementSteps
+            : ["Tie this action to a current priority or KPI before running it."],
+          reconsider_when: String(parsed.reconsider_when || "Revisit once the goal or setup changes.").slice(0, 400),
+        }
+      : null;
 
     const decisionId = await logDecision(supabase, { userId, agentId, runId }, {
       decision: `${decision.toUpperCase()} ${actionType} (${provider})`,
@@ -194,13 +266,16 @@ serve(async (req) => {
       provider,
       intent_match: intentMatch,
       risk_tier: riskTier,
+      fit_assessment: fit,
       confidence_score: conf.score,
       confidence_label: conf.label,
       threshold,
       escalated,
       modification: modification || null,
       alternatives,
+      deferred,
     });
+
   } catch (e) {
     return json({ error: "unexpected", message: String((e as Error)?.message || e) }, 500);
   }
