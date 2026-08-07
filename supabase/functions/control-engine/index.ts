@@ -203,6 +203,8 @@ serve(async (req) => {
       ? String(parsed.risk_tier) : "medium";
     const intentMatch = ["matches", "partial", "mismatch"].includes(String(parsed.intent_match))
       ? String(parsed.intent_match) : "partial";
+    const fit = ["fits", "unclear", "not_a_fit"].includes(String(parsed.fit_assessment))
+      ? String(parsed.fit_assessment) : "unclear";
     const conf = readConfidence(parsed);
     const alternatives = normalizeAlternatives(parsed.alternatives);
     const threshold = thresholdForRisk(riskTier, baseThreshold);
@@ -211,9 +213,12 @@ serve(async (req) => {
     const reasoning = String(parsed.reasoning || "").trim();
 
     // ---- Verdict ----------------------------------------------------------
-    let decision: "allow" | "modify" | "block";
+    let decision: "allow" | "modify" | "block" | "deferred";
     let reason: string;
-    if (intentMatch === "mismatch" || (riskTier === "high" && escalated)) {
+    if (fit === "not_a_fit") {
+      decision = "deferred";
+      reason = "This doesn't serve what your business is working on right now, so it's parked rather than run.";
+    } else if (intentMatch === "mismatch" || (riskTier === "high" && escalated)) {
       decision = "block";
       reason = intentMatch === "mismatch"
         ? "What this action does doesn't match what you asked for, so it's blocked."
@@ -227,6 +232,20 @@ serve(async (req) => {
       decision = "allow";
       reason = `Matches your intent, ${riskTier} risk, ${conf.score}% confidence — safe to run.`;
     }
+
+    const improvementSteps = Array.isArray(parsed.improvement_steps)
+      ? (parsed.improvement_steps as unknown[]).map((s) => String(s).slice(0, 240)).slice(0, 6)
+      : [];
+    const deferred = decision === "deferred"
+      ? {
+          why_not_now: String(parsed.why_not_now || "It doesn't line up with what your business needs right now.").slice(0, 400),
+          what_would_change_it: String(parsed.what_would_change_it || "A clearer business reason, or the right setup being in place.").slice(0, 400),
+          improvement_steps: improvementSteps.length
+            ? improvementSteps
+            : ["Tie this action to a current priority or KPI before running it."],
+          reconsider_when: String(parsed.reconsider_when || "Revisit once the goal or setup changes.").slice(0, 400),
+        }
+      : null;
 
     const decisionId = await logDecision(supabase, { userId, agentId, runId }, {
       decision: `${decision.toUpperCase()} ${actionType} (${provider})`,
@@ -247,13 +266,16 @@ serve(async (req) => {
       provider,
       intent_match: intentMatch,
       risk_tier: riskTier,
+      fit_assessment: fit,
       confidence_score: conf.score,
       confidence_label: conf.label,
       threshold,
       escalated,
       modification: modification || null,
       alternatives,
+      deferred,
     });
+
   } catch (e) {
     return json({ error: "unexpected", message: String((e as Error)?.message || e) }, 500);
   }
