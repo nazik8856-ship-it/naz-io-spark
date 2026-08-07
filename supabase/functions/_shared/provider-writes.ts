@@ -953,6 +953,12 @@ export async function runProviderWrite(
     case "shopify_update_product": return await shopifyUpdateProduct(admin, userId, agentId, input);
     case "figma_post_comment": return await figmaPostComment(admin, userId, agentId, input);
     case "figma_create_dev_resource": return await figmaCreateDevResource(admin, userId, agentId, input);
+    case "send_email": return await googleSendEmail(admin, userId, agentId, input);
+    case "create_doc": return await googleCreateDoc(admin, userId, agentId, input);
+    case "edit_doc": return await googleEditDoc(admin, userId, agentId, input);
+    case "create_sheet": return await googleCreateSheet(admin, userId, agentId, input);
+    case "edit_sheet": return await googleEditSheet(admin, userId, agentId, input);
+    case "create_calendar_event": return await googleCreateCalendarEvent(admin, userId, agentId, input);
     default: return fail(`Unknown provider write "${kind}".`);
   }
 }
