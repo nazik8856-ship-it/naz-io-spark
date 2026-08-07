@@ -89,5 +89,9 @@ verify_jwt = false
 [functions.analyze-org-insights]
 verify_jwt = true
 
+[functions.control-engine]
+verify_jwt = true
+
+
 
 
