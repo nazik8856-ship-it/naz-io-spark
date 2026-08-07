@@ -257,6 +257,59 @@ serve(async (req) => {
       source: "model",
     });
 
+    // ---- Real execution on ALLOW -----------------------------------------
+    // An "allow" is only meaningful if the action can actually be carried out.
+    // We check the capability registry for a real, verified executor whose
+    // provider is genuinely connected, and if one exists we RUN IT for real
+    // and report the verified result. Otherwise we say plainly that only the
+    // assessment happened.
+    let executed = false;
+    let execution: Record<string, unknown> | null = null;
+    let executionNote: string | null = null;
+
+    if (decision === "allow") {
+      const cap = CAPABILITY_REGISTRY[actionType];
+      const { data: conns } = await supabase
+        .from("agent_integrations")
+        .select("provider")
+        .eq("user_id", userId)
+        .eq("status", "connected");
+      const connected = ((conns || []) as { provider: string }[]).map((c) => c.provider);
+      const offer = canOfferTool(actionType, connected);
+
+      if (!cap || !offer.offerable) {
+        executionNote = offer && !("offerable" in offer && offer.offerable)
+          ? `Assessment only — the action was NOT carried out. ${(offer as { message?: string }).message ?? ""}`.trim()
+          : `Assessment only — "${actionType}" has no real executor in NazAI yet, so nothing was actually done.`;
+      } else if (!PROVIDER_WRITE_KINDS.has(actionType)) {
+        executionNote =
+          `Assessment only — "${actionType}" is real, but it runs inside an agent run (agent-runtime), ` +
+          `not from the control engine. Approve it on the agent to actually execute it.`;
+      } else {
+        try {
+          const result = await runProviderWrite(actionType, supabase, userId, agentId || "", params as Record<string, unknown>);
+          executed = result.ok;
+          execution = {
+            ok: result.ok,
+            summary: result.summary,
+            url: result.url ?? null,
+            ref: result.ref ?? null,
+            target: result.target ?? null,
+            verification: result.ok ? (cap.verification || null) : null,
+          };
+          executionNote = result.ok
+            ? `Action was really carried out and verified: ${cap.verification || "provider confirmed"}.`
+            : `Approved, but the action FAILED when run: ${result.summary}`;
+        } catch (err) {
+          executed = false;
+          execution = { ok: false, summary: String((err as Error)?.message || err), url: null, ref: null, target: null, verification: null };
+          executionNote = `Approved, but running the action threw an error: ${execution.summary}`;
+        }
+      }
+    } else {
+      executionNote = `Not executed — decision is "${decision}".`;
+    }
+
     return json({
       decision_id: decisionId,
       decision,
@@ -274,7 +327,11 @@ serve(async (req) => {
       modification: modification || null,
       alternatives,
       deferred,
+      executed,
+      execution,
+      execution_note: executionNote,
     });
+
 
   } catch (e) {
     return json({ error: "unexpected", message: String((e as Error)?.message || e) }, 500);
