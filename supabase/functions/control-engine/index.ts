@@ -312,6 +312,42 @@ serve(async (req) => {
       executionNote = `Not executed — decision is "${decision}".`;
     }
 
+    // ---- Shared brain: record the real outcome of the decision -------------
+    // Same two tables the rest of NazAI uses — agent_decisions (above) and
+    // decision_outcomes here. No parallel store.
+    if (decisionId && execution) {
+      try {
+        await supabase.from("decision_outcomes").insert({
+          user_id: userId,
+          decision_id: decisionId,
+          agent_id: agentId,
+          provider,
+          linked_metric: `action_executed:${actionType}`,
+          baseline_value: 0,
+          result_value: executed ? 1 : 0,
+          delta: executed ? 1 : 0,
+          delta_pct: null,
+          direction: executed ? "up" : "flat",
+          window_days: 0,
+          evidence: {
+            source: "control-engine",
+            action_type: actionType,
+            provider,
+            executed,
+            summary: execution.summary ?? null,
+            url: execution.url ?? null,
+            ref: execution.ref ?? null,
+            target: execution.target ?? null,
+            verification: execution.verification ?? null,
+            confidence_score: conf.score,
+            risk_tier: riskTier,
+          },
+          measured_at: new Date().toISOString(),
+        });
+      } catch (_) { /* provenance must never break the response */ }
+    }
+
+
     return json({
       decision_id: decisionId,
       decision,

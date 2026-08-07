@@ -690,7 +690,243 @@ export async function figmaCreateDevResource(
   };
 }
 
+// ---------------------------------------------------------------------------
+// GOOGLE — Gmail send, Docs create/edit, Sheets create/edit, Calendar create.
+// Same contract: call the real API, then RE-FETCH the created/edited resource
+// and only return ok:true when the effect is confirmed on Google's side.
+// ---------------------------------------------------------------------------
+async function googleRow(admin: SupabaseClient, userId: string, agentId: string) {
+  return await loadProviderIntegration(admin, userId, agentId, "Gmail");
+}
+
+async function googleAccess(
+  admin: SupabaseClient, userId: string, agentId: string,
+): Promise<{ access: string; creds: Record<string, unknown> } | WriteResult> {
+  const row = await googleRow(admin, userId, agentId);
+  if (!row) return notConnected("Google", "This action");
+  const { ensureAccessToken } = await import("./gmail.ts");
+  const access = await ensureAccessToken(admin, { id: row.id, credentials_secret_id: row.credentials_secret_id });
+  if (!access) return fail("Google token is invalid or revoked — reconnect Google before running this.");
+  const creds = await readSecret(admin, row.credentials_secret_id);
+  return { access, creds };
+}
+
+const gJson = async (r: Response) => await r.json().catch(() => ({} as Record<string, unknown>));
+const gErr = (b: Record<string, unknown>, r: Response) =>
+  String((b?.error as { message?: string } | undefined)?.message || `HTTP ${r.status}`);
+
+async function googleSendEmail(
+  admin: SupabaseClient, userId: string, agentId: string, input: Record<string, unknown>,
+): Promise<WriteResult> {
+  const to = String(input.to || "").trim();
+  const subject = String(input.subject || "").trim();
+  const body = String(input.body || input.body_markdown || "").trim();
+  if (!to || !subject || !body) return fail("send_email needs to, subject and body — nothing was sent.");
+  const auth = await googleAccess(admin, userId, agentId);
+  if ("ok" in auth) return auth;
+  const { gmailSend } = await import("./gmail.ts");
+  const from = String(auth.creds.email || "me");
+  const sent = await gmailSend(auth.access, from, to, subject, body);
+  if (!sent.ok || !sent.id) return fail(`Gmail refused the send: ${sent.error || "no message id returned"}. Nothing was delivered.`);
+  const vr = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(sent.id)}?format=metadata`,
+    { headers: { Authorization: `Bearer ${auth.access}` } },
+  );
+  const vb = await gJson(vr);
+  if (!vr.ok || !(vb as { id?: string }).id) {
+    return fail(`Gmail accepted the send but it could not be verified: ${gErr(vb, vr)} (id ${sent.id}).`, sent.id, to);
+  }
+  const labels = ((vb as { labelIds?: string[] }).labelIds || []);
+  if (labels.includes("DRAFT")) return fail(`The email is still a draft in Gmail, not sent (id ${sent.id}).`, sent.id, to);
+  return {
+    ok: true,
+    summary: `Email "${subject}" was really sent to ${to} and verified by re-reading the Gmail message (id ${sent.id}).`,
+    ref: sent.id, target: to, url: `https://mail.google.com/mail/u/0/#all/${sent.id}`,
+  };
+}
+
+async function googleCreateDoc(
+  admin: SupabaseClient, userId: string, agentId: string, input: Record<string, unknown>,
+): Promise<WriteResult> {
+  const title = String(input.title || "").trim();
+  const text = String(input.body_markdown || input.body || "").trim();
+  if (!title) return fail("create_doc needs a title — nothing was created.");
+  const auth = await googleAccess(admin, userId, agentId);
+  if ("ok" in auth) return auth;
+  const h = { Authorization: `Bearer ${auth.access}`, "Content-Type": "application/json" };
+  const cr = await fetch("https://docs.googleapis.com/v1/documents", {
+    method: "POST", headers: h, body: JSON.stringify({ title }),
+  });
+  const cb = await gJson(cr);
+  const docId = (cb as { documentId?: string }).documentId;
+  if (!cr.ok || !docId) return fail(`Google Docs refused to create the doc: ${gErr(cb, cr)}.`);
+  if (text) {
+    const ur = await fetch(`https://docs.googleapis.com/v1/documents/${docId}:batchUpdate`, {
+      method: "POST", headers: h,
+      body: JSON.stringify({ requests: [{ insertText: { location: { index: 1 }, text } }] }),
+    });
+    if (!ur.ok) return fail(`Doc was created but the content failed to write: ${gErr(await gJson(ur), ur)}.`, docId);
+  }
+  const vr = await fetch(`https://docs.googleapis.com/v1/documents/${docId}`, { headers: h });
+  const vb = await gJson(vr);
+  if (!vr.ok || (vb as { documentId?: string }).documentId !== docId) {
+    return fail(`Doc creation could not be verified: ${gErr(vb, vr)}.`, docId);
+  }
+  const url = `https://docs.google.com/document/d/${docId}/edit`;
+  return { ok: true, summary: `Google Doc "${title}" was really created and verified by re-reading it.`, ref: docId, url, target: title };
+}
+
+async function googleEditDoc(
+  admin: SupabaseClient, userId: string, agentId: string, input: Record<string, unknown>,
+): Promise<WriteResult> {
+  const docId = String(input.doc_id || "").trim();
+  const text = String(input.body_markdown || input.body || "").trim();
+  const mode = String(input.mode || "append") === "replace" ? "replace" : "append";
+  if (!docId || !text) return fail("edit_doc needs doc_id and body_markdown — nothing was changed.");
+  const auth = await googleAccess(admin, userId, agentId);
+  if ("ok" in auth) return auth;
+  const h = { Authorization: `Bearer ${auth.access}`, "Content-Type": "application/json" };
+  const rr = await fetch(`https://docs.googleapis.com/v1/documents/${docId}`, { headers: h });
+  const rb = await gJson(rr);
+  if (!rr.ok) return fail(`Could not open that Google Doc: ${gErr(rb, rr)}.`, docId);
+  const content = ((rb as { body?: { content?: { endIndex?: number }[] } }).body?.content || []);
+  const endIndex = Math.max(1, (content[content.length - 1]?.endIndex ?? 2) - 1);
+  const requests: unknown[] = [];
+  if (mode === "replace" && endIndex > 1) {
+    requests.push({ deleteContentRange: { range: { startIndex: 1, endIndex } } });
+    requests.push({ insertText: { location: { index: 1 }, text } });
+  } else {
+    requests.push({ insertText: { location: { index: endIndex }, text: `\n${text}` } });
+  }
+  const ur = await fetch(`https://docs.googleapis.com/v1/documents/${docId}:batchUpdate`, {
+    method: "POST", headers: h, body: JSON.stringify({ requests }),
+  });
+  if (!ur.ok) return fail(`The doc edit failed: ${gErr(await gJson(ur), ur)}.`, docId);
+  const vr = await fetch(`https://docs.googleapis.com/v1/documents/${docId}`, { headers: h });
+  const vb = await gJson(vr);
+  const flat = JSON.stringify(vb).replace(/\\n/g, " ");
+  const probe = text.slice(0, 40).replace(/["\\]/g, "");
+  if (!vr.ok || (probe && !flat.includes(probe))) {
+    return fail(`The edit could not be verified in the doc after saving${vr.ok ? "" : `: ${gErr(vb, vr)}`}.`, docId);
+  }
+  return {
+    ok: true,
+    summary: `Google Doc ${docId} was really edited (${mode}) and verified by re-reading its contents.`,
+    ref: docId, url: `https://docs.google.com/document/d/${docId}/edit`, target: docId,
+  };
+}
+
+async function googleCreateSheet(
+  admin: SupabaseClient, userId: string, agentId: string, input: Record<string, unknown>,
+): Promise<WriteResult> {
+  const title = String(input.title || "").trim();
+  const rows = Array.isArray(input.rows) ? (input.rows as unknown[][]) : [];
+  if (!title) return fail("create_sheet needs a title — nothing was created.");
+  const auth = await googleAccess(admin, userId, agentId);
+  if ("ok" in auth) return auth;
+  const h = { Authorization: `Bearer ${auth.access}`, "Content-Type": "application/json" };
+  const cr = await fetch("https://sheets.googleapis.com/v4/spreadsheets", {
+    method: "POST", headers: h, body: JSON.stringify({ properties: { title } }),
+  });
+  const cb = await gJson(cr);
+  const sheetId = (cb as { spreadsheetId?: string }).spreadsheetId;
+  if (!cr.ok || !sheetId) return fail(`Google Sheets refused to create the sheet: ${gErr(cb, cr)}.`);
+  if (rows.length) {
+    const ur = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/A1?valueInputOption=RAW`,
+      { method: "PUT", headers: h, body: JSON.stringify({ values: rows }) },
+    );
+    if (!ur.ok) return fail(`Sheet was created but the rows failed to write: ${gErr(await gJson(ur), ur)}.`, sheetId);
+  }
+  const vr = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}`, { headers: h });
+  const vb = await gJson(vr);
+  if (!vr.ok || (vb as { spreadsheetId?: string }).spreadsheetId !== sheetId) {
+    return fail(`Sheet creation could not be verified: ${gErr(vb, vr)}.`, sheetId);
+  }
+  return {
+    ok: true,
+    summary: `Google Sheet "${title}" was really created with ${rows.length} row(s) and verified by re-reading it.`,
+    ref: sheetId, url: `https://docs.google.com/spreadsheets/d/${sheetId}/edit`, target: title,
+  };
+}
+
+async function googleEditSheet(
+  admin: SupabaseClient, userId: string, agentId: string, input: Record<string, unknown>,
+): Promise<WriteResult> {
+  const sheetId = String(input.sheet_id || "").trim();
+  const range = String(input.range || "").trim();
+  const values = Array.isArray(input.values) ? (input.values as unknown[][]) : [];
+  if (!sheetId || !range || !values.length) return fail("edit_sheet needs sheet_id, range and values — nothing was changed.");
+  const auth = await googleAccess(admin, userId, agentId);
+  if ("ok" in auth) return auth;
+  const h = { Authorization: `Bearer ${auth.access}`, "Content-Type": "application/json" };
+  const ur = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(range)}?valueInputOption=RAW`,
+    { method: "PUT", headers: h, body: JSON.stringify({ values }) },
+  );
+  if (!ur.ok) return fail(`The sheet update failed: ${gErr(await gJson(ur), ur)}.`, sheetId, range);
+  const vr = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(range)}`,
+    { headers: h },
+  );
+  const vb = await gJson(vr);
+  const got = (vb as { values?: unknown[][] }).values || [];
+  if (!vr.ok || !got.length) return fail(`The update could not be verified when re-reading ${range}: ${gErr(vb, vr)}.`, sheetId, range);
+  return {
+    ok: true,
+    summary: `Range ${range} in sheet ${sheetId} was really updated and verified by re-reading ${got.length} row(s).`,
+    ref: sheetId, url: `https://docs.google.com/spreadsheets/d/${sheetId}/edit`, target: range,
+  };
+}
+
+async function googleCreateCalendarEvent(
+  admin: SupabaseClient, userId: string, agentId: string, input: Record<string, unknown>,
+): Promise<WriteResult> {
+  const title = String(input.title || input.summary || "").trim();
+  const startIso = String(input.start_iso || "").trim();
+  const endIso = String(input.end_iso || "").trim();
+  if (!title || Number.isNaN(Date.parse(startIso)) || Number.isNaN(Date.parse(endIso))) {
+    return fail("create_calendar_event needs a title and valid ISO start/end times — nothing was created.");
+  }
+  const auth = await googleAccess(admin, userId, agentId);
+  if ("ok" in auth) return auth;
+  const h = { Authorization: `Bearer ${auth.access}`, "Content-Type": "application/json" };
+  const cr = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
+    method: "POST", headers: h,
+    body: JSON.stringify({
+      summary: title,
+      description: String(input.description || ""),
+      start: { dateTime: new Date(startIso).toISOString() },
+      end: { dateTime: new Date(endIso).toISOString() },
+    }),
+  });
+  const cb = await gJson(cr);
+  const eventId = (cb as { id?: string }).id;
+  if (!cr.ok || !eventId) return fail(`Google Calendar refused to create the event: ${gErr(cb, cr)}.`);
+  const vr = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`,
+    { headers: h },
+  );
+  const vb = await gJson(vr);
+  const status = String((vb as { status?: string }).status || "");
+  if (!vr.ok || !(vb as { id?: string }).id || status === "cancelled") {
+    return fail(`The event could not be verified on the calendar${status === "cancelled" ? " (it is cancelled)" : `: ${gErr(vb, vr)}`}.`, eventId, title);
+  }
+  return {
+    ok: true,
+    summary: `Calendar event "${title}" was really created and verified by re-reading it (status ${status || "confirmed"}).`,
+    ref: eventId, url: (vb as { htmlLink?: string }).htmlLink || null, target: title,
+  };
+}
+
 export const PROVIDER_WRITE_KINDS = new Set([
+  "send_email",
+  "create_doc",
+  "edit_doc",
+  "create_sheet",
+  "edit_sheet",
+  "create_calendar_event",
+
   "slack_post_message",
   "notion_create_page",
   "notion_update_page",
@@ -717,6 +953,12 @@ export async function runProviderWrite(
     case "shopify_update_product": return await shopifyUpdateProduct(admin, userId, agentId, input);
     case "figma_post_comment": return await figmaPostComment(admin, userId, agentId, input);
     case "figma_create_dev_resource": return await figmaCreateDevResource(admin, userId, agentId, input);
+    case "send_email": return await googleSendEmail(admin, userId, agentId, input);
+    case "create_doc": return await googleCreateDoc(admin, userId, agentId, input);
+    case "edit_doc": return await googleEditDoc(admin, userId, agentId, input);
+    case "create_sheet": return await googleCreateSheet(admin, userId, agentId, input);
+    case "edit_sheet": return await googleEditSheet(admin, userId, agentId, input);
+    case "create_calendar_event": return await googleCreateCalendarEvent(admin, userId, agentId, input);
     default: return fail(`Unknown provider write "${kind}".`);
   }
 }
