@@ -128,6 +128,27 @@ serve(async (req) => {
       if (Number.isFinite(t)) baseThreshold = Math.max(0, Math.min(100, Math.round(t)));
     }
 
+    // Business context for the FIT check — latest profile for this user.
+    const { data: profile } = await supabase
+      .from("business_profiles")
+      .select("company_name, one_liner, industry, tone, audience, offers, channels, inferred_kpis")
+      .eq("user_id", userId)
+      .order("version", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const profileBlock = profile
+      ? [
+          `company: ${(profile as Record<string, unknown>).company_name ?? "unknown"}`,
+          `what they do: ${(profile as Record<string, unknown>).one_liner ?? "unknown"}`,
+          `industry: ${(profile as Record<string, unknown>).industry ?? "unknown"}`,
+          `audience: ${(profile as Record<string, unknown>).audience ?? "unknown"}`,
+          `tone: ${(profile as Record<string, unknown>).tone ?? "unknown"}`,
+          `offers: ${JSON.stringify((profile as Record<string, unknown>).offers ?? []).slice(0, 800)}`,
+          `channels: ${JSON.stringify((profile as Record<string, unknown>).channels ?? []).slice(0, 500)}`,
+          `priorities/KPIs: ${JSON.stringify((profile as Record<string, unknown>).inferred_kpis ?? []).slice(0, 800)}`,
+        ].join("\n")
+      : "(no business profile on file — treat fit as 'unclear' unless the action is obviously generic and harmless)";
+
     const res = await fetch(LOVABLE_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
@@ -141,14 +162,20 @@ serve(async (req) => {
             role: "system",
             content:
               "You are the Control Engine. You review ONE proposed AI action before it runs.\n" +
-              "Do two checks, honestly — never assume an action is safe:\n" +
+              "Do three checks, honestly — never assume an action is safe or useful:\n" +
               "1) INTENT: does the action_type + params actually accomplish the stated description? " +
               "matches / partial / mismatch.\n" +
               "2) RISK: low / medium / high. High = irreversible, external-facing, or mass-audience " +
               "(e.g. emailing all customers, posting publicly, deleting data).\n" +
+              "3) FIT: given the BUSINESS PROFILE below, does this action genuinely serve the org's " +
+              "CURRENT priorities and constraints? fits / unclear / not_a_fit. Not_a_fit means it's " +
+              "technically safe but a distraction, off-audience, off-channel, or premature for where " +
+              "this business is right now. If not_a_fit, fill in why_not_now, what_would_change_it, " +
+              "improvement_steps (concrete), and reconsider_when — otherwise leave those empty.\n" +
               "Give a confidence score 0-100 for your own assessment, plain-language reasoning, " +
               "and a safer narrowed 'modification' if the action should be tightened before running.\n" +
-              "Always call the check_action tool.",
+              "Always call the check_action tool.\n\n" +
+              `BUSINESS PROFILE:\n${profileBlock}`,
           },
           {
             role: "user",
@@ -161,6 +188,7 @@ serve(async (req) => {
         ],
       }),
     });
+
 
     if (res.status === 429) return json({ error: "rate_limited", message: "Too many requests right now — try again in a moment." }, 429);
     if (res.status === 402) return json({ error: "payment_required", message: "AI credits are exhausted. Add credits to continue." }, 402);
