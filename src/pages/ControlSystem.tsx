@@ -20,6 +20,7 @@ export default function ControlSystem() {
   const navigate = useNavigate();
   const [turns, setTurns] = useState<Turn[]>([]);
   const [streaming, setStreaming] = useState(false);
+  const [dryRun, setDryRun] = useState(false);
 
   const handleSend = async (text: string) => {
     const history = turns
