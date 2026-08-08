@@ -158,6 +158,72 @@ serve(async (req) => {
     if (!actionType) return json({ error: "action_type required" }, 400);
     if (!description) return json({ error: "description required" }, 400);
 
+    // ---- HARD RULES ---------------------------------------------------------
+    // Deterministic, user-authored rules. Evaluated BEFORE any LLM call: if a
+    // rule matches, its effect is applied immediately and the model is never
+    // consulted. Logged as rule-enforced (source: hard_rule), not model-judged.
+    const globToRe = (p: string) =>
+      new RegExp("^" + p.trim().split("*").map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*") + "$", "i");
+    const { data: hardRules } = await supabase
+      .from("hard_rules")
+      .select("id, rule_text, action_type_pattern, effect, provider, enabled")
+      .eq("user_id", userId)
+      .eq("enabled", true);
+
+    type HardRule = {
+      id: string; rule_text: string; action_type_pattern: string;
+      effect: "always_block" | "always_require_approval"; provider: string | null;
+    };
+    const matched = ((hardRules ?? []) as HardRule[]).find((r) => {
+      if (r.provider && r.provider.toLowerCase() !== provider.toLowerCase()) return false;
+      try { return globToRe(r.action_type_pattern || "*").test(actionType); } catch { return false; }
+    });
+
+    if (matched) {
+      const blocking = matched.effect === "always_block";
+      const reason = blocking
+        ? `Blocked by your hard rule: "${matched.rule_text}". This was enforced by your rule, not judged by the model.`
+        : `Your hard rule requires approval first: "${matched.rule_text}". Nothing ran — approve it explicitly to proceed.`;
+      const { data: logged } = await supabase.from("agent_decisions").insert({
+        user_id: userId,
+        agent_id: agentId,
+        agent_run_id: runId,
+        step_index: stepIndex ?? null,
+        decision: blocking ? "block" : "modify",
+        reasoning: reason,
+        alternatives_considered: [],
+        confidence_score: 100,
+        source: "hard_rule",
+        escalated: !blocking,
+      }).select("id").maybeSingle();
+
+      return json({
+        decision_id: (logged as { id?: string } | null)?.id ?? null,
+        decision: blocking ? "block" : "modify",
+        reason,
+        reasoning: reason,
+        confidence_score: 100,
+        confidence_label: "certain",
+        threshold: 100,
+        escalated: !blocking,
+        action_type: actionType,
+        provider,
+        risk_tier: "high",
+        intent_match: "n/a",
+        fit_assessment: "n/a",
+        alternatives: [],
+        deferred: null,
+        rule_enforced: true,
+        hard_rule: { id: matched.id, rule_text: matched.rule_text, effect: matched.effect },
+        model_judged: false,
+        executed: false,
+        execution: null,
+        execution_note: "No model scoring ran — a hard rule decided this outright.",
+      });
+    }
+    // -------------------------------------------------------------------------
+
+
     // Per-agent threshold, same as agent-runtime.
     let baseThreshold = DEFAULT_CONFIDENCE_THRESHOLD;
     if (agentId) {

@@ -804,6 +804,42 @@ export type Database = {
         }
         Relationships: []
       }
+      hard_rules: {
+        Row: {
+          action_type_pattern: string
+          created_at: string
+          effect: string
+          enabled: boolean
+          id: string
+          provider: string | null
+          rule_text: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          action_type_pattern?: string
+          created_at?: string
+          effect?: string
+          enabled?: boolean
+          id?: string
+          provider?: string | null
+          rule_text: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          action_type_pattern?: string
+          created_at?: string
+          effect?: string
+          enabled?: boolean
+          id?: string
+          provider?: string | null
+          rule_text?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       integration_issues: {
         Row: {
           agent_id: string | null
