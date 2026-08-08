@@ -66,7 +66,10 @@ export default function ControlSystem() {
         </button>
       </header>
 
+      <KillSwitchPanel />
+
       <div className="flex-1 min-h-0">
+
         <LiveAgentChat
           agentId="control-system"
           name="AI Control System"
