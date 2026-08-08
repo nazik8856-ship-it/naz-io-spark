@@ -30,7 +30,7 @@ export default function ControlSystem() {
     setStreaming(true);
     try {
       const { data, error } = await supabase.functions.invoke("control-system-decide", {
-        body: { message: text, history },
+        body: { message: text, history, dry_run: dryRun },
       });
       if (error) throw error;
       const d = data as ControlDecision & { error?: string; message?: string; mode?: string; reply?: string };
