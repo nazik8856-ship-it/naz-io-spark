@@ -40,8 +40,21 @@ export default function KillSwitchPanel() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // Owner-only gate: verified against the user_roles table (RLS-protected),
+  // and enforced again at the database level by the kill-switch trigger.
   useEffect(() => {
-    if (!revealed || !user) return;
+    if (!user) { setIsOwner(false); return; }
+    supabase
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", user.id)
+      .eq("role", "owner")
+      .maybeSingle()
+      .then(({ data }) => setIsOwner(Boolean(data)));
+  }, [user]);
+
+  useEffect(() => {
+    if (!revealed || !user || !isOwner) return;
     supabase
       .from("profiles")
       .select("kill_switch")
