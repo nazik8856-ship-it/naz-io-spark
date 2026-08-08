@@ -106,6 +106,61 @@ serve(async (req) => {
     const userId = userData?.user?.id;
     if (!userId) return json({ error: "Not authenticated" }, 401);
 
+    // ---- GET /control-engine/decisions/:id ----------------------------------
+    // Standalone, auditable record of one decision: reasoning, scores,
+    // provenance, and any real execution outcome recorded against it.
+    const url = new URL(req.url);
+    const auditMatch = url.pathname.match(/\/decisions\/([0-9a-fA-F-]{36})\/?$/);
+    if (req.method === "GET" && auditMatch) {
+      const decisionId = auditMatch[1];
+      const { data: decision, error: dErr } = await supabase
+        .from("agent_decisions")
+        .select("*")
+        .eq("id", decisionId)
+        .maybeSingle();
+      if (dErr) return json({ error: dErr.message }, 500);
+      if (!decision) return json({ error: "Decision not found" }, 404);
+      if ((decision as { user_id?: string }).user_id !== userId) {
+        return json({ error: "Not authorized for this decision" }, 403);
+      }
+
+      const [{ data: outcomes }, { data: overrides }] = await Promise.all([
+        supabase.from("decision_outcomes").select("*").eq("decision_id", decisionId)
+          .order("created_at", { ascending: false }),
+        supabase.from("agent_decisions").select("id, decision, reasoning, source, created_at")
+          .eq("override_of", decisionId).order("created_at", { ascending: true }),
+      ]);
+
+      const d = decision as Record<string, unknown>;
+      return json({
+        record_type: "control_decision",
+        immutable: true,
+        id: d.id,
+        created_at: d.created_at,
+        decision: d.decision,
+        reasoning: d.reasoning,
+        confidence_score: d.confidence_score,
+        alternatives_considered: d.alternatives_considered,
+        escalated: d.escalated,
+        human_response: d.human_response,
+        source: d.source,
+        rule_enforced: d.source === "hard_rule",
+        model_judged: d.source === "model",
+        kill_switch: d.source === "kill_switch",
+        agent_id: d.agent_id,
+        agent_run_id: d.agent_run_id,
+        step_index: d.step_index,
+        override_of: d.override_of,
+        overridden_by: overrides ?? [],
+        execution_outcomes: outcomes ?? [],
+      });
+    }
+    // -------------------------------------------------------------------------
+
+    if (req.method === "GET") return json({ error: "Unsupported GET path" }, 404);
+
+
+
     const body = await req.json().catch(() => ({}));
     const actionType = String(body?.action_type || "").trim();
     const provider = String(body?.provider || "unknown").trim() || "unknown";
