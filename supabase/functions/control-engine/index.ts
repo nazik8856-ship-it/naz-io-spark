@@ -533,6 +533,7 @@ serve(async (req) => {
       alternatives,
       deferred,
       executed,
+      dry_run: dryRun,
       execution,
       execution_note: executionNote,
     });
