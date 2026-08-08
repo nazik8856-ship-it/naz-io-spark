@@ -22,6 +22,7 @@ export type ControlDecision = {
     reconsider_when: string;
   } | null;
   executed?: boolean;
+  dry_run?: boolean;
   execution?: {
     ok: boolean;
     summary: string;
