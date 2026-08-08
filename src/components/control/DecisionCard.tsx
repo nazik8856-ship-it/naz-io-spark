@@ -98,13 +98,18 @@ export default function DecisionCard({ d }: { d: ControlDecision }) {
         <div
           className="rounded-lg border p-3 space-y-1.5 text-xs"
           style={{
-            borderColor: d.executed ? "#22c55e55" : "#ffffff1a",
-            backgroundColor: d.executed ? "#22c55e0d" : "#ffffff08",
+            borderColor: d.dry_run ? "#f59e0b55" : d.executed ? "#22c55e55" : "#ffffff1a",
+            backgroundColor: d.dry_run ? "#f59e0b0d" : d.executed ? "#22c55e0d" : "#ffffff08",
           }}
         >
-          <div className="flex items-center gap-1.5 font-semibold" style={{ color: d.executed ? "#22c55e" : "#a1a1aa" }}>
-            {d.executed ? <Zap className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
-            {d.executed ? "Action carried out" : "Not carried out — assessment only"}
+          <div
+            className="flex items-center gap-1.5 font-semibold"
+            style={{ color: d.dry_run ? "#f59e0b" : d.executed ? "#22c55e" : "#a1a1aa" }}
+          >
+            {d.executed && !d.dry_run ? <Zap className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
+            {d.dry_run
+              ? "Dry run — nothing was carried out"
+              : d.executed ? "Action carried out" : "Not carried out — assessment only"}
           </div>
           {d.execution?.summary && <p className="text-zinc-300 leading-relaxed">{d.execution.summary}</p>}
           {d.execution_note && <p className="text-zinc-400 leading-relaxed">{d.execution_note}</p>}
