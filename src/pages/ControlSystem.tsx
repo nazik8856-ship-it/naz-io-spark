@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import LiveAgentChat from "@/components/agents/LiveAgentChat";
 import DecisionCard, { type ControlDecision } from "@/components/control/DecisionCard";
+import KillSwitchPanel from "@/components/control/KillSwitchPanel";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 
@@ -66,7 +67,10 @@ export default function ControlSystem() {
         </button>
       </header>
 
+      <KillSwitchPanel />
+
       <div className="flex-1 min-h-0">
+
         <LiveAgentChat
           agentId="control-system"
           name="AI Control System"

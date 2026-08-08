@@ -1,0 +1,1 @@
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS kill_switch boolean NOT NULL DEFAULT false;

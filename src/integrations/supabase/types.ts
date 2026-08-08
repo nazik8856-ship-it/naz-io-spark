@@ -1016,6 +1016,7 @@ export type Database = {
           credits: number
           display_name: string | null
           id: string
+          kill_switch: boolean
           updated_at: string
           user_context: Json
         }
@@ -1024,6 +1025,7 @@ export type Database = {
           credits?: number
           display_name?: string | null
           id: string
+          kill_switch?: boolean
           updated_at?: string
           user_context?: Json
         }
@@ -1032,6 +1034,7 @@ export type Database = {
           credits?: number
           display_name?: string | null
           id?: string
+          kill_switch?: boolean
           updated_at?: string
           user_context?: Json
         }

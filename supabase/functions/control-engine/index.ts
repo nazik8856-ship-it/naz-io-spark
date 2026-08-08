@@ -110,6 +110,46 @@ serve(async (req) => {
     const actionType = String(body?.action_type || "").trim();
     const provider = String(body?.provider || "unknown").trim() || "unknown";
     const description = String(body?.description || "").trim();
+
+    // ---- GLOBAL KILL SWITCH -------------------------------------------------
+    // Hard stop BEFORE any LLM call, scoring or execution.
+    const { data: killRow } = await supabase
+      .from("profiles").select("kill_switch").eq("id", userId).maybeSingle();
+    if ((killRow as { kill_switch?: boolean } | null)?.kill_switch) {
+      const reason = "Blocked — kill switch active. All AI actions are halted for this account.";
+      await supabase.from("agent_decisions").insert({
+        user_id: userId,
+        agent_id: body?.agentId ? String(body.agentId) : null,
+        decision: "block",
+        reasoning: reason,
+        alternatives_considered: [],
+        confidence_score: 100,
+        source: "kill_switch",
+        escalated: false,
+      });
+      return json({
+        decision_id: null,
+        decision: "block",
+        reason,
+        reasoning: reason,
+        confidence_score: 100,
+        confidence_label: "certain",
+        threshold: 100,
+        escalated: false,
+        action_type: actionType || "unknown",
+        provider,
+        risk_tier: "high",
+        intent_match: "n/a",
+        fit_assessment: "n/a",
+        alternatives: [],
+        deferred: null,
+        kill_switch: true,
+        executed: false,
+        execution: null,
+        execution_note: "Nothing was assessed or run — the kill switch is on.",
+      });
+    }
+    // -------------------------------------------------------------------------
     const params = body?.params ?? {};
     const agentId: string | null = body?.agentId ? String(body.agentId) : null;
     const runId: string | null = body?.runId ? String(body.runId) : null;
