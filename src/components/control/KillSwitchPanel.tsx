@@ -17,6 +17,7 @@ const REVEAL_KEY = "nazai_ks_reveal";
 export default function KillSwitchPanel() {
   const { user } = useAuth();
   const [revealed, setRevealed] = useState(false);
+  const [isOwner, setIsOwner] = useState(false);
   const [on, setOn] = useState(false);
   const [busy, setBusy] = useState(false);
   const buffer = useRef("");
@@ -64,7 +65,7 @@ export default function KillSwitchPanel() {
   }, [revealed, user]);
 
   const toggle = useCallback(async () => {
-    if (!user || busy) return;
+    if (!user || busy || !isOwner) return;
     const next = !on;
     setBusy(true);
     try {
@@ -91,9 +92,9 @@ export default function KillSwitchPanel() {
     } finally {
       setBusy(false);
     }
-  }, [busy, on, user]);
+  }, [busy, on, user, isOwner]);
 
-  if (!revealed || !user) return null;
+  if (!revealed || !user || !isOwner) return null;
 
   return (
     <div
