@@ -72,6 +72,7 @@ export default function ControlSystem() {
 
       <KillSwitchPanel />
       <HardRulesPanel />
+      <DryRunToggle on={dryRun} onChange={setDryRun} />
 
       <div className="flex-1 min-h-0">
 
