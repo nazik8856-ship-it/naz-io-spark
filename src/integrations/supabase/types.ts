@@ -599,6 +599,72 @@ export type Database = {
         }
         Relationships: []
       }
+      confidence_calibration: {
+        Row: {
+          bucket_label: string
+          bucket_max: number
+          bucket_min: number
+          calibration_gap: number | null
+          created_at: string
+          decision_count: number
+          expected_rate: number | null
+          failure_count: number
+          id: string
+          miscalibrated: boolean
+          neutral_count: number
+          note: string | null
+          period_end: string
+          period_start: string
+          severity: string
+          success_count: number
+          success_rate: number | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          bucket_label: string
+          bucket_max: number
+          bucket_min: number
+          calibration_gap?: number | null
+          created_at?: string
+          decision_count?: number
+          expected_rate?: number | null
+          failure_count?: number
+          id?: string
+          miscalibrated?: boolean
+          neutral_count?: number
+          note?: string | null
+          period_end: string
+          period_start: string
+          severity?: string
+          success_count?: number
+          success_rate?: number | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          bucket_label?: string
+          bucket_max?: number
+          bucket_min?: number
+          calibration_gap?: number | null
+          created_at?: string
+          decision_count?: number
+          expected_rate?: number | null
+          failure_count?: number
+          id?: string
+          miscalibrated?: boolean
+          neutral_count?: number
+          note?: string | null
+          period_end?: string
+          period_start?: string
+          severity?: string
+          success_count?: number
+          success_rate?: number | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       credit_transactions: {
         Row: {
           amount: number
