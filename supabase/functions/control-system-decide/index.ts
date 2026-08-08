@@ -80,6 +80,7 @@ serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const message = String(body?.message || "").trim();
     const agentId: string | null = body?.agentId ? String(body.agentId) : null;
+    const dryRun = body?.dry_run === true;
     if (!message) return json({ error: "message required" }, 400);
 
     // Recent decision history — lets the assistant explain past verdicts.
