@@ -5,6 +5,7 @@ import LiveAgentChat from "@/components/agents/LiveAgentChat";
 import DecisionCard, { type ControlDecision } from "@/components/control/DecisionCard";
 import KillSwitchPanel from "@/components/control/KillSwitchPanel";
 import HardRulesPanel from "@/components/control/HardRulesPanel";
+import DryRunToggle from "@/components/control/DryRunToggle";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 
@@ -19,6 +20,7 @@ export default function ControlSystem() {
   const navigate = useNavigate();
   const [turns, setTurns] = useState<Turn[]>([]);
   const [streaming, setStreaming] = useState(false);
+  const [dryRun, setDryRun] = useState(false);
 
   const handleSend = async (text: string) => {
     const history = turns
@@ -28,7 +30,7 @@ export default function ControlSystem() {
     setStreaming(true);
     try {
       const { data, error } = await supabase.functions.invoke("control-system-decide", {
-        body: { message: text, history },
+        body: { message: text, history, dry_run: dryRun },
       });
       if (error) throw error;
       const d = data as ControlDecision & { error?: string; message?: string; mode?: string; reply?: string };
@@ -70,6 +72,7 @@ export default function ControlSystem() {
 
       <KillSwitchPanel />
       <HardRulesPanel />
+      <DryRunToggle on={dryRun} onChange={setDryRun} />
 
       <div className="flex-1 min-h-0">
 

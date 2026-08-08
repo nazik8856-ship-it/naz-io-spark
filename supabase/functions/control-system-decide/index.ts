@@ -80,6 +80,7 @@ serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const message = String(body?.message || "").trim();
     const agentId: string | null = body?.agentId ? String(body.agentId) : null;
+    const dryRun = body?.dry_run === true;
     if (!message) return json({ error: "message required" }, 400);
 
     // Recent decision history — lets the assistant explain past verdicts.
@@ -167,7 +168,7 @@ serve(async (req) => {
         Authorization: `Bearer ${token}`,
         apikey: Deno.env.get("SUPABASE_ANON_KEY") || "",
       },
-      body: JSON.stringify({ action_type: actionType, provider, description, params, agentId }),
+      body: JSON.stringify({ action_type: actionType, provider, description, params, agentId, dry_run: dryRun }),
     });
     const engine = await engineRes.json().catch(() => ({}));
     if (!engineRes.ok || engine?.error) {

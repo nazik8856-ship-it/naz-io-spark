@@ -206,6 +206,8 @@ serve(async (req) => {
     }
     // -------------------------------------------------------------------------
     const params = body?.params ?? {};
+    // Dry run: full intent/risk/fit scoring, but never touch a real provider.
+    const dryRun = body?.dry_run === true || body?.dry_run === "true";
     const agentId: string | null = body?.agentId ? String(body.agentId) : null;
     const runId: string | null = body?.runId ? String(body.runId) : null;
     const stepIndex = Number.isFinite(Number(body?.stepIndex)) ? Number(body.stepIndex) : undefined;
@@ -430,7 +432,11 @@ serve(async (req) => {
     let execution: Record<string, unknown> | null = null;
     let executionNote: string | null = null;
 
-    if (decision === "allow") {
+    if (dryRun) {
+      executed = false;
+      execution = null;
+      executionNote = "dry run — not carried out";
+    } else if (decision === "allow") {
       const cap = CAPABILITY_REGISTRY[actionType];
       const { data: conns } = await supabase
         .from("agent_integrations")
@@ -527,6 +533,7 @@ serve(async (req) => {
       alternatives,
       deferred,
       executed,
+      dry_run: dryRun,
       execution,
       execution_note: executionNote,
     });
