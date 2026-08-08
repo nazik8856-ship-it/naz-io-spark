@@ -4,6 +4,7 @@ import { ArrowLeft } from "lucide-react";
 import LiveAgentChat from "@/components/agents/LiveAgentChat";
 import DecisionCard, { type ControlDecision } from "@/components/control/DecisionCard";
 import KillSwitchPanel from "@/components/control/KillSwitchPanel";
+import HardRulesPanel from "@/components/control/HardRulesPanel";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 
@@ -68,6 +69,7 @@ export default function ControlSystem() {
       </header>
 
       <KillSwitchPanel />
+      <HardRulesPanel />
 
       <div className="flex-1 min-h-0">
 
