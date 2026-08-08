@@ -432,7 +432,11 @@ serve(async (req) => {
     let execution: Record<string, unknown> | null = null;
     let executionNote: string | null = null;
 
-    if (decision === "allow") {
+    if (dryRun) {
+      executed = false;
+      execution = null;
+      executionNote = "dry run — not carried out";
+    } else if (decision === "allow") {
       const cap = CAPABILITY_REGISTRY[actionType];
       const { data: conns } = await supabase
         .from("agent_integrations")
