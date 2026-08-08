@@ -168,7 +168,7 @@ serve(async (req) => {
         Authorization: `Bearer ${token}`,
         apikey: Deno.env.get("SUPABASE_ANON_KEY") || "",
       },
-      body: JSON.stringify({ action_type: actionType, provider, description, params, agentId }),
+      body: JSON.stringify({ action_type: actionType, provider, description, params, agentId, dry_run: dryRun }),
     });
     const engine = await engineRes.json().catch(() => ({}));
     if (!engineRes.ok || engine?.error) {
