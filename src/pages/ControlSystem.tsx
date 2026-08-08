@@ -5,6 +5,7 @@ import LiveAgentChat from "@/components/agents/LiveAgentChat";
 import DecisionCard, { type ControlDecision } from "@/components/control/DecisionCard";
 import KillSwitchPanel from "@/components/control/KillSwitchPanel";
 import HardRulesPanel from "@/components/control/HardRulesPanel";
+import DryRunToggle from "@/components/control/DryRunToggle";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 
