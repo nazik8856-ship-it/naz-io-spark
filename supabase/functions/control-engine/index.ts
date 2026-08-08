@@ -206,6 +206,8 @@ serve(async (req) => {
     }
     // -------------------------------------------------------------------------
     const params = body?.params ?? {};
+    // Dry run: full intent/risk/fit scoring, but never touch a real provider.
+    const dryRun = body?.dry_run === true || body?.dry_run === "true";
     const agentId: string | null = body?.agentId ? String(body.agentId) : null;
     const runId: string | null = body?.runId ? String(body.runId) : null;
     const stepIndex = Number.isFinite(Number(body?.stepIndex)) ? Number(body.stepIndex) : undefined;
