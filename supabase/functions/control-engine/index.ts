@@ -280,6 +280,121 @@ serve(async (req) => {
     }
     // -------------------------------------------------------------------------
 
+    // ---- CIRCUIT BREAKER (per action_type, automatic) -----------------------
+    // Tracks the last 10 attempts for this action_type. If more than half of
+    // them failed (blocked or errored), the breaker trips and every further
+    // attempt of that action_type is auto-blocked until manually reset.
+    // Separate from the kill switch: automatic, and scoped to one action_type.
+    const BREAKER_WINDOW = 10;
+    const BREAKER_MIN_ATTEMPTS = 4;
+    const BREAKER_FAIL_RATE = 0.5;
+
+    type Breaker = {
+      id: string; recent_outcomes: string[]; tripped: boolean;
+      trip_count: number; tripped_at: string | null; failure_rate: number; last_reason: string | null;
+    };
+    const { data: breakerRow } = await supabase
+      .from("circuit_breakers")
+      .select("id, recent_outcomes, tripped, trip_count, tripped_at, failure_rate, last_reason")
+      .eq("user_id", userId)
+      .eq("action_type", actionType)
+      .maybeSingle();
+    const breaker = (breakerRow as Breaker | null) ?? null;
+
+    if (breaker?.tripped) {
+      const reason =
+        `Blocked — the circuit breaker for "${actionType}" is tripped. ` +
+        `${Math.round((breaker.failure_rate ?? 0) * 100)}% of the last ${BREAKER_WINDOW} attempts failed or were blocked, ` +
+        `so this action type is paused until you reset it.`;
+      const { data: logged } = await supabase.from("agent_decisions").insert({
+        user_id: userId,
+        agent_id: agentId,
+        agent_run_id: runId,
+        step_index: stepIndex ?? null,
+        decision: `BLOCK ${actionType} (${provider})`,
+        reasoning: reason,
+        alternatives_considered: [],
+        confidence_score: 100,
+        source: "circuit_breaker",
+        escalated: false,
+      }).select("id").maybeSingle();
+
+      return json({
+        decision_id: (logged as { id?: string } | null)?.id ?? null,
+        decision: "block",
+        reason,
+        reasoning: reason,
+        confidence_score: 100,
+        confidence_label: "certain",
+        threshold: 100,
+        escalated: false,
+        action_type: actionType,
+        provider,
+        risk_tier: "high",
+        intent_match: "n/a",
+        fit_assessment: "n/a",
+        alternatives: [],
+        deferred: null,
+        circuit_breaker: {
+          tripped: true,
+          action_type: actionType,
+          failure_rate: breaker.failure_rate,
+          tripped_at: breaker.tripped_at,
+          trip_count: breaker.trip_count,
+          reset_hint: "Reset it in the Control System breaker panel to allow this action type again.",
+        },
+        model_judged: false,
+        executed: false,
+        execution: null,
+        execution_note: "No model scoring or execution ran — the circuit breaker for this action type is open.",
+      });
+    }
+
+    // Records this attempt into the rolling window and trips if needed.
+    const recordBreakerAttempt = async (failed: boolean, why: string) => {
+      try {
+        const window = [...(breaker?.recent_outcomes ?? []), failed ? "fail" : "ok"].slice(-BREAKER_WINDOW);
+        const failures = window.filter((o) => o === "fail").length;
+        const rate = window.length ? failures / window.length : 0;
+        const shouldTrip = window.length >= BREAKER_MIN_ATTEMPTS && rate > BREAKER_FAIL_RATE;
+        const payload = {
+          user_id: userId,
+          action_type: actionType,
+          recent_outcomes: window,
+          attempts: window.length,
+          failures,
+          failure_rate: Number(rate.toFixed(3)),
+          tripped: shouldTrip,
+          tripped_at: shouldTrip ? new Date().toISOString() : null,
+          trip_count: (breaker?.trip_count ?? 0) + (shouldTrip ? 1 : 0),
+          last_reason: failed ? why.slice(0, 400) : null,
+          last_attempt_at: new Date().toISOString(),
+        };
+        await supabase.from("circuit_breakers").upsert(payload, { onConflict: "user_id,action_type" });
+
+        if (shouldTrip) {
+          const tripReason =
+            `Circuit breaker tripped for "${actionType}" — ${failures} of the last ${window.length} attempts ` +
+            `failed or were blocked (${Math.round(rate * 100)}%). This action type is now auto-blocked until reset. ` +
+            `Last failure: ${why.slice(0, 200)}`;
+          await supabase.from("agent_decisions").insert({
+            user_id: userId,
+            agent_id: agentId,
+            agent_run_id: runId,
+            decision: `CIRCUIT_BREAKER_TRIPPED ${actionType} (${provider})`,
+            reasoning: tripReason,
+            alternatives_considered: [],
+            confidence_score: 100,
+            source: "circuit_breaker_trip",
+            escalated: true,
+          });
+        }
+      } catch (_) { /* breaker bookkeeping must never break the response */ }
+    };
+    // -------------------------------------------------------------------------
+
+
+
 
     // Per-agent threshold, same as agent-runtime.
     let baseThreshold = DEFAULT_CONFIDENCE_THRESHOLD;
