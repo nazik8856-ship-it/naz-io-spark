@@ -599,6 +599,57 @@ export type Database = {
         }
         Relationships: []
       }
+      circuit_breakers: {
+        Row: {
+          action_type: string
+          attempts: number
+          created_at: string
+          failure_rate: number
+          failures: number
+          id: string
+          last_attempt_at: string
+          last_reason: string | null
+          recent_outcomes: string[]
+          trip_count: number
+          tripped: boolean
+          tripped_at: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          action_type: string
+          attempts?: number
+          created_at?: string
+          failure_rate?: number
+          failures?: number
+          id?: string
+          last_attempt_at?: string
+          last_reason?: string | null
+          recent_outcomes?: string[]
+          trip_count?: number
+          tripped?: boolean
+          tripped_at?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          action_type?: string
+          attempts?: number
+          created_at?: string
+          failure_rate?: number
+          failures?: number
+          id?: string
+          last_attempt_at?: string
+          last_reason?: string | null
+          recent_outcomes?: string[]
+          trip_count?: number
+          tripped?: boolean
+          tripped_at?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       confidence_calibration: {
         Row: {
           bucket_label: string
