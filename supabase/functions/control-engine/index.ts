@@ -178,7 +178,11 @@ serve(async (req) => {
       .from("profiles").select("kill_switch, kill_switch_source").eq("id", userId).maybeSingle();
     if ((killRow as { kill_switch?: boolean } | null)?.kill_switch || spendStatus.over_cap) {
 
-      const reason = "Blocked — kill switch active. All AI actions are halted for this account.";
+      const reason = spendStatus.over_cap
+        ? `Blocked — today's AI spend cap is used up ($${spendStatus.spent_usd.toFixed(2)} of ` +
+          `$${spendStatus.cap_usd.toFixed(2)} across ${spendStatus.calls} calls). ` +
+          `AI actions resume tomorrow, or when an owner raises the cap or turns the kill switch off.`
+        : "Blocked — kill switch active. All AI actions are halted for this account.";
       await supabase.from("agent_decisions").insert({
         user_id: userId,
         agent_id: body?.agentId ? String(body.agentId) : null,
@@ -186,7 +190,7 @@ serve(async (req) => {
         reasoning: reason,
         alternatives_considered: [],
         confidence_score: 100,
-        source: "kill_switch",
+        source: spendStatus.over_cap ? "ai_spend_cap" : "kill_switch",
         escalated: false,
       });
       return json({
@@ -206,10 +210,14 @@ serve(async (req) => {
         alternatives: [],
         deferred: null,
         kill_switch: true,
+        spend_cap: spendStatus,
         executed: false,
         execution: null,
-        execution_note: "Nothing was assessed or run — the kill switch is on.",
+        execution_note: spendStatus.over_cap
+          ? "Nothing was assessed or run — the daily AI spend cap is used up."
+          : "Nothing was assessed or run — the kill switch is on.",
       });
+
     }
     // -------------------------------------------------------------------------
     const params = body?.params ?? {};
