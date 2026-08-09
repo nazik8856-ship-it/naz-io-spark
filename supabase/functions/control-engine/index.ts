@@ -426,7 +426,7 @@ serve(async (req) => {
             `Circuit breaker tripped for "${actionType}" — ${failures} of the last ${window.length} attempts ` +
             `failed or were blocked (${Math.round(rate * 100)}%). This action type is now auto-blocked until reset. ` +
             `Last failure: ${why.slice(0, 200)}`;
-          await supabase.from("agent_decisions").insert({
+          const { data: tripLog } = await supabase.from("agent_decisions").insert({
             user_id: userId,
             agent_id: agentId,
             agent_run_id: runId,
@@ -436,8 +436,20 @@ serve(async (req) => {
             confidence_score: 100,
             source: "circuit_breaker_trip",
             escalated: true,
-          });
+          }).select("id").maybeSingle();
+
+          // Only alert on a fresh trip, not on every attempt while already open.
+          if (!breaker?.tripped) {
+            await sendCriticalAlert(supabase, userId, {
+              event: "circuit_breaker_trip",
+              summary: tripReason,
+              decisionId: (tripLog as { id?: string } | null)?.id ?? null,
+              actionType,
+              provider,
+            });
+          }
         }
+
       } catch (_) { /* breaker bookkeeping must never break the response */ }
     };
     // -------------------------------------------------------------------------
