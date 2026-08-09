@@ -160,7 +160,10 @@ serve(async (req) => {
         record_type: "control_decision",
         immutable: true,
         id: d.id,
+        signature: d.signature,
+        verify_url: `/control-engine/decisions/${d.id}/verify`,
         created_at: d.created_at,
+
         decision: d.decision,
         reasoning: d.reasoning,
         confidence_score: d.confidence_score,
