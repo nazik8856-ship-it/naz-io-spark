@@ -16,6 +16,7 @@ import {
 } from "../_shared/decision-scoring.ts";
 import { CAPABILITY_REGISTRY, canOfferTool } from "../_shared/capability-registry.ts";
 import { clearExpiredSpendKillSwitch, getSpendStatus, recordAiSpend } from "../_shared/spend-guard.ts";
+import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
 
 import { PROVIDER_WRITE_KINDS, runProviderWrite } from "../_shared/provider-writes.ts";
 
