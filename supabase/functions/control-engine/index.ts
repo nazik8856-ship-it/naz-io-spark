@@ -113,8 +113,22 @@ serve(async (req) => {
     // Standalone, auditable record of one decision: reasoning, scores,
     // provenance, and any real execution outcome recorded against it.
     const url = new URL(req.url);
+
+    // ---- GET /control-engine/decisions/:id/verify ---------------------------
+    // Tamper check: recomputes the SHA-256 signature from the stored content
+    // plus the server secret and reports whether it still matches.
+    const verifyMatch = url.pathname.match(/\/decisions\/([0-9a-fA-F-]{36})\/verify\/?$/);
+    if (req.method === "GET" && verifyMatch) {
+      const { data, error } = await supabase.rpc("verify_decision_signature", { _id: verifyMatch[1] });
+      if (error) return json({ error: error.message }, 500);
+      const res = (data ?? {}) as Record<string, unknown>;
+      if (res.found === false) return json({ error: "Decision not found", ...res }, 404);
+      return json(res, res.verified === true ? 200 : 409);
+    }
+
     const auditMatch = url.pathname.match(/\/decisions\/([0-9a-fA-F-]{36})\/?$/);
     if (req.method === "GET" && auditMatch) {
+
       const decisionId = auditMatch[1];
       const { data: decision, error: dErr } = await supabase
         .from("agent_decisions")
