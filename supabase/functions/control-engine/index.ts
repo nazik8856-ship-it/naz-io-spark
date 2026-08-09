@@ -119,12 +119,19 @@ serve(async (req) => {
     // plus the server secret and reports whether it still matches.
     const verifyMatch = url.pathname.match(/\/decisions\/([0-9a-fA-F-]{36})\/verify\/?$/);
     if (req.method === "GET" && verifyMatch) {
-      const { data, error } = await supabase.rpc("verify_decision_signature", { _id: verifyMatch[1] });
+      const decisionId = verifyMatch[1];
+      const { data: owner } = await supabase
+        .from("agent_decisions").select("user_id").eq("id", decisionId).maybeSingle();
+      if (!owner) return json({ error: "Decision not found", found: false, verified: false }, 404);
+      if ((owner as { user_id?: string }).user_id !== userId) {
+        return json({ error: "Not authorized for this decision" }, 403);
+      }
+      const { data, error } = await supabase.rpc("verify_decision_signature", { _id: decisionId });
       if (error) return json({ error: error.message }, 500);
       const res = (data ?? {}) as Record<string, unknown>;
-      if (res.found === false) return json({ error: "Decision not found", ...res }, 404);
       return json(res, res.verified === true ? 200 : 409);
     }
+
 
     const auditMatch = url.pathname.match(/\/decisions\/([0-9a-fA-F-]{36})\/?$/);
     if (req.method === "GET" && auditMatch) {
