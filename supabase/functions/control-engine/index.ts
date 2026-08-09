@@ -166,11 +166,18 @@ serve(async (req) => {
     const provider = String(body?.provider || "unknown").trim() || "unknown";
     const description = String(body?.description || "").trim();
 
+    // ---- DAILY AI SPEND CAP -------------------------------------------------
+    // A cap trip from a previous UTC day clears itself here; today's cap is
+    // enforced below via the kill switch it sets.
+    await clearExpiredSpendKillSwitch(supabase, userId);
+    const spendStatus = await getSpendStatus(supabase, userId);
+
     // ---- GLOBAL KILL SWITCH -------------------------------------------------
     // Hard stop BEFORE any LLM call, scoring or execution.
     const { data: killRow } = await supabase
-      .from("profiles").select("kill_switch").eq("id", userId).maybeSingle();
-    if ((killRow as { kill_switch?: boolean } | null)?.kill_switch) {
+      .from("profiles").select("kill_switch, kill_switch_source").eq("id", userId).maybeSingle();
+    if ((killRow as { kill_switch?: boolean } | null)?.kill_switch || spendStatus.over_cap) {
+
       const reason = "Blocked — kill switch active. All AI actions are halted for this account.";
       await supabase.from("agent_decisions").insert({
         user_id: userId,
