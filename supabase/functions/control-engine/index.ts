@@ -670,6 +670,8 @@ serve(async (req) => {
       dry_run: dryRun,
       execution,
       execution_note: executionNote,
+      circuit_breaker: breakerState,
+
     });
 
 
