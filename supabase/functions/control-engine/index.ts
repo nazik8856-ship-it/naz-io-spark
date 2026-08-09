@@ -284,18 +284,41 @@ serve(async (req) => {
       new RegExp("^" + p.trim().split("*").map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*") + "$", "i");
     const { data: hardRules } = await supabase
       .from("hard_rules")
-      .select("id, rule_text, action_type_pattern, effect, provider, enabled")
+      .select("id, rule_text, action_type_pattern, effect, provider, enabled, shadow_mode")
       .eq("user_id", userId)
       .eq("enabled", true);
 
     type HardRule = {
       id: string; rule_text: string; action_type_pattern: string;
       effect: "always_block" | "always_require_approval"; provider: string | null;
+      shadow_mode?: boolean;
     };
-    const matched = ((hardRules ?? []) as HardRule[]).find((r) => {
+    const ruleMatches = (r: HardRule) => {
       if (r.provider && r.provider.toLowerCase() !== provider.toLowerCase()) return false;
       try { return globToRe(r.action_type_pattern || "*").test(actionType); } catch { return false; }
-    });
+    };
+    const allRules = (hardRules ?? []) as HardRule[];
+    // Shadow rules are evaluated and logged, but never change the outcome.
+    const shadowMatches = allRules.filter((r) => r.shadow_mode && ruleMatches(r));
+    const matched = allRules.find((r) => !r.shadow_mode && ruleMatches(r));
+
+    // Records what each matching shadow rule WOULD have done, against the
+    // decision that real scoring actually produced.
+    const recordShadowHits = async (decisionId: string | null, actualDecision: string) => {
+      if (!shadowMatches.length) return;
+      await supabase.from("hard_rule_shadow_hits").insert(
+        shadowMatches.map((r) => ({
+          user_id: userId,
+          rule_id: r.id,
+          decision_id: decisionId,
+          action_type: actionType,
+          provider,
+          would_have: r.effect === "always_block" ? "block" : "require_approval",
+          actual_decision: actualDecision,
+        })),
+      ).then(() => undefined, () => undefined);
+    };
+
 
     if (matched) {
       const blocking = matched.effect === "always_block";
