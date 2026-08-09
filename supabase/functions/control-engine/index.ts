@@ -291,6 +291,18 @@ serve(async (req) => {
         escalated: !blocking,
       }).select("id").maybeSingle();
 
+      if (blocking) {
+        await sendCriticalAlert(supabase, userId, {
+          event: "hard_rule_block",
+          summary: `A proposed action was blocked by the hard rule "${matched.rule_text}". Nothing was scored or executed.`,
+          decisionId: (logged as { id?: string } | null)?.id ?? null,
+          actionType,
+          provider,
+        });
+      }
+
+
+
       return json({
         decision_id: (logged as { id?: string } | null)?.id ?? null,
         decision: blocking ? "block" : "modify",
