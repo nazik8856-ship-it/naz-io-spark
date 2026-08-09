@@ -338,6 +338,13 @@ serve(async (req) => {
         escalated: !blocking,
       }).select("id").maybeSingle();
 
+      await recordShadowHits(
+        (logged as { id?: string } | null)?.id ?? null,
+        blocking ? "block" : "modify",
+      );
+
+
+
       if (blocking) {
         await sendCriticalAlert(supabase, userId, {
           event: "hard_rule_block",
