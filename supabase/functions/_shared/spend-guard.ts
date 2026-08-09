@@ -10,6 +10,7 @@
 // ============================================================================
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { slackPostMessage } from "./provider-writes.ts";
+import { sendCriticalAlert } from "./critical-alerts.ts";
 
 export const DEFAULT_DAILY_CAP_USD = 5.0;
 
