@@ -10,6 +10,7 @@
 // ============================================================================
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { slackPostMessage } from "./provider-writes.ts";
+import { sendCriticalAlert } from "./critical-alerts.ts";
 
 export const DEFAULT_DAILY_CAP_USD = 5.0;
 
@@ -153,7 +154,7 @@ export async function recordAiSpend(
       `🛑 NazAI daily AI spend cap reached — ${money(status.spent_usd)} of ${money(status.cap_usd)} ` +
       `across ${status.calls} calls today. The kill switch has been switched on automatically: ` +
       `no AI actions will run until tomorrow (UTC) or until an owner turns it off.`;
-    const via = await notifyOrg(admin, userId, text);
+    let via: "slack" | "log" = "log";
     try {
       await admin.from("profiles").update({
         kill_switch: true,
@@ -161,7 +162,7 @@ export async function recordAiSpend(
         kill_switch_source: "ai_spend_cap",
         kill_switch_at: new Date().toISOString(),
       }).eq("id", userId);
-      await admin.from("agent_decisions").insert({
+      const { data: logged } = await admin.from("agent_decisions").insert({
         user_id: userId,
         decision: "KILL_SWITCH_ON (daily AI spend cap)",
         reasoning: text,
@@ -169,12 +170,18 @@ export async function recordAiSpend(
         confidence_score: 100,
         source: "ai_spend_cap",
         escalated: true,
+      }).select("id").maybeSingle();
+      via = await sendCriticalAlert(admin, userId, {
+        event: "kill_switch_auto",
+        summary: text,
+        decisionId: (logged as { id?: string } | null)?.id ?? null,
       });
       if (row?.id) await admin.from("ai_spend_daily").update({ capped_at: new Date().toISOString() }).eq("id", row.id);
     } catch (err) {
       console.error("[SPEND CAP] failed to trip kill switch:", String((err as Error)?.message || err));
     }
     console.warn(`[SPEND CAP] cap hit for ${userId} (${context}), notified via ${via}`);
+
     return { ...status, tripped: true, over_cap: true };
   }
 

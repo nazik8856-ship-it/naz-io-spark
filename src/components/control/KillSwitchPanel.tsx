@@ -72,7 +72,7 @@ export default function KillSwitchPanel() {
       const { error } = await supabase.from("profiles").update({ kill_switch: next }).eq("id", user.id);
       if (error) throw error;
       setOn(next);
-      await supabase.from("agent_decisions").insert({
+      const { data: logged } = await supabase.from("agent_decisions").insert({
         user_id: user.id,
         decision: next ? "block" : "allow",
         reasoning: `Kill switch turned ${next ? "ON" : "OFF"} by ${user.email ?? user.id}`,
@@ -80,7 +80,18 @@ export default function KillSwitchPanel() {
         confidence_score: 100,
         source: "kill_switch_flip",
         escalated: false,
-      });
+      }).select("id").maybeSingle();
+
+      // Real-time alert (Slack if connected, prominent server log otherwise).
+      supabase.functions.invoke("control-engine", {
+        body: {
+          alert_event: "kill_switch_flip",
+          enabled: next,
+          decision_id: (logged as { id?: string } | null)?.id ?? null,
+          actor: user.email ?? user.id,
+        },
+      }).catch(() => { /* alerting must never block the flip */ });
+
       toast({
         title: next ? "Kill switch ON" : "Kill switch OFF",
         description: next

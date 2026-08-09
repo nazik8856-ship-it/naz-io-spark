@@ -16,6 +16,7 @@ import {
 } from "../_shared/decision-scoring.ts";
 import { CAPABILITY_REGISTRY, canOfferTool } from "../_shared/capability-registry.ts";
 import { clearExpiredSpendKillSwitch, getSpendStatus, recordAiSpend } from "../_shared/spend-guard.ts";
+import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
 
 import { PROVIDER_WRITE_KINDS, runProviderWrite } from "../_shared/provider-writes.ts";
 
@@ -168,6 +169,25 @@ serve(async (req) => {
     const provider = String(body?.provider || "unknown").trim() || "unknown";
     const description = String(body?.description || "").trim();
 
+    // ---- SAFETY ALERT RELAY -------------------------------------------------
+    // The kill-switch panel posts here after a manual flip so the notification
+    // goes out server-side (Slack if connected, prominent log otherwise).
+    if (body?.alert_event === "kill_switch_flip") {
+      const enabled = body?.enabled === true || body?.enabled === "true";
+      const via = await sendCriticalAlert(supabase, userId, {
+        event: enabled ? "kill_switch_on" : "kill_switch_off",
+        summary: enabled
+          ? "All AI actions for this account are halted immediately. Nothing will be scored or executed until it is turned back off."
+          : "The kill switch was turned off. AI actions can run again, subject to hard rules, breakers and the daily spend cap.",
+        decisionId: body?.decision_id ? String(body.decision_id) : null,
+        actor: body?.actor ? String(body.actor) : userData?.user?.email ?? null,
+      });
+      return json({ ok: true, alerted_via: via });
+    }
+    // -------------------------------------------------------------------------
+
+
+
     // ---- DAILY AI SPEND CAP -------------------------------------------------
     // A cap trip from a previous UTC day clears itself here; today's cap is
     // enforced below via the kill switch it sets.
@@ -270,6 +290,18 @@ serve(async (req) => {
         source: "hard_rule",
         escalated: !blocking,
       }).select("id").maybeSingle();
+
+      if (blocking) {
+        await sendCriticalAlert(supabase, userId, {
+          event: "hard_rule_block",
+          summary: `A proposed action was blocked by the hard rule "${matched.rule_text}". Nothing was scored or executed.`,
+          decisionId: (logged as { id?: string } | null)?.id ?? null,
+          actionType,
+          provider,
+        });
+      }
+
+
 
       return json({
         decision_id: (logged as { id?: string } | null)?.id ?? null,
@@ -394,7 +426,7 @@ serve(async (req) => {
             `Circuit breaker tripped for "${actionType}" — ${failures} of the last ${window.length} attempts ` +
             `failed or were blocked (${Math.round(rate * 100)}%). This action type is now auto-blocked until reset. ` +
             `Last failure: ${why.slice(0, 200)}`;
-          await supabase.from("agent_decisions").insert({
+          const { data: tripLog } = await supabase.from("agent_decisions").insert({
             user_id: userId,
             agent_id: agentId,
             agent_run_id: runId,
@@ -404,8 +436,20 @@ serve(async (req) => {
             confidence_score: 100,
             source: "circuit_breaker_trip",
             escalated: true,
-          });
+          }).select("id").maybeSingle();
+
+          // Only alert on a fresh trip, not on every attempt while already open.
+          if (!breaker?.tripped) {
+            await sendCriticalAlert(supabase, userId, {
+              event: "circuit_breaker_trip",
+              summary: tripReason,
+              decisionId: (tripLog as { id?: string } | null)?.id ?? null,
+              actionType,
+              provider,
+            });
+          }
         }
+
       } catch (_) { /* breaker bookkeeping must never break the response */ }
     };
     // -------------------------------------------------------------------------
