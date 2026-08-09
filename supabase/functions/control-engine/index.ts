@@ -692,6 +692,8 @@ serve(async (req) => {
       execution,
       execution_note: executionNote,
       circuit_breaker: breakerState,
+      spend_cap: spendAfter,
+
 
     });
 
