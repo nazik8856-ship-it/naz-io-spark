@@ -773,6 +773,13 @@ serve(async (req) => {
     return json({
 
       decision_id: decisionId,
+      shadow_rules: shadowMatches.map((r) => ({
+        id: r.id,
+        rule_text: r.rule_text,
+        would_have: r.effect === "always_block" ? "block" : "require_approval",
+        enforced: false,
+      })),
+
       decision,
       reason,
       reasoning,
