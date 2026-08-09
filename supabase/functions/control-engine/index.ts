@@ -629,8 +629,27 @@ serve(async (req) => {
       } catch (_) { /* provenance must never break the response */ }
     }
 
+    // Feed this attempt to the per-action circuit breaker (dry runs don't count).
+    let breakerState: Record<string, unknown> | null = null;
+    if (!dryRun) {
+      const failed = decision === "block" || (execution ? !executed : false);
+      const why = decision === "block"
+        ? `blocked: ${reason}`
+        : execution && !executed
+          ? `execution failed: ${String(execution.summary ?? "unknown error")}`
+          : "ok";
+      await recordBreakerAttempt(failed, why);
+      const { data: after } = await supabase
+        .from("circuit_breakers")
+        .select("tripped, failure_rate, attempts, failures, trip_count, tripped_at")
+        .eq("user_id", userId)
+        .eq("action_type", actionType)
+        .maybeSingle();
+      breakerState = (after as Record<string, unknown> | null) ?? null;
+    }
 
     return json({
+
       decision_id: decisionId,
       decision,
       reason,
