@@ -656,6 +656,9 @@ serve(async (req) => {
       source: "model",
     });
 
+    await recordShadowHits(decisionId ?? null, decision);
+
+
     // ---- Real execution on ALLOW -----------------------------------------
     // An "allow" is only meaningful if the action can actually be carried out.
     // We check the capability registry for a real, verified executor whose
