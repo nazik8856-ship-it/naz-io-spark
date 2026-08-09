@@ -141,6 +141,7 @@ export type Database = {
           org_id: string | null
           override_of: string | null
           reasoning: string
+          signature: string | null
           source: string
           step_index: number | null
           user_id: string
@@ -158,6 +159,7 @@ export type Database = {
           org_id?: string | null
           override_of?: string | null
           reasoning?: string
+          signature?: string | null
           source?: string
           step_index?: number | null
           user_id: string
@@ -175,6 +177,7 @@ export type Database = {
           org_id?: string | null
           override_of?: string | null
           reasoning?: string
+          signature?: string | null
           source?: string
           step_index?: number | null
           user_id?: string
@@ -1576,6 +1579,19 @@ export type Database = {
         Args: { label?: string; payload: Json }
         Returns: string
       }
+      decision_canonical_payload: {
+        Args: {
+          _agent_run_id: string
+          _confidence: number
+          _created_at: string
+          _decision: string
+          _id: string
+          _reasoning: string
+          _source: string
+          _user_id: string
+        }
+        Returns: string
+      }
       deduct_credit: { Args: { user_id: string }; Returns: boolean }
       delete_email: {
         Args: { message_id: number; queue_name: string }
@@ -1636,6 +1652,7 @@ export type Database = {
         Args: { payload: Json; sid: string }
         Returns: undefined
       }
+      verify_decision_signature: { Args: { _id: string }; Returns: Json }
     }
     Enums: {
       app_role: "owner" | "admin" | "user"
