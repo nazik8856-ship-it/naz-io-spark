@@ -75,6 +75,8 @@ export default function ControlSystem() {
       </header>
 
       <KillSwitchPanel />
+      <SpendCapPanel />
+
       <CircuitBreakerPanel />
       <HardRulesPanel />
       <DryRunToggle on={dryRun} onChange={setDryRun} />
