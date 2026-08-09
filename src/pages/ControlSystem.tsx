@@ -6,6 +6,8 @@ import DecisionCard, { type ControlDecision } from "@/components/control/Decisio
 import KillSwitchPanel from "@/components/control/KillSwitchPanel";
 import HardRulesPanel from "@/components/control/HardRulesPanel";
 import CircuitBreakerPanel from "@/components/control/CircuitBreakerPanel";
+import SpendCapPanel from "@/components/control/SpendCapPanel";
+
 
 import DryRunToggle from "@/components/control/DryRunToggle";
 import { supabase } from "@/integrations/supabase/client";
@@ -73,6 +75,8 @@ export default function ControlSystem() {
       </header>
 
       <KillSwitchPanel />
+      <SpendCapPanel />
+
       <CircuitBreakerPanel />
       <HardRulesPanel />
       <DryRunToggle on={dryRun} onChange={setDryRun} />

@@ -515,6 +515,72 @@ export type Database = {
           },
         ]
       }
+      ai_spend_caps: {
+        Row: {
+          created_at: string
+          daily_cap_usd: number
+          enabled: boolean
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          daily_cap_usd?: number
+          enabled?: boolean
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          daily_cap_usd?: number
+          enabled?: boolean
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      ai_spend_daily: {
+        Row: {
+          calls: number
+          capped_at: string | null
+          completion_tokens: number
+          cost_usd: number
+          created_at: string
+          day: string
+          id: string
+          prompt_tokens: number
+          updated_at: string
+          user_id: string
+          warned_at: string | null
+        }
+        Insert: {
+          calls?: number
+          capped_at?: string | null
+          completion_tokens?: number
+          cost_usd?: number
+          created_at?: string
+          day?: string
+          id?: string
+          prompt_tokens?: number
+          updated_at?: string
+          user_id: string
+          warned_at?: string | null
+        }
+        Update: {
+          calls?: number
+          capped_at?: string | null
+          completion_tokens?: number
+          cost_usd?: number
+          created_at?: string
+          day?: string
+          id?: string
+          prompt_tokens?: number
+          updated_at?: string
+          user_id?: string
+          warned_at?: string | null
+        }
+        Relationships: []
+      }
       business_profiles: {
         Row: {
           audience: string | null
@@ -1170,6 +1236,9 @@ export type Database = {
           display_name: string | null
           id: string
           kill_switch: boolean
+          kill_switch_at: string | null
+          kill_switch_auto: boolean
+          kill_switch_source: string | null
           updated_at: string
           user_context: Json
         }
@@ -1179,6 +1248,9 @@ export type Database = {
           display_name?: string | null
           id: string
           kill_switch?: boolean
+          kill_switch_at?: string | null
+          kill_switch_auto?: boolean
+          kill_switch_source?: string | null
           updated_at?: string
           user_context?: Json
         }
@@ -1188,6 +1260,9 @@ export type Database = {
           display_name?: string | null
           id?: string
           kill_switch?: boolean
+          kill_switch_at?: string | null
+          kill_switch_auto?: boolean
+          kill_switch_source?: string | null
           updated_at?: string
           user_context?: Json
         }
@@ -1539,6 +1614,23 @@ export type Database = {
       }
       read_integration_secret: { Args: { sid: string }; Returns: Json }
       read_webhook_secret: { Args: { _agent_id: string }; Returns: string }
+      record_ai_spend: {
+        Args: {
+          _completion_tokens?: number
+          _cost_usd: number
+          _prompt_tokens?: number
+          _user_id: string
+        }
+        Returns: {
+          calls: number
+          cap_usd: number
+          capped_at: string
+          cost_usd: number
+          day: string
+          pct: number
+          warned_at: string
+        }[]
+      }
       rotate_webhook_secret: { Args: { _agent_id: string }; Returns: string }
       update_integration_secret: {
         Args: { payload: Json; sid: string }

@@ -15,6 +15,8 @@ import {
   DEFAULT_CONFIDENCE_THRESHOLD,
 } from "../_shared/decision-scoring.ts";
 import { CAPABILITY_REGISTRY, canOfferTool } from "../_shared/capability-registry.ts";
+import { clearExpiredSpendKillSwitch, getSpendStatus, recordAiSpend } from "../_shared/spend-guard.ts";
+
 import { PROVIDER_WRITE_KINDS, runProviderWrite } from "../_shared/provider-writes.ts";
 
 const corsHeaders = {
@@ -166,12 +168,23 @@ serve(async (req) => {
     const provider = String(body?.provider || "unknown").trim() || "unknown";
     const description = String(body?.description || "").trim();
 
+    // ---- DAILY AI SPEND CAP -------------------------------------------------
+    // A cap trip from a previous UTC day clears itself here; today's cap is
+    // enforced below via the kill switch it sets.
+    await clearExpiredSpendKillSwitch(supabase, userId);
+    const spendStatus = await getSpendStatus(supabase, userId);
+
     // ---- GLOBAL KILL SWITCH -------------------------------------------------
     // Hard stop BEFORE any LLM call, scoring or execution.
     const { data: killRow } = await supabase
-      .from("profiles").select("kill_switch").eq("id", userId).maybeSingle();
-    if ((killRow as { kill_switch?: boolean } | null)?.kill_switch) {
-      const reason = "Blocked — kill switch active. All AI actions are halted for this account.";
+      .from("profiles").select("kill_switch, kill_switch_source").eq("id", userId).maybeSingle();
+    if ((killRow as { kill_switch?: boolean } | null)?.kill_switch || spendStatus.over_cap) {
+
+      const reason = spendStatus.over_cap
+        ? `Blocked — today's AI spend cap is used up ($${spendStatus.spent_usd.toFixed(2)} of ` +
+          `$${spendStatus.cap_usd.toFixed(2)} across ${spendStatus.calls} calls). ` +
+          `AI actions resume tomorrow, or when an owner raises the cap or turns the kill switch off.`
+        : "Blocked — kill switch active. All AI actions are halted for this account.";
       await supabase.from("agent_decisions").insert({
         user_id: userId,
         agent_id: body?.agentId ? String(body.agentId) : null,
@@ -179,7 +192,7 @@ serve(async (req) => {
         reasoning: reason,
         alternatives_considered: [],
         confidence_score: 100,
-        source: "kill_switch",
+        source: spendStatus.over_cap ? "ai_spend_cap" : "kill_switch",
         escalated: false,
       });
       return json({
@@ -199,10 +212,14 @@ serve(async (req) => {
         alternatives: [],
         deferred: null,
         kill_switch: true,
+        spend_cap: spendStatus,
         executed: false,
         execution: null,
-        execution_note: "Nothing was assessed or run — the kill switch is on.",
+        execution_note: spendStatus.over_cap
+          ? "Nothing was assessed or run — the daily AI spend cap is used up."
+          : "Nothing was assessed or run — the kill switch is on.",
       });
+
     }
     // -------------------------------------------------------------------------
     const params = body?.params ?? {};
@@ -475,6 +492,10 @@ serve(async (req) => {
     if (!res.ok) return json({ error: "gateway_error", message: (await res.text()).slice(0, 400) }, 502);
 
     const data = await res.json();
+    // Meter this gateway call against the org's daily spend cap (warns at 90%,
+    // auto-trips the kill switch at 100%).
+    const spendAfter = await recordAiSpend(supabase, userId, MODEL, data?.usage, "control-engine");
+
     const call = data?.choices?.[0]?.message?.tool_calls?.[0];
     let parsed: Record<string, unknown> = {};
     try { parsed = JSON.parse(call?.function?.arguments || "{}"); } catch { /* fall through */ }
@@ -671,6 +692,8 @@ serve(async (req) => {
       execution,
       execution_note: executionNote,
       circuit_breaker: breakerState,
+      spend_cap: spendAfter,
+
 
     });
 
