@@ -990,6 +990,57 @@ export type Database = {
         }
         Relationships: []
       }
+      hard_rule_shadow_hits: {
+        Row: {
+          action_type: string
+          actual_decision: string | null
+          created_at: string
+          decision_id: string | null
+          id: string
+          provider: string | null
+          rule_id: string
+          user_id: string
+          would_have: string
+        }
+        Insert: {
+          action_type: string
+          actual_decision?: string | null
+          created_at?: string
+          decision_id?: string | null
+          id?: string
+          provider?: string | null
+          rule_id: string
+          user_id: string
+          would_have: string
+        }
+        Update: {
+          action_type?: string
+          actual_decision?: string | null
+          created_at?: string
+          decision_id?: string | null
+          id?: string
+          provider?: string | null
+          rule_id?: string
+          user_id?: string
+          would_have?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hard_rule_shadow_hits_decision_id_fkey"
+            columns: ["decision_id"]
+            isOneToOne: false
+            referencedRelation: "agent_decisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hard_rule_shadow_hits_rule_id_fkey"
+            columns: ["rule_id"]
+            isOneToOne: false
+            referencedRelation: "hard_rules"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hard_rules: {
         Row: {
           action_type_pattern: string
@@ -997,8 +1048,10 @@ export type Database = {
           effect: string
           enabled: boolean
           id: string
+          promoted_at: string | null
           provider: string | null
           rule_text: string
+          shadow_mode: boolean
           updated_at: string
           user_id: string
         }
@@ -1008,8 +1061,10 @@ export type Database = {
           effect?: string
           enabled?: boolean
           id?: string
+          promoted_at?: string | null
           provider?: string | null
           rule_text: string
+          shadow_mode?: boolean
           updated_at?: string
           user_id: string
         }
@@ -1019,8 +1074,10 @@ export type Database = {
           effect?: string
           enabled?: boolean
           id?: string
+          promoted_at?: string | null
           provider?: string | null
           rule_text?: string
+          shadow_mode?: boolean
           updated_at?: string
           user_id?: string
         }
