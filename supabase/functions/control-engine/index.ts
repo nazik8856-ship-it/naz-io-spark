@@ -169,6 +169,25 @@ serve(async (req) => {
     const provider = String(body?.provider || "unknown").trim() || "unknown";
     const description = String(body?.description || "").trim();
 
+    // ---- SAFETY ALERT RELAY -------------------------------------------------
+    // The kill-switch panel posts here after a manual flip so the notification
+    // goes out server-side (Slack if connected, prominent log otherwise).
+    if (body?.alert_event === "kill_switch_flip") {
+      const enabled = body?.enabled === true || body?.enabled === "true";
+      const via = await sendCriticalAlert(supabase, userId, {
+        event: enabled ? "kill_switch_on" : "kill_switch_off",
+        summary: enabled
+          ? "All AI actions for this account are halted immediately. Nothing will be scored or executed until it is turned back off."
+          : "The kill switch was turned off. AI actions can run again, subject to hard rules, breakers and the daily spend cap.",
+        decisionId: body?.decision_id ? String(body.decision_id) : null,
+        actor: body?.actor ? String(body.actor) : userData?.user?.email ?? null,
+      });
+      return json({ ok: true, alerted_via: via });
+    }
+    // -------------------------------------------------------------------------
+
+
+
     // ---- DAILY AI SPEND CAP -------------------------------------------------
     // A cap trip from a previous UTC day clears itself here; today's cap is
     // enforced below via the kill switch it sets.
