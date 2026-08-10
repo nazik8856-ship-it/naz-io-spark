@@ -72,7 +72,22 @@ export default function ControlSystem() {
           <ArrowLeft className="h-5 w-5" />
           <span className="text-sm font-mono uppercase tracking-wider">Back</span>
         </button>
+        <nav className="ml-auto flex items-center gap-2">
+          <button
+            onClick={() => navigate("/control-system/approvals")}
+            className="rounded border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-amber-300 hover:bg-amber-500/20"
+          >
+            Approvals
+          </button>
+          <button
+            onClick={() => navigate("/control-system/safety-rules")}
+            className="rounded border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-cyan-300 hover:bg-cyan-500/20"
+          >
+            Safety rules
+          </button>
+        </nav>
       </header>
+
 
       <KillSwitchPanel />
       <SpendCapPanel />

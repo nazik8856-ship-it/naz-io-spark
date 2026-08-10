@@ -15,8 +15,10 @@ import {
   DEFAULT_CONFIDENCE_THRESHOLD,
 } from "../_shared/decision-scoring.ts";
 import { CAPABILITY_REGISTRY, canOfferTool } from "../_shared/capability-registry.ts";
-import { clearExpiredSpendKillSwitch, getSpendStatus, recordAiSpend } from "../_shared/spend-guard.ts";
+import { recordAiSpend } from "../_shared/spend-guard.ts";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
+import { runControlGate, createPendingApproval } from "../_shared/control-gate.ts";
+
 
 import { PROVIDER_WRITE_KINDS, runProviderWrite } from "../_shared/provider-writes.ts";
 
@@ -212,60 +214,6 @@ serve(async (req) => {
 
 
 
-    // ---- DAILY AI SPEND CAP -------------------------------------------------
-    // A cap trip from a previous UTC day clears itself here; today's cap is
-    // enforced below via the kill switch it sets.
-    await clearExpiredSpendKillSwitch(supabase, userId);
-    const spendStatus = await getSpendStatus(supabase, userId);
-
-    // ---- GLOBAL KILL SWITCH -------------------------------------------------
-    // Hard stop BEFORE any LLM call, scoring or execution.
-    const { data: killRow } = await supabase
-      .from("profiles").select("kill_switch, kill_switch_source").eq("id", userId).maybeSingle();
-    if ((killRow as { kill_switch?: boolean } | null)?.kill_switch || spendStatus.over_cap) {
-
-      const reason = spendStatus.over_cap
-        ? `Blocked — today's AI spend cap is used up ($${spendStatus.spent_usd.toFixed(2)} of ` +
-          `$${spendStatus.cap_usd.toFixed(2)} across ${spendStatus.calls} calls). ` +
-          `AI actions resume tomorrow, or when an owner raises the cap or turns the kill switch off.`
-        : "Blocked — kill switch active. All AI actions are halted for this account.";
-      await supabase.from("agent_decisions").insert({
-        user_id: userId,
-        agent_id: body?.agentId ? String(body.agentId) : null,
-        decision: "block",
-        reasoning: reason,
-        alternatives_considered: [],
-        confidence_score: 100,
-        source: spendStatus.over_cap ? "ai_spend_cap" : "kill_switch",
-        escalated: false,
-      });
-      return json({
-        decision_id: null,
-        decision: "block",
-        reason,
-        reasoning: reason,
-        confidence_score: 100,
-        confidence_label: "certain",
-        threshold: 100,
-        escalated: false,
-        action_type: actionType || "unknown",
-        provider,
-        risk_tier: "high",
-        intent_match: "n/a",
-        fit_assessment: "n/a",
-        alternatives: [],
-        deferred: null,
-        kill_switch: true,
-        spend_cap: spendStatus,
-        executed: false,
-        execution: null,
-        execution_note: spendStatus.over_cap
-          ? "Nothing was assessed or run — the daily AI spend cap is used up."
-          : "Nothing was assessed or run — the kill switch is on.",
-      });
-
-    }
-    // -------------------------------------------------------------------------
     const params = body?.params ?? {};
     // Dry run: full intent/risk/fit scoring, but never touch a real provider.
     const dryRun = body?.dry_run === true || body?.dry_run === "true";
@@ -276,96 +224,39 @@ serve(async (req) => {
     if (!actionType) return json({ error: "action_type required" }, 400);
     if (!description) return json({ error: "description required" }, 400);
 
-    // ---- HARD RULES ---------------------------------------------------------
-    // Deterministic, user-authored rules. Evaluated BEFORE any LLM call: if a
-    // rule matches, its effect is applied immediately and the model is never
-    // consulted. Logged as rule-enforced (source: hard_rule), not model-judged.
-    const globToRe = (p: string) =>
-      new RegExp("^" + p.trim().split("*").map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*") + "$", "i");
-    const { data: hardRules } = await supabase
-      .from("hard_rules")
-      .select("id, rule_text, action_type_pattern, effect, provider, enabled, shadow_mode")
-      .eq("user_id", userId)
-      .eq("enabled", true);
+    // ---- UNIFIED CONTROL GATE ----------------------------------------------
+    // The SAME gate agent-runtime uses: spend cap, kill switch, hard rules
+    // (live + shadow), circuit breaker, and the deterministic safety scanner.
+    // Everything it stops is already logged to agent_decisions.
+    const gate = await runControlGate(supabase, {
+      userId,
+      actionType,
+      provider,
+      description,
+      params,
+      agentId,
+      runId,
+      stepIndex: stepIndex ?? null,
+      dryRun,
+      origin: "control-engine",
+    });
+    const spendStatus = gate.spend;
+    void spendStatus;
 
-    type HardRule = {
-      id: string; rule_text: string; action_type_pattern: string;
-      effect: "always_block" | "always_require_approval"; provider: string | null;
-      shadow_mode?: boolean;
-    };
-    const ruleMatches = (r: HardRule) => {
-      if (r.provider && r.provider.toLowerCase() !== provider.toLowerCase()) return false;
-      try { return globToRe(r.action_type_pattern || "*").test(actionType); } catch { return false; }
-    };
-    const allRules = (hardRules ?? []) as HardRule[];
-    // Shadow rules are evaluated and logged, but never change the outcome.
-    const shadowMatches = allRules.filter((r) => r.shadow_mode && ruleMatches(r));
-    const matched = allRules.find((r) => !r.shadow_mode && ruleMatches(r));
+    const recordShadowHits = gate.recordShadowHits;
+    const recordBreakerAttempt = gate.recordAttempt;
 
-    // Records what each matching shadow rule WOULD have done, against the
-    // decision that real scoring actually produced.
-    const recordShadowHits = async (decisionId: string | null, actualDecision: string) => {
-      if (!shadowMatches.length) return;
-      await supabase.from("hard_rule_shadow_hits").insert(
-        shadowMatches.map((r) => ({
-          user_id: userId,
-          rule_id: r.id,
-          decision_id: decisionId,
-          action_type: actionType,
-          provider,
-          would_have: r.effect === "always_block" ? "block" : "require_approval",
-          actual_decision: actualDecision,
-        })),
-      ).then(() => undefined, () => undefined);
-    };
-
-
-    if (matched) {
-      const blocking = matched.effect === "always_block";
-      const reason = blocking
-        ? `Blocked by your hard rule: "${matched.rule_text}". This was enforced by your rule, not judged by the model.`
-        : `Your hard rule requires approval first: "${matched.rule_text}". Nothing ran — approve it explicitly to proceed.`;
-      const { data: logged } = await supabase.from("agent_decisions").insert({
-        user_id: userId,
-        agent_id: agentId,
-        agent_run_id: runId,
-        step_index: stepIndex ?? null,
-        decision: blocking ? "block" : "modify",
-        reasoning: reason,
-        alternatives_considered: [],
-        confidence_score: 100,
-        source: "hard_rule",
-        escalated: !blocking,
-      }).select("id").maybeSingle();
-
-      await recordShadowHits(
-        (logged as { id?: string } | null)?.id ?? null,
-        blocking ? "block" : "modify",
-      );
-
-
-
-      if (blocking) {
-        await sendCriticalAlert(supabase, userId, {
-          event: "hard_rule_block",
-          summary: `A proposed action was blocked by the hard rule "${matched.rule_text}". Nothing was scored or executed.`,
-          decisionId: (logged as { id?: string } | null)?.id ?? null,
-          actionType,
-          provider,
-        });
-      }
-
-
-
+    if (!gate.ok) {
+      const blocked = gate.verdict === "block";
       return json({
-        decision_id: (logged as { id?: string } | null)?.id ?? null,
-        decision: blocking ? "block" : "modify",
-        reason,
-        reasoning: reason,
+        decision_id: gate.decisionId,
+        decision: blocked ? "block" : "modify",
+        reason: gate.reason,
+        reasoning: gate.reason,
         confidence_score: 100,
         confidence_label: "certain",
         threshold: 100,
-        escalated: !blocking,
+        escalated: !blocked,
         action_type: actionType,
         provider,
         risk_tier: "high",
@@ -373,140 +264,26 @@ serve(async (req) => {
         fit_assessment: "n/a",
         alternatives: [],
         deferred: null,
-        rule_enforced: true,
-        hard_rule: { id: matched.id, rule_text: matched.rule_text, effect: matched.effect },
+        kill_switch: gate.killSwitch,
+        spend_cap: gate.spend,
+        rule_enforced: gate.source === "hard_rule",
+        hard_rule: gate.hardRule,
+        circuit_breaker: gate.circuitBreaker,
+        safety_scan: gate.safety.matched ? gate.safety : null,
+        approval_id: gate.approvalId,
+        gate_source: gate.source,
+        shadow_rules: gate.shadowRules,
         model_judged: false,
         executed: false,
         execution: null,
-        execution_note: "No model scoring ran — a hard rule decided this outright.",
+        execution_note: blocked
+          ? `Nothing was assessed or run — stopped by the control gate (${gate.source}).`
+          : `Nothing ran — this is queued for your approval (${gate.source}).`,
       });
     }
+    const shadowMatches = gate.shadowRules;
     // -------------------------------------------------------------------------
 
-    // ---- CIRCUIT BREAKER (per action_type, automatic) -----------------------
-    // Tracks the last 10 attempts for this action_type. If more than half of
-    // them failed (blocked or errored), the breaker trips and every further
-    // attempt of that action_type is auto-blocked until manually reset.
-    // Separate from the kill switch: automatic, and scoped to one action_type.
-    const BREAKER_WINDOW = 10;
-    const BREAKER_MIN_ATTEMPTS = 4;
-    const BREAKER_FAIL_RATE = 0.5;
-
-    type Breaker = {
-      id: string; recent_outcomes: string[]; tripped: boolean;
-      trip_count: number; tripped_at: string | null; failure_rate: number; last_reason: string | null;
-    };
-    const { data: breakerRow } = await supabase
-      .from("circuit_breakers")
-      .select("id, recent_outcomes, tripped, trip_count, tripped_at, failure_rate, last_reason")
-      .eq("user_id", userId)
-      .eq("action_type", actionType)
-      .maybeSingle();
-    const breaker = (breakerRow as Breaker | null) ?? null;
-
-    if (breaker?.tripped) {
-      const reason =
-        `Blocked — the circuit breaker for "${actionType}" is tripped. ` +
-        `${Math.round((breaker.failure_rate ?? 0) * 100)}% of the last ${BREAKER_WINDOW} attempts failed or were blocked, ` +
-        `so this action type is paused until you reset it.`;
-      const { data: logged } = await supabase.from("agent_decisions").insert({
-        user_id: userId,
-        agent_id: agentId,
-        agent_run_id: runId,
-        step_index: stepIndex ?? null,
-        decision: `BLOCK ${actionType} (${provider})`,
-        reasoning: reason,
-        alternatives_considered: [],
-        confidence_score: 100,
-        source: "circuit_breaker",
-        escalated: false,
-      }).select("id").maybeSingle();
-
-      return json({
-        decision_id: (logged as { id?: string } | null)?.id ?? null,
-        decision: "block",
-        reason,
-        reasoning: reason,
-        confidence_score: 100,
-        confidence_label: "certain",
-        threshold: 100,
-        escalated: false,
-        action_type: actionType,
-        provider,
-        risk_tier: "high",
-        intent_match: "n/a",
-        fit_assessment: "n/a",
-        alternatives: [],
-        deferred: null,
-        circuit_breaker: {
-          tripped: true,
-          action_type: actionType,
-          failure_rate: breaker.failure_rate,
-          tripped_at: breaker.tripped_at,
-          trip_count: breaker.trip_count,
-          reset_hint: "Reset it in the Control System breaker panel to allow this action type again.",
-        },
-        model_judged: false,
-        executed: false,
-        execution: null,
-        execution_note: "No model scoring or execution ran — the circuit breaker for this action type is open.",
-      });
-    }
-
-    // Records this attempt into the rolling window and trips if needed.
-    const recordBreakerAttempt = async (failed: boolean, why: string) => {
-      try {
-        const window = [...(breaker?.recent_outcomes ?? []), failed ? "fail" : "ok"].slice(-BREAKER_WINDOW);
-        const failures = window.filter((o) => o === "fail").length;
-        const rate = window.length ? failures / window.length : 0;
-        const shouldTrip = window.length >= BREAKER_MIN_ATTEMPTS && rate > BREAKER_FAIL_RATE;
-        const payload = {
-          user_id: userId,
-          action_type: actionType,
-          recent_outcomes: window,
-          attempts: window.length,
-          failures,
-          failure_rate: Number(rate.toFixed(3)),
-          tripped: shouldTrip,
-          tripped_at: shouldTrip ? new Date().toISOString() : null,
-          trip_count: (breaker?.trip_count ?? 0) + (shouldTrip ? 1 : 0),
-          last_reason: failed ? why.slice(0, 400) : null,
-          last_attempt_at: new Date().toISOString(),
-        };
-        await supabase.from("circuit_breakers").upsert(payload, { onConflict: "user_id,action_type" });
-
-        if (shouldTrip) {
-          const tripReason =
-            `Circuit breaker tripped for "${actionType}" — ${failures} of the last ${window.length} attempts ` +
-            `failed or were blocked (${Math.round(rate * 100)}%). This action type is now auto-blocked until reset. ` +
-            `Last failure: ${why.slice(0, 200)}`;
-          const { data: tripLog } = await supabase.from("agent_decisions").insert({
-            user_id: userId,
-            agent_id: agentId,
-            agent_run_id: runId,
-            decision: `CIRCUIT_BREAKER_TRIPPED ${actionType} (${provider})`,
-            reasoning: tripReason,
-            alternatives_considered: [],
-            confidence_score: 100,
-            source: "circuit_breaker_trip",
-            escalated: true,
-          }).select("id").maybeSingle();
-
-          // Only alert on a fresh trip, not on every attempt while already open.
-          if (!breaker?.tripped) {
-            await sendCriticalAlert(supabase, userId, {
-              event: "circuit_breaker_trip",
-              summary: tripReason,
-              decisionId: (tripLog as { id?: string } | null)?.id ?? null,
-              actionType,
-              provider,
-            });
-          }
-        }
-
-      } catch (_) { /* breaker bookkeeping must never break the response */ }
-    };
-    // -------------------------------------------------------------------------
 
 
 
@@ -658,6 +435,26 @@ serve(async (req) => {
 
     await recordShadowHits(decisionId ?? null, decision);
 
+    // Escalated or blocked verdicts get a real human queue entry, not just an alert.
+    let approvalId: string | null = null;
+    if (decision === "modify" || decision === "block" || escalated) {
+      approvalId = await createPendingApproval(supabase, {
+        userId,
+        decisionId: decisionId ?? null,
+        agentId,
+        runId,
+        actionType,
+        provider,
+        description,
+        params,
+        reason,
+        riskTier,
+        origin: "control-engine",
+      });
+    }
+
+
+
 
     // ---- Real execution on ALLOW -----------------------------------------
     // An "allow" is only meaningful if the action can actually be carried out.
@@ -773,12 +570,10 @@ serve(async (req) => {
     return json({
 
       decision_id: decisionId,
-      shadow_rules: shadowMatches.map((r) => ({
-        id: r.id,
-        rule_text: r.rule_text,
-        would_have: r.effect === "always_block" ? "block" : "require_approval",
-        enforced: false,
-      })),
+      approval_id: approvalId,
+      safety_scan: gate.safety.matched ? gate.safety : null,
+      shadow_rules: shadowMatches,
+
 
       decision,
       reason,
