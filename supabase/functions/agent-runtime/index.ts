@@ -1343,6 +1343,63 @@ Rules:
           }
         }
 
+        // ---- UNIFIED CONTROL GATE ------------------------------------------
+        // Identical enforcement to the Control System chat: spend cap, kill
+        // switch, hard rules (live + shadow), circuit breaker and the
+        // deterministic safety scanner — applied to REAL autonomous actions.
+        let gateAttempt: ((failed: boolean, why: string) => Promise<unknown>) | null = null;
+        if (ACTION_CAPPED_KINDS.has(tool.kind)) {
+          const gate = await runControlGate(supabase, {
+            userId,
+            actionType: tool.kind,
+            provider: providerForTool(tool.kind, input),
+            description: `Agent "${tool.name}" step ${steps} during an autonomous run.`,
+            params: input,
+            agentId,
+            runId,
+            stepIndex: steps,
+            origin: "agent-runtime",
+          });
+          gateAttempt = gate.recordAttempt;
+          if (gate.shadowRules.length) {
+            await logEvent("shadow_rule_hit", { tool: tool.name, kind: tool.kind, rules: gate.shadowRules });
+          }
+          if (!gate.ok) {
+            await gate.recordShadowHits(gate.decisionId, gate.verdict);
+            const msg = gate.reason ?? "Stopped by the control gate.";
+            await logEvent("control_gate_blocked", {
+              tool: tool.name,
+              kind: tool.kind,
+              verdict: gate.verdict,
+              source: gate.source,
+              decision_id: gate.decisionId,
+              approval_id: gate.approvalId,
+              safety_scan: gate.safety.matched ? gate.safety : null,
+              humanMessage: msg,
+              message: msg,
+            });
+            await logEvent("tool_result", {
+              tool: tool.name,
+              ok: false,
+              skipped: true,
+              summary: msg,
+              humanMessage: msg,
+              category: gate.source ?? "control_gate",
+            });
+            messages.push({
+              role: "user",
+              content: `"${tool.name}" was NOT run and had no real effect. ${msg}\n${
+                gate.verdict === "require_approval"
+                  ? "It is now waiting in the approval queue for a human. Do not retry it this run."
+                  : "Do not retry it and do not describe its outcome as if it happened."
+              } Continue with work that doesn't need it, or finish and state this plainly.`,
+            });
+            continue;
+          }
+        }
+
+
+
         // Daily action cap gate — blocks verified action executors once used>=cap for today (UTC).
         if (ACTION_CAPPED_KINDS.has(tool.kind) && dailyActionCap > 0) {
           if (!actionCapState.blocked) {
