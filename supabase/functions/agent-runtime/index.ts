@@ -2614,7 +2614,16 @@ Rules:
           correct: correctToolInput,
         });
 
+        // Feed the real result back into the shared circuit breaker.
+        if (gateAttempt) {
+          await gateAttempt(
+            !outcome.ok,
+            outcome.ok ? "ok" : `execution failed: ${outcome.failure?.technical ?? "unknown error"}`,
+          ).catch(() => null);
+        }
+
         if (outcome.ok && outcome.result) {
+
           const retried = outcome.attempts.length > 1;
           await logEvent("tool_result", {
             tool: tool.name,
