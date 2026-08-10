@@ -241,6 +241,8 @@ serve(async (req) => {
       origin: "control-engine",
     });
     const spendStatus = gate.spend;
+    void spendStatus;
+
     const recordShadowHits = gate.recordShadowHits;
     const recordBreakerAttempt = gate.recordAttempt;
 
