@@ -431,6 +431,26 @@ serve(async (req) => {
 
     await recordShadowHits(decisionId ?? null, decision);
 
+    // Escalated or blocked verdicts get a real human queue entry, not just an alert.
+    let approvalId: string | null = null;
+    if (decision === "modify" || decision === "block" || escalated) {
+      approvalId = await createPendingApproval(supabase, {
+        userId,
+        decisionId: decisionId ?? null,
+        agentId,
+        runId,
+        actionType,
+        provider,
+        description,
+        params,
+        reason,
+        riskTier,
+        origin: "control-engine",
+      });
+    }
+
+
+
 
     // ---- Real execution on ALLOW -----------------------------------------
     // An "allow" is only meaningful if the action can actually be carried out.
