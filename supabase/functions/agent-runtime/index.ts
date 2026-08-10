@@ -12,6 +12,8 @@ import {
   type Corrector,
 } from "../_shared/tool-retry.ts";
 import { PROVIDER_WRITE_KINDS, runProviderWrite } from "../_shared/provider-writes.ts";
+import { runControlGate } from "../_shared/control-gate.ts";
+
 import {
   readConfidence,
   normalizeAlternatives,
