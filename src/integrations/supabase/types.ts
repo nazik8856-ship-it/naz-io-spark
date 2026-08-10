@@ -1289,6 +1289,100 @@ export type Database = {
         }
         Relationships: []
       }
+      pending_approvals: {
+        Row: {
+          action_type: string
+          agent_id: string | null
+          approvals: Json
+          approver_role: string
+          comment: string | null
+          created_at: string
+          decision_id: string | null
+          description: string
+          id: string
+          origin: string
+          params: Json
+          provider: string
+          reason: string
+          requester_id: string | null
+          required_approvals: number
+          resolved_at: string | null
+          resolved_by: string | null
+          risk_tier: string
+          run_id: string | null
+          status: string
+          user_id: string
+        }
+        Insert: {
+          action_type: string
+          agent_id?: string | null
+          approvals?: Json
+          approver_role?: string
+          comment?: string | null
+          created_at?: string
+          decision_id?: string | null
+          description?: string
+          id?: string
+          origin?: string
+          params?: Json
+          provider?: string
+          reason?: string
+          requester_id?: string | null
+          required_approvals?: number
+          resolved_at?: string | null
+          resolved_by?: string | null
+          risk_tier?: string
+          run_id?: string | null
+          status?: string
+          user_id: string
+        }
+        Update: {
+          action_type?: string
+          agent_id?: string | null
+          approvals?: Json
+          approver_role?: string
+          comment?: string | null
+          created_at?: string
+          decision_id?: string | null
+          description?: string
+          id?: string
+          origin?: string
+          params?: Json
+          provider?: string
+          reason?: string
+          requester_id?: string | null
+          required_approvals?: number
+          resolved_at?: string | null
+          resolved_by?: string | null
+          risk_tier?: string
+          run_id?: string | null
+          status?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pending_approvals_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pending_approvals_decision_id_fkey"
+            columns: ["decision_id"]
+            isOneToOne: false
+            referencedRelation: "agent_decisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pending_approvals_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "agent_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           created_at: string
@@ -1357,6 +1451,42 @@ export type Database = {
           prompt?: string | null
           status?: string
           title?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      safety_rules: {
+        Row: {
+          category: string
+          created_at: string
+          enabled: boolean
+          id: string
+          name: string
+          pattern: string
+          severity: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          category?: string
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          name: string
+          pattern: string
+          severity?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          name?: string
+          pattern?: string
+          severity?: string
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
