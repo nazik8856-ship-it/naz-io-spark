@@ -21,6 +21,7 @@ import { runControlGate, createPendingApproval } from "../_shared/control-gate.t
 
 
 import { PROVIDER_WRITE_KINDS, runProviderWrite } from "../_shared/provider-writes.ts";
+import { reversibilityFor, captureUndoState, runUndo } from "../_shared/reversibility.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
