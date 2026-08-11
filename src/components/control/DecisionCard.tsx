@@ -34,6 +34,14 @@ export type ControlDecision = {
     verification?: string | null;
   } | null;
   execution_note?: string | null;
+  reversibility?: {
+    reversible: boolean;
+    undo_kind: string;
+    undo_effect?: string | null;
+    irreversible_reason?: string | null;
+    reversal_id?: string | null;
+    undoable_now?: boolean;
+  } | null;
 };
 
 const STYLES = {
@@ -46,6 +54,35 @@ const STYLES = {
 export default function DecisionCard({ d }: { d: ControlDecision }) {
   const s = STYLES[d.decision] ?? STYLES.modify;
   const { Icon } = s;
+  const rev = d.reversibility ?? null;
+  const [undoState, setUndoState] = useState<"idle" | "running" | "undone" | "failed">("idle");
+  const [undoMsg, setUndoMsg] = useState<string | null>(null);
+
+  const handleUndo = async () => {
+    if (!d.decision_id) return;
+    setUndoState("running");
+    setUndoMsg(null);
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const res = await fetch(`${SUPABASE_FUNCTIONS_URL}/control-engine/undo/${d.decision_id}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: SUPABASE_ANON,
+          Authorization: `Bearer ${sess?.session?.access_token ?? SUPABASE_ANON}`,
+        },
+        body: "{}",
+      });
+      const body = await res.json().catch(() => ({}));
+      const ok = res.ok && body?.ok === true;
+      setUndoState(ok ? "undone" : "failed");
+      setUndoMsg(String(body?.summary || body?.message || (ok ? "Reversed." : "The undo did not complete.")));
+    } catch (e) {
+      setUndoState("failed");
+      setUndoMsg(e instanceof Error ? e.message : "The undo request failed.");
+    }
+  };
+
 
   return (
     <div
