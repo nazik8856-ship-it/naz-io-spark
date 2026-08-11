@@ -14,6 +14,94 @@ export type Database = {
   }
   public: {
     Tables: {
+      action_reversals: {
+        Row: {
+          agent_id: string | null
+          created_at: string
+          decision_id: string | null
+          error: string | null
+          executed_at: string | null
+          id: string
+          irreversible_reason: string | null
+          provider: string | null
+          ref: string | null
+          reversible: boolean
+          run_id: string | null
+          status: string
+          summary: string | null
+          tool: string
+          undo_effect: string | null
+          undo_kind: string
+          undo_payload: Json
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          agent_id?: string | null
+          created_at?: string
+          decision_id?: string | null
+          error?: string | null
+          executed_at?: string | null
+          id?: string
+          irreversible_reason?: string | null
+          provider?: string | null
+          ref?: string | null
+          reversible?: boolean
+          run_id?: string | null
+          status?: string
+          summary?: string | null
+          tool: string
+          undo_effect?: string | null
+          undo_kind?: string
+          undo_payload?: Json
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          agent_id?: string | null
+          created_at?: string
+          decision_id?: string | null
+          error?: string | null
+          executed_at?: string | null
+          id?: string
+          irreversible_reason?: string | null
+          provider?: string | null
+          ref?: string | null
+          reversible?: boolean
+          run_id?: string | null
+          status?: string
+          summary?: string | null
+          tool?: string
+          undo_effect?: string | null
+          undo_kind?: string
+          undo_payload?: Json
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "action_reversals_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "action_reversals_decision_id_fkey"
+            columns: ["decision_id"]
+            isOneToOne: false
+            referencedRelation: "agent_decisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "action_reversals_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "agent_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       agent_artifacts: {
         Row: {
           account_email: string | null
