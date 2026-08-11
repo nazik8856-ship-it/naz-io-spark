@@ -552,6 +552,10 @@ serve(async (req) => {
           `Assessment only — "${actionType}" is real, but it runs inside an agent run (agent-runtime), ` +
           `not from the control engine. Approve it on the agent to actually execute it.`;
       } else {
+        // Capture whatever the compensating action will need BEFORE we write.
+        const undoState = reversibility.reversible
+          ? await captureUndoState(actionType, supabase, userId, agentId || "", params as Record<string, unknown>)
+          : null;
         try {
           const result = await runProviderWrite(actionType, supabase, userId, agentId || "", params as Record<string, unknown>);
           executed = result.ok;
@@ -566,6 +570,37 @@ serve(async (req) => {
           executionNote = result.ok
             ? `Action was really carried out and verified: ${cap.verification || "provider confirmed"}.`
             : `Approved, but the action FAILED when run: ${result.summary}`;
+
+          // Record the reversal handle for anything that really landed.
+          if (result.ok) {
+            const p = params as Record<string, unknown>;
+            const { data: revRow } = await supabase.from("action_reversals").insert({
+              user_id: userId,
+              decision_id: decisionId,
+              agent_id: agentId,
+              run_id: runId,
+              provider,
+              tool: actionType,
+              reversible: reversibility.reversible,
+              undo_kind: reversibility.undo_kind,
+              undo_effect: reversibility.undo_effect || null,
+              irreversible_reason: reversibility.irreversible_reason || null,
+              ref: result.ref ?? null,
+              undo_payload: {
+                ...(undoState || {}),
+                ref: result.ref ?? null,
+                channel: p.channel ?? null,
+                file_key: p.file_key ?? p.file ?? null,
+                node_id: p.node_id ?? null,
+                page_id: p.page_id ?? result.ref ?? null,
+                shop: p.shop ?? null,
+                product_id: p.product_id ?? null,
+              },
+              status: reversibility.reversible ? "available" : "unavailable",
+              summary: result.summary,
+            }).select("id").maybeSingle();
+            reversalId = (revRow as { id?: string } | null)?.id ?? null;
+          }
         } catch (err) {
           executed = false;
           execution = { ok: false, summary: String((err as Error)?.message || err), url: null, ref: null, target: null, verification: null };
