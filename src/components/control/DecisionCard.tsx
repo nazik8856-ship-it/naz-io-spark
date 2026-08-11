@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Check, Pencil, Ban, Clock, ShieldCheck, Zap, ExternalLink, AlertTriangle, Undo2, Lock, Loader2 } from "lucide-react";
-import { supabase, SUPABASE_FUNCTIONS_URL, SUPABASE_ANON_KEY } from "@/integrations/supabase/client";
+import { supabase, SUPABASE_FUNCTIONS_URL, SUPABASE_ANON } from "@/integrations/supabase/client";
 
 export type ControlDecision = {
   decision_id: string | null;
