@@ -13,7 +13,7 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0
 import { readSecret } from "./integration-secrets.ts";
 import { canvaAuthedFetch } from "./canva.ts";
 import { figmaAuthedFetch } from "./figma.ts";
-import { loadProviderIntegration, type WriteResult } from "./provider-writes.ts";
+import { loadProviderIntegration, type WriteResult, type IntegrationRow } from "./provider-writes.ts";
 
 export type UndoKind = "compensating" | "delete" | "restore" | "none";
 
@@ -104,7 +104,7 @@ async function notionToken(admin: SupabaseClient, userId: string, agentId: strin
 }
 
 async function shopifyCtx(admin: SupabaseClient, userId: string, agentId: string, wantedShop?: string) {
-  const row = await loadProviderIntegration(admin, userId, agentId, "Shopify", (r) =>
+  const row = await loadProviderIntegration(admin, userId, agentId, "Shopify", (r: IntegrationRow) =>
     !wantedShop || String((r.metadata as Record<string, unknown> | null)?.shop || "").toLowerCase() === wantedShop.toLowerCase());
   if (!row) return null;
   const creds = await readSecret(admin, row.credentials_secret_id);
