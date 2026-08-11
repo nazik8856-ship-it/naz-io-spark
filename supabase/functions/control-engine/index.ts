@@ -443,7 +443,11 @@ serve(async (req) => {
     const conf = readConfidence(parsed);
     const alternatives = normalizeAlternatives(parsed.alternatives);
     const threshold = thresholdForRisk(riskTier, baseThreshold);
-    const escalated = shouldEscalate(conf.score, threshold);
+    // Blast-radius rule: an action that CANNOT be undone and is high risk
+    // always needs a human, no matter how confident the model is.
+    const reversibility = reversibilityFor(actionType);
+    const irreversibleHighRisk = !reversibility.reversible && riskTier === "high";
+    const escalated = shouldEscalate(conf.score, threshold) || irreversibleHighRisk;
     const modification = String(parsed.modification || "").trim();
     const reasoning = String(parsed.reasoning || "").trim();
 
