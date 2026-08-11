@@ -92,6 +92,10 @@ verify_jwt = true
 [functions.control-engine]
 verify_jwt = true
 
+[functions.control-test-suite]
+verify_jwt = true
+
+
 
 
 
