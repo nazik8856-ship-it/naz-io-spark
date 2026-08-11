@@ -135,6 +135,64 @@ serve(async (req) => {
       return json(res, res.verified === true ? 200 : 409);
     }
 
+    // ---- POST /control-engine/undo/:decision_id -----------------------------
+    // Runs the REAL compensating action for a decision that was carried out,
+    // and only reports success after the reversal is verified on the provider.
+    const undoMatch = url.pathname.match(/\/undo\/([0-9a-fA-F-]{36})\/?$/);
+    if (req.method === "POST" && undoMatch) {
+      const decisionId = undoMatch[1];
+      const { data: rev } = await supabase
+        .from("action_reversals")
+        .select("*")
+        .eq("decision_id", decisionId)
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const row = rev as Record<string, unknown> | null;
+      if (!row) return json({ ok: false, error: "not_found", message: "No reversible action is recorded for this decision." }, 404);
+      if (row.status === "undone") {
+        return json({ ok: true, already_undone: true, status: "undone", summary: row.summary ?? "Already undone." });
+      }
+      if (!row.reversible) {
+        return json({
+          ok: false, error: "irreversible", status: "unavailable",
+          message: String(row.irreversible_reason || "This action cannot be undone."),
+        }, 409);
+      }
+      const result = await runUndo(supabase, userId, String(row.agent_id || ""), {
+        tool: String(row.tool),
+        ref: (row.ref as string | null) ?? null,
+        undo_payload: (row.undo_payload as Record<string, unknown> | null) ?? {},
+      });
+      await supabase.from("action_reversals").update({
+        status: result.ok ? "undone" : "failed",
+        summary: result.summary,
+        error: result.ok ? null : result.summary,
+        executed_at: new Date().toISOString(),
+      }).eq("id", row.id as string);
+
+      // The undo is itself an auditable decision, signed like every other one.
+      await logDecision(supabase, { userId, agentId: (row.agent_id as string) || null, runId: (row.run_id as string) || null }, {
+        decision: `${result.ok ? "UNDO" : "UNDO_FAILED"} ${row.tool} (${row.provider ?? "unknown"})`,
+        reasoning: `Operator requested a reversal of decision ${decisionId}. ${result.summary}`,
+        alternatives: [],
+        score: result.ok ? 100 : 0,
+        stepIndex: null,
+        escalated: false,
+        source: "human",
+      });
+
+      return json({
+        ok: result.ok,
+        status: result.ok ? "undone" : "failed",
+        summary: result.summary,
+        decision_id: decisionId,
+        tool: row.tool,
+      }, result.ok ? 200 : 409);
+    }
+
+
 
     const auditMatch = url.pathname.match(/\/decisions\/([0-9a-fA-F-]{36})\/?$/);
     if (req.method === "GET" && auditMatch) {
