@@ -528,6 +528,7 @@ serve(async (req) => {
     let executed = false;
     let execution: Record<string, unknown> | null = null;
     let executionNote: string | null = null;
+    let reversalId: string | null = null;
 
     if (dryRun) {
       executed = false;
