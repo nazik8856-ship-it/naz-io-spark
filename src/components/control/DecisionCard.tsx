@@ -165,8 +165,47 @@ export default function DecisionCard({ d }: { d: ControlDecision }) {
               <ExternalLink className="h-3 w-3" /> Open result
             </a>
           )}
+
+          {rev && d.executed && !d.dry_run && (
+            <div className="pt-2 border-t border-white/10 space-y-1.5">
+              {rev.reversible ? (
+                <>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleUndo}
+                      disabled={undoState === "running" || undoState === "undone" || !rev.undoable_now}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-white/15 bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-zinc-200 hover:bg-white/10 disabled:opacity-50"
+                    >
+                      {undoState === "running"
+                        ? <Loader2 className="h-3 w-3 animate-spin" />
+                        : <Undo2 className="h-3 w-3" />}
+                      {undoState === "undone" ? "Undone" : undoState === "running" ? "Undoing…" : "Undo this action"}
+                    </button>
+                    <span className="text-[10px] font-mono uppercase tracking-wider text-emerald-400/80">reversible</span>
+                  </div>
+                  {rev.undo_effect && undoState === "idle" && (
+                    <p className="text-[11px] text-zinc-500">Undo {rev.undo_effect}.</p>
+                  )}
+                </>
+              ) : (
+                <div className="space-y-1">
+                  <span className="inline-flex items-center gap-1.5 rounded-md bg-red-500/15 px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider text-red-300">
+                    <Lock className="h-3 w-3" /> irreversible
+                  </span>
+                  {rev.irreversible_reason && (
+                    <p className="text-[11px] text-zinc-500">{rev.irreversible_reason}</p>
+                  )}
+                </div>
+              )}
+              {undoMsg && (
+                <p className={`text-[11px] ${undoState === "undone" ? "text-emerald-400" : "text-red-400"}`}>{undoMsg}</p>
+              )}
+            </div>
+          )}
         </div>
       )}
+
 
       <div className="flex flex-wrap items-center gap-3 border-t border-white/10 pt-3 text-[11px] font-mono text-zinc-400">
         <span className="inline-flex items-center gap-1">
