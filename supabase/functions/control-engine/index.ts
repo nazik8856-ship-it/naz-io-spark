@@ -178,9 +178,9 @@ serve(async (req) => {
         reasoning: `Operator requested a reversal of decision ${decisionId}. ${result.summary}`,
         alternatives: [],
         score: result.ok ? 100 : 0,
-        stepIndex: null,
+        stepIndex: undefined,
         escalated: false,
-        source: "human",
+        source: "human_override",
       });
 
       return json({
