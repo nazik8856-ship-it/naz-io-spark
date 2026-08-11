@@ -21,6 +21,7 @@ import { runControlGate, createPendingApproval } from "../_shared/control-gate.t
 
 
 import { PROVIDER_WRITE_KINDS, runProviderWrite } from "../_shared/provider-writes.ts";
+import { reversibilityFor, captureUndoState, runUndo } from "../_shared/reversibility.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -133,6 +134,64 @@ serve(async (req) => {
       const res = (data ?? {}) as Record<string, unknown>;
       return json(res, res.verified === true ? 200 : 409);
     }
+
+    // ---- POST /control-engine/undo/:decision_id -----------------------------
+    // Runs the REAL compensating action for a decision that was carried out,
+    // and only reports success after the reversal is verified on the provider.
+    const undoMatch = url.pathname.match(/\/undo\/([0-9a-fA-F-]{36})\/?$/);
+    if (req.method === "POST" && undoMatch) {
+      const decisionId = undoMatch[1];
+      const { data: rev } = await supabase
+        .from("action_reversals")
+        .select("*")
+        .eq("decision_id", decisionId)
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const row = rev as Record<string, unknown> | null;
+      if (!row) return json({ ok: false, error: "not_found", message: "No reversible action is recorded for this decision." }, 404);
+      if (row.status === "undone") {
+        return json({ ok: true, already_undone: true, status: "undone", summary: row.summary ?? "Already undone." });
+      }
+      if (!row.reversible) {
+        return json({
+          ok: false, error: "irreversible", status: "unavailable",
+          message: String(row.irreversible_reason || "This action cannot be undone."),
+        }, 409);
+      }
+      const result = await runUndo(supabase, userId, String(row.agent_id || ""), {
+        tool: String(row.tool),
+        ref: (row.ref as string | null) ?? null,
+        undo_payload: (row.undo_payload as Record<string, unknown> | null) ?? {},
+      });
+      await supabase.from("action_reversals").update({
+        status: result.ok ? "undone" : "failed",
+        summary: result.summary,
+        error: result.ok ? null : result.summary,
+        executed_at: new Date().toISOString(),
+      }).eq("id", row.id as string);
+
+      // The undo is itself an auditable decision, signed like every other one.
+      await logDecision(supabase, { userId, agentId: (row.agent_id as string) || null, runId: (row.run_id as string) || null }, {
+        decision: `${result.ok ? "UNDO" : "UNDO_FAILED"} ${row.tool} (${row.provider ?? "unknown"})`,
+        reasoning: `Operator requested a reversal of decision ${decisionId}. ${result.summary}`,
+        alternatives: [],
+        score: result.ok ? 100 : 0,
+        stepIndex: undefined,
+        escalated: false,
+        source: "human_override",
+      });
+
+      return json({
+        ok: result.ok,
+        status: result.ok ? "undone" : "failed",
+        summary: result.summary,
+        decision_id: decisionId,
+        tool: row.tool,
+      }, result.ok ? 200 : 409);
+    }
+
 
 
     const auditMatch = url.pathname.match(/\/decisions\/([0-9a-fA-F-]{36})\/?$/);
@@ -384,7 +443,11 @@ serve(async (req) => {
     const conf = readConfidence(parsed);
     const alternatives = normalizeAlternatives(parsed.alternatives);
     const threshold = thresholdForRisk(riskTier, baseThreshold);
-    const escalated = shouldEscalate(conf.score, threshold);
+    // Blast-radius rule: an action that CANNOT be undone and is high risk
+    // always needs a human, no matter how confident the model is.
+    const reversibility = reversibilityFor(actionType);
+    const irreversibleHighRisk = !reversibility.reversible && riskTier === "high";
+    const escalated = shouldEscalate(conf.score, threshold) || irreversibleHighRisk;
     const modification = String(parsed.modification || "").trim();
     const reasoning = String(parsed.reasoning || "").trim();
 
@@ -465,6 +528,7 @@ serve(async (req) => {
     let executed = false;
     let execution: Record<string, unknown> | null = null;
     let executionNote: string | null = null;
+    let reversalId: string | null = null;
 
     if (dryRun) {
       executed = false;
@@ -489,6 +553,10 @@ serve(async (req) => {
           `Assessment only — "${actionType}" is real, but it runs inside an agent run (agent-runtime), ` +
           `not from the control engine. Approve it on the agent to actually execute it.`;
       } else {
+        // Capture whatever the compensating action will need BEFORE we write.
+        const undoState = reversibility.reversible
+          ? await captureUndoState(actionType, supabase, userId, agentId || "", params as Record<string, unknown>)
+          : null;
         try {
           const result = await runProviderWrite(actionType, supabase, userId, agentId || "", params as Record<string, unknown>);
           executed = result.ok;
@@ -503,6 +571,37 @@ serve(async (req) => {
           executionNote = result.ok
             ? `Action was really carried out and verified: ${cap.verification || "provider confirmed"}.`
             : `Approved, but the action FAILED when run: ${result.summary}`;
+
+          // Record the reversal handle for anything that really landed.
+          if (result.ok) {
+            const p = params as Record<string, unknown>;
+            const { data: revRow } = await supabase.from("action_reversals").insert({
+              user_id: userId,
+              decision_id: decisionId,
+              agent_id: agentId,
+              run_id: runId,
+              provider,
+              tool: actionType,
+              reversible: reversibility.reversible,
+              undo_kind: reversibility.undo_kind,
+              undo_effect: reversibility.undo_effect || null,
+              irreversible_reason: reversibility.irreversible_reason || null,
+              ref: result.ref ?? null,
+              undo_payload: {
+                ...(undoState || {}),
+                ref: result.ref ?? null,
+                channel: p.channel ?? null,
+                file_key: p.file_key ?? p.file ?? null,
+                node_id: p.node_id ?? null,
+                page_id: p.page_id ?? result.ref ?? null,
+                shop: p.shop ?? null,
+                product_id: p.product_id ?? null,
+              },
+              status: reversibility.reversible ? "available" : "unavailable",
+              summary: result.summary,
+            }).select("id").maybeSingle();
+            reversalId = (revRow as { id?: string } | null)?.id ?? null;
+          }
         } catch (err) {
           executed = false;
           execution = { ok: false, summary: String((err as Error)?.message || err), url: null, ref: null, target: null, verification: null };
@@ -595,6 +694,14 @@ serve(async (req) => {
       execution,
       execution_note: executionNote,
       circuit_breaker: breakerState,
+      reversibility: {
+        reversible: reversibility.reversible,
+        undo_kind: reversibility.undo_kind,
+        undo_effect: reversibility.undo_effect || null,
+        irreversible_reason: reversibility.irreversible_reason || null,
+        reversal_id: reversalId,
+        undoable_now: Boolean(reversalId) && reversibility.reversible && executed && !dryRun,
+      },
       spend_cap: spendAfter,
 
 

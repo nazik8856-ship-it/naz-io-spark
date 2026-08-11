@@ -23,7 +23,7 @@ export type WriteResult = {
   target?: string | null;
 };
 
-type IntegrationRow = {
+export type IntegrationRow = {
   id: string;
   credentials_secret_id: string | null;
   metadata: Record<string, unknown> | null;

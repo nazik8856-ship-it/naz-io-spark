@@ -1,4 +1,6 @@
-import { Check, Pencil, Ban, Clock, ShieldCheck, Zap, ExternalLink, AlertTriangle } from "lucide-react";
+import { useState } from "react";
+import { Check, Pencil, Ban, Clock, ShieldCheck, Zap, ExternalLink, AlertTriangle, Undo2, Lock, Loader2 } from "lucide-react";
+import { supabase, SUPABASE_FUNCTIONS_URL, SUPABASE_ANON } from "@/integrations/supabase/client";
 
 export type ControlDecision = {
   decision_id: string | null;
@@ -32,6 +34,14 @@ export type ControlDecision = {
     verification?: string | null;
   } | null;
   execution_note?: string | null;
+  reversibility?: {
+    reversible: boolean;
+    undo_kind: string;
+    undo_effect?: string | null;
+    irreversible_reason?: string | null;
+    reversal_id?: string | null;
+    undoable_now?: boolean;
+  } | null;
 };
 
 const STYLES = {
@@ -44,6 +54,35 @@ const STYLES = {
 export default function DecisionCard({ d }: { d: ControlDecision }) {
   const s = STYLES[d.decision] ?? STYLES.modify;
   const { Icon } = s;
+  const rev = d.reversibility ?? null;
+  const [undoState, setUndoState] = useState<"idle" | "running" | "undone" | "failed">("idle");
+  const [undoMsg, setUndoMsg] = useState<string | null>(null);
+
+  const handleUndo = async () => {
+    if (!d.decision_id) return;
+    setUndoState("running");
+    setUndoMsg(null);
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const res = await fetch(`${SUPABASE_FUNCTIONS_URL}/control-engine/undo/${d.decision_id}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: SUPABASE_ANON,
+          Authorization: `Bearer ${sess?.session?.access_token ?? SUPABASE_ANON}`,
+        },
+        body: "{}",
+      });
+      const body = await res.json().catch(() => ({}));
+      const ok = res.ok && body?.ok === true;
+      setUndoState(ok ? "undone" : "failed");
+      setUndoMsg(String(body?.summary || body?.message || (ok ? "Reversed." : "The undo did not complete.")));
+    } catch (e) {
+      setUndoState("failed");
+      setUndoMsg(e instanceof Error ? e.message : "The undo request failed.");
+    }
+  };
+
 
   return (
     <div
@@ -126,8 +165,47 @@ export default function DecisionCard({ d }: { d: ControlDecision }) {
               <ExternalLink className="h-3 w-3" /> Open result
             </a>
           )}
+
+          {rev && d.executed && !d.dry_run && (
+            <div className="pt-2 border-t border-white/10 space-y-1.5">
+              {rev.reversible ? (
+                <>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleUndo}
+                      disabled={undoState === "running" || undoState === "undone" || !rev.undoable_now}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-white/15 bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-zinc-200 hover:bg-white/10 disabled:opacity-50"
+                    >
+                      {undoState === "running"
+                        ? <Loader2 className="h-3 w-3 animate-spin" />
+                        : <Undo2 className="h-3 w-3" />}
+                      {undoState === "undone" ? "Undone" : undoState === "running" ? "Undoing…" : "Undo this action"}
+                    </button>
+                    <span className="text-[10px] font-mono uppercase tracking-wider text-emerald-400/80">reversible</span>
+                  </div>
+                  {rev.undo_effect && undoState === "idle" && (
+                    <p className="text-[11px] text-zinc-500">Undo {rev.undo_effect}.</p>
+                  )}
+                </>
+              ) : (
+                <div className="space-y-1">
+                  <span className="inline-flex items-center gap-1.5 rounded-md bg-red-500/15 px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider text-red-300">
+                    <Lock className="h-3 w-3" /> irreversible
+                  </span>
+                  {rev.irreversible_reason && (
+                    <p className="text-[11px] text-zinc-500">{rev.irreversible_reason}</p>
+                  )}
+                </div>
+              )}
+              {undoMsg && (
+                <p className={`text-[11px] ${undoState === "undone" ? "text-emerald-400" : "text-red-400"}`}>{undoMsg}</p>
+              )}
+            </div>
+          )}
         </div>
       )}
+
 
       <div className="flex flex-wrap items-center gap-3 border-t border-white/10 pt-3 text-[11px] font-mono text-zinc-400">
         <span className="inline-flex items-center gap-1">
