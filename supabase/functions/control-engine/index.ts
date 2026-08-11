@@ -694,6 +694,14 @@ serve(async (req) => {
       execution,
       execution_note: executionNote,
       circuit_breaker: breakerState,
+      reversibility: {
+        reversible: reversibility.reversible,
+        undo_kind: reversibility.undo_kind,
+        undo_effect: reversibility.undo_effect || null,
+        irreversible_reason: reversibility.irreversible_reason || null,
+        reversal_id: reversalId,
+        undoable_now: Boolean(reversalId) && reversibility.reversible && executed && !dryRun,
+      },
       spend_cap: spendAfter,
 
 
