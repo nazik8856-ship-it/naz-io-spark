@@ -101,6 +101,8 @@ const App = () => (
                 <Route path="/control-system" element={<ControlSystem />} />
                 <Route path="/control-system/approvals" element={<ControlApprovals />} />
                 <Route path="/control-system/safety-rules" element={<ControlSafetyRules />} />
+                <Route path="/control-system/policy" element={<ControlPolicy />} />
+
 
 
                 {/* OAuth 2.1 consent screen for MCP clients (ChatGPT, Claude, etc.) */}
