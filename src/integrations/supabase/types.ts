@@ -228,6 +228,7 @@ export type Database = {
           id: string
           org_id: string | null
           override_of: string | null
+          policy_version: number | null
           reasoning: string
           signature: string | null
           source: string
@@ -246,6 +247,7 @@ export type Database = {
           id?: string
           org_id?: string | null
           override_of?: string | null
+          policy_version?: number | null
           reasoning?: string
           signature?: string | null
           source?: string
@@ -264,6 +266,7 @@ export type Database = {
           id?: string
           org_id?: string | null
           override_of?: string | null
+          policy_version?: number | null
           reasoning?: string
           signature?: string | null
           source?: string
@@ -1471,6 +1474,42 @@ export type Database = {
           },
         ]
       }
+      policy_versions: {
+        Row: {
+          activated_at: string | null
+          created_at: string
+          id: string
+          notes: string | null
+          snapshot: Json
+          status: string
+          updated_at: string
+          user_id: string
+          version: number
+        }
+        Insert: {
+          activated_at?: string | null
+          created_at?: string
+          id?: string
+          notes?: string | null
+          snapshot?: Json
+          status?: string
+          updated_at?: string
+          user_id: string
+          version: number
+        }
+        Update: {
+          activated_at?: string | null
+          created_at?: string
+          id?: string
+          notes?: string | null
+          snapshot?: Json
+          status?: string
+          updated_at?: string
+          user_id?: string
+          version?: number
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string
@@ -1818,6 +1857,7 @@ export type Database = {
     }
     Functions: {
       add_credits: { Args: { amount: number }; Returns: number }
+      build_policy_snapshot: { Args: { _user_id: string }; Returns: Json }
       consume_canva_oauth_transaction: {
         Args: { _state: string }
         Returns: {
@@ -1877,6 +1917,14 @@ export type Database = {
       enqueue_email: {
         Args: { payload: Json; queue_name: string }
         Returns: number
+      }
+      get_active_policy_version: {
+        Args: { _user_id: string }
+        Returns: {
+          id: string
+          snapshot: Json
+          version: number
+        }[]
       }
       get_business_context: { Args: { _user_id: string }; Returns: Json }
       has_role: {
