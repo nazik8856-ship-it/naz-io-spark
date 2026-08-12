@@ -54,11 +54,15 @@ export type GateResult = {
   hardRule: { id: string; rule_text: string; effect: string } | null;
   circuitBreaker: Record<string, unknown> | null;
   killSwitch: boolean;
+  /** The policy version whose snapshot judged this action. */
+  policyVersion: number | null;
+  policyVersionId: string | null;
   /** Records what matching shadow rules WOULD have done, against the real verdict. */
   recordShadowHits: (decisionId: string | null, actualDecision: string) => Promise<void>;
   /** Feeds an attempt into the rolling circuit-breaker window. */
   recordAttempt: (failed: boolean, why: string) => Promise<Record<string, unknown> | null>;
 };
+
 
 const globToRe = (p: string) =>
   new RegExp(
