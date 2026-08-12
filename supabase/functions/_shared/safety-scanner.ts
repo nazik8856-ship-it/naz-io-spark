@@ -197,7 +197,15 @@ export async function scanAction(
   userId: string,
   params: unknown,
   description: string,
+  /**
+   * Optional pinned rules (from an active policy version snapshot). When given,
+   * the live safety_rules table is NOT read — the snapshot is the source of truth.
+   */
+  pinnedRules?: SafetyRule[] | null,
 ): Promise<SafetyScan> {
-  const rules = await loadSafetyRules(admin, userId);
+  const rules = pinnedRules
+    ? [...BUILTIN_SAFETY_RULES, ...pinnedRules.filter((r) => r.enabled !== false)]
+    : await loadSafetyRules(admin, userId);
   return scanWithRules(rules, params, description);
 }
+
