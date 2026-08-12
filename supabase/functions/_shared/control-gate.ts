@@ -14,7 +14,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { clearExpiredSpendKillSwitch, getSpendStatus, type SpendStatus } from "./spend-guard.ts";
 import { sendCriticalAlert } from "./critical-alerts.ts";
-import { scanAction, type SafetyScan } from "./safety-scanner.ts";
+import { scanAction, type SafetyRule, type SafetyScan } from "./safety-scanner.ts";
 
 export const BREAKER_WINDOW = 10;
 export const BREAKER_MIN_ATTEMPTS = 4;
@@ -299,6 +299,8 @@ export async function runControlGate(
     hardRule: null as GateResult["hardRule"],
     circuitBreaker: null as Record<string, unknown> | null,
     killSwitch: false,
+    policyVersion,
+    policyVersionId,
     approvalId: null as string | null,
     safety: emptyScan,
   };
@@ -380,7 +382,10 @@ export async function runControlGate(
   }
 
   // ---- 5: deterministic safety scanner (runs before any model judgement) ----
-  const safety = await scanAction(admin, userId, ctx.params, ctx.description);
+  const pinnedSafetyRules = Array.isArray(snapshot.safety_rules)
+    ? (snapshot.safety_rules as SafetyRule[])
+    : null;
+  const safety = await scanAction(admin, userId, ctx.params, ctx.description, pinnedSafetyRules);
   if (safety.matched && safety.severity) {
     const blocking = safety.severity === "block";
     const reason = safety.summary!;
