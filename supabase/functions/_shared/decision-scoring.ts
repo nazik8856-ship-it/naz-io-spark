@@ -53,6 +53,8 @@ export const logDecision = async (
     stepIndex?: number;
     escalated?: boolean;
     source?: string;
+    /** The policy version whose snapshot judged this decision. */
+    policyVersion?: number | null;
   },
 ): Promise<string | null> => {
   try {
@@ -67,6 +69,7 @@ export const logDecision = async (
       confidence_score: Math.max(0, Math.min(100, Math.round(d.score))),
       source: d.source ?? "model",
       escalated: d.escalated ?? false,
+      policy_version: d.policyVersion ?? null,
     }).select("id").single();
     return (data as { id?: string } | null)?.id ?? null;
   } catch {

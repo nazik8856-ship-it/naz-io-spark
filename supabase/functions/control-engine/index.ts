@@ -494,6 +494,7 @@ serve(async (req) => {
       stepIndex,
       escalated,
       source: "model",
+      policyVersion: gate.policyVersion,
     });
 
     await recordShadowHits(decisionId ?? null, decision);
