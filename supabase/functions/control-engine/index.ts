@@ -247,9 +247,56 @@ serve(async (req) => {
 
     if (req.method === "GET") return json({ error: "Unsupported GET path" }, 404);
 
-
-
     const body = await req.json().catch(() => ({}));
+
+    // ---- POST /control-engine/replay ----------------------------------------
+    // Re-evaluates the 30 control scenarios against a DRAFT policy version and
+    // diffs them against the active version. Deterministic layers only (hard
+    // rules + safety scanner): no model calls, no writes, no provider traffic.
+    if (url.pathname.replace(/\/$/, "").endsWith("/replay")) {
+      const draftRef = {
+        id: typeof body?.policy_version_id === "string" ? body.policy_version_id : undefined,
+        version: typeof body?.version === "number" ? body.version : undefined,
+      };
+      if (!draftRef.id && typeof draftRef.version !== "number") {
+        return json({ error: "Provide policy_version_id or version of the draft to replay." }, 400);
+      }
+      const report = await replayDraft(supabase, userId, draftRef);
+      if ("error" in report) return json({ error: report.error }, report.status);
+      return json(report);
+    }
+
+    // ---- POST /control-engine/policy/:id/activate ---------------------------
+    // Activation is gated on the replay: a draft that regresses any scenario
+    // the active policy currently passes cannot go live.
+    const activateMatch = url.pathname.match(/\/policy\/([0-9a-fA-F-]{36})\/activate\/?$/);
+    if (activateMatch) {
+      const draftId = activateMatch[1];
+      const report = await replayDraft(supabase, userId, { id: draftId });
+      if ("error" in report) return json({ error: report.error }, report.status);
+      if (!report.safe_to_activate) {
+        return json({
+          ok: false,
+          activated: false,
+          error: `Activation blocked — this draft regresses ${report.regressions.length} scenario(s) the active policy passes.`,
+          replay: report,
+        }, 409);
+      }
+      const nowIso = new Date().toISOString();
+      if (report.active_version.id && report.active_version.id !== draftId) {
+        await supabase.from("policy_versions")
+          .update({ status: "archived" })
+          .eq("id", report.active_version.id)
+          .eq("user_id", userId);
+      }
+      const { error: actErr } = await supabase.from("policy_versions")
+        .update({ status: "active", activated_at: nowIso })
+        .eq("id", draftId)
+        .eq("user_id", userId);
+      if (actErr) return json({ ok: false, activated: false, error: actErr.message }, 500);
+      return json({ ok: true, activated: true, policy_version: report.draft_version.version, replay: report });
+    }
+
     const actionType = String(body?.action_type || "").trim();
     const provider = String(body?.provider || "unknown").trim() || "unknown";
     const description = String(body?.description || "").trim();
