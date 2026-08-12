@@ -14,7 +14,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { clearExpiredSpendKillSwitch, getSpendStatus, type SpendStatus } from "./spend-guard.ts";
 import { sendCriticalAlert } from "./critical-alerts.ts";
-import { scanAction, type SafetyScan } from "./safety-scanner.ts";
+import { scanAction, type SafetyRule, type SafetyScan } from "./safety-scanner.ts";
 
 export const BREAKER_WINDOW = 10;
 export const BREAKER_MIN_ATTEMPTS = 4;
@@ -54,11 +54,15 @@ export type GateResult = {
   hardRule: { id: string; rule_text: string; effect: string } | null;
   circuitBreaker: Record<string, unknown> | null;
   killSwitch: boolean;
+  /** The policy version whose snapshot judged this action. */
+  policyVersion: number | null;
+  policyVersionId: string | null;
   /** Records what matching shadow rules WOULD have done, against the real verdict. */
   recordShadowHits: (decisionId: string | null, actualDecision: string) => Promise<void>;
   /** Feeds an attempt into the rolling circuit-breaker window. */
   recordAttempt: (failed: boolean, why: string) => Promise<Record<string, unknown> | null>;
 };
+
 
 const globToRe = (p: string) =>
   new RegExp(
@@ -74,6 +78,16 @@ type HardRule = {
   provider: string | null;
   shadow_mode?: boolean;
 };
+
+/** Shape of a policy_versions.snapshot row (built by build_policy_snapshot). */
+type PolicySnapshot = {
+  hard_rules?: unknown;
+  safety_rules?: unknown;
+  thresholds?: unknown;
+  spend_cap?: unknown;
+  captured_at?: string;
+};
+
 
 /** Queue a human approval for an escalated action. Never throws. */
 export async function createPendingApproval(
@@ -127,6 +141,24 @@ export async function runControlGate(
   const runId = ctx.runId ?? null;
   const stepIndex = typeof ctx.stepIndex === "number" ? ctx.stepIndex : null;
 
+  // ---- 0: pin the policy version that judges this action --------------------
+  // The gate reads the ACTIVE policy version's snapshot, not the live tables, so
+  // every decision is judged by an exact, auditable policy artifact.
+  let policyVersion: number | null = null;
+  let policyVersionId: string | null = null;
+  let snapshot: PolicySnapshot = {};
+  try {
+    const { data: pv } = await admin.rpc("get_active_policy_version", { _user_id: userId });
+    const row = (Array.isArray(pv) ? pv[0] : pv) as
+      | { id?: string; version?: number; snapshot?: PolicySnapshot }
+      | null;
+    if (row) {
+      policyVersion = typeof row.version === "number" ? row.version : null;
+      policyVersionId = row.id ?? null;
+      snapshot = (row.snapshot ?? {}) as PolicySnapshot;
+    }
+  } catch { /* fall back to live tables below */ }
+
   const logStop = async (decision: string, reasoning: string, source: string, escalated: boolean) => {
     try {
       const { data } = await admin.from("agent_decisions").insert({
@@ -140,6 +172,7 @@ export async function runControlGate(
         confidence_score: 100,
         source,
         escalated,
+        policy_version: policyVersion,
       }).select("id").maybeSingle();
       return (data as { id?: string } | null)?.id ?? null;
     } catch {
@@ -154,13 +187,17 @@ export async function runControlGate(
     .from("profiles").select("kill_switch").eq("id", userId).maybeSingle();
   const killed = (killRow as { kill_switch?: boolean } | null)?.kill_switch === true;
 
-  // ---- hard rules (loaded up front so shadow hits log on every path) --------
-  const { data: hardRules } = await admin
-    .from("hard_rules")
-    .select("id, rule_text, action_type_pattern, effect, provider, enabled, shadow_mode")
-    .eq("user_id", userId)
-    .eq("enabled", true);
-  const allRules = (hardRules ?? []) as HardRule[];
+  // ---- hard rules (from the pinned snapshot; live tables only as fallback) ---
+  let snapshotRules = Array.isArray(snapshot.hard_rules) ? (snapshot.hard_rules as HardRule[]) : null;
+  if (!snapshotRules) {
+    const { data: hardRules } = await admin
+      .from("hard_rules")
+      .select("id, rule_text, action_type_pattern, effect, provider, enabled, shadow_mode")
+      .eq("user_id", userId);
+    snapshotRules = (hardRules ?? []) as HardRule[];
+  }
+  const allRules = snapshotRules.filter((r) => (r as { enabled?: boolean }).enabled !== false);
+
   const ruleMatches = (r: HardRule) => {
     if (r.provider && r.provider.toLowerCase() !== provider.toLowerCase()) return false;
     try { return globToRe(r.action_type_pattern || "*").test(actionType); } catch { return false; }
@@ -262,6 +299,8 @@ export async function runControlGate(
     hardRule: null as GateResult["hardRule"],
     circuitBreaker: null as Record<string, unknown> | null,
     killSwitch: false,
+    policyVersion,
+    policyVersionId,
     approvalId: null as string | null,
     safety: emptyScan,
   };
@@ -343,7 +382,10 @@ export async function runControlGate(
   }
 
   // ---- 5: deterministic safety scanner (runs before any model judgement) ----
-  const safety = await scanAction(admin, userId, ctx.params, ctx.description);
+  const pinnedSafetyRules = Array.isArray(snapshot.safety_rules)
+    ? (snapshot.safety_rules as SafetyRule[])
+    : null;
+  const safety = await scanAction(admin, userId, ctx.params, ctx.description, pinnedSafetyRules);
   if (safety.matched && safety.severity) {
     const blocking = safety.severity === "block";
     const reason = safety.summary!;
