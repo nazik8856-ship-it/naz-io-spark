@@ -50,6 +50,8 @@ const Insights = lazyWithReload(() => import("./pages/Insights"));
 const ControlSystem = lazyWithReload(() => import("./pages/ControlSystem"));
 const ControlApprovals = lazyWithReload(() => import("./pages/ControlApprovals"));
 const ControlSafetyRules = lazyWithReload(() => import("./pages/ControlSafetyRules"));
+const ControlPolicy = lazyWithReload(() => import("./pages/ControlPolicy"));
+
 
 
 const queryClient = new QueryClient();
