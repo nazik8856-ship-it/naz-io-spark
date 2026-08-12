@@ -79,6 +79,16 @@ type HardRule = {
   shadow_mode?: boolean;
 };
 
+/** Shape of a policy_versions.snapshot row (built by build_policy_snapshot). */
+type PolicySnapshot = {
+  hard_rules?: unknown;
+  safety_rules?: unknown;
+  thresholds?: unknown;
+  spend_cap?: unknown;
+  captured_at?: string;
+};
+
+
 /** Queue a human approval for an escalated action. Never throws. */
 export async function createPendingApproval(
   admin: SupabaseClient,
