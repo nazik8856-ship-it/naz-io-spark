@@ -59,7 +59,7 @@ export default function ControlPolicy() {
 
   useEffect(() => { load(); }, [load]);
 
-  const call = async (path: string) => {
+  const call = async (path: string, payload: Record<string, unknown> = {}) => {
     const { data: sess } = await supabase.auth.getSession();
     const res = await fetch(`${SUPABASE_FUNCTIONS_URL}/control-engine${path}`, {
       method: "POST",
@@ -68,7 +68,7 @@ export default function ControlPolicy() {
         apikey: SUPABASE_ANON,
         Authorization: `Bearer ${sess?.session?.access_token ?? SUPABASE_ANON}`,
       },
-      body: "{}",
+      body: JSON.stringify(payload),
     });
     return { ok: res.ok, body: await res.json().catch(() => ({})) as Record<string, unknown> };
   };
@@ -76,7 +76,7 @@ export default function ControlPolicy() {
   const runReplay = async (v: PolicyVersion) => {
     setBusy(v.id);
     setReplayFor(v.id);
-    const { ok, body } = await call(`/replay?policy_version_id=${v.id}`);
+    const { ok, body } = await call("/replay", { policy_version_id: v.id });
     setBusy(null);
     if (!ok) {
       setReplay(null);
