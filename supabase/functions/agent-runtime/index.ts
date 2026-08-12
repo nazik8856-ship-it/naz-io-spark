@@ -484,6 +484,15 @@ serve(async (req) => {
     // Every branch point (which tool, which strategy, which source) is written
     // to agent_decisions with the model's own reasoning, the alternatives it
     // weighed and a 0-100 self-reported confidence score.
+    // Pin the active policy version once per run so every decision this run
+    // writes records exactly which policy artifact judged it.
+    let activePolicyVersion: number | null = null;
+    try {
+      const { data: pv } = await supabase.rpc("get_active_policy_version", { _user_id: userId });
+      const pvRow = (Array.isArray(pv) ? pv[0] : pv) as { version?: number } | null;
+      activePolicyVersion = typeof pvRow?.version === "number" ? pvRow.version : null;
+    } catch { /* decisions still log without a pinned version */ }
+
     const logDecision = (d: {
       decision: string;
       reasoning: string;
@@ -492,7 +501,7 @@ serve(async (req) => {
       stepIndex?: number;
       escalated?: boolean;
     }): Promise<string | null> =>
-      logDecisionRow(supabase, { userId, agentId, runId }, d);
+      logDecisionRow(supabase, { userId, agentId, runId }, { ...d, policyVersion: activePolicyVersion });
 
 
 
