@@ -80,6 +80,12 @@ export default function ControlSystem() {
             Approvals
           </button>
           <button
+            onClick={() => navigate("/control-system/pending")}
+            className="rounded border border-white/15 bg-white/5 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-zinc-300 hover:bg-white/10"
+          >
+            Pending decisions
+          </button>
+          <button
             onClick={() => navigate("/control-system/safety-rules")}
             className="rounded border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-cyan-300 hover:bg-cyan-500/20"
           >

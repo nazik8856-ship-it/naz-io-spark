@@ -51,6 +51,7 @@ const ControlSystem = lazyWithReload(() => import("./pages/ControlSystem"));
 const ControlApprovals = lazyWithReload(() => import("./pages/ControlApprovals"));
 const ControlSafetyRules = lazyWithReload(() => import("./pages/ControlSafetyRules"));
 const ControlPolicy = lazyWithReload(() => import("./pages/ControlPolicy"));
+const ControlPendingDecisions = lazyWithReload(() => import("./pages/ControlPendingDecisions"));
 
 
 
@@ -102,6 +103,7 @@ const App = () => (
                 <Route path="/control-system/approvals" element={<ControlApprovals />} />
                 <Route path="/control-system/safety-rules" element={<ControlSafetyRules />} />
                 <Route path="/control-system/policy" element={<ControlPolicy />} />
+                <Route path="/control-system/pending" element={<ControlPendingDecisions />} />
 
 
 
