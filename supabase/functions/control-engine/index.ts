@@ -11,6 +11,10 @@ import {
   normalizeAlternatives,
   logDecision,
   thresholdForRisk,
+  loadStrictness,
+  irreversibleNeedsHuman,
+  fitDefers,
+  STRICTNESS_PRESETS,
   shouldEscalate,
   DEFAULT_CONFIDENCE_THRESHOLD,
 } from "../_shared/decision-scoring.ts";
@@ -408,6 +412,9 @@ serve(async (req) => {
       if (Number.isFinite(t)) baseThreshold = Math.max(0, Math.min(100, Math.round(t)));
     }
 
+    // One org-level dial that scales every tolerance below.
+    const strictness = await loadStrictness(supabase, userId);
+
     // Business context for the FIT check — latest profile for this user.
     const { data: profile } = await supabase
       .from("business_profiles")
@@ -491,11 +498,11 @@ serve(async (req) => {
       ? String(parsed.fit_assessment) : "unclear";
     const conf = readConfidence(parsed);
     const alternatives = normalizeAlternatives(parsed.alternatives);
-    const threshold = thresholdForRisk(riskTier, baseThreshold);
+    const threshold = thresholdForRisk(riskTier, baseThreshold, strictness);
     // Blast-radius rule: an action that CANNOT be undone and is high risk
     // always needs a human, no matter how confident the model is.
     const reversibility = reversibilityFor(actionType);
-    const irreversibleHighRisk = !reversibility.reversible && riskTier === "high";
+    const irreversibleHighRisk = !reversibility.reversible && irreversibleNeedsHuman(riskTier, strictness);
     const escalated = shouldEscalate(conf.score, threshold) || irreversibleHighRisk;
     const modification = String(parsed.modification || "").trim();
     const reasoning = String(parsed.reasoning || "").trim();
@@ -503,9 +510,11 @@ serve(async (req) => {
     // ---- Verdict ----------------------------------------------------------
     let decision: "allow" | "modify" | "block" | "deferred";
     let reason: string;
-    if (fit === "not_a_fit") {
+    if (fitDefers(fit, strictness)) {
       decision = "deferred";
-      reason = "This doesn't serve what your business is working on right now, so it's parked rather than run.";
+      reason = fit === "not_a_fit"
+        ? "This doesn't serve what your business is working on right now, so it's parked rather than run."
+        : "On Strict, an unclear business fit is parked rather than run.";
     } else if (intentMatch === "mismatch" || (riskTier === "high" && escalated)) {
       decision = "block";
       reason = intentMatch === "mismatch"
@@ -731,6 +740,8 @@ serve(async (req) => {
       provider,
       intent_match: intentMatch,
       risk_tier: riskTier,
+      strictness,
+      strictness_label: STRICTNESS_PRESETS[strictness].label,
       fit_assessment: fit,
       confidence_score: conf.score,
       confidence_label: conf.label,
