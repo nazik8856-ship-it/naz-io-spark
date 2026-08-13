@@ -1512,6 +1512,7 @@ export type Database = {
       }
       profiles: {
         Row: {
+          control_strictness: string
           created_at: string
           credits: number
           display_name: string | null
@@ -1524,6 +1525,7 @@ export type Database = {
           user_context: Json
         }
         Insert: {
+          control_strictness?: string
           created_at?: string
           credits?: number
           display_name?: string | null
@@ -1536,6 +1538,7 @@ export type Database = {
           user_context?: Json
         }
         Update: {
+          control_strictness?: string
           created_at?: string
           credits?: number
           display_name?: string | null
