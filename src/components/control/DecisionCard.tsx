@@ -14,6 +14,8 @@ export type ControlDecision = {
   action_type: string;
   provider: string;
   risk_tier: "low" | "medium" | "high";
+  strictness?: string;
+  strictness_label?: string;
   intent_match: string;
   fit_assessment: string;
   alternatives: string[];
@@ -215,6 +217,7 @@ export default function DecisionCard({ d }: { d: ControlDecision }) {
         <span>action: {d.action_type}</span>
         <span>via {d.provider}</span>
         <span>intent: {d.intent_match}</span>
+        {d.strictness && <span>strictness: {d.strictness_label || d.strictness}</span>}
         {d.escalated && <span className="text-amber-400">escalated</span>}
       </div>
     </div>

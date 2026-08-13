@@ -30,13 +30,90 @@ export const normalizeAlternatives = (alternatives: unknown): string[] =>
     ? [alternatives.slice(0, 200)]
     : [];
 
+/* ---------------------------------------------------------------------------
+ * ORG STRICTNESS
+ * One dial (loose / balanced / strict) that scales every tolerance in the
+ * control engine: the confidence bar, how much risk raises that bar, whether
+ * an unclear business fit is enough to park an action, and how small the
+ * irreversibility blast radius has to be before a human must sign off.
+ * ------------------------------------------------------------------------- */
+export type Strictness = "loose" | "balanced" | "strict";
+
+export const STRICTNESS_PRESETS: Record<Strictness, {
+  label: string;
+  blurb: string;
+  /** Shift applied to the base confidence bar. */
+  baseShift: number;
+  /** Extra bar added per risk tier. */
+  riskBump: { low: number; medium: number; high: number };
+  /** Park the action when the business fit is merely "unclear". */
+  deferOnUnclearFit: boolean;
+  /** Risk tiers where an irreversible action always needs a human. */
+  irreversibleNeedsHuman: Array<"low" | "medium" | "high">;
+}> = {
+  loose: {
+    label: "Loose",
+    blurb: "Higher tolerance — more runs through on its own, fewer things stop for you.",
+    baseShift: -15,
+    riskBump: { low: 0, medium: 5, high: 15 },
+    deferOnUnclearFit: false,
+    irreversibleNeedsHuman: ["high"],
+  },
+  balanced: {
+    label: "Balanced",
+    blurb: "The default — escalates low-confidence and high-risk work only.",
+    baseShift: 0,
+    riskBump: { low: 0, medium: 10, high: 25 },
+    deferOnUnclearFit: false,
+    irreversibleNeedsHuman: ["high"],
+  },
+  strict: {
+    label: "Strict",
+    blurb: "Low tolerance — narrow confidence bands, unclear fit gets parked, more sign-offs.",
+    baseShift: 15,
+    riskBump: { low: 10, medium: 20, high: 35 },
+    deferOnUnclearFit: true,
+    irreversibleNeedsHuman: ["medium", "high"],
+  },
+};
+
+export const normalizeStrictness = (v: unknown): Strictness =>
+  v === "loose" || v === "strict" ? v : "balanced";
+
 /** Risk tier raises the bar a decision must clear before it runs unattended. */
 export const thresholdForRisk = (
   riskTier: string,
   base = DEFAULT_CONFIDENCE_THRESHOLD,
+  strictness: Strictness = "balanced",
 ): number => {
-  const bump = riskTier === "high" ? 25 : riskTier === "medium" ? 10 : 0;
-  return Math.max(0, Math.min(100, base + bump));
+  const preset = STRICTNESS_PRESETS[strictness];
+  const tier = riskTier === "high" ? "high" : riskTier === "medium" ? "medium" : "low";
+  const bar = base + preset.baseShift + preset.riskBump[tier];
+  return Math.max(0, Math.min(100, Math.round(bar)));
+};
+
+/** Does an irreversible action at this risk tier always need a human? */
+export const irreversibleNeedsHuman = (riskTier: string, strictness: Strictness = "balanced"): boolean =>
+  STRICTNESS_PRESETS[strictness].irreversibleNeedsHuman.includes(
+    (riskTier === "high" ? "high" : riskTier === "medium" ? "medium" : "low"),
+  );
+
+/** Should this fit assessment park the action? */
+export const fitDefers = (fit: string, strictness: Strictness = "balanced"): boolean =>
+  fit === "not_a_fit" || (fit === "unclear" && STRICTNESS_PRESETS[strictness].deferOnUnclearFit);
+
+/** Read the org's strictness dial off the profile row. Never throws. */
+export const loadStrictness = async (
+  supabase: SupabaseClient,
+  userId: string,
+): Promise<Strictness> => {
+  try {
+    const { data } = await supabase
+      .from("profiles").select("control_strictness").eq("id", userId).maybeSingle();
+    return normalizeStrictness((data as { control_strictness?: string } | null)?.control_strictness);
+  } catch {
+    return "balanced";
+  }
 };
 
 export const shouldEscalate = (score: number, threshold: number): boolean => score < threshold;
