@@ -497,9 +497,14 @@ serve(async (req) => {
       ? String(parsed.risk_tier) : "medium";
     const intentMatch = ["matches", "partial", "mismatch"].includes(String(parsed.intent_match))
       ? String(parsed.intent_match) : "partial";
-    const fit = ["fits", "unclear", "not_a_fit"].includes(String(parsed.fit_assessment))
+    const rawFit = ["fits", "unclear", "not_a_fit"].includes(String(parsed.fit_assessment))
       ? String(parsed.fit_assessment) : "unclear";
+    // Fit/value learning loop: measured outcomes of overridden "not a fit"
+    // verdicts move the fit call and the confidence behind it.
+    const fitApplied = applyFitEvidence(rawFit, fitEvidence);
+    const fit = fitApplied.fit;
     const conf = readConfidence(parsed);
+    if (fitEvidence.nudge) conf.score = Math.max(0, Math.min(100, conf.score + fitEvidence.nudge));
     const alternatives = normalizeAlternatives(parsed.alternatives);
     const threshold = thresholdForRisk(riskTier, baseThreshold, strictness);
     // Blast-radius rule: an action that CANNOT be undone and is high risk
