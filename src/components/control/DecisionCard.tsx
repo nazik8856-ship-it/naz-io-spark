@@ -18,6 +18,13 @@ export type ControlDecision = {
   strictness_label?: string;
   intent_match: string;
   fit_assessment: string;
+  fit_evidence?: {
+    note: string;
+    positive: number;
+    negative: number;
+    adjusted_from: string | null;
+    confidence_nudge: number;
+  } | null;
   alternatives: string[];
   deferred: {
     why_not_now: string;
@@ -125,6 +132,21 @@ export default function DecisionCard({ d }: { d: ControlDecision }) {
             </div>
           )}
           <div><span className="text-zinc-500">Reconsider when: </span>{d.deferred.reconsider_when}</div>
+        </div>
+      )}
+
+      {d.fit_evidence && (
+        <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 text-xs text-zinc-300">
+          <div className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 mb-1">
+            Learned from real outcomes
+          </div>
+          <p className="leading-relaxed">{d.fit_evidence.note}</p>
+          {d.fit_evidence.adjusted_from && (
+            <p className="mt-1 text-zinc-400">
+              Fit call moved from “{d.fit_evidence.adjusted_from.replace(/_/g, " ")}” to “
+              {d.fit_assessment.replace(/_/g, " ")}” on that history.
+            </p>
+          )}
         </div>
       )}
 
