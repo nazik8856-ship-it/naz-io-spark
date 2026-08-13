@@ -462,6 +462,9 @@ serve(async (req) => {
               "Give a confidence score 0-100 for your own assessment, plain-language reasoning, " +
               "and a safer narrowed 'modification' if the action should be tightened before running.\n" +
               "Always call the check_action tool.\n\n" +
+              `ORG STRICTNESS: ${STRICTNESS_PRESETS[strictness].label} — ${STRICTNESS_PRESETS[strictness].blurb} ` +
+              `Grade risk and fit through that lens: on Strict, lean toward the higher risk tier and toward ` +
+              `'unclear' fit when evidence is thin; on Loose, only flag genuine risk or a genuine mismatch.\n\n` +
               `BUSINESS PROFILE:\n${profileBlock}`,
           },
           {
