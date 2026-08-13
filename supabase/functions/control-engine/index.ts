@@ -27,6 +27,7 @@ import { runControlGate, createPendingApproval } from "../_shared/control-gate.t
 import { PROVIDER_WRITE_KINDS, runProviderWrite } from "../_shared/provider-writes.ts";
 import { reversibilityFor, captureUndoState, runUndo } from "../_shared/reversibility.ts";
 import { replayDraft } from "../_shared/policy-replay.ts";
+import { loadFitEvidence, applyFitEvidence } from "../_shared/fit-learning.ts";
 
 
 const corsHeaders = {
@@ -436,6 +437,12 @@ serve(async (req) => {
         ].join("\n")
       : "(no business profile on file — treat fit as 'unclear' unless the action is obviously generic and harmless)";
 
+    // Fit/value learning: what actually happened the last times a human
+    // overrode a "not a fit" verdict on a similar action.
+    const fitEvidence = await loadFitEvidence(supabase, userId, {
+      actionType, provider, description,
+    });
+
     const res = await fetch(LOVABLE_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
@@ -465,7 +472,7 @@ serve(async (req) => {
               `ORG STRICTNESS: ${STRICTNESS_PRESETS[strictness].label} — ${STRICTNESS_PRESETS[strictness].blurb} ` +
               `Grade risk and fit through that lens: on Strict, lean toward the higher risk tier and toward ` +
               `'unclear' fit when evidence is thin; on Loose, only flag genuine risk or a genuine mismatch.\n\n` +
-              `BUSINESS PROFILE:\n${profileBlock}`,
+              `BUSINESS PROFILE:\n${profileBlock}` + fitEvidence.promptBlock,
           },
           {
             role: "user",
@@ -751,6 +758,15 @@ serve(async (req) => {
       strictness,
       strictness_label: STRICTNESS_PRESETS[strictness].label,
       fit_assessment: fit,
+      fit_evidence: fitEvidence.note
+        ? {
+            note: fitEvidence.note,
+            positive: fitEvidence.positive,
+            negative: fitEvidence.negative,
+            adjusted_from: fitApplied.adjusted ? rawFit : null,
+            confidence_nudge: fitEvidence.nudge,
+          }
+        : null,
       confidence_score: conf.score,
       confidence_label: conf.label,
       threshold,
