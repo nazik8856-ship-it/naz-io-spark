@@ -66,7 +66,7 @@ Deno.serve(async (req) => {
 
     let q = supabase
       .from("agent_decisions")
-      .select("id, user_id, agent_id, decision, reasoning, created_at")
+      .select("id, user_id, agent_id, decision, reasoning, human_response, created_at")
       .gte("created_at", oldest)
       .order("created_at", { ascending: false })
       .limit(400);
@@ -95,6 +95,12 @@ Deno.serve(async (req) => {
       if (!snaps?.length) continue;
 
       const decisionTs = new Date(d.created_at).getTime();
+      // Fit/value learning loop: a "Deferred — not a fit" verdict the human
+      // overrode is the most valuable outcome we can measure — it tells the fit
+      // model whether its judgement of business value was actually right.
+      const fitOverride =
+        String(d.decision ?? "").toUpperCase().startsWith("DEFERRED") &&
+        d.human_response === "allowed";
 
       // provider -> { baseline, latest } metric maps
       const byProvider = new Map<string, { baseline?: Record<string, number>; latest?: Record<string, number>; latestAt?: string }>();
@@ -139,6 +145,8 @@ Deno.serve(async (req) => {
                   reasoning: d.reasoning,
                   measured_from: d.created_at,
                   measured_to: entry.latestAt,
+                  fit_override: fitOverride,
+                  overridden_verdict: fitOverride ? "deferred_not_a_fit" : null,
                 },
                 measured_at: new Date().toISOString(),
               },
@@ -152,8 +160,12 @@ Deno.serve(async (req) => {
           // Surface only meaningful moves as a learned pattern in org_insights.
           if (direction === "neutral" || row?.org_insight_id) continue;
 
-          const insightText =
-            `After "${String(d.decision).slice(0, 140)}", ${humanMetric(provider, metric)} ` +
+          const insightText = fitOverride
+            ? `You overrode "not a fit" on "${String(d.decision).slice(0, 140)}" and ` +
+              `${humanMetric(provider, metric)} ${delta >= 0 ? "rose" : "fell"} ` +
+              `${Math.abs(deltaPct).toFixed(1)}% over ${window} days (${before} → ${after}). ` +
+              `Fit judgement was ${direction === "positive" ? "too cautious" : "correct"}.`
+            : `After "${String(d.decision).slice(0, 140)}", ${humanMetric(provider, metric)} ` +
             `${delta >= 0 ? "rose" : "fell"} ${Math.abs(deltaPct).toFixed(1)}% over ${window} days ` +
             `(${before} → ${after}). Outcome: ${direction}.`;
 
@@ -179,7 +191,7 @@ Deno.serve(async (req) => {
               .insert({
                 user_id: d.user_id,
                 insight: insightText,
-                kind: "outcome",
+                kind: fitOverride ? "fit" : "outcome",
                 confidence: Math.abs(deltaPct) > 15 ? "high" : "medium",
                 evidence_count: 1,
                 source_agent_ids: d.agent_id ? [d.agent_id] : [],
