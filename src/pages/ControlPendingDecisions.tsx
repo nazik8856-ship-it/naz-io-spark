@@ -38,7 +38,9 @@ export default function ControlPendingDecisions() {
       .select("id,decision,reasoning,confidence_score,escalated,source,agent_id,agent_run_id,human_response,created_at")
       .eq("user_id", user.id)
       .is("human_response", null)
-      .or(`escalated.eq.true,confidence_score.lt.${CONFIDENCE_BAR}`)
+      // Deferred "not a fit" verdicts are included too: overriding one is the
+      // signal the fit/value learning loop measures against real outcomes.
+      .or(`escalated.eq.true,confidence_score.lt.${CONFIDENCE_BAR},decision.ilike.DEFERRED%`)
       .order("created_at", { ascending: false })
       .limit(100);
     if (error) toast({ title: "Couldn't load decisions", description: error.message, variant: "destructive" });
