@@ -619,7 +619,14 @@ serve(async (req) => {
       executed = false;
       execution = null;
       executionNote = "dry run — not carried out";
+    } else if (assessOnly) {
+      executed = false;
+      execution = null;
+      executionNote = decision === "allow"
+        ? "Approved by the control engine — the agent run carries this action out itself."
+        : `Not carried out — decision is "${decision}".`;
     } else if (decision === "allow") {
+
       const cap = CAPABILITY_REGISTRY[actionType];
       const { data: conns } = await supabase
         .from("agent_integrations")
