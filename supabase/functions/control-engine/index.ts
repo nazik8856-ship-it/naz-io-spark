@@ -336,9 +336,14 @@ serve(async (req) => {
     const params = body?.params ?? {};
     // Dry run: full intent/risk/fit scoring, but never touch a real provider.
     const dryRun = body?.dry_run === true || body?.dry_run === "true";
+    // Assess-only: full gate + risk/fit/strictness scoring and decision logging,
+    // but the CALLER carries out the action (agent-runtime executes it inside its
+    // own run, with its own verification + artifact recording).
+    const assessOnly = body?.assess_only === true || body?.assess_only === "true";
     const agentId: string | null = body?.agentId ? String(body.agentId) : null;
     const runId: string | null = body?.runId ? String(body.runId) : null;
     const stepIndex = Number.isFinite(Number(body?.stepIndex)) ? Number(body.stepIndex) : undefined;
+
 
     if (!actionType) return json({ error: "action_type required" }, 400);
     if (!description) return json({ error: "description required" }, 400);
