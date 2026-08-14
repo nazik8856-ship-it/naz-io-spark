@@ -116,8 +116,14 @@ serve(async (req) => {
     );
     const token = (req.headers.get("Authorization") || "").replace("Bearer ", "");
     const { data: userData } = await supabase.auth.getUser(token);
-    const userId = userData?.user?.id;
+    // Internal server-to-server call (agent-runtime routes its tool gate here).
+    // Only trusted when the caller presents the service-role key.
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const internalUserId = req.headers.get("x-internal-user-id");
+    const isInternal = token === serviceKey && !!internalUserId;
+    const userId = userData?.user?.id ?? (isInternal ? internalUserId! : undefined);
     if (!userId) return json({ error: "Not authenticated" }, 401);
+
 
     // ---- GET /control-engine/decisions/:id ----------------------------------
     // Standalone, auditable record of one decision: reasoning, scores,
@@ -330,9 +336,14 @@ serve(async (req) => {
     const params = body?.params ?? {};
     // Dry run: full intent/risk/fit scoring, but never touch a real provider.
     const dryRun = body?.dry_run === true || body?.dry_run === "true";
+    // Assess-only: full gate + risk/fit/strictness scoring and decision logging,
+    // but the CALLER carries out the action (agent-runtime executes it inside its
+    // own run, with its own verification + artifact recording).
+    const assessOnly = body?.assess_only === true || body?.assess_only === "true";
     const agentId: string | null = body?.agentId ? String(body.agentId) : null;
     const runId: string | null = body?.runId ? String(body.runId) : null;
     const stepIndex = Number.isFinite(Number(body?.stepIndex)) ? Number(body.stepIndex) : undefined;
+
 
     if (!actionType) return json({ error: "action_type required" }, 400);
     if (!description) return json({ error: "description required" }, 400);
@@ -608,7 +619,14 @@ serve(async (req) => {
       executed = false;
       execution = null;
       executionNote = "dry run — not carried out";
+    } else if (assessOnly) {
+      executed = false;
+      execution = null;
+      executionNote = decision === "allow"
+        ? "Approved by the control engine — the agent run carries this action out itself."
+        : `Not carried out — decision is "${decision}".`;
     } else if (decision === "allow") {
+
       const cap = CAPABILITY_REGISTRY[actionType];
       const { data: conns } = await supabase
         .from("agent_integrations")
@@ -722,8 +740,10 @@ serve(async (req) => {
     }
 
     // Feed this attempt to the per-action circuit breaker (dry runs don't count).
+    // On assess-only calls we ONLY record a block here — the caller records the
+    // real execution outcome afterwards, so the attempt isn't double-counted.
     let breakerState: Record<string, unknown> | null = null;
-    if (!dryRun) {
+    if (!dryRun && !(assessOnly && decision !== "block")) {
       const failed = decision === "block" || (execution ? !executed : false);
       const why = decision === "block"
         ? `blocked: ${reason}`
@@ -731,6 +751,7 @@ serve(async (req) => {
           ? `execution failed: ${String(execution.summary ?? "unknown error")}`
           : "ok";
       await recordBreakerAttempt(failed, why);
+
       const { data: after } = await supabase
         .from("circuit_breakers")
         .select("tripped, failure_rate, attempts, failures, trip_count, tripped_at")
@@ -775,6 +796,7 @@ serve(async (req) => {
       alternatives,
       deferred,
       executed,
+      assess_only: assessOnly,
       dry_run: dryRun,
       execution,
       execution_note: executionNote,

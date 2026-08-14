@@ -1088,7 +1088,111 @@ Rules:
     let finalSummary = "Run ended without explicit summary.";
     let steps = 0, finished = false, paused = false;
 
+    // ---- Control-engine gate for real tool calls ---------------------------
+    // Routes the "should this action run" question through the SAME endpoint
+    // the Control System chat uses, so kill switch, hard rules, circuit
+    // breaker, spend cap, safety scanner, risk/fit judgement and the org
+    // strictness dial all apply to autonomous agent runs too. `assess_only`
+    // keeps execution here — control-engine only rules on it.
+    type GateVerdict = {
+      ok: boolean;
+      verdict: "allow" | "block" | "require_approval" | "modify" | "deferred";
+      reason: string | null;
+      decisionId: string | null;
+      approvalId: string | null;
+      source: string | null;
+      safety: unknown;
+      shadowRules: unknown[];
+      riskTier?: string | null;
+      fitAssessment?: string | null;
+      confidenceScore?: number | null;
+      strictness?: string | null;
+      via: "control-engine" | "local-gate";
+    };
 
+    const assessWithControlEngine = async (a: {
+      actionType: string;
+      provider: string;
+      description: string;
+      params: unknown;
+      stepIndex: number;
+    }): Promise<GateVerdict> => {
+      const base = Deno.env.get("SUPABASE_URL");
+      const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+      if (base && serviceKey) {
+        try {
+          const resp = await fetch(`${base}/functions/v1/control-engine`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${serviceKey}`,
+              apikey: serviceKey,
+              "x-internal-user-id": userId,
+            },
+            body: JSON.stringify({
+              action_type: a.actionType,
+              provider: a.provider,
+              description: a.description,
+              params: a.params,
+              agentId,
+              runId,
+              stepIndex: a.stepIndex,
+              assess_only: true,
+            }),
+          });
+          if (resp.ok) {
+            const d = await resp.json() as Record<string, unknown>;
+            const decision = String(d.decision ?? "block") as GateVerdict["verdict"];
+            return {
+              ok: decision === "allow",
+              verdict: decision,
+              reason: (d.reason as string) ?? (d.reasoning as string) ?? null,
+              decisionId: (d.decision_id as string) ?? null,
+              approvalId: (d.approval_id as string) ?? null,
+              source: (d.gate_source as string) ?? (d.model_judged ? "model" : null),
+              safety: d.safety_scan ?? null,
+              shadowRules: Array.isArray(d.shadow_rules) ? d.shadow_rules as unknown[] : [],
+              riskTier: (d.risk_tier as string) ?? null,
+              fitAssessment: (d.fit_assessment as string) ?? null,
+              confidenceScore: typeof d.confidence_score === "number" ? d.confidence_score : null,
+              strictness: (d.strictness as string) ?? null,
+              via: "control-engine",
+            };
+          }
+          await logEvent("reason", {
+            thought: `Control engine returned ${resp.status} — falling back to the local control gate for this step.`,
+          });
+        } catch (err) {
+          await logEvent("reason", {
+            thought: `Could not reach the control engine (${err instanceof Error ? err.message : "network error"}) — falling back to the local control gate.`,
+          });
+        }
+      }
+      // Fallback: the deterministic layers still run locally, so a network
+      // problem can never turn into an ungated real action.
+      const gate = await runControlGate(supabase, {
+        userId,
+        actionType: a.actionType,
+        provider: a.provider,
+        description: a.description,
+        params: a.params,
+        agentId,
+        runId,
+        stepIndex: a.stepIndex,
+        origin: "agent-runtime",
+      });
+      return {
+        ok: gate.ok,
+        verdict: gate.verdict,
+        reason: gate.reason,
+        decisionId: gate.decisionId,
+        approvalId: gate.approvalId,
+        source: gate.source,
+        safety: gate.safety.matched ? gate.safety : null,
+        shadowRules: gate.shadowRules,
+        via: "local-gate",
+      };
+    };
 
 
     while (steps < MAX_STEPS && !finished && !paused) {
@@ -1354,38 +1458,55 @@ Rules:
           }
         }
 
-        // ---- UNIFIED CONTROL GATE ------------------------------------------
-        // Identical enforcement to the Control System chat: spend cap, kill
-        // switch, hard rules (live + shadow), circuit breaker and the
-        // deterministic safety scanner — applied to REAL autonomous actions.
+        // ---- CONTROL ENGINE GATE -------------------------------------------
+        // Every real tool call is routed through control-engine (assess-only),
+        // exactly like the Control System chat: spend cap, kill switch, hard
+        // rules (live + shadow), circuit breaker, safety scanner, PLUS the
+        // model risk/fit judgement and the org strictness dial. Only the
+        // "should this run" verdict comes from there — the execution, its
+        // verification and artifact recording stay inside this run.
         let gateAttempt: ((failed: boolean, why: string) => Promise<unknown>) | null = null;
         if (ACTION_CAPPED_KINDS.has(tool.kind)) {
-          const gate = await runControlGate(supabase, {
-            userId,
+          const gateProvider = providerForTool(tool.kind, input);
+          const gateDescription = `Agent "${tool.name}" step ${steps} during an autonomous run.`;
+          const verdict = await assessWithControlEngine({
             actionType: tool.kind,
-            provider: providerForTool(tool.kind, input),
-            description: `Agent "${tool.name}" step ${steps} during an autonomous run.`,
+            provider: gateProvider,
+            description: gateDescription,
             params: input,
-            agentId,
-            runId,
             stepIndex: steps,
-            origin: "agent-runtime",
           });
-          gateAttempt = gate.recordAttempt;
-          if (gate.shadowRules.length) {
-            await logEvent("shadow_rule_hit", { tool: tool.name, kind: tool.kind, rules: gate.shadowRules });
+
+          gateAttempt = (failed: boolean, why: string) =>
+            recordBreakerAttempt(supabase, {
+              userId,
+              actionType: tool.kind,
+              provider: gateProvider,
+              failed,
+              why,
+              agentId,
+              runId,
+              stepIndex: steps,
+            });
+
+          if (verdict.shadowRules?.length) {
+            await logEvent("shadow_rule_hit", { tool: tool.name, kind: tool.kind, rules: verdict.shadowRules });
           }
-          if (!gate.ok) {
-            await gate.recordShadowHits(gate.decisionId, gate.verdict);
-            const msg = gate.reason ?? "Stopped by the control gate.";
+          if (!verdict.ok) {
+            const msg = verdict.reason ?? "Stopped by the control system.";
             await logEvent("control_gate_blocked", {
               tool: tool.name,
               kind: tool.kind,
-              verdict: gate.verdict,
-              source: gate.source,
-              decision_id: gate.decisionId,
-              approval_id: gate.approvalId,
-              safety_scan: gate.safety.matched ? gate.safety : null,
+              verdict: verdict.verdict,
+              source: verdict.source,
+              decision_id: verdict.decisionId,
+              approval_id: verdict.approvalId,
+              safety_scan: verdict.safety ?? null,
+              risk_tier: verdict.riskTier ?? null,
+              fit_assessment: verdict.fitAssessment ?? null,
+              confidence_score: verdict.confidenceScore ?? null,
+              strictness: verdict.strictness ?? null,
+              via: verdict.via,
               humanMessage: msg,
               message: msg,
             });
@@ -1395,19 +1516,22 @@ Rules:
               skipped: true,
               summary: msg,
               humanMessage: msg,
-              category: gate.source ?? "control_gate",
+              category: verdict.source ?? "control_gate",
             });
             messages.push({
               role: "user",
               content: `"${tool.name}" was NOT run and had no real effect. ${msg}\n${
-                gate.verdict === "require_approval"
-                  ? "It is now waiting in the approval queue for a human. Do not retry it this run."
-                  : "Do not retry it and do not describe its outcome as if it happened."
+                verdict.verdict === "allow"
+                  ? ""
+                  : verdict.verdict === "block"
+                    ? "Do not retry it and do not describe its outcome as if it happened."
+                    : "It is now waiting in the approval queue for a human. Do not retry it this run."
               } Continue with work that doesn't need it, or finish and state this plainly.`,
             });
             continue;
           }
         }
+
 
 
 
