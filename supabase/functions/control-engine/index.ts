@@ -740,8 +740,10 @@ serve(async (req) => {
     }
 
     // Feed this attempt to the per-action circuit breaker (dry runs don't count).
+    // On assess-only calls we ONLY record a block here — the caller records the
+    // real execution outcome afterwards, so the attempt isn't double-counted.
     let breakerState: Record<string, unknown> | null = null;
-    if (!dryRun) {
+    if (!dryRun && !(assessOnly && decision !== "block")) {
       const failed = decision === "block" || (execution ? !executed : false);
       const why = decision === "block"
         ? `blocked: ${reason}`
@@ -749,6 +751,7 @@ serve(async (req) => {
           ? `execution failed: ${String(execution.summary ?? "unknown error")}`
           : "ok";
       await recordBreakerAttempt(failed, why);
+
       const { data: after } = await supabase
         .from("circuit_breakers")
         .select("tripped, failure_rate, attempts, failures, trip_count, tripped_at")
