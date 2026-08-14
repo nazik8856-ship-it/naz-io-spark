@@ -116,8 +116,14 @@ serve(async (req) => {
     );
     const token = (req.headers.get("Authorization") || "").replace("Bearer ", "");
     const { data: userData } = await supabase.auth.getUser(token);
-    const userId = userData?.user?.id;
+    // Internal server-to-server call (agent-runtime routes its tool gate here).
+    // Only trusted when the caller presents the service-role key.
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const internalUserId = req.headers.get("x-internal-user-id");
+    const isInternal = token === serviceKey && !!internalUserId;
+    const userId = userData?.user?.id ?? (isInternal ? internalUserId! : undefined);
     if (!userId) return json({ error: "Not authenticated" }, 401);
+
 
     // ---- GET /control-engine/decisions/:id ----------------------------------
     // Standalone, auditable record of one decision: reasoning, scores,
