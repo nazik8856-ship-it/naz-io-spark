@@ -241,54 +241,19 @@ export async function runControlGate(
 
   const recordAttempt = async (failed: boolean, why: string) => {
     if (ctx.dryRun) return null;
-    try {
-      const windowArr = [...(breaker?.recent_outcomes ?? []), failed ? "fail" : "ok"].slice(-BREAKER_WINDOW);
-      const failures = windowArr.filter((o) => o === "fail").length;
-      const rate = windowArr.length ? failures / windowArr.length : 0;
-      const shouldTrip = windowArr.length >= BREAKER_MIN_ATTEMPTS && rate > BREAKER_FAIL_RATE;
-      await admin.from("circuit_breakers").upsert({
-        user_id: userId,
-        action_type: actionType,
-        recent_outcomes: windowArr,
-        attempts: windowArr.length,
-        failures,
-        failure_rate: Number(rate.toFixed(3)),
-        tripped: shouldTrip,
-        tripped_at: shouldTrip ? new Date().toISOString() : null,
-        trip_count: (breaker?.trip_count ?? 0) + (shouldTrip ? 1 : 0),
-        last_reason: failed ? why.slice(0, 400) : null,
-        last_attempt_at: new Date().toISOString(),
-      }, { onConflict: "user_id,action_type" });
-
-      if (shouldTrip) {
-        const tripReason =
-          `Circuit breaker tripped for "${actionType}" — ${failures} of the last ${windowArr.length} attempts ` +
-          `failed or were blocked (${Math.round(rate * 100)}%). This action type is now auto-blocked until reset. ` +
-          `Last failure: ${why.slice(0, 200)}`;
-        const tripId = await logStop(
-          `CIRCUIT_BREAKER_TRIPPED ${actionType} (${provider})`, tripReason, "circuit_breaker_trip", true,
-        );
-        if (!breaker?.tripped) {
-          await sendCriticalAlert(admin, userId, {
-            event: "circuit_breaker_trip",
-            summary: tripReason,
-            decisionId: tripId,
-            actionType,
-            provider,
-          });
-        }
-      }
-      const { data: after } = await admin
-        .from("circuit_breakers")
-        .select("tripped, failure_rate, attempts, failures, trip_count, tripped_at")
-        .eq("user_id", userId)
-        .eq("action_type", actionType)
-        .maybeSingle();
-      return (after as Record<string, unknown> | null) ?? null;
-    } catch {
-      return null;
-    }
+    return await recordBreakerAttempt(admin, {
+      userId,
+      actionType,
+      provider,
+      failed,
+      why,
+      agentId,
+      runId,
+      stepIndex,
+      policyVersion,
+    });
   };
+
 
   const emptyScan: SafetyScan = { matched: false, severity: null, matches: [], summary: null };
   const base = {
