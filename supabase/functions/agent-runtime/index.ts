@@ -1354,38 +1354,55 @@ Rules:
           }
         }
 
-        // ---- UNIFIED CONTROL GATE ------------------------------------------
-        // Identical enforcement to the Control System chat: spend cap, kill
-        // switch, hard rules (live + shadow), circuit breaker and the
-        // deterministic safety scanner — applied to REAL autonomous actions.
+        // ---- CONTROL ENGINE GATE -------------------------------------------
+        // Every real tool call is routed through control-engine (assess-only),
+        // exactly like the Control System chat: spend cap, kill switch, hard
+        // rules (live + shadow), circuit breaker, safety scanner, PLUS the
+        // model risk/fit judgement and the org strictness dial. Only the
+        // "should this run" verdict comes from there — the execution, its
+        // verification and artifact recording stay inside this run.
         let gateAttempt: ((failed: boolean, why: string) => Promise<unknown>) | null = null;
         if (ACTION_CAPPED_KINDS.has(tool.kind)) {
-          const gate = await runControlGate(supabase, {
-            userId,
+          const gateProvider = providerForTool(tool.kind, input);
+          const gateDescription = `Agent "${tool.name}" step ${steps} during an autonomous run.`;
+          const verdict = await assessWithControlEngine({
             actionType: tool.kind,
-            provider: providerForTool(tool.kind, input),
-            description: `Agent "${tool.name}" step ${steps} during an autonomous run.`,
+            provider: gateProvider,
+            description: gateDescription,
             params: input,
-            agentId,
-            runId,
             stepIndex: steps,
-            origin: "agent-runtime",
           });
-          gateAttempt = gate.recordAttempt;
-          if (gate.shadowRules.length) {
-            await logEvent("shadow_rule_hit", { tool: tool.name, kind: tool.kind, rules: gate.shadowRules });
+
+          gateAttempt = (failed: boolean, why: string) =>
+            recordBreakerAttempt(supabase, {
+              userId,
+              actionType: tool.kind,
+              provider: gateProvider,
+              failed,
+              why,
+              agentId,
+              runId,
+              stepIndex: steps,
+            });
+
+          if (verdict.shadowRules?.length) {
+            await logEvent("shadow_rule_hit", { tool: tool.name, kind: tool.kind, rules: verdict.shadowRules });
           }
-          if (!gate.ok) {
-            await gate.recordShadowHits(gate.decisionId, gate.verdict);
-            const msg = gate.reason ?? "Stopped by the control gate.";
+          if (!verdict.ok) {
+            const msg = verdict.reason ?? "Stopped by the control system.";
             await logEvent("control_gate_blocked", {
               tool: tool.name,
               kind: tool.kind,
-              verdict: gate.verdict,
-              source: gate.source,
-              decision_id: gate.decisionId,
-              approval_id: gate.approvalId,
-              safety_scan: gate.safety.matched ? gate.safety : null,
+              verdict: verdict.verdict,
+              source: verdict.source,
+              decision_id: verdict.decisionId,
+              approval_id: verdict.approvalId,
+              safety_scan: verdict.safety ?? null,
+              risk_tier: verdict.riskTier ?? null,
+              fit_assessment: verdict.fitAssessment ?? null,
+              confidence_score: verdict.confidenceScore ?? null,
+              strictness: verdict.strictness ?? null,
+              via: verdict.via,
               humanMessage: msg,
               message: msg,
             });
@@ -1395,19 +1412,22 @@ Rules:
               skipped: true,
               summary: msg,
               humanMessage: msg,
-              category: gate.source ?? "control_gate",
+              category: verdict.source ?? "control_gate",
             });
             messages.push({
               role: "user",
               content: `"${tool.name}" was NOT run and had no real effect. ${msg}\n${
-                gate.verdict === "require_approval"
-                  ? "It is now waiting in the approval queue for a human. Do not retry it this run."
-                  : "Do not retry it and do not describe its outcome as if it happened."
+                verdict.verdict === "allow"
+                  ? ""
+                  : verdict.verdict === "block"
+                    ? "Do not retry it and do not describe its outcome as if it happened."
+                    : "It is now waiting in the approval queue for a human. Do not retry it this run."
               } Continue with work that doesn't need it, or finish and state this plainly.`,
             });
             continue;
           }
         }
+
 
 
 
