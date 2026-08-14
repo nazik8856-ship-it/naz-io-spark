@@ -796,6 +796,7 @@ serve(async (req) => {
       alternatives,
       deferred,
       executed,
+      assess_only: assessOnly,
       dry_run: dryRun,
       execution,
       execution_note: executionNote,
