@@ -5,6 +5,8 @@
 // `agent_integrations` via the `integration-connect` edge function so the
 // agent runtime picks up the connection.
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
+
 import {
   X, Loader2, CheckCircle2, AlertTriangle,
   Lock, ArrowRight, User2, LogOut, Eye, EyeOff, ArrowLeft,
