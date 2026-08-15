@@ -803,11 +803,12 @@ export default function IntegrationConnectModal({
 
   const initial = integration.name.trim().charAt(0).toUpperCase();
 
-  return (
+  return createPortal((
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center p-4 animate-fade-in"
+      className="fixed inset-0 z-[200] flex items-center justify-center p-4 animate-fade-in overflow-y-auto"
       style={{ background: "rgba(0,0,0,0.72)", backdropFilter: "blur(12px)" }}
       onClick={onClose}
+
     >
       <div
         onClick={(e) => e.stopPropagation()}
