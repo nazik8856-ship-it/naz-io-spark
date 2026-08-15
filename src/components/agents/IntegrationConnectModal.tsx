@@ -1449,5 +1449,6 @@ export default function IntegrationConnectModal({
         )}
       </div>
     </div>
-  );
+  ), document.body);
 }
+
