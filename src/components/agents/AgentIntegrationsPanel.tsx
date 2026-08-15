@@ -501,12 +501,13 @@ export default function AgentIntegrationsPanel({
                     <p className="text-[11px] text-zinc-400 mb-3 line-clamp-2">{it.examples[0]}</p>
                     <button
                       type="button"
-                      onClick={() => setOpenIntegration(it)}
-                      className="mt-auto inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold text-black"
+                      onClick={(e) => { e.stopPropagation(); setOpenIntegration(it); }}
+                      className="relative z-10 mt-auto inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold text-black cursor-pointer touch-manipulation"
                       style={{ background: `linear-gradient(135deg, ${accent}, #22d3ee)`, boxShadow: `0 6px 18px -8px ${accent}99` }}
                     >
                       {isConnected ? "Manage" : "Connect"}
                     </button>
+
                   </div>
                 );
               })}
