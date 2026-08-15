@@ -28,6 +28,12 @@ import { PROVIDER_WRITE_KINDS, runProviderWrite } from "../_shared/provider-writ
 import { reversibilityFor, captureUndoState, runUndo } from "../_shared/reversibility.ts";
 import { replayDraft } from "../_shared/policy-replay.ts";
 import { loadFitEvidence, applyFitEvidence } from "../_shared/fit-learning.ts";
+import {
+  collectUntrustedFields,
+  scanForInjection,
+  buildUntrustedBlock,
+  INJECTION_SYSTEM_CLAUSE,
+} from "../_shared/injection-scanner.ts";
 
 
 const corsHeaders = {
