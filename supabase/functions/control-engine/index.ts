@@ -804,6 +804,7 @@ serve(async (req) => {
       decision_id: decisionId,
       approval_id: approvalId,
       safety_scan: gate.safety.matched ? gate.safety : null,
+      prompt_injection: injection.detected ? injection : null,
       shadow_rules: shadowMatches,
 
 
