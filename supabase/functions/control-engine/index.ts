@@ -579,6 +579,21 @@ serve(async (req) => {
       reason = `Matches your intent, ${riskTier} risk, ${conf.score}% confidence — safe to run.`;
     }
 
+    // Deterministic injection findings OVERRIDE the model: a strong signal is a
+    // hard block, a suspicious one parks the action. Never downgrade a block.
+    if (injection.detected) {
+      const forced = injection.severity === "strong" ? "block" : "deferred";
+      if (!(decision === "block" && forced === "deferred")) decision = forced;
+      reason = `Possible prompt injection detected in external content — ${injection.summary}. ${
+        forced === "block"
+          ? "Blocked: outside content tried to give the system instructions."
+          : "Parked for a human to look at before anything runs."
+      }`;
+      escalated = true;
+    }
+
+
+
     const improvementSteps = Array.isArray(parsed.improvement_steps)
       ? (parsed.improvement_steps as unknown[]).map((s) => String(s).slice(0, 240)).slice(0, 6)
       : [];
