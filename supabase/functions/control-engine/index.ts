@@ -33,6 +33,7 @@ import {
   scanForInjection,
   buildUntrustedBlock,
   INJECTION_SYSTEM_CLAUSE,
+  UNTRUSTED_PROVIDERS,
 } from "../_shared/injection-scanner.ts";
 
 
