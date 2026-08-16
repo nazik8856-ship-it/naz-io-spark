@@ -552,7 +552,7 @@ serve(async (req) => {
     // always needs a human, no matter how confident the model is.
     const reversibility = reversibilityFor(actionType);
     const irreversibleHighRisk = !reversibility.reversible && irreversibleNeedsHuman(riskTier, strictness);
-    const escalated = shouldEscalate(conf.score, threshold) || irreversibleHighRisk;
+    let escalated = shouldEscalate(conf.score, threshold) || irreversibleHighRisk;
     const modification = String(parsed.modification || "").trim();
     const reasoning = String(parsed.reasoning || "").trim();
 
