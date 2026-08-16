@@ -460,6 +460,16 @@ serve(async (req) => {
       actionType, provider, description,
     });
 
+    // ---- PROMPT-INJECTION HARDENING ----------------------------------------
+    // Anything that came from an outside system is DATA, never instructions.
+    // We (a) label + delimit it in the prompt and (b) scan it deterministically.
+    const untrustedFields = collectUntrustedFields(params, provider);
+    if (UNTRUSTED_PROVIDERS.has(String(provider).toLowerCase()) && description) {
+      untrustedFields.push({ field: "description", text: String(description) });
+    }
+    const injection = scanForInjection(untrustedFields);
+    const untrustedBlock = buildUntrustedBlock(untrustedFields, provider);
+
     const res = await fetch(LOVABLE_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
@@ -489,7 +499,8 @@ serve(async (req) => {
               `ORG STRICTNESS: ${STRICTNESS_PRESETS[strictness].label} — ${STRICTNESS_PRESETS[strictness].blurb} ` +
               `Grade risk and fit through that lens: on Strict, lean toward the higher risk tier and toward ` +
               `'unclear' fit when evidence is thin; on Loose, only flag genuine risk or a genuine mismatch.\n\n` +
-              `BUSINESS PROFILE:\n${profileBlock}` + fitEvidence.promptBlock,
+              `BUSINESS PROFILE:\n${profileBlock}` + fitEvidence.promptBlock +
+              INJECTION_SYSTEM_CLAUSE,
           },
           {
             role: "user",
@@ -497,11 +508,16 @@ serve(async (req) => {
               `action_type: ${actionType}\n` +
               `provider: ${provider}\n` +
               `description (what the user intends): ${description}\n` +
-              `params: ${JSON.stringify(params).slice(0, 4000)}`,
+              `params: ${JSON.stringify(params).slice(0, 4000)}` +
+              untrustedBlock +
+              (injection.detected
+                ? `\n\nSAFETY SCANNER NOTE (deterministic, already confirmed): ${injection.summary}`
+                : ""),
           },
         ],
       }),
     });
+
 
 
     if (res.status === 429) return json({ error: "rate_limited", message: "Too many requests right now — try again in a moment." }, 429);
