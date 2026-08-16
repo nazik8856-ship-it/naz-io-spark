@@ -610,7 +610,7 @@ serve(async (req) => {
 
     const decisionId = await logDecision(supabase, { userId, agentId, runId }, {
       decision: `${decision.toUpperCase()} ${actionType} (${provider})`,
-      reasoning: `${reason}\n${reasoning}`,
+      reasoning: `${reason}\n${reasoning}` + (injection.detected ? `\nInjection signals: ${injection.matches.map((m) => `${m.rule} in ${m.field}`).join(", ")}` : ""),
       alternatives,
       score: conf.score,
       stepIndex,
