@@ -33,6 +33,7 @@ import {
   scanForInjection,
   buildUntrustedBlock,
   INJECTION_SYSTEM_CLAUSE,
+  UNTRUSTED_PROVIDERS,
 } from "../_shared/injection-scanner.ts";
 
 
@@ -460,6 +461,16 @@ serve(async (req) => {
       actionType, provider, description,
     });
 
+    // ---- PROMPT-INJECTION HARDENING ----------------------------------------
+    // Anything that came from an outside system is DATA, never instructions.
+    // We (a) label + delimit it in the prompt and (b) scan it deterministically.
+    const untrustedFields = collectUntrustedFields(params, provider);
+    if (UNTRUSTED_PROVIDERS.has(String(provider).toLowerCase()) && description) {
+      untrustedFields.push({ field: "description", text: String(description) });
+    }
+    const injection = scanForInjection(untrustedFields);
+    const untrustedBlock = buildUntrustedBlock(untrustedFields, provider);
+
     const res = await fetch(LOVABLE_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
@@ -489,7 +500,8 @@ serve(async (req) => {
               `ORG STRICTNESS: ${STRICTNESS_PRESETS[strictness].label} — ${STRICTNESS_PRESETS[strictness].blurb} ` +
               `Grade risk and fit through that lens: on Strict, lean toward the higher risk tier and toward ` +
               `'unclear' fit when evidence is thin; on Loose, only flag genuine risk or a genuine mismatch.\n\n` +
-              `BUSINESS PROFILE:\n${profileBlock}` + fitEvidence.promptBlock,
+              `BUSINESS PROFILE:\n${profileBlock}` + fitEvidence.promptBlock +
+              INJECTION_SYSTEM_CLAUSE,
           },
           {
             role: "user",
@@ -497,11 +509,16 @@ serve(async (req) => {
               `action_type: ${actionType}\n` +
               `provider: ${provider}\n` +
               `description (what the user intends): ${description}\n` +
-              `params: ${JSON.stringify(params).slice(0, 4000)}`,
+              `params: ${JSON.stringify(params).slice(0, 4000)}` +
+              untrustedBlock +
+              (injection.detected
+                ? `\n\nSAFETY SCANNER NOTE (deterministic, already confirmed): ${injection.summary}`
+                : ""),
           },
         ],
       }),
     });
+
 
 
     if (res.status === 429) return json({ error: "rate_limited", message: "Too many requests right now — try again in a moment." }, 429);
@@ -535,7 +552,7 @@ serve(async (req) => {
     // always needs a human, no matter how confident the model is.
     const reversibility = reversibilityFor(actionType);
     const irreversibleHighRisk = !reversibility.reversible && irreversibleNeedsHuman(riskTier, strictness);
-    const escalated = shouldEscalate(conf.score, threshold) || irreversibleHighRisk;
+    let escalated = shouldEscalate(conf.score, threshold) || irreversibleHighRisk;
     const modification = String(parsed.modification || "").trim();
     const reasoning = String(parsed.reasoning || "").trim();
 
@@ -562,6 +579,21 @@ serve(async (req) => {
       reason = `Matches your intent, ${riskTier} risk, ${conf.score}% confidence — safe to run.`;
     }
 
+    // Deterministic injection findings OVERRIDE the model: a strong signal is a
+    // hard block, a suspicious one parks the action. Never downgrade a block.
+    if (injection.detected) {
+      const forced = injection.severity === "strong" ? "block" : "deferred";
+      if (!(decision === "block" && forced === "deferred")) decision = forced;
+      reason = `Possible prompt injection detected in external content — ${injection.summary}. ${
+        forced === "block"
+          ? "Blocked: outside content tried to give the system instructions."
+          : "Parked for a human to look at before anything runs."
+      }`;
+      escalated = true;
+    }
+
+
+
     const improvementSteps = Array.isArray(parsed.improvement_steps)
       ? (parsed.improvement_steps as unknown[]).map((s) => String(s).slice(0, 240)).slice(0, 6)
       : [];
@@ -578,7 +610,7 @@ serve(async (req) => {
 
     const decisionId = await logDecision(supabase, { userId, agentId, runId }, {
       decision: `${decision.toUpperCase()} ${actionType} (${provider})`,
-      reasoning: `${reason}\n${reasoning}`,
+      reasoning: `${reason}\n${reasoning}` + (injection.detected ? `\nInjection signals: ${injection.matches.map((m) => `${m.rule} in ${m.field}`).join(", ")}` : ""),
       alternatives,
       score: conf.score,
       stepIndex,
@@ -772,6 +804,7 @@ serve(async (req) => {
       decision_id: decisionId,
       approval_id: approvalId,
       safety_scan: gate.safety.matched ? gate.safety : null,
+      prompt_injection: injection.detected ? injection : null,
       shadow_rules: shadowMatches,
 
 
