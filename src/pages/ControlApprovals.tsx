@@ -147,7 +147,7 @@ export default function ControlApprovals() {
             </button>
             {(row.required_approvals || 1) > 1 && (
               <span className="text-[10px] font-mono uppercase text-amber-300">
-                needs {row.required_approvals} sign-offs
+                {signOffCount(row)} of {row.required_approvals} sign-offs
               </span>
             )}
             {row.decision_id && (
@@ -161,11 +161,22 @@ export default function ControlApprovals() {
           </div>
         </>
       ) : (
-        <div className="mt-3 flex items-center gap-2 text-[11px] font-mono uppercase">
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] font-mono uppercase">
           <span className={row.status === "approved" ? "text-emerald-300" : "text-rose-300"}>{row.status}</span>
+          <span className="text-zinc-500">· {signOffCount(row)}/{row.required_approvals || 1} approvals</span>
           {row.comment && <span className="text-zinc-500">· {row.comment}</span>}
+          {row.status === "approved" && (
+            <button
+              disabled={busy === row.id}
+              onClick={() => execute(row)}
+              className="ml-auto rounded border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 text-[10px] font-mono uppercase text-cyan-300 hover:bg-cyan-500/20 disabled:opacity-50"
+            >
+              Run it
+            </button>
+          )}
         </div>
       )}
+
     </div>
   );
 
