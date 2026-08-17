@@ -374,7 +374,14 @@ serve(async (req) => {
     // `tool_result` event for the same deliverable.
     const recordedArtifacts = new Set<string>();
 
-    // Verified-action executor kinds subject to the daily action cap.
+    // Verified-action executor kinds subject to the daily action cap AND the
+    // control-engine gate (kill switch, hard rules, circuit breaker, spend
+    // cap, safety scanner, anomaly detector, model risk/fit). Must match
+    // every kind capability-registry.ts marks implemented+verified+write —
+    // http_post and schedule_followup were missing here for a while (a real
+    // gap found by the call-graph audit: both are genuine external/self-
+    // perpetuating effects that used to run on nothing but their own local
+    // guardrail, invisible to the kill switch).
     const ACTION_CAPPED_KINDS = new Set([
       "send_email", "reply_email",
       "create_doc", "edit_doc",
@@ -386,6 +393,7 @@ serve(async (req) => {
       "canva_create_design", "canva_create_folder",
       "figma_post_comment", "figma_create_dev_resource",
       "shopify_create_draft_order", "shopify_update_product",
+      "http_post", "schedule_followup",
     ]);
     const dailyActionCap = Math.max(0, Number((agent as { daily_action_cap?: number }).daily_action_cap ?? 20));
     // Confidence-escalation threshold (per-agent, default 60): any tool call or
@@ -1033,7 +1041,7 @@ ${toolDescriptions}
 \`\`\`json
 {"action":"tool","tool":"<name>","input":{...},"reasoning":"<one short sentence WHY you chose this action now>","alternatives_considered":["<other option you weighed and rejected>","..."],"confidence_score":0-100,"confidence":"high|medium|low"}
 \`\`\`
-For any REAL WRITE action (send_email, reply_email, create_doc, edit_doc, create_sheet, edit_sheet, create_calendar_event, upsert_client_note, slack_post_message, notion_create_page, notion_update_page, canva_create_design, canva_create_folder, figma_post_comment, figma_create_dev_resource, shopify_create_draft_order, shopify_update_product) the "reasoning" and "confidence" fields are REQUIRED. For read-only or internal tools they are optional.
+For any REAL WRITE action (send_email, reply_email, create_doc, edit_doc, create_sheet, edit_sheet, create_calendar_event, upsert_client_note, slack_post_message, notion_create_page, notion_update_page, canva_create_design, canva_create_folder, figma_post_comment, figma_create_dev_resource, shopify_create_draft_order, shopify_update_product, http_post, schedule_followup) the "reasoning" and "confidence" fields are REQUIRED. For read-only or internal tools they are optional.
 Decision provenance (ALL tool + decide blocks): include "alternatives_considered" (the other tools/strategies/data sources you genuinely weighed for this step — empty array only if there truly was no alternative) and "confidence_score", an integer 0-100 that honestly reflects how certain YOU are in this specific choice given the data you actually have. Never emit a fixed or habitual number: lower it when data is stale, missing or ambiguous, raise it when you verified the inputs.
 \`\`\`json
 {"action":"decide","decision":"...","rationale":"...","alternatives_considered":["..."],"confidence_score":0-100}

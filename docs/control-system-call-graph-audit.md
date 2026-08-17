@@ -64,6 +64,18 @@ reachable — do not assume anything is wired just because it's imported."
 
 ## Gap 1 — `ACTION_CAPPED_KINDS` is not "every real write action"
 
+**Update: fixed.** `http_post` and `schedule_followup` were added to
+`ACTION_CAPPED_KINDS` in `agent-runtime/index.ts`. Both now route through the
+same `assessWithControlEngine` call every other capped kind does before
+their existing local guardrail logic ever runs — kill switch, hard rules,
+circuit breaker, spend cap, the safety scanner (which now sees the outgoing
+`http_post` body before it leaves, catching the PII/secrets-exfiltration
+case this gap specifically enabled), the anomaly detector, and the model
+risk/fit judgement all apply now. Their own local guardrails (the SSRF IP
+check, the per-agent approval-required-by-default branch) still run
+afterward as an additional layer, not a replacement.
+
+
 `agent-runtime/index.ts` only calls `assessWithControlEngine()` (the function
 that reaches `control-engine`, with a local `runControlGate` fallback if the
 HTTP call fails) when `ACTION_CAPPED_KINDS.has(tool.kind)`
