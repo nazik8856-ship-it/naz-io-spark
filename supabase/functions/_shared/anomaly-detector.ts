@@ -7,6 +7,7 @@
 // behaves (e.g. an agent that sends ~2 emails/day suddenly sending 40, or an
 // agent that has only ever posted to Slack suddenly writing Shopify orders).
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { Strictness } from "./decision-scoring.ts";
 
 export type ActionEvent = { created_at: string; action_type: string };
 
@@ -56,18 +57,35 @@ export type AnomalyOptions = {
 };
 
 /**
+ * The same org-level strictness dial that scales the confidence bar and risk
+ * tolerance elsewhere (decision-scoring.ts) also scales how twitchy the
+ * anomaly detector is. Strict = smaller deviations trip it, and it starts
+ * judging "normal" sooner; Loose = needs a bigger, more obvious spike and
+ * more history before it will ever flag anything.
+ */
+export const ANOMALY_STRICTNESS_PRESETS: Record<Strictness, Required<AnomalyOptions>> = {
+  loose: { volumeMultiplier: 8, minAbsoluteCount: 5, minDaysObserved: 5 },
+  balanced: { volumeMultiplier: 5, minAbsoluteCount: 3, minDaysObserved: 3 },
+  strict: { volumeMultiplier: 3, minAbsoluteCount: 2, minDaysObserved: 2 },
+};
+
+/**
  * Pure decision — no DB. `todayCount` is how many successful occurrences of
  * `actionType` this agent has logged today, INCLUDING the one about to run.
+ * `strictness` supplies the defaults; any field explicitly set in `opts`
+ * overrides that preset (mainly so tests can pin exact numbers).
  */
 export function detectAnomaly(
   baseline: Baseline,
   actionType: string,
   todayCount: number,
   opts: AnomalyOptions = {},
+  strictness: Strictness = "balanced",
 ): AnomalyCheck {
-  const multiplier = opts.volumeMultiplier ?? 5;
-  const minAbsolute = opts.minAbsoluteCount ?? 3;
-  const minDays = opts.minDaysObserved ?? 3;
+  const preset = ANOMALY_STRICTNESS_PRESETS[strictness];
+  const multiplier = opts.volumeMultiplier ?? preset.volumeMultiplier;
+  const minAbsolute = opts.minAbsoluteCount ?? preset.minAbsoluteCount;
+  const minDays = opts.minDaysObserved ?? preset.minDaysObserved;
 
   // Too little history to know what "normal" looks like for this agent yet —
   // never force an approval just because it's new.

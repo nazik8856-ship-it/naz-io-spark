@@ -11,6 +11,8 @@
 //      known) — a distinct risk class from the circuit breaker: catches
 //      abnormal-but-SUCCESSFUL volume or a brand-new provider/action_type for
 //      this agent, even when every individual action would pass on its own.
+//      Its sensitivity scales with the same org strictness dial as the
+//      confidence bar (Strict trips smaller, Loose needs a bigger spike).
 //
 // Every stop writes to agent_decisions, so the audit trail is identical no
 // matter where the action originated. Escalations create a pending_approvals
@@ -20,6 +22,7 @@ import { clearExpiredSpendKillSwitch, getSpendStatus, type SpendStatus } from ".
 import { sendCriticalAlert } from "./critical-alerts.ts";
 import { scanAction, type SafetyRule, type SafetyScan } from "./safety-scanner.ts";
 import { countTodaySuccesses, detectAnomaly, loadAgentBaseline, type AnomalyCheck } from "./anomaly-detector.ts";
+import { loadStrictness } from "./decision-scoring.ts";
 
 export const BREAKER_WINDOW = 10;
 export const BREAKER_MIN_ATTEMPTS = 4;
@@ -391,9 +394,10 @@ export async function runControlGate(
   // Only meaningful when this action is tied to a specific agent with its own
   // history to baseline against — a one-off chat-originated action has none.
   if (agentId) {
+    const anomalyStrictness = await loadStrictness(admin, userId);
     const baseline = await loadAgentBaseline(admin, agentId);
     const todayCount = (await countTodaySuccesses(admin, agentId, actionType)) + 1; // +1: the one about to run
-    const anomaly = detectAnomaly(baseline, actionType, todayCount);
+    const anomaly = detectAnomaly(baseline, actionType, todayCount, {}, anomalyStrictness);
     if (anomaly.anomalous) {
       const reason =
         `Unusual activity for this agent — ${anomaly.reason} Held for human review regardless of ` +

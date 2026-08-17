@@ -313,3 +313,24 @@ Deno.test("anomaly: an agent with fewer than 3 days of history is never held, ev
   assert(result.ok, "insufficient baseline data must never force an approval");
   assertEquals(result.anomaly, null);
 });
+
+Deno.test("anomaly: the org's strictness dial (profiles.control_strictness) is actually read and applied", async () => {
+  // 2 distinct days of history — the balanced default (min 3 days) would
+  // skip this entirely (already covered by the previous test); Strict only
+  // needs 2 days, so this is the case that proves strictness is genuinely
+  // threaded through, not just accepted and ignored.
+  const { client } = fakeSupabase({
+    profiles: { data: { control_strictness: "strict" }, error: null },
+    agent_events: {
+      data: [
+        { payload: { type: "slack_post_message", ok: true }, created_at: "2026-08-01T10:00:00Z" },
+        { payload: { type: "slack_post_message", ok: true }, created_at: "2026-08-02T10:00:00Z" },
+      ],
+      error: null,
+    },
+    pending_approvals: { data: { id: "approval-anomaly-strict" }, error: null },
+  });
+  const result = await runControlGate(client, { ...baseCtx, agentId: "agent-3" });
+  assertFalse(result.ok, "Strict mode needs only 2 days of history — this must be caught, not skipped");
+  assertEquals(result.source, "anomaly_detector");
+});

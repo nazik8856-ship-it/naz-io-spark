@@ -123,3 +123,31 @@ Deno.test("detectAnomaly: custom multiplier and absolute-count options are honor
   const loose = detectAnomaly(b, "send_email", 5, { volumeMultiplier: 10 }); // threshold 20
   assertFalse(loose.anomalous);
 });
+
+// ---- org strictness dial scales sensitivity --------------------------------
+
+Deno.test("detectAnomaly: the org strictness dial changes the default thresholds", () => {
+  const b = buildBaseline(fourteenDaysOfSteadyEmail, 14); // avg 2/day
+  // Balanced default: threshold 5x2=10. 6 is below that.
+  assertFalse(detectAnomaly(b, "send_email", 6, {}, "balanced").anomalous);
+  // Strict: multiplier 3x2=6. 6 meets that threshold.
+  assert(detectAnomaly(b, "send_email", 6, {}, "strict").anomalous);
+  // Loose: multiplier 8x2=16. 6 is nowhere close.
+  assertFalse(detectAnomaly(b, "send_email", 6, {}, "loose").anomalous);
+});
+
+Deno.test("detectAnomaly: strict mode needs less history before it starts judging", () => {
+  // Only 2 distinct days of history — balanced/loose require >=3/>=5 days and skip.
+  const b = buildBaseline([ev("2026-08-01", "send_email"), ev("2026-08-02", "send_email")], 14);
+  assertFalse(detectAnomaly(b, "shopify_create_draft_order", 1, {}, "balanced").anomalous);
+  assertFalse(detectAnomaly(b, "shopify_create_draft_order", 1, {}, "loose").anomalous);
+  // Strict only needs 2 days observed, which this baseline has.
+  assert(detectAnomaly(b, "shopify_create_draft_order", 1, {}, "strict").anomalous);
+});
+
+Deno.test("detectAnomaly: an explicit opts field still overrides the strictness preset", () => {
+  const b = buildBaseline(fourteenDaysOfSteadyEmail, 14); // avg 2/day
+  // Strict preset multiplier is 3 (threshold 6), but an explicit override to 20 must win.
+  const r = detectAnomaly(b, "send_email", 10, { volumeMultiplier: 20 }, "strict");
+  assertFalse(r.anomalous, "explicit opts must override the strictness preset, not the other way around");
+});
