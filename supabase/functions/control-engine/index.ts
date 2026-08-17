@@ -269,6 +269,55 @@ serve(async (req) => {
 
     const body = await req.json().catch(() => ({}));
 
+    // ---- POST /control-engine/approvals/:id/execute -------------------------
+    // The ONLY path that carries out an action queued for human approval.
+    // Quorum is re-checked here from the stored sign-off log — a row with
+    // required_approvals = 2 and one sign-off is refused (409), never executed.
+    const execMatch = url.pathname.match(/\/approvals\/([0-9a-fA-F-]{36})\/execute\/?$/);
+    if (execMatch) {
+      const approvalId = execMatch[1];
+      const { data: apRow } = await supabase
+        .from("pending_approvals").select("*").eq("id", approvalId).maybeSingle();
+      const ap = apRow as Record<string, unknown> | null;
+      if (!ap) return json({ ok: false, error: "not_found" }, 404);
+      if (ap.user_id !== userId) return json({ ok: false, error: "forbidden" }, 403);
+
+      const signoffs = Array.isArray(ap.approvals) ? (ap.approvals as { by?: string }[]) : [];
+      const distinct = new Set(signoffs.map((s) => String(s?.by ?? "")).filter(Boolean)).size;
+      const needed = Math.max(1, Number(ap.required_approvals ?? 1));
+
+      if (ap.status === "rejected") {
+        return json({ ok: false, executed: false, error: "rejected", message: "This action was rejected." }, 409);
+      }
+      if (distinct < needed || ap.status !== "approved") {
+        return json({
+          ok: false,
+          executed: false,
+          error: "quorum_not_met",
+          approvals: distinct,
+          required: needed,
+          remaining: Math.max(0, needed - distinct),
+          message: `Nothing ran — ${distinct} of ${needed} required approvals recorded.`,
+        }, 409);
+      }
+
+      const actType = String(ap.action_type || "");
+      if (!PROVIDER_WRITE_KINDS.has(actType)) {
+        return json({
+          ok: true, executed: false, approvals: distinct, required: needed,
+          message: `Quorum met, but "${actType}" runs inside an agent run, not from the control engine.`,
+        });
+      }
+      const result = await runProviderWrite(
+        actType, supabase, userId, String(ap.agent_id || ""), (ap.params ?? {}) as Record<string, unknown>,
+      );
+      return json({
+        ok: result.ok, executed: result.ok, approvals: distinct, required: needed,
+        summary: result.summary, url: result.url ?? null, ref: result.ref ?? null,
+      }, result.ok ? 200 : 502);
+    }
+
+
     // ---- POST /control-engine/replay ----------------------------------------
     // Re-evaluates the 30 control scenarios against a DRAFT policy version and
     // diffs them against the active version. Deterministic layers only (hard

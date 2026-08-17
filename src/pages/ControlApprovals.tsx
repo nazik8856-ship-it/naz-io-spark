@@ -60,38 +60,61 @@ export default function ControlApprovals() {
   const resolve = async (row: Approval, status: "approved" | "rejected") => {
     if (!user) return;
     setBusy(row.id);
-    // Multi-approver quorum: high-risk items may need more than one sign-off.
-    const prior = Array.isArray(row.approvals) ? (row.approvals as unknown[]) : [];
-    const signOffs = status === "approved"
-      ? [...prior, { by: user.id, at: new Date().toISOString() }]
-      : prior;
-    const met = status === "rejected" || signOffs.length >= (row.required_approvals || 1);
-    const { error } = await supabase
-      .from("pending_approvals")
-      .update({
-        approvals: signOffs as never,
-        status: met ? status : "pending",
-        comment: comments[row.id]?.slice(0, 800) || row.comment,
-        resolved_by: met ? user.id : null,
-        resolved_at: met ? new Date().toISOString() : null,
-      })
-      .eq("id", row.id);
+    // Quorum is enforced server-side: the RPC appends one DISTINCT sign-off and
+    // only flips the row to "approved" once required_approvals is reached.
+    const { data, error } = await supabase.rpc("record_approval_signoff", {
+      _approval_id: row.id,
+      _vote: status === "approved" ? "approve" : "reject",
+      _comment: comments[row.id]?.slice(0, 800) || null,
+    });
     setBusy(null);
     if (error) {
       toast({ title: "Couldn't save that", description: error.message, variant: "destructive" });
       return;
     }
+    const res = (data ?? {}) as { status?: string; approvals?: number; required?: number; remaining?: number };
+    const met = res.status === "approved" || res.status === "rejected";
     toast({
-      title: met ? (status === "approved" ? "Approved" : "Rejected") : "Sign-off recorded",
+      title: met ? (res.status === "approved" ? "Approved" : "Rejected") : "Sign-off recorded",
       description: met
-        ? `${row.action_type} was ${status}.`
-        : `Still needs ${(row.required_approvals || 1) - signOffs.length} more approval(s).`,
+        ? `${row.action_type} was ${res.status}.`
+        : `${res.approvals ?? 0} of ${res.required ?? 1} approvals — still needs ${res.remaining ?? 1} more.`,
     });
     load();
   };
 
+  const execute = async (row: Approval) => {
+    setBusy(row.id);
+    const { data, error } = await supabase.functions.invoke(
+      `control-engine/approvals/${row.id}/execute`,
+      { body: {} },
+    );
+    setBusy(null);
+    const res = (data ?? {}) as { message?: string; summary?: string; executed?: boolean };
+    if (error && !res.message) {
+      toast({ title: "Couldn't run it", description: error.message, variant: "destructive" });
+      return;
+    }
+    toast({
+      title: res.executed ? "Action carried out" : "Nothing ran",
+      description: res.summary || res.message || "",
+      variant: res.executed ? undefined : "destructive",
+    });
+    load();
+  };
+
+
+  // Distinct human sign-offs recorded on a row (source of truth for quorum).
+  const signOffCount = (row: Approval) =>
+    new Set(
+      (Array.isArray(row.approvals) ? (row.approvals as { by?: string }[]) : [])
+        .map((s) => String(s?.by ?? ""))
+        .filter(Boolean),
+    ).size;
+
   const pending = items.filter((i) => i.status === "pending");
   const resolved = items.filter((i) => i.status !== "pending");
+
 
   const Card = ({ row }: { row: Approval }) => (
     <div className="rounded-lg border border-white/10 bg-white/[0.03] p-4">
@@ -133,7 +156,7 @@ export default function ControlApprovals() {
             </button>
             {(row.required_approvals || 1) > 1 && (
               <span className="text-[10px] font-mono uppercase text-amber-300">
-                needs {row.required_approvals} sign-offs
+                {signOffCount(row)} of {row.required_approvals} sign-offs
               </span>
             )}
             {row.decision_id && (
@@ -147,11 +170,22 @@ export default function ControlApprovals() {
           </div>
         </>
       ) : (
-        <div className="mt-3 flex items-center gap-2 text-[11px] font-mono uppercase">
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] font-mono uppercase">
           <span className={row.status === "approved" ? "text-emerald-300" : "text-rose-300"}>{row.status}</span>
+          <span className="text-zinc-500">· {signOffCount(row)}/{row.required_approvals || 1} approvals</span>
           {row.comment && <span className="text-zinc-500">· {row.comment}</span>}
+          {row.status === "approved" && (
+            <button
+              disabled={busy === row.id}
+              onClick={() => execute(row)}
+              className="ml-auto rounded border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 text-[10px] font-mono uppercase text-cyan-300 hover:bg-cyan-500/20 disabled:opacity-50"
+            >
+              Run it
+            </button>
+          )}
         </div>
       )}
+
     </div>
   );
 
