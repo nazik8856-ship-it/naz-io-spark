@@ -268,3 +268,48 @@ Deno.test("ordering: a tripped circuit breaker wins over a safety-scanner match 
   const result = await runControlGate(client, { ...baseCtx, description: "delete all customer records" });
   assertEquals(result.source, "circuit_breaker", "circuit breaker must be attributed before the safety scanner ever runs");
 });
+
+// ---- layer 6: per-agent behavioral-baseline anomaly detector --------------
+// The anomaly-detector's own decision math (thresholds, multipliers, the
+// insufficient-data skip) has its own dedicated, thorough test file
+// (anomaly-detector_test.ts). These just verify control-gate WIRES it in
+// correctly: forces require_approval, attributes the right source, and only
+// runs at all when an agentId is present to baseline against.
+
+Deno.test("anomaly: with no agentId in context, the anomaly layer is skipped entirely (nothing to baseline against)", async () => {
+  const result = await runControlGate(fakeSupabase().client, baseCtx); // baseCtx has no agentId
+  assert(result.ok);
+  assertEquals(result.anomaly, null);
+});
+
+Deno.test("anomaly: an agent with 3+ days of history that never used this action_type is held for approval", async () => {
+  const { client } = fakeSupabase({
+    agent_events: {
+      data: [
+        { payload: { type: "slack_post_message", ok: true }, created_at: "2026-08-01T10:00:00Z" },
+        { payload: { type: "slack_post_message", ok: true }, created_at: "2026-08-02T10:00:00Z" },
+        { payload: { type: "slack_post_message", ok: true }, created_at: "2026-08-03T10:00:00Z" },
+      ],
+      error: null,
+    },
+    pending_approvals: { data: { id: "approval-anomaly-1" }, error: null },
+  });
+  const result = await runControlGate(client, { ...baseCtx, agentId: "agent-1" }); // baseCtx.actionType is send_email, never seen above
+  assertFalse(result.ok);
+  assertEquals(result.verdict, "require_approval");
+  assertEquals(result.source, "anomaly_detector");
+  assert(result.anomaly?.anomalous === true);
+  assertEquals(result.approvalId, "approval-anomaly-1");
+});
+
+Deno.test("anomaly: an agent with fewer than 3 days of history is never held, even for a brand-new action_type", async () => {
+  const { client } = fakeSupabase({
+    agent_events: {
+      data: [{ payload: { type: "slack_post_message", ok: true }, created_at: "2026-08-01T10:00:00Z" }],
+      error: null,
+    },
+  });
+  const result = await runControlGate(client, { ...baseCtx, agentId: "agent-2" });
+  assert(result.ok, "insufficient baseline data must never force an approval");
+  assertEquals(result.anomaly, null);
+});
