@@ -93,6 +93,18 @@ it leaves — that's exactly the PII/secrets exfiltration case it exists for.
 
 ## Gap 2 — a second, unguarded approval/execution path is still live
 
+**Update (Task 2, same day): partially fixed.** `agent-approval` now re-runs
+`runControlGate` immediately before dispatching an approved `send_email` or
+`http_post`, so a kill switch / hard rule / circuit breaker / safety-scanner
+condition that changed while the item sat in the queue still stops it — see
+`supabase/functions/agent-approval/index.ts:77-108`. What's still true and
+intentionally not changed: this queue has no quorum concept (`required_approvals`
+doesn't exist on `agent_events`) — it remains a single-operator, per-agent
+manifest-guardrail queue, structurally distinct from the org-wide
+`pending_approvals` quorum system. Treat that as a known, accepted design
+difference, not an oversight — see the original description below for why it
+was flagged.
+
 There are **two independent** "queue for a human, then execute" systems in
 the codebase, not one:
 
@@ -154,10 +166,20 @@ recommending immediate action.
 
 ## What I did not verify
 
-- I did not execute the quorum flow against a live database (1-of-2 blocks,
-  2-of-2 allows) — traced the code, didn't run it. Task 2's instructions ask
-  for an actual test; this audit only confirms the code path exists and reads
-  correctly.
+- **Update (Task 2, same day):** the quorum-check logic was extracted into
+  `_shared/quorum.ts` (`checkApprovalQuorum`) and `control-engine`'s execute
+  endpoint now calls it directly — so the function under test is the exact
+  function production code runs, not a parallel copy. Real, executed
+  `deno test` cases now cover 1-of-2 blocks, 2-of-2 allows, duplicate
+  approver dedup, rejected-status precedence, and edge cases (0/negative
+  `required_approvals`, malformed `approvals`); all 10 pass — see
+  `supabase/functions/_shared/quorum_test.ts`. I still did not run this
+  against a live Postgres `record_approval_signoff()` RPC (no reachable
+  Supabase project in this session — the linked project came back
+  `INACTIVE` and its ref doesn't match the `qaeduinfirtljnbecyzq` host cited
+  as production, so I didn't touch it) — that RPC's SQL logic is unit-tested
+  only in the sense that its JS-side counterpart is proven correct; the SQL
+  trigger/RPC itself should still get a live pass before being trusted blind.
 - I did not re-audit `control-test-suite`, the anomaly-detection item, the
   scheduled self-audit item, or the capability-visibility endpoint — those are
   separate open Task-list items (3, 4, 5) and out of scope for this call-graph

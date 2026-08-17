@@ -22,6 +22,7 @@ import { CAPABILITY_REGISTRY, canOfferTool } from "../_shared/capability-registr
 import { recordAiSpend } from "../_shared/spend-guard.ts";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
 import { runControlGate, createPendingApproval } from "../_shared/control-gate.ts";
+import { checkApprovalQuorum } from "../_shared/quorum.ts";
 
 
 import { PROVIDER_WRITE_KINDS, runProviderWrite } from "../_shared/provider-writes.ts";
@@ -282,24 +283,22 @@ serve(async (req) => {
       if (!ap) return json({ ok: false, error: "not_found" }, 404);
       if (ap.user_id !== userId) return json({ ok: false, error: "forbidden" }, 403);
 
-      const signoffs = Array.isArray(ap.approvals) ? (ap.approvals as { by?: string }[]) : [];
-      const distinct = new Set(signoffs.map((s) => String(s?.by ?? "")).filter(Boolean)).size;
-      const needed = Math.max(1, Number(ap.required_approvals ?? 1));
-
-      if (ap.status === "rejected") {
-        return json({ ok: false, executed: false, error: "rejected", message: "This action was rejected." }, 409);
-      }
-      if (distinct < needed || ap.status !== "approved") {
+      const quorum = checkApprovalQuorum(ap);
+      if (!quorum.ok) {
+        if (quorum.reason === "rejected") {
+          return json({ ok: false, executed: false, error: "rejected", message: "This action was rejected." }, 409);
+        }
         return json({
           ok: false,
           executed: false,
           error: "quorum_not_met",
-          approvals: distinct,
-          required: needed,
-          remaining: Math.max(0, needed - distinct),
-          message: `Nothing ran — ${distinct} of ${needed} required approvals recorded.`,
+          approvals: quorum.distinct,
+          required: quorum.needed,
+          remaining: quorum.remaining,
+          message: `Nothing ran — ${quorum.distinct} of ${quorum.needed} required approvals recorded.`,
         }, 409);
       }
+      const { distinct, needed } = quorum;
 
       const actType = String(ap.action_type || "");
       if (!PROVIDER_WRITE_KINDS.has(actType)) {

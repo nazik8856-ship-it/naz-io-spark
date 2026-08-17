@@ -30,7 +30,7 @@ export type GateContext = {
   runId?: string | null;
   stepIndex?: number | null;
   dryRun?: boolean;
-  origin: "control-engine" | "agent-runtime";
+  origin: "control-engine" | "agent-runtime" | "agent-approval";
 };
 
 export type ShadowHit = {
