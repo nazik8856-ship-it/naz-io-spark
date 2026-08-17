@@ -15,6 +15,12 @@
 // Requires the caller's JWT — the run is scoped to that user's own rules,
 // breakers, spend cap and business profile, so the report reflects THEIR
 // control system, not a generic one.
+//
+// Also accepts an internal, service-role call (Authorization: Bearer
+// <service_role_key> + x-internal-user-id: <uuid>) — the same pattern
+// agent-runtime uses to call control-engine directly. This is what lets
+// control-self-audit run this suite on a schedule with no human's session
+// token, still scoped to one specific org's own policy/rules/breakers.
 import { CONTROL_SCENARIOS, type Scenario, type Verdict } from "../_shared/control-scenarios.ts";
 
 const corsHeaders = {
@@ -53,6 +59,7 @@ async function runScenario(
   authHeader: string,
   apikey: string,
   dryRun: boolean,
+  internalUserId: string | null,
 ): Promise<Result> {
   const started = Date.now();
   const base = {
@@ -66,7 +73,12 @@ async function runScenario(
   try {
     const resp = await fetch(engineUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: authHeader, apikey },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: authHeader,
+        apikey,
+        ...(internalUserId ? { "x-internal-user-id": internalUserId } : {}),
+      },
       body: JSON.stringify({
         action_type: s.action_type,
         provider: s.provider,
@@ -162,7 +174,18 @@ Deno.serve(async (req) => {
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const engineUrl = `${supabaseUrl}/functions/v1/control-engine`;
+
+  // Internal (service-role) call: only the real service-role key can take
+  // this path, and it must name which org's policy/rules/breakers to run
+  // against — there's no ambient "current user" to fall back to.
+  const isInternal = authHeader === `Bearer ${serviceKey}`;
+  const internalUserId = req.headers.get("x-internal-user-id");
+  if (isInternal && !internalUserId) {
+    return json({ error: "x-internal-user-id required for a service-role call" }, 400);
+  }
+  const downstreamApikey = isInternal ? serviceKey : anonKey;
 
   const body = await req.json().catch(() => ({}));
   const dryRun = body?.dry_run === false ? false : true;
@@ -183,7 +206,7 @@ Deno.serve(async (req) => {
     while (true) {
       const i = cursor++;
       if (i >= scenarios.length) return;
-      results[i] = await runScenario(scenarios[i], engineUrl, authHeader, anonKey, dryRun);
+      results[i] = await runScenario(scenarios[i], engineUrl, authHeader, downstreamApikey, dryRun, internalUserId);
     }
   };
   await Promise.all(Array.from({ length: Math.min(concurrency, scenarios.length) }, worker));

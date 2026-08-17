@@ -1,8 +1,15 @@
 // Consumes agent pending_approval events. Approves → dispatches the queued
 // external action (send_email / http_post / generic). Rejects → logs and moves on.
 // Input: { eventId: string, action: "approve" | "reject", note?: string }
+//
+// This queue is per-agent (manifest guardrails), not the org-wide quorum
+// queue in `pending_approvals` — a single click here always resolves it, by
+// design. What it must NOT skip is the deterministic control gate: a kill
+// switch flipped, a hard rule added, or a circuit breaker tripped AFTER this
+// item was queued must still stop it from actually running now.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { runControlGate } from "../_shared/control-gate.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -65,6 +72,39 @@ serve(async (req) => {
     if (action === "reject") {
       await logEvent("approval_rejected", { original_event_id: eventId, action: actionType, note });
       return json({ ok: true, resolved: "rejected" });
+    }
+
+    // Re-check the SAME deterministic gate control-engine and agent-runtime
+    // use — spend cap, kill switch, hard rules, circuit breaker, safety
+    // scanner — before this queued item is actually carried out. Being
+    // approved once does not exempt an action from a safety condition that
+    // changed while it sat in the queue.
+    if (actionType === "send_email" || actionType === "http_post") {
+      const gateParams = (payload.payload as Record<string, unknown>) || {};
+      const gate = await runControlGate(admin, {
+        userId,
+        actionType,
+        provider: actionType === "send_email" ? "Gmail" : "webhook",
+        description: `Approved ${actionType} from an agent's manifest-guardrail queue (event ${eventId}).`,
+        params: gateParams,
+        agentId: evt.agent_id as string | null,
+        runId: evt.run_id as string | null,
+        origin: "agent-approval",
+      });
+      if (!gate.ok) {
+        await logEvent("approval_rejected", {
+          original_event_id: eventId,
+          action: actionType,
+          reason: `Stopped by the control gate at execute time: ${gate.reason}`,
+          gate_source: gate.source,
+        });
+        return json({
+          ok: false,
+          resolved: "blocked",
+          error: gate.source ?? "control_gate",
+          message: gate.reason ?? "Stopped by the control system before it could run.",
+        }, 409);
+      }
     }
 
     // Approve → dispatch the action.

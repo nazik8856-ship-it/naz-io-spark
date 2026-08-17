@@ -10,6 +10,7 @@
 //  2) Anything else -> normal conversational reply.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { buildCapabilityBlock } from "../_shared/capability-registry.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -96,6 +97,18 @@ serve(async (req) => {
         .join("\n")
       : "(no decisions logged yet)";
 
+    // Capability visibility — grounds "what can you actually do" answers in
+    // the real capability registry instead of the model guessing or
+    // over-claiming. Same source of truth agent-runtime uses to decide
+    // whether a tool is genuinely offered.
+    const { data: connsRows } = await supabase
+      .from("agent_integrations")
+      .select("provider")
+      .eq("user_id", userId)
+      .eq("status", "connected");
+    const connectedProviders = ((connsRows ?? []) as { provider: string }[]).map((c) => c.provider);
+    const capabilityBlock = buildCapabilityBlock(connectedProviders);
+
     const priorTurns = Array.isArray(body?.history)
       ? (body.history as { role?: string; content?: string }[])
         .filter((m) => (m?.role === "user" || m?.role === "assistant") && typeof m.content === "string" && m.content.trim())
@@ -121,14 +134,17 @@ serve(async (req) => {
               "the Control Engine does the intent, risk and fit checks. Never invent parameters the user didn't give.\n" +
               "2) Otherwise, reply normally in plain text — answer questions about how the Control System works, " +
               "explain past decisions, answer general questions, or ask ONE clarifying question when intent is ambiguous. " +
-              "Do NOT call the tool in this mode.\n\n" +
+              "Do NOT call the tool in this mode. If asked what you can actually do or verify right now, answer ONLY from " +
+              "the CAPABILITY REGISTRY below — never guess or round up, and always say plainly which things need an account " +
+              "connected first.\n\n" +
               "Always write in plain everyday language.\n\n" +
               "HOW YOU WORK (for explaining yourself): a proposed action is parsed, then the Control Engine scores intent match, " +
               "risk (low/medium/high) and business fit, weighs confidence (0-100) against a threshold, and returns one of four " +
               "verdicts — Allow, Modify, Block, or Deferred (not a fit). When a verdict is Allow and a real verified executor exists " +
               "for that tool, the action is actually carried out and verified; otherwise only the assessment happens. " +
               "Every verdict is logged to the shared decision history that agents also write to.\n\n" +
-              `RECENT DECISION HISTORY:\n${historyBlock}`,
+              `RECENT DECISION HISTORY:\n${historyBlock}` +
+              `\n${capabilityBlock}`,
           },
           ...priorTurns,
           { role: "user", content: message },

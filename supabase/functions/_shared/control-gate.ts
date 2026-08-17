@@ -7,6 +7,12 @@
 //   3. hard rules (live ones enforce; shadow ones only log)
 //   4. per-action circuit breaker
 //   5. deterministic content safety scanner (PII, secrets, destructive, reach)
+//   6. per-agent behavioral-baseline anomaly detector (only when agentId is
+//      known) — a distinct risk class from the circuit breaker: catches
+//      abnormal-but-SUCCESSFUL volume or a brand-new provider/action_type for
+//      this agent, even when every individual action would pass on its own.
+//      Its sensitivity scales with the same org strictness dial as the
+//      confidence bar (Strict trips smaller, Loose needs a bigger spike).
 //
 // Every stop writes to agent_decisions, so the audit trail is identical no
 // matter where the action originated. Escalations create a pending_approvals
@@ -15,6 +21,8 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { clearExpiredSpendKillSwitch, getSpendStatus, type SpendStatus } from "./spend-guard.ts";
 import { sendCriticalAlert } from "./critical-alerts.ts";
 import { scanAction, type SafetyRule, type SafetyScan } from "./safety-scanner.ts";
+import { countTodaySuccesses, detectAnomaly, loadAgentBaseline, type AnomalyCheck } from "./anomaly-detector.ts";
+import { loadStrictness } from "./decision-scoring.ts";
 
 export const BREAKER_WINDOW = 10;
 export const BREAKER_MIN_ATTEMPTS = 4;
@@ -30,7 +38,7 @@ export type GateContext = {
   runId?: string | null;
   stepIndex?: number | null;
   dryRun?: boolean;
-  origin: "control-engine" | "agent-runtime";
+  origin: "control-engine" | "agent-runtime" | "agent-approval";
 };
 
 export type ShadowHit = {
@@ -53,6 +61,7 @@ export type GateResult = {
   shadowRules: ShadowHit[];
   hardRule: { id: string; rule_text: string; effect: string } | null;
   circuitBreaker: Record<string, unknown> | null;
+  anomaly: AnomalyCheck | null;
   killSwitch: boolean;
   /** The policy version whose snapshot judged this action. */
   policyVersion: number | null;
@@ -263,6 +272,7 @@ export async function runControlGate(
     recordAttempt,
     hardRule: null as GateResult["hardRule"],
     circuitBreaker: null as Record<string, unknown> | null,
+    anomaly: null as AnomalyCheck | null,
     killSwitch: false,
     policyVersion,
     policyVersionId,
@@ -378,6 +388,39 @@ export async function runControlGate(
       source: "safety_scanner",
       safety,
     };
+  }
+
+  // ---- 6: per-agent behavioral-baseline anomaly detector ---------------------
+  // Only meaningful when this action is tied to a specific agent with its own
+  // history to baseline against — a one-off chat-originated action has none.
+  if (agentId) {
+    const anomalyStrictness = await loadStrictness(admin, userId);
+    const baseline = await loadAgentBaseline(admin, agentId);
+    const todayCount = (await countTodaySuccesses(admin, agentId, actionType)) + 1; // +1: the one about to run
+    const anomaly = detectAnomaly(baseline, actionType, todayCount, {}, anomalyStrictness);
+    if (anomaly.anomalous) {
+      const reason =
+        `Unusual activity for this agent — ${anomaly.reason} Held for human review regardless of ` +
+        `this action's own risk or confidence.`;
+      const decisionId = await logStop(
+        `APPROVAL_REQUIRED ${actionType} (${provider})`, reason, "anomaly_detector", true,
+      );
+      await recordShadowHits(decisionId, "modify");
+      const approvalId = await createPendingApproval(admin, {
+        userId, decisionId, agentId, runId, actionType, provider,
+        description: ctx.description, params: ctx.params, reason, riskTier: "high", origin: ctx.origin,
+      });
+      return {
+        ...base,
+        ok: false,
+        verdict: "require_approval",
+        reason,
+        decisionId,
+        approvalId,
+        source: "anomaly_detector",
+        anomaly,
+      };
+    }
   }
 
   return { ...base, ok: true, verdict: "allow", reason: null, decisionId: null, source: null, safety };

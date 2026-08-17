@@ -22,6 +22,7 @@ type Approval = {
   comment: string | null;
   created_at: string;
   resolved_at: string | null;
+  executed_at: string | null;
 };
 
 const RISK_STYLE: Record<string, string> = {
@@ -90,15 +91,15 @@ export default function ControlApprovals() {
       { body: {} },
     );
     setBusy(null);
-    const res = (data ?? {}) as { message?: string; summary?: string; executed?: boolean };
+    const res = (data ?? {}) as { message?: string; summary?: string; executed?: boolean; already_executed?: boolean };
     if (error && !res.message) {
       toast({ title: "Couldn't run it", description: error.message, variant: "destructive" });
       return;
     }
     toast({
-      title: res.executed ? "Action carried out" : "Nothing ran",
+      title: res.executed ? "Action carried out" : res.already_executed ? "Already done" : "Nothing ran",
       description: res.summary || res.message || "",
-      variant: res.executed ? undefined : "destructive",
+      variant: res.executed || res.already_executed ? undefined : "destructive",
     });
     load();
   };
@@ -174,7 +175,8 @@ export default function ControlApprovals() {
           <span className={row.status === "approved" ? "text-emerald-300" : "text-rose-300"}>{row.status}</span>
           <span className="text-zinc-500">· {signOffCount(row)}/{row.required_approvals || 1} approvals</span>
           {row.comment && <span className="text-zinc-500">· {row.comment}</span>}
-          {row.status === "approved" && (
+          {row.executed_at && <span className="text-zinc-500">· ran {new Date(row.executed_at).toLocaleString()}</span>}
+          {row.status === "approved" && !row.executed_at && (
             <button
               disabled={busy === row.id}
               onClick={() => execute(row)}
