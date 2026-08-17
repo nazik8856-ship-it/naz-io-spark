@@ -104,8 +104,17 @@ export default function ControlApprovals() {
   };
 
 
+  // Distinct human sign-offs recorded on a row (source of truth for quorum).
+  const signOffCount = (row: Approval) =>
+    new Set(
+      (Array.isArray(row.approvals) ? (row.approvals as { by?: string }[]) : [])
+        .map((s) => String(s?.by ?? ""))
+        .filter(Boolean),
+    ).size;
+
   const pending = items.filter((i) => i.status === "pending");
   const resolved = items.filter((i) => i.status !== "pending");
+
 
   const Card = ({ row }: { row: Approval }) => (
     <div className="rounded-lg border border-white/10 bg-white/[0.03] p-4">
