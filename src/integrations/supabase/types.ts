@@ -1973,6 +1973,10 @@ export type Database = {
           warned_at: string
         }[]
       }
+      record_approval_signoff: {
+        Args: { _approval_id: string; _comment?: string; _vote: string }
+        Returns: Json
+      }
       rotate_webhook_secret: { Args: { _agent_id: string }; Returns: string }
       update_integration_secret: {
         Args: { payload: Json; sid: string }
