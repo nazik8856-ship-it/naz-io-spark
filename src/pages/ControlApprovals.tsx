@@ -60,35 +60,49 @@ export default function ControlApprovals() {
   const resolve = async (row: Approval, status: "approved" | "rejected") => {
     if (!user) return;
     setBusy(row.id);
-    // Multi-approver quorum: high-risk items may need more than one sign-off.
-    const prior = Array.isArray(row.approvals) ? (row.approvals as unknown[]) : [];
-    const signOffs = status === "approved"
-      ? [...prior, { by: user.id, at: new Date().toISOString() }]
-      : prior;
-    const met = status === "rejected" || signOffs.length >= (row.required_approvals || 1);
-    const { error } = await supabase
-      .from("pending_approvals")
-      .update({
-        approvals: signOffs as never,
-        status: met ? status : "pending",
-        comment: comments[row.id]?.slice(0, 800) || row.comment,
-        resolved_by: met ? user.id : null,
-        resolved_at: met ? new Date().toISOString() : null,
-      })
-      .eq("id", row.id);
+    // Quorum is enforced server-side: the RPC appends one DISTINCT sign-off and
+    // only flips the row to "approved" once required_approvals is reached.
+    const { data, error } = await supabase.rpc("record_approval_signoff", {
+      _approval_id: row.id,
+      _vote: status === "approved" ? "approve" : "reject",
+      _comment: comments[row.id]?.slice(0, 800) || null,
+    });
     setBusy(null);
     if (error) {
       toast({ title: "Couldn't save that", description: error.message, variant: "destructive" });
       return;
     }
+    const res = (data ?? {}) as { status?: string; approvals?: number; required?: number; remaining?: number };
+    const met = res.status === "approved" || res.status === "rejected";
     toast({
-      title: met ? (status === "approved" ? "Approved" : "Rejected") : "Sign-off recorded",
+      title: met ? (res.status === "approved" ? "Approved" : "Rejected") : "Sign-off recorded",
       description: met
-        ? `${row.action_type} was ${status}.`
-        : `Still needs ${(row.required_approvals || 1) - signOffs.length} more approval(s).`,
+        ? `${row.action_type} was ${res.status}.`
+        : `${res.approvals ?? 0} of ${res.required ?? 1} approvals — still needs ${res.remaining ?? 1} more.`,
     });
     load();
   };
+
+  const execute = async (row: Approval) => {
+    setBusy(row.id);
+    const { data, error } = await supabase.functions.invoke(
+      `control-engine/approvals/${row.id}/execute`,
+      { body: {} },
+    );
+    setBusy(null);
+    const res = (data ?? {}) as { message?: string; summary?: string; executed?: boolean };
+    if (error && !res.message) {
+      toast({ title: "Couldn't run it", description: error.message, variant: "destructive" });
+      return;
+    }
+    toast({
+      title: res.executed ? "Action carried out" : "Nothing ran",
+      description: res.summary || res.message || "",
+      variant: res.executed ? undefined : "destructive",
+    });
+    load();
+  };
+
 
   const pending = items.filter((i) => i.status === "pending");
   const resolved = items.filter((i) => i.status !== "pending");
