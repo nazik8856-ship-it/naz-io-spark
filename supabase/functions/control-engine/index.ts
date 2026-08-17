@@ -274,6 +274,13 @@ serve(async (req) => {
     // The ONLY path that carries out an action queued for human approval.
     // Quorum is re-checked here from the stored sign-off log — a row with
     // required_approvals = 2 and one sign-off is refused (409), never executed.
+    //
+    // executed_at is claimed ATOMICALLY (a single UPDATE ... WHERE executed_at
+    // IS NULL) before the real write runs, so a double-click, a retried
+    // request, or two open tabs racing each other can only ever have ONE of
+    // them actually carry the action out — the loser sees already_executed,
+    // not a second send/post/order. If the write itself fails, the claim is
+    // released so the row stays genuinely retryable.
     const execMatch = url.pathname.match(/\/approvals\/([0-9a-fA-F-]{36})\/execute\/?$/);
     if (execMatch) {
       const approvalId = execMatch[1];
@@ -282,6 +289,13 @@ serve(async (req) => {
       const ap = apRow as Record<string, unknown> | null;
       if (!ap) return json({ ok: false, error: "not_found" }, 404);
       if (ap.user_id !== userId) return json({ ok: false, error: "forbidden" }, 403);
+
+      if (ap.executed_at) {
+        return json({
+          ok: true, executed: false, already_executed: true,
+          message: "This action was already carried out — nothing ran again.",
+        });
+      }
 
       const quorum = checkApprovalQuorum(ap);
       if (!quorum.ok) {
@@ -307,9 +321,29 @@ serve(async (req) => {
           message: `Quorum met, but "${actType}" runs inside an agent run, not from the control engine.`,
         });
       }
+
+      // Atomic claim: only succeeds if executed_at is still NULL right now.
+      const { data: claimed } = await supabase
+        .from("pending_approvals")
+        .update({ executed_at: new Date().toISOString() })
+        .eq("id", approvalId)
+        .is("executed_at", null)
+        .select("id")
+        .maybeSingle();
+      if (!claimed) {
+        return json({
+          ok: true, executed: false, already_executed: true,
+          message: "This action was already carried out — nothing ran again.",
+        });
+      }
+
       const result = await runProviderWrite(
         actType, supabase, userId, String(ap.agent_id || ""), (ap.params ?? {}) as Record<string, unknown>,
       );
+      if (!result.ok) {
+        // Nothing real happened — release the claim so this stays retryable.
+        await supabase.from("pending_approvals").update({ executed_at: null }).eq("id", approvalId);
+      }
       return json({
         ok: result.ok, executed: result.ok, approvals: distinct, required: needed,
         summary: result.summary, url: result.url ?? null, ref: result.ref ?? null,
