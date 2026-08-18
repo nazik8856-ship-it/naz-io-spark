@@ -22,7 +22,12 @@ export type CriticalAlertEvent =
 
 const APP_BASE_URL = "https://www.nazai.net";
 
-const LABELS: Record<CriticalAlertEvent, string> = {
+// Exported so a test can assert every CriticalAlertEvent has a real label —
+// a missing entry here is only ever a silent runtime `undefined` (LABELS is
+// keyed by a string union, not a discriminated type TS can exhaustively
+// check), which is exactly how "gate_error" briefly alerted with the text
+// "*undefined*" until this list caught up with the union above.
+export const LABELS: Record<CriticalAlertEvent, string> = {
   kill_switch_on: "🛑 Kill switch ON",
   kill_switch_off: "✅ Kill switch OFF",
   kill_switch_auto: "🛑 Kill switch auto-tripped",
@@ -34,6 +39,27 @@ const LABELS: Record<CriticalAlertEvent, string> = {
 
 export function decisionLink(decisionId?: string | null): string | null {
   return decisionId ? `${APP_BASE_URL}/control-system?decision=${decisionId}` : null;
+}
+
+/** Best-effort, durable record of the alert — independent of whether Slack delivery works. Never throws. */
+async function persistAlert(
+  admin: SupabaseClient,
+  userId: string,
+  opts: { event: CriticalAlertEvent; summary: string; decisionId?: string | null; actionType?: string | null; provider?: string | null; actor?: string | null },
+  deliveredVia: "slack" | "log",
+): Promise<void> {
+  try {
+    await admin.from("critical_alerts").insert({
+      user_id: userId,
+      event: opts.event,
+      summary: opts.summary.slice(0, 2000),
+      action_type: opts.actionType ?? null,
+      provider: opts.provider ?? null,
+      decision_id: opts.decisionId ?? null,
+      actor: opts.actor ?? null,
+      delivered_via: deliveredVia,
+    });
+  } catch { /* the alert itself must never depend on this succeeding */ }
 }
 
 export async function sendCriticalAlert(
@@ -73,7 +99,10 @@ export async function sendCriticalAlert(
         channel: String(channel || "#general"),
         text,
       });
-      if (res.ok) return "slack";
+      if (res.ok) {
+        await persistAlert(admin, userId, opts, "slack");
+        return "slack";
+      }
       console.error(`[CONTROL ALERT] Slack delivery failed: ${res.summary}`);
     }
   } catch (err) {
@@ -81,5 +110,6 @@ export async function sendCriticalAlert(
   }
 
   console.error(`[CONTROL ALERT] ${LABELS[opts.event]} — ${text.replace(/\n/g, " | ")}`);
+  await persistAlert(admin, userId, opts, "log");
   return "log";
 }
