@@ -23,6 +23,7 @@ import { recordAiSpend } from "../_shared/spend-guard.ts";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
 import { runControlGate, createPendingApproval } from "../_shared/control-gate.ts";
 import { checkApprovalQuorum } from "../_shared/quorum.ts";
+import { claimIdempotencyKey, saveIdempotencyResponse, releaseIdempotencyKey, type ClaimResult } from "../_shared/idempotency.ts";
 
 
 import { PROVIDER_WRITE_KINDS, runProviderWrite } from "../_shared/provider-writes.ts";
@@ -433,6 +434,9 @@ serve(async (req) => {
     const agentId: string | null = body?.agentId ? String(body.agentId) : null;
     const runId: string | null = body?.runId ? String(body.runId) : null;
     const stepIndex = Number.isFinite(Number(body?.stepIndex)) ? Number(body.stepIndex) : undefined;
+    // Optional — only protects the real provider-write step below. Callers
+    // that don't send one behave exactly as before.
+    const idempotencyKey: string | null = body?.idempotency_key ? String(body.idempotency_key).slice(0, 200) : null;
 
 
     if (!actionType) return json({ error: "action_type required" }, 400);
@@ -737,6 +741,11 @@ serve(async (req) => {
     let execution: Record<string, unknown> | null = null;
     let executionNote: string | null = null;
     let reversalId: string | null = null;
+    // Set only when THIS request itself claimed the idempotency key (not on
+    // a cache replay, which returns early) — used at the end to save the
+    // response so a retry with the same key gets it back instead of
+    // running the write again.
+    let idemClaim: ClaimResult | undefined;
 
     if (dryRun) {
       executed = false;
@@ -759,6 +768,16 @@ serve(async (req) => {
       const connected = ((conns || []) as { provider: string }[]).map((c) => c.provider);
       const offer = canOfferTool(actionType, connected);
 
+      const wouldExecute = Boolean(cap) && offer.offerable && PROVIDER_WRITE_KINDS.has(actionType);
+
+      // The claim only happens right here — right before a real write would
+      // actually run — never for an action that was only ever going to be
+      // assessed. Claiming earlier would occupy the key for a write that
+      // never happens, permanently 409-ing a legitimate retry.
+      if (wouldExecute && idempotencyKey) {
+        idemClaim = await claimIdempotencyKey(supabase, userId, idempotencyKey);
+      }
+
       if (!cap || !offer.offerable) {
         executionNote = offer && !("offerable" in offer && offer.offerable)
           ? `Assessment only — the action was NOT carried out. ${(offer as { message?: string }).message ?? ""}`.trim()
@@ -767,6 +786,13 @@ serve(async (req) => {
         executionNote =
           `Assessment only — "${actionType}" is real, but it runs inside an agent run (agent-runtime), ` +
           `not from the control engine. Approve it on the agent to actually execute it.`;
+      } else if (idemClaim?.status === "replay") {
+        return json(idemClaim.response);
+      } else if (idemClaim?.status === "in_progress") {
+        return json({
+          error: "idempotency_key_in_progress",
+          message: "A request with this idempotency key is already being carried out (or didn't finish cleanly). Retry shortly, or use a new key for a genuinely new attempt.",
+        }, 409);
       } else {
         // Capture whatever the compensating action will need BEFORE we write.
         const undoState = reversibility.reversible
@@ -775,6 +801,7 @@ serve(async (req) => {
         try {
           const result = await runProviderWrite(actionType, supabase, userId, agentId || "", params as Record<string, unknown>);
           executed = result.ok;
+          if (idempotencyKey && !result.ok) await releaseIdempotencyKey(supabase, userId, idempotencyKey);
           execution = {
             ok: result.ok,
             summary: result.summary,
@@ -821,6 +848,7 @@ serve(async (req) => {
           executed = false;
           execution = { ok: false, summary: String((err as Error)?.message || err), url: null, ref: null, target: null, verification: null };
           executionNote = `Approved, but running the action threw an error: ${execution.summary}`;
+          if (idempotencyKey && idemClaim?.status === "claimed") await releaseIdempotencyKey(supabase, userId, idempotencyKey);
         }
       }
     } else {
@@ -884,7 +912,7 @@ serve(async (req) => {
       breakerState = (after as Record<string, unknown> | null) ?? null;
     }
 
-    return json({
+    const responseBody = {
 
       decision_id: decisionId,
       approval_id: approvalId,
@@ -937,8 +965,17 @@ serve(async (req) => {
       spend_cap: spendAfter,
 
 
-    });
+    };
 
+    // A key is only ever claimed right before a real provider write — save
+    // the response so a retry with the same key replays it instead of
+    // running that write again. Only meaningful on a genuine success; a
+    // failure already released the claim above so a retry can try for real.
+    if (idempotencyKey && idemClaim?.status === "claimed" && executed) {
+      await saveIdempotencyResponse(supabase, userId, idempotencyKey, responseBody);
+    }
+
+    return json(responseBody);
 
   } catch (e) {
     return json({ error: "unexpected", message: String((e as Error)?.message || e) }, 500);

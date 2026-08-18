@@ -104,6 +104,12 @@ export default function ControlSystem() {
           >
             Rule simulator
           </button>
+          <button
+            onClick={() => navigate("/control-system/health")}
+            className="rounded border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-emerald-300 hover:bg-emerald-500/20"
+          >
+            Health
+          </button>
         </nav>
       </header>
 

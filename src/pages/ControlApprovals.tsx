@@ -23,6 +23,7 @@ type Approval = {
   created_at: string;
   resolved_at: string | null;
   executed_at: string | null;
+  escalated_at: string | null;
 };
 
 const RISK_STYLE: Record<string, string> = {
@@ -128,6 +129,14 @@ export default function ControlApprovals() {
         <span className="rounded border border-white/10 px-2 py-0.5 text-[10px] font-mono uppercase text-zinc-400">
           {row.origin === "agent-runtime" ? "agent run" : "chat"}
         </span>
+        {row.escalated_at && (
+          <span
+            title={`Escalated ${new Date(row.escalated_at).toLocaleString()} — waited too long for a response`}
+            className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-mono uppercase text-amber-300"
+          >
+            <Clock className="mr-1 inline h-3 w-3" /> escalated
+          </span>
+        )}
       </div>
       <p className="mt-2 text-sm text-zinc-200">{row.description || "No description supplied."}</p>
       <p className="mt-1 text-xs text-zinc-400">{row.reason}</p>
