@@ -1,10 +1,11 @@
 // Incident tracking — promotes the "abnormal" critical alerts (an automatic
 // kill-switch trip, a circuit breaker tripping, the gate itself failing
-// closed, a self-audit regression) from "a decision row + a Slack ping" into
-// a real incident object with a timeline and a resolution note. Deliberate
-// human actions (flipping the kill switch on/off) and routine enforcement
-// working as intended (a hard rule blocking something) are NOT incidents —
-// nothing went wrong there, the system did exactly what it was told to.
+// closed, a self-audit regression, a pending approval left unattended too
+// long) from "a decision row + a Slack ping" into a real incident object
+// with a timeline and a resolution note. Deliberate human actions
+// (flipping the kill switch on/off) and routine enforcement working as
+// intended (a hard rule blocking something) are NOT incidents — nothing
+// went wrong there, the system did exactly what it was told to.
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import type { CriticalAlertEvent } from "./critical-alerts.ts";
 
@@ -13,6 +14,7 @@ export const INCIDENT_KINDS = [
   "circuit_breaker_trip",
   "gate_error",
   "self_audit_regression",
+  "approval_escalated",
 ] as const;
 export type IncidentKind = typeof INCIDENT_KINDS[number];
 
