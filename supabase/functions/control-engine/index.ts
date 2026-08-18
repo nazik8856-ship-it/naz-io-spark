@@ -253,6 +253,7 @@ serve(async (req) => {
         escalated: d.escalated,
         human_response: d.human_response,
         source: d.source,
+        gate_trace: d.gate_trace ?? null,
         rule_enforced: d.source === "hard_rule",
         model_judged: d.source === "model",
         kill_switch: d.source === "kill_switch",
@@ -486,6 +487,7 @@ serve(async (req) => {
         approval_id: gate.approvalId,
         gate_source: gate.source,
         shadow_rules: gate.shadowRules,
+        gate_trace: gate.trace,
         model_judged: false,
         executed: false,
         execution: null,
@@ -699,6 +701,7 @@ serve(async (req) => {
       escalated,
       source: "model",
       policyVersion: gate.policyVersion,
+      trace: gate.trace,
     });
 
     await recordShadowHits(decisionId ?? null, decision);
@@ -888,6 +891,7 @@ serve(async (req) => {
       safety_scan: gate.safety.matched ? gate.safety : null,
       prompt_injection: injection.detected ? injection : null,
       shadow_rules: shadowMatches,
+      gate_trace: gate.trace,
 
 
       decision,

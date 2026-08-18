@@ -13,6 +13,7 @@ import { useIntegrationOAuthMessages } from "@/hooks/useIntegrationOAuthMessages
 import { AlertTriangle } from "lucide-react";
 import AskUserPrompt from "./AskUserPrompt";
 import { pendingClarification } from "@/lib/agent-clarifications";
+import AgentHealthBadge from "./AgentHealthBadge";
 
 type OutputItem = {
   id: string;
@@ -505,6 +506,7 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
       )}
       {/* Status + actions bar (the generated dashboard renders its own hero) */}
       <div className="flex flex-wrap items-center gap-2">
+        <AgentHealthBadge agentId={agentId} />
         <button
           onClick={runNow}
           disabled={running}

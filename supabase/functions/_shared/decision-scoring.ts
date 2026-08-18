@@ -132,6 +132,8 @@ export const logDecision = async (
     source?: string;
     /** The policy version whose snapshot judged this decision. */
     policyVersion?: number | null;
+    /** The full gate trace (every layer checked) that judged this action before the model ever ran. */
+    trace?: unknown;
   },
 ): Promise<string | null> => {
   try {
@@ -147,6 +149,7 @@ export const logDecision = async (
       source: d.source ?? "model",
       escalated: d.escalated ?? false,
       policy_version: d.policyVersion ?? null,
+      gate_trace: d.trace ?? null,
     }).select("id").single();
     return (data as { id?: string } | null)?.id ?? null;
   } catch {

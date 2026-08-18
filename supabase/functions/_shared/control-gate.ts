@@ -23,6 +23,8 @@ import { sendCriticalAlert } from "./critical-alerts.ts";
 import { scanAction, type SafetyRule, type SafetyScan } from "./safety-scanner.ts";
 import { countTodaySuccesses, detectAnomaly, loadAgentBaseline, type AnomalyCheck } from "./anomaly-detector.ts";
 import { loadStrictness } from "./decision-scoring.ts";
+import { finalizeTrace, type TraceEntry } from "./gate-trace.ts";
+import { ruleMatchesAction } from "./rule-matching.ts";
 
 export const BREAKER_WINDOW = 10;
 export const BREAKER_MIN_ATTEMPTS = 4;
@@ -66,18 +68,14 @@ export type GateResult = {
   /** The policy version whose snapshot judged this action. */
   policyVersion: number | null;
   policyVersionId: string | null;
+  /** Every layer the gate checked, in order — not just the one that stopped it. */
+  trace: TraceEntry[];
   /** Records what matching shadow rules WOULD have done, against the real verdict. */
   recordShadowHits: (decisionId: string | null, actualDecision: string) => Promise<void>;
   /** Feeds an attempt into the rolling circuit-breaker window. */
   recordAttempt: (failed: boolean, why: string) => Promise<Record<string, unknown> | null>;
 };
 
-
-const globToRe = (p: string) =>
-  new RegExp(
-    "^" + p.trim().split("*").map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*") + "$",
-    "i",
-  );
 
 type HardRule = {
   id: string;
@@ -168,6 +166,8 @@ export async function runControlGate(
     }
   } catch { /* fall back to live tables below */ }
 
+  const trace: TraceEntry[] = [];
+
   const logStop = async (decision: string, reasoning: string, source: string, escalated: boolean) => {
     try {
       const { data } = await admin.from("agent_decisions").insert({
@@ -182,6 +182,9 @@ export async function runControlGate(
         source,
         escalated,
         policy_version: policyVersion,
+        // The trace array is closed over and already has every entry pushed
+        // up to this call site — finalizeTrace fills the rest as not_reached.
+        gate_trace: finalizeTrace(trace),
       }).select("id").maybeSingle();
       return (data as { id?: string } | null)?.id ?? null;
     } catch {
@@ -189,6 +192,15 @@ export async function runControlGate(
     }
   };
 
+  // Everything below reads live tables (kill switch, hard rules, circuit
+  // breaker, anomaly baseline) that can throw on a transient DB/network
+  // error. Without this try/catch, that exception would propagate straight
+  // out of runControlGate — safe ONLY because every current caller happens
+  // to wrap its own call in a try/catch that aborts before executing
+  // anything. That's an accident of caller structure, not a guarantee this
+  // function makes. Fail closed explicitly, here, so the property holds no
+  // matter what calls this later (including a future outer-NazAI caller).
+  try {
   // ---- 1 & 2: spend cap + global kill switch --------------------------------
   await clearExpiredSpendKillSwitch(admin, userId);
   const spend = await getSpendStatus(admin, userId);
@@ -207,10 +219,7 @@ export async function runControlGate(
   }
   const allRules = snapshotRules.filter((r) => (r as { enabled?: boolean }).enabled !== false);
 
-  const ruleMatches = (r: HardRule) => {
-    if (r.provider && r.provider.toLowerCase() !== provider.toLowerCase()) return false;
-    try { return globToRe(r.action_type_pattern || "*").test(actionType); } catch { return false; }
-  };
+  const ruleMatches = (r: HardRule) => ruleMatchesAction(r, actionType, provider);
   const shadowMatches = allRules.filter((r) => r.shadow_mode && ruleMatches(r));
   const shadowRules: ShadowHit[] = shadowMatches.map((r) => ({
     id: r.id,
@@ -278,7 +287,19 @@ export async function runControlGate(
     policyVersionId,
     approvalId: null as string | null,
     safety: emptyScan,
+    trace: [] as TraceEntry[],
   };
+
+  trace.push({
+    layer: "spend_cap", label: "Daily AI spend cap",
+    status: spend.over_cap ? "stopped" : "ok",
+    detail: spend.over_cap ? `$${spend.spent_usd.toFixed(2)} of $${spend.cap_usd.toFixed(2)} across ${spend.calls} calls` : null,
+  });
+  trace.push({
+    layer: "kill_switch", label: "Global kill switch",
+    status: killed ? "stopped" : "ok",
+    detail: killed ? "Kill switch is on for this account" : null,
+  });
 
   if (killed || spend.over_cap) {
     const reason = spend.over_cap
@@ -289,11 +310,20 @@ export async function runControlGate(
       `BLOCK ${actionType} (${provider})`, reason, spend.over_cap ? "ai_spend_cap" : "kill_switch", false,
     );
     await recordShadowHits(decisionId, "block");
-    return { ...base, ok: false, verdict: "block", reason, decisionId, source: spend.over_cap ? "ai_spend_cap" : "kill_switch", killSwitch: true };
+    return {
+      ...base, ok: false, verdict: "block", reason, decisionId,
+      source: spend.over_cap ? "ai_spend_cap" : "kill_switch", killSwitch: true,
+      trace: finalizeTrace(trace),
+    };
   }
 
   // ---- 3: live hard rules ---------------------------------------------------
   const matched = allRules.find((r) => !r.shadow_mode && ruleMatches(r));
+  trace.push({
+    layer: "hard_rules", label: "Hard rules",
+    status: matched ? "stopped" : "ok",
+    detail: matched ? `Matched: "${matched.rule_text}"` : `${allRules.length} rule(s) checked, none matched`,
+  });
   if (matched) {
     const blocking = matched.effect === "always_block";
     const reason = blocking
@@ -327,10 +357,16 @@ export async function runControlGate(
       approvalId,
       source: "hard_rule",
       hardRule: { id: matched.id, rule_text: matched.rule_text, effect: matched.effect },
+      trace: finalizeTrace(trace),
     };
   }
 
   // ---- 4: circuit breaker ---------------------------------------------------
+  trace.push({
+    layer: "circuit_breaker", label: "Circuit breaker",
+    status: breaker?.tripped ? "stopped" : "ok",
+    detail: breaker ? `failure rate ${Math.round((breaker.failure_rate ?? 0) * 100)}% over last ${BREAKER_WINDOW} attempts` : null,
+  });
   if (breaker?.tripped) {
     const reason =
       `Blocked — the circuit breaker for "${actionType}" is tripped. ` +
@@ -353,6 +389,7 @@ export async function runControlGate(
         trip_count: breaker.trip_count,
         reset_hint: "Reset it in the Control System breaker panel to allow this action type again.",
       },
+      trace: finalizeTrace(trace),
     };
   }
 
@@ -361,6 +398,11 @@ export async function runControlGate(
     ? (snapshot.safety_rules as SafetyRule[])
     : null;
   const safety = await scanAction(admin, userId, ctx.params, ctx.description, pinnedSafetyRules);
+  trace.push({
+    layer: "safety_scanner", label: "Safety scanner",
+    status: (safety.matched && safety.severity) ? "stopped" : "ok",
+    detail: safety.matched ? safety.summary : null,
+  });
   if (safety.matched && safety.severity) {
     const blocking = safety.severity === "block";
     const reason = safety.summary!;
@@ -387,6 +429,7 @@ export async function runControlGate(
       approvalId,
       source: "safety_scanner",
       safety,
+      trace: finalizeTrace(trace),
     };
   }
 
@@ -398,6 +441,11 @@ export async function runControlGate(
     const baseline = await loadAgentBaseline(admin, agentId);
     const todayCount = (await countTodaySuccesses(admin, agentId, actionType)) + 1; // +1: the one about to run
     const anomaly = detectAnomaly(baseline, actionType, todayCount, {}, anomalyStrictness);
+    trace.push({
+      layer: "anomaly_detector", label: "Anomaly detector",
+      status: anomaly.anomalous ? "stopped" : "ok",
+      detail: anomaly.anomalous ? anomaly.reason : null,
+    });
     if (anomaly.anomalous) {
       const reason =
         `Unusual activity for this agent — ${anomaly.reason} Held for human review regardless of ` +
@@ -419,11 +467,74 @@ export async function runControlGate(
         approvalId,
         source: "anomaly_detector",
         anomaly,
+        trace: finalizeTrace(trace),
       };
     }
+  } else {
+    trace.push({
+      layer: "anomaly_detector", label: "Anomaly detector",
+      status: "skipped",
+      detail: "No agent tied to this action — nothing to baseline against.",
+    });
   }
 
-  return { ...base, ok: true, verdict: "allow", reason: null, decisionId: null, source: null, safety };
+  return { ...base, ok: true, verdict: "allow", reason: null, decisionId: null, source: null, safety, trace: finalizeTrace(trace) };
+  } catch (err) {
+    // Explicit fail-closed: an unexpected error while judging an action
+    // means the action is BLOCKED, never allowed through by default. Best
+    // effort to log and alert, but the block itself never depends on either
+    // succeeding.
+    const message = err instanceof Error ? err.message : String(err);
+    const reason = "Blocked — the control gate hit an unexpected error and failed closed. Nothing was assessed or run.";
+    const emptyScan: SafetyScan = { matched: false, severity: null, matches: [], summary: null };
+    let decisionId: string | null = null;
+    try {
+      const { data } = await admin.from("agent_decisions").insert({
+        user_id: userId,
+        agent_id: agentId,
+        agent_run_id: runId,
+        step_index: stepIndex,
+        decision: `BLOCK ${actionType} (${provider})`.slice(0, 400),
+        reasoning: `${reason}\n${message}`.slice(0, 800),
+        alternatives_considered: [],
+        confidence_score: 100,
+        source: "gate_error",
+        escalated: true,
+        policy_version: policyVersion,
+        gate_trace: finalizeTrace(trace),
+      }).select("id").maybeSingle();
+      decisionId = (data as { id?: string } | null)?.id ?? null;
+    } catch { /* logging must never break the fail-closed block */ }
+    try {
+      await sendCriticalAlert(admin, userId, {
+        event: "gate_error",
+        summary: `${reason} (${message})`,
+        decisionId,
+        actionType,
+        provider,
+      });
+    } catch { /* alerting must never break the fail-closed block */ }
+    return {
+      ok: false,
+      verdict: "block",
+      reason,
+      decisionId,
+      source: "gate_error",
+      approvalId: null,
+      spend: { enabled: true, cap_usd: 0, spent_usd: 0, calls: 0, pct: 0, over_cap: false, day: new Date().toISOString().slice(0, 10) },
+      safety: emptyScan,
+      shadowRules: [],
+      hardRule: null,
+      circuitBreaker: null,
+      anomaly: null,
+      killSwitch: false,
+      policyVersion,
+      policyVersionId,
+      trace: finalizeTrace(trace),
+      recordShadowHits: async () => {},
+      recordAttempt: async () => null,
+    };
+  }
 }
 
 /**
