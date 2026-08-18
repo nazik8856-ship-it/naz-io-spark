@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Check, X } from "lucide-react";
+import { ArrowLeft, Check, X, ChevronDown, ChevronRight, Download } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
+import { toCsv } from "@/lib/csv";
+
+type TraceStatus = "ok" | "stopped" | "skipped" | "not_reached";
+type TraceEntry = { layer: string; label: string; status: TraceStatus; detail: string | null };
 
 type DecisionRow = {
   id: string;
@@ -16,7 +20,38 @@ type DecisionRow = {
   agent_run_id: string | null;
   human_response: string | null;
   created_at: string;
+  gate_trace: TraceEntry[] | null;
 };
+
+const TRACE_STATUS_STYLE: Record<TraceStatus, string> = {
+  ok: "text-emerald-400",
+  stopped: "text-rose-400",
+  skipped: "text-zinc-500",
+  not_reached: "text-zinc-600",
+};
+
+const TRACE_STATUS_LABEL: Record<TraceStatus, string> = {
+  ok: "ok",
+  stopped: "stopped here",
+  skipped: "skipped",
+  not_reached: "not reached",
+};
+
+/** Full gate checklist — every layer this decision passed through, not just the one that stopped it. */
+function GateTraceList({ trace }: { trace: TraceEntry[] }) {
+  return (
+    <ul className="mt-2 space-y-1 rounded border border-white/10 bg-black/20 p-2 font-mono text-[10px]">
+      {trace.map((e) => (
+        <li key={e.layer} className="flex flex-wrap items-baseline gap-x-2">
+          <span className={TRACE_STATUS_STYLE[e.status]}>{e.status === "ok" ? "✓" : e.status === "stopped" ? "✕" : "·"}</span>
+          <span className="text-zinc-300">{e.label}:</span>
+          <span className={TRACE_STATUS_STYLE[e.status]}>{TRACE_STATUS_LABEL[e.status]}</span>
+          {e.detail && <span className="text-zinc-500">— {e.detail}</span>}
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 const CONFIDENCE_BAR = 60;
 
@@ -30,12 +65,20 @@ export default function ControlPendingDecisions() {
   const [rows, setRows] = useState<DecisionRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  const toggleTrace = (id: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
 
   const load = useCallback(async () => {
     if (!user) return;
     const { data, error } = await supabase
       .from("agent_decisions")
-      .select("id,decision,reasoning,confidence_score,escalated,source,agent_id,agent_run_id,human_response,created_at")
+      .select("id,decision,reasoning,confidence_score,escalated,source,agent_id,agent_run_id,human_response,created_at,gate_trace")
       .eq("user_id", user.id)
       .is("human_response", null)
       // Deferred "not a fit" verdicts are included too: overriding one is the
@@ -65,6 +108,63 @@ export default function ControlPendingDecisions() {
     setRows((r) => r.filter((x) => x.id !== row.id));
   };
 
+  const todayIso = () => new Date().toISOString().slice(0, 10);
+  const daysAgoIso = (n: number) => new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const [exportFrom, setExportFrom] = useState(daysAgoIso(30));
+  const [exportTo, setExportTo] = useState(todayIso());
+  const [exporting, setExporting] = useState(false);
+
+  // Full audit-log export — every decision in the range, not just the
+  // pending ones the table above shows. The first thing any compliance-
+  // minded customer asks for: a real CSV they can hand to an auditor.
+  const exportCsv = async () => {
+    if (!user) return;
+    setExporting(true);
+    const fromIso = new Date(`${exportFrom}T00:00:00.000Z`).toISOString();
+    const toIso = new Date(`${exportTo}T23:59:59.999Z`).toISOString();
+    const { data, error } = await supabase
+      .from("agent_decisions")
+      .select("id,decision,reasoning,confidence_score,escalated,source,agent_id,agent_run_id,human_response,created_at,policy_version")
+      .eq("user_id", user.id)
+      .gte("created_at", fromIso)
+      .lte("created_at", toIso)
+      .order("created_at", { ascending: true })
+      .limit(10000);
+    setExporting(false);
+    if (error) {
+      toast({ title: "Export failed", description: error.message, variant: "destructive" });
+      return;
+    }
+    const rows = (data ?? []) as (DecisionRow & { policy_version: number | null })[];
+    if (!rows.length) {
+      toast({ title: "Nothing to export", description: `No decisions between ${exportFrom} and ${exportTo}.` });
+      return;
+    }
+    const csv = toCsv(rows, [
+      { key: "created_at", header: "Timestamp (UTC)" },
+      { key: "decision", header: "Decision" },
+      { key: "source", header: "Source" },
+      { key: "escalated", header: "Escalated" },
+      { key: "confidence_score", header: "Confidence %" },
+      { key: "reasoning", header: "Reasoning" },
+      { key: "human_response", header: "Human Response" },
+      { key: "policy_version", header: "Policy Version" },
+      { key: "agent_id", header: "Agent ID" },
+      { key: "agent_run_id", header: "Run ID" },
+      { key: "id", header: "Decision ID" },
+    ]);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `nazai-control-audit-log_${exportFrom}_to_${exportTo}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    toast({ title: "Exported", description: `${rows.length} decision${rows.length === 1 ? "" : "s"} written to CSV.` });
+  };
+
   return (
     <div className="min-h-screen w-full text-white" style={{ backgroundColor: "#020617" }}>
       <header className="flex items-center gap-3 border-b border-white/5 px-6 py-4">
@@ -83,6 +183,38 @@ export default function ControlPendingDecisions() {
         <p className="mt-1 text-sm text-zinc-400">
           Decisions waiting on a human answer: escalated items and anything scored under {CONFIDENCE_BAR}% confidence.
         </p>
+
+        <div className="mt-4 flex flex-wrap items-end gap-2 rounded border border-white/10 bg-white/[0.02] p-3">
+          <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+            From
+            <input
+              type="date"
+              value={exportFrom}
+              max={exportTo}
+              onChange={(e) => setExportFrom(e.target.value)}
+              className="rounded border border-white/10 bg-black/40 px-2 py-1 text-xs text-zinc-200"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+            To
+            <input
+              type="date"
+              value={exportTo}
+              min={exportFrom}
+              max={todayIso()}
+              onChange={(e) => setExportTo(e.target.value)}
+              className="rounded border border-white/10 bg-black/40 px-2 py-1 text-xs text-zinc-200"
+            />
+          </label>
+          <button
+            disabled={exporting}
+            onClick={exportCsv}
+            className="flex items-center gap-1.5 rounded border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 font-mono text-[11px] uppercase text-cyan-300 hover:bg-cyan-500/20 disabled:opacity-50"
+          >
+            <Download className="h-3.5 w-3.5" /> {exporting ? "Exporting…" : "Export audit log (CSV)"}
+          </button>
+          <span className="text-[10px] text-zinc-500">Every decision in range, not just pending ones.</span>
+        </div>
 
         {loading ? (
           <p className="mt-8 font-mono text-xs uppercase text-zinc-500">Loading…</p>
@@ -112,7 +244,21 @@ export default function ControlPendingDecisions() {
                     {row.decision}
                     {row.escalated && <div className="text-amber-400">escalated</div>}
                   </td>
-                  <td className="py-3 pr-3 text-zinc-300">{row.reasoning}</td>
+                  <td className="py-3 pr-3 text-zinc-300">
+                    {row.reasoning}
+                    {row.gate_trace && row.gate_trace.length > 0 && (
+                      <>
+                        <button
+                          onClick={() => toggleTrace(row.id)}
+                          className="mt-1 flex items-center gap-1 font-mono text-[10px] uppercase text-zinc-500 hover:text-zinc-300"
+                        >
+                          {expanded.has(row.id) ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                          Why
+                        </button>
+                        {expanded.has(row.id) && <GateTraceList trace={row.gate_trace} />}
+                      </>
+                    )}
+                  </td>
                   <td className="py-3 pr-3 font-mono text-[11px] text-zinc-400">{row.confidence_score}%</td>
                   <td className="py-3">
                     <div className="flex gap-2">

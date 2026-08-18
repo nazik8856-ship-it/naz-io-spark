@@ -23,6 +23,7 @@ import { sendCriticalAlert } from "./critical-alerts.ts";
 import { scanAction, type SafetyRule, type SafetyScan } from "./safety-scanner.ts";
 import { countTodaySuccesses, detectAnomaly, loadAgentBaseline, type AnomalyCheck } from "./anomaly-detector.ts";
 import { loadStrictness } from "./decision-scoring.ts";
+import { finalizeTrace, type TraceEntry } from "./gate-trace.ts";
 
 export const BREAKER_WINDOW = 10;
 export const BREAKER_MIN_ATTEMPTS = 4;
@@ -66,6 +67,8 @@ export type GateResult = {
   /** The policy version whose snapshot judged this action. */
   policyVersion: number | null;
   policyVersionId: string | null;
+  /** Every layer the gate checked, in order — not just the one that stopped it. */
+  trace: TraceEntry[];
   /** Records what matching shadow rules WOULD have done, against the real verdict. */
   recordShadowHits: (decisionId: string | null, actualDecision: string) => Promise<void>;
   /** Feeds an attempt into the rolling circuit-breaker window. */
@@ -168,6 +171,8 @@ export async function runControlGate(
     }
   } catch { /* fall back to live tables below */ }
 
+  const trace: TraceEntry[] = [];
+
   const logStop = async (decision: string, reasoning: string, source: string, escalated: boolean) => {
     try {
       const { data } = await admin.from("agent_decisions").insert({
@@ -182,6 +187,9 @@ export async function runControlGate(
         source,
         escalated,
         policy_version: policyVersion,
+        // The trace array is closed over and already has every entry pushed
+        // up to this call site — finalizeTrace fills the rest as not_reached.
+        gate_trace: finalizeTrace(trace),
       }).select("id").maybeSingle();
       return (data as { id?: string } | null)?.id ?? null;
     } catch {
@@ -278,7 +286,19 @@ export async function runControlGate(
     policyVersionId,
     approvalId: null as string | null,
     safety: emptyScan,
+    trace: [] as TraceEntry[],
   };
+
+  trace.push({
+    layer: "spend_cap", label: "Daily AI spend cap",
+    status: spend.over_cap ? "stopped" : "ok",
+    detail: spend.over_cap ? `$${spend.spent_usd.toFixed(2)} of $${spend.cap_usd.toFixed(2)} across ${spend.calls} calls` : null,
+  });
+  trace.push({
+    layer: "kill_switch", label: "Global kill switch",
+    status: killed ? "stopped" : "ok",
+    detail: killed ? "Kill switch is on for this account" : null,
+  });
 
   if (killed || spend.over_cap) {
     const reason = spend.over_cap
@@ -289,11 +309,20 @@ export async function runControlGate(
       `BLOCK ${actionType} (${provider})`, reason, spend.over_cap ? "ai_spend_cap" : "kill_switch", false,
     );
     await recordShadowHits(decisionId, "block");
-    return { ...base, ok: false, verdict: "block", reason, decisionId, source: spend.over_cap ? "ai_spend_cap" : "kill_switch", killSwitch: true };
+    return {
+      ...base, ok: false, verdict: "block", reason, decisionId,
+      source: spend.over_cap ? "ai_spend_cap" : "kill_switch", killSwitch: true,
+      trace: finalizeTrace(trace),
+    };
   }
 
   // ---- 3: live hard rules ---------------------------------------------------
   const matched = allRules.find((r) => !r.shadow_mode && ruleMatches(r));
+  trace.push({
+    layer: "hard_rules", label: "Hard rules",
+    status: matched ? "stopped" : "ok",
+    detail: matched ? `Matched: "${matched.rule_text}"` : `${allRules.length} rule(s) checked, none matched`,
+  });
   if (matched) {
     const blocking = matched.effect === "always_block";
     const reason = blocking
@@ -327,10 +356,16 @@ export async function runControlGate(
       approvalId,
       source: "hard_rule",
       hardRule: { id: matched.id, rule_text: matched.rule_text, effect: matched.effect },
+      trace: finalizeTrace(trace),
     };
   }
 
   // ---- 4: circuit breaker ---------------------------------------------------
+  trace.push({
+    layer: "circuit_breaker", label: "Circuit breaker",
+    status: breaker?.tripped ? "stopped" : "ok",
+    detail: breaker ? `failure rate ${Math.round((breaker.failure_rate ?? 0) * 100)}% over last ${BREAKER_WINDOW} attempts` : null,
+  });
   if (breaker?.tripped) {
     const reason =
       `Blocked — the circuit breaker for "${actionType}" is tripped. ` +
@@ -353,6 +388,7 @@ export async function runControlGate(
         trip_count: breaker.trip_count,
         reset_hint: "Reset it in the Control System breaker panel to allow this action type again.",
       },
+      trace: finalizeTrace(trace),
     };
   }
 
@@ -361,6 +397,11 @@ export async function runControlGate(
     ? (snapshot.safety_rules as SafetyRule[])
     : null;
   const safety = await scanAction(admin, userId, ctx.params, ctx.description, pinnedSafetyRules);
+  trace.push({
+    layer: "safety_scanner", label: "Safety scanner",
+    status: (safety.matched && safety.severity) ? "stopped" : "ok",
+    detail: safety.matched ? safety.summary : null,
+  });
   if (safety.matched && safety.severity) {
     const blocking = safety.severity === "block";
     const reason = safety.summary!;
@@ -387,6 +428,7 @@ export async function runControlGate(
       approvalId,
       source: "safety_scanner",
       safety,
+      trace: finalizeTrace(trace),
     };
   }
 
@@ -398,6 +440,11 @@ export async function runControlGate(
     const baseline = await loadAgentBaseline(admin, agentId);
     const todayCount = (await countTodaySuccesses(admin, agentId, actionType)) + 1; // +1: the one about to run
     const anomaly = detectAnomaly(baseline, actionType, todayCount, {}, anomalyStrictness);
+    trace.push({
+      layer: "anomaly_detector", label: "Anomaly detector",
+      status: anomaly.anomalous ? "stopped" : "ok",
+      detail: anomaly.anomalous ? anomaly.reason : null,
+    });
     if (anomaly.anomalous) {
       const reason =
         `Unusual activity for this agent — ${anomaly.reason} Held for human review regardless of ` +
@@ -419,11 +466,18 @@ export async function runControlGate(
         approvalId,
         source: "anomaly_detector",
         anomaly,
+        trace: finalizeTrace(trace),
       };
     }
+  } else {
+    trace.push({
+      layer: "anomaly_detector", label: "Anomaly detector",
+      status: "skipped",
+      detail: "No agent tied to this action — nothing to baseline against.",
+    });
   }
 
-  return { ...base, ok: true, verdict: "allow", reason: null, decisionId: null, source: null, safety };
+  return { ...base, ok: true, verdict: "allow", reason: null, decisionId: null, source: null, safety, trace: finalizeTrace(trace) };
 }
 
 /**

@@ -241,6 +241,70 @@ Deno.test("nothing trips: the gate allows, safety scan still returned but unmatc
   assertFalse(result.safety.matched);
 });
 
+Deno.test("trace: a clean allow (no agentId) shows every layer ok except anomaly, which is skipped", async () => {
+  const result = await runControlGate(fakeSupabase().client, baseCtx); // baseCtx has no agentId
+  assertEquals(result.trace.length, 6);
+  const byLayer = Object.fromEntries(result.trace.map((e) => [e.layer, e.status]));
+  assertEquals(byLayer.spend_cap, "ok");
+  assertEquals(byLayer.kill_switch, "ok");
+  assertEquals(byLayer.hard_rules, "ok");
+  assertEquals(byLayer.circuit_breaker, "ok");
+  assertEquals(byLayer.safety_scanner, "ok");
+  assertEquals(byLayer.anomaly_detector, "skipped");
+});
+
+Deno.test("trace: a clean allow WITH an agentId and enough history shows anomaly as ok too, not skipped", async () => {
+  // The fake client can't distinguish "last 14 days" from "today" (both
+  // queries hit the same canned rows), so if EVERY row were send_email,
+  // today's raw count would equal the whole baseline total and always look
+  // like a spike. To get a genuine non-anomalous "known action_type, normal
+  // volume" case: pad daysObserved with a DIFFERENT action_type (doesn't
+  // affect send_email's today-count, since that's filtered by type), and
+  // give send_email just one prior occurrence so its threshold (floor 3)
+  // comfortably covers today's count of 2 (1 prior + 1 this one).
+  const { client } = fakeSupabase({
+    agent_events: {
+      data: [
+        { payload: { type: "slack_post_message", ok: true }, created_at: "2026-08-01T10:00:00Z" },
+        { payload: { type: "slack_post_message", ok: true }, created_at: "2026-08-02T10:00:00Z" },
+        { payload: { type: "slack_post_message", ok: true }, created_at: "2026-08-03T10:00:00Z" },
+        { payload: { type: "send_email", ok: true }, created_at: "2026-08-04T10:00:00Z" },
+      ],
+      error: null,
+    },
+  });
+  const result = await runControlGate(client, { ...baseCtx, agentId: "agent-trace-1" }); // actionType is send_email
+  const anomalyEntry = result.trace.find((e) => e.layer === "anomaly_detector")!;
+  assertEquals(anomalyEntry.status, "ok");
+});
+
+Deno.test("trace: a kill-switch block leaves hard_rules/circuit_breaker/safety_scanner/anomaly as not_reached", async () => {
+  const { client } = fakeSupabase({ profiles: { data: { kill_switch: true }, error: null } });
+  const result = await runControlGate(client, baseCtx);
+  assertEquals(result.trace.length, 6);
+  const byLayer = Object.fromEntries(result.trace.map((e) => [e.layer, e.status]));
+  assertEquals(byLayer.spend_cap, "ok");
+  assertEquals(byLayer.kill_switch, "stopped");
+  assertEquals(byLayer.hard_rules, "not_reached");
+  assertEquals(byLayer.circuit_breaker, "not_reached");
+  assertEquals(byLayer.safety_scanner, "not_reached");
+  assertEquals(byLayer.anomaly_detector, "not_reached");
+});
+
+Deno.test("trace: a hard-rule block leaves circuit_breaker/safety_scanner/anomaly as not_reached, spend/kill/hard_rules ok or stopped", async () => {
+  const { client } = fakeSupabase({
+    hard_rules: { data: [{ id: "rt1", rule_text: "blocks", action_type_pattern: "*", effect: "always_block", enabled: true }], error: null },
+  });
+  const result = await runControlGate(client, baseCtx);
+  const byLayer = Object.fromEntries(result.trace.map((e) => [e.layer, e.status]));
+  assertEquals(byLayer.spend_cap, "ok");
+  assertEquals(byLayer.kill_switch, "ok");
+  assertEquals(byLayer.hard_rules, "stopped");
+  assertEquals(byLayer.circuit_breaker, "not_reached");
+  assertEquals(byLayer.safety_scanner, "not_reached");
+  assertEquals(byLayer.anomaly_detector, "not_reached");
+});
+
 // ---- ordering: layer precedence across the whole stack ---------------------
 
 Deno.test("ordering: kill switch wins over a hard rule that would ALSO block", async () => {
