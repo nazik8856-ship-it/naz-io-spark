@@ -1,0 +1,48 @@
+// Incident tracking — promotes the "abnormal" critical alerts (an automatic
+// kill-switch trip, a circuit breaker tripping, the gate itself failing
+// closed, a self-audit regression) from "a decision row + a Slack ping" into
+// a real incident object with a timeline and a resolution note. Deliberate
+// human actions (flipping the kill switch on/off) and routine enforcement
+// working as intended (a hard rule blocking something) are NOT incidents —
+// nothing went wrong there, the system did exactly what it was told to.
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { CriticalAlertEvent } from "./critical-alerts.ts";
+
+export const INCIDENT_KINDS = [
+  "kill_switch_auto",
+  "circuit_breaker_trip",
+  "gate_error",
+  "self_audit_regression",
+] as const;
+export type IncidentKind = typeof INCIDENT_KINDS[number];
+
+/** Pure — which alert events are worth opening an incident for. */
+export function isIncidentWorthy(event: CriticalAlertEvent): event is IncidentKind {
+  return (INCIDENT_KINDS as readonly string[]).includes(event);
+}
+
+/** Best-effort: opens a new incident row for an incident-worthy alert. Never throws. */
+export async function openIncident(
+  admin: SupabaseClient,
+  userId: string,
+  opts: {
+    kind: IncidentKind;
+    summary: string;
+    actionType?: string | null;
+    provider?: string | null;
+    decisionId?: string | null;
+    alertId?: string | null;
+  },
+): Promise<void> {
+  try {
+    await admin.from("incidents").insert({
+      user_id: userId,
+      kind: opts.kind,
+      summary: opts.summary.slice(0, 2000),
+      action_type: opts.actionType ?? null,
+      provider: opts.provider ?? null,
+      decision_id: opts.decisionId ?? null,
+      alert_id: opts.alertId ?? null,
+    });
+  } catch { /* incident tracking must never break the alert path */ }
+}

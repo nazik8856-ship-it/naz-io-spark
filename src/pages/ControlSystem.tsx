@@ -92,6 +92,12 @@ export default function ControlSystem() {
           >
             Safety rules
           </button>
+          <button
+            onClick={() => navigate("/control-system/incidents")}
+            className="rounded border border-rose-500/40 bg-rose-500/10 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-rose-300 hover:bg-rose-500/20"
+          >
+            Incidents
+          </button>
         </nav>
       </header>
 

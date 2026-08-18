@@ -10,6 +10,7 @@
 // never break the decision path.
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { slackPostMessage } from "./provider-writes.ts";
+import { isIncidentWorthy, openIncident } from "./incidents.ts";
 
 export type CriticalAlertEvent =
   | "kill_switch_on"
@@ -41,15 +42,21 @@ export function decisionLink(decisionId?: string | null): string | null {
   return decisionId ? `${APP_BASE_URL}/control-system?decision=${decisionId}` : null;
 }
 
-/** Best-effort, durable record of the alert — independent of whether Slack delivery works. Never throws. */
+/**
+ * Best-effort, durable record of the alert — independent of whether Slack
+ * delivery works. Also opens an incident for the events that mean something
+ * actually went wrong (not a deliberate human toggle or a rule doing its
+ * job). Never throws.
+ */
 async function persistAlert(
   admin: SupabaseClient,
   userId: string,
   opts: { event: CriticalAlertEvent; summary: string; decisionId?: string | null; actionType?: string | null; provider?: string | null; actor?: string | null },
   deliveredVia: "slack" | "log",
 ): Promise<void> {
+  let alertId: string | null = null;
   try {
-    await admin.from("critical_alerts").insert({
+    const { data } = await admin.from("critical_alerts").insert({
       user_id: userId,
       event: opts.event,
       summary: opts.summary.slice(0, 2000),
@@ -58,8 +65,20 @@ async function persistAlert(
       decision_id: opts.decisionId ?? null,
       actor: opts.actor ?? null,
       delivered_via: deliveredVia,
-    });
+    }).select("id").maybeSingle();
+    alertId = (data as { id?: string } | null)?.id ?? null;
   } catch { /* the alert itself must never depend on this succeeding */ }
+
+  if (isIncidentWorthy(opts.event)) {
+    await openIncident(admin, userId, {
+      kind: opts.event,
+      summary: opts.summary,
+      actionType: opts.actionType,
+      provider: opts.provider,
+      decisionId: opts.decisionId,
+      alertId,
+    });
+  }
 }
 
 export async function sendCriticalAlert(

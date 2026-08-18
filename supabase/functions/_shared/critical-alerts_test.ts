@@ -34,9 +34,10 @@ class FakeQuery implements PromiseLike<Row> {
   }
 }
 
-/** Records every insert into critical_alerts so tests can assert on it. */
+/** Records every insert into critical_alerts (and incidents) so tests can assert on it. */
 function fakeSupabase(opts: { slackConnected: boolean }) {
   const inserted: Record<string, unknown>[] = [];
+  const incidents: Record<string, unknown>[] = [];
   const client = {
     from(table: string) {
       if (table === "agent_integrations") {
@@ -50,6 +51,14 @@ function fakeSupabase(opts: { slackConnected: boolean }) {
         return {
           insert(row: Record<string, unknown>) {
             inserted.push(row);
+            return new FakeQuery(() => ({ data: { id: `alert-${inserted.length}` }, error: null }));
+          },
+        };
+      }
+      if (table === "incidents") {
+        return {
+          insert(row: Record<string, unknown>) {
+            incidents.push(row);
             return new FakeQuery(() => ({ data: null, error: null }));
           },
         };
@@ -60,7 +69,7 @@ function fakeSupabase(opts: { slackConnected: boolean }) {
     },
     // deno-lint-ignore no-explicit-any
   } as any;
-  return { client, inserted };
+  return { client, inserted, incidents };
 }
 
 Deno.test("no Slack connected: alert is still persisted to critical_alerts, delivered_via=log", async () => {
@@ -91,6 +100,26 @@ Deno.test("every known CriticalAlertEvent has a real, non-empty label", () => {
   for (const event of knownEvents) {
     assert(typeof LABELS[event] === "string" && LABELS[event].length > 0, `missing/empty label for "${event}"`);
   }
+});
+
+Deno.test("an incident-worthy event (circuit_breaker_trip) opens an incident linked to the alert", async () => {
+  const { client, incidents } = fakeSupabase({ slackConnected: false });
+  await sendCriticalAlert(client, "user-1", { event: "circuit_breaker_trip", summary: "tripped", actionType: "send_email" });
+  assertEquals(incidents.length, 1);
+  assertEquals(incidents[0].kind, "circuit_breaker_trip");
+  assertEquals(incidents[0].alert_id, "alert-1");
+});
+
+Deno.test("a deliberate kill_switch_on event does NOT open an incident", async () => {
+  const { client, incidents } = fakeSupabase({ slackConnected: false });
+  await sendCriticalAlert(client, "user-1", { event: "kill_switch_on", summary: "on" });
+  assertEquals(incidents.length, 0);
+});
+
+Deno.test("a routine hard_rule_block event does NOT open an incident", async () => {
+  const { client, incidents } = fakeSupabase({ slackConnected: false });
+  await sendCriticalAlert(client, "user-1", { event: "hard_rule_block", summary: "blocked" });
+  assertEquals(incidents.length, 0);
 });
 
 Deno.test("a thrown error persisting the alert never throws out of sendCriticalAlert", async () => {
