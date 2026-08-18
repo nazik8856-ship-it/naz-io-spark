@@ -1,7 +1,8 @@
 // Real-time alerting for safety events only.
 //
 // Fires ONLY for kill-switch trips (manual or automatic), hard-rule blocks,
-// circuit-breaker trips, and self-audit regressions. Routine allow / modify /
+// circuit-breaker trips, self-audit regressions, and gate errors (the gate
+// itself failing closed on an unexpected exception). Routine allow / modify /
 // deferred verdicts never alert.
 //
 // Delivery: Slack via slack_post_message when the account has a connected Slack
@@ -16,7 +17,8 @@ export type CriticalAlertEvent =
   | "kill_switch_auto"
   | "hard_rule_block"
   | "circuit_breaker_trip"
-  | "self_audit_regression";
+  | "self_audit_regression"
+  | "gate_error";
 
 const APP_BASE_URL = "https://www.nazai.net";
 
@@ -27,6 +29,7 @@ const LABELS: Record<CriticalAlertEvent, string> = {
   hard_rule_block: "⛔ Hard rule blocked an action",
   circuit_breaker_trip: "⚡ Circuit breaker tripped",
   self_audit_regression: "🧪 Weekly control-system self-audit found a regression",
+  gate_error: "🚨 Control gate hit an unexpected error and failed closed",
 };
 
 export function decisionLink(decisionId?: string | null): string | null {

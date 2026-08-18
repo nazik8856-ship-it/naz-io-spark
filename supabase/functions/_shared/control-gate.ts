@@ -197,6 +197,15 @@ export async function runControlGate(
     }
   };
 
+  // Everything below reads live tables (kill switch, hard rules, circuit
+  // breaker, anomaly baseline) that can throw on a transient DB/network
+  // error. Without this try/catch, that exception would propagate straight
+  // out of runControlGate — safe ONLY because every current caller happens
+  // to wrap its own call in a try/catch that aborts before executing
+  // anything. That's an accident of caller structure, not a guarantee this
+  // function makes. Fail closed explicitly, here, so the property holds no
+  // matter what calls this later (including a future outer-NazAI caller).
+  try {
   // ---- 1 & 2: spend cap + global kill switch --------------------------------
   await clearExpiredSpendKillSwitch(admin, userId);
   const spend = await getSpendStatus(admin, userId);
@@ -478,6 +487,62 @@ export async function runControlGate(
   }
 
   return { ...base, ok: true, verdict: "allow", reason: null, decisionId: null, source: null, safety, trace: finalizeTrace(trace) };
+  } catch (err) {
+    // Explicit fail-closed: an unexpected error while judging an action
+    // means the action is BLOCKED, never allowed through by default. Best
+    // effort to log and alert, but the block itself never depends on either
+    // succeeding.
+    const message = err instanceof Error ? err.message : String(err);
+    const reason = "Blocked — the control gate hit an unexpected error and failed closed. Nothing was assessed or run.";
+    const emptyScan: SafetyScan = { matched: false, severity: null, matches: [], summary: null };
+    let decisionId: string | null = null;
+    try {
+      const { data } = await admin.from("agent_decisions").insert({
+        user_id: userId,
+        agent_id: agentId,
+        agent_run_id: runId,
+        step_index: stepIndex,
+        decision: `BLOCK ${actionType} (${provider})`.slice(0, 400),
+        reasoning: `${reason}\n${message}`.slice(0, 800),
+        alternatives_considered: [],
+        confidence_score: 100,
+        source: "gate_error",
+        escalated: true,
+        policy_version: policyVersion,
+        gate_trace: finalizeTrace(trace),
+      }).select("id").maybeSingle();
+      decisionId = (data as { id?: string } | null)?.id ?? null;
+    } catch { /* logging must never break the fail-closed block */ }
+    try {
+      await sendCriticalAlert(admin, userId, {
+        event: "gate_error",
+        summary: `${reason} (${message})`,
+        decisionId,
+        actionType,
+        provider,
+      });
+    } catch { /* alerting must never break the fail-closed block */ }
+    return {
+      ok: false,
+      verdict: "block",
+      reason,
+      decisionId,
+      source: "gate_error",
+      approvalId: null,
+      spend: { enabled: true, cap_usd: 0, spent_usd: 0, calls: 0, pct: 0, over_cap: false, day: new Date().toISOString().slice(0, 10) },
+      safety: emptyScan,
+      shadowRules: [],
+      hardRule: null,
+      circuitBreaker: null,
+      anomaly: null,
+      killSwitch: false,
+      policyVersion,
+      policyVersionId,
+      trace: finalizeTrace(trace),
+      recordShadowHits: async () => {},
+      recordAttempt: async () => null,
+    };
+  }
 }
 
 /**

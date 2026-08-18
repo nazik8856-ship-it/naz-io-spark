@@ -398,3 +398,53 @@ Deno.test("anomaly: the org's strictness dial (profiles.control_strictness) is a
   assertFalse(result.ok, "Strict mode needs only 2 days of history — this must be caught, not skipped");
   assertEquals(result.source, "anomaly_detector");
 });
+
+// ---- fail-closed on unexpected errors --------------------------------------
+
+Deno.test("an unexpected DB error mid-gate fails CLOSED (blocked), never open (allowed)", async () => {
+  // profiles is read directly (not just via the resilient, never-throws
+  // spend-guard helpers) for the kill-switch check. Make that one query
+  // throw, simulating a transient DB/network failure, and confirm the gate
+  // still comes back blocked instead of letting the exception escape and
+  // (if a future caller isn't as careful as today's three are) letting the
+  // action run ungated.
+  const client = {
+    from(table: string) {
+      if (table === "profiles") {
+        return new FakeQuery(() => { throw new Error("simulated connection reset"); });
+      }
+      return new FakeQuery(() => ({ data: null, error: null }));
+    },
+    rpc() {
+      return new FakeQuery(() => ({ data: null, error: null }));
+    },
+    // deno-lint-ignore no-explicit-any
+  } as any;
+  const result = await runControlGate(client, baseCtx);
+  assertFalse(result.ok, "an unexpected error must never resolve to an allowed action");
+  assertEquals(result.verdict, "block");
+  assertEquals(result.source, "gate_error");
+  assert(typeof result.reason === "string" && result.reason.length > 0, "must explain why it blocked");
+});
+
+Deno.test("an unexpected error mid-gate still returns safe no-op recordShadowHits/recordAttempt closures", async () => {
+  // Callers unconditionally call gate.recordShadowHits(...) / gate.recordAttempt(...)
+  // after checking gate.ok — the fail-closed branch must hand back real,
+  // safe functions here too, not leave callers to null-check first.
+  const client = {
+    from(table: string) {
+      if (table === "profiles") {
+        return new FakeQuery(() => { throw new Error("simulated connection reset"); });
+      }
+      return new FakeQuery(() => ({ data: null, error: null }));
+    },
+    rpc() {
+      return new FakeQuery(() => ({ data: null, error: null }));
+    },
+    // deno-lint-ignore no-explicit-any
+  } as any;
+  const result = await runControlGate(client, baseCtx);
+  await result.recordShadowHits("decision-x", "block");
+  const attempt = await result.recordAttempt(true, "test");
+  assertEquals(attempt, null);
+});
