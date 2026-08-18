@@ -1,0 +1,26 @@
+-- No schema change — this migration exists purely to record the cron job
+-- for control-digest-email (daily digest of open incidents, pending
+-- approvals, and spend status), applied directly via the same
+-- project-specific-secret convention as the other scheduled jobs in this
+-- session (control-self-audit-weekly, approval-escalation-sweep-30min).
+--
+-- CRON JOB (pg_cron): schedule 'control-digest-email-daily' at 08:00 UTC,
+-- reusing the existing 'email_queue_service_role_key' vault secret:
+--
+--    SELECT cron.schedule(
+--      'control-digest-email-daily',
+--      '0 8 * * *',
+--      $$
+--      SELECT net.http_post(
+--        url := '<SUPABASE_URL>/functions/v1/control-digest-email',
+--        headers := jsonb_build_object(
+--          'Content-Type', 'application/json',
+--          'Authorization', 'Bearer ' || (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'email_queue_service_role_key')
+--        ),
+--        body := '{}'::jsonb
+--      );
+--      $$
+--    );
+--
+--    To revert: SELECT cron.unschedule('control-digest-email-daily');
+SELECT 1; -- no-op: keeps this file valid, executable SQL for migration tooling
