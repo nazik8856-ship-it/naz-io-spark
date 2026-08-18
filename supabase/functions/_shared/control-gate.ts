@@ -24,6 +24,7 @@ import { scanAction, type SafetyRule, type SafetyScan } from "./safety-scanner.t
 import { countTodaySuccesses, detectAnomaly, loadAgentBaseline, type AnomalyCheck } from "./anomaly-detector.ts";
 import { loadStrictness } from "./decision-scoring.ts";
 import { finalizeTrace, type TraceEntry } from "./gate-trace.ts";
+import { ruleMatchesAction } from "./rule-matching.ts";
 
 export const BREAKER_WINDOW = 10;
 export const BREAKER_MIN_ATTEMPTS = 4;
@@ -75,12 +76,6 @@ export type GateResult = {
   recordAttempt: (failed: boolean, why: string) => Promise<Record<string, unknown> | null>;
 };
 
-
-const globToRe = (p: string) =>
-  new RegExp(
-    "^" + p.trim().split("*").map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*") + "$",
-    "i",
-  );
 
 type HardRule = {
   id: string;
@@ -224,10 +219,7 @@ export async function runControlGate(
   }
   const allRules = snapshotRules.filter((r) => (r as { enabled?: boolean }).enabled !== false);
 
-  const ruleMatches = (r: HardRule) => {
-    if (r.provider && r.provider.toLowerCase() !== provider.toLowerCase()) return false;
-    try { return globToRe(r.action_type_pattern || "*").test(actionType); } catch { return false; }
-  };
+  const ruleMatches = (r: HardRule) => ruleMatchesAction(r, actionType, provider);
   const shadowMatches = allRules.filter((r) => r.shadow_mode && ruleMatches(r));
   const shadowRules: ShadowHit[] = shadowMatches.map((r) => ({
     id: r.id,

@@ -53,6 +53,7 @@ const ControlSafetyRules = lazyWithReload(() => import("./pages/ControlSafetyRul
 const ControlPolicy = lazyWithReload(() => import("./pages/ControlPolicy"));
 const ControlPendingDecisions = lazyWithReload(() => import("./pages/ControlPendingDecisions"));
 const ControlIncidents = lazyWithReload(() => import("./pages/ControlIncidents"));
+const ControlRuleSimulator = lazyWithReload(() => import("./pages/ControlRuleSimulator"));
 
 
 
@@ -106,6 +107,7 @@ const App = () => (
                 <Route path="/control-system/policy" element={<ControlPolicy />} />
                 <Route path="/control-system/pending" element={<ControlPendingDecisions />} />
                 <Route path="/control-system/incidents" element={<ControlIncidents />} />
+                <Route path="/control-system/simulator" element={<ControlRuleSimulator />} />
 
 
 
