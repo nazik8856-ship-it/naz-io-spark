@@ -24,6 +24,12 @@ import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
 import { runControlGate, createPendingApproval } from "../_shared/control-gate.ts";
 import { checkApprovalQuorum } from "../_shared/quorum.ts";
 import { claimIdempotencyKey, saveIdempotencyResponse, releaseIdempotencyKey, type ClaimResult } from "../_shared/idempotency.ts";
+import { checkRateLimit } from "../_shared/rate-limit.ts";
+
+// Generous enough that a legitimate agent-runtime run bursting several
+// assess_only calls, or a human actively using the chat, never trips it —
+// well below what an actual abuse pattern looks like.
+const RATE_LIMIT_PER_MINUTE = 120;
 
 
 import { PROVIDER_WRITE_KINDS, runProviderWrite } from "../_shared/provider-writes.ts";
@@ -133,6 +139,18 @@ serve(async (req) => {
     const userId = userData?.user?.id ?? (isInternal ? internalUserId! : undefined);
     if (!userId) return json({ error: "Not authenticated" }, 401);
 
+    // ---- Rate limit --------------------------------------------------------
+    // Nothing previously stopped a misbehaving client from hammering this
+    // endpoint. Fails OPEN if the limiter itself can't be reached — an
+    // infrastructure hiccup in the counter must not become a full outage
+    // for legitimate traffic (unlike the control gate, which fails closed).
+    const rate = await checkRateLimit(supabase, userId, "control-engine", RATE_LIMIT_PER_MINUTE, 60);
+    if (!rate.allowed) {
+      return json({
+        error: "rate_limited",
+        message: `Too many requests — ${rate.count} in the last minute (limit ${rate.limit}). Try again shortly.`,
+      }, 429);
+    }
 
     // ---- GET /control-engine/decisions/:id ----------------------------------
     // Standalone, auditable record of one decision: reasoning, scores,
