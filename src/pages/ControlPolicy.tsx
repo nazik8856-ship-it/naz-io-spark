@@ -262,7 +262,7 @@ export default function ControlPolicy() {
                 <div className="mb-1 font-mono uppercase tracking-wider text-zinc-500">Agent thresholds</div>
                 {diff.thresholds.added.map((t) => <div key={`add-${t.agent_id}`} className="text-emerald-300">+ {t.slug ?? t.agent_id}</div>)}
                 {diff.thresholds.removed.map((t) => <div key={`rm-${t.agent_id}`} className="text-rose-300">− {t.slug ?? t.agent_id}</div>)}
-                {diff.thresholds.changed.map((c) => <div key={`ch-${c.agent_id}`} className="text-amber-300">~ {c.after.slug ?? c.agent_id} (changed)</div>)}
+                {diff.thresholds.changed.map((c) => <div key={`ch-${c.id}`} className="text-amber-300">~ {c.after.slug ?? c.id} (changed)</div>)}
               </div>
             )}
 
