@@ -55,6 +55,7 @@ const ControlPendingDecisions = lazyWithReload(() => import("./pages/ControlPend
 const ControlIncidents = lazyWithReload(() => import("./pages/ControlIncidents"));
 const ControlRuleSimulator = lazyWithReload(() => import("./pages/ControlRuleSimulator"));
 const ControlHealthView = lazyWithReload(() => import("./pages/ControlHealthView"));
+const ControlChangeLog = lazyWithReload(() => import("./pages/ControlChangeLog"));
 
 
 
@@ -110,6 +111,7 @@ const App = () => (
                 <Route path="/control-system/incidents" element={<ControlIncidents />} />
                 <Route path="/control-system/simulator" element={<ControlRuleSimulator />} />
                 <Route path="/control-system/health" element={<ControlHealthView />} />
+                <Route path="/control-system/changes" element={<ControlChangeLog />} />
 
 
 
