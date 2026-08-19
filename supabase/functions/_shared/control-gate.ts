@@ -25,6 +25,7 @@ import { countTodaySuccesses, detectAnomaly, loadAgentBaseline, type AnomalyChec
 import { loadStrictness } from "./decision-scoring.ts";
 import { finalizeTrace, type TraceEntry } from "./gate-trace.ts";
 import { ruleMatchesAction } from "./rule-matching.ts";
+import { triggerWebhooks } from "./webhooks.ts";
 
 export const BREAKER_WINDOW = 10;
 export const BREAKER_MIN_ATTEMPTS = 4;
@@ -133,7 +134,17 @@ export async function createPendingApproval(
       required_approvals: Math.max(1, Math.min(5, input.requiredApprovals ?? (input.riskTier === "high" ? 2 : 1))),
       status: "pending",
     }).select("id").maybeSingle();
-    return (data as { id?: string } | null)?.id ?? null;
+    const id = (data as { id?: string } | null)?.id ?? null;
+    if (id) {
+      await triggerWebhooks(admin, input.userId, "approval_created", {
+        approval_id: id,
+        action_type: input.actionType,
+        provider: input.provider,
+        risk_tier: input.riskTier ?? "medium",
+        reason: input.reason,
+      });
+    }
+    return id;
   } catch {
     return null;
   }

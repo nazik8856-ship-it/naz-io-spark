@@ -7,6 +7,7 @@
 //                                       filter via ?status=open|resolved)
 // POST /control-incidents/:id/resolve — mark one resolved with a note
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { triggerWebhooks } from "../_shared/webhooks.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -41,21 +42,27 @@ Deno.serve(async (req) => {
     const note = String(body?.note || "").slice(0, 2000);
 
     const { data: existing } = await admin
-      .from("incidents").select("id, user_id, status").eq("id", incidentId).maybeSingle();
-    const row = existing as { id?: string; user_id?: string; status?: string } | null;
+      .from("incidents").select("id, user_id, status, kind, action_type, provider").eq("id", incidentId).maybeSingle();
+    const row = existing as { id?: string; user_id?: string; status?: string; kind?: string; action_type?: string | null; provider?: string | null } | null;
     if (!row?.id) return json({ error: "not_found" }, 404);
     if (row.user_id !== userId) return json({ error: "forbidden" }, 403);
     if (row.status === "resolved") {
       return json({ ok: true, already_resolved: true, id: incidentId });
     }
 
-    const { error } = await admin.from("incidents").update({
+    const { data: updated, error } = await admin.from("incidents").update({
       status: "resolved",
       resolved_at: new Date().toISOString(),
       resolved_by: userId,
       resolution_note: note || null,
-    }).eq("id", incidentId).eq("status", "open"); // atomic: only the first resolve wins
+    }).eq("id", incidentId).eq("status", "open") // atomic: only the first resolve wins
+      .select("id").maybeSingle();
     if (error) return json({ error: error.message }, 500);
+    if (updated) {
+      await triggerWebhooks(admin, userId, "incident_resolved", {
+        incident_id: incidentId, kind: row.kind, action_type: row.action_type, provider: row.provider, note: note || null,
+      });
+    }
     return json({ ok: true, id: incidentId, resolved: true });
   }
 

@@ -8,6 +8,7 @@
 // went wrong there, the system did exactly what it was told to.
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import type { CriticalAlertEvent } from "./critical-alerts.ts";
+import { triggerWebhooks } from "./webhooks.ts";
 
 export const INCIDENT_KINDS = [
   "kill_switch_auto",
@@ -37,7 +38,7 @@ export async function openIncident(
   },
 ): Promise<void> {
   try {
-    await admin.from("incidents").insert({
+    const { data } = await admin.from("incidents").insert({
       user_id: userId,
       kind: opts.kind,
       summary: opts.summary.slice(0, 2000),
@@ -45,6 +46,12 @@ export async function openIncident(
       provider: opts.provider ?? null,
       decision_id: opts.decisionId ?? null,
       alert_id: opts.alertId ?? null,
-    });
+    }).select("id").maybeSingle();
+    const id = (data as { id?: string } | null)?.id ?? null;
+    if (id) {
+      await triggerWebhooks(admin, userId, "incident_opened", {
+        incident_id: id, kind: opts.kind, summary: opts.summary, action_type: opts.actionType ?? null, provider: opts.provider ?? null,
+      });
+    }
   } catch { /* incident tracking must never break the alert path */ }
 }
