@@ -116,6 +116,12 @@ export default function ControlSystem() {
           >
             Change log
           </button>
+          <button
+            onClick={() => navigate("/control-system/coverage")}
+            className="rounded border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-amber-300 hover:bg-amber-500/20"
+          >
+            Coverage gaps
+          </button>
         </nav>
       </header>
 

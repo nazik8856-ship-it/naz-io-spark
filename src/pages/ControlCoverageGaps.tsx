@@ -1,0 +1,113 @@
+import { useCallback, useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { ArrowLeft, ShieldOff } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
+import { toast } from "@/hooks/use-toast";
+import { findCoverageGaps, type CapabilityForCoverage, type HardRuleForCoverage } from "@/lib/coverage-gaps";
+
+/**
+ * COVERAGE GAPS — which real, connectable action kinds currently have NO
+ * live hard rule matching them at all. If something goes wrong with one of
+ * these, only the safety scanner + anomaly detector + model judgement
+ * stand between it and running — nothing explicit governs it specifically.
+ */
+export default function ControlCoverageGaps() {
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [gaps, setGaps] = useState<CapabilityForCoverage[]>([]);
+  const [totalReal, setTotalReal] = useState(0);
+
+  const load = useCallback(async () => {
+    if (!user) return;
+    setLoading(true);
+    const { data: sess } = await supabase.auth.getSession();
+    const [statusRes, rulesRes] = await Promise.all([
+      supabase.functions.invoke("capability-status", { body: {} }),
+      supabase.from("hard_rules").select("action_type_pattern, provider, enabled, shadow_mode").eq("user_id", user.id),
+    ]);
+    void sess;
+
+    if (statusRes.error || rulesRes.error) {
+      toast({
+        title: "Couldn't load coverage",
+        description: statusRes.error?.message || rulesRes.error?.message,
+        variant: "destructive",
+      });
+      setLoading(false);
+      return;
+    }
+
+    const capabilities = ((statusRes.data?.capabilities ?? []) as { kind: string; provider: string; status: string }[])
+      .filter((c) => c.status === "real")
+      .map((c) => ({ kind: c.kind, provider: c.provider }));
+    const hardRules = (rulesRes.data ?? []) as HardRuleForCoverage[];
+
+    setTotalReal(capabilities.length);
+    setGaps(findCoverageGaps(capabilities, hardRules));
+    setLoading(false);
+  }, [user]);
+
+  useEffect(() => { load(); }, [load]);
+
+  return (
+    <div className="min-h-screen w-full text-white" style={{ backgroundColor: "#020617" }}>
+      <header className="flex items-center gap-3 border-b border-white/5 px-6 py-4">
+        <button
+          onClick={() => navigate("/control-system")}
+          className="flex items-center gap-2 text-zinc-400 transition-colors hover:text-white"
+          aria-label="Back to Control System"
+        >
+          <ArrowLeft className="h-5 w-5" />
+          <span className="font-mono text-sm uppercase tracking-wider">Control System</span>
+        </button>
+      </header>
+
+      <main className="mx-auto w-full max-w-2xl px-6 py-8">
+        <h1 className="flex items-center gap-2 text-xl font-semibold">
+          <ShieldOff className="h-5 w-5 text-amber-400" /> Coverage gaps
+        </h1>
+        <p className="mt-1 text-sm text-zinc-400">
+          Real, connected action kinds with no live hard rule covering them — a blind spot, not necessarily a
+          problem. The safety scanner and anomaly detector still apply everywhere.
+        </p>
+
+        {loading ? (
+          <p className="mt-8 font-mono text-xs uppercase text-zinc-500">Loading…</p>
+        ) : (
+          <>
+            <div className="mt-6 rounded border border-white/10 bg-white/[0.02] p-4">
+              <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Coverage</div>
+              <div className="mt-1 text-2xl font-semibold">
+                {totalReal - gaps.length} / {totalReal}
+                <span className="ml-2 text-sm font-normal text-zinc-500">action kinds have at least one rule</span>
+              </div>
+            </div>
+
+            {gaps.length === 0 ? (
+              <p className="mt-6 rounded border border-emerald-500/30 bg-emerald-500/[0.04] p-4 text-sm text-emerald-300">
+                No gaps — every connected, real action kind has at least one hard rule covering it.
+              </p>
+            ) : (
+              <ul className="mt-6 space-y-2">
+                {gaps.map((g) => (
+                  <li key={`${g.kind}-${g.provider}`} className="flex items-center gap-2 rounded border border-amber-500/30 bg-amber-500/[0.04] p-3 text-sm">
+                    <span className="font-mono text-amber-300">{g.kind}</span>
+                    <span className="text-zinc-500">· {g.provider}</span>
+                    <button
+                      onClick={() => navigate("/control-system")}
+                      className="ml-auto rounded border border-white/15 px-2 py-1 text-[10px] font-mono uppercase text-zinc-300 hover:bg-white/10"
+                    >
+                      Add a hard rule
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        )}
+      </main>
+    </div>
+  );
+}
