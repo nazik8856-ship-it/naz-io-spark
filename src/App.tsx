@@ -59,6 +59,8 @@ const ControlChangeLog = lazyWithReload(() => import("./pages/ControlChangeLog")
 const ControlCoverageGaps = lazyWithReload(() => import("./pages/ControlCoverageGaps"));
 const ControlWebhooks = lazyWithReload(() => import("./pages/ControlWebhooks"));
 const ControlComplianceReport = lazyWithReload(() => import("./pages/ControlComplianceReport"));
+const ControlTeam = lazyWithReload(() => import("./pages/ControlTeam"));
+const AcceptInvite = lazyWithReload(() => import("./pages/AcceptInvite"));
 
 
 
@@ -107,6 +109,7 @@ const App = () => (
                 <Route path="/terms" element={<Terms />} />
                 <Route path="/insights" element={<Insights />} />
                 <Route path="/control-system" element={<ControlSystem />} />
+                <Route path="/team/accept" element={<AcceptInvite />} />
                 <Route path="/control-system/approvals" element={<ControlApprovals />} />
                 <Route path="/control-system/safety-rules" element={<ControlSafetyRules />} />
                 <Route path="/control-system/policy" element={<ControlPolicy />} />
@@ -118,6 +121,7 @@ const App = () => (
                 <Route path="/control-system/coverage" element={<ControlCoverageGaps />} />
                 <Route path="/control-system/webhooks" element={<ControlWebhooks />} />
                 <Route path="/control-system/compliance" element={<ControlComplianceReport />} />
+                <Route path="/control-system/team" element={<ControlTeam />} />
 
 
 
