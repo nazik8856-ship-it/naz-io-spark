@@ -11,6 +11,7 @@ import SpendCapPanel from "@/components/control/SpendCapPanel";
 
 import DryRunToggle from "@/components/control/DryRunToggle";
 import StrictnessPanel from "@/components/control/StrictnessPanel";
+import RetentionPanel from "@/components/control/RetentionPanel";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 
@@ -135,6 +136,7 @@ export default function ControlSystem() {
       <StrictnessPanel />
       <KillSwitchPanel />
       <SpendCapPanel />
+      <RetentionPanel />
 
       <CircuitBreakerPanel />
       <HardRulesPanel />
