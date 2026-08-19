@@ -44,6 +44,7 @@ export default function ControlApprovals() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [comments, setComments] = useState<Record<string, string>>({});
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     if (!user) return;
@@ -85,6 +86,37 @@ export default function ControlApprovals() {
     load();
   };
 
+  const toggleSelect = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+
+  const bulkResolve = async (status: "approved" | "rejected") => {
+    const ids = [...selected];
+    if (!ids.length) return;
+    setBusy("bulk");
+    const results = await Promise.allSettled(
+      ids.map((id) =>
+        supabase.rpc("record_approval_signoff", {
+          _approval_id: id,
+          _vote: status === "approved" ? "approve" : "reject",
+          _comment: null,
+        }),
+      ),
+    );
+    setBusy(null);
+    const failed = results.filter((r) => r.status === "rejected" || (r.status === "fulfilled" && r.value.error)).length;
+    toast({
+      title: failed ? `${ids.length - failed} of ${ids.length} done` : `${ids.length} ${status}`,
+      description: failed ? "Some items didn't go through — check them individually." : undefined,
+      variant: failed ? "destructive" : undefined,
+    });
+    setSelected(new Set());
+    load();
+  };
+
   const execute = async (row: Approval) => {
     setBusy(row.id);
     const { data, error } = await supabase.functions.invoke(
@@ -121,6 +153,15 @@ export default function ControlApprovals() {
   const Card = ({ row }: { row: Approval }) => (
     <div className="rounded-lg border border-white/10 bg-white/[0.03] p-4">
       <div className="flex flex-wrap items-center gap-2">
+        {row.status === "pending" && (
+          <input
+            type="checkbox"
+            checked={selected.has(row.id)}
+            onChange={() => toggleSelect(row.id)}
+            className="h-3.5 w-3.5 shrink-0 accent-cyan-500"
+            aria-label={`Select ${row.action_type} for bulk action`}
+          />
+        )}
         <span className="font-mono text-xs uppercase tracking-wider text-cyan-300">{row.action_type}</span>
         <span className="text-xs text-zinc-500">· {row.provider}</span>
         <span className={`ml-auto rounded border px-2 py-0.5 text-[10px] font-mono uppercase ${RISK_STYLE[row.risk_tier] ?? RISK_STYLE.medium}`}>
@@ -229,6 +270,31 @@ export default function ControlApprovals() {
               <h2 className="flex items-center gap-2 font-mono text-xs uppercase tracking-wider text-zinc-400">
                 <Clock className="h-3.5 w-3.5" /> Pending ({pending.length})
               </h2>
+              {selected.size > 0 && (
+                <div className="flex items-center gap-2 rounded-lg border border-cyan-500/30 bg-cyan-500/[0.05] px-3 py-2">
+                  <span className="text-xs text-cyan-200">{selected.size} selected</span>
+                  <button
+                    disabled={busy === "bulk"}
+                    onClick={() => bulkResolve("approved")}
+                    className="ml-auto flex items-center gap-1 rounded border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-mono uppercase text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-50"
+                  >
+                    <Check className="h-3.5 w-3.5" /> Approve all
+                  </button>
+                  <button
+                    disabled={busy === "bulk"}
+                    onClick={() => bulkResolve("rejected")}
+                    className="flex items-center gap-1 rounded border border-rose-500/40 bg-rose-500/10 px-3 py-1.5 text-xs font-mono uppercase text-rose-300 hover:bg-rose-500/20 disabled:opacity-50"
+                  >
+                    <X className="h-3.5 w-3.5" /> Reject all
+                  </button>
+                  <button
+                    onClick={() => setSelected(new Set())}
+                    className="rounded border border-white/15 px-3 py-1.5 text-xs text-zinc-300 hover:bg-white/10"
+                  >
+                    Clear
+                  </button>
+                </div>
+              )}
               {pending.length === 0 ? (
                 <p className="rounded-lg border border-white/10 bg-white/[0.02] p-4 text-sm text-zinc-500">
                   Nothing is waiting on you.
