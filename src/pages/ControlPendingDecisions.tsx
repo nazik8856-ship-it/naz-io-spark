@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 import { toCsv } from "@/lib/csv";
+import { filterBySearch } from "@/lib/search-filter";
 
 type TraceStatus = "ok" | "stopped" | "skipped" | "not_reached";
 type TraceEntry = { layer: string; label: string; status: TraceStatus; detail: string | null };
@@ -66,6 +67,8 @@ export default function ControlPendingDecisions() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [search, setSearch] = useState("");
+  const filteredRows = filterBySearch(rows, search, ["decision", "reasoning", "source"]);
 
   const toggleTrace = (id: string) =>
     setExpanded((prev) => {
@@ -216,11 +219,18 @@ export default function ControlPendingDecisions() {
           <span className="text-[10px] text-zinc-500">Every decision in range, not just pending ones.</span>
         </div>
 
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search decision, reasoning, or source…"
+          className="mt-3 w-full rounded border border-white/10 bg-black/40 px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600"
+        />
+
         {loading ? (
           <p className="mt-8 font-mono text-xs uppercase text-zinc-500">Loading…</p>
-        ) : rows.length === 0 ? (
+        ) : filteredRows.length === 0 ? (
           <p className="mt-6 rounded border border-white/10 bg-white/[0.02] p-4 text-sm text-zinc-500">
-            Nothing is waiting on you.
+            {rows.length === 0 ? "Nothing is waiting on you." : "No decisions match that search."}
           </p>
         ) : (
           <table className="mt-6 w-full border-collapse text-left text-sm">
@@ -234,7 +244,7 @@ export default function ControlPendingDecisions() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => (
+              {filteredRows.map((row) => (
                 <tr key={row.id} className="border-b border-white/5 align-top">
                   <td className="py-3 pr-3 font-mono text-[11px] text-zinc-500">
                     {new Date(row.created_at).toLocaleString()}

@@ -12,9 +12,11 @@ export interface TemplateEntry {
 import { template as welcomeNazai } from './welcome-nazai.tsx'
 import { template as agentNotification } from './agent-notification.tsx'
 import { template as controlDigest } from './control-digest.tsx'
+import { template as controlWeeklyTrend } from './control-weekly-trend.tsx'
 
 export const TEMPLATES: Record<string, TemplateEntry> = {
   'welcome-nazai': welcomeNazai,
   'agent-notification': agentNotification,
   'control-digest': controlDigest,
+  'control-weekly-trend': controlWeeklyTrend,
 }

@@ -4,6 +4,7 @@ import { ArrowLeft, Check, X, Clock, ShieldAlert } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
+import { filterBySearch } from "@/lib/search-filter";
 
 type Approval = {
   id: string;
@@ -45,6 +46,7 @@ export default function ControlApprovals() {
   const [busy, setBusy] = useState<string | null>(null);
   const [comments, setComments] = useState<Record<string, string>>({});
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [search, setSearch] = useState("");
 
   const load = useCallback(async () => {
     if (!user) return;
@@ -146,8 +148,9 @@ export default function ControlApprovals() {
         .filter(Boolean),
     ).size;
 
-  const pending = items.filter((i) => i.status === "pending");
-  const resolved = items.filter((i) => i.status !== "pending");
+  const searched = filterBySearch(items, search, ["action_type", "provider", "description", "reason"]);
+  const pending = searched.filter((i) => i.status === "pending");
+  const resolved = searched.filter((i) => i.status !== "pending");
 
 
   const Card = ({ row }: { row: Approval }) => (
@@ -261,6 +264,13 @@ export default function ControlApprovals() {
         <p className="mt-1 text-sm text-zinc-400">
           Actions the control gate stopped for a human decision. Nothing here has run.
         </p>
+
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search action, provider, description, or reason…"
+          className="mt-3 w-full rounded border border-white/10 bg-black/40 px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600"
+        />
 
         {loading ? (
           <p className="mt-8 font-mono text-xs uppercase text-zinc-500">Loading…</p>

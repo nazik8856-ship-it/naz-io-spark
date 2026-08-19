@@ -58,6 +58,7 @@ const ControlHealthView = lazyWithReload(() => import("./pages/ControlHealthView
 const ControlChangeLog = lazyWithReload(() => import("./pages/ControlChangeLog"));
 const ControlCoverageGaps = lazyWithReload(() => import("./pages/ControlCoverageGaps"));
 const ControlWebhooks = lazyWithReload(() => import("./pages/ControlWebhooks"));
+const ControlComplianceReport = lazyWithReload(() => import("./pages/ControlComplianceReport"));
 
 
 
@@ -116,6 +117,7 @@ const App = () => (
                 <Route path="/control-system/changes" element={<ControlChangeLog />} />
                 <Route path="/control-system/coverage" element={<ControlCoverageGaps />} />
                 <Route path="/control-system/webhooks" element={<ControlWebhooks />} />
+                <Route path="/control-system/compliance" element={<ControlComplianceReport />} />
 
 
 

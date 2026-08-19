@@ -11,6 +11,7 @@ import SpendCapPanel from "@/components/control/SpendCapPanel";
 
 import DryRunToggle from "@/components/control/DryRunToggle";
 import StrictnessPanel from "@/components/control/StrictnessPanel";
+import RetentionPanel from "@/components/control/RetentionPanel";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 
@@ -128,6 +129,12 @@ export default function ControlSystem() {
           >
             Webhooks
           </button>
+          <button
+            onClick={() => navigate("/control-system/compliance")}
+            className="rounded border border-white/15 bg-white/5 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-zinc-300 hover:bg-white/10"
+          >
+            Compliance report
+          </button>
         </nav>
       </header>
 
@@ -135,6 +142,7 @@ export default function ControlSystem() {
       <StrictnessPanel />
       <KillSwitchPanel />
       <SpendCapPanel />
+      <RetentionPanel />
 
       <CircuitBreakerPanel />
       <HardRulesPanel />
