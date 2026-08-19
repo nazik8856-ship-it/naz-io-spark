@@ -14,6 +14,48 @@ export type Database = {
   }
   public: {
     Tables: {
+      account_members: {
+        Row: {
+          accepted_at: string | null
+          account_owner_id: string
+          created_at: string
+          email: string
+          id: string
+          invite_token: string
+          invited_at: string
+          invited_by: string
+          member_id: string | null
+          role: string
+          status: string
+        }
+        Insert: {
+          accepted_at?: string | null
+          account_owner_id: string
+          created_at?: string
+          email: string
+          id?: string
+          invite_token?: string
+          invited_at?: string
+          invited_by: string
+          member_id?: string | null
+          role: string
+          status?: string
+        }
+        Update: {
+          accepted_at?: string | null
+          account_owner_id?: string
+          created_at?: string
+          email?: string
+          id?: string
+          invite_token?: string
+          invited_at?: string
+          invited_by?: string
+          member_id?: string | null
+          role?: string
+          status?: string
+        }
+        Relationships: []
+      }
       action_reversals: {
         Row: {
           agent_id: string | null
@@ -224,6 +266,7 @@ export type Database = {
           created_at: string
           decision: string
           escalated: boolean
+          gate_trace: Json | null
           human_response: string | null
           id: string
           org_id: string | null
@@ -243,6 +286,7 @@ export type Database = {
           created_at?: string
           decision: string
           escalated?: boolean
+          gate_trace?: Json | null
           human_response?: string | null
           id?: string
           org_id?: string | null
@@ -262,6 +306,7 @@ export type Database = {
           created_at?: string
           decision?: string
           escalated?: boolean
+          gate_trace?: Json | null
           human_response?: string | null
           id?: string
           org_id?: string | null
@@ -876,6 +921,81 @@ export type Database = {
         }
         Relationships: []
       }
+      config_changes: {
+        Row: {
+          action: string
+          actor_id: string | null
+          after: Json | null
+          before: Json | null
+          created_at: string
+          id: string
+          row_id: string | null
+          table_name: string
+          user_id: string
+        }
+        Insert: {
+          action: string
+          actor_id?: string | null
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          id?: string
+          row_id?: string | null
+          table_name: string
+          user_id: string
+        }
+        Update: {
+          action?: string
+          actor_id?: string | null
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          id?: string
+          row_id?: string | null
+          table_name?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      control_test_runs: {
+        Row: {
+          created_at: string
+          id: string
+          pass_rate_pct: number
+          policy_version: number | null
+          policy_version_id: string | null
+          regressions: Json
+          scenario_status: Json
+          summary: Json
+          triggered_by: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          pass_rate_pct: number
+          policy_version?: number | null
+          policy_version_id?: string | null
+          regressions?: Json
+          scenario_status?: Json
+          summary?: Json
+          triggered_by?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          pass_rate_pct?: number
+          policy_version?: number | null
+          policy_version_id?: string | null
+          regressions?: Json
+          scenario_status?: Json
+          summary?: Json
+          triggered_by?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       credit_transactions: {
         Row: {
           amount: number
@@ -908,6 +1028,45 @@ export type Database = {
           price_usd?: number | null
           status?: string
           type?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      critical_alerts: {
+        Row: {
+          action_type: string | null
+          actor: string | null
+          created_at: string
+          decision_id: string | null
+          delivered_via: string
+          event: string
+          id: string
+          provider: string | null
+          summary: string
+          user_id: string
+        }
+        Insert: {
+          action_type?: string | null
+          actor?: string | null
+          created_at?: string
+          decision_id?: string | null
+          delivered_via: string
+          event: string
+          id?: string
+          provider?: string | null
+          summary: string
+          user_id: string
+        }
+        Update: {
+          action_type?: string | null
+          actor?: string | null
+          created_at?: string
+          decision_id?: string | null
+          delivered_via?: string
+          event?: string
+          id?: string
+          provider?: string | null
+          summary?: string
           user_id?: string
         }
         Relationships: []
@@ -1174,6 +1333,89 @@ export type Database = {
         }
         Relationships: []
       }
+      idempotency_keys: {
+        Row: {
+          created_at: string
+          id: string
+          idempotency_key: string
+          response: Json | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          idempotency_key: string
+          response?: Json | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          idempotency_key?: string
+          response?: Json | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      incidents: {
+        Row: {
+          action_type: string | null
+          alert_id: string | null
+          created_at: string
+          decision_id: string | null
+          id: string
+          kind: string
+          opened_at: string
+          provider: string | null
+          resolution_note: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          status: string
+          summary: string
+          user_id: string
+        }
+        Insert: {
+          action_type?: string | null
+          alert_id?: string | null
+          created_at?: string
+          decision_id?: string | null
+          id?: string
+          kind: string
+          opened_at?: string
+          provider?: string | null
+          resolution_note?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          status?: string
+          summary: string
+          user_id: string
+        }
+        Update: {
+          action_type?: string | null
+          alert_id?: string | null
+          created_at?: string
+          decision_id?: string | null
+          id?: string
+          kind?: string
+          opened_at?: string
+          provider?: string | null
+          resolution_note?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          status?: string
+          summary?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "incidents_alert_id_fkey"
+            columns: ["alert_id"]
+            isOneToOne: false
+            referencedRelation: "critical_alerts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       integration_issues: {
         Row: {
           agent_id: string | null
@@ -1390,6 +1632,8 @@ export type Database = {
           created_at: string
           decision_id: string | null
           description: string
+          escalated_at: string | null
+          executed_at: string | null
           id: string
           origin: string
           params: Json
@@ -1413,6 +1657,8 @@ export type Database = {
           created_at?: string
           decision_id?: string | null
           description?: string
+          escalated_at?: string | null
+          executed_at?: string | null
           id?: string
           origin?: string
           params?: Json
@@ -1436,6 +1682,8 @@ export type Database = {
           created_at?: string
           decision_id?: string | null
           description?: string
+          escalated_at?: string | null
+          executed_at?: string | null
           id?: string
           origin?: string
           params?: Json
@@ -1521,6 +1769,7 @@ export type Database = {
           kill_switch_at: string | null
           kill_switch_auto: boolean
           kill_switch_source: string | null
+          retention_days: number
           updated_at: string
           user_context: Json
         }
@@ -1534,6 +1783,7 @@ export type Database = {
           kill_switch_at?: string | null
           kill_switch_auto?: boolean
           kill_switch_source?: string | null
+          retention_days?: number
           updated_at?: string
           user_context?: Json
         }
@@ -1547,6 +1797,7 @@ export type Database = {
           kill_switch_at?: string | null
           kill_switch_auto?: boolean
           kill_switch_source?: string | null
+          retention_days?: number
           updated_at?: string
           user_context?: Json
         }
@@ -1582,6 +1833,27 @@ export type Database = {
           status?: string
           title?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      rate_limit_windows: {
+        Row: {
+          count: number
+          endpoint: string
+          user_id: string
+          window_start: string
+        }
+        Insert: {
+          count?: number
+          endpoint: string
+          user_id: string
+          window_start: string
+        }
+        Update: {
+          count?: number
+          endpoint?: string
+          user_id?: string
+          window_start?: string
         }
         Relationships: []
       }
@@ -1768,6 +2040,80 @@ export type Database = {
         }
         Relationships: []
       }
+      webhook_deliveries: {
+        Row: {
+          created_at: string
+          error: string | null
+          event: string
+          id: string
+          ok: boolean
+          status_code: number | null
+          user_id: string
+          webhook_id: string
+        }
+        Insert: {
+          created_at?: string
+          error?: string | null
+          event: string
+          id?: string
+          ok: boolean
+          status_code?: number | null
+          user_id: string
+          webhook_id: string
+        }
+        Update: {
+          created_at?: string
+          error?: string | null
+          event?: string
+          id?: string
+          ok?: boolean
+          status_code?: number | null
+          user_id?: string
+          webhook_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "webhook_deliveries_webhook_id_fkey"
+            columns: ["webhook_id"]
+            isOneToOne: false
+            referencedRelation: "webhooks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      webhooks: {
+        Row: {
+          created_at: string
+          enabled: boolean
+          events: string[]
+          id: string
+          secret: string
+          updated_at: string
+          url: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          enabled?: boolean
+          events?: string[]
+          id?: string
+          secret: string
+          updated_at?: string
+          url: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          enabled?: boolean
+          events?: string[]
+          id?: string
+          secret?: string
+          updated_at?: string
+          url?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       website_pages: {
         Row: {
           created_at: string
@@ -1935,6 +2281,14 @@ export type Database = {
           _role: Database["public"]["Enums"]["app_role"]
           _user_id: string
         }
+        Returns: boolean
+      }
+      increment_rate_limit: {
+        Args: { _endpoint: string; _user_id: string; _window_start: string }
+        Returns: number
+      }
+      is_account_member: {
+        Args: { _account_owner_id: string; _min_role?: string }
         Returns: boolean
       }
       move_to_dlq: {
