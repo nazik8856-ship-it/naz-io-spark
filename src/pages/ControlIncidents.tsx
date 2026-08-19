@@ -4,6 +4,7 @@ import { ArrowLeft, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
+import { filterBySearch } from "@/lib/search-filter";
 
 type IncidentKind = "kill_switch_auto" | "circuit_breaker_trip" | "gate_error" | "self_audit_regression";
 type IncidentStatus = "open" | "resolved";
@@ -42,6 +43,8 @@ export default function ControlIncidents() {
   const [filter, setFilter] = useState<"open" | "all">("open");
   const [busy, setBusy] = useState<string | null>(null);
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
+  const [search, setSearch] = useState("");
+  const visibleIncidents = filterBySearch(incidents, search, ["summary", "kind", "action_type", "provider"]);
 
   const load = useCallback(async () => {
     if (!user) return;
@@ -114,15 +117,22 @@ export default function ControlIncidents() {
           the events that mean something actually went wrong, not a deliberate toggle or a rule working as intended.
         </p>
 
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search summary, kind, action, or provider…"
+          className="mt-3 w-full rounded border border-white/10 bg-black/40 px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600"
+        />
+
         {loading ? (
           <p className="mt-8 font-mono text-xs uppercase text-zinc-500">Loading…</p>
-        ) : incidents.length === 0 ? (
+        ) : visibleIncidents.length === 0 ? (
           <p className="mt-6 rounded border border-white/10 bg-white/[0.02] p-4 text-sm text-zinc-500">
-            {filter === "open" ? "No open incidents." : "No incidents recorded yet."}
+            {incidents.length === 0 ? (filter === "open" ? "No open incidents." : "No incidents recorded yet.") : "No incidents match that search."}
           </p>
         ) : (
           <ul className="mt-6 space-y-3">
-            {incidents.map((incident) => (
+            {visibleIncidents.map((incident) => (
               <li key={incident.id} className="rounded border border-white/10 bg-white/[0.02] p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-start gap-2">
