@@ -4,6 +4,7 @@ import { ArrowLeft } from "lucide-react";
 import { supabase, SUPABASE_FUNCTIONS_URL, SUPABASE_ANON } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
+import { diffPolicySnapshots, type PolicySnapshotShape } from "@/lib/policy-diff";
 
 type PolicyVersion = {
   id: string;
@@ -125,6 +126,13 @@ export default function ControlPolicy() {
 
   const snapshotOf = versions.find((v) => v.id === openSnapshot);
 
+  const [diffFor, setDiffFor] = useState<string | null>(null);
+  const activeVersion = versions.find((v) => v.status === "active");
+  const diffOf = versions.find((v) => v.id === diffFor);
+  const diff = diffOf && activeVersion
+    ? diffPolicySnapshots(activeVersion.snapshot as PolicySnapshotShape, diffOf.snapshot as PolicySnapshotShape)
+    : null;
+
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 p-6">
       <div className="max-w-5xl mx-auto space-y-6">
@@ -185,6 +193,14 @@ export default function ControlPolicy() {
                   >
                     {busy === v.id ? "Running…" : "Run replay"}
                   </button>
+                  {activeVersion && v.id !== activeVersion.id && (
+                    <button
+                      onClick={() => setDiffFor(diffFor === v.id ? null : v.id)}
+                      className="rounded border border-cyan-500/30 px-2 py-1 text-cyan-300 hover:bg-cyan-500/10"
+                    >
+                      {diffFor === v.id ? "Hide diff" : "Diff vs active"}
+                    </button>
+                  )}
                   {v.status !== "active" && (
                     <button
                       onClick={() => activate(v)}
@@ -209,6 +225,57 @@ export default function ControlPolicy() {
             <pre className="max-h-96 overflow-auto border border-white/10 bg-black/40 p-3 text-xs">
 {JSON.stringify(snapshotOf.snapshot ?? {}, null, 2)}
             </pre>
+          </div>
+        )}
+
+        {diff && activeVersion && diffOf && (
+          <div className="space-y-3">
+            <h2 className="text-sm font-semibold">
+              Diff — active v{activeVersion.version} → v{diffOf.version}
+              {!diff.hasChanges && <span className="ml-2 text-zinc-500">(no differences)</span>}
+            </h2>
+
+            {(["hardRules", "safetyRules"] as const).map((section) => {
+              const d = diff[section];
+              const label = section === "hardRules" ? "Hard rules" : "Safety rules";
+              if (d.added.length === 0 && d.removed.length === 0 && d.changed.length === 0) return null;
+              return (
+                <div key={section} className="rounded border border-white/10 bg-black/20 p-3 text-xs">
+                  <div className="mb-1 font-mono uppercase tracking-wider text-zinc-500">{label}</div>
+                  {d.added.map((r) => (
+                    <div key={`add-${r.id}`} className="text-emerald-300">+ {("rule_text" in r ? r.rule_text : r.name)}</div>
+                  ))}
+                  {d.removed.map((r) => (
+                    <div key={`rm-${r.id}`} className="text-rose-300">− {("rule_text" in r ? r.rule_text : r.name)}</div>
+                  ))}
+                  {d.changed.map((c) => (
+                    <div key={`ch-${c.id}`} className="text-amber-300">
+                      ~ {("rule_text" in c.after ? c.after.rule_text : c.after.name)} (changed)
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+
+            {diff.thresholds.added.length + diff.thresholds.removed.length + diff.thresholds.changed.length > 0 && (
+              <div className="rounded border border-white/10 bg-black/20 p-3 text-xs">
+                <div className="mb-1 font-mono uppercase tracking-wider text-zinc-500">Agent thresholds</div>
+                {diff.thresholds.added.map((t) => <div key={`add-${t.agent_id}`} className="text-emerald-300">+ {t.slug ?? t.agent_id}</div>)}
+                {diff.thresholds.removed.map((t) => <div key={`rm-${t.agent_id}`} className="text-rose-300">− {t.slug ?? t.agent_id}</div>)}
+                {diff.thresholds.changed.map((c) => <div key={`ch-${c.agent_id}`} className="text-amber-300">~ {c.after.slug ?? c.agent_id} (changed)</div>)}
+              </div>
+            )}
+
+            {diff.spendCapChanged && (
+              <div className="rounded border border-white/10 bg-black/20 p-3 text-xs">
+                <div className="mb-1 font-mono uppercase tracking-wider text-zinc-500">Spend cap</div>
+                <div className="text-amber-300">
+                  ${diff.spendCapBefore?.daily_cap_usd ?? "—"} → ${diff.spendCapAfter?.daily_cap_usd ?? "—"}
+                  {" · "}
+                  {diff.spendCapBefore?.enabled ? "on" : "off"} → {diff.spendCapAfter?.enabled ? "on" : "off"}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
