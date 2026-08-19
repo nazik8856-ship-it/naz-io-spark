@@ -19,9 +19,10 @@ const ROLE_LABEL: Record<Role, string> = { owner: "Owner", approver: "Approver",
 
 /**
  * TEAM — invite people to this account with a role (owner/approver/
- * viewer). Infrastructure only right now: these roles don't gate any real
- * action yet (that's a deliberate, separate follow-up), so nothing here
- * changes what anyone can actually do in the product today.
+ * viewer). Active members can view this account's decisions, incidents,
+ * agents and rules; approvers/owners can also co-sign pending approvals;
+ * owners can flip the kill switch. Write access to rules/spend caps stays
+ * owner-account-only for now (a deliberate, separate follow-up).
  */
 export default function ControlTeam() {
   const navigate = useNavigate();
@@ -89,8 +90,8 @@ export default function ControlTeam() {
           <Users className="h-5 w-5 text-cyan-400" /> Team
         </h1>
         <p className="mt-1 text-sm text-zinc-400">
-          Invite people to this account. Owner/Approver/Viewer roles are set up here, but don't gate any real
-          action yet — that's a deliberate next step, kept separate from this invite flow.
+          Invite people to this account. Viewers can see this account's decisions, incidents, agents and
+          rules; Approvers can also co-sign pending approvals; Owners can additionally flip the kill switch.
         </p>
 
         <div className="mt-6 flex flex-wrap items-end gap-2 rounded border border-white/10 bg-white/[0.02] p-3">
