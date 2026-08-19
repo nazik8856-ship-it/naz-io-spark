@@ -1,0 +1,26 @@
+-- No schema change — records the cron job for control-weekly-trend-email
+-- (decision volume, escalation rate, and spend this week vs last week),
+-- applied directly via the same project-specific-secret convention as the
+-- other scheduled jobs this session.
+--
+-- CRON JOB (pg_cron): schedule 'control-weekly-trend-email-mondays' at
+-- 09:00 UTC every Monday, reusing the existing
+-- 'email_queue_service_role_key' vault secret:
+--
+--    SELECT cron.schedule(
+--      'control-weekly-trend-email-mondays',
+--      '0 9 * * 1',
+--      $$
+--      SELECT net.http_post(
+--        url := '<SUPABASE_URL>/functions/v1/control-weekly-trend-email',
+--        headers := jsonb_build_object(
+--          'Content-Type', 'application/json',
+--          'Authorization', 'Bearer ' || (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'email_queue_service_role_key')
+--        ),
+--        body := '{}'::jsonb
+--      );
+--      $$
+--    );
+--
+--    To revert: SELECT cron.unschedule('control-weekly-trend-email-mondays');
+SELECT 1; -- no-op: keeps this file valid, executable SQL for migration tooling
