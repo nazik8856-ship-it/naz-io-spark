@@ -75,6 +75,12 @@ Deno.test("a subscribed webhook is delivered with signature headers and logged a
     assertEquals(deliveries[0].ok, true);
     assertEquals(deliveries[0].status_code, 200);
     assertEquals(deliveries[0].webhook_id, "h1");
+    assertEquals(deliveries[0].attempt, 1);
+    // A successful delivery is never scheduled for retry.
+    assertEquals(deliveries[0].next_retry_at, null);
+    const payload = deliveries[0].payload as { event: string; data: unknown };
+    assertEquals(payload.event, "incident_opened");
+    assertEquals(payload.data, { incident_id: "i1" });
 
     const headers = capturedInit?.headers as Record<string, string>;
     assert(headers["X-NazAI-Event"] === "incident_opened");
@@ -93,6 +99,9 @@ Deno.test("a network failure delivering a webhook is logged as not-ok, never thr
     assertEquals(deliveries.length, 1);
     assertEquals(deliveries[0].ok, false);
     assert(typeof deliveries[0].error === "string");
+    assertEquals(deliveries[0].attempt, 1);
+    // A failed first attempt is eligible for retry, so next_retry_at must be set.
+    assert(typeof deliveries[0].next_retry_at === "string", "expected a scheduled retry time");
   } finally {
     globalThis.fetch = originalFetch;
   }

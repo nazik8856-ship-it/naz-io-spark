@@ -3,8 +3,12 @@ import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Check, X, Clock, ShieldAlert } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { useActiveAccount } from "@/hooks/useActiveAccount";
+import { canApprove } from "@/lib/account-switcher";
+import { friendlyErrorMessage } from "@/lib/friendly-errors";
 import { toast } from "@/hooks/use-toast";
 import { filterBySearch } from "@/lib/search-filter";
+import { actorName, buildActorNameMap } from "@/lib/actor-names";
 
 type Approval = {
   id: string;
@@ -23,6 +27,7 @@ type Approval = {
   comment: string | null;
   created_at: string;
   resolved_at: string | null;
+  resolved_by: string | null;
   executed_at: string | null;
   escalated_at: string | null;
 };
@@ -41,29 +46,46 @@ const RISK_STYLE: Record<string, string> = {
 export default function ControlApprovals() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { accountId, role } = useActiveAccount();
+  const canSignOff = canApprove(role);
   const [items, setItems] = useState<Approval[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [comments, setComments] = useState<Record<string, string>>({});
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
+  // Resolves a signoff/resolved_by auth uid to something readable: "You",
+  // an invited teammate's email, or a short id fallback for anyone else
+  // (e.g. a global admin/owner via the platform-staff role, who isn't in
+  // account_members).
+  const [names, setNames] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
-    if (!user) return;
-    const { data } = await supabase
-      .from("pending_approvals")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false })
-      .limit(100);
+    if (!user || !accountId) return;
+    const [{ data }, { data: members }] = await Promise.all([
+      supabase
+        .from("pending_approvals")
+        .select("*")
+        .eq("user_id", accountId)
+        .order("created_at", { ascending: false })
+        .limit(100),
+      supabase
+        .from("account_members")
+        .select("member_id, email")
+        .eq("account_owner_id", accountId)
+        .eq("status", "active"),
+    ]);
     setItems((data ?? []) as unknown as Approval[]);
+    setNames(buildActorNameMap(user.id, (members ?? []) as { member_id: string | null; email: string }[]));
     setLoading(false);
-  }, [user]);
+  }, [user, accountId]);
 
   useEffect(() => { load(); }, [load]);
 
+  const nameFor = (uid: string) => actorName(names, uid);
+
   const resolve = async (row: Approval, status: "approved" | "rejected") => {
-    if (!user) return;
+    if (!user || !canSignOff) return;
     setBusy(row.id);
     // Quorum is enforced server-side: the RPC appends one DISTINCT sign-off and
     // only flips the row to "approved" once required_approvals is reached.
@@ -74,7 +96,7 @@ export default function ControlApprovals() {
     });
     setBusy(null);
     if (error) {
-      toast({ title: "Couldn't save that", description: error.message, variant: "destructive" });
+      toast({ title: "Couldn't save that", description: friendlyErrorMessage(error.message), variant: "destructive" });
       return;
     }
     const res = (data ?? {}) as { status?: string; approvals?: number; required?: number; remaining?: number };
@@ -97,7 +119,7 @@ export default function ControlApprovals() {
 
   const bulkResolve = async (status: "approved" | "rejected") => {
     const ids = [...selected];
-    if (!ids.length) return;
+    if (!ids.length || !canSignOff) return;
     setBusy("bulk");
     const results = await Promise.allSettled(
       ids.map((id) =>
@@ -128,7 +150,7 @@ export default function ControlApprovals() {
     setBusy(null);
     const res = (data ?? {}) as { message?: string; summary?: string; executed?: boolean; already_executed?: boolean };
     if (error && !res.message) {
-      toast({ title: "Couldn't run it", description: error.message, variant: "destructive" });
+      toast({ title: "Couldn't run it", description: friendlyErrorMessage(error.message), variant: "destructive" });
       return;
     }
     toast({
@@ -141,12 +163,13 @@ export default function ControlApprovals() {
 
 
   // Distinct human sign-offs recorded on a row (source of truth for quorum).
-  const signOffCount = (row: Approval) =>
-    new Set(
+  const signOffIds = (row: Approval) =>
+    [...new Set(
       (Array.isArray(row.approvals) ? (row.approvals as { by?: string }[]) : [])
         .map((s) => String(s?.by ?? ""))
         .filter(Boolean),
-    ).size;
+    )];
+  const signOffCount = (row: Approval) => signOffIds(row).length;
 
   const searched = filterBySearch(items, search, ["action_type", "provider", "description", "reason"]);
   const pending = searched.filter((i) => i.status === "pending");
@@ -156,7 +179,7 @@ export default function ControlApprovals() {
   const Card = ({ row }: { row: Approval }) => (
     <div className="rounded-lg border border-white/10 bg-white/[0.03] p-4">
       <div className="flex flex-wrap items-center gap-2">
-        {row.status === "pending" && (
+        {row.status === "pending" && canSignOff && (
           <input
             type="checkbox"
             checked={selected.has(row.id)}
@@ -186,6 +209,7 @@ export default function ControlApprovals() {
       <p className="mt-1 text-xs text-zinc-400">{row.reason}</p>
       {row.status === "pending" ? (
         <>
+          {canSignOff && (
           <textarea
             value={comments[row.id] ?? ""}
             onChange={(e) => setComments((c) => ({ ...c, [row.id]: e.target.value }))}
@@ -193,7 +217,10 @@ export default function ControlApprovals() {
             className="mt-3 w-full resize-none rounded border border-white/10 bg-black/40 p-2 text-xs text-zinc-200 outline-none focus:border-cyan-500/50"
             rows={2}
           />
+          )}
           <div className="mt-2 flex items-center gap-2">
+            {canSignOff ? (
+            <>
             <button
               disabled={busy === row.id}
               onClick={() => resolve(row, "approved")}
@@ -208,9 +235,14 @@ export default function ControlApprovals() {
             >
               <X className="h-3.5 w-3.5" /> Reject
             </button>
+            </>
+            ) : (
+              <span className="text-[10px] font-mono uppercase text-zinc-500">View-only — you can't sign off on this account.</span>
+            )}
             {(row.required_approvals || 1) > 1 && (
-              <span className="text-[10px] font-mono uppercase text-amber-300">
+              <span className="text-[10px] font-mono uppercase text-amber-300" title={signOffIds(row).map(nameFor).join(", ") || undefined}>
                 {signOffCount(row)} of {row.required_approvals} sign-offs
+                {signOffIds(row).length > 0 && ` (${signOffIds(row).map(nameFor).join(", ")})`}
               </span>
             )}
             {row.decision_id && (
@@ -227,6 +259,7 @@ export default function ControlApprovals() {
         <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] font-mono uppercase">
           <span className={row.status === "approved" ? "text-emerald-300" : "text-rose-300"}>{row.status}</span>
           <span className="text-zinc-500">· {signOffCount(row)}/{row.required_approvals || 1} approvals</span>
+          {row.resolved_by && <span className="text-zinc-500">· by {nameFor(row.resolved_by)}</span>}
           {row.comment && <span className="text-zinc-500">· {row.comment}</span>}
           {row.executed_at && <span className="text-zinc-500">· ran {new Date(row.executed_at).toLocaleString()}</span>}
           {row.status === "approved" && !row.executed_at && (

@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { Gauge, Check, Pencil } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { useActiveAccount } from "@/hooks/useActiveAccount";
+import { canWriteAsOwner } from "@/lib/account-switcher";
+import { friendlyErrorMessage } from "@/lib/friendly-errors";
 import { toast } from "@/hooks/use-toast";
 
 const DEFAULT_CAP = 5;
@@ -12,6 +15,8 @@ const money = (n: number) => `$${(Number(n) || 0).toFixed(2)}`;
  * kill switch until the next UTC day.
  */
 export default function SpendCapPanel() {
+  const { accountId, role } = useActiveAccount();
+  const canWrite = canWriteAsOwner(role);
   const [cap, setCap] = useState<number>(DEFAULT_CAP);
   const [enabled, setEnabled] = useState(true);
   const [spent, setSpent] = useState(0);
@@ -21,13 +26,11 @@ export default function SpendCapPanel() {
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
-    const { data: auth } = await supabase.auth.getUser();
-    const uid = auth?.user?.id;
-    if (!uid) return;
+    if (!accountId) return;
     const day = new Date().toISOString().slice(0, 10);
     const [{ data: capRow }, { data: usageRow }] = await Promise.all([
-      supabase.from("ai_spend_caps").select("daily_cap_usd, enabled").eq("user_id", uid).maybeSingle(),
-      supabase.from("ai_spend_daily").select("cost_usd, calls").eq("user_id", uid).eq("day", day).maybeSingle(),
+      supabase.from("ai_spend_caps").select("daily_cap_usd, enabled").eq("user_id", accountId).maybeSingle(),
+      supabase.from("ai_spend_daily").select("cost_usd, calls").eq("user_id", accountId).eq("day", day).maybeSingle(),
     ]);
     const c = Number(capRow?.daily_cap_usd ?? DEFAULT_CAP);
     setCap(c);
@@ -35,26 +38,24 @@ export default function SpendCapPanel() {
     setEnabled(capRow?.enabled ?? true);
     setSpent(Number(usageRow?.cost_usd ?? 0));
     setCalls(Number(usageRow?.calls ?? 0));
-  }, []);
+  }, [accountId]);
 
   useEffect(() => { load(); }, [load]);
 
   const save = async () => {
+    if (!canWrite) return;
     const value = Number(draft);
     if (!Number.isFinite(value) || value <= 0) {
       toast({ title: "Enter a valid cap", description: "The daily cap must be more than $0.", variant: "destructive" });
       return;
     }
-    const { data: auth } = await supabase.auth.getUser();
-    const uid = auth?.user?.id;
-    if (!uid) return;
     setSaving(true);
     const { error } = await supabase
       .from("ai_spend_caps")
-      .upsert({ user_id: uid, daily_cap_usd: value, enabled }, { onConflict: "user_id" });
+      .upsert({ user_id: accountId, daily_cap_usd: value, enabled }, { onConflict: "user_id" });
     setSaving(false);
     if (error) {
-      toast({ title: "Couldn't save the cap", description: error.message, variant: "destructive" });
+      toast({ title: "Couldn't save the cap", description: friendlyErrorMessage(error.message), variant: "destructive" });
       return;
     }
     setCap(value);
@@ -95,7 +96,7 @@ export default function SpendCapPanel() {
                 {saving ? "Saving…" : "Save"}
               </button>
             </>
-          ) : (
+          ) : canWrite ? (
             <button
               onClick={() => setEditing(true)}
               className="inline-flex items-center gap-1 rounded-md border border-white/10 px-2 py-1 text-[11px] text-zinc-400 hover:bg-white/10"
@@ -103,7 +104,7 @@ export default function SpendCapPanel() {
               <Pencil className="h-3 w-3" />
               Edit cap
             </button>
-          )}
+          ) : null}
         </div>
       </div>
 

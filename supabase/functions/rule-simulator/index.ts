@@ -6,7 +6,7 @@
 // gate enforces with (ruleMatchesAction, scanWithRules) so the simulator
 // can never drift from what actually decides.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { ruleMatchesAction } from "../_shared/rule-matching.ts";
+import { ruleMatchesAction, selectRulesForAgent } from "../_shared/rule-matching.ts";
 import { scanWithRules, BUILTIN_SAFETY_RULES, type SafetyRule } from "../_shared/safety-scanner.ts";
 import { projectVerdict } from "../_shared/rule-simulator-logic.ts";
 
@@ -47,6 +47,12 @@ Deno.serve(async (req) => {
   const description = String(body?.description || "").trim();
   const params = body?.params ?? {};
   const draftRule = (body?.draft_rule ?? null) as DraftRule | null;
+  // Optional: simulate "as this agent" so a per-agent rule's precedence
+  // over the account-wide default is directly checkable before it ships.
+  // Omitted/null = simulate with no agent in context (only account-wide
+  // rules apply), matching how the real gate behaves for a chat-driven
+  // action with no agentId.
+  const agentId = body?.agent_id ? String(body.agent_id) : null;
 
   if (!actionType) return json({ error: "action_type required" }, 400);
   if (!description) return json({ error: "description required" }, 400);
@@ -60,12 +66,15 @@ Deno.serve(async (req) => {
   // happen right now, for comparison against the draft.
   const { data: liveRulesRaw } = await admin
     .from("hard_rules")
-    .select("id, rule_text, action_type_pattern, effect, provider, enabled, shadow_mode")
+    .select("id, rule_text, action_type_pattern, effect, provider, enabled, shadow_mode, agent_id")
     .eq("user_id", userId);
-  const liveRules = ((liveRulesRaw ?? []) as {
+  const liveRulesAllAgents = ((liveRulesRaw ?? []) as {
     id: string; rule_text: string; action_type_pattern: string; effect: string; provider: string | null;
-    enabled?: boolean; shadow_mode?: boolean;
+    enabled?: boolean; shadow_mode?: boolean; agent_id?: string | null;
   }[]).filter((r) => r.enabled !== false);
+  // Same precedence as the real gate: agent-scoped rules for the
+  // simulated agent first, account-wide rules as the fallback.
+  const liveRules = selectRulesForAgent(liveRulesAllAgents, agentId);
   const liveMatch = liveRules.find((r) => !r.shadow_mode && ruleMatchesAction(r, actionType, provider));
   const liveShadowMatches = liveRules.filter((r) => r.shadow_mode && ruleMatchesAction(r, actionType, provider));
 
@@ -77,10 +86,10 @@ Deno.serve(async (req) => {
   // what-if check).
   const { data: customSafetyRaw } = await admin
     .from("safety_rules")
-    .select("id, name, category, pattern, severity, enabled")
+    .select("id, name, category, pattern, severity, enabled, agent_id")
     .eq("user_id", userId)
     .eq("enabled", true);
-  const customSafety = ((customSafetyRaw ?? []) as Record<string, unknown>[]).map((r) => ({
+  const customSafetyAllAgents = ((customSafetyRaw ?? []) as Record<string, unknown>[]).map((r) => ({
     id: String(r.id),
     name: String(r.name ?? "Custom rule"),
     category: String(r.category ?? "custom"),
@@ -88,7 +97,9 @@ Deno.serve(async (req) => {
     severity: (r.severity === "block" ? "block" : "require_approval") as "block" | "require_approval",
     enabled: true,
     builtin: false,
+    agent_id: (r.agent_id as string | null | undefined) ?? null,
   })).filter((r) => r.pattern);
+  const customSafety = selectRulesForAgent(customSafetyAllAgents, agentId);
   const safetyScan = scanWithRules(
     [...BUILTIN_SAFETY_RULES.filter((r: SafetyRule) => r.enabled), ...customSafety],
     params,
@@ -96,7 +107,7 @@ Deno.serve(async (req) => {
   );
 
   return json({
-    input: { action_type: actionType, provider, description },
+    input: { action_type: actionType, provider, description, agent_id: agentId },
     live_rules: {
       matched: liveMatch
         ? { id: liveMatch.id, rule_text: liveMatch.rule_text, effect: liveMatch.effect }

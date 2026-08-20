@@ -45,7 +45,16 @@ Deno.serve(async (req) => {
       .from("incidents").select("id, user_id, status, kind, action_type, provider").eq("id", incidentId).maybeSingle();
     const row = existing as { id?: string; user_id?: string; status?: string; kind?: string; action_type?: string | null; provider?: string | null } | null;
     if (!row?.id) return json({ error: "not_found" }, 404);
-    if (row.user_id !== userId) return json({ error: "forbidden" }, 403);
+    if (row.user_id !== userId) {
+      // Active team members with approver/owner role can also resolve --
+      // same tier as approval co-sign, since resolving is an action, not
+      // just viewing (Phase 2 already grants viewers read-only access).
+      // Must run as the calling user (userClient), not the service-role
+      // admin client -- is_account_member() reads auth.uid() internally,
+      // which is null under the service role.
+      const { data: isMember } = await userClient.rpc("is_account_member", { _account_owner_id: row.user_id, _min_role: "approver" });
+      if (!isMember) return json({ error: "forbidden" }, 403);
+    }
     if (row.status === "resolved") {
       return json({ ok: true, already_resolved: true, id: incidentId });
     }

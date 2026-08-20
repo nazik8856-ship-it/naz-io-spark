@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider } from "@/hooks/useAuth";
+import { ActiveAccountProvider } from "@/hooks/useActiveAccount";
 import { Toaster } from "@/components/ui/toaster";
 import { lazy, Suspense } from "react";
 import EntranceSplash from "@/components/EntranceSplash";
@@ -61,6 +62,7 @@ const ControlWebhooks = lazyWithReload(() => import("./pages/ControlWebhooks"));
 const ControlComplianceReport = lazyWithReload(() => import("./pages/ControlComplianceReport"));
 const ControlTeam = lazyWithReload(() => import("./pages/ControlTeam"));
 const AcceptInvite = lazyWithReload(() => import("./pages/AcceptInvite"));
+const OpsPlatformIncidents = lazyWithReload(() => import("./pages/OpsPlatformIncidents"));
 
 
 
@@ -79,6 +81,7 @@ const PageSkeleton = () => (
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
+      <ActiveAccountProvider>
       <BrowserRouter>
         <main className="min-h-screen bg-[#020617] selection:bg-[#00A3FF]/30">
           <IntegrationOAuthMessageBridge />
@@ -122,6 +125,10 @@ const App = () => (
                 <Route path="/control-system/webhooks" element={<ControlWebhooks />} />
                 <Route path="/control-system/compliance" element={<ControlComplianceReport />} />
                 <Route path="/control-system/team" element={<ControlTeam />} />
+                {/* Hidden operator page, not linked in the customer nav -- gated
+                    by the global admin/owner role check, same convention as
+                    KillSwitchPanel's reveal-code gate. */}
+                <Route path="/ops/incidents" element={<OpsPlatformIncidents />} />
 
 
 
@@ -142,6 +149,7 @@ const App = () => (
           </EntranceSplash>
         </main>
       </BrowserRouter>
+      </ActiveAccountProvider>
     </AuthProvider>
   </QueryClientProvider>
 );
