@@ -28,7 +28,8 @@ CREATE TABLE public.platform_incidents (
   detail jsonb,
   created_at timestamptz not null default now(),
   resolved_at timestamptz,
-  resolved_by uuid
+  resolved_by uuid,
+  resolution_note text
 );
 GRANT ALL ON public.platform_incidents TO service_role;
 GRANT SELECT, UPDATE ON public.platform_incidents TO authenticated;
@@ -39,6 +40,21 @@ CREATE POLICY "Platform staff can resolve platform incidents" ON public.platform
   FOR UPDATE TO authenticated
   USING (public.has_role(auth.uid(), 'admin') OR public.has_role(auth.uid(), 'owner'))
   WITH CHECK (public.has_role(auth.uid(), 'admin') OR public.has_role(auth.uid(), 'owner'));
+
+-- resolved_by is always the acting staff member's own uid -- never
+-- client-supplied, so a resolve can't be attributed to someone else.
+CREATE OR REPLACE FUNCTION public.set_platform_incident_resolved_by()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  IF new.resolved_at IS NOT NULL AND old.resolved_at IS NULL THEN
+    new.resolved_by := auth.uid();
+  END IF;
+  RETURN new;
+END;
+$$;
+CREATE TRIGGER set_platform_incident_resolved_by_trg
+  BEFORE UPDATE ON public.platform_incidents
+  FOR EACH ROW EXECUTE FUNCTION public.set_platform_incident_resolved_by();
 
 -- net._http_response lives in the `net` schema, not exposed to PostgREST --
 -- this does the join server-side so cron-health-check can call it as a

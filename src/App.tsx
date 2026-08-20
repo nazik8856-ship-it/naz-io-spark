@@ -61,6 +61,7 @@ const ControlWebhooks = lazyWithReload(() => import("./pages/ControlWebhooks"));
 const ControlComplianceReport = lazyWithReload(() => import("./pages/ControlComplianceReport"));
 const ControlTeam = lazyWithReload(() => import("./pages/ControlTeam"));
 const AcceptInvite = lazyWithReload(() => import("./pages/AcceptInvite"));
+const OpsPlatformIncidents = lazyWithReload(() => import("./pages/OpsPlatformIncidents"));
 
 
 
@@ -122,6 +123,10 @@ const App = () => (
                 <Route path="/control-system/webhooks" element={<ControlWebhooks />} />
                 <Route path="/control-system/compliance" element={<ControlComplianceReport />} />
                 <Route path="/control-system/team" element={<ControlTeam />} />
+                {/* Hidden operator page, not linked in the customer nav -- gated
+                    by the global admin/owner role check, same convention as
+                    KillSwitchPanel's reveal-code gate. */}
+                <Route path="/ops/incidents" element={<OpsPlatformIncidents />} />
 
 
 
