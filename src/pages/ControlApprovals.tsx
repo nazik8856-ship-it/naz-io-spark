@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 import { filterBySearch } from "@/lib/search-filter";
+import { actorName, buildActorNameMap } from "@/lib/actor-names";
 
 type Approval = {
   id: string;
@@ -23,6 +24,7 @@ type Approval = {
   comment: string | null;
   created_at: string;
   resolved_at: string | null;
+  resolved_by: string | null;
   executed_at: string | null;
   escalated_at: string | null;
 };
@@ -47,20 +49,35 @@ export default function ControlApprovals() {
   const [comments, setComments] = useState<Record<string, string>>({});
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
+  // Resolves a signoff/resolved_by auth uid to something readable: "You",
+  // an invited teammate's email, or a short id fallback for anyone else
+  // (e.g. a global admin/owner via the platform-staff role, who isn't in
+  // account_members).
+  const [names, setNames] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     if (!user) return;
-    const { data } = await supabase
-      .from("pending_approvals")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false })
-      .limit(100);
+    const [{ data }, { data: members }] = await Promise.all([
+      supabase
+        .from("pending_approvals")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(100),
+      supabase
+        .from("account_members")
+        .select("member_id, email")
+        .eq("account_owner_id", user.id)
+        .eq("status", "active"),
+    ]);
     setItems((data ?? []) as unknown as Approval[]);
+    setNames(buildActorNameMap(user.id, (members ?? []) as { member_id: string | null; email: string }[]));
     setLoading(false);
   }, [user]);
 
   useEffect(() => { load(); }, [load]);
+
+  const nameFor = (uid: string) => actorName(names, uid);
 
   const resolve = async (row: Approval, status: "approved" | "rejected") => {
     if (!user) return;
@@ -141,12 +158,13 @@ export default function ControlApprovals() {
 
 
   // Distinct human sign-offs recorded on a row (source of truth for quorum).
-  const signOffCount = (row: Approval) =>
-    new Set(
+  const signOffIds = (row: Approval) =>
+    [...new Set(
       (Array.isArray(row.approvals) ? (row.approvals as { by?: string }[]) : [])
         .map((s) => String(s?.by ?? ""))
         .filter(Boolean),
-    ).size;
+    )];
+  const signOffCount = (row: Approval) => signOffIds(row).length;
 
   const searched = filterBySearch(items, search, ["action_type", "provider", "description", "reason"]);
   const pending = searched.filter((i) => i.status === "pending");
@@ -209,8 +227,9 @@ export default function ControlApprovals() {
               <X className="h-3.5 w-3.5" /> Reject
             </button>
             {(row.required_approvals || 1) > 1 && (
-              <span className="text-[10px] font-mono uppercase text-amber-300">
+              <span className="text-[10px] font-mono uppercase text-amber-300" title={signOffIds(row).map(nameFor).join(", ") || undefined}>
                 {signOffCount(row)} of {row.required_approvals} sign-offs
+                {signOffIds(row).length > 0 && ` (${signOffIds(row).map(nameFor).join(", ")})`}
               </span>
             )}
             {row.decision_id && (
@@ -227,6 +246,7 @@ export default function ControlApprovals() {
         <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] font-mono uppercase">
           <span className={row.status === "approved" ? "text-emerald-300" : "text-rose-300"}>{row.status}</span>
           <span className="text-zinc-500">· {signOffCount(row)}/{row.required_approvals || 1} approvals</span>
+          {row.resolved_by && <span className="text-zinc-500">· by {nameFor(row.resolved_by)}</span>}
           {row.comment && <span className="text-zinc-500">· {row.comment}</span>}
           {row.executed_at && <span className="text-zinc-500">· ran {new Date(row.executed_at).toLocaleString()}</span>}
           {row.status === "approved" && !row.executed_at && (
