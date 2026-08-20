@@ -40,3 +40,22 @@ CREATE POLICY "Team owners can update owner's strictness" ON public.profiles
   FOR UPDATE TO authenticated
   USING (public.is_account_member(id, 'owner'))
   WITH CHECK (public.is_account_member(id, 'owner'));
+
+-- Read-access gaps found while wiring the account switcher: Phase 2's
+-- table list didn't include profiles, ai_spend_caps, or ai_spend_daily, so
+-- a team member (any role) currently can't even SELECT the account
+-- owner's kill-switch/strictness state, spend cap, or today's spend --
+-- meaning the panels that read them would silently render as empty/zero
+-- for a team member with no indication anything was wrong. Additive SELECT
+-- policies, any active role, same pattern as Phase 2.
+CREATE POLICY "Team members can view owner's profile" ON public.profiles
+  FOR SELECT TO authenticated USING (public.is_account_member(id));
+
+CREATE POLICY "Team members can view owner's spend cap" ON public.ai_spend_caps
+  FOR SELECT TO authenticated USING (public.is_account_member(user_id));
+
+CREATE POLICY "Team members can view owner's spend usage" ON public.ai_spend_daily
+  FOR SELECT TO authenticated USING (public.is_account_member(user_id));
+
+CREATE POLICY "Team members can view owner's shadow rule hits" ON public.hard_rule_shadow_hits
+  FOR SELECT TO authenticated USING (public.is_account_member(user_id));

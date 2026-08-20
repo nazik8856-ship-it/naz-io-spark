@@ -3,6 +3,9 @@ import { useNavigate } from "react-router-dom";
 import { ArrowLeft, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { useActiveAccount } from "@/hooks/useActiveAccount";
+import { canApprove } from "@/lib/account-switcher";
+import { friendlyErrorMessage } from "@/lib/friendly-errors";
 import { toast } from "@/hooks/use-toast";
 import { filterBySearch } from "@/lib/search-filter";
 import { actorName, buildActorNameMap } from "@/lib/actor-names";
@@ -39,6 +42,8 @@ const KIND_LABEL: Record<IncidentKind, string> = {
 export default function ControlIncidents() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { accountId, role } = useActiveAccount();
+  const canResolve = canApprove(role);
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"open" | "all">("open");
@@ -50,27 +55,28 @@ export default function ControlIncidents() {
   const nameFor = (uid: string) => actorName(names, uid);
 
   const load = useCallback(async () => {
-    if (!user) return;
+    if (!user || !accountId) return;
     setLoading(true);
     let query = supabase
       .from("incidents")
       .select("id, kind, status, summary, action_type, provider, decision_id, opened_at, resolved_at, resolved_by, resolution_note")
-      .eq("user_id", user.id)
+      .eq("user_id", accountId)
       .order("opened_at", { ascending: false });
     if (filter === "open") query = query.eq("status", "open");
     const [{ data, error }, { data: members }] = await Promise.all([
       query,
-      supabase.from("account_members").select("member_id, email").eq("account_owner_id", user.id).eq("status", "active"),
+      supabase.from("account_members").select("member_id, email").eq("account_owner_id", accountId).eq("status", "active"),
     ]);
-    if (error) toast({ title: "Couldn't load incidents", description: error.message, variant: "destructive" });
+    if (error) toast({ title: "Couldn't load incidents", description: friendlyErrorMessage(error.message), variant: "destructive" });
     setIncidents((data ?? []) as unknown as Incident[]);
     setNames(buildActorNameMap(user.id, (members ?? []) as { member_id: string | null; email: string }[]));
     setLoading(false);
-  }, [user, filter]);
+  }, [user, accountId, filter]);
 
   useEffect(() => { load(); }, [load]);
 
   const resolve = async (incident: Incident) => {
+    if (!canResolve) return;
     setBusy(incident.id);
     const { data, error } = await supabase.functions.invoke(
       `control-incidents/${incident.id}/resolve`,
@@ -79,7 +85,7 @@ export default function ControlIncidents() {
     setBusy(null);
     const res = (data ?? {}) as { ok?: boolean; already_resolved?: boolean };
     if (error && !res.ok) {
-      toast({ title: "Couldn't resolve it", description: error.message, variant: "destructive" });
+      toast({ title: "Couldn't resolve it", description: friendlyErrorMessage(error.message), variant: "destructive" });
       return;
     }
     toast({ title: res.already_resolved ? "Already resolved" : "Resolved", description: incident.summary.slice(0, 120) });
@@ -168,7 +174,7 @@ export default function ControlIncidents() {
                   </div>
                 </div>
 
-                {incident.status === "open" && (
+                {incident.status === "open" && canResolve && (
                   <div className="mt-3 flex items-center gap-2">
                     <input
                       type="text"

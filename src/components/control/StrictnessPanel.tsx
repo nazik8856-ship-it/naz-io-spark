@@ -2,6 +2,9 @@ import { useEffect, useState } from "react";
 import { SlidersHorizontal } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { useActiveAccount } from "@/hooks/useActiveAccount";
+import { canWriteAsOwner } from "@/lib/account-switcher";
+import { friendlyErrorMessage } from "@/lib/friendly-errors";
 import { toast } from "@/hooks/use-toast";
 
 type Strictness = "loose" | "balanced" | "strict";
@@ -18,35 +21,37 @@ const OPTIONS: { value: Strictness; label: string; blurb: string }[] = [
  */
 export default function StrictnessPanel() {
   const { user } = useAuth();
+  const { accountId, role } = useActiveAccount();
+  const canWrite = canWriteAsOwner(role);
   const [value, setValue] = useState<Strictness>("balanced");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !accountId) return;
     supabase
       .from("profiles")
       .select("control_strictness")
-      .eq("id", user.id)
+      .eq("id", accountId)
       .maybeSingle()
       .then(({ data }) => {
         const v = (data as { control_strictness?: string } | null)?.control_strictness;
         if (v === "loose" || v === "strict" || v === "balanced") setValue(v);
       });
-  }, [user]);
+  }, [user, accountId]);
 
   const pick = async (next: Strictness) => {
-    if (!user || next === value) return;
+    if (!user || !canWrite || next === value) return;
     const prev = value;
     setValue(next);
     setSaving(true);
     const { error } = await supabase
       .from("profiles")
       .update({ control_strictness: next } as never)
-      .eq("id", user.id);
+      .eq("id", accountId);
     setSaving(false);
     if (error) {
       setValue(prev);
-      toast({ title: "Couldn't save that", description: error.message, variant: "destructive" });
+      toast({ title: "Couldn't save that", description: friendlyErrorMessage(error.message), variant: "destructive" });
       return;
     }
     toast({ title: `Strictness: ${next}`, description: "Applies to every decision from now on." });
@@ -61,8 +66,8 @@ export default function StrictnessPanel() {
         <button
           key={o.value}
           onClick={() => pick(o.value)}
-          disabled={saving}
-          title={o.blurb}
+          disabled={saving || !canWrite}
+          title={canWrite ? o.blurb : "Only the account owner or a team owner can change this."}
           className={`rounded border px-2.5 py-1 font-mono uppercase tracking-wider disabled:opacity-50 ${
             value === o.value
               ? "border-cyan-500/50 bg-cyan-500/15 text-cyan-300"

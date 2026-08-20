@@ -2,6 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import { Gavel, Plus, Trash2, ChevronDown, Eye, ShieldCheck } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { useActiveAccount } from "@/hooks/useActiveAccount";
+import { canWriteAsOwner } from "@/lib/account-switcher";
+import { friendlyErrorMessage } from "@/lib/friendly-errors";
 import { toast } from "@/hooks/use-toast";
 
 type Effect = "always_block" | "always_require_approval";
@@ -39,6 +42,8 @@ const SCOPES: { label: string; pattern: string }[] = [
  */
 export default function HardRulesPanel() {
   const { user } = useAuth();
+  const { accountId, role } = useActiveAccount();
+  const canWrite = canWriteAsOwner(role);
   const [open, setOpen] = useState(false);
   const [rules, setRules] = useState<HardRule[]>([]);
   const [reports, setReports] = useState<Record<string, ShadowReport>>({});
@@ -49,11 +54,11 @@ export default function HardRulesPanel() {
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
-    if (!user) return;
+    if (!accountId) return;
     const { data } = await supabase
       .from("hard_rules")
       .select("id, rule_text, action_type_pattern, effect, provider, shadow_mode, created_at")
-      .eq("user_id", user.id)
+      .eq("user_id", accountId)
       .order("created_at", { ascending: false });
     const list = (data ?? []) as HardRule[];
     setRules(list);
@@ -71,22 +76,22 @@ export default function HardRulesPanel() {
           supabase
             .from("agent_decisions")
             .select("id", { count: "exact", head: true })
-            .eq("user_id", user.id)
+            .eq("user_id", accountId)
             .gte("created_at", r.created_at),
         ]);
         next[r.id] = { hits: hits ?? 0, decisions: decisions ?? 0 };
       }),
     );
     setReports(next);
-  }, [user]);
+  }, [accountId]);
 
   useEffect(() => { void load(); }, [load]);
 
   const add = async () => {
-    if (!user || !text.trim() || busy) return;
+    if (!user || !canWrite || !text.trim() || busy) return;
     setBusy(true);
     const { error } = await supabase.from("hard_rules").insert({
-      user_id: user.id,
+      user_id: accountId,
       rule_text: text.trim(),
       action_type_pattern: scope,
       effect,
@@ -94,7 +99,7 @@ export default function HardRulesPanel() {
     });
     setBusy(false);
     if (error) {
-      toast({ title: "Could not save rule", description: error.message, variant: "destructive" });
+      toast({ title: "Could not save rule", description: friendlyErrorMessage(error.message), variant: "destructive" });
       return;
     }
     setText("");
@@ -108,12 +113,13 @@ export default function HardRulesPanel() {
   };
 
   const promote = async (r: HardRule) => {
+    if (!canWrite) return;
     const { error } = await supabase
       .from("hard_rules")
       .update({ shadow_mode: false, promoted_at: new Date().toISOString() })
       .eq("id", r.id);
     if (error) {
-      toast({ title: "Could not promote rule", description: error.message, variant: "destructive" });
+      toast({ title: "Could not promote rule", description: friendlyErrorMessage(error.message), variant: "destructive" });
       return;
     }
     toast({ title: "Rule is now live", description: "It will decide matching actions from now on." });
@@ -121,9 +127,10 @@ export default function HardRulesPanel() {
   };
 
   const remove = async (id: string) => {
+    if (!canWrite) return;
     const { error } = await supabase.from("hard_rules").delete().eq("id", id);
     if (error) {
-      toast({ title: "Could not remove rule", description: error.message, variant: "destructive" });
+      toast({ title: "Could not remove rule", description: friendlyErrorMessage(error.message), variant: "destructive" });
       return;
     }
     void load();
@@ -154,6 +161,13 @@ export default function HardRulesPanel() {
             logged, so you can see what they would have done before turning them on.
           </p>
 
+          {!canWrite && (
+            <p className="text-[11px] text-amber-300/80">
+              You have view-only access to this account's hard rules — only the account owner or a team owner can add, promote, or remove them.
+            </p>
+          )}
+
+          {canWrite && (
           <div className="space-y-2">
             <input
               value={text}
@@ -201,6 +215,7 @@ export default function HardRulesPanel() {
               </button>
             </div>
           </div>
+          )}
 
           {rules.length === 0 ? (
             <p className="text-[11px] font-mono text-zinc-600">No hard rules yet.</p>
@@ -245,22 +260,26 @@ export default function HardRulesPanel() {
                                 : `If this rule goes live, it would have affected ${rep.hits} of the last ${rep.decisions} decisions.`
                               : "Measuring impact…"}
                           </p>
-                          <button
-                            onClick={() => promote(r)}
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 px-2.5 py-1 text-[11px] font-semibold text-emerald-400"
-                          >
-                            <ShieldCheck className="h-3 w-3" /> Promote to live
-                          </button>
+                          {canWrite && (
+                            <button
+                              onClick={() => promote(r)}
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 px-2.5 py-1 text-[11px] font-semibold text-emerald-400"
+                            >
+                              <ShieldCheck className="h-3 w-3" /> Promote to live
+                            </button>
+                          )}
                         </div>
                       )}
                     </div>
-                    <button
-                      onClick={() => remove(r.id)}
-                      aria-label={`Remove rule: ${r.rule_text}`}
-                      className="text-zinc-500 hover:text-red-400 transition-colors"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                    {canWrite && (
+                      <button
+                        onClick={() => remove(r.id)}
+                        aria-label={`Remove rule: ${r.rule_text}`}
+                        className="text-zinc-500 hover:text-red-400 transition-colors"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )}
                   </li>
                 );
               })}

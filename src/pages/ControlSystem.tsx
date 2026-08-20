@@ -12,6 +12,7 @@ import SpendCapPanel from "@/components/control/SpendCapPanel";
 import DryRunToggle from "@/components/control/DryRunToggle";
 import StrictnessPanel from "@/components/control/StrictnessPanel";
 import RetentionPanel from "@/components/control/RetentionPanel";
+import AccountSwitcher from "@/components/control/AccountSwitcher";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 
@@ -75,6 +76,7 @@ export default function ControlSystem() {
           <span className="text-sm font-mono uppercase tracking-wider">Back</span>
         </button>
         <nav className="ml-auto flex items-center gap-2">
+          <AccountSwitcher />
           <button
             onClick={() => navigate("/control-system/approvals")}
             className="rounded border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-amber-300 hover:bg-amber-500/20"

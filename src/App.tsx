@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider } from "@/hooks/useAuth";
+import { ActiveAccountProvider } from "@/hooks/useActiveAccount";
 import { Toaster } from "@/components/ui/toaster";
 import { lazy, Suspense } from "react";
 import EntranceSplash from "@/components/EntranceSplash";
@@ -80,6 +81,7 @@ const PageSkeleton = () => (
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
+      <ActiveAccountProvider>
       <BrowserRouter>
         <main className="min-h-screen bg-[#020617] selection:bg-[#00A3FF]/30">
           <IntegrationOAuthMessageBridge />
@@ -147,6 +149,7 @@ const App = () => (
           </EntranceSplash>
         </main>
       </BrowserRouter>
+      </ActiveAccountProvider>
     </AuthProvider>
   </QueryClientProvider>
 );

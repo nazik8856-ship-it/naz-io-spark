@@ -5,6 +5,7 @@
 // critical_alerts earlier this session: a silently-failing webhook (wrong
 // URL, endpoint down, timeout) must never be invisible.
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { isRetryEligible, computeNextRetryAt } from "./webhook-retry.ts";
 
 export const WEBHOOK_EVENTS = [
   "approval_created",
@@ -70,6 +71,7 @@ export async function triggerWebhooks(
         errMsg = err instanceof Error ? err.message : String(err);
       }
       try {
+        const attempt = 1;
         await admin.from("webhook_deliveries").insert({
           webhook_id: hook.id,
           user_id: userId,
@@ -77,6 +79,9 @@ export async function triggerWebhooks(
           status_code: statusCode,
           ok,
           error: errMsg,
+          payload: JSON.parse(body),
+          attempt,
+          next_retry_at: isRetryEligible(attempt, ok) ? computeNextRetryAt(attempt, new Date()).toISOString() : null,
         });
       } catch { /* delivery logging must never break the caller's own flow */ }
     }));
