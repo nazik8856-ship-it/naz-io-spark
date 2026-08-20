@@ -9,14 +9,23 @@ import { toast } from "@/hooks/use-toast";
 const DEFAULT_CAP = 5;
 const money = (n: number) => `$${(Number(n) || 0).toFixed(2)}`;
 
+type AgentOption = { id: string; name: string };
+
 /**
- * Daily AI-gateway spend for this account: today's usage against the cap.
- * At 90% the system warns (Slack if connected), at 100% it auto-trips the
- * kill switch until the next UTC day.
+ * Daily AI-gateway spend: today's usage against a cap. Account-wide by
+ * default ("All agents"); an agent with its own cap configured (Wave 5
+ * session 1 — a separate, parallel mechanism, not a replacement for the
+ * account-wide one) can be selected to view/manage that agent's own cap
+ * instead. At 90% the system warns, at 100% it auto-trips a kill switch
+ * scoped to whichever level tripped it (account-wide or just that agent)
+ * until the next UTC day.
  */
 export default function SpendCapPanel() {
   const { accountId, role } = useActiveAccount();
   const canWrite = canWriteAsOwner(role);
+  const [agents, setAgents] = useState<AgentOption[]>([]);
+  const [scopeAgentId, setScopeAgentId] = useState("");
+  const [hasCap, setHasCap] = useState(true); // account-wide always has a cap (auto-created); per-agent may not
   const [cap, setCap] = useState<number>(DEFAULT_CAP);
   const [enabled, setEnabled] = useState(true);
   const [spent, setSpent] = useState(0);
@@ -28,19 +37,30 @@ export default function SpendCapPanel() {
   const load = useCallback(async () => {
     if (!accountId) return;
     const day = new Date().toISOString().slice(0, 10);
-    const [{ data: capRow }, { data: usageRow }] = await Promise.all([
-      supabase.from("ai_spend_caps").select("daily_cap_usd, enabled").eq("user_id", accountId).maybeSingle(),
-      supabase.from("ai_spend_daily").select("cost_usd, calls").eq("user_id", accountId).eq("day", day).maybeSingle(),
+    const [{ data: agentRows }, capQuery, dailyQuery] = await Promise.all([
+      supabase.from("agents").select("id, name").eq("user_id", accountId).order("name"),
+      scopeAgentId
+        ? supabase.from("ai_spend_caps").select("daily_cap_usd, enabled").eq("user_id", accountId).eq("agent_id", scopeAgentId).maybeSingle()
+        : supabase.from("ai_spend_caps").select("daily_cap_usd, enabled").eq("user_id", accountId).is("agent_id", null).maybeSingle(),
+      scopeAgentId
+        ? supabase.from("ai_spend_daily").select("cost_usd, calls").eq("user_id", accountId).eq("agent_id", scopeAgentId).eq("day", day).maybeSingle()
+        : supabase.from("ai_spend_daily").select("cost_usd, calls").eq("user_id", accountId).eq("day", day).is("agent_id", null).maybeSingle(),
     ]);
+    setAgents((agentRows ?? []) as AgentOption[]);
+    const capRow = capQuery.data;
+    const usageRow = dailyQuery.data;
+    const configured = scopeAgentId ? !!capRow : true; // account-wide always effectively configured (falls back to $5 default)
+    setHasCap(configured);
     const c = Number(capRow?.daily_cap_usd ?? DEFAULT_CAP);
     setCap(c);
     setDraft(c.toFixed(2));
     setEnabled(capRow?.enabled ?? true);
     setSpent(Number(usageRow?.cost_usd ?? 0));
     setCalls(Number(usageRow?.calls ?? 0));
-  }, [accountId]);
+    setEditing(false);
+  }, [accountId, scopeAgentId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   const save = async () => {
     if (!canWrite) return;
@@ -50,17 +70,30 @@ export default function SpendCapPanel() {
       return;
     }
     setSaving(true);
-    const { error } = await supabase
-      .from("ai_spend_caps")
-      .upsert({ user_id: accountId, daily_cap_usd: value, enabled }, { onConflict: "user_id" });
+    // Two partial unique indexes back this table now (one account-wide row
+    // per user, one per (user, agent)) instead of a single user_id PK, so a
+    // plain upsert can no longer infer the right conflict target -- find the
+    // row first, then update or insert explicitly.
+    const findQuery = scopeAgentId
+      ? supabase.from("ai_spend_caps").select("id").eq("user_id", accountId).eq("agent_id", scopeAgentId).maybeSingle()
+      : supabase.from("ai_spend_caps").select("id").eq("user_id", accountId).is("agent_id", null).maybeSingle();
+    const { data: existing } = await findQuery;
+    const { error } = existing?.id
+      ? await supabase.from("ai_spend_caps").update({ daily_cap_usd: value, enabled }).eq("id", existing.id)
+      : await supabase.from("ai_spend_caps").insert({ user_id: accountId, agent_id: scopeAgentId || null, daily_cap_usd: value, enabled: true });
     setSaving(false);
     if (error) {
       toast({ title: "Couldn't save the cap", description: friendlyErrorMessage(error.message), variant: "destructive" });
       return;
     }
     setCap(value);
+    setHasCap(true);
+    setEnabled(true);
     setEditing(false);
-    toast({ title: "Daily AI spend cap updated", description: `Now ${money(value)} per day.` });
+    toast({
+      title: scopeAgentId ? "Agent spend cap updated" : "Daily AI spend cap updated",
+      description: `Now ${money(value)} per day${scopeAgentId ? " for this agent" : ""}.`,
+    });
   };
 
   const pct = cap > 0 ? Math.min(100, (spent / cap) * 100) : 0;
@@ -68,55 +101,82 @@ export default function SpendCapPanel() {
 
   return (
     <div className="px-6 py-3 border-b border-white/5 space-y-2">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2 text-[11px] font-mono uppercase tracking-wider text-zinc-500">
           <Gauge className="h-3.5 w-3.5" />
           Daily AI spend
         </div>
-        <div className="flex items-center gap-2 text-xs">
-          <span className="font-mono" style={{ color }}>
-            {money(spent)} / {money(cap)}
-          </span>
-          <span className="text-zinc-500">· {calls} calls today</span>
-          {editing ? (
-            <>
-              <input
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                inputMode="decimal"
-                aria-label="Daily AI spend cap in dollars"
-                className="w-20 rounded-md border border-white/10 bg-white/5 px-2 py-1 text-xs font-mono text-zinc-100"
-              />
-              <button
-                onClick={save}
-                disabled={saving}
-                className="inline-flex items-center gap-1 rounded-md border border-white/10 px-2 py-1 text-[11px] text-zinc-200 hover:bg-white/10 disabled:opacity-50"
-              >
-                <Check className="h-3 w-3" />
-                {saving ? "Saving…" : "Save"}
-              </button>
-            </>
-          ) : canWrite ? (
-            <button
-              onClick={() => setEditing(true)}
-              className="inline-flex items-center gap-1 rounded-md border border-white/10 px-2 py-1 text-[11px] text-zinc-400 hover:bg-white/10"
+        <div className="flex items-center gap-2 flex-wrap">
+          {agents.length > 0 && (
+            <select
+              value={scopeAgentId}
+              onChange={(e) => setScopeAgentId(e.target.value)}
+              aria-label="Spend cap scope"
+              className="rounded-md border border-white/10 bg-black/40 px-2 py-1 text-[11px] text-zinc-300 outline-none"
             >
-              <Pencil className="h-3 w-3" />
-              Edit cap
-            </button>
-          ) : null}
+              <option value="">All agents (account-wide)</option>
+              {agents.map((a) => (
+                <option key={a.id} value={a.id}>{a.name}</option>
+              ))}
+            </select>
+          )}
+          <div className="flex items-center gap-2 text-xs">
+            {hasCap ? (
+              <>
+                <span className="font-mono" style={{ color }}>
+                  {money(spent)} / {money(cap)}
+                </span>
+                <span className="text-zinc-500">· {calls} calls today</span>
+              </>
+            ) : (
+              <span className="text-zinc-500">No cap set for this agent — only the account-wide cap applies</span>
+            )}
+            {editing ? (
+              <>
+                <input
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  inputMode="decimal"
+                  aria-label={scopeAgentId ? "Agent daily AI spend cap in dollars" : "Daily AI spend cap in dollars"}
+                  className="w-20 rounded-md border border-white/10 bg-white/5 px-2 py-1 text-xs font-mono text-zinc-100"
+                />
+                <button
+                  onClick={save}
+                  disabled={saving}
+                  className="inline-flex items-center gap-1 rounded-md border border-white/10 px-2 py-1 text-[11px] text-zinc-200 hover:bg-white/10 disabled:opacity-50"
+                >
+                  <Check className="h-3 w-3" />
+                  {saving ? "Saving…" : "Save"}
+                </button>
+              </>
+            ) : canWrite ? (
+              <button
+                onClick={() => setEditing(true)}
+                className="inline-flex items-center gap-1 rounded-md border border-white/10 px-2 py-1 text-[11px] text-zinc-400 hover:bg-white/10"
+              >
+                <Pencil className="h-3 w-3" />
+                {hasCap ? "Edit cap" : "Set cap"}
+              </button>
+            ) : null}
+          </div>
         </div>
       </div>
 
-      <div className="h-1.5 w-full rounded-full bg-white/5 overflow-hidden">
-        <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
-      </div>
+      {hasCap && (
+        <div className="h-1.5 w-full rounded-full bg-white/5 overflow-hidden">
+          <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
+        </div>
+      )}
 
-      {pct >= 90 && (
+      {hasCap && pct >= 90 && (
         <p className="text-[11px]" style={{ color }}>
           {pct >= 100
-            ? "Cap reached — AI actions are halted until tomorrow (UTC) or until an owner turns the kill switch off."
-            : "Over 90% of today's cap used. At 100% the kill switch trips automatically."}
+            ? scopeAgentId
+              ? "Cap reached — this agent is halted until tomorrow (UTC) or until an owner turns it back on. Other agents on this account are unaffected."
+              : "Cap reached — AI actions are halted until tomorrow (UTC) or until an owner turns the kill switch off."
+            : scopeAgentId
+              ? "Over 90% of this agent's own cap used today. At 100% only this agent stops."
+              : "Over 90% of today's cap used. At 100% the kill switch trips automatically."}
         </p>
       )}
     </div>

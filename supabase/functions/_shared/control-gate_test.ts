@@ -35,6 +35,7 @@ class FakeQuery implements PromiseLike<Row> {
   constructor(private resolve: () => Row) {}
   select() { return this; }
   eq() { return this; }
+  is() { return this; }
   gte() { return this; }
   in() { return this; }
   contains() { return this; }
