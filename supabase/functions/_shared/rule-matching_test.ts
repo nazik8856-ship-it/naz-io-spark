@@ -2,10 +2,15 @@
 // so it's used identically by both the real gate and the rule simulator.
 //
 // Run with: deno test --allow-none supabase/functions/_shared/rule-matching_test.ts
-import { globToRe, ruleMatchesAction } from "./rule-matching.ts";
+import { globToRe, ruleMatchesAction, selectRulesForAgent } from "./rule-matching.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
+}
+function assertEquals<T>(actual: T, expected: T, msg?: string): void {
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    throw new Error(msg ?? `expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+  }
 }
 
 Deno.test("globToRe: '*' alone matches anything", () => {
@@ -61,4 +66,57 @@ Deno.test("ruleMatchesAction: a pattern with regex-special characters (e.g. an u
   const rule = { action_type_pattern: "[weird]", provider: null };
   assert(ruleMatchesAction(rule, "[weird]", "Gmail"), "the literal bracketed string should match itself");
   assert(!ruleMatchesAction(rule, "weird", "Gmail"), "'[' and ']' must be literal characters, not a regex character class");
+});
+
+// --- selectRulesForAgent (Wave 5, session 1: per-agent policy scoping) ---
+
+type R = { id: string; agent_id: string | null };
+
+Deno.test("selectRulesForAgent: account-wide rules (agent_id null) are visible for any agent", () => {
+  const rules: R[] = [{ id: "acct", agent_id: null }];
+  assertEquals(selectRulesForAgent(rules, "agent-1").map((r) => r.id), ["acct"]);
+  assertEquals(selectRulesForAgent(rules, "agent-2").map((r) => r.id), ["acct"]);
+  assertEquals(selectRulesForAgent(rules, null).map((r) => r.id), ["acct"]);
+});
+
+Deno.test("selectRulesForAgent: an agent-scoped rule is invisible to every other agent", () => {
+  const rules: R[] = [{ id: "a1-only", agent_id: "agent-1" }];
+  assertEquals(selectRulesForAgent(rules, "agent-2"), []);
+  assertEquals(selectRulesForAgent(rules, null), []);
+});
+
+Deno.test("selectRulesForAgent: an agent-scoped rule is visible for its own agent", () => {
+  const rules: R[] = [{ id: "a1-only", agent_id: "agent-1" }];
+  assertEquals(selectRulesForAgent(rules, "agent-1").map((r) => r.id), ["a1-only"]);
+});
+
+Deno.test("selectRulesForAgent: agent-specific rules are ordered before account-wide ones, so 'first match wins' gives agent precedence", () => {
+  const rules: R[] = [
+    { id: "acct-1", agent_id: null },
+    { id: "agent-rule", agent_id: "agent-1" },
+    { id: "acct-2", agent_id: null },
+  ];
+  assertEquals(selectRulesForAgent(rules, "agent-1").map((r) => r.id), ["agent-rule", "acct-1", "acct-2"]);
+});
+
+Deno.test("selectRulesForAgent: multiple rules scoped to the same agent all stay visible, still ahead of account-wide ones", () => {
+  const rules: R[] = [
+    { id: "acct", agent_id: null },
+    { id: "a1-first", agent_id: "agent-1" },
+    { id: "a1-second", agent_id: "agent-1" },
+  ];
+  assertEquals(selectRulesForAgent(rules, "agent-1").map((r) => r.id), ["a1-first", "a1-second", "acct"]);
+});
+
+Deno.test("selectRulesForAgent: with no agent in context (agentId null/undefined), only account-wide rules apply", () => {
+  const rules: R[] = [
+    { id: "acct", agent_id: null },
+    { id: "a1-only", agent_id: "agent-1" },
+  ];
+  assertEquals(selectRulesForAgent(rules, null).map((r) => r.id), ["acct"]);
+  assertEquals(selectRulesForAgent(rules, undefined).map((r) => r.id), ["acct"]);
+});
+
+Deno.test("selectRulesForAgent: empty input is a valid empty result, not a crash", () => {
+  assertEquals(selectRulesForAgent([] as R[], "agent-1"), []);
 });

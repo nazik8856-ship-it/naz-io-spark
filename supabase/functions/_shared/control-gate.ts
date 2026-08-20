@@ -24,7 +24,7 @@ import { scanAction, type SafetyRule, type SafetyScan } from "./safety-scanner.t
 import { countTodaySuccesses, detectAnomaly, loadAgentBaseline, type AnomalyCheck } from "./anomaly-detector.ts";
 import { loadStrictness } from "./decision-scoring.ts";
 import { finalizeTrace, type TraceEntry } from "./gate-trace.ts";
-import { ruleMatchesAction } from "./rule-matching.ts";
+import { ruleMatchesAction, selectRulesForAgent } from "./rule-matching.ts";
 import { triggerWebhooks } from "./webhooks.ts";
 
 export const BREAKER_WINDOW = 10;
@@ -85,6 +85,7 @@ type HardRule = {
   effect: "always_block" | "always_require_approval";
   provider: string | null;
   shadow_mode?: boolean;
+  agent_id?: string | null;
 };
 
 /** Shape of a policy_versions.snapshot row (built by build_policy_snapshot). */
@@ -224,11 +225,15 @@ export async function runControlGate(
   if (!snapshotRules) {
     const { data: hardRules } = await admin
       .from("hard_rules")
-      .select("id, rule_text, action_type_pattern, effect, provider, enabled, shadow_mode")
+      .select("id, rule_text, action_type_pattern, effect, provider, enabled, shadow_mode, agent_id")
       .eq("user_id", userId);
     snapshotRules = (hardRules ?? []) as HardRule[];
   }
-  const allRules = snapshotRules.filter((r) => (r as { enabled?: boolean }).enabled !== false);
+  // Agent-scoped rules take precedence over the account-wide default --
+  // selectRulesForAgent both excludes rules scoped to a DIFFERENT agent
+  // and orders this agent's own rules first, so "first match wins" below
+  // gives agent-specific rules precedence for free.
+  const allRules = selectRulesForAgent(snapshotRules, agentId).filter((r) => (r as { enabled?: boolean }).enabled !== false);
 
   const ruleMatches = (r: HardRule) => ruleMatchesAction(r, actionType, provider);
   const shadowMatches = allRules.filter((r) => r.shadow_mode && ruleMatches(r));
@@ -408,7 +413,7 @@ export async function runControlGate(
   const pinnedSafetyRules = Array.isArray(snapshot.safety_rules)
     ? (snapshot.safety_rules as SafetyRule[])
     : null;
-  const safety = await scanAction(admin, userId, ctx.params, ctx.description, pinnedSafetyRules);
+  const safety = await scanAction(admin, userId, ctx.params, ctx.description, pinnedSafetyRules, agentId);
   trace.push({
     layer: "safety_scanner", label: "Safety scanner",
     status: (safety.matched && safety.severity) ? "stopped" : "ok",

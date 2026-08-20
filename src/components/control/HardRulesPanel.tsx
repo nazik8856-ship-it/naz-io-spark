@@ -17,7 +17,10 @@ type HardRule = {
   provider: string | null;
   shadow_mode: boolean;
   created_at: string;
+  agent_id: string | null;
 };
+
+type AgentOption = { id: string; name: string };
 
 type ShadowReport = { hits: number; decisions: number };
 
@@ -46,22 +49,32 @@ export default function HardRulesPanel() {
   const canWrite = canWriteAsOwner(role);
   const [open, setOpen] = useState(false);
   const [rules, setRules] = useState<HardRule[]>([]);
+  const [agents, setAgents] = useState<AgentOption[]>([]);
   const [reports, setReports] = useState<Record<string, ShadowReport>>({});
   const [text, setText] = useState("");
   const [scope, setScope] = useState("*");
   const [effect, setEffect] = useState<Effect>("always_block");
   const [shadow, setShadow] = useState(true);
   const [busy, setBusy] = useState(false);
+  // Which agent this new rule applies to -- "" means account-wide (the
+  // default, matches every existing rule and every account that never
+  // sets a per-agent override).
+  const [appliesToAgentId, setAppliesToAgentId] = useState("");
+  const agentName = (id: string | null) => (id ? agents.find((a) => a.id === id)?.name ?? "Unknown agent" : "All agents");
 
   const load = useCallback(async () => {
     if (!accountId) return;
-    const { data } = await supabase
-      .from("hard_rules")
-      .select("id, rule_text, action_type_pattern, effect, provider, shadow_mode, created_at")
-      .eq("user_id", accountId)
-      .order("created_at", { ascending: false });
+    const [{ data }, { data: agentRows }] = await Promise.all([
+      supabase
+        .from("hard_rules")
+        .select("id, rule_text, action_type_pattern, effect, provider, shadow_mode, created_at, agent_id")
+        .eq("user_id", accountId)
+        .order("created_at", { ascending: false }),
+      supabase.from("agents").select("id, name").eq("user_id", accountId).order("name"),
+    ]);
     const list = (data ?? []) as HardRule[];
     setRules(list);
+    setAgents((agentRows ?? []) as AgentOption[]);
 
     // "If this rule goes live, it would have affected N of the last M decisions."
     const shadowRules = list.filter((r) => r.shadow_mode);
@@ -96,6 +109,7 @@ export default function HardRulesPanel() {
       action_type_pattern: scope,
       effect,
       shadow_mode: shadow,
+      agent_id: appliesToAgentId || null,
     });
     setBusy(false);
     if (error) {
@@ -206,6 +220,19 @@ export default function HardRulesPanel() {
                 <option value="shadow">Shadow (observe only)</option>
                 <option value="live">Live (enforce now)</option>
               </select>
+              {agents.length > 0 && (
+                <select
+                  value={appliesToAgentId}
+                  onChange={(e) => setAppliesToAgentId(e.target.value)}
+                  aria-label="Applies to which agent"
+                  className="rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-300 outline-none"
+                >
+                  <option value="">All agents (account-wide)</option>
+                  {agents.map((a) => (
+                    <option key={a.id} value={a.id}>{a.name}</option>
+                  ))}
+                </select>
+              )}
               <button
                 onClick={add}
                 disabled={busy || !text.trim()}
@@ -250,6 +277,8 @@ export default function HardRulesPanel() {
                         {SCOPES.find((s) => s.pattern === r.action_type_pattern)?.label ?? r.action_type_pattern}
                         {" · "}
                         {r.effect === "always_block" ? "always blocked" : "approval required"}
+                        {" · "}
+                        <span className={r.agent_id ? "text-cyan-400" : ""}>{agentName(r.agent_id)}</span>
                       </p>
                       {r.shadow_mode && (
                         <div className="mt-1.5 space-y-1.5">

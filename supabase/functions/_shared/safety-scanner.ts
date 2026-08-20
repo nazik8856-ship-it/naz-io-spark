@@ -6,6 +6,7 @@
 //
 // Matches can force the verdict to "block" or "require_approval".
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { selectRulesForAgent } from "./rule-matching.ts";
 
 export type SafetySeverity = "block" | "require_approval";
 
@@ -17,6 +18,7 @@ export type SafetyRule = {
   severity: SafetySeverity;
   enabled: boolean;
   builtin: boolean;
+  agent_id?: string | null;
 };
 
 export type SafetyMatch = {
@@ -128,12 +130,13 @@ function flatten(params: unknown, description: string): { blob: string; fields: 
 export async function loadSafetyRules(
   admin: SupabaseClient,
   userId: string,
+  agentId?: string | null,
 ): Promise<SafetyRule[]> {
   let custom: SafetyRule[] = [];
   try {
     const { data } = await admin
       .from("safety_rules")
-      .select("id, name, category, pattern, severity, enabled")
+      .select("id, name, category, pattern, severity, enabled, agent_id")
       .eq("user_id", userId)
       .eq("enabled", true);
     custom = ((data ?? []) as Record<string, unknown>[]).map((r) => ({
@@ -144,9 +147,12 @@ export async function loadSafetyRules(
       severity: (r.severity === "block" ? "block" : "require_approval") as SafetySeverity,
       enabled: true,
       builtin: false,
+      agent_id: (r.agent_id as string | null | undefined) ?? null,
     }));
   } catch { /* custom rules are optional */ }
-  return [...BUILTIN_SAFETY_RULES.filter((r) => r.enabled), ...custom.filter((r) => r.pattern)];
+  // Builtins are always account-wide (agent_id undefined -> treated as
+  // null by selectRulesForAgent, so they're never filtered out).
+  return [...BUILTIN_SAFETY_RULES.filter((r) => r.enabled), ...selectRulesForAgent(custom, agentId).filter((r) => r.pattern)];
 }
 
 /** Pure pattern scan — no model involved. */
@@ -202,10 +208,11 @@ export async function scanAction(
    * the live safety_rules table is NOT read — the snapshot is the source of truth.
    */
   pinnedRules?: SafetyRule[] | null,
+  agentId?: string | null,
 ): Promise<SafetyScan> {
   const rules = pinnedRules
-    ? [...BUILTIN_SAFETY_RULES, ...pinnedRules.filter((r) => r.enabled !== false)]
-    : await loadSafetyRules(admin, userId);
+    ? [...BUILTIN_SAFETY_RULES, ...selectRulesForAgent(pinnedRules.filter((r) => r.enabled !== false), agentId)]
+    : await loadSafetyRules(admin, userId, agentId);
   return scanWithRules(rules, params, description);
 }
 

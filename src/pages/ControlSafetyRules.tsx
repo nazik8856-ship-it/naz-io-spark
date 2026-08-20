@@ -3,6 +3,9 @@ import { useNavigate } from "react-router-dom";
 import { ArrowLeft, ScanSearch, Plus, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { useActiveAccount } from "@/hooks/useActiveAccount";
+import { canWriteAsOwner } from "@/lib/account-switcher";
+import { friendlyErrorMessage } from "@/lib/friendly-errors";
 import { toast } from "@/hooks/use-toast";
 
 type Severity = "block" | "require_approval";
@@ -13,7 +16,10 @@ type Rule = {
   pattern: string;
   severity: Severity;
   enabled: boolean;
+  agent_id: string | null;
 };
+
+type AgentOption = { id: string; name: string };
 
 // Mirrors BUILTIN_SAFETY_RULES in the edge function — shown read-only.
 const BUILTINS: { name: string; category: string; severity: Severity }[] = [
@@ -34,45 +40,57 @@ const BUILTINS: { name: string; category: string; severity: Severity }[] = [
 export default function ControlSafetyRules() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { accountId, role } = useActiveAccount();
+  const canWrite = canWriteAsOwner(role);
   const [rules, setRules] = useState<Rule[]>([]);
+  const [agents, setAgents] = useState<AgentOption[]>([]);
   const [name, setName] = useState("");
   const [pattern, setPattern] = useState("");
   const [severity, setSeverity] = useState<Severity>("require_approval");
+  const [appliesToAgentId, setAppliesToAgentId] = useState("");
   const [busy, setBusy] = useState(false);
+  const agentName = (id: string | null) => (id ? agents.find((a) => a.id === id)?.name ?? "Unknown agent" : "All agents");
 
   const load = useCallback(async () => {
-    if (!user) return;
-    const { data } = await supabase
-      .from("safety_rules")
-      .select("id, name, category, pattern, severity, enabled")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false });
+    if (!accountId) return;
+    const [{ data }, { data: agentRows }] = await Promise.all([
+      supabase
+        .from("safety_rules")
+        .select("id, name, category, pattern, severity, enabled, agent_id")
+        .eq("user_id", accountId)
+        .order("created_at", { ascending: false }),
+      supabase.from("agents").select("id, name").eq("user_id", accountId).order("name"),
+    ]);
     setRules((data ?? []) as unknown as Rule[]);
-  }, [user]);
+    setAgents((agentRows ?? []) as AgentOption[]);
+  }, [accountId]);
 
   useEffect(() => { load(); }, [load]);
 
   const add = async () => {
-    if (!user || !name.trim() || !pattern.trim()) return;
+    if (!user || !canWrite || !name.trim() || !pattern.trim()) return;
     try { new RegExp(pattern); } catch {
       toast({ title: "That pattern isn't valid", description: "Check the expression and try again.", variant: "destructive" });
       return;
     }
     setBusy(true);
     const { error } = await supabase.from("safety_rules").insert({
-      user_id: user.id, name: name.trim(), pattern: pattern.trim(), severity, category: "custom",
+      user_id: accountId, name: name.trim(), pattern: pattern.trim(), severity, category: "custom",
+      agent_id: appliesToAgentId || null,
     });
     setBusy(false);
-    if (error) { toast({ title: "Couldn't add rule", description: error.message, variant: "destructive" }); return; }
+    if (error) { toast({ title: "Couldn't add rule", description: friendlyErrorMessage(error.message), variant: "destructive" }); return; }
     setName(""); setPattern("");
     load();
   };
 
   const toggle = async (r: Rule) => {
+    if (!canWrite) return;
     await supabase.from("safety_rules").update({ enabled: !r.enabled }).eq("id", r.id);
     load();
   };
   const remove = async (r: Rule) => {
+    if (!canWrite) return;
     await supabase.from("safety_rules").delete().eq("id", r.id);
     load();
   };
@@ -99,6 +117,7 @@ export default function ControlSafetyRules() {
           or sends it to the approval queue.
         </p>
 
+        {canWrite ? (
         <section className="mt-6 rounded-lg border border-white/10 bg-white/[0.03] p-4">
           <h2 className="font-mono text-xs uppercase tracking-wider text-zinc-400">Add a rule</h2>
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -113,7 +132,7 @@ export default function ControlSafetyRules() {
               className="rounded border border-white/10 bg-black/40 px-3 py-2 font-mono text-sm outline-none focus:border-cyan-500/50"
             />
           </div>
-          <div className="mt-2 flex items-center gap-2">
+          <div className="mt-2 flex flex-wrap items-center gap-2">
             <select
               value={severity} onChange={(e) => setSeverity(e.target.value as Severity)}
               className="rounded border border-white/10 bg-black/40 px-3 py-2 text-xs outline-none"
@@ -121,6 +140,19 @@ export default function ControlSafetyRules() {
               <option value="require_approval">Send to approval queue</option>
               <option value="block">Block outright</option>
             </select>
+            {agents.length > 0 && (
+              <select
+                value={appliesToAgentId}
+                onChange={(e) => setAppliesToAgentId(e.target.value)}
+                aria-label="Applies to which agent"
+                className="rounded border border-white/10 bg-black/40 px-3 py-2 text-xs outline-none"
+              >
+                <option value="">All agents (account-wide)</option>
+                {agents.map((a) => (
+                  <option key={a.id} value={a.id}>{a.name}</option>
+                ))}
+              </select>
+            )}
             <button
               disabled={busy}
               onClick={add}
@@ -130,6 +162,11 @@ export default function ControlSafetyRules() {
             </button>
           </div>
         </section>
+        ) : (
+          <p className="mt-6 text-[11px] text-amber-300/80">
+            You have view-only access to this account's safety rules — only the account owner or a team owner can add, toggle, or remove them.
+          </p>
+        )}
 
         <section className="mt-6 space-y-2">
           <h2 className="font-mono text-xs uppercase tracking-wider text-zinc-400">Your rules</h2>
@@ -142,6 +179,7 @@ export default function ControlSafetyRules() {
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm text-zinc-200">{r.name}</p>
                 <p className="truncate font-mono text-[11px] text-zinc-500">{r.pattern}</p>
+                <p className={`font-mono text-[10px] ${r.agent_id ? "text-cyan-400" : "text-zinc-600"}`}>{agentName(r.agent_id)}</p>
               </div>
               <span className={`rounded border px-2 py-0.5 text-[10px] font-mono uppercase ${
                 r.severity === "block"
@@ -150,12 +188,16 @@ export default function ControlSafetyRules() {
               }`}>
                 {r.severity === "block" ? "block" : "approval"}
               </span>
-              <button onClick={() => toggle(r)} className="text-[10px] font-mono uppercase text-zinc-400 hover:text-white">
-                {r.enabled ? "on" : "off"}
-              </button>
-              <button onClick={() => remove(r)} className="text-zinc-500 hover:text-rose-300" aria-label="Delete rule">
-                <Trash2 className="h-4 w-4" />
-              </button>
+              {canWrite && (
+                <>
+                  <button onClick={() => toggle(r)} className="text-[10px] font-mono uppercase text-zinc-400 hover:text-white">
+                    {r.enabled ? "on" : "off"}
+                  </button>
+                  <button onClick={() => remove(r)} className="text-zinc-500 hover:text-rose-300" aria-label="Delete rule">
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </>
+              )}
             </div>
           ))}
         </section>
