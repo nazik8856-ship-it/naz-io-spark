@@ -18,7 +18,7 @@
 // matter where the action originated. Escalations create a pending_approvals
 // row so a human has a real queue instead of a Slack ping.
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { clearExpiredSpendKillSwitch, getSpendStatus, type SpendStatus } from "./spend-guard.ts";
+import { clearExpiredSpendKillSwitch, clearExpiredAgentSpendKillSwitch, getSpendStatus, getAgentSpendStatus, type SpendStatus } from "./spend-guard.ts";
 import { sendCriticalAlert } from "./critical-alerts.ts";
 import { scanAction, type SafetyRule, type SafetyScan } from "./safety-scanner.ts";
 import { countTodaySuccesses, detectAnomaly, loadAgentBaseline, type AnomalyCheck } from "./anomaly-detector.ts";
@@ -220,6 +220,22 @@ export async function runControlGate(
     .from("profiles").select("kill_switch").eq("id", userId).maybeSingle();
   const killed = (killRow as { kill_switch?: boolean } | null)?.kill_switch === true;
 
+  // ---- agent-level spend cap + kill switch (parallel to the account-wide
+  // one above, only when this agent has its own cap configured or has
+  // been individually killed -- an agent with neither is governed only by
+  // the account-wide check, unchanged from before this existed) ----------
+  let agentKilled = false;
+  let agentSpend: Awaited<ReturnType<typeof getAgentSpendStatus>> | null = null;
+  if (agentId) {
+    await clearExpiredAgentSpendKillSwitch(admin, agentId);
+    const [{ data: agentKillRow }, spendStatus] = await Promise.all([
+      admin.from("agents").select("kill_switch").eq("id", agentId).maybeSingle(),
+      getAgentSpendStatus(admin, userId, agentId),
+    ]);
+    agentKilled = (agentKillRow as { kill_switch?: boolean } | null)?.kill_switch === true;
+    agentSpend = spendStatus;
+  }
+
   // ---- hard rules (from the pinned snapshot; live tables only as fallback) ---
   let snapshotRules = Array.isArray(snapshot.hard_rules) ? (snapshot.hard_rules as HardRule[]) : null;
   if (!snapshotRules) {
@@ -316,6 +332,15 @@ export async function runControlGate(
     status: killed ? "stopped" : "ok",
     detail: killed ? "Kill switch is on for this account" : null,
   });
+  if (agentSpend?.has_cap || agentKilled) {
+    trace.push({
+      layer: "agent_spend_cap", label: "Agent spend cap",
+      status: (agentSpend?.over_cap || agentKilled) ? "stopped" : "ok",
+      detail: agentSpend?.over_cap
+        ? `$${agentSpend.spent_usd.toFixed(2)} of $${agentSpend.cap_usd.toFixed(2)} across ${agentSpend.calls} calls (this agent only)`
+        : agentKilled ? "This agent's own kill switch is on" : null,
+    });
+  }
 
   if (killed || spend.over_cap) {
     const reason = spend.over_cap
@@ -329,6 +354,25 @@ export async function runControlGate(
     return {
       ...base, ok: false, verdict: "block", reason, decisionId,
       source: spend.over_cap ? "ai_spend_cap" : "kill_switch", killSwitch: true,
+      trace: finalizeTrace(trace),
+    };
+  }
+
+  // Agent-scoped stop: only this agent is blocked, the account-wide kill
+  // switch is untouched and every other agent keeps running. Checked
+  // after the account-wide gate above (an account-wide stop always wins).
+  if (agentKilled || agentSpend?.over_cap) {
+    const reason = agentSpend?.over_cap
+      ? `Blocked — this agent's own daily AI spend cap is used up ($${agentSpend.spent_usd.toFixed(2)} of ` +
+        `$${agentSpend.cap_usd.toFixed(2)} across ${agentSpend.calls} calls). Other agents on this account are unaffected.`
+      : "Blocked — this agent's own kill switch is active. Other agents on this account are unaffected.";
+    const decisionId = await logStop(
+      `BLOCK ${actionType} (${provider})`, reason, agentSpend?.over_cap ? "agent_ai_spend_cap" : "agent_kill_switch", false,
+    );
+    await recordShadowHits(decisionId, "block");
+    return {
+      ...base, ok: false, verdict: "block", reason, decisionId,
+      source: agentSpend?.over_cap ? "agent_ai_spend_cap" : "agent_kill_switch", killSwitch: true,
       trace: finalizeTrace(trace),
     };
   }

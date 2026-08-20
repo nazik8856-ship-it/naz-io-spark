@@ -634,7 +634,7 @@ serve(async (req) => {
     const data = await res.json();
     // Meter this gateway call against the org's daily spend cap (warns at 90%,
     // auto-trips the kill switch at 100%).
-    const spendAfter = await recordAiSpend(supabase, userId, MODEL, data?.usage, "control-engine");
+    const spendAfter = await recordAiSpend(supabase, userId, MODEL, data?.usage, "control-engine", agentId);
 
     const call = data?.choices?.[0]?.message?.tool_calls?.[0];
     let parsed: Record<string, unknown> = {};
