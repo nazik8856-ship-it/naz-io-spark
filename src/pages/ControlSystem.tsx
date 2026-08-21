@@ -13,6 +13,7 @@ import DryRunToggle from "@/components/control/DryRunToggle";
 import StrictnessPanel from "@/components/control/StrictnessPanel";
 import RetentionPanel from "@/components/control/RetentionPanel";
 import AccountSwitcher from "@/components/control/AccountSwitcher";
+import PolicyOverviewPanel from "@/components/control/PolicyOverviewPanel";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 
@@ -143,6 +144,18 @@ export default function ControlSystem() {
           >
             Team
           </button>
+          <button
+            onClick={() => navigate("/control-system/templates")}
+            className="rounded border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-cyan-300 hover:bg-cyan-500/20"
+          >
+            Templates
+          </button>
+          <button
+            onClick={() => navigate("/control-system/rule-effectiveness")}
+            className="rounded border border-white/15 bg-white/5 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-zinc-300 hover:bg-white/10"
+          >
+            Rule effectiveness
+          </button>
         </nav>
       </header>
 
@@ -154,6 +167,7 @@ export default function ControlSystem() {
 
       <CircuitBreakerPanel />
       <HardRulesPanel />
+      <PolicyOverviewPanel />
       <DryRunToggle on={dryRun} onChange={setDryRun} />
 
 

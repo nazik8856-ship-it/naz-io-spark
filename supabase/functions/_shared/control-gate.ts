@@ -180,7 +180,7 @@ export async function runControlGate(
 
   const trace: TraceEntry[] = [];
 
-  const logStop = async (decision: string, reasoning: string, source: string, escalated: boolean) => {
+  const logStop = async (decision: string, reasoning: string, source: string, escalated: boolean, hardRuleId?: string | null) => {
     try {
       const { data } = await admin.from("agent_decisions").insert({
         user_id: userId,
@@ -194,6 +194,11 @@ export async function runControlGate(
         source,
         escalated,
         policy_version: policyVersion,
+        // Which hard rule actually enforced this, when the source is
+        // "hard_rule" -- lets the rule-effectiveness finder answer "has this
+        // live rule matched anything in the last N days" from real data
+        // instead of guessing. Null for every other source.
+        hard_rule_id: hardRuleId ?? null,
         // The trace array is closed over and already has every entry pushed
         // up to this call site — finalizeTrace fills the rest as not_reached.
         gate_trace: finalizeTrace(trace),
@@ -242,7 +247,14 @@ export async function runControlGate(
     const { data: hardRules } = await admin
       .from("hard_rules")
       .select("id, rule_text, action_type_pattern, effect, provider, enabled, shadow_mode, agent_id")
-      .eq("user_id", userId);
+      .eq("user_id", userId)
+      // Deterministic match order: oldest rule wins a tie between two
+      // enabled, overlapping rules. Without this, Postgres's return order
+      // for an unordered SELECT is unspecified, so which rule "won" an
+      // overlap could vary — exactly the ambiguity the rule-conflict
+      // detector surfaces to customers, so evaluation itself needs to be
+      // predictable for that warning to mean anything.
+      .order("created_at", { ascending: true });
     snapshotRules = (hardRules ?? []) as HardRule[];
   }
   // Agent-scoped rules take precedence over the account-wide default --
@@ -390,7 +402,7 @@ export async function runControlGate(
       ? `Blocked by your hard rule: "${matched.rule_text}". This was enforced by your rule, not judged by the model.`
       : `Your hard rule requires approval first: "${matched.rule_text}". Nothing ran — approve it explicitly to proceed.`;
     const decisionId = await logStop(
-      `${blocking ? "BLOCK" : "APPROVAL_REQUIRED"} ${actionType} (${provider})`, reason, "hard_rule", !blocking,
+      `${blocking ? "BLOCK" : "APPROVAL_REQUIRED"} ${actionType} (${provider})`, reason, "hard_rule", !blocking, matched.id,
     );
     await recordShadowHits(decisionId, blocking ? "block" : "modify");
     let approvalId: string | null = null;
