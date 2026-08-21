@@ -65,6 +65,7 @@ const AcceptInvite = lazyWithReload(() => import("./pages/AcceptInvite"));
 const OpsPlatformIncidents = lazyWithReload(() => import("./pages/OpsPlatformIncidents"));
 const ControlPolicyTemplates = lazyWithReload(() => import("./pages/ControlPolicyTemplates"));
 const ControlRuleEffectiveness = lazyWithReload(() => import("./pages/ControlRuleEffectiveness"));
+const ControlRoiReport = lazyWithReload(() => import("./pages/ControlRoiReport"));
 
 
 
@@ -129,6 +130,7 @@ const App = () => (
                 <Route path="/control-system/team" element={<ControlTeam />} />
                 <Route path="/control-system/templates" element={<ControlPolicyTemplates />} />
                 <Route path="/control-system/rule-effectiveness" element={<ControlRuleEffectiveness />} />
+                <Route path="/control-system/roi" element={<ControlRoiReport />} />
                 {/* Hidden operator page, not linked in the customer nav -- gated
                     by the global admin/owner role check, same convention as
                     KillSwitchPanel's reveal-code gate. */}
