@@ -102,15 +102,39 @@ export const irreversibleNeedsHuman = (riskTier: string, strictness: Strictness 
 export const fitDefers = (fit: string, strictness: Strictness = "balanced"): boolean =>
   fit === "not_a_fit" || (fit === "unclear" && STRICTNESS_PRESETS[strictness].deferOnUnclearFit);
 
-/** Read the org's strictness dial off the profile row. Never throws. */
+export type StrictnessOverrideRow = { strictness?: string | null } | null | undefined;
+export type ProfileStrictnessRow = { control_strictness?: string | null } | null | undefined;
+
+/**
+ * Pure — an agent-specific strictness override wins when set; otherwise
+ * falls back to the account-wide default. Same precedence rule as every
+ * other per-agent policy this session (hard rules, safety rules, spend
+ * cap): agent-specific overrides, account-wide is the fallback for every
+ * agent that never sets one.
+ */
+export function resolveStrictness(overrideRow: StrictnessOverrideRow, profileRow: ProfileStrictnessRow): Strictness {
+  if (overrideRow?.strictness) return normalizeStrictness(overrideRow.strictness);
+  return normalizeStrictness(profileRow?.control_strictness);
+}
+
+/**
+ * Read the effective strictness dial: this agent's own override if one is
+ * configured (agentId given and a row exists), otherwise the account-wide
+ * profile default. Never throws.
+ */
 export const loadStrictness = async (
   supabase: SupabaseClient,
   userId: string,
+  agentId?: string | null,
 ): Promise<Strictness> => {
   try {
-    const { data } = await supabase
-      .from("profiles").select("control_strictness").eq("id", userId).maybeSingle();
-    return normalizeStrictness((data as { control_strictness?: string } | null)?.control_strictness);
+    const [{ data: override }, { data: profile }] = await Promise.all([
+      agentId
+        ? supabase.from("agent_strictness_overrides").select("strictness").eq("agent_id", agentId).maybeSingle()
+        : Promise.resolve({ data: null as StrictnessOverrideRow }),
+      supabase.from("profiles").select("control_strictness").eq("id", userId).maybeSingle(),
+    ]);
+    return resolveStrictness(override as StrictnessOverrideRow, profile as ProfileStrictnessRow);
   } catch {
     return "balanced";
   }
