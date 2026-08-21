@@ -9,6 +9,7 @@ import { friendlyErrorMessage } from "@/lib/friendly-errors";
 import { toast } from "@/hooks/use-toast";
 import { filterBySearch } from "@/lib/search-filter";
 import { actorName, buildActorNameMap } from "@/lib/actor-names";
+import { suggestAssignee, isOutOfOffice } from "@/lib/approval-assignment";
 
 type Approval = {
   id: string;
@@ -30,7 +31,11 @@ type Approval = {
   resolved_by: string | null;
   executed_at: string | null;
   escalated_at: string | null;
+  assigned_to: string | null;
 };
+
+type MemberForAssignment = { member_id: string | null; email: string; ooo_until: string | null };
+type ApprovalEvent = { approval_id: string; event_type: "assigned" | "escalated"; actor_id: string | null; target_id: string | null; note: string | null; created_at: string };
 
 const RISK_STYLE: Record<string, string> = {
   high: "text-rose-300 border-rose-500/40 bg-rose-500/10",
@@ -54,11 +59,15 @@ export default function ControlApprovals() {
   const [comments, setComments] = useState<Record<string, string>>({});
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
+  const [queueFilter, setQueueFilter] = useState<"all" | "mine">("all");
   // Resolves a signoff/resolved_by auth uid to something readable: "You",
   // an invited teammate's email, or a short id fallback for anyone else
   // (e.g. a global admin/owner via the platform-staff role, who isn't in
   // account_members).
   const [names, setNames] = useState<Record<string, string>>({});
+  const [assignable, setAssignable] = useState<MemberForAssignment[]>([]);
+  const [events, setEvents] = useState<Record<string, ApprovalEvent[]>>({});
+  const [reassigning, setReassigning] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!user || !accountId) return;
@@ -71,18 +80,68 @@ export default function ControlApprovals() {
         .limit(100),
       supabase
         .from("account_members")
-        .select("member_id, email")
+        .select("member_id, email, role, ooo_until")
         .eq("account_owner_id", accountId)
-        .eq("status", "active"),
+        .eq("status", "active")
+        .in("role", ["approver", "owner"]),
     ]);
-    setItems((data ?? []) as unknown as Approval[]);
+    const rows = (data ?? []) as unknown as Approval[];
+    setItems(rows);
     setNames(buildActorNameMap(user.id, (members ?? []) as { member_id: string | null; email: string }[]));
+    setAssignable((members ?? []) as MemberForAssignment[]);
+
+    const ids = rows.map((r) => r.id);
+    if (ids.length) {
+      const { data: evs } = await supabase
+        .from("pending_approval_events")
+        .select("approval_id, event_type, actor_id, target_id, note, created_at")
+        .in("approval_id", ids)
+        .order("created_at", { ascending: true });
+      const grouped: Record<string, ApprovalEvent[]> = {};
+      for (const e of (evs ?? []) as ApprovalEvent[]) (grouped[e.approval_id] ??= []).push(e);
+      setEvents(grouped);
+    }
     setLoading(false);
   }, [user, accountId]);
 
   useEffect(() => { load(); }, [load]);
 
   const nameFor = (uid: string) => actorName(names, uid);
+
+  const reassign = async (row: Approval, target: string | null) => {
+    setReassigning(row.id);
+    const { data, error } = await supabase.rpc("reassign_pending_approval", {
+      _approval_id: row.id,
+      _assigned_to: target,
+    });
+    setReassigning(null);
+    if (error) {
+      toast({ title: "Couldn't reassign", description: friendlyErrorMessage(error.message), variant: "destructive" });
+      return;
+    }
+    const res = (data ?? {}) as { assigned_to?: string | null; redirected?: boolean };
+    toast({
+      title: res.assigned_to ? `Assigned to ${nameFor(res.assigned_to)}` : "Unassigned",
+      description: res.redirected ? "The original assignee is out of office — routed to their fallback instead." : undefined,
+    });
+    load();
+  };
+
+  // Least-loaded active approver/owner, skipping anyone currently OOO —
+  // a suggestion only; the server enforces the real OOO redirect
+  // regardless of what gets picked here.
+  const suggestFor = () => {
+    const openCounts: Record<string, number> = {};
+    for (const it of items) {
+      if (it.status === "pending" && it.assigned_to) openCounts[it.assigned_to] = (openCounts[it.assigned_to] ?? 0) + 1;
+    }
+    const candidates = assignable.filter((m) => m.member_id).map((m) => ({
+      memberId: m.member_id!,
+      openCount: openCounts[m.member_id!] ?? 0,
+      oooUntil: m.ooo_until,
+    }));
+    return suggestAssignee(candidates);
+  };
 
   const resolve = async (row: Approval, status: "approved" | "rejected") => {
     if (!user || !canSignOff) return;
@@ -172,8 +231,9 @@ export default function ControlApprovals() {
   const signOffCount = (row: Approval) => signOffIds(row).length;
 
   const searched = filterBySearch(items, search, ["action_type", "provider", "description", "reason"]);
-  const pending = searched.filter((i) => i.status === "pending");
-  const resolved = searched.filter((i) => i.status !== "pending");
+  const scoped = queueFilter === "mine" ? searched.filter((i) => i.assigned_to === user?.id) : searched;
+  const pending = scoped.filter((i) => i.status === "pending");
+  const resolved = scoped.filter((i) => i.status !== "pending");
 
 
   const Card = ({ row }: { row: Approval }) => (
@@ -207,6 +267,58 @@ export default function ControlApprovals() {
       </div>
       <p className="mt-2 text-sm text-zinc-200">{row.description || "No description supplied."}</p>
       <p className="mt-1 text-xs text-zinc-400">{row.reason}</p>
+
+      {row.status === "pending" && canSignOff && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
+          <span className="font-mono uppercase tracking-wider text-zinc-500">Assigned to</span>
+          <select
+            value={row.assigned_to ?? ""}
+            disabled={reassigning === row.id}
+            onChange={(e) => reassign(row, e.target.value || null)}
+            className="rounded border border-white/10 bg-black/40 px-2 py-1 text-zinc-200"
+          >
+            <option value="">Unassigned</option>
+            <option value={user?.id ?? ""}>You</option>
+            {assignable.filter((m) => m.member_id && m.member_id !== user?.id).map((m) => (
+              <option key={m.member_id} value={m.member_id!}>
+                {m.email}{isOutOfOffice(m.ooo_until) ? " (OOO)" : ""}
+              </option>
+            ))}
+          </select>
+          {(() => {
+            const suggestion = suggestFor();
+            return suggestion && suggestion !== row.assigned_to ? (
+              <button
+                onClick={() => reassign(row, suggestion)}
+                className="rounded border border-cyan-500/30 px-2 py-0.5 text-cyan-300 hover:bg-cyan-500/10"
+              >
+                Suggest: {nameFor(suggestion)}
+              </button>
+            ) : null;
+          })()}
+        </div>
+      )}
+      {row.assigned_to && !canSignOff && (
+        <p className="mt-2 text-[11px] text-zinc-500">Assigned to {nameFor(row.assigned_to)}</p>
+      )}
+
+      {(() => {
+        const rowEvents = events[row.id] ?? [];
+        if (!rowEvents.length) return null;
+        return (
+          <ul className="mt-2 space-y-1 border-l border-white/10 pl-2">
+            {rowEvents.map((e, i) => (
+              <li key={i} className="text-[10px] text-zinc-500">
+                {new Date(e.created_at).toLocaleString()} —{" "}
+                {e.event_type === "assigned"
+                  ? `${e.actor_id ? nameFor(e.actor_id) : "Someone"} assigned this to ${e.target_id ? nameFor(e.target_id) : "nobody"}${e.note ? ` (${e.note})` : ""}`
+                  : `Escalated${e.note ? ` — ${e.note}` : ""}`}
+              </li>
+            ))}
+          </ul>
+        );
+      })()}
+
       {row.status === "pending" ? (
         <>
           {canSignOff && (
@@ -304,6 +416,25 @@ export default function ControlApprovals() {
           placeholder="Search action, provider, description, or reason…"
           className="mt-3 w-full rounded border border-white/10 bg-black/40 px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600"
         />
+
+        <div className="mt-2 flex gap-2">
+          <button
+            onClick={() => setQueueFilter("all")}
+            className={`rounded border px-3 py-1 text-[11px] font-mono uppercase tracking-wider ${
+              queueFilter === "all" ? "border-cyan-500/40 bg-cyan-500/10 text-cyan-300" : "border-white/10 text-zinc-400 hover:bg-white/10"
+            }`}
+          >
+            Team queue
+          </button>
+          <button
+            onClick={() => setQueueFilter("mine")}
+            className={`rounded border px-3 py-1 text-[11px] font-mono uppercase tracking-wider ${
+              queueFilter === "mine" ? "border-cyan-500/40 bg-cyan-500/10 text-cyan-300" : "border-white/10 text-zinc-400 hover:bg-white/10"
+            }`}
+          >
+            My queue
+          </button>
+        </div>
 
         {loading ? (
           <p className="mt-8 font-mono text-xs uppercase text-zinc-500">Loading…</p>

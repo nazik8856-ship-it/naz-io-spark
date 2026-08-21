@@ -8,11 +8,14 @@ import { toast } from "@/hooks/use-toast";
 type Role = "owner" | "approver" | "viewer";
 type MemberRow = {
   id: string;
+  member_id: string | null;
   email: string;
   role: Role;
   status: "pending" | "active" | "revoked";
   invited_at: string;
   accepted_at: string | null;
+  ooo_until: string | null;
+  ooo_fallback_member_id: string | null;
 };
 
 const ROLE_LABEL: Record<Role, string> = { owner: "Owner", approver: "Approver", viewer: "Viewer" };
@@ -38,7 +41,7 @@ export default function ControlTeam() {
     setLoading(true);
     const { data, error } = await supabase
       .from("account_members")
-      .select("id, email, role, status, invited_at, accepted_at")
+      .select("id, member_id, email, role, status, invited_at, accepted_at, ooo_until, ooo_fallback_member_id")
       .eq("account_owner_id", user.id)
       .order("invited_at", { ascending: false });
     if (error) toast({ title: "Couldn't load your team", description: error.message, variant: "destructive" });
@@ -69,6 +72,18 @@ export default function ControlTeam() {
   const revoke = async (id: string) => {
     const { error } = await supabase.from("account_members").update({ status: "revoked" }).eq("id", id);
     if (error) { toast({ title: "Couldn't revoke it", description: error.message, variant: "destructive" }); return; }
+    load();
+  };
+
+  // Out-of-office: closes the "approver is on vacation, nothing gets
+  // unblocked" gap. Set by the account owner from here (this member's own
+  // self-service OOO page is a possible future follow-up, not built yet).
+  const setOoo = async (id: string, oooUntil: string | null, fallbackMemberId: string | null) => {
+    const { error } = await supabase
+      .from("account_members")
+      .update({ ooo_until: oooUntil, ooo_fallback_member_id: fallbackMemberId })
+      .eq("id", id);
+    if (error) { toast({ title: "Couldn't update out-of-office", description: error.message, variant: "destructive" }); return; }
     load();
   };
 
@@ -133,23 +148,74 @@ export default function ControlTeam() {
           </p>
         ) : (
           <ul className="mt-6 space-y-2">
-            {members.map((m) => (
-              <li key={m.id} className="flex items-center gap-2 rounded border border-white/10 bg-white/[0.02] p-3 text-sm">
-                <span className="font-mono text-zinc-200">{m.email}</span>
-                <span className="rounded border border-white/10 px-2 py-0.5 text-[10px] font-mono uppercase text-zinc-400">{ROLE_LABEL[m.role]}</span>
-                <span className={`rounded border px-2 py-0.5 text-[10px] font-mono uppercase ${
-                  m.status === "active" ? "border-emerald-500/40 text-emerald-300" :
-                  m.status === "pending" ? "border-amber-500/40 text-amber-300" : "border-white/15 text-zinc-500"
-                }`}>
-                  {m.status}
-                </span>
-                {m.status !== "revoked" && (
-                  <button onClick={() => revoke(m.id)} className="ml-auto rounded border border-rose-500/30 p-1.5 text-rose-300 hover:bg-rose-500/10">
-                    <X className="h-3.5 w-3.5" />
-                  </button>
+            {members.map((m) => {
+              const isOoo = !!m.ooo_until && new Date(m.ooo_until).getTime() > Date.now();
+              const fallbackCandidates = members.filter((o) => o.id !== m.id && o.status === "active" && o.member_id);
+              return (
+              <li key={m.id} className="rounded border border-white/10 bg-white/[0.02] p-3 text-sm">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-zinc-200">{m.email}</span>
+                  <span className="rounded border border-white/10 px-2 py-0.5 text-[10px] font-mono uppercase text-zinc-400">{ROLE_LABEL[m.role]}</span>
+                  <span className={`rounded border px-2 py-0.5 text-[10px] font-mono uppercase ${
+                    m.status === "active" ? "border-emerald-500/40 text-emerald-300" :
+                    m.status === "pending" ? "border-amber-500/40 text-amber-300" : "border-white/15 text-zinc-500"
+                  }`}>
+                    {m.status}
+                  </span>
+                  {isOoo && (
+                    <span className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-mono uppercase text-amber-300">
+                      OOO until {new Date(m.ooo_until!).toLocaleDateString()}
+                    </span>
+                  )}
+                  {m.status !== "revoked" && (
+                    <button onClick={() => revoke(m.id)} className="ml-auto rounded border border-rose-500/30 p-1.5 text-rose-300 hover:bg-rose-500/10">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {m.status === "active" && (m.role === "approver" || m.role === "owner") && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-white/5 pt-2">
+                    <label className="flex items-center gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+                      Out of office until
+                      <input
+                        type="date"
+                        value={m.ooo_until ? m.ooo_until.slice(0, 10) : ""}
+                        onChange={(e) => {
+                          const iso = e.target.value ? new Date(`${e.target.value}T23:59:59Z`).toISOString() : null;
+                          setOoo(m.id, iso, m.ooo_fallback_member_id);
+                        }}
+                        className="rounded border border-white/10 bg-black/40 px-2 py-1 text-xs text-zinc-200"
+                      />
+                    </label>
+                    {isOoo && (
+                      <label className="flex items-center gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+                        Fallback
+                        <select
+                          value={m.ooo_fallback_member_id ?? ""}
+                          onChange={(e) => setOoo(m.id, m.ooo_until, e.target.value || null)}
+                          className="rounded border border-white/10 bg-black/40 px-2 py-1 text-xs text-zinc-200"
+                        >
+                          <option value="">None — approvals stay with them</option>
+                          {fallbackCandidates.map((f) => (
+                            <option key={f.id} value={f.member_id!}>{f.email}</option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+                    {m.ooo_until && (
+                      <button
+                        onClick={() => setOoo(m.id, null, null)}
+                        className="rounded border border-white/15 px-2 py-1 text-[10px] font-mono uppercase text-zinc-400 hover:bg-white/10"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
                 )}
               </li>
-            ))}
+              );
+            })}
           </ul>
         )}
       </main>
