@@ -58,10 +58,14 @@ class FakeQuery implements PromiseLike<Row> {
 
 function fakeSupabase(tables: Record<string, Row> = {}, rpcs: Record<string, Row> = {}) {
   const calls: { table?: string; rpc?: string }[] = [];
+  const inserts: Record<string, unknown[]> = {};
   const client = {
     from(table: string) {
       calls.push({ table });
-      return new FakeQuery(() => tables[table] ?? { data: null, error: null });
+      const q = new FakeQuery(() => tables[table] ?? { data: null, error: null });
+      // deno-lint-ignore no-explicit-any
+      (q as any).insert = (row?: unknown) => { (inserts[table] ??= []).push(row); return q; };
+      return q;
     },
     rpc(name: string) {
       calls.push({ rpc: name });
@@ -69,7 +73,7 @@ function fakeSupabase(tables: Record<string, Row> = {}, rpcs: Record<string, Row
     },
   };
   // deno-lint-ignore no-explicit-any
-  return { client: client as any, calls };
+  return { client: client as any, calls, inserts };
 }
 
 const baseCtx = {
@@ -137,6 +141,27 @@ Deno.test("a matching always_block hard rule blocks and is NOT judged by the mod
   assertEquals(result.verdict, "block");
   assertEquals(result.source, "hard_rule");
   assertEquals(result.hardRule?.id, "r1");
+});
+
+Deno.test("a hard-rule enforcement records which rule fired (hard_rule_id), for the dead-rule finder", async () => {
+  const { client, inserts } = fakeSupabase({
+    hard_rules: {
+      data: [{ id: "r1", rule_text: "Never post to #general", action_type_pattern: "slack_post_message", effect: "always_block", provider: "Slack", enabled: true }],
+      error: null,
+    },
+  });
+  await runControlGate(client, { ...baseCtx, actionType: "slack_post_message", provider: "Slack" });
+  const logged = (inserts.agent_decisions ?? [])[0] as { hard_rule_id?: string | null } | undefined;
+  assertEquals(logged?.hard_rule_id, "r1");
+});
+
+Deno.test("a decision NOT enforced by a hard rule records hard_rule_id as null", async () => {
+  const { client, inserts } = fakeSupabase({
+    profiles: { data: { kill_switch: true }, error: null },
+  });
+  await runControlGate(client, baseCtx);
+  const logged = (inserts.agent_decisions ?? [])[0] as { hard_rule_id?: string | null } | undefined;
+  assertEquals(logged?.hard_rule_id ?? null, null);
 });
 
 Deno.test("a matching always_require_approval hard rule queues an approval instead of blocking outright", async () => {
