@@ -5,6 +5,7 @@ import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { canWriteAsOwner } from "@/lib/account-switcher";
 import { friendlyErrorMessage } from "@/lib/friendly-errors";
 import { toast } from "@/hooks/use-toast";
+import { projectMonthlySpend } from "@/lib/roi-report";
 
 const DEFAULT_CAP = 5;
 const money = (n: number) => `$${(Number(n) || 0).toFixed(2)}`;
@@ -33,11 +34,17 @@ export default function SpendCapPanel() {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(String(DEFAULT_CAP));
   const [saving, setSaving] = useState(false);
+  const [forecast, setForecast] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     if (!accountId) return;
-    const day = new Date().toISOString().slice(0, 10);
-    const [{ data: agentRows }, capQuery, dailyQuery] = await Promise.all([
+    const now = new Date();
+    const day = now.toISOString().slice(0, 10);
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString().slice(0, 10);
+    const daysInMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).getUTCDate();
+    const daysElapsed = now.getUTCDate();
+
+    const [{ data: agentRows }, capQuery, dailyQuery, monthQuery] = await Promise.all([
       supabase.from("agents").select("id, name").eq("user_id", accountId).order("name"),
       scopeAgentId
         ? supabase.from("ai_spend_caps").select("daily_cap_usd, enabled").eq("user_id", accountId).eq("agent_id", scopeAgentId).maybeSingle()
@@ -45,6 +52,9 @@ export default function SpendCapPanel() {
       scopeAgentId
         ? supabase.from("ai_spend_daily").select("cost_usd, calls").eq("user_id", accountId).eq("agent_id", scopeAgentId).eq("day", day).maybeSingle()
         : supabase.from("ai_spend_daily").select("cost_usd, calls").eq("user_id", accountId).eq("day", day).is("agent_id", null).maybeSingle(),
+      scopeAgentId
+        ? supabase.from("ai_spend_daily").select("cost_usd").eq("user_id", accountId).eq("agent_id", scopeAgentId).gte("day", monthStart)
+        : supabase.from("ai_spend_daily").select("cost_usd").eq("user_id", accountId).is("agent_id", null).gte("day", monthStart),
     ]);
     setAgents((agentRows ?? []) as AgentOption[]);
     const capRow = capQuery.data;
@@ -58,6 +68,8 @@ export default function SpendCapPanel() {
     setSpent(Number(usageRow?.cost_usd ?? 0));
     setCalls(Number(usageRow?.calls ?? 0));
     setEditing(false);
+    const monthCosts = ((monthQuery.data ?? []) as { cost_usd: number }[]).map((r) => Number(r.cost_usd) || 0);
+    setForecast(configured ? projectMonthlySpend(monthCosts, daysElapsed, daysInMonth) : null);
   }, [accountId, scopeAgentId]);
 
   useEffect(() => { void load(); }, [load]);
@@ -166,6 +178,12 @@ export default function SpendCapPanel() {
         <div className="h-1.5 w-full rounded-full bg-white/5 overflow-hidden">
           <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
         </div>
+      )}
+
+      {hasCap && forecast !== null && (
+        <p className="text-[11px] text-zinc-500">
+          Projected this month at the current daily rate: <span className="font-mono text-zinc-400">{money(forecast)}</span>
+        </p>
       )}
 
       {hasCap && pct >= 90 && (
