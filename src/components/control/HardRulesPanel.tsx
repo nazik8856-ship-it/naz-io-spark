@@ -60,21 +60,24 @@ export default function HardRulesPanel() {
   // default, matches every existing rule and every account that never
   // sets a per-agent override).
   const [appliesToAgentId, setAppliesToAgentId] = useState("");
+  const [dualControl, setDualControl] = useState(false);
   const agentName = (id: string | null) => (id ? agents.find((a) => a.id === id)?.name ?? "Unknown agent" : "All agents");
 
   const load = useCallback(async () => {
     if (!accountId) return;
-    const [{ data }, { data: agentRows }] = await Promise.all([
+    const [{ data }, { data: agentRows }, { data: profile }] = await Promise.all([
       supabase
         .from("hard_rules")
         .select("id, rule_text, action_type_pattern, effect, provider, shadow_mode, created_at, agent_id")
         .eq("user_id", accountId)
         .order("created_at", { ascending: false }),
       supabase.from("agents").select("id, name").eq("user_id", accountId).order("name"),
+      supabase.from("profiles").select("require_dual_control_for_policy").eq("id", accountId).maybeSingle(),
     ]);
     const list = (data ?? []) as HardRule[];
     setRules(list);
     setAgents((agentRows ?? []) as AgentOption[]);
+    setDualControl(!!(profile as { require_dual_control_for_policy?: boolean } | null)?.require_dual_control_for_policy);
 
     // "If this rule goes live, it would have affected N of the last M decisions."
     const shadowRules = list.filter((r) => r.shadow_mode);
@@ -128,6 +131,19 @@ export default function HardRulesPanel() {
 
   const promote = async (r: HardRule) => {
     if (!canWrite) return;
+    if (dualControl) {
+      const { error } = await supabase.rpc("request_policy_change", {
+        _change_type: "promote_hard_rule",
+        _row_id: r.id,
+        _description: `Promote "${r.rule_text}" to live`,
+      });
+      if (error) {
+        toast({ title: "Could not request promotion", description: friendlyErrorMessage(error.message), variant: "destructive" });
+        return;
+      }
+      toast({ title: "Promotion requested", description: "A second owner needs to approve this from Policy change requests before it goes live." });
+      return;
+    }
     const { error } = await supabase
       .from("hard_rules")
       .update({ shadow_mode: false, promoted_at: new Date().toISOString() })
@@ -138,6 +154,21 @@ export default function HardRulesPanel() {
     }
     toast({ title: "Rule is now live", description: "It will decide matching actions from now on." });
     void load();
+  };
+
+  const toggleDualControl = async (checked: boolean) => {
+    if (!canWrite) return;
+    setDualControl(checked);
+    const { error } = await supabase.from("profiles").update({ require_dual_control_for_policy: checked }).eq("id", accountId);
+    if (error) {
+      setDualControl(!checked);
+      toast({ title: "Couldn't save that", description: friendlyErrorMessage(error.message), variant: "destructive" });
+      return;
+    }
+    toast({
+      title: checked ? "Dual control enabled" : "Dual control turned off",
+      description: checked ? "Promoting a rule to live now needs a second owner's approval." : undefined,
+    });
   };
 
   const remove = async (id: string) => {
@@ -174,6 +205,23 @@ export default function HardRulesPanel() {
             Live rules are enforced before any AI judgement. Shadow rules are only watched and
             logged, so you can see what they would have done before turning them on.
           </p>
+
+          {canWrite && (
+            <label className="flex items-center gap-2 text-[11px] text-zinc-400">
+              <input
+                type="checkbox"
+                checked={dualControl}
+                onChange={(e) => void toggleDualControl(e.target.checked)}
+                className="h-3.5 w-3.5 accent-cyan-500"
+              />
+              Require a second owner to approve promoting a rule to live
+              {dualControl && (
+                <a href="/control-system/policy-changes" className="ml-1 underline hover:text-white">
+                  view requests
+                </a>
+              )}
+            </label>
+          )}
 
           {!canWrite && (
             <p className="text-[11px] text-amber-300/80">

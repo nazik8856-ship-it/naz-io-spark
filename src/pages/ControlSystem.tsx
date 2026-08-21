@@ -168,6 +168,30 @@ export default function ControlSystem() {
           >
             Agent policy
           </button>
+          <button
+            onClick={() => navigate("/control-system/live")}
+            className="rounded border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-emerald-300 hover:bg-emerald-500/20"
+          >
+            Live feed
+          </button>
+          <button
+            onClick={() => navigate("/control-system/account-data")}
+            className="rounded border border-white/15 bg-white/5 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-zinc-300 hover:bg-white/10"
+          >
+            Account data
+          </button>
+          <button
+            onClick={() => navigate("/control-system/policy-bundle")}
+            className="rounded border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-cyan-300 hover:bg-cyan-500/20"
+          >
+            Policy as code
+          </button>
+          <button
+            onClick={() => navigate("/control-system/policy-changes")}
+            className="rounded border border-white/15 bg-white/5 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-zinc-300 hover:bg-white/10"
+          >
+            Policy change requests
+          </button>
         </nav>
       </header>
 
