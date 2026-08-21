@@ -537,8 +537,10 @@ serve(async (req) => {
       if (Number.isFinite(t)) baseThreshold = Math.max(0, Math.min(100, Math.round(t)));
     }
 
-    // One org-level dial that scales every tolerance below.
-    const strictness = await loadStrictness(supabase, userId);
+    // One org-level dial that scales every tolerance below -- an agent
+    // with its own strictness override uses that instead of the account
+    // default (Wave 5 session 1's per-agent policy scoping, closed out).
+    const strictness = await loadStrictness(supabase, userId, agentId);
 
     // Business context for the FIT check — latest profile for this user.
     const { data: profile } = await supabase

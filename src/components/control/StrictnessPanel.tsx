@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { SlidersHorizontal } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -8,6 +8,7 @@ import { friendlyErrorMessage } from "@/lib/friendly-errors";
 import { toast } from "@/hooks/use-toast";
 
 type Strictness = "loose" | "balanced" | "strict";
+type AgentOption = { id: string; name: string };
 
 const OPTIONS: { value: Strictness; label: string; blurb: string }[] = [
   { value: "loose", label: "Loose", blurb: "More runs on its own, fewer stops for you." },
@@ -16,45 +17,77 @@ const OPTIONS: { value: Strictness; label: string; blurb: string }[] = [
 ];
 
 /**
- * ORG STRICTNESS — one dial that scales risk scoring, fit scoring and the
- * confidence-escalation gate across the whole control engine.
+ * STRICTNESS — one dial that scales risk scoring, fit scoring and the
+ * confidence-escalation gate. Account-wide by default; an agent with its
+ * own override (Wave 5 session 1, closed out) can be selected to view/
+ * set that agent's own value instead — a separate, parallel mechanism,
+ * not a replacement for the account-wide default every other agent still
+ * uses.
  */
 export default function StrictnessPanel() {
   const { user } = useAuth();
   const { accountId, role } = useActiveAccount();
   const canWrite = canWriteAsOwner(role);
+  const [agents, setAgents] = useState<AgentOption[]>([]);
+  const [scopeAgentId, setScopeAgentId] = useState("");
   const [value, setValue] = useState<Strictness>("balanced");
+  const [hasOverride, setHasOverride] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
+  const load = useCallback(async () => {
     if (!user || !accountId) return;
-    supabase
-      .from("profiles")
-      .select("control_strictness")
-      .eq("id", accountId)
-      .maybeSingle()
-      .then(({ data }) => {
-        const v = (data as { control_strictness?: string } | null)?.control_strictness;
-        if (v === "loose" || v === "strict" || v === "balanced") setValue(v);
-      });
-  }, [user, accountId]);
+    const [{ data: agentRows }, { data: profile }, { data: override }] = await Promise.all([
+      supabase.from("agents").select("id, name").eq("user_id", accountId).order("name"),
+      supabase.from("profiles").select("control_strictness").eq("id", accountId).maybeSingle(),
+      scopeAgentId
+        ? supabase.from("agent_strictness_overrides").select("strictness").eq("agent_id", scopeAgentId).maybeSingle()
+        : Promise.resolve({ data: null }),
+    ]);
+    setAgents((agentRows ?? []) as AgentOption[]);
+    const accountValue = (profile as { control_strictness?: string } | null)?.control_strictness;
+    const overrideValue = (override as { strictness?: string } | null)?.strictness;
+    setHasOverride(!!overrideValue);
+    const v = overrideValue ?? accountValue;
+    if (v === "loose" || v === "strict" || v === "balanced") setValue(v);
+    else setValue("balanced");
+  }, [user, accountId, scopeAgentId]);
+
+  useEffect(() => { void load(); }, [load]);
 
   const pick = async (next: Strictness) => {
-    if (!user || !canWrite || next === value) return;
+    if (!user || !canWrite || (next === value && (scopeAgentId ? hasOverride : true))) return;
     const prev = value;
     setValue(next);
     setSaving(true);
-    const { error } = await supabase
-      .from("profiles")
-      .update({ control_strictness: next } as never)
-      .eq("id", accountId);
+    const { error } = scopeAgentId
+      ? await supabase.from("agent_strictness_overrides").upsert(
+          { agent_id: scopeAgentId, user_id: accountId, strictness: next },
+          { onConflict: "agent_id" },
+        )
+      : await supabase.from("profiles").update({ control_strictness: next } as never).eq("id", accountId);
     setSaving(false);
     if (error) {
       setValue(prev);
       toast({ title: "Couldn't save that", description: friendlyErrorMessage(error.message), variant: "destructive" });
       return;
     }
-    toast({ title: `Strictness: ${next}`, description: "Applies to every decision from now on." });
+    if (scopeAgentId) setHasOverride(true);
+    toast({
+      title: `Strictness: ${next}`,
+      description: scopeAgentId ? "Applies to this agent's decisions from now on." : "Applies to every decision from now on.",
+    });
+  };
+
+  const clearOverride = async () => {
+    if (!scopeAgentId || !canWrite) return;
+    const { error } = await supabase.from("agent_strictness_overrides").delete().eq("agent_id", scopeAgentId);
+    if (error) {
+      toast({ title: "Couldn't clear the override", description: friendlyErrorMessage(error.message), variant: "destructive" });
+      return;
+    }
+    setHasOverride(false);
+    void load();
+    toast({ title: "Override cleared", description: "This agent now uses the account-wide default." });
   };
 
   return (
@@ -62,6 +95,19 @@ export default function StrictnessPanel() {
       <span className="flex items-center gap-1.5 font-mono uppercase tracking-wider text-zinc-400">
         <SlidersHorizontal className="h-3.5 w-3.5" /> Strictness
       </span>
+      {agents.length > 0 && (
+        <select
+          value={scopeAgentId}
+          onChange={(e) => setScopeAgentId(e.target.value)}
+          aria-label="Strictness scope"
+          className="rounded border border-white/10 bg-white/5 px-2 py-1 font-mono uppercase tracking-wider text-zinc-300"
+        >
+          <option value="">All agents (account-wide)</option>
+          {agents.map((a) => (
+            <option key={a.id} value={a.id}>{a.name}</option>
+          ))}
+        </select>
+      )}
       {OPTIONS.map((o) => (
         <button
           key={o.value}
@@ -78,6 +124,18 @@ export default function StrictnessPanel() {
         </button>
       ))}
       <span className="text-zinc-500">{OPTIONS.find((o) => o.value === value)?.blurb}</span>
+      {scopeAgentId && hasOverride && (
+        <button
+          onClick={clearOverride}
+          disabled={!canWrite}
+          className="rounded border border-white/15 px-2 py-0.5 font-mono uppercase tracking-wider text-zinc-500 hover:bg-white/10 disabled:opacity-50"
+        >
+          Use account default
+        </button>
+      )}
+      {scopeAgentId && !hasOverride && (
+        <span className="text-zinc-600">(using account default — pick a value above to override just this agent)</span>
+      )}
     </div>
   );
 }
