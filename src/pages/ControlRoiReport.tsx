@@ -28,6 +28,25 @@ export default function ControlRoiReport() {
   const [generating, setGenerating] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
   const [forecasts, setForecasts] = useState<ForecastRow[]>([]);
+  const [monthlyEmail, setMonthlyEmail] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    supabase.from("profiles").select("roi_report_monthly_enabled").eq("id", user.id).maybeSingle()
+      .then(({ data }) => setMonthlyEmail(!!(data as { roi_report_monthly_enabled?: boolean } | null)?.roi_report_monthly_enabled));
+  }, [user]);
+
+  const toggleMonthlyEmail = async (checked: boolean) => {
+    if (!user) return;
+    setMonthlyEmail(checked);
+    const { error } = await supabase.from("profiles").update({ roi_report_monthly_enabled: checked }).eq("id", user.id);
+    if (error) {
+      setMonthlyEmail(!checked);
+      toast({ title: "Couldn't save that", description: error.message, variant: "destructive" });
+      return;
+    }
+    toast({ title: checked ? "Monthly email enabled" : "Monthly email turned off", description: checked ? "You'll get a summary on the 1st of each month." : undefined });
+  };
 
   // Spend forecast is independent of the report's chosen date range -- it
   // always answers "at this month's pace so far, what will month-end look
@@ -198,6 +217,11 @@ export default function ControlRoiReport() {
             </button>
           )}
         </div>
+
+        <label className="mt-3 flex items-center gap-2 text-xs text-zinc-400">
+          <input type="checkbox" checked={monthlyEmail} onChange={(e) => void toggleMonthlyEmail(e.target.checked)} className="h-3.5 w-3.5 accent-emerald-500" />
+          Email me a summary of this on the 1st of every month
+        </label>
 
         {preview && (
           <pre className="mt-6 max-h-[32rem] overflow-auto whitespace-pre-wrap rounded border border-white/10 bg-black/40 p-4 text-xs text-zinc-300">
