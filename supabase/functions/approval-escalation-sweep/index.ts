@@ -68,6 +68,12 @@ Deno.serve(async (req) => {
     await triggerWebhooks(admin, row.user_id, "approval_escalated", {
       approval_id: row.id, action_type: row.action_type, provider: row.provider, risk_tier: row.risk_tier, waited_hours: waitedHours,
     });
+    try {
+      await admin.from("pending_approval_events").insert({
+        approval_id: row.id, user_id: row.user_id, event_type: "escalated",
+        note: `Waited ${waitedHours}h with no response`,
+      });
+    } catch { /* the escalation itself already happened; a missing timeline entry must never block it */ }
     escalated++;
   }
 

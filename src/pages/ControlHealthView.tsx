@@ -5,6 +5,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 import { pctOf, alertDeliverySplit, isTrendingDown } from "@/lib/control-health";
+import { computeSlaStats, type SlaStats } from "@/lib/approval-sla";
+import { actorName, buildActorNameMap } from "@/lib/actor-names";
 
 const WINDOW_DAYS = 30;
 
@@ -42,18 +44,22 @@ export default function ControlHealthView() {
   const [trippedBreakers, setTrippedBreakers] = useState<{ action_type: string; failure_rate: number; trip_count: number }[]>([]);
   const [testRuns, setTestRuns] = useState<{ pass_rate_pct: number; created_at: string; regressions: unknown[] }[]>([]);
   const [openIncidents, setOpenIncidents] = useState(0);
+  const [sla, setSla] = useState<{ byRiskTier: Record<string, SlaStats>; byApprover: Record<string, SlaStats> }>({ byRiskTier: {}, byApprover: {} });
+  const [names, setNames] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     if (!user) return;
     setLoading(true);
     const since = new Date(Date.now() - WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
-    const [decisions, alerts, breakers, runs, incidents] = await Promise.all([
+    const [decisions, alerts, breakers, runs, incidents, resolvedApprovals, members] = await Promise.all([
       supabase.from("agent_decisions").select("source").eq("user_id", user.id).gte("created_at", since),
       supabase.from("critical_alerts").select("delivered_via").eq("user_id", user.id).gte("created_at", since),
       supabase.from("circuit_breakers").select("action_type, tripped, failure_rate, trip_count").eq("user_id", user.id).eq("tripped", true),
       supabase.from("control_test_runs").select("pass_rate_pct, created_at, regressions").eq("user_id", user.id).order("created_at", { ascending: false }).limit(10),
       supabase.from("incidents").select("id", { count: "exact", head: true }).eq("user_id", user.id).eq("status", "open"),
+      supabase.from("pending_approvals").select("risk_tier, resolved_by, created_at, resolved_at").eq("user_id", user.id).not("resolved_at", "is", null).gte("created_at", since),
+      supabase.from("account_members").select("member_id, email").eq("account_owner_id", user.id).eq("status", "active"),
     ]);
 
     const decisionRows = (decisions.data ?? []) as { source: string }[];
@@ -67,6 +73,8 @@ export default function ControlHealthView() {
     setTrippedBreakers((breakers.data ?? []) as { action_type: string; failure_rate: number; trip_count: number }[]);
     setTestRuns((runs.data ?? []) as { pass_rate_pct: number; created_at: string; regressions: unknown[] }[]);
     setOpenIncidents(incidents.count ?? 0);
+    setSla(computeSlaStats((resolvedApprovals.data ?? []) as { risk_tier: string; resolved_by: string | null; created_at: string; resolved_at: string }[]));
+    setNames(buildActorNameMap(user.id, (members.data ?? []) as { member_id: string | null; email: string }[]));
 
     if (decisions.error || alerts.error || breakers.error || runs.error || incidents.error) {
       toast({ title: "Some data didn't load", description: "Refresh to try again.", variant: "destructive" });
@@ -169,6 +177,37 @@ export default function ControlHealthView() {
                     </li>
                   ))}
                 </ul>
+              </div>
+            )}
+
+            {(Object.keys(sla.byRiskTier).length > 0 || Object.keys(sla.byApprover).length > 0) && (
+              <div className="mt-6 grid gap-3 sm:grid-cols-2">
+                <div className="rounded border border-white/10 bg-white/[0.02] p-4">
+                  <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Approval SLA by risk tier</div>
+                  <ul className="mt-2 space-y-1 text-xs text-zinc-300">
+                    {Object.entries(sla.byRiskTier).map(([tier, s]) => (
+                      <li key={tier} className="flex items-center gap-2">
+                        <span className="w-16 font-mono uppercase text-zinc-500">{tier}</span>
+                        <span>median {s.medianHours.toFixed(1)}h</span>
+                        <span className="text-zinc-500">· p90 {s.p90Hours.toFixed(1)}h</span>
+                        <span className="ml-auto text-zinc-600">{s.count} resolved</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div className="rounded border border-white/10 bg-white/[0.02] p-4">
+                  <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Approval SLA by approver</div>
+                  <ul className="mt-2 space-y-1 text-xs text-zinc-300">
+                    {Object.entries(sla.byApprover).map(([uid, s]) => (
+                      <li key={uid} className="flex items-center gap-2">
+                        <span className="w-24 truncate font-mono text-zinc-400">{actorName(names, uid)}</span>
+                        <span>median {s.medianHours.toFixed(1)}h</span>
+                        <span className="text-zinc-500">· p90 {s.p90Hours.toFixed(1)}h</span>
+                        <span className="ml-auto text-zinc-600">{s.count} resolved</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               </div>
             )}
           </>
