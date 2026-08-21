@@ -203,7 +203,18 @@ export async function runControlGate(
         // up to this call site — finalizeTrace fills the rest as not_reached.
         gate_trace: finalizeTrace(trace),
       }).select("id").maybeSingle();
-      return (data as { id?: string } | null)?.id ?? null;
+      const decisionId = (data as { id?: string } | null)?.id ?? null;
+      if (decisionId) {
+        // Never lets a webhook-delivery hiccup turn an already-logged
+        // decision's id into a null return (triggerWebhooks itself never
+        // throws, but this is defense in depth, not reliance on that alone).
+        try {
+          await triggerWebhooks(admin, userId, "decision_logged", {
+            id: decisionId, decision, source, escalated, agent_id: agentId,
+          });
+        } catch { /* ignore */ }
+      }
+      return decisionId;
     } catch {
       return null;
     }

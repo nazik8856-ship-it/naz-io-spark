@@ -2,6 +2,7 @@
 // One decision engine: agent-runtime and the AI Control System chat both score
 // confidence the same way and write to the SAME agent_decisions table.
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { triggerWebhooks } from "./webhooks.ts";
 
 export const DEFAULT_CONFIDENCE_THRESHOLD = 60;
 
@@ -175,7 +176,19 @@ export const logDecision = async (
       policy_version: d.policyVersion ?? null,
       gate_trace: d.trace ?? null,
     }).select("id").single();
-    return (data as { id?: string } | null)?.id ?? null;
+    const decisionId = (data as { id?: string } | null)?.id ?? null;
+    if (decisionId) {
+      // triggerWebhooks already never throws on its own, but the decision
+      // was already successfully logged at this point either way -- this
+      // must never be what turns a real decisionId into a null return.
+      try {
+        await triggerWebhooks(supabase, scope.userId, "decision_logged", {
+          id: decisionId, decision: d.decision, source: d.source ?? "model",
+          escalated: d.escalated ?? false, agent_id: scope.agentId ?? null,
+        });
+      } catch { /* ignore */ }
+    }
+    return decisionId;
   } catch {
     return null;
   }

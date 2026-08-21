@@ -5,7 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 
-const EVENTS = ["approval_created", "approval_escalated", "incident_opened", "incident_resolved"] as const;
+const EVENTS = ["approval_created", "approval_escalated", "incident_opened", "incident_resolved", "decision_logged"] as const;
 
 type WebhookRow = {
   id: string;
@@ -150,9 +150,10 @@ export default function ControlWebhooks() {
           </label>
           <div className="flex flex-wrap gap-2">
             {EVENTS.map((e) => (
-              <label key={e} className="flex items-center gap-1.5 text-xs text-zinc-300">
+              <label key={e} className="flex items-center gap-1.5 text-xs text-zinc-300" title={e === "decision_logged" ? "Fires on every decision, not just the rare ones — high volume by design (SIEM/observability export)." : undefined}>
                 <input type="checkbox" checked={events.has(e)} onChange={() => toggleEvent(e)} className="accent-cyan-500" />
                 {e}
+                {e === "decision_logged" && <span className="text-[10px] text-amber-300/70">(high volume)</span>}
               </label>
             ))}
           </div>

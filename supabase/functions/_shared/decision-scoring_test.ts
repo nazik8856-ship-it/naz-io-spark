@@ -14,6 +14,7 @@ import {
   fitDefers,
   resolveStrictness,
   loadStrictness,
+  logDecision,
   STRICTNESS_PRESETS,
 } from "./decision-scoring.ts";
 
@@ -169,14 +170,21 @@ class FakeQuery implements PromiseLike<Row> {
   select() { return this; }
   eq() { return this; }
   maybeSingle() { return this; }
+  single() { return this; }
+  insert(_row?: unknown) { return this; }
   // deno-lint-ignore no-explicit-any
   then<T1 = Row, T2 = never>(onf?: ((v: Row) => T1 | PromiseLike<T1>) | null, onr?: ((r: unknown) => T2 | PromiseLike<T2>) | null): any {
     return Promise.resolve(this.resolve()).then(onf ?? undefined, onr ?? undefined);
   }
 }
 function fakeSupabase(tables: Record<string, Row>) {
-  // deno-lint-ignore no-explicit-any
-  return { from: (table: string) => new FakeQuery(() => tables[table] ?? { data: null, error: null }) } as any;
+  const calls: { table: string }[] = [];
+  return {
+    // deno-lint-ignore no-explicit-any
+    from: (table: string) => { calls.push({ table }); return new FakeQuery(() => tables[table] ?? { data: null, error: null }); },
+    calls,
+    // deno-lint-ignore no-explicit-any
+  } as any;
 }
 
 Deno.test("loadStrictness: with an agent override configured, it wins", async () => {
@@ -200,6 +208,20 @@ Deno.test("loadStrictness: an agentId with no override row falls back to the acc
     profiles: { data: { control_strictness: "loose" }, error: null },
   });
   assertEquals(await loadStrictness(client, "user-1", "agent-1"), "loose");
+});
+
+Deno.test("logDecision: checks for a decision_logged webhook subscriber (SIEM export) after logging", async () => {
+  // No webhooks table row configured -> triggerWebhooks sees zero hooks
+  // and never calls fetch, keeping this a pure, network-free test while
+  // still proving logDecision actually queries for one.
+  const client = fakeSupabase({
+    agent_decisions: { data: { id: "decision-1" }, error: null },
+  });
+  const decisionId = await logDecision(client, { userId: "user-1" }, {
+    decision: "ALLOW send_email (Gmail)", reasoning: "fine", alternatives: [], score: 80,
+  });
+  assertEquals(decisionId, "decision-1");
+  assert((client.calls as { table: string }[]).some((c) => c.table === "webhooks"), "expected logDecision to check for a decision_logged webhook subscriber");
 });
 
 Deno.test("loadStrictness: never throws, defaults to balanced on error", async () => {

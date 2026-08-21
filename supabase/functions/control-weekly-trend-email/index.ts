@@ -5,6 +5,7 @@
 // this getting better or worse" view. Service-role only.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { computeTrend } from "../_shared/trend.ts";
+import { resolveNotificationRecipients, type MemberRow, type PreferenceRow } from "../_shared/notification-preferences.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -62,28 +63,39 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      const { data: authUser, error: authErr } = await admin.auth.admin.getUserById(userId);
-      const recipientEmail = authUser?.user?.email;
-      if (authErr || !recipientEmail) {
-        outcomes.push({ userId, sent: false, reason: "no email on file" });
+      const [{ data: authUser, error: authErr }, { data: members }, { data: prefs }] = await Promise.all([
+        admin.auth.admin.getUserById(userId),
+        admin.from("account_members").select("member_id, email, status").eq("account_owner_id", userId),
+        admin.from("notification_preferences").select("recipient_id, digest_enabled, weekly_trend_enabled").eq("account_owner_id", userId),
+      ]);
+      const ownerEmail = authErr ? null : authUser?.user?.email ?? null;
+      const recipients = resolveNotificationRecipients(
+        userId, ownerEmail, (members ?? []) as MemberRow[], (prefs ?? []) as PreferenceRow[], "weekly_trend_enabled",
+      );
+      if (!recipients.length) {
+        outcomes.push({ userId, sent: false, reason: "nobody wants this notification" });
         continue;
       }
 
-      const resp = await fetch(`${supabaseUrl}/functions/v1/send-transactional-email`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
-        body: JSON.stringify({
-          templateName: "control-weekly-trend",
-          recipientEmail,
-          idempotencyKey: `control-weekly-trend-${userId}-${new Date().toISOString().slice(0, 10)}`,
-          templateData: {
-            decisions: computeTrend(thisRows.length, lastRows.length),
-            escalationRatePct: computeTrend(thisEscalationPct, lastEscalationPct),
-            spendUsd: computeTrend(Math.round(thisSpend * 100) / 100, Math.round(lastSpend * 100) / 100),
-          },
+      const dateStamp = new Date().toISOString().slice(0, 10);
+      const sends = await Promise.all(recipients.map((r) =>
+        fetch(`${supabaseUrl}/functions/v1/send-transactional-email`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+          body: JSON.stringify({
+            templateName: "control-weekly-trend",
+            recipientEmail: r.email,
+            idempotencyKey: `control-weekly-trend-${userId}-${r.recipientId}-${dateStamp}`,
+            templateData: {
+              decisions: computeTrend(thisRows.length, lastRows.length),
+              escalationRatePct: computeTrend(thisEscalationPct, lastEscalationPct),
+              spendUsd: computeTrend(Math.round(thisSpend * 100) / 100, Math.round(lastSpend * 100) / 100),
+            },
+          }),
         }),
-      });
-      outcomes.push({ userId, sent: resp.ok, reason: resp.ok ? "sent" : `send-transactional-email ${resp.status}` });
+      ));
+      const allOk = sends.every((resp) => resp.ok);
+      outcomes.push({ userId, sent: allOk, reason: allOk ? `sent to ${recipients.length} recipient(s)` : "one or more recipients failed" });
     } catch (e) {
       outcomes.push({ userId, sent: false, reason: e instanceof Error ? e.message : "unknown error" });
     }

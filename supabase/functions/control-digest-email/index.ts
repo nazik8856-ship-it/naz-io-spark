@@ -5,6 +5,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getSpendStatus } from "../_shared/spend-guard.ts";
 import { digestHasContent } from "../_shared/digest.ts";
+import { resolveNotificationRecipients, type MemberRow, type PreferenceRow } from "../_shared/notification-preferences.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -55,32 +56,43 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      const { data: authUser, error: authErr } = await admin.auth.admin.getUserById(userId);
-      const recipientEmail = authUser?.user?.email;
-      if (authErr || !recipientEmail) {
-        outcomes.push({ userId, sent: false, reason: "no email on file" });
+      const [{ data: authUser, error: authErr }, { data: members }, { data: prefs }] = await Promise.all([
+        admin.auth.admin.getUserById(userId),
+        admin.from("account_members").select("member_id, email, status").eq("account_owner_id", userId),
+        admin.from("notification_preferences").select("recipient_id, digest_enabled, weekly_trend_enabled").eq("account_owner_id", userId),
+      ]);
+      const ownerEmail = authErr ? null : authUser?.user?.email ?? null;
+      const recipients = resolveNotificationRecipients(
+        userId, ownerEmail, (members ?? []) as MemberRow[], (prefs ?? []) as PreferenceRow[], "digest_enabled",
+      );
+      if (!recipients.length) {
+        outcomes.push({ userId, sent: false, reason: "nobody wants this notification" });
         continue;
       }
 
-      const resp = await fetch(`${supabaseUrl}/functions/v1/send-transactional-email`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
-        body: JSON.stringify({
-          templateName: "control-digest",
-          recipientEmail,
-          idempotencyKey: `control-digest-${userId}-${new Date().toISOString().slice(0, 10)}`,
-          templateData: {
-            openIncidents,
-            incidentSummaries: ((incidents ?? []) as { summary: string }[]).map((i) => i.summary),
-            pendingApprovals,
-            oldestPendingHours,
-            spendPct: spend.pct,
-            spendUsd: spend.spent_usd,
-            capUsd: spend.cap_usd,
-          },
+      const dateStamp = new Date().toISOString().slice(0, 10);
+      const sends = await Promise.all(recipients.map((r) =>
+        fetch(`${supabaseUrl}/functions/v1/send-transactional-email`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+          body: JSON.stringify({
+            templateName: "control-digest",
+            recipientEmail: r.email,
+            idempotencyKey: `control-digest-${userId}-${r.recipientId}-${dateStamp}`,
+            templateData: {
+              openIncidents,
+              incidentSummaries: ((incidents ?? []) as { summary: string }[]).map((i) => i.summary),
+              pendingApprovals,
+              oldestPendingHours,
+              spendPct: spend.pct,
+              spendUsd: spend.spent_usd,
+              capUsd: spend.cap_usd,
+            },
+          }),
         }),
-      });
-      outcomes.push({ userId, sent: resp.ok, reason: resp.ok ? "sent" : `send-transactional-email ${resp.status}` });
+      ));
+      const allOk = sends.every((resp) => resp.ok);
+      outcomes.push({ userId, sent: allOk, reason: allOk ? `sent to ${recipients.length} recipient(s)` : "one or more recipients failed" });
     } catch (e) {
       outcomes.push({ userId, sent: false, reason: e instanceof Error ? e.message : "unknown error" });
     }
