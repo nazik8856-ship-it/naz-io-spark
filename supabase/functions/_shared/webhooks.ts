@@ -12,6 +12,14 @@ export const WEBHOOK_EVENTS = [
   "approval_escalated",
   "incident_opened",
   "incident_resolved",
+  // Fires on every logged decision (SIEM/observability export) -- opt-in,
+  // like every other event: a webhook only receives it if "decision_logged"
+  // is explicitly in its own `events` list. Wired from the two real
+  // decision-logging chokepoints (control-gate.ts's logStop for
+  // deterministic stops, decision-scoring.ts's logDecision for the
+  // model-scored path) -- NOT yet from the rarer kill-switch-trip and
+  // undo-record logging paths, a documented gap, not a silent one.
+  "decision_logged",
 ] as const;
 export type WebhookEvent = typeof WEBHOOK_EVENTS[number];
 

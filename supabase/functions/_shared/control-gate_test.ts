@@ -143,6 +143,24 @@ Deno.test("a matching always_block hard rule blocks and is NOT judged by the mod
   assertEquals(result.hardRule?.id, "r1");
 });
 
+Deno.test("a hard-rule enforcement checks for a decision_logged webhook subscriber (SIEM export)", async () => {
+  // No webhooks table configured -> triggerWebhooks sees zero hooks and
+  // never calls fetch, so this stays a pure, network-free test while
+  // still proving the gate actually queries for one.
+  const { client, calls } = fakeSupabase({
+    hard_rules: {
+      data: [{ id: "r1", rule_text: "Never post to #general", action_type_pattern: "slack_post_message", effect: "always_block", provider: "Slack", enabled: true }],
+      error: null,
+    },
+    // logStop only checks for webhook subscribers once the decision itself
+    // was actually logged (has a real id) -- without this, decisionId
+    // comes back null and the webhook check is correctly skipped.
+    agent_decisions: { data: { id: "decision-1" }, error: null },
+  });
+  await runControlGate(client, { ...baseCtx, actionType: "slack_post_message", provider: "Slack" });
+  assert(calls.some((c) => c.table === "webhooks"), "expected the gate to check for a decision_logged webhook subscriber");
+});
+
 Deno.test("a hard-rule enforcement records which rule fired (hard_rule_id), for the dead-rule finder", async () => {
   const { client, inserts } = fakeSupabase({
     hard_rules: {

@@ -14,6 +14,7 @@ import StrictnessPanel from "@/components/control/StrictnessPanel";
 import RetentionPanel from "@/components/control/RetentionPanel";
 import AccountSwitcher from "@/components/control/AccountSwitcher";
 import PolicyOverviewPanel from "@/components/control/PolicyOverviewPanel";
+import NotificationPreferencesPanel from "@/components/control/NotificationPreferencesPanel";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 
@@ -192,6 +193,12 @@ export default function ControlSystem() {
           >
             Policy change requests
           </button>
+          <button
+            onClick={() => navigate("/control-system/audit-verify")}
+            className="rounded border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-cyan-300 hover:bg-cyan-500/20"
+          >
+            Verify audit trail
+          </button>
         </nav>
       </header>
 
@@ -204,6 +211,7 @@ export default function ControlSystem() {
       <CircuitBreakerPanel />
       <HardRulesPanel />
       <PolicyOverviewPanel />
+      <NotificationPreferencesPanel />
       <DryRunToggle on={dryRun} onChange={setDryRun} />
 
 
