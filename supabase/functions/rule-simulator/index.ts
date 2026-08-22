@@ -25,6 +25,13 @@ type DraftRule = {
   provider?: string | null;
 };
 
+type DraftSafetyRule = {
+  name?: string;
+  category?: string;
+  pattern: string;
+  severity: "block" | "require_approval";
+};
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
@@ -47,6 +54,7 @@ Deno.serve(async (req) => {
   const description = String(body?.description || "").trim();
   const params = body?.params ?? {};
   const draftRule = (body?.draft_rule ?? null) as DraftRule | null;
+  const draftSafetyRule = (body?.draft_safety_rule ?? null) as DraftSafetyRule | null;
   // Optional: simulate "as this agent" so a per-agent rule's precedence
   // over the account-wide default is directly checkable before it ships.
   // Omitted/null = simulate with no agent in context (only account-wide
@@ -58,6 +66,9 @@ Deno.serve(async (req) => {
   if (!description) return json({ error: "description required" }, 400);
   if (draftRule && (!draftRule.action_type_pattern || !draftRule.effect)) {
     return json({ error: "draft_rule needs action_type_pattern and effect" }, 400);
+  }
+  if (draftSafetyRule && (!draftSafetyRule.pattern || !draftSafetyRule.severity)) {
+    return json({ error: "draft_safety_rule needs pattern and severity" }, 400);
   }
 
   const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -106,12 +117,34 @@ Deno.serve(async (req) => {
   // as a "would have" match.
   const liveSafety = customSafety.filter((r) => !r.shadow_mode);
   const shadowSafety = customSafety.filter((r) => r.shadow_mode);
-  const safetyScan = scanWithRules(
-    [...BUILTIN_SAFETY_RULES.filter((r: SafetyRule) => r.enabled), ...liveSafety],
-    params,
-    description,
-  );
+  const enabledBuiltins = BUILTIN_SAFETY_RULES.filter((r: SafetyRule) => r.enabled);
+  const safetyScan = scanWithRules([...enabledBuiltins, ...liveSafety], params, description);
   const safetyShadowScan = shadowSafety.length ? scanWithRules(shadowSafety, params, description) : null;
+
+  // ---- 4: the draft safety rule under test, if one was given. Run
+  // separately from the call above (not merged into one) so the response
+  // keeps "draft safety match" distinct from "live safety match", the same
+  // way draft_rule is kept separate from live_rules for hard rules.
+  const DRAFT_SAFETY_RULE_ID = "draft:safety_rule";
+  const draftSafetyRuleObj: SafetyRule | null = draftSafetyRule
+    ? {
+      id: DRAFT_SAFETY_RULE_ID,
+      name: draftSafetyRule.name || "Draft safety rule",
+      category: draftSafetyRule.category || "custom",
+      pattern: draftSafetyRule.pattern,
+      severity: draftSafetyRule.severity,
+      enabled: true,
+      builtin: false,
+    }
+    : null;
+  const draftSafetyScan = draftSafetyRuleObj
+    ? scanWithRules([...enabledBuiltins, ...liveSafety, draftSafetyRuleObj], params, description)
+    : null;
+  const draftSafetyMatched = draftSafetyScan?.matches.some((m) => m.rule_id === DRAFT_SAFETY_RULE_ID) ?? false;
+  // What the projected verdict below should treat as "the safety scanner's
+  // read" -- the draft-inclusive scan when a draft safety rule was given
+  // (a superset of the live-only scan), otherwise the unchanged live scan.
+  const effectiveSafety = draftSafetyScan ?? safetyScan;
 
   return json({
     input: { action_type: actionType, provider, description, agent_id: agentId },
@@ -129,6 +162,15 @@ Deno.serve(async (req) => {
       : null,
     safety_scan: safetyScan,
     safety_shadow_matches: safetyShadowScan?.matches ?? [],
+    draft_safety_rule: draftSafetyRuleObj
+      ? {
+        matches: draftSafetyMatched,
+        would_result_in: draftSafetyMatched ? draftSafetyRule!.severity : null,
+        // The full scan WITH the draft rule appended -- what the overall
+        // safety verdict becomes, not just whether the draft itself hit.
+        combined_scan: draftSafetyScan,
+      }
+      : null,
     // A rough combined read: what would this action's verdict be right now,
     // factoring in live hard rules + the draft rule under test + the safety
     // scanner. This does NOT include spend cap / kill switch / circuit
@@ -138,8 +180,8 @@ Deno.serve(async (req) => {
       liveRuleEffect: (liveMatch?.effect as "always_block" | "always_require_approval" | undefined) ?? null,
       draftRuleMatches: draftMatches ?? false,
       draftRuleEffect: draftRule?.effect ?? null,
-      safetyMatched: safetyScan.matched,
-      safetySeverity: safetyScan.severity,
+      safetyMatched: effectiveSafety.matched,
+      safetySeverity: effectiveSafety.severity,
     }),
     note: "Does not include spend cap, kill switch, circuit breaker, or the anomaly detector — those depend on live account state at the moment of a real action, not a hypothetical.",
   });
