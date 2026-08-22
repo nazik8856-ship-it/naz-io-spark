@@ -22,6 +22,7 @@ export const INCIDENT_KINDS = [
   "confidence_miscalibrated",
   "break_glass_override",
   "correlated_breaker_trip",
+  "audit_integrity_failure",
 ] as const;
 export type IncidentKind = typeof INCIDENT_KINDS[number];
 
