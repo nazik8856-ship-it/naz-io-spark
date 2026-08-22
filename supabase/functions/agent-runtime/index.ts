@@ -13,6 +13,7 @@ import {
 } from "../_shared/tool-retry.ts";
 import { PROVIDER_WRITE_KINDS, runProviderWrite } from "../_shared/provider-writes.ts";
 import { runControlGate } from "../_shared/control-gate.ts";
+import { checkRateLimit } from "../_shared/rate-limit.ts";
 
 import {
   readConfidence,
@@ -42,6 +43,18 @@ const LOVABLE_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 const MODEL = "google/gemini-3-flash-preview";
 const DEEP_MODEL = "google/gemini-3.1-pro-preview"; // stronger reasoning for deep analysis / audits / plans
 const MAX_STEPS = 24;
+// Run-start limit: nothing previously stopped a misbehaving scheduler/webhook/
+// caller from triggering unlimited full agent runs. Separate from
+// STEP_RATE_LIMIT_PER_MINUTE below -- one run can legitimately make many
+// gate calls, so the two must not share a bucket.
+const RUN_RATE_LIMIT_PER_MINUTE = 20;
+// Per-step gate-fallback limit: assessWithControlEngine's HTTP path already
+// rides control-engine's own "control-engine" bucket, but shares it with
+// human chat traffic under the same userId key. Agent-driven steps get
+// their own key so they don't silently eat a human's chat budget, and so
+// the in-process fallback branch (control-engine unreachable) -- which has
+// no rate-limit layer of its own -- is covered too.
+const STEP_RATE_LIMIT_PER_MINUTE = 120;
 
 
 type Tool = { name: string; description: string; kind: string; config: Record<string, unknown> };
@@ -133,6 +146,18 @@ serve(async (req) => {
       userId = userData?.user?.id ?? "";
     }
     if (!userId) return json({ error: "Not authenticated" }, 401);
+
+    // ---- Rate limit (run start) --------------------------------------------
+    // Nothing previously stopped a misbehaving client (manual/cron/webhook)
+    // from triggering unlimited full agent runs. Fails OPEN if the limiter
+    // itself can't be reached, same as every other rate-limited endpoint.
+    const runRate = await checkRateLimit(adminClient, userId, "agent-runtime", RUN_RATE_LIMIT_PER_MINUTE, 60);
+    if (!runRate.allowed) {
+      return json({
+        error: "rate_limited",
+        message: `Too many agent runs — ${runRate.count} in the last minute (limit ${runRate.limit}). Try again shortly.`,
+      }, 429);
+    }
 
     const supabase = adminClient; // we'll always read/write scoped by user_id ourselves
 
@@ -508,6 +533,8 @@ serve(async (req) => {
       score: number;
       stepIndex?: number;
       escalated?: boolean;
+      actionType?: string | null;
+      provider?: string | null;
     }): Promise<string | null> =>
       logDecisionRow(supabase, { userId, agentId, runId }, { ...d, policyVersion: activePolicyVersion });
 
@@ -1125,6 +1152,25 @@ Rules:
       params: unknown;
       stepIndex: number;
     }): Promise<GateVerdict> => {
+      // Own bucket, separate from control-engine's "control-engine" key --
+      // agent-driven steps must not silently eat a human chat request's
+      // budget, and this also covers the in-process fallback below, which
+      // has no rate-limit layer of its own. Covers both the HTTP path and
+      // the fallback with one check, since both are "one gate assessment".
+      const stepRate = await checkRateLimit(supabase, userId, "agent-runtime-step", STEP_RATE_LIMIT_PER_MINUTE, 60);
+      if (!stepRate.allowed) {
+        return {
+          ok: false,
+          verdict: "block",
+          reason: `Too many gate assessments for this account — ${stepRate.count} in the last minute (limit ${stepRate.limit}). Try again shortly.`,
+          decisionId: null,
+          approvalId: null,
+          source: "rate_limit",
+          safety: null,
+          shadowRules: [],
+          via: "local-gate",
+        };
+      }
       const base = Deno.env.get("SUPABASE_URL");
       const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
       if (base && serviceKey) {
@@ -1389,6 +1435,8 @@ Rules:
             score: conf.score,
             stepIndex: steps,
             escalated: lowConfidence,
+            actionType: tool.kind,
+            provider: providerHint ?? null,
           });
 
           // Escalation gate: pause BEFORE executing anything the model is

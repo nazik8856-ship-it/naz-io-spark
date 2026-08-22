@@ -34,6 +34,23 @@ type Replay = {
   results: DiffRow[];
 };
 
+type RealTrafficChangedRow = {
+  id: string;
+  action_type: string;
+  provider: string;
+  description: string;
+  active: { gate_outcome: string; gate_detail: string | null };
+  draft: { gate_outcome: string; gate_detail: string | null };
+  diff: "regression" | "improvement";
+};
+
+type RealTrafficReplay = {
+  active_version: { version: number | null };
+  draft_version: { version: number };
+  summary: { total: number; same: number; regressions: number; improvements: number };
+  changed: RealTrafficChangedRow[];
+};
+
 /**
  * POLICY VERSIONS — every decision is judged by an exact policy snapshot.
  * Drafts must pass a scenario replay before they can be activated: a draft
@@ -46,6 +63,9 @@ export default function ControlPolicy() {
   const [openSnapshot, setOpenSnapshot] = useState<string | null>(null);
   const [replay, setReplay] = useState<Replay | null>(null);
   const [replayFor, setReplayFor] = useState<string | null>(null);
+  const [realReplay, setRealReplay] = useState<RealTrafficReplay | null>(null);
+  const [realReplayFor, setRealReplayFor] = useState<string | null>(null);
+  const [realReplayBusy, setRealReplayBusy] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -85,6 +105,19 @@ export default function ControlPolicy() {
       return;
     }
     setReplay(body as unknown as Replay);
+  };
+
+  const runRealTrafficReplay = async (v: PolicyVersion) => {
+    setRealReplayBusy(v.id);
+    setRealReplayFor(v.id);
+    const { ok, body } = await call("/replay-real", { policy_version_id: v.id });
+    setRealReplayBusy(null);
+    if (!ok) {
+      setRealReplay(null);
+      toast({ title: "Real-traffic replay failed", description: String(body.error ?? "Unknown error"), variant: "destructive" });
+      return;
+    }
+    setRealReplay(body as unknown as RealTrafficReplay);
   };
 
   const activate = async (v: PolicyVersion) => {
@@ -192,6 +225,13 @@ export default function ControlPolicy() {
                     className="rounded border border-white/15 px-2 py-1 hover:bg-white/10 disabled:opacity-50"
                   >
                     {busy === v.id ? "Running…" : "Run replay"}
+                  </button>
+                  <button
+                    onClick={() => runRealTrafficReplay(v)}
+                    disabled={realReplayBusy === v.id}
+                    className="rounded border border-cyan-500/30 px-2 py-1 text-cyan-300 hover:bg-cyan-500/10 disabled:opacity-50"
+                  >
+                    {realReplayBusy === v.id ? "Running…" : "Replay against real traffic"}
                   </button>
                   {activeVersion && v.id !== activeVersion.id && (
                     <button
@@ -316,6 +356,48 @@ export default function ControlPolicy() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {realReplay && (
+          <div className="space-y-2">
+            <h2 className="text-sm font-semibold">
+              Real-traffic replay — draft v{realReplay.draft_version.version} vs active{" "}
+              {realReplay.active_version.version ? `v${realReplay.active_version.version}` : "(none)"}
+            </h2>
+            <p className="text-sm text-zinc-400">
+              {realReplay.summary.total} real decision(s) replayed · {realReplay.summary.same} unchanged ·{" "}
+              {realReplay.summary.regressions} regression(s), {realReplay.summary.improvements} improvement(s).
+              Only decisions with a captured action payload are replayable — plain historical allows aren't included.
+            </p>
+            {realReplay.changed.length === 0 ? (
+              <p className="rounded border border-emerald-500/30 bg-emerald-500/[0.04] p-3 text-xs text-emerald-300">
+                No real decisions in this sample would have gone differently under the draft policy.
+              </p>
+            ) : (
+              <table className="w-full text-xs border border-white/10">
+                <thead className="bg-white/5 text-left text-zinc-400">
+                  <tr>
+                    <th className="p-2">Action</th>
+                    <th className="p-2">Description</th>
+                    <th className="p-2">Active</th>
+                    <th className="p-2">Draft</th>
+                    <th className="p-2">Change</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {realReplay.changed.map((r) => (
+                    <tr key={r.id} className="border-t border-white/10 align-top">
+                      <td className="p-2 font-mono">{r.action_type} · {r.provider}</td>
+                      <td className="p-2 text-zinc-400">{r.description}</td>
+                      <td className="p-2">{r.active.gate_outcome}</td>
+                      <td className="p-2">{r.draft.gate_outcome}</td>
+                      <td className={`p-2 ${r.diff === "regression" ? "text-rose-300" : "text-emerald-300"}`}>{r.diff}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         )}
       </div>

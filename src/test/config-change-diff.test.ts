@@ -39,4 +39,21 @@ describe("summarizeConfigChange", () => {
     const after = { enabled: true, shadow_mode: true };
     expect(summarizeConfigChange(before, after)).toBe("shadow_mode: undefined → true");
   });
+
+  it("agents.manifest is summarized as (updated), not dumped as full JSON (2026-08-23)", () => {
+    const before = { name: "Sales Bot", manifest: { systemPrompt: "old", tools: [{ name: "send_email" }] } };
+    const after = { name: "Sales Bot", manifest: { systemPrompt: "new", tools: [{ name: "send_email" }] } };
+    expect(summarizeConfigChange(before, after)).toBe("manifest: (updated) → (updated)");
+  });
+
+  it("a newly-created manifest (no prior value) is summarized as (none) -> (updated)", () => {
+    const before = { name: "Sales Bot" };
+    const after = { name: "Sales Bot", manifest: { systemPrompt: "new" } };
+    expect(summarizeConfigChange(before, after)).toBe("manifest: (none) → (updated)");
+  });
+
+  it("an unchanged manifest is never listed, even though it's a large object", () => {
+    const manifest = { systemPrompt: "same", tools: [] };
+    expect(summarizeConfigChange({ name: "a", manifest }, { name: "a", manifest })).toBe("No field changes");
+  });
 });

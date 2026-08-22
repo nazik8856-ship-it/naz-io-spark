@@ -31,6 +31,29 @@ export const BREAKER_WINDOW = 10;
 export const BREAKER_MIN_ATTEMPTS = 4;
 export const BREAKER_FAIL_RATE = 0.5;
 
+// The exact set agent_decisions_source_check (migrations) currently allows.
+// 2026-08-23: found that "agent_kill_switch"/"agent_ai_spend_cap" had been
+// written by this file since 2026-08-21 without ever being added to that
+// constraint -- three days of per-agent kill-switch/spend-cap blocks
+// produced no agent_decisions row at all, silently (supabase-js doesn't
+// throw on a constraint violation, and logStop() only destructures `data`).
+// Typing logStop's `source` param (and every direct agent_decisions insert
+// in this file) against this union makes that class of drift a compile
+// error instead of a silent runtime no-op: adding a new source string here
+// without also extending the real CHECK constraint is still possible, but
+// forgetting to add a NEW source to this list when introducing one in code
+// is now caught by tsc, not discovered days later by an empty audit trail.
+// "model" and "human_override" are written elsewhere (decision-scoring.ts,
+// agent-runtime.ts, control-engine.ts), not from this file, but are listed
+// for completeness since they share the same constraint.
+export const AGENT_DECISION_SOURCES = [
+  "model", "human_override",
+  "kill_switch", "ai_spend_cap", "agent_kill_switch", "agent_ai_spend_cap",
+  "hard_rule", "circuit_breaker", "circuit_breaker_trip",
+  "safety_scanner", "anomaly_detector", "gate_error",
+] as const;
+export type AgentDecisionSource = typeof AGENT_DECISION_SOURCES[number];
+
 export type GateContext = {
   userId: string;
   actionType: string;
@@ -71,6 +94,8 @@ export type GateResult = {
   policyVersionId: string | null;
   /** Every layer the gate checked, in order — not just the one that stopped it. */
   trace: TraceEntry[];
+  /** Total wall-clock time the gate spent on this call, in milliseconds. */
+  gateDurationMs: number;
   /** Records what matching shadow rules WOULD have done, against the real verdict. */
   recordShadowHits: (decisionId: string | null, actualDecision: string) => Promise<void>;
   /** Same, for shadow-mode safety rules (safety.shadowMatches). */
@@ -153,10 +178,18 @@ export async function createPendingApproval(
   }
 }
 
-export async function runControlGate(
+/**
+ * The real gate logic — has ~6 distinct early-return points (kill switch,
+ * spend cap, hard rule, circuit breaker, safety scanner, anomaly detector)
+ * plus the allow fallthrough and the fail-closed catch block, so timing is
+ * NOT threaded through every individual `return` here. Instead the
+ * exported runControlGate wrapper below times the whole call once and
+ * persists it generically off whatever decisionId this returns.
+ */
+async function runControlGateInner(
   admin: SupabaseClient,
   ctx: GateContext,
-): Promise<GateResult> {
+): Promise<Omit<GateResult, "gateDurationMs">> {
   const { userId, actionType, provider } = ctx;
   const agentId = ctx.agentId ?? null;
   const runId = ctx.runId ?? null;
@@ -182,7 +215,22 @@ export async function runControlGate(
 
   const trace: TraceEntry[] = [];
 
-  const logStop = async (decision: string, reasoning: string, source: string, escalated: boolean, hardRuleId?: string | null) => {
+  const logStop = async (
+    decision: string,
+    reasoning: string,
+    source: AgentDecisionSource,
+    escalated: boolean,
+    hardRuleId?: string | null,
+    // The action payload -- ONLY passed by the two BLOCK call sites
+    // (hard_rule, safety_scanner) that have it in scope and mean for it to
+    // be replayable later by a break-glass override or a real-traffic
+    // policy replay. Every other call site omits this, so it stays null
+    // there, deliberately -- capturing the full params/description on
+    // every block (kill switch, spend cap, circuit breaker), or on an
+    // ALLOW verdict at all, is out of scope, not an oversight.
+    params?: unknown,
+    description?: string,
+  ) => {
     try {
       const { data } = await admin.from("agent_decisions").insert({
         user_id: userId,
@@ -201,6 +249,10 @@ export async function runControlGate(
         // live rule matched anything in the last N days" from real data
         // instead of guessing. Null for every other source.
         hard_rule_id: hardRuleId ?? null,
+        action_type: actionType,
+        provider,
+        params: params ?? null,
+        description: description ?? null,
         // The trace array is closed over and already has every entry pushed
         // up to this call site — finalizeTrace fills the rest as not_reached.
         gate_trace: finalizeTrace(trace),
@@ -425,6 +477,12 @@ export async function runControlGate(
       : `Your hard rule requires approval first: "${matched.rule_text}". Nothing ran — approve it explicitly to proceed.`;
     const decisionId = await logStop(
       `${blocking ? "BLOCK" : "APPROVAL_REQUIRED"} ${actionType} (${provider})`, reason, "hard_rule", !blocking, matched.id,
+      // Only a real BLOCK needs its params/description captured for a
+      // possible break-glass override or real-traffic policy replay -- an
+      // APPROVAL_REQUIRED verdict already has its own params/description-
+      // carrying pending_approvals row.
+      blocking ? ctx.params : undefined,
+      blocking ? ctx.description : undefined,
     );
     await recordShadowHits(decisionId, blocking ? "block" : "modify");
     let approvalId: string | null = null;
@@ -525,6 +583,11 @@ export async function runControlGate(
       `${reason}\nMatched: ${safety.matches.map((m) => `${m.name} on ${m.matched_on}`).join("; ")}`,
       "safety_scanner",
       !blocking,
+      undefined,
+      // Same rule as the hard_rule branch above: only a real BLOCK gets its
+      // params/description captured.
+      blocking ? ctx.params : undefined,
+      blocking ? ctx.description : undefined,
     );
     await recordShadowHits(decisionId, blocking ? "block" : "modify");
     await recordSafetyShadowHits(decisionId, blocking ? "block" : "modify");
@@ -634,10 +697,12 @@ export async function runControlGate(
         reasoning: `${reason}\n${message}`.slice(0, 800),
         alternatives_considered: [],
         confidence_score: 100,
-        source: "gate_error",
+        source: "gate_error" satisfies AgentDecisionSource,
         escalated: true,
         policy_version: policyVersion,
         gate_trace: finalizeTrace(trace),
+        action_type: actionType,
+        provider,
       }).select("id").maybeSingle();
       decisionId = (data as { id?: string } | null)?.id ?? null;
     } catch { /* logging must never break the fail-closed block */ }
@@ -672,6 +737,28 @@ export async function runControlGate(
       recordAttempt: async () => null,
     };
   }
+}
+
+/**
+ * Total gate latency, end to end — wraps runControlGateInner with a single
+ * performance.now() start/stop rather than editing each of its internal
+ * return points individually. Persisted onto whatever decision row that
+ * call already logged (every early-return branch that stops/escalates an
+ * action produces a decisionId; the allow fallthrough doesn't log its own
+ * row here at all — the caller logs that one separately once model
+ * scoring finishes, so there's nothing of the gate's own to attach this
+ * to on that path). Never lets the persist step affect the real result.
+ */
+export async function runControlGate(admin: SupabaseClient, ctx: GateContext): Promise<GateResult> {
+  const start = performance.now();
+  const result = await runControlGateInner(admin, ctx);
+  const gateDurationMs = Math.round(performance.now() - start);
+  if (result.decisionId) {
+    try {
+      await admin.from("agent_decisions").update({ gate_duration_ms: gateDurationMs }).eq("id", result.decisionId);
+    } catch { /* observability must never affect the gate's real result */ }
+  }
+  return { ...result, gateDurationMs };
 }
 
 /**
@@ -755,9 +842,11 @@ export async function recordBreakerAttempt(
           reasoning: tripReason.slice(0, 800),
           alternatives_considered: [],
           confidence_score: 100,
-          source: "circuit_breaker_trip",
+          source: "circuit_breaker_trip" satisfies AgentDecisionSource,
           escalated: true,
           policy_version: input.policyVersion ?? null,
+          action_type: actionType,
+          provider,
         }).select("id").maybeSingle();
         tripId = (data as { id?: string } | null)?.id ?? null;
       } catch { /* logging must never break the breaker */ }

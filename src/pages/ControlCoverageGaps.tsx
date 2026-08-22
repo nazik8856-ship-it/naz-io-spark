@@ -7,8 +7,18 @@ const anyDb = supabase as any;
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 import { findCoverageGaps, type CapabilityForCoverage, type HardRuleForCoverage } from "@/lib/coverage-gaps";
+import { classifyAnomalyCoverage, topAgentlessActionTypes, type AgentlessActionType, type CoverageSeverity } from "@/lib/anomaly-coverage";
 
 type AgentOption = { id: string; name: string };
+
+const ANOMALY_WINDOW_DAYS = 30;
+
+const SEVERITY_STYLE: Record<CoverageSeverity, string> = {
+  none: "border-emerald-500/30 bg-emerald-500/[0.04] text-emerald-300",
+  low: "border-white/15 bg-white/5 text-zinc-300",
+  moderate: "border-amber-500/30 bg-amber-500/[0.04] text-amber-300",
+  high: "border-rose-500/30 bg-rose-500/[0.04] text-rose-300",
+};
 
 /**
  * COVERAGE GAPS — which real, connectable action kinds currently have NO
@@ -24,15 +34,26 @@ export default function ControlCoverageGaps() {
   const [totalReal, setTotalReal] = useState(0);
   const [agents, setAgents] = useState<AgentOption[]>([]);
   const [scopeAgentId, setScopeAgentId] = useState("");
+  const [anomalyTotal, setAnomalyTotal] = useState(0);
+  const [anomalyAgentless, setAnomalyAgentless] = useState(0);
+  const [anomalyBreakdown, setAnomalyBreakdown] = useState<AgentlessActionType[]>([]);
 
   const load = useCallback(async () => {
     if (!user) return;
     setLoading(true);
+    const since = new Date(Date.now() - ANOMALY_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
     const { data: sess } = await supabase.auth.getSession();
-    const [statusRes, rulesRes, { data: agentRows }] = await Promise.all([
+    const [statusRes, rulesRes, { data: agentRows }, totalRes, agentlessRes, breakdownRes] = await Promise.all([
       supabase.functions.invoke("capability-status", { body: {} }),
       anyDb.from("hard_rules").select("action_type_pattern, provider, enabled, shadow_mode, agent_id").eq("user_id", user.id),
       anyDb.from("agents").select("id, name").eq("user_id", user.id).order("name"),
+      // Anomaly-detector coverage: what fraction of recent decisions had no
+      // agentId at all, so the per-agent baseline check was skipped for them
+      // entirely (a documented, deliberate skip in control-gate.ts, not a
+      // bug -- this just answers whether it's a SIZED gap or not, live).
+      anyDb.from("agent_decisions").select("id", { count: "exact", head: true }).eq("user_id", user.id).gte("created_at", since),
+      anyDb.from("agent_decisions").select("id", { count: "exact", head: true }).eq("user_id", user.id).gte("created_at", since).is("agent_id", null),
+      anyDb.from("agent_decisions").select("action_type, provider").eq("user_id", user.id).gte("created_at", since).is("agent_id", null).limit(500),
     ]);
     void sess;
 
@@ -60,6 +81,11 @@ export default function ControlCoverageGaps() {
     // DIFFERENT agent that has no rule of its own and no account-wide
     // default covering it either.
     setGaps(findCoverageGaps(capabilities, hardRules, scopeAgentId ? scopeAgentId : undefined));
+
+    setAnomalyTotal(totalRes.count ?? 0);
+    setAnomalyAgentless(agentlessRes.count ?? 0);
+    setAnomalyBreakdown(topAgentlessActionTypes((breakdownRes.data ?? []) as { action_type: string | null; provider: string | null }[]));
+
     setLoading(false);
   }, [user, scopeAgentId]);
 
@@ -135,6 +161,41 @@ export default function ControlCoverageGaps() {
                 ))}
               </ul>
             )}
+
+            {(() => {
+              const { pct, severity } = classifyAnomalyCoverage(anomalyTotal, anomalyAgentless);
+              return (
+                <div className="mt-8">
+                  <h2 className="font-mono text-xs uppercase tracking-wider text-zinc-400">Anomaly detector coverage</h2>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    The behavioral-baseline anomaly detector only runs for actions tied to a specific agent —
+                    a one-off, agent-less action has no history to baseline against, so it's skipped by design.
+                    This shows whether that's actually a sized gap, over the last {ANOMALY_WINDOW_DAYS} days.
+                  </p>
+                  <div className={`mt-3 rounded border p-4 text-sm ${SEVERITY_STYLE[severity]}`}>
+                    {anomalyTotal === 0 ? (
+                      "No decisions in range."
+                    ) : (
+                      <>
+                        <span className="text-lg font-semibold">{pct}%</span> of decisions ({anomalyAgentless} of{" "}
+                        {anomalyTotal}) had no agent tied to them, so the anomaly detector never ran for them.
+                      </>
+                    )}
+                  </div>
+                  {severity !== "none" && anomalyBreakdown.length > 0 && (
+                    <ul className="mt-3 space-y-1.5">
+                      {anomalyBreakdown.map((b) => (
+                        <li key={`${b.action_type}-${b.provider}`} className="flex items-center gap-2 rounded border border-white/10 bg-white/[0.02] px-3 py-2 text-[12px] text-zinc-300">
+                          <span className="font-mono">{b.action_type}</span>
+                          {b.provider && <span className="text-zinc-500">· {b.provider}</span>}
+                          <span className="ml-auto font-mono text-zinc-500">{b.count}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              );
+            })()}
           </>
         )}
       </main>

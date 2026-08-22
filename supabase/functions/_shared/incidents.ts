@@ -5,7 +5,10 @@
 // with a timeline and a resolution note. Deliberate human actions
 // (flipping the kill switch on/off) and routine enforcement working as
 // intended (a hard rule blocking something) are NOT incidents — nothing
-// went wrong there, the system did exactly what it was told to.
+// went wrong there, the system did exactly what it was told to. A
+// break-glass override IS an incident despite also being a deliberate
+// human action -- it's a human bypassing a safety control, not routine
+// use of one, and is worth surfacing for later review every time.
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import type { CriticalAlertEvent } from "./critical-alerts.ts";
 import { triggerWebhooks } from "./webhooks.ts";
@@ -17,6 +20,9 @@ export const INCIDENT_KINDS = [
   "self_audit_regression",
   "approval_escalated",
   "confidence_miscalibrated",
+  "break_glass_override",
+  "correlated_breaker_trip",
+  "audit_integrity_failure",
 ] as const;
 export type IncidentKind = typeof INCIDENT_KINDS[number];
 

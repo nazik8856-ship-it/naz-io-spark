@@ -10,7 +10,7 @@
 // safety scanner.
 //
 // Run with: deno test --allow-none supabase/functions/_shared/control-gate_test.ts
-import { runControlGate, recordBreakerAttempt } from "./control-gate.ts";
+import { runControlGate, recordBreakerAttempt, AGENT_DECISION_SOURCES } from "./control-gate.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
@@ -134,6 +134,86 @@ Deno.test("spend under cap and kill switch off does not block at this layer", as
   assertEquals(result.verdict, "allow");
 });
 
+// ---- agent-scoped kill switch / spend cap (2026-08-23 regression guard) ---
+// 20260821020000_per_agent_spend_cap.sql (Wave 5 session 1) started writing
+// source: "agent_kill_switch" / "agent_ai_spend_cap" from these branches,
+// but agent_decisions_source_check's CHECK constraint was never extended to
+// allow them -- three days after it was last touched. Since supabase-js
+// doesn't throw on a constraint violation and logStop() only destructures
+// `data`, every per-agent kill-switch/spend-cap block silently produced NO
+// agent_decisions row at all from 2026-08-21 until the fix in
+// 20260823010000_fix_agent_decisions_source_check_per_agent.sql.
+//
+// control-gate.ts now exports AGENT_DECISION_SOURCES as the real source of
+// truth (logStop's `source` param and every direct agent_decisions insert
+// are typed against it, so a NEW source string used without extending that
+// list is now a compile error, not a silent audit-trail gap). This test
+// checks that exported list against the exact set the current migration
+// allows -- there's still no live DB in this sandbox to check the real
+// constraint, so this one list-vs-list comparison is the one place drift
+// between code and migration can still slip through undetected.
+const CURRENT_MIGRATION_ALLOWS = new Set([
+  "model", "human_override",
+  "kill_switch", "ai_spend_cap",
+  "agent_kill_switch", "agent_ai_spend_cap",
+  "hard_rule", "circuit_breaker", "circuit_breaker_trip",
+  "safety_scanner", "anomaly_detector", "gate_error",
+]);
+
+Deno.test("an agent's own kill switch blocks only that agent, source is a constraint-valid value, and a real decisionId is produced", async () => {
+  const { client, inserts } = fakeSupabase({
+    profiles: { data: { kill_switch: false }, error: null },
+    agents: { data: { kill_switch: true }, error: null },
+    agent_decisions: { data: { id: "decision-agent-1" }, error: null },
+  });
+  const result = await runControlGate(client, { ...baseCtx, agentId: "agent-1" });
+  assertFalse(result.ok);
+  assertEquals(result.verdict, "block");
+  assertEquals(result.source, "agent_kill_switch");
+  assert(result.decisionId, "a per-agent kill-switch block must produce a real decisionId, not a silently-dropped insert");
+  const logged = (inserts.agent_decisions ?? [])[0] as { source?: string } | undefined;
+  assert(
+    logged?.source !== undefined && CURRENT_MIGRATION_ALLOWS.has(logged.source),
+    `source "${logged?.source}" must be a member of agent_decisions_source_check's allowed list, or the insert will silently fail against the real constraint`,
+  );
+  assertEquals(logged?.source, "agent_kill_switch");
+});
+
+Deno.test("AGENT_DECISION_SOURCES (control-gate.ts's real source of truth) matches the current agent_decisions_source_check migration exactly", () => {
+  for (const source of AGENT_DECISION_SOURCES) {
+    assert(CURRENT_MIGRATION_ALLOWS.has(source), `"${source}" is a valid AgentDecisionSource in code but missing from the migration's allowed list`);
+  }
+  for (const source of CURRENT_MIGRATION_ALLOWS) {
+    assert((AGENT_DECISION_SOURCES as readonly string[]).includes(source), `"${source}" is allowed by the migration but missing from AGENT_DECISION_SOURCES -- either update the migration list here or add it to control-gate.ts`);
+  }
+});
+
+// ---- gate observability: total latency (2026-08-23) ------------------------
+
+Deno.test("runControlGate: a blocking result carries a non-negative gateDurationMs and persists it onto the logged decision", async () => {
+  const { client, updates } = fakeSupabase({
+    hard_rules: {
+      data: [{ id: "r1", rule_text: "blocks", action_type_pattern: "*", effect: "always_block", enabled: true }],
+      error: null,
+    },
+    agent_decisions: { data: { id: "decision-1" }, error: null },
+  });
+  const result = await runControlGate(client, baseCtx);
+  assert(typeof result.gateDurationMs === "number" && result.gateDurationMs >= 0, "gateDurationMs must be a non-negative number");
+  const updated = (updates.agent_decisions ?? [])[0] as { gate_duration_ms?: number } | undefined;
+  assert(updated !== undefined, "expected an UPDATE on agent_decisions to persist gate_duration_ms");
+  assertEquals(updated?.gate_duration_ms, result.gateDurationMs);
+});
+
+Deno.test("runControlGate: an allow verdict (no decisionId) still reports gateDurationMs but issues no update", async () => {
+  const { client, updates } = fakeSupabase();
+  const result = await runControlGate(client, baseCtx);
+  assertEquals(result.verdict, "allow");
+  assertEquals(result.decisionId, null);
+  assert(typeof result.gateDurationMs === "number" && result.gateDurationMs >= 0, "gateDurationMs must be a non-negative number");
+  assertEquals(updates.agent_decisions ?? [], []);
+});
+
 // ---- layer 3: hard rules ----------------------------------------------------
 
 Deno.test("a matching always_block hard rule blocks and is NOT judged by the model", async () => {
@@ -187,6 +267,43 @@ Deno.test("a decision NOT enforced by a hard rule records hard_rule_id as null",
   await runControlGate(client, baseCtx);
   const logged = (inserts.agent_decisions ?? [])[0] as { hard_rule_id?: string | null } | undefined;
   assertEquals(logged?.hard_rule_id ?? null, null);
+});
+
+Deno.test("a hard-rule BLOCK captures ctx.params, for a possible break-glass override later (2026-08-23)", async () => {
+  const { client, inserts } = fakeSupabase({
+    hard_rules: {
+      data: [{ id: "r1", rule_text: "Never post to #general", action_type_pattern: "slack_post_message", effect: "always_block", provider: "Slack", enabled: true }],
+      error: null,
+    },
+  });
+  await runControlGate(client, { ...baseCtx, actionType: "slack_post_message", provider: "Slack" });
+  const logged = (inserts.agent_decisions ?? [])[0] as { params?: unknown } | undefined;
+  assertEquals(logged?.params, baseCtx.params);
+});
+
+Deno.test("a hard-rule BLOCK also captures ctx.description, for a possible real-traffic policy replay later (2026-08-23)", async () => {
+  const { client, inserts } = fakeSupabase({
+    hard_rules: {
+      data: [{ id: "r1", rule_text: "Never post to #general", action_type_pattern: "slack_post_message", effect: "always_block", provider: "Slack", enabled: true }],
+      error: null,
+    },
+  });
+  await runControlGate(client, { ...baseCtx, actionType: "slack_post_message", provider: "Slack" });
+  const logged = (inserts.agent_decisions ?? [])[0] as { description?: string } | undefined;
+  assertEquals(logged?.description, baseCtx.description);
+});
+
+Deno.test("a hard-rule APPROVAL_REQUIRED does NOT capture params on the decision row -- the pending_approvals row already carries it", async () => {
+  const { client, inserts } = fakeSupabase({
+    hard_rules: {
+      data: [{ id: "r2", rule_text: "High-value orders need a human", action_type_pattern: "shopify_create_draft_order", effect: "always_require_approval", provider: null, enabled: true }],
+      error: null,
+    },
+    pending_approvals: { data: { id: "approval-1" }, error: null },
+  });
+  await runControlGate(client, { ...baseCtx, actionType: "shopify_create_draft_order", provider: "Shopify" });
+  const logged = (inserts.agent_decisions ?? [])[0] as { params?: unknown } | undefined;
+  assertEquals(logged?.params ?? null, null);
 });
 
 Deno.test("a matching always_require_approval hard rule queues an approval instead of blocking outright", async () => {
@@ -344,6 +461,20 @@ Deno.test("a safety-scanner block-severity match blocks", async () => {
   assertFalse(result.ok);
   assertEquals(result.verdict, "block");
   assertEquals(result.source, "safety_scanner");
+});
+
+Deno.test("a safety-scanner BLOCK captures ctx.params, for a possible break-glass override later (2026-08-23)", async () => {
+  const { client, inserts } = fakeSupabase();
+  await runControlGate(client, { ...baseCtx, description: "delete all customer records" });
+  const logged = (inserts.agent_decisions ?? [])[0] as { params?: unknown } | undefined;
+  assertEquals(logged?.params, baseCtx.params);
+});
+
+Deno.test("a safety-scanner BLOCK also captures ctx.description, for a possible real-traffic policy replay later (2026-08-23)", async () => {
+  const { client, inserts } = fakeSupabase();
+  await runControlGate(client, { ...baseCtx, description: "delete all customer records" });
+  const logged = (inserts.agent_decisions ?? [])[0] as { description?: string } | undefined;
+  assertEquals(logged?.description, "delete all customer records");
 });
 
 Deno.test("a safety-scanner require_approval-severity match queues approval, does not hard-block", async () => {

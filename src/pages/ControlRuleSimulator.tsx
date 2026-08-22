@@ -8,6 +8,7 @@ type SimResult = {
   live_rules: { matched: { id: string; rule_text: string; effect: string } | null; shadow_matches: { id: string; rule_text: string; would_have: string }[] };
   draft_rule: { matches: boolean; would_result_in: string | null } | null;
   safety_scan: { matched: boolean; severity: string | null; summary: string | null };
+  draft_safety_rule: { matches: boolean; would_result_in: string | null } | null;
   projected_verdict: "block" | "require_approval" | "allow";
   note: string;
 };
@@ -32,12 +33,19 @@ export default function ControlRuleSimulator() {
   const [draftPattern, setDraftPattern] = useState("");
   const [draftEffect, setDraftEffect] = useState<"always_block" | "always_require_approval">("always_require_approval");
   const [draftProvider, setDraftProvider] = useState("");
+  const [useDraftSafety, setUseDraftSafety] = useState(false);
+  const [draftSafetyPattern, setDraftSafetyPattern] = useState("");
+  const [draftSafetySeverity, setDraftSafetySeverity] = useState<"block" | "require_approval">("require_approval");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<SimResult | null>(null);
 
   const run = async () => {
     if (!actionType.trim() || !description.trim()) {
       toast({ title: "Missing fields", description: "Action type and description are required.", variant: "destructive" });
+      return;
+    }
+    if (useDraftSafety && !draftSafetyPattern.trim()) {
+      toast({ title: "Missing pattern", description: "The draft safety rule needs a pattern to test.", variant: "destructive" });
       return;
     }
     setBusy(true);
@@ -49,6 +57,9 @@ export default function ControlRuleSimulator() {
         params: {},
         draft_rule: useDraft
           ? { action_type_pattern: draftPattern.trim() || "*", effect: draftEffect, provider: draftProvider.trim() || null }
+          : null,
+        draft_safety_rule: useDraftSafety
+          ? { pattern: draftSafetyPattern.trim(), severity: draftSafetySeverity }
           : null,
       },
     });
@@ -129,6 +140,28 @@ export default function ControlRuleSimulator() {
             </div>
           )}
 
+          <label className="flex items-center gap-2 pt-2 text-xs text-zinc-300">
+            <input type="checkbox" checked={useDraftSafety} onChange={(e) => setUseDraftSafety(e.target.checked)} />
+            Also test a draft safety rule (not saved)
+          </label>
+          {useDraftSafety && (
+            <div className="grid grid-cols-2 gap-3 rounded border border-cyan-500/20 bg-cyan-500/[0.03] p-3">
+              <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+                Pattern (regex)
+                <input value={draftSafetyPattern} onChange={(e) => setDraftSafetyPattern(e.target.value)} placeholder="e.g. wire transfer"
+                  className="rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200" />
+              </label>
+              <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+                Severity
+                <select value={draftSafetySeverity} onChange={(e) => setDraftSafetySeverity(e.target.value as typeof draftSafetySeverity)}
+                  className="rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200">
+                  <option value="require_approval">Require approval</option>
+                  <option value="block">Block</option>
+                </select>
+              </label>
+            </div>
+          )}
+
           <button
             disabled={busy}
             onClick={run}
@@ -176,6 +209,17 @@ export default function ControlRuleSimulator() {
                 {result.safety_scan.matched ? result.safety_scan.summary : "No pattern matched."}
               </p>
             </div>
+
+            {result.draft_safety_rule && (
+              <div className="rounded border border-cyan-500/20 bg-cyan-500/[0.03] p-3 text-sm">
+                <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Draft safety rule</div>
+                <p className="mt-1 text-zinc-300">
+                  {result.draft_safety_rule.matches
+                    ? `Matches — would result in: ${result.draft_safety_rule.would_result_in?.replace("_", " ")}`
+                    : "Does not match this action."}
+                </p>
+              </div>
+            )}
           </div>
         )}
       </main>

@@ -73,6 +73,7 @@ const ControlAccountData = lazyWithReload(() => import("./pages/ControlAccountDa
 const ControlPolicyBundle = lazyWithReload(() => import("./pages/ControlPolicyBundle"));
 const ControlPolicyChangeRequests = lazyWithReload(() => import("./pages/ControlPolicyChangeRequests"));
 const ControlAuditVerify = lazyWithReload(() => import("./pages/ControlAuditVerify"));
+const ControlDecisionHistory = lazyWithReload(() => import("./pages/ControlDecisionHistory"));
 
 
 
@@ -145,6 +146,7 @@ const App = () => (
                 <Route path="/control-system/policy-bundle" element={<ControlPolicyBundle />} />
                 <Route path="/control-system/policy-changes" element={<ControlPolicyChangeRequests />} />
                 <Route path="/control-system/audit-verify" element={<ControlAuditVerify />} />
+                <Route path="/control-system/decision-history" element={<ControlDecisionHistory />} />
                 {/* Hidden operator page, not linked in the customer nav -- gated
                     by the global admin/owner role check, same convention as
                     KillSwitchPanel's reveal-code gate. */}
