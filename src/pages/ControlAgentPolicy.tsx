@@ -19,6 +19,7 @@ type SafetyRule = {
   id: string; name: string; category: string; pattern: string;
   severity: "block" | "require_approval"; enabled: boolean; agent_id: string | null;
 };
+type BreakerRow = { action_type: string; tripped: boolean; failure_rate: number; attempts: number };
 
 const DEFAULT_CAP = 5;
 
@@ -45,6 +46,8 @@ export default function ControlAgentPolicy() {
   const [safetyRules, setSafetyRules] = useState<SafetyRule[]>([]);
   const [strictness, setStrictness] = useState<{ value: string; isOverride: boolean }>({ value: "balanced", isOverride: false });
   const [spendCap, setSpendCap] = useState<{ cap: number; hasOwnCap: boolean }>({ cap: DEFAULT_CAP, hasOwnCap: false });
+  const [breakers, setBreakers] = useState<BreakerRow[]>([]);
+  const [miscalibratedCount, setMiscalibratedCount] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     if (!accountId) return;
@@ -52,12 +55,19 @@ export default function ControlAgentPolicy() {
     setAgents((agentRows ?? []) as AgentOption[]);
     if (!agentId) return;
 
-    const [{ data: hr }, { data: sr }, { data: profile }, { data: override }, { data: cap }] = await Promise.all([
+    const [{ data: hr }, { data: sr }, { data: profile }, { data: override }, { data: cap }, { data: breakerRows }, { data: latestCalib }] = await Promise.all([
       supabase.from("hard_rules").select("id, rule_text, action_type_pattern, effect, provider, shadow_mode, enabled, agent_id").eq("user_id", accountId),
       supabase.from("safety_rules").select("id, name, category, pattern, severity, enabled, agent_id").eq("user_id", accountId),
       supabase.from("profiles").select("control_strictness").eq("id", accountId).maybeSingle(),
       supabase.from("agent_strictness_overrides").select("strictness").eq("agent_id", agentId).maybeSingle(),
       supabase.from("ai_spend_caps").select("daily_cap_usd").eq("user_id", accountId).eq("agent_id", agentId).maybeSingle(),
+      // Per-agent circuit breaker scoping (2026-08-22): this agent's own
+      // breaker rows, one per action_type it has attempted.
+      supabase.from("circuit_breakers").select("action_type, tripped, failure_rate, attempts").eq("user_id", accountId).eq("agent_id", agentId),
+      // Confidence calibration has no per-agent granularity (it buckets
+      // ALL of the account's decisions together) -- shown here as
+      // account-wide context, not something unique to this one agent.
+      supabase.from("confidence_calibration").select("period_end").eq("user_id", accountId).order("period_end", { ascending: false }).limit(1).maybeSingle(),
     ]);
 
     setHardRules((hr ?? []) as HardRule[]);
@@ -67,6 +77,20 @@ export default function ControlAgentPolicy() {
     setStrictness({ value: overrideValue ?? accountValue, isOverride: !!overrideValue });
     const capRow = cap as { daily_cap_usd?: number } | null;
     setSpendCap({ cap: Number(capRow?.daily_cap_usd ?? DEFAULT_CAP), hasOwnCap: !!capRow });
+    setBreakers((breakerRows ?? []) as BreakerRow[]);
+
+    const latestPeriodEnd = (latestCalib as { period_end?: string } | null)?.period_end;
+    if (latestPeriodEnd) {
+      const { count } = await supabase
+        .from("confidence_calibration")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", accountId)
+        .eq("period_end", latestPeriodEnd)
+        .eq("miscalibrated", true);
+      setMiscalibratedCount(count ?? 0);
+    } else {
+      setMiscalibratedCount(null);
+    }
   }, [accountId, agentId]);
 
   useEffect(() => { void load(); }, [load]);
@@ -154,6 +178,48 @@ export default function ControlAgentPolicy() {
                 <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Daily spend cap</div>
                 <div className="mt-1 text-lg font-semibold">${spendCap.cap.toFixed(2)}</div>
                 <div className="mt-1 text-xs text-zinc-500">{spendCap.hasOwnCap ? "This agent's own cap" : "Using the account-wide default"}</div>
+              </div>
+              <div className={`rounded border p-4 ${breakers.some((b) => b.tripped) ? "border-rose-500/30 bg-rose-500/[0.04]" : "border-white/10 bg-white/[0.02]"}`}>
+                <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Circuit breakers</div>
+                {breakers.length === 0 ? (
+                  <>
+                    <div className="mt-1 text-lg font-semibold text-zinc-400">None yet</div>
+                    <div className="mt-1 text-xs text-zinc-500">No attempts recorded for this agent.</div>
+                  </>
+                ) : breakers.some((b) => b.tripped) ? (
+                  <>
+                    <div className="mt-1 text-lg font-semibold text-rose-300">
+                      {breakers.filter((b) => b.tripped).length} tripped
+                    </div>
+                    <div className="mt-1 text-xs text-zinc-500">
+                      {breakers.filter((b) => b.tripped).map((b) => b.action_type).join(", ")}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="mt-1 text-lg font-semibold text-emerald-300">All clear</div>
+                    <div className="mt-1 text-xs text-zinc-500">{breakers.length} action type(s) tracked, none tripped.</div>
+                  </>
+                )}
+              </div>
+              <div className="rounded border border-white/10 bg-white/[0.02] p-4">
+                <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Confidence calibration</div>
+                {miscalibratedCount === null ? (
+                  <>
+                    <div className="mt-1 text-lg font-semibold text-zinc-400">No data yet</div>
+                    <div className="mt-1 text-xs text-zinc-500">Fills in after the weekly calibration run.</div>
+                  </>
+                ) : (
+                  <>
+                    <div className={`mt-1 text-lg font-semibold ${miscalibratedCount > 0 ? "text-amber-300" : "text-emerald-300"}`}>
+                      {miscalibratedCount === 0 ? "Calibrated" : `${miscalibratedCount} bucket(s) off`}
+                    </div>
+                    <div className="mt-1 text-xs text-zinc-500">
+                      Account-wide (not agent-specific) —{" "}
+                      <a href="/control-system/confidence-calibration" className="underline hover:text-zinc-300">view detail</a>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 

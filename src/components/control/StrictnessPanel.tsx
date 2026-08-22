@@ -33,18 +33,20 @@ export default function StrictnessPanel() {
   const [value, setValue] = useState<Strictness>("balanced");
   const [hasOverride, setHasOverride] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [dualControl, setDualControl] = useState(false);
 
   const load = useCallback(async () => {
     if (!user || !accountId) return;
     const [{ data: agentRows }, { data: profile }, { data: override }] = await Promise.all([
       supabase.from("agents").select("id, name").eq("user_id", accountId).order("name"),
-      supabase.from("profiles").select("control_strictness").eq("id", accountId).maybeSingle(),
+      supabase.from("profiles").select("control_strictness, require_dual_control_for_policy").eq("id", accountId).maybeSingle(),
       scopeAgentId
         ? supabase.from("agent_strictness_overrides").select("strictness").eq("agent_id", scopeAgentId).maybeSingle()
         : Promise.resolve({ data: null }),
     ]);
     setAgents((agentRows ?? []) as AgentOption[]);
     const accountValue = (profile as { control_strictness?: string } | null)?.control_strictness;
+    setDualControl(!!(profile as { require_dual_control_for_policy?: boolean } | null)?.require_dual_control_for_policy);
     const overrideValue = (override as { strictness?: string } | null)?.strictness;
     setHasOverride(!!overrideValue);
     const v = overrideValue ?? accountValue;
@@ -56,6 +58,25 @@ export default function StrictnessPanel() {
 
   const pick = async (next: Strictness) => {
     if (!user || !canWrite || (next === value && (scopeAgentId ? hasOverride : true))) return;
+
+    if (dualControl) {
+      setSaving(true);
+      const { error } = await supabase.rpc("request_policy_change", {
+        _change_type: "change_strictness",
+        _target_user_id: accountId,
+        _agent_id: scopeAgentId || null,
+        _new_value: { strictness: next },
+        _description: scopeAgentId ? `Set this agent's strictness to ${next}` : `Set account-wide strictness to ${next}`,
+      });
+      setSaving(false);
+      if (error) {
+        toast({ title: "Could not request this change", description: friendlyErrorMessage(error.message), variant: "destructive" });
+        return;
+      }
+      toast({ title: "Change requested", description: "A second owner needs to approve this from Policy change requests before it applies." });
+      return;
+    }
+
     const prev = value;
     setValue(next);
     setSaving(true);

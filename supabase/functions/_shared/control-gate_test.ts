@@ -357,6 +357,86 @@ Deno.test("a safety-scanner require_approval-severity match queues approval, doe
   assertEquals(result.approvalId, "approval-2");
 });
 
+// ---- safety rule shadow-mode parity (2026-08-22) ---------------------------
+
+const shadowSafetyRules = {
+  safety_rules: {
+    data: [{ id: "sr-1", name: "Trial rule", category: "custom", pattern: "shadow-trigger", severity: "block", enabled: true, shadow_mode: true }],
+    error: null,
+  },
+};
+
+Deno.test("a shadow-mode custom safety rule never blocks; it's surfaced in safety.shadowMatches instead", async () => {
+  const { client } = fakeSupabase(shadowSafetyRules);
+  const result = await runControlGate(client, { ...baseCtx, description: "contains shadow-trigger text" });
+  assert(result.ok, "a shadow-mode safety rule must never actually block");
+  assertEquals(result.safety.shadowMatches.length, 1);
+  assertEquals(result.safety.shadowMatches[0].rule_id, "sr-1");
+});
+
+Deno.test("recordSafetyShadowHits, called by the caller once the real final decision is known, inserts a row", async () => {
+  const { client, inserts } = fakeSupabase(shadowSafetyRules);
+  const result = await runControlGate(client, { ...baseCtx, description: "contains shadow-trigger text" });
+  await result.recordSafetyShadowHits("decision-99", "allow");
+  // insert() is called once with an ARRAY of rows (one per shadow match),
+  // so each push into `inserts` is itself that array.
+  const calls = (inserts.safety_rule_shadow_hits ?? []) as Record<string, unknown>[][];
+  assertEquals(calls.length, 1);
+  const rows = calls[0];
+  assertEquals(rows.length, 1);
+  assertEquals(rows[0].rule_id, "sr-1");
+  assertEquals(rows[0].decision_id, "decision-99");
+  assertEquals(rows[0].actual_decision, "allow");
+  assertEquals(rows[0].would_have, "block");
+});
+
+Deno.test("a live safety-scanner block also auto-records any shadow-mode safety rule that ALSO matched", async () => {
+  const { client, inserts } = fakeSupabase(shadowSafetyRules);
+  // "delete all" trips the builtin (live) block rule; "shadow-trigger" in
+  // the same description also matches the shadow-mode custom rule.
+  const result = await runControlGate(client, { ...baseCtx, description: "delete all customer records, ref shadow-trigger" });
+  assertFalse(result.ok);
+  assertEquals(result.source, "safety_scanner");
+  const calls = (inserts.safety_rule_shadow_hits ?? []) as Record<string, unknown>[][];
+  assertEquals(calls.length, 1);
+  assertEquals(calls[0].length, 1);
+  assertEquals(calls[0][0].rule_id, "sr-1");
+  assertEquals(calls[0][0].actual_decision, "block");
+});
+
+Deno.test("a live (non-shadow) custom safety rule match is recorded to safety_rule_matches for the dead-rule finder", async () => {
+  const { client, inserts } = fakeSupabase({
+    safety_rules: {
+      data: [{ id: "sr-live-1", name: "Live rule", category: "custom", pattern: "live-flag-word", severity: "block", enabled: true, shadow_mode: false }],
+      error: null,
+    },
+  });
+  const result = await runControlGate(client, { ...baseCtx, description: "contains live-flag-word" });
+  assertFalse(result.ok);
+  assertEquals(result.source, "safety_scanner");
+  const calls = (inserts.safety_rule_matches ?? []) as Record<string, unknown>[][];
+  assertEquals(calls.length, 1);
+  assertEquals(calls[0].length, 1);
+  assertEquals(calls[0][0].rule_id, "sr-live-1");
+});
+
+Deno.test("a builtin-only safety match never writes to safety_rule_matches (builtin ids aren't real safety_rules rows)", async () => {
+  const { client, inserts } = fakeSupabase();
+  const result = await runControlGate(client, { ...baseCtx, description: "delete all customer records" });
+  assertFalse(result.ok);
+  assertEquals(result.source, "safety_scanner");
+  assertEquals(inserts.safety_rule_matches ?? [], []);
+});
+
+Deno.test("a kill-switch block never reaches the safety scanner, so no shadow safety hit is recorded even with a matching shadow rule configured", async () => {
+  const { client, inserts } = fakeSupabase({
+    profiles: { data: { kill_switch: true }, error: null },
+    ...shadowSafetyRules,
+  });
+  await runControlGate(client, { ...baseCtx, description: "contains shadow-trigger text" });
+  assertEquals(inserts.safety_rule_shadow_hits ?? [], []);
+});
+
 Deno.test("nothing trips: the gate allows, safety scan still returned but unmatched", async () => {
   const result = await runControlGate(fakeSupabase().client, baseCtx);
   assert(result.ok);

@@ -480,6 +480,7 @@ serve(async (req) => {
     void spendStatus;
 
     const recordShadowHits = gate.recordShadowHits;
+    const recordSafetyShadowHits = gate.recordSafetyShadowHits;
     const recordBreakerAttempt = gate.recordAttempt;
 
     if (!gate.ok) {
@@ -506,6 +507,7 @@ serve(async (req) => {
         hard_rule: gate.hardRule,
         circuit_breaker: gate.circuitBreaker,
         safety_scan: gate.safety.matched ? gate.safety : null,
+        safety_shadow_matches: gate.safety.shadowMatches,
         approval_id: gate.approvalId,
         gate_source: gate.source,
         shadow_rules: gate.shadowRules,
@@ -729,6 +731,7 @@ serve(async (req) => {
     });
 
     await recordShadowHits(decisionId ?? null, decision);
+    await recordSafetyShadowHits(decisionId ?? null, decision);
 
     // Escalated or blocked verdicts get a real human queue entry, not just an alert.
     let approvalId: string | null = null;
@@ -937,6 +940,7 @@ serve(async (req) => {
       decision_id: decisionId,
       approval_id: approvalId,
       safety_scan: gate.safety.matched ? gate.safety : null,
+      safety_shadow_matches: gate.safety.shadowMatches,
       prompt_injection: injection.detected ? injection : null,
       shadow_rules: shadowMatches,
       gate_trace: gate.trace,

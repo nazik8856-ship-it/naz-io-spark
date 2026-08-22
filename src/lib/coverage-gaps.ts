@@ -19,6 +19,7 @@ export type HardRuleForCoverage = {
   provider: string | null;
   enabled?: boolean;
   shadow_mode?: boolean;
+  agent_id?: string | null;
 };
 
 function ruleCovers(rule: HardRuleForCoverage, kind: string, provider: string): boolean {
@@ -32,11 +33,28 @@ function ruleCovers(rule: HardRuleForCoverage, kind: string, provider: string): 
 
 export type CapabilityForCoverage = { kind: string; provider: string };
 
-/** Pure — capabilities with no live (enabled, non-shadow) hard rule matching them. */
+/** Pure — capabilities with no live (enabled, non-shadow) hard rule matching them.
+ *
+ * Account-wide gaps can hide an agent-level gap even when the account-wide
+ * view looks fully covered: an account-wide rule counts as coverage
+ * everywhere, but a rule scoped to a DIFFERENT agent does not cover THIS
+ * agent — the account-wide view (agentId omitted) has always pooled every
+ * rule together regardless of scope, unchanged here. Pass `agentId` to get
+ * the stricter, agent-accurate view instead: only that agent's own rules
+ * plus the account-wide default apply, mirroring selectRulesForAgent in
+ * supabase/functions/_shared/rule-matching.ts (duplicated here for the
+ * same cross-runtime reason as ruleCovers/globToRe above). Pass `null` for
+ * "no specific agent" (the chat-driven Control System) — same meaning
+ * selectRulesForAgent gives it.
+ */
 export function findCoverageGaps(
   capabilities: CapabilityForCoverage[],
   hardRules: HardRuleForCoverage[],
+  agentId?: string | null,
 ): CapabilityForCoverage[] {
-  const liveRules = hardRules.filter((r) => r.enabled !== false && !r.shadow_mode);
+  const scopedRules = agentId === undefined
+    ? hardRules
+    : hardRules.filter((r) => r.agent_id == null || r.agent_id === agentId);
+  const liveRules = scopedRules.filter((r) => r.enabled !== false && !r.shadow_mode);
   return capabilities.filter((cap) => !liveRules.some((r) => ruleCovers(r, cap.kind, cap.provider)));
 }

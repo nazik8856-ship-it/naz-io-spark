@@ -19,6 +19,8 @@ export type SafetyRule = {
   enabled: boolean;
   builtin: boolean;
   agent_id?: string | null;
+  /** Matched and recorded, but never affects the scan's actual verdict — same meaning as hard_rules.shadow_mode. */
+  shadow_mode?: boolean;
 };
 
 export type SafetyMatch = {
@@ -36,6 +38,8 @@ export type SafetyScan = {
   severity: SafetySeverity | null;
   matches: SafetyMatch[];
   summary: string | null;
+  /** Shadow-mode rules that WOULD have matched — never enforced, informational only. */
+  shadowMatches: SafetyMatch[];
 };
 
 /** Built-in patterns every account gets for free. Not user-deletable. */
@@ -136,7 +140,7 @@ export async function loadSafetyRules(
   try {
     const { data } = await admin
       .from("safety_rules")
-      .select("id, name, category, pattern, severity, enabled, agent_id")
+      .select("id, name, category, pattern, severity, enabled, agent_id, shadow_mode")
       .eq("user_id", userId)
       .eq("enabled", true);
     custom = ((data ?? []) as Record<string, unknown>[]).map((r) => ({
@@ -148,6 +152,7 @@ export async function loadSafetyRules(
       enabled: true,
       builtin: false,
       agent_id: (r.agent_id as string | null | undefined) ?? null,
+      shadow_mode: Boolean(r.shadow_mode),
     }));
   } catch { /* custom rules are optional */ }
   // Builtins are always account-wide (agent_id undefined -> treated as
@@ -189,13 +194,13 @@ export function scanWithRules(
     });
   }
 
-  if (!matches.length) return { matched: false, severity: null, matches: [], summary: null };
+  if (!matches.length) return { matched: false, severity: null, matches: [], summary: null, shadowMatches: [] };
   const severity: SafetySeverity = matches.some((m) => m.severity === "block") ? "block" : "require_approval";
   const worst = matches.filter((m) => m.severity === severity);
   const summary = severity === "block"
     ? `Blocked by the safety scanner: ${worst.map((m) => m.name).join("; ")}. This is a pattern check, not a model judgement.`
     : `Needs your approval — the safety scanner flagged: ${worst.map((m) => m.name).join("; ")}.`;
-  return { matched: true, severity, matches, summary };
+  return { matched: true, severity, matches, summary, shadowMatches: [] };
 }
 
 export async function scanAction(
@@ -213,6 +218,14 @@ export async function scanAction(
   const rules = pinnedRules
     ? [...BUILTIN_SAFETY_RULES, ...selectRulesForAgent(pinnedRules.filter((r) => r.enabled !== false), agentId)]
     : await loadSafetyRules(admin, userId, agentId);
-  return scanWithRules(rules, params, description);
+  // Shadow-mode custom rules (builtins are never shadow) are matched and
+  // recorded, but must never change the real verdict — same split
+  // hard_rules already gets in control-gate.ts. Scanned separately so a
+  // shadow rule can never leak into `matches`/`severity`/`summary`.
+  const liveRules = rules.filter((r) => !r.shadow_mode);
+  const shadowRules = rules.filter((r) => r.shadow_mode);
+  const live = scanWithRules(liveRules, params, description);
+  const shadowMatches = shadowRules.length ? scanWithRules(shadowRules, params, description).matches : [];
+  return { ...live, shadowMatches };
 }
 

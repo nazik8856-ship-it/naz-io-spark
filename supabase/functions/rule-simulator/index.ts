@@ -86,7 +86,7 @@ Deno.serve(async (req) => {
   // what-if check).
   const { data: customSafetyRaw } = await admin
     .from("safety_rules")
-    .select("id, name, category, pattern, severity, enabled, agent_id")
+    .select("id, name, category, pattern, severity, enabled, agent_id, shadow_mode")
     .eq("user_id", userId)
     .eq("enabled", true);
   const customSafetyAllAgents = ((customSafetyRaw ?? []) as Record<string, unknown>[]).map((r) => ({
@@ -98,13 +98,20 @@ Deno.serve(async (req) => {
     enabled: true,
     builtin: false,
     agent_id: (r.agent_id as string | null | undefined) ?? null,
+    shadow_mode: Boolean(r.shadow_mode),
   })).filter((r) => r.pattern);
   const customSafety = selectRulesForAgent(customSafetyAllAgents, agentId);
+  // Same live/shadow split as hard rules above: a shadow-mode custom
+  // safety rule must never affect the simulated verdict, only be reported
+  // as a "would have" match.
+  const liveSafety = customSafety.filter((r) => !r.shadow_mode);
+  const shadowSafety = customSafety.filter((r) => r.shadow_mode);
   const safetyScan = scanWithRules(
-    [...BUILTIN_SAFETY_RULES.filter((r: SafetyRule) => r.enabled), ...customSafety],
+    [...BUILTIN_SAFETY_RULES.filter((r: SafetyRule) => r.enabled), ...liveSafety],
     params,
     description,
   );
+  const safetyShadowScan = shadowSafety.length ? scanWithRules(shadowSafety, params, description) : null;
 
   return json({
     input: { action_type: actionType, provider, description, agent_id: agentId },
@@ -121,6 +128,7 @@ Deno.serve(async (req) => {
       }
       : null,
     safety_scan: safetyScan,
+    safety_shadow_matches: safetyShadowScan?.matches ?? [],
     // A rough combined read: what would this action's verdict be right now,
     // factoring in live hard rules + the draft rule under test + the safety
     // scanner. This does NOT include spend cap / kill switch / circuit

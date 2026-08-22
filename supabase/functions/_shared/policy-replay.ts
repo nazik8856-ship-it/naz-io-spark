@@ -58,7 +58,10 @@ const asHardRules = (snapshot: PolicySnapshot): HardRule[] =>
 const asSafetyRules = (snapshot: PolicySnapshot): SafetyRule[] => [
   ...BUILTIN_SAFETY_RULES,
   ...(Array.isArray(snapshot.safety_rules) ? (snapshot.safety_rules as SafetyRule[]) : [])
-    .filter((r) => r && r.enabled !== false),
+    // Same exclusion asHardRules already applies to shadow_mode hard rules
+    // -- a replay answers "what does this draft policy actually enforce,"
+    // and a shadow-mode rule never enforces anything.
+    .filter((r) => r && r.enabled !== false && !r.shadow_mode),
 ];
 
 /** Run the deterministic policy layers of the gate over one scenario. */

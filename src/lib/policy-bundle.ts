@@ -27,6 +27,7 @@ export type BundleSafetyRule = {
   pattern: string;
   severity: "block" | "require_approval";
   enabled: boolean;
+  shadow_mode: boolean;
   agent_name: string | null;
 };
 
@@ -36,17 +37,36 @@ export type BundleAgentSetting = {
   spend_cap_usd: number | null;
 };
 
+// Circuit breaker sensitivity (BREAKER_WINDOW / BREAKER_MIN_ATTEMPTS /
+// BREAKER_FAIL_RATE in supabase/functions/_shared/control-gate.ts) is a
+// fixed constant today, not a stored, configurable setting -- unlike
+// every other control knob in this bundle (spend cap, strictness), there
+// is no per-agent (or even per-account) THRESHOLD to capture, only
+// per-agent breaker STATE (tripped/not, recent outcomes), which a bundle
+// must never carry over anyway (the "imports land inert" rule below).
+// Duplicated here (not imported -- same cross-runtime reason as
+// coverage-gaps.ts) purely as read-only documentation of what governed
+// the account at export time, matching how account-wide strictness/spend
+// cap are captured for completeness without being blindly re-applied on
+// import.
+export const BREAKER_DEFAULTS = { window: 10, min_attempts: 4, fail_rate: 0.5 } as const;
+
 export type PolicyBundle = {
   version: number;
   exported_at: string;
-  account_wide: { strictness: string; spend_cap_usd: number; spend_cap_enabled: boolean };
+  account_wide: {
+    strictness: string;
+    spend_cap_usd: number;
+    spend_cap_enabled: boolean;
+    circuit_breaker_defaults?: { window: number; min_attempts: number; fail_rate: number };
+  };
   agents: BundleAgentSetting[];
   hard_rules: BundleHardRule[];
   safety_rules: BundleSafetyRule[];
 };
 
 export type SourceHardRule = { rule_text: string; action_type_pattern: string; effect: "always_block" | "always_require_approval"; provider: string | null; shadow_mode: boolean; agent_id: string | null };
-export type SourceSafetyRule = { name: string; category: string; pattern: string; severity: "block" | "require_approval"; enabled: boolean; agent_id: string | null };
+export type SourceSafetyRule = { name: string; category: string; pattern: string; severity: "block" | "require_approval"; enabled: boolean; shadow_mode: boolean; agent_id: string | null };
 export type SourceAgentSetting = { agent_id: string; strictness_override: string | null; spend_cap_usd: number | null };
 
 /** Pure — builds a portable bundle from already-fetched account data. */
@@ -67,6 +87,7 @@ export function buildPolicyBundle(input: {
       strictness: input.accountWideStrictness,
       spend_cap_usd: input.accountWideSpendCapUsd,
       spend_cap_enabled: input.accountWideSpendCapEnabled,
+      circuit_breaker_defaults: { ...BREAKER_DEFAULTS },
     },
     agents: input.agentSettings
       .filter((a) => nameFor(a.agent_id))
@@ -141,11 +162,20 @@ export type ResolvedImport = {
  * agents (matched by name). A rule scoped to an agent name that doesn't
  * exist in the target account falls back to account-wide, with a
  * warning -- never silently dropped, never left dangling on a
- * nonexistent agent_id. Every imported rule lands inert (hard rules
- * shadow_mode: true, safety rules enabled: false) regardless of the
- * source's own live/shadow state -- nothing a bundle imports goes live
- * without the customer reviewing it, the same safety principle policy
- * templates already use.
+ * nonexistent agent_id. Every imported rule lands inert (shadow_mode:
+ * true, for both hard rules and safety rules -- safety rules got real
+ * shadow-mode support on 2026-08-22, closing the enabled:false-as-a-
+ * shadow-mode-workaround this function used before that) regardless of
+ * the source's own live/shadow state -- nothing a bundle imports goes
+ * live without the customer reviewing it, the same safety principle
+ * policy templates already use.
+ *
+ * account_wide and agents (strictness, spend cap, circuit breaker
+ * defaults) are captured in the bundle for backup/documentation/
+ * cross-account comparison but deliberately NOT applied here -- same as
+ * before circuit_breaker_defaults existed: only hard_rules/safety_rules
+ * ever get inserted on import, so importing someone else's bundle can
+ * never silently overwrite this account's own strictness or spend cap.
  */
 export function resolveImportForAccount(
   bundle: PolicyBundle,
@@ -179,7 +209,7 @@ export function resolveImportForAccount(
     category: r.category,
     pattern: r.pattern,
     severity: r.severity,
-    enabled: false, // always -- imported rules start off, reviewed before enabling
+    shadow_mode: true, // always -- see doc comment above (enabled defaults to true, same as hard_rules -- shadow_mode is what keeps it inert)
     agent_id: resolveAgentId(r.agent_name, `Safety rule "${r.name}"`),
   }));
 
