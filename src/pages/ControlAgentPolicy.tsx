@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Bot, Copy } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+// Stale generated types: control-system tables aren't in types.ts yet.
+const anyDb = supabase as any;
 import { useAuth } from "@/hooks/useAuth";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { canWriteAsOwner } from "@/lib/account-switcher";
@@ -48,16 +50,16 @@ export default function ControlAgentPolicy() {
 
   const load = useCallback(async () => {
     if (!accountId) return;
-    const { data: agentRows } = await supabase.from("agents").select("id, name").eq("user_id", accountId).order("name");
+    const { data: agentRows } = await anyDb.from("agents").select("id, name").eq("user_id", accountId).order("name");
     setAgents((agentRows ?? []) as AgentOption[]);
     if (!agentId) return;
 
     const [{ data: hr }, { data: sr }, { data: profile }, { data: override }, { data: cap }] = await Promise.all([
-      supabase.from("hard_rules").select("id, rule_text, action_type_pattern, effect, provider, shadow_mode, enabled, agent_id").eq("user_id", accountId),
-      supabase.from("safety_rules").select("id, name, category, pattern, severity, enabled, agent_id").eq("user_id", accountId),
-      supabase.from("profiles").select("control_strictness").eq("id", accountId).maybeSingle(),
-      supabase.from("agent_strictness_overrides").select("strictness").eq("agent_id", agentId).maybeSingle(),
-      supabase.from("ai_spend_caps").select("daily_cap_usd").eq("user_id", accountId).eq("agent_id", agentId).maybeSingle(),
+      anyDb.from("hard_rules").select("id, rule_text, action_type_pattern, effect, provider, shadow_mode, enabled, agent_id").eq("user_id", accountId),
+      anyDb.from("safety_rules").select("id, name, category, pattern, severity, enabled, agent_id").eq("user_id", accountId),
+      anyDb.from("profiles").select("control_strictness").eq("id", accountId).maybeSingle(),
+      anyDb.from("agent_strictness_overrides").select("strictness").eq("agent_id", agentId).maybeSingle(),
+      anyDb.from("ai_spend_caps").select("daily_cap_usd").eq("user_id", accountId).eq("agent_id", agentId).maybeSingle(),
     ]);
 
     setHardRules((hr ?? []) as HardRule[]);
@@ -82,10 +84,10 @@ export default function ControlAgentPolicy() {
     const sourceSafety = safetyRules.filter((r) => r.agent_id === agentId);
     const [hardRes, safetyRes] = await Promise.all([
       sourceHard.length
-        ? supabase.from("hard_rules").insert(cloneHardRulesTo(sourceHard, accountId!, cloneTargetId))
+        ? anyDb.from("hard_rules").insert(cloneHardRulesTo(sourceHard, accountId!, cloneTargetId))
         : Promise.resolve({ error: null }),
       sourceSafety.length
-        ? supabase.from("safety_rules").insert(cloneSafetyRulesTo(sourceSafety, accountId!, cloneTargetId))
+        ? anyDb.from("safety_rules").insert(cloneSafetyRulesTo(sourceSafety, accountId!, cloneTargetId))
         : Promise.resolve({ error: null }),
     ]);
     setCloning(false);

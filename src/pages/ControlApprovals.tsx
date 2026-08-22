@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Check, X, Clock, ShieldAlert } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+// Stale generated types: control-system tables aren't in types.ts yet.
+const anyDb = supabase as any;
 import { useAuth } from "@/hooks/useAuth";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { canApprove } from "@/lib/account-switcher";
@@ -72,13 +74,13 @@ export default function ControlApprovals() {
   const load = useCallback(async () => {
     if (!user || !accountId) return;
     const [{ data }, { data: members }] = await Promise.all([
-      supabase
+      anyDb
         .from("pending_approvals")
         .select("*")
         .eq("user_id", accountId)
         .order("created_at", { ascending: false })
         .limit(100),
-      supabase
+      anyDb
         .from("account_members")
         .select("member_id, email, role, ooo_until")
         .eq("account_owner_id", accountId)
@@ -92,7 +94,7 @@ export default function ControlApprovals() {
 
     const ids = rows.map((r) => r.id);
     if (ids.length) {
-      const { data: evs } = await supabase
+      const { data: evs } = await anyDb
         .from("pending_approval_events")
         .select("approval_id, event_type, actor_id, target_id, note, created_at")
         .in("approval_id", ids)
@@ -110,7 +112,7 @@ export default function ControlApprovals() {
 
   const reassign = async (row: Approval, target: string | null) => {
     setReassigning(row.id);
-    const { data, error } = await supabase.rpc("reassign_pending_approval", {
+    const { data, error } = await anyDb.rpc("reassign_pending_approval", {
       _approval_id: row.id,
       _assigned_to: target,
     });
@@ -148,7 +150,7 @@ export default function ControlApprovals() {
     setBusy(row.id);
     // Quorum is enforced server-side: the RPC appends one DISTINCT sign-off and
     // only flips the row to "approved" once required_approvals is reached.
-    const { data, error } = await supabase.rpc("record_approval_signoff", {
+    const { data, error } = await anyDb.rpc("record_approval_signoff", {
       _approval_id: row.id,
       _vote: status === "approved" ? "approve" : "reject",
       _comment: comments[row.id]?.slice(0, 800) || null,
@@ -182,7 +184,7 @@ export default function ControlApprovals() {
     setBusy("bulk");
     const results = await Promise.allSettled(
       ids.map((id) =>
-        supabase.rpc("record_approval_signoff", {
+        anyDb.rpc("record_approval_signoff", {
           _approval_id: id,
           _vote: status === "approved" ? "approve" : "reject",
           _comment: null,
