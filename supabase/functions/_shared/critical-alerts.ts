@@ -3,10 +3,11 @@
 // Fires ONLY for kill-switch trips (manual or automatic), hard-rule blocks,
 // circuit-breaker trips, self-audit regressions, gate errors (the gate
 // itself failing closed on an unexpected exception), escalated pending
-// approvals (untouched past the risk-scaled threshold), and a severely
+// approvals (untouched past the risk-scaled threshold), a severely
 // miscalibrated confidence bucket (the model claims a confidence range it
-// doesn't actually earn). Routine allow / modify / deferred verdicts never
-// alert.
+// doesn't actually earn), a break-glass override of a blocked action, and a
+// correlated (multi-agent, fleet-wide) circuit breaker trip. Routine allow
+// / modify / deferred verdicts never alert.
 //
 // Delivery: Slack via slack_post_message when the account has a connected Slack
 // integration; otherwise a prominent server log. Never throws — alerting must
@@ -25,7 +26,8 @@ export type CriticalAlertEvent =
   | "gate_error"
   | "approval_escalated"
   | "confidence_miscalibrated"
-  | "break_glass_override";
+  | "break_glass_override"
+  | "correlated_breaker_trip";
 
 const APP_BASE_URL = "https://www.nazai.net";
 
@@ -45,6 +47,7 @@ export const LABELS: Record<CriticalAlertEvent, string> = {
   approval_escalated: "⏰ A pending approval has been waiting too long",
   confidence_miscalibrated: "📉 The model is overconfident in a real confidence range",
   break_glass_override: "🔓 A blocked action was overridden by a human",
+  correlated_breaker_trip: "🕸️ Multiple agents tripped the same circuit breaker",
 };
 
 export function decisionLink(decisionId?: string | null): string | null {

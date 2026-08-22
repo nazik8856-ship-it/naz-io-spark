@@ -21,6 +21,7 @@ export const INCIDENT_KINDS = [
   "approval_escalated",
   "confidence_miscalibrated",
   "break_glass_override",
+  "correlated_breaker_trip",
 ] as const;
 export type IncidentKind = typeof INCIDENT_KINDS[number];
 
