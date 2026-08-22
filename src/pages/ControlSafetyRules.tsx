@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, ScanSearch, Plus, Trash2, Eye, ShieldCheck } from "lucide-react";
+import { ArrowLeft, ScanSearch, Plus, Trash2, Eye, ShieldCheck, AlertTriangle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 // Stale generated types: control-system tables aren't in types.ts yet.
 const anyDb = supabase as any;
@@ -9,6 +9,7 @@ import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { canWriteAsOwner } from "@/lib/account-switcher";
 import { friendlyErrorMessage } from "@/lib/friendly-errors";
 import { toast } from "@/hooks/use-toast";
+import { findSafetyRuleRedundancies } from "@/lib/safety-rule-redundancy";
 
 type Severity = "block" | "require_approval";
 type Rule = {
@@ -59,6 +60,7 @@ export default function ControlSafetyRules() {
   const [busy, setBusy] = useState(false);
   const [dualControl, setDualControl] = useState(false);
   const agentName = (id: string | null) => (id ? agents.find((a) => a.id === id)?.name ?? "Unknown agent" : "All agents");
+  const redundancies = findSafetyRuleRedundancies(rules);
 
   const load = useCallback(async () => {
     if (!accountId) return;
@@ -201,6 +203,25 @@ export default function ControlSafetyRules() {
           outright or sends it to the approval queue. A shadow-mode rule is only watched and
           logged — nothing changes until you promote it.
         </p>
+
+        {redundancies.length > 0 && (
+          <div className="mt-4 space-y-2">
+            <p className="flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-wider text-amber-400">
+              <AlertTriangle className="h-3.5 w-3.5" /> Redundant rules
+            </p>
+            {redundancies.map((r, i) => {
+              const [blockRule, approvalRule] = r.older.severity === "block" ? [r.older, r.newer] : [r.newer, r.older];
+              return (
+                <p key={i} className="rounded-lg border border-amber-500/25 bg-amber-500/[0.04] px-3 py-2 text-[12px] text-zinc-300">
+                  <span className="text-amber-300">"{blockRule.name}"</span> (block) and{" "}
+                  <span className="text-amber-300">"{approvalRule.name}"</span> (require approval) have the same
+                  (or near-identical) pattern — they always co-fire, so whenever "{approvalRule.name}" would match,
+                  "{blockRule.name}" already blocks the action outright, making the approval rule's contribution moot there.
+                </p>
+              );
+            })}
+          </div>
+        )}
 
         {canWrite ? (
         <section className="mt-6 rounded-lg border border-white/10 bg-white/[0.03] p-4">
