@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { SlidersHorizontal } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+// Stale generated types: control-system tables aren't in types.ts yet.
+const anyDb = supabase as any;
 import { useAuth } from "@/hooks/useAuth";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { canWriteAsOwner } from "@/lib/account-switcher";
@@ -38,10 +40,10 @@ export default function StrictnessPanel() {
   const load = useCallback(async () => {
     if (!user || !accountId) return;
     const [{ data: agentRows }, { data: profile }, { data: override }] = await Promise.all([
-      supabase.from("agents").select("id, name").eq("user_id", accountId).order("name"),
-      supabase.from("profiles").select("control_strictness, require_dual_control_for_policy").eq("id", accountId).maybeSingle(),
+      anyDb.from("agents").select("id, name").eq("user_id", accountId).order("name"),
+      anyDb.from("profiles").select("control_strictness, require_dual_control_for_policy").eq("id", accountId).maybeSingle(),
       scopeAgentId
-        ? supabase.from("agent_strictness_overrides").select("strictness").eq("agent_id", scopeAgentId).maybeSingle()
+        ? anyDb.from("agent_strictness_overrides").select("strictness").eq("agent_id", scopeAgentId).maybeSingle()
         : Promise.resolve({ data: null }),
     ]);
     setAgents((agentRows ?? []) as AgentOption[]);
@@ -61,7 +63,7 @@ export default function StrictnessPanel() {
 
     if (dualControl) {
       setSaving(true);
-      const { error } = await supabase.rpc("request_policy_change", {
+      const { error } = await anyDb.rpc("request_policy_change", {
         _change_type: "change_strictness",
         _target_user_id: accountId,
         _agent_id: scopeAgentId || null,
@@ -81,11 +83,11 @@ export default function StrictnessPanel() {
     setValue(next);
     setSaving(true);
     const { error } = scopeAgentId
-      ? await supabase.from("agent_strictness_overrides").upsert(
+      ? await anyDb.from("agent_strictness_overrides").upsert(
           { agent_id: scopeAgentId, user_id: accountId, strictness: next },
           { onConflict: "agent_id" },
         )
-      : await supabase.from("profiles").update({ control_strictness: next } as never).eq("id", accountId);
+      : await anyDb.from("profiles").update({ control_strictness: next } as never).eq("id", accountId);
     setSaving(false);
     if (error) {
       setValue(prev);
@@ -101,7 +103,7 @@ export default function StrictnessPanel() {
 
   const clearOverride = async () => {
     if (!scopeAgentId || !canWrite) return;
-    const { error } = await supabase.from("agent_strictness_overrides").delete().eq("agent_id", scopeAgentId);
+    const { error } = await anyDb.from("agent_strictness_overrides").delete().eq("agent_id", scopeAgentId);
     if (error) {
       toast({ title: "Couldn't clear the override", description: friendlyErrorMessage(error.message), variant: "destructive" });
       return;

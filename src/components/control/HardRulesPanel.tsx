@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Gavel, Plus, Trash2, ChevronDown, Eye, ShieldCheck } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+// Stale generated types: control-system tables aren't in types.ts yet.
+const anyDb = supabase as any;
 import { useAuth } from "@/hooks/useAuth";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { canWriteAsOwner } from "@/lib/account-switcher";
@@ -66,13 +68,13 @@ export default function HardRulesPanel() {
   const load = useCallback(async () => {
     if (!accountId) return;
     const [{ data }, { data: agentRows }, { data: profile }] = await Promise.all([
-      supabase
+      anyDb
         .from("hard_rules")
         .select("id, rule_text, action_type_pattern, effect, provider, shadow_mode, created_at, agent_id")
         .eq("user_id", accountId)
         .order("created_at", { ascending: false }),
-      supabase.from("agents").select("id, name").eq("user_id", accountId).order("name"),
-      supabase.from("profiles").select("require_dual_control_for_policy").eq("id", accountId).maybeSingle(),
+      anyDb.from("agents").select("id, name").eq("user_id", accountId).order("name"),
+      anyDb.from("profiles").select("require_dual_control_for_policy").eq("id", accountId).maybeSingle(),
     ]);
     const list = (data ?? []) as HardRule[];
     setRules(list);
@@ -85,11 +87,11 @@ export default function HardRulesPanel() {
     await Promise.all(
       shadowRules.map(async (r) => {
         const [{ count: hits }, { count: decisions }] = await Promise.all([
-          supabase
+          anyDb
             .from("hard_rule_shadow_hits")
             .select("id", { count: "exact", head: true })
             .eq("rule_id", r.id),
-          supabase
+          anyDb
             .from("agent_decisions")
             .select("id", { count: "exact", head: true })
             .eq("user_id", accountId)
@@ -106,7 +108,7 @@ export default function HardRulesPanel() {
   const add = async () => {
     if (!user || !canWrite || !text.trim() || busy) return;
     setBusy(true);
-    const { error } = await supabase.from("hard_rules").insert({
+    const { error } = await anyDb.from("hard_rules").insert({
       user_id: accountId,
       rule_text: text.trim(),
       action_type_pattern: scope,
@@ -132,7 +134,7 @@ export default function HardRulesPanel() {
   const promote = async (r: HardRule) => {
     if (!canWrite) return;
     if (dualControl) {
-      const { error } = await supabase.rpc("request_policy_change", {
+      const { error } = await anyDb.rpc("request_policy_change", {
         _change_type: "promote_hard_rule",
         _row_id: r.id,
         _description: `Promote "${r.rule_text}" to live`,
@@ -144,7 +146,7 @@ export default function HardRulesPanel() {
       toast({ title: "Promotion requested", description: "A second owner needs to approve this from Policy change requests before it goes live." });
       return;
     }
-    const { error } = await supabase
+    const { error } = await anyDb
       .from("hard_rules")
       .update({ shadow_mode: false, promoted_at: new Date().toISOString() })
       .eq("id", r.id);
@@ -159,7 +161,7 @@ export default function HardRulesPanel() {
   const toggleDualControl = async (checked: boolean) => {
     if (!canWrite) return;
     setDualControl(checked);
-    const { error } = await supabase.from("profiles").update({ require_dual_control_for_policy: checked }).eq("id", accountId);
+    const { error } = await anyDb.from("profiles").update({ require_dual_control_for_policy: checked }).eq("id", accountId);
     if (error) {
       setDualControl(!checked);
       toast({ title: "Couldn't save that", description: friendlyErrorMessage(error.message), variant: "destructive" });
@@ -173,7 +175,7 @@ export default function HardRulesPanel() {
 
   const remove = async (id: string) => {
     if (!canWrite) return;
-    const { error } = await supabase.from("hard_rules").delete().eq("id", id);
+    const { error } = await anyDb.from("hard_rules").delete().eq("id", id);
     if (error) {
       toast({ title: "Could not remove rule", description: friendlyErrorMessage(error.message), variant: "destructive" });
       return;

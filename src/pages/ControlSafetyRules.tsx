@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, ScanSearch, Plus, Trash2, Eye, ShieldCheck } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+// Stale generated types: control-system tables aren't in types.ts yet.
+const anyDb = supabase as any;
 import { useAuth } from "@/hooks/useAuth";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { canWriteAsOwner } from "@/lib/account-switcher";
@@ -61,13 +63,13 @@ export default function ControlSafetyRules() {
   const load = useCallback(async () => {
     if (!accountId) return;
     const [{ data }, { data: agentRows }, { data: profile }] = await Promise.all([
-      supabase
+      anyDb
         .from("safety_rules")
         .select("id, name, category, pattern, severity, enabled, agent_id, shadow_mode, created_at")
         .eq("user_id", accountId)
         .order("created_at", { ascending: false }),
-      supabase.from("agents").select("id, name").eq("user_id", accountId).order("name"),
-      supabase.from("profiles").select("require_dual_control_for_policy").eq("id", accountId).maybeSingle(),
+      anyDb.from("agents").select("id, name").eq("user_id", accountId).order("name"),
+      anyDb.from("profiles").select("require_dual_control_for_policy").eq("id", accountId).maybeSingle(),
     ]);
     const list = (data ?? []) as unknown as Rule[];
     setRules(list);
@@ -81,11 +83,11 @@ export default function ControlSafetyRules() {
     await Promise.all(
       shadowRules.map(async (r) => {
         const [{ count: hits }, { count: decisions }] = await Promise.all([
-          supabase
+          anyDb
             .from("safety_rule_shadow_hits")
             .select("id", { count: "exact", head: true })
             .eq("rule_id", r.id),
-          supabase
+          anyDb
             .from("agent_decisions")
             .select("id", { count: "exact", head: true })
             .eq("user_id", accountId)
@@ -106,7 +108,7 @@ export default function ControlSafetyRules() {
       return;
     }
     setBusy(true);
-    const { error } = await supabase.from("safety_rules").insert({
+    const { error } = await anyDb.from("safety_rules").insert({
       user_id: accountId, name: name.trim(), pattern: pattern.trim(), severity, category: "custom",
       agent_id: appliesToAgentId || null,
       shadow_mode: shadow,
@@ -125,13 +127,13 @@ export default function ControlSafetyRules() {
 
   const toggle = async (r: Rule) => {
     if (!canWrite) return;
-    await supabase.from("safety_rules").update({ enabled: !r.enabled }).eq("id", r.id);
+    await anyDb.from("safety_rules").update({ enabled: !r.enabled }).eq("id", r.id);
     load();
   };
   const promote = async (r: Rule) => {
     if (!canWrite) return;
     if (dualControl) {
-      const { error } = await supabase.rpc("request_policy_change", {
+      const { error } = await anyDb.rpc("request_policy_change", {
         _change_type: "promote_safety_rule",
         _row_id: r.id,
         _description: `Promote safety rule "${r.name}" to live`,
@@ -143,7 +145,7 @@ export default function ControlSafetyRules() {
       toast({ title: "Promotion requested", description: "A second owner needs to approve this from Policy change requests before it goes live." });
       return;
     }
-    const { error } = await supabase
+    const { error } = await anyDb
       .from("safety_rules")
       .update({ shadow_mode: false, promoted_at: new Date().toISOString() })
       .eq("id", r.id);
@@ -156,7 +158,7 @@ export default function ControlSafetyRules() {
   };
   const remove = async (r: Rule) => {
     if (!canWrite) return;
-    await supabase.from("safety_rules").delete().eq("id", r.id);
+    await anyDb.from("safety_rules").delete().eq("id", r.id);
     load();
   };
 

@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, FileText, Download } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+// Stale generated types: control-system tables aren't in types.ts yet.
+const anyDb = supabase as any;
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 import { buildComplianceReport } from "@/lib/compliance-report";
@@ -26,14 +28,14 @@ export default function ControlComplianceReport() {
 
   useEffect(() => {
     if (!user) return;
-    supabase.from("profiles").select("compliance_report_monthly_enabled").eq("id", user.id).maybeSingle()
+    anyDb.from("profiles").select("compliance_report_monthly_enabled").eq("id", user.id).maybeSingle()
       .then(({ data }) => setMonthlyEmail(!!(data as { compliance_report_monthly_enabled?: boolean } | null)?.compliance_report_monthly_enabled));
   }, [user]);
 
   const toggleMonthlyEmail = async (checked: boolean) => {
     if (!user) return;
     setMonthlyEmail(checked);
-    const { error } = await supabase.from("profiles").update({ compliance_report_monthly_enabled: checked }).eq("id", user.id);
+    const { error } = await anyDb.from("profiles").update({ compliance_report_monthly_enabled: checked }).eq("id", user.id);
     if (error) {
       setMonthlyEmail(!checked);
       toast({ title: "Couldn't save that", description: error.message, variant: "destructive" });
@@ -49,13 +51,13 @@ export default function ControlComplianceReport() {
     const toIso = new Date(`${to}T23:59:59.999Z`).toISOString();
 
     const [runs, incidents, changes] = await Promise.all([
-      supabase.from("control_test_runs").select("created_at, pass_rate_pct, regressions")
+      anyDb.from("control_test_runs").select("created_at, pass_rate_pct, regressions")
         .eq("user_id", user.id).gte("created_at", fromIso).lte("created_at", toIso)
         .order("created_at", { ascending: true }),
-      supabase.from("incidents").select("kind, status, summary, opened_at, resolved_at, resolution_note")
+      anyDb.from("incidents").select("kind, status, summary, opened_at, resolved_at, resolution_note")
         .eq("user_id", user.id).gte("opened_at", fromIso).lte("opened_at", toIso)
         .order("opened_at", { ascending: true }),
-      supabase.from("config_changes").select("table_name, action, before, after, created_at")
+      anyDb.from("config_changes").select("table_name, action, before, after, created_at")
         .eq("user_id", user.id).gte("created_at", fromIso).lte("created_at", toIso)
         .order("created_at", { ascending: true }),
     ]);

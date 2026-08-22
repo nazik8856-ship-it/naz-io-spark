@@ -2,6 +2,8 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, ShieldCheck, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+// Stale generated types: control-system tables aren't in types.ts yet.
+const anyDb = supabase as any;
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 
@@ -41,7 +43,7 @@ export default function ControlAuditVerify() {
     setResult(null);
     const fromIso = new Date(`${from}T00:00:00.000Z`).toISOString();
     const toIso = new Date(`${to}T23:59:59.999Z`).toISOString();
-    const { data, error } = await supabase.rpc("verify_decision_signatures_batch", {
+    const { data, error } = await anyDb.rpc("verify_decision_signatures_batch", {
       _from: fromIso, _to: toIso, _limit: 20000,
     });
     setVerifying(false);

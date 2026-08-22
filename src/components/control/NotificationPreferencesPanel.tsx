@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Bell, ChevronDown } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+// Stale generated types: control-system tables aren't in types.ts yet.
+const anyDb = supabase as any;
 import { useAuth } from "@/hooks/useAuth";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { toast } from "@/hooks/use-toast";
@@ -22,7 +24,7 @@ export default function NotificationPreferencesPanel() {
 
   const load = useCallback(async () => {
     if (!user || !accountId) return;
-    const { data } = await supabase
+    const { data } = await anyDb
       .from("notification_preferences")
       .select("digest_enabled, weekly_trend_enabled")
       .eq("account_owner_id", accountId)
@@ -41,7 +43,7 @@ export default function NotificationPreferencesPanel() {
   const save = async (next: { digest_enabled: boolean; weekly_trend_enabled: boolean }) => {
     if (!user || !accountId) return;
     setSaving(true);
-    const { error } = await supabase
+    const { error } = await anyDb
       .from("notification_preferences")
       .upsert(
         { account_owner_id: accountId, recipient_id: user.id, ...next },

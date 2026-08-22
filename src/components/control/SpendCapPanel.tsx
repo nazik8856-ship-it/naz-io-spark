@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Gauge, Check, Pencil } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+// Stale generated types: control-system tables aren't in types.ts yet.
+const anyDb = supabase as any;
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { canWriteAsOwner } from "@/lib/account-switcher";
 import { friendlyErrorMessage } from "@/lib/friendly-errors";
@@ -46,17 +48,17 @@ export default function SpendCapPanel() {
     const daysElapsed = now.getUTCDate();
 
     const [{ data: agentRows }, capQuery, dailyQuery, monthQuery, { data: profile }] = await Promise.all([
-      supabase.from("agents").select("id, name").eq("user_id", accountId).order("name"),
+      anyDb.from("agents").select("id, name").eq("user_id", accountId).order("name"),
       scopeAgentId
-        ? supabase.from("ai_spend_caps").select("daily_cap_usd, enabled").eq("user_id", accountId).eq("agent_id", scopeAgentId).maybeSingle()
-        : supabase.from("ai_spend_caps").select("daily_cap_usd, enabled").eq("user_id", accountId).is("agent_id", null).maybeSingle(),
+        ? anyDb.from("ai_spend_caps").select("daily_cap_usd, enabled").eq("user_id", accountId).eq("agent_id", scopeAgentId).maybeSingle()
+        : anyDb.from("ai_spend_caps").select("daily_cap_usd, enabled").eq("user_id", accountId).is("agent_id", null).maybeSingle(),
       scopeAgentId
-        ? supabase.from("ai_spend_daily").select("cost_usd, calls").eq("user_id", accountId).eq("agent_id", scopeAgentId).eq("day", day).maybeSingle()
-        : supabase.from("ai_spend_daily").select("cost_usd, calls").eq("user_id", accountId).eq("day", day).is("agent_id", null).maybeSingle(),
+        ? anyDb.from("ai_spend_daily").select("cost_usd, calls").eq("user_id", accountId).eq("agent_id", scopeAgentId).eq("day", day).maybeSingle()
+        : anyDb.from("ai_spend_daily").select("cost_usd, calls").eq("user_id", accountId).eq("day", day).is("agent_id", null).maybeSingle(),
       scopeAgentId
-        ? supabase.from("ai_spend_daily").select("cost_usd").eq("user_id", accountId).eq("agent_id", scopeAgentId).gte("day", monthStart)
-        : supabase.from("ai_spend_daily").select("cost_usd").eq("user_id", accountId).is("agent_id", null).gte("day", monthStart),
-      supabase.from("profiles").select("require_dual_control_for_policy").eq("id", accountId).maybeSingle(),
+        ? anyDb.from("ai_spend_daily").select("cost_usd").eq("user_id", accountId).eq("agent_id", scopeAgentId).gte("day", monthStart)
+        : anyDb.from("ai_spend_daily").select("cost_usd").eq("user_id", accountId).is("agent_id", null).gte("day", monthStart),
+      anyDb.from("profiles").select("require_dual_control_for_policy").eq("id", accountId).maybeSingle(),
     ]);
     setAgents((agentRows ?? []) as AgentOption[]);
     setDualControl(!!(profile as { require_dual_control_for_policy?: boolean } | null)?.require_dual_control_for_policy);
@@ -86,7 +88,7 @@ export default function SpendCapPanel() {
     }
     if (dualControl) {
       setSaving(true);
-      const { error } = await supabase.rpc("request_policy_change", {
+      const { error } = await anyDb.rpc("request_policy_change", {
         _change_type: "raise_spend_cap",
         _target_user_id: accountId,
         _agent_id: scopeAgentId || null,
@@ -108,12 +110,12 @@ export default function SpendCapPanel() {
     // plain upsert can no longer infer the right conflict target -- find the
     // row first, then update or insert explicitly.
     const findQuery = scopeAgentId
-      ? supabase.from("ai_spend_caps").select("id").eq("user_id", accountId).eq("agent_id", scopeAgentId).maybeSingle()
-      : supabase.from("ai_spend_caps").select("id").eq("user_id", accountId).is("agent_id", null).maybeSingle();
+      ? anyDb.from("ai_spend_caps").select("id").eq("user_id", accountId).eq("agent_id", scopeAgentId).maybeSingle()
+      : anyDb.from("ai_spend_caps").select("id").eq("user_id", accountId).is("agent_id", null).maybeSingle();
     const { data: existing } = await findQuery;
     const { error } = existing?.id
-      ? await supabase.from("ai_spend_caps").update({ daily_cap_usd: value, enabled }).eq("id", existing.id)
-      : await supabase.from("ai_spend_caps").insert({ user_id: accountId, agent_id: scopeAgentId || null, daily_cap_usd: value, enabled: true });
+      ? await anyDb.from("ai_spend_caps").update({ daily_cap_usd: value, enabled }).eq("id", existing.id)
+      : await anyDb.from("ai_spend_caps").insert({ user_id: accountId, agent_id: scopeAgentId || null, daily_cap_usd: value, enabled: true });
     setSaving(false);
     if (error) {
       toast({ title: "Couldn't save the cap", description: friendlyErrorMessage(error.message), variant: "destructive" });

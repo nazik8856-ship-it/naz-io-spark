@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Skull } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+// Stale generated types: control-system tables aren't in types.ts yet.
+const anyDb = supabase as any;
 import { useAuth } from "@/hooks/useAuth";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { toast } from "@/hooks/use-toast";
@@ -31,11 +33,11 @@ export default function ControlRuleEffectiveness() {
     setLoading(true);
     const windowStart = new Date(Date.now() - WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
     const [{ data, error }, { data: safetyData, error: safetyError }] = await Promise.all([
-      supabase
+      anyDb
         .from("hard_rules")
         .select("id, rule_text, enabled, shadow_mode, created_at")
         .eq("user_id", accountId),
-      supabase
+      anyDb
         .from("safety_rules")
         .select("id, name, enabled, shadow_mode, created_at")
         .eq("user_id", accountId),
@@ -62,7 +64,7 @@ export default function ControlRuleEffectiveness() {
         const counts: Record<string, number> = {};
         await Promise.all(
           liveRules.map(async (r) => {
-            const { count } = await supabase
+            const { count } = await anyDb
               .from("agent_decisions")
               .select("id", { count: "exact", head: true })
               .eq("hard_rule_id", r.id)
@@ -76,7 +78,7 @@ export default function ControlRuleEffectiveness() {
         const counts: Record<string, number> = {};
         await Promise.all(
           liveSafetyRules.map(async (r) => {
-            const { count } = await supabase
+            const { count } = await anyDb
               .from("safety_rule_matches")
               .select("id", { count: "exact", head: true })
               .eq("rule_id", r.id)

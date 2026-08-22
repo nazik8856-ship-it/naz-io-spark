@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, TrendingUp, Download } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+// Stale generated types: control-system tables aren't in types.ts yet.
+const anyDb = supabase as any;
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 import { buildRoiReport, projectMonthlySpend, type DecisionForRoi } from "@/lib/roi-report";
@@ -32,14 +34,14 @@ export default function ControlRoiReport() {
 
   useEffect(() => {
     if (!user) return;
-    supabase.from("profiles").select("roi_report_monthly_enabled").eq("id", user.id).maybeSingle()
+    anyDb.from("profiles").select("roi_report_monthly_enabled").eq("id", user.id).maybeSingle()
       .then(({ data }) => setMonthlyEmail(!!(data as { roi_report_monthly_enabled?: boolean } | null)?.roi_report_monthly_enabled));
   }, [user]);
 
   const toggleMonthlyEmail = async (checked: boolean) => {
     if (!user) return;
     setMonthlyEmail(checked);
-    const { error } = await supabase.from("profiles").update({ roi_report_monthly_enabled: checked }).eq("id", user.id);
+    const { error } = await anyDb.from("profiles").update({ roi_report_monthly_enabled: checked }).eq("id", user.id);
     if (error) {
       setMonthlyEmail(!checked);
       toast({ title: "Couldn't save that", description: error.message, variant: "destructive" });
@@ -60,9 +62,9 @@ export default function ControlRoiReport() {
     const monthStartIso = monthStart.toISOString().slice(0, 10);
 
     const [{ data: accountRows }, { data: agentRows }, { data: agents }] = await Promise.all([
-      supabase.from("ai_spend_daily").select("cost_usd").eq("user_id", user.id).is("agent_id", null).gte("day", monthStartIso),
-      supabase.from("ai_spend_daily").select("agent_id, cost_usd").eq("user_id", user.id).not("agent_id", "is", null).gte("day", monthStartIso),
-      supabase.from("agents").select("id, name").eq("user_id", user.id),
+      anyDb.from("ai_spend_daily").select("cost_usd").eq("user_id", user.id).is("agent_id", null).gte("day", monthStartIso),
+      anyDb.from("ai_spend_daily").select("agent_id, cost_usd").eq("user_id", user.id).not("agent_id", "is", null).gte("day", monthStartIso),
+      anyDb.from("agents").select("id, name").eq("user_id", user.id),
     ]);
 
     const agentNames: Record<string, string> = {};
@@ -94,12 +96,12 @@ export default function ControlRoiReport() {
     const prevFromIso = new Date(new Date(fromIso).getTime() - rangeMs).toISOString();
 
     const [decisions, prevDecisions, accountSpend, prevAccountSpend, agentSpend, agents] = await Promise.all([
-      supabase.from("agent_decisions").select("decision, escalated, agent_id").eq("user_id", user.id).gte("created_at", fromIso).lte("created_at", toIso),
-      supabase.from("agent_decisions").select("id", { count: "exact", head: true }).eq("user_id", user.id).gte("created_at", prevFromIso).lt("created_at", fromIso),
-      supabase.from("ai_spend_daily").select("cost_usd").eq("user_id", user.id).is("agent_id", null).gte("day", from).lte("day", to),
-      supabase.from("ai_spend_daily").select("cost_usd").eq("user_id", user.id).is("agent_id", null).gte("day", prevFromIso.slice(0, 10)).lt("day", from),
-      supabase.from("ai_spend_daily").select("agent_id, cost_usd").eq("user_id", user.id).not("agent_id", "is", null).gte("day", from).lte("day", to),
-      supabase.from("agents").select("id, name").eq("user_id", user.id),
+      anyDb.from("agent_decisions").select("decision, escalated, agent_id").eq("user_id", user.id).gte("created_at", fromIso).lte("created_at", toIso),
+      anyDb.from("agent_decisions").select("id", { count: "exact", head: true }).eq("user_id", user.id).gte("created_at", prevFromIso).lt("created_at", fromIso),
+      anyDb.from("ai_spend_daily").select("cost_usd").eq("user_id", user.id).is("agent_id", null).gte("day", from).lte("day", to),
+      anyDb.from("ai_spend_daily").select("cost_usd").eq("user_id", user.id).is("agent_id", null).gte("day", prevFromIso.slice(0, 10)).lt("day", from),
+      anyDb.from("ai_spend_daily").select("agent_id, cost_usd").eq("user_id", user.id).not("agent_id", "is", null).gte("day", from).lte("day", to),
+      anyDb.from("agents").select("id, name").eq("user_id", user.id),
     ]);
 
     setGenerating(false);

@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, LayoutTemplate, ShieldCheck, Eye } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+// Stale generated types: control-system tables aren't in types.ts yet.
+const anyDb = supabase as any;
 import { useAuth } from "@/hooks/useAuth";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { canWriteAsOwner } from "@/lib/account-switcher";
@@ -30,7 +32,7 @@ export default function ControlPolicyTemplates() {
 
   const load = useCallback(async () => {
     if (!accountId) return;
-    const { data } = await supabase.from("agents").select("id, name").eq("user_id", accountId).order("name");
+    const { data } = await anyDb.from("agents").select("id, name").eq("user_id", accountId).order("name");
     setAgents((data ?? []) as AgentOption[]);
   }, [accountId]);
 
@@ -48,7 +50,7 @@ export default function ControlPolicyTemplates() {
       shadow_mode: true,
       agent_id: r.agent_id,
     }));
-    const { error } = await supabase.from("hard_rules").insert(rows);
+    const { error } = await anyDb.from("hard_rules").insert(rows);
     setApplying(null);
     if (error) {
       toast({ title: "Couldn't apply template", description: friendlyErrorMessage(error.message), variant: "destructive" });
