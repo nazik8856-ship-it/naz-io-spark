@@ -281,6 +281,18 @@ Deno.test("a hard-rule BLOCK captures ctx.params, for a possible break-glass ove
   assertEquals(logged?.params, baseCtx.params);
 });
 
+Deno.test("a hard-rule BLOCK also captures ctx.description, for a possible real-traffic policy replay later (2026-08-23)", async () => {
+  const { client, inserts } = fakeSupabase({
+    hard_rules: {
+      data: [{ id: "r1", rule_text: "Never post to #general", action_type_pattern: "slack_post_message", effect: "always_block", provider: "Slack", enabled: true }],
+      error: null,
+    },
+  });
+  await runControlGate(client, { ...baseCtx, actionType: "slack_post_message", provider: "Slack" });
+  const logged = (inserts.agent_decisions ?? [])[0] as { description?: string } | undefined;
+  assertEquals(logged?.description, baseCtx.description);
+});
+
 Deno.test("a hard-rule APPROVAL_REQUIRED does NOT capture params on the decision row -- the pending_approvals row already carries it", async () => {
   const { client, inserts } = fakeSupabase({
     hard_rules: {
@@ -456,6 +468,13 @@ Deno.test("a safety-scanner BLOCK captures ctx.params, for a possible break-glas
   await runControlGate(client, { ...baseCtx, description: "delete all customer records" });
   const logged = (inserts.agent_decisions ?? [])[0] as { params?: unknown } | undefined;
   assertEquals(logged?.params, baseCtx.params);
+});
+
+Deno.test("a safety-scanner BLOCK also captures ctx.description, for a possible real-traffic policy replay later (2026-08-23)", async () => {
+  const { client, inserts } = fakeSupabase();
+  await runControlGate(client, { ...baseCtx, description: "delete all customer records" });
+  const logged = (inserts.agent_decisions ?? [])[0] as { description?: string } | undefined;
+  assertEquals(logged?.description, "delete all customer records");
 });
 
 Deno.test("a safety-scanner require_approval-severity match queues approval, does not hard-block", async () => {

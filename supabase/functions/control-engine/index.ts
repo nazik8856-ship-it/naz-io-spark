@@ -34,7 +34,7 @@ const RATE_LIMIT_PER_MINUTE = 120;
 
 import { PROVIDER_WRITE_KINDS, runProviderWrite } from "../_shared/provider-writes.ts";
 import { reversibilityFor, captureUndoState, runUndo } from "../_shared/reversibility.ts";
-import { replayDraft } from "../_shared/policy-replay.ts";
+import { replayDraft, replayRealTraffic } from "../_shared/policy-replay.ts";
 import { loadFitEvidence, applyFitEvidence } from "../_shared/fit-learning.ts";
 import {
   collectUntrustedFields,
@@ -498,6 +498,27 @@ serve(async (req) => {
         return json({ error: "Provide policy_version_id or version of the draft to replay." }, 400);
       }
       const report = await replayDraft(supabase, userId, draftRef);
+      if ("error" in report) return json({ error: report.error }, report.status);
+      return json(report);
+    }
+
+    // ---- POST /control-engine/replay-real ------------------------------------
+    // Same idea as /replay above, but against REAL historical decisions
+    // instead of the 30 fixed scenarios -- "would this draft have decided
+    // any of my last N real actions differently than my active policy
+    // did." Only decisions with a captured action payload are replayable
+    // (get_replayable_real_decisions); plain historical ALLOWs have none
+    // captured and are excluded, by design.
+    if (url.pathname.replace(/\/$/, "").endsWith("/replay-real")) {
+      const draftRef = {
+        id: typeof body?.policy_version_id === "string" ? body.policy_version_id : undefined,
+        version: typeof body?.version === "number" ? body.version : undefined,
+      };
+      if (!draftRef.id && typeof draftRef.version !== "number") {
+        return json({ error: "Provide policy_version_id or version of the draft to replay." }, 400);
+      }
+      const limit = typeof body?.limit === "number" ? body.limit : undefined;
+      const report = await replayRealTraffic(supabase, userId, draftRef, limit);
       if ("error" in report) return json({ error: report.error }, report.status);
       return json(report);
     }

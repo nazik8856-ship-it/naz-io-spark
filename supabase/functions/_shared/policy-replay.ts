@@ -11,6 +11,13 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CONTROL_SCENARIOS, type Scenario, type Verdict } from "./control-scenarios.ts";
 import { BUILTIN_SAFETY_RULES, scanWithRules, type SafetyRule } from "./safety-scanner.ts";
+import {
+  diffRealAction,
+  summarizeRealTrafficReplay,
+  type RealActionDiff,
+  type RealDecisionRow,
+  type RealTrafficReplaySummary,
+} from "./real-traffic-replay.ts";
 
 export type PolicySnapshot = {
   hard_rules?: unknown;
@@ -64,30 +71,43 @@ const asSafetyRules = (snapshot: PolicySnapshot): SafetyRule[] => [
     .filter((r) => r && r.enabled !== false && !r.shadow_mode),
 ];
 
-/** Run the deterministic policy layers of the gate over one scenario. */
-export function evaluateScenario(s: Scenario, snapshot: PolicySnapshot): ScenarioResult {
-  const accepted = new Set<Verdict>([s.expected, ...(s.also_acceptable ?? [])]);
-
+/** Deterministic outcome of just the gate layers -- no expected/status
+ * grading, since a real action (unlike a scenario) has no "correct
+ * answer" to grade against, only a diff against what another policy
+ * snapshot would have decided. `evaluateScenario` below wraps this with
+ * that grading; real-traffic-replay.ts calls this directly. */
+export function evaluateAction(
+  action: { action_type: string; provider: string; description: string; params: unknown },
+  snapshot: PolicySnapshot,
+): { gate_outcome: GateOutcome; gate_source: ScenarioResult["gate_source"]; gate_detail: string | null } {
   let gate_outcome: GateOutcome = "pass_through";
   let gate_source: ScenarioResult["gate_source"] = null;
   let gate_detail: string | null = null;
 
   const matched = asHardRules(snapshot).find((r) => {
-    if (r.provider && r.provider.toLowerCase() !== s.provider.toLowerCase()) return false;
-    try { return globToRe(r.action_type_pattern || "*").test(s.action_type); } catch { return false; }
+    if (r.provider && r.provider.toLowerCase() !== action.provider.toLowerCase()) return false;
+    try { return globToRe(r.action_type_pattern || "*").test(action.action_type); } catch { return false; }
   });
   if (matched) {
     gate_outcome = matched.effect === "always_block" ? "block" : "require_approval";
     gate_source = "hard_rule";
     gate_detail = `Hard rule: "${matched.rule_text}"`;
   } else {
-    const scan = scanWithRules(asSafetyRules(snapshot), s.params, s.description);
+    const scan = scanWithRules(asSafetyRules(snapshot), action.params, action.description);
     if (scan.matched && scan.severity) {
       gate_outcome = scan.severity === "block" ? "block" : "require_approval";
       gate_source = "safety_scanner";
       gate_detail = scan.summary ?? scan.matches.map((m) => m.name).join("; ");
     }
   }
+
+  return { gate_outcome, gate_source, gate_detail };
+}
+
+/** Run the deterministic policy layers of the gate over one scenario. */
+export function evaluateScenario(s: Scenario, snapshot: PolicySnapshot): ScenarioResult {
+  const accepted = new Set<Verdict>([s.expected, ...(s.also_acceptable ?? [])]);
+  const { gate_outcome, gate_source, gate_detail } = evaluateAction(s, snapshot);
 
   // A deterministic stop only counts as correct when the scenario would accept
   // that verdict. A pass-through is correct unless the scenario must be blocked
@@ -235,20 +255,27 @@ export function buildReport(
   };
 }
 
-/** Load the draft + active snapshots for a user and produce the replay report. */
-export async function replayDraft(
+type DraftRow = { id: string; version: number; status: string; notes: string | null; snapshot: PolicySnapshot };
+type ActiveRef = { id: string | null; version: number | null; snapshot: PolicySnapshot };
+
+/**
+ * Shared draft + active snapshot lookup -- used by both replayDraft (against
+ * the 30 fixed scenarios) and replayRealTraffic (against real decisions)
+ * below, so the version-resolution logic only lives once.
+ */
+async function resolveDraftAndActive(
   admin: SupabaseClient,
   userId: string,
   draftRef: { id?: string; version?: number },
-): Promise<{ error: string; status: number } | ReplayReport> {
+): Promise<{ error: string; status: number } | { draft: DraftRow; active: ActiveRef }> {
   let q = admin
     .from("policy_versions")
     .select("id, version, status, notes, snapshot, user_id")
     .eq("user_id", userId);
   q = draftRef.id ? q.eq("id", draftRef.id) : q.eq("version", draftRef.version!);
-  const { data: draft } = await q.maybeSingle();
-  if (!draft) return { error: "Policy version not found for this account.", status: 404 };
-  const d = draft as { id: string; version: number; status: string; notes: string | null; snapshot: PolicySnapshot };
+  const { data: draftData } = await q.maybeSingle();
+  if (!draftData) return { error: "Policy version not found for this account.", status: 404 };
+  const draft = draftData as DraftRow;
 
   let activeId: string | null = null;
   let activeVersion: number | null = null;
@@ -265,8 +292,89 @@ export async function replayDraft(
     }
   } catch { /* no active version yet — draft is compared against an empty policy */ }
 
+  return { draft, active: { id: activeId, version: activeVersion, snapshot: activeSnapshot } };
+}
+
+/** Load the draft + active snapshots for a user and produce the replay report. */
+export async function replayDraft(
+  admin: SupabaseClient,
+  userId: string,
+  draftRef: { id?: string; version?: number },
+): Promise<{ error: string; status: number } | ReplayReport> {
+  const resolved = await resolveDraftAndActive(admin, userId, draftRef);
+  if ("error" in resolved) return resolved;
+  const { draft: d, active } = resolved;
+
   return buildReport(
-    { id: activeId, version: activeVersion, snapshot: activeSnapshot },
+    active,
     { id: d.id, version: d.version, status: d.status, notes: d.notes, snapshot: d.snapshot ?? {} },
   );
+}
+
+export type RealTrafficReplayReport = {
+  ok: true;
+  active_version: { id: string | null; version: number | null };
+  draft_version: { id: string; version: number };
+  summary: RealTrafficReplaySummary;
+  changed: {
+    id: string;
+    action_type: string;
+    provider: string;
+    description: string;
+    active: { gate_outcome: GateOutcome; gate_source: ScenarioResult["gate_source"]; gate_detail: string | null };
+    draft: { gate_outcome: GateOutcome; gate_source: ScenarioResult["gate_source"]; gate_detail: string | null };
+    diff: RealActionDiff;
+  }[];
+};
+
+/**
+ * Replays a draft policy against real historical decisions instead of the
+ * 30 fixed scenarios -- "would this draft have decided any of my last N
+ * real actions differently than my active policy did." Only decisions
+ * with a captured action payload (get_replayable_real_decisions -- block-
+ * sourced agent_decisions rows plus every escalated pending_approvals row)
+ * are replayable; plain historical ALLOWs have no payload captured and
+ * are excluded, by design (see the 2026-08-23 migration).
+ */
+export async function replayRealTraffic(
+  admin: SupabaseClient,
+  userId: string,
+  draftRef: { id?: string; version?: number },
+  limit = 200,
+): Promise<{ error: string; status: number } | RealTrafficReplayReport> {
+  const resolved = await resolveDraftAndActive(admin, userId, draftRef);
+  if ("error" in resolved) return resolved;
+  const { draft, active } = resolved;
+
+  const { data: rows, error } = await admin.rpc("get_replayable_real_decisions", { _user_id: userId, _limit: limit });
+  if (error) return { error: error.message, status: 500 };
+
+  const changed: RealTrafficReplayReport["changed"] = [];
+  const diffs: RealActionDiff[] = [];
+  for (const r of (rows ?? []) as RealDecisionRow[]) {
+    const actionInput = { action_type: r.action_type, provider: r.provider, description: r.description ?? "", params: r.params };
+    const activeResult = evaluateAction(actionInput, active.snapshot);
+    const draftResult = evaluateAction(actionInput, draft.snapshot ?? {});
+    const diff = diffRealAction(activeResult.gate_outcome, draftResult.gate_outcome);
+    diffs.push(diff);
+    if (diff !== "same") {
+      changed.push({
+        id: r.id,
+        action_type: r.action_type,
+        provider: r.provider,
+        description: (r.description ?? "").slice(0, 200),
+        active: activeResult,
+        draft: draftResult,
+        diff,
+      });
+    }
+  }
+
+  return {
+    ok: true,
+    active_version: { id: active.id, version: active.version },
+    draft_version: { id: draft.id, version: draft.version },
+    summary: summarizeRealTrafficReplay(diffs),
+    changed,
+  };
 }
