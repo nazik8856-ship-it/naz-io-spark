@@ -299,17 +299,22 @@ export async function runControlGate(
     } catch { /* trial logging must never break a decision */ }
   };
 
-  // ---- circuit breaker state ------------------------------------------------
+  // ---- circuit breaker state --------------------------------------------
+  // Per-agent, not account-wide-with-fallback (2026-08-22): when this
+  // action is tied to an agent, its breaker lives ENTIRELY on that
+  // agent's own row -- zero shared state with any other agent or the
+  // account-wide row. Only an agent-less (chat-driven) action ever reads
+  // the account-wide (agent_id NULL) row.
   type Breaker = {
     id: string; recent_outcomes: string[]; tripped: boolean;
     trip_count: number; tripped_at: string | null; failure_rate: number; last_reason: string | null;
   };
-  const { data: breakerRow } = await admin
+  const breakerQuery = admin
     .from("circuit_breakers")
     .select("id, recent_outcomes, tripped, trip_count, tripped_at, failure_rate, last_reason")
     .eq("user_id", userId)
-    .eq("action_type", actionType)
-    .maybeSingle();
+    .eq("action_type", actionType);
+  const { data: breakerRow } = await (agentId ? breakerQuery.eq("agent_id", agentId) : breakerQuery.is("agent_id", null)).maybeSingle();
   const breaker = (breakerRow as Breaker | null) ?? null;
 
   const recordAttempt = async (failed: boolean, why: string) => {
@@ -641,23 +646,29 @@ export async function recordBreakerAttempt(
   },
 ): Promise<Record<string, unknown> | null> {
   const { userId, actionType, provider, failed } = input;
+  const agentId = input.agentId ?? null;
   const why = input.why ?? "";
   try {
-    const { data: breakerRow } = await admin
+    // Per-agent scoping (2026-08-22): a known agentId reads/writes ONLY
+    // that agent's own row (agent_id = agentId); an agent-less action
+    // reads/writes ONLY the account-wide row (agent_id IS NULL). Never a
+    // mix of the two.
+    const readQuery = admin
       .from("circuit_breakers")
-      .select("recent_outcomes, tripped, trip_count")
+      .select("id, recent_outcomes, tripped, trip_count")
       .eq("user_id", userId)
-      .eq("action_type", actionType)
-      .maybeSingle();
-    const breaker = (breakerRow as { recent_outcomes?: string[]; tripped?: boolean; trip_count?: number } | null) ?? null;
+      .eq("action_type", actionType);
+    const { data: breakerRow } = await (agentId ? readQuery.eq("agent_id", agentId) : readQuery.is("agent_id", null)).maybeSingle();
+    const breaker = (breakerRow as { id?: string; recent_outcomes?: string[]; tripped?: boolean; trip_count?: number } | null) ?? null;
 
     const windowArr = [...(breaker?.recent_outcomes ?? []), failed ? "fail" : "ok"].slice(-BREAKER_WINDOW);
     const failures = windowArr.filter((o) => o === "fail").length;
     const rate = windowArr.length ? failures / windowArr.length : 0;
     const shouldTrip = windowArr.length >= BREAKER_MIN_ATTEMPTS && rate > BREAKER_FAIL_RATE;
 
-    await admin.from("circuit_breakers").upsert({
+    const payload = {
       user_id: userId,
+      agent_id: agentId,
       action_type: actionType,
       recent_outcomes: windowArr,
       attempts: windowArr.length,
@@ -668,7 +679,16 @@ export async function recordBreakerAttempt(
       trip_count: (breaker?.trip_count ?? 0) + (shouldTrip ? 1 : 0),
       last_reason: failed ? why.slice(0, 400) : null,
       last_attempt_at: new Date().toISOString(),
-    }, { onConflict: "user_id,action_type" });
+    };
+    // Two partial unique indexes back this table now (account-wide vs.
+    // per-agent), so a plain upsert can no longer infer the right conflict
+    // target -- same fix SpendCapPanel.tsx already applies client-side for
+    // ai_spend_caps: find the row first, then update or insert explicitly.
+    if (breaker?.id) {
+      await admin.from("circuit_breakers").update(payload).eq("id", breaker.id);
+    } else {
+      await admin.from("circuit_breakers").insert(payload);
+    }
 
     if (shouldTrip) {
       const tripReason =
@@ -703,12 +723,12 @@ export async function recordBreakerAttempt(
       }
     }
 
-    const { data: after } = await admin
+    const afterQuery = admin
       .from("circuit_breakers")
       .select("tripped, failure_rate, attempts, failures, trip_count, tripped_at")
       .eq("user_id", userId)
-      .eq("action_type", actionType)
-      .maybeSingle();
+      .eq("action_type", actionType);
+    const { data: after } = await (agentId ? afterQuery.eq("agent_id", agentId) : afterQuery.is("agent_id", null)).maybeSingle();
     return (after as Record<string, unknown> | null) ?? null;
   } catch {
     return null;
