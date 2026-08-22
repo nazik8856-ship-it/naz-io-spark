@@ -41,7 +41,7 @@ export default function ControlTeam() {
   const load = useCallback(async () => {
     if (!user) return;
     setLoading(true);
-    const { data, error } = await supabase
+    const { data, error } = await anyDb
       .from("account_members")
       .select("id, member_id, email, role, status, invited_at, accepted_at, ooo_until, ooo_fallback_member_id")
       .eq("account_owner_id", user.id)
@@ -81,7 +81,7 @@ export default function ControlTeam() {
   // unblocked" gap. Set by the account owner from here (this member's own
   // self-service OOO page is a possible future follow-up, not built yet).
   const setOoo = async (id: string, oooUntil: string | null, fallbackMemberId: string | null) => {
-    const { error } = await supabase
+    const { error } = await anyDb
       .from("account_members")
       .update({ ooo_until: oooUntil, ooo_fallback_member_id: fallbackMemberId })
       .eq("id", id);

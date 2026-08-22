@@ -68,7 +68,7 @@ export default function HardRulesPanel() {
   const load = useCallback(async () => {
     if (!accountId) return;
     const [{ data }, { data: agentRows }, { data: profile }] = await Promise.all([
-      supabase
+      anyDb
         .from("hard_rules")
         .select("id, rule_text, action_type_pattern, effect, provider, shadow_mode, created_at, agent_id")
         .eq("user_id", accountId)
@@ -87,11 +87,11 @@ export default function HardRulesPanel() {
     await Promise.all(
       shadowRules.map(async (r) => {
         const [{ count: hits }, { count: decisions }] = await Promise.all([
-          supabase
+          anyDb
             .from("hard_rule_shadow_hits")
             .select("id", { count: "exact", head: true })
             .eq("rule_id", r.id),
-          supabase
+          anyDb
             .from("agent_decisions")
             .select("id", { count: "exact", head: true })
             .eq("user_id", accountId)
@@ -146,7 +146,7 @@ export default function HardRulesPanel() {
       toast({ title: "Promotion requested", description: "A second owner needs to approve this from Policy change requests before it goes live." });
       return;
     }
-    const { error } = await supabase
+    const { error } = await anyDb
       .from("hard_rules")
       .update({ shadow_mode: false, promoted_at: new Date().toISOString() })
       .eq("id", r.id);

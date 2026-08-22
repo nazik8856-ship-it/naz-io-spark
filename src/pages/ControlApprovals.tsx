@@ -74,13 +74,13 @@ export default function ControlApprovals() {
   const load = useCallback(async () => {
     if (!user || !accountId) return;
     const [{ data }, { data: members }] = await Promise.all([
-      supabase
+      anyDb
         .from("pending_approvals")
         .select("*")
         .eq("user_id", accountId)
         .order("created_at", { ascending: false })
         .limit(100),
-      supabase
+      anyDb
         .from("account_members")
         .select("member_id, email, role, ooo_until")
         .eq("account_owner_id", accountId)
@@ -94,7 +94,7 @@ export default function ControlApprovals() {
 
     const ids = rows.map((r) => r.id);
     if (ids.length) {
-      const { data: evs } = await supabase
+      const { data: evs } = await anyDb
         .from("pending_approval_events")
         .select("approval_id, event_type, actor_id, target_id, note, created_at")
         .in("approval_id", ids)

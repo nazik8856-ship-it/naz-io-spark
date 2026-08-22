@@ -56,7 +56,7 @@ export default function ControlSafetyRules() {
   const load = useCallback(async () => {
     if (!accountId) return;
     const [{ data }, { data: agentRows }] = await Promise.all([
-      supabase
+      anyDb
         .from("safety_rules")
         .select("id, name, category, pattern, severity, enabled, agent_id")
         .eq("user_id", accountId)

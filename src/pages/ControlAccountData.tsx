@@ -42,7 +42,7 @@ export default function ControlAccountData() {
 
   const loadPending = useCallback(async () => {
     if (!user) return;
-    const { data } = await supabase
+    const { data } = await anyDb
       .from("data_deletion_requests")
       .select("id, requested_at, execute_at, status")
       .eq("user_id", user.id)

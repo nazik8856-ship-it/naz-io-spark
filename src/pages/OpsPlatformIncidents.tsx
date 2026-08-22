@@ -34,7 +34,7 @@ export default function OpsPlatformIncidents() {
 
   useEffect(() => {
     if (!user) { setAuthorized(false); return; }
-    supabase
+    anyDb
       .from("user_roles")
       .select("role")
       .eq("user_id", user.id)
@@ -46,7 +46,7 @@ export default function OpsPlatformIncidents() {
   const load = useCallback(async () => {
     if (!authorized) return;
     setLoading(true);
-    let query = supabase
+    let query = anyDb
       .from("platform_incidents")
       .select("id, kind, summary, detail, created_at, resolved_at, resolution_note")
       .order("created_at", { ascending: false });
@@ -61,7 +61,7 @@ export default function OpsPlatformIncidents() {
 
   const resolve = async (incident: PlatformIncident) => {
     setBusy(incident.id);
-    const { error } = await supabase
+    const { error } = await anyDb
       .from("platform_incidents")
       .update({ resolved_at: new Date().toISOString(), resolution_note: noteDrafts[incident.id] || null })
       .eq("id", incident.id)

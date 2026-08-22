@@ -41,7 +41,7 @@ export default function ControlPolicyChangeRequests() {
   const load = useCallback(async () => {
     if (!user || !accountId) return;
     const [{ data }, { data: members }] = await Promise.all([
-      supabase
+      anyDb
         .from("policy_change_requests")
         .select("id, requested_by, change_type, description, status, approved_by, approved_at, created_at")
         .eq("user_id", accountId)
