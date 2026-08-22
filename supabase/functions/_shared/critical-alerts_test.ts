@@ -96,6 +96,7 @@ Deno.test("every known CriticalAlertEvent has a real, non-empty label", () => {
     "kill_switch_on", "kill_switch_off", "kill_switch_auto",
     "hard_rule_block", "circuit_breaker_trip", "self_audit_regression",
     "gate_error", "approval_escalated", "confidence_miscalibrated",
+    "break_glass_override",
   ];
   for (const event of knownEvents) {
     assert(typeof LABELS[event] === "string" && LABELS[event].length > 0, `missing/empty label for "${event}"`);
@@ -115,6 +116,16 @@ Deno.test("a confidence_miscalibrated event opens an incident linked to the aler
   await sendCriticalAlert(client, "user-1", { event: "confidence_miscalibrated", summary: "overconfident" });
   assertEquals(incidents.length, 1);
   assertEquals(incidents[0].kind, "confidence_miscalibrated");
+  assertEquals(incidents[0].alert_id, "alert-1");
+});
+
+Deno.test("a break_glass_override event opens an incident linked to the alert (2026-08-23)", async () => {
+  const { client, incidents } = fakeSupabase({ slackConnected: false });
+  await sendCriticalAlert(client, "user-1", {
+    event: "break_glass_override", summary: "overridden", actionType: "send_email", provider: "Gmail",
+  });
+  assertEquals(incidents.length, 1);
+  assertEquals(incidents[0].kind, "break_glass_override");
   assertEquals(incidents[0].alert_id, "alert-1");
 });
 

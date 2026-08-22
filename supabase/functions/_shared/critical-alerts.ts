@@ -24,7 +24,8 @@ export type CriticalAlertEvent =
   | "self_audit_regression"
   | "gate_error"
   | "approval_escalated"
-  | "confidence_miscalibrated";
+  | "confidence_miscalibrated"
+  | "break_glass_override";
 
 const APP_BASE_URL = "https://www.nazai.net";
 
@@ -43,6 +44,7 @@ export const LABELS: Record<CriticalAlertEvent, string> = {
   gate_error: "🚨 Control gate hit an unexpected error and failed closed",
   approval_escalated: "⏰ A pending approval has been waiting too long",
   confidence_miscalibrated: "📉 The model is overconfident in a real confidence range",
+  break_glass_override: "🔓 A blocked action was overridden by a human",
 };
 
 export function decisionLink(decisionId?: string | null): string | null {

@@ -373,6 +373,117 @@ serve(async (req) => {
     }
 
 
+    // ---- POST /control-engine/decisions/:id/override ------------------------
+    // Break-glass: carries out a BLOCKed action anyway, over an explicit
+    // human reason. A BLOCK verdict otherwise dead-ends -- only
+    // require_approval verdicts get a pending_approvals row today. Scoped
+    // deliberately narrow: only decisions whose block came from a hard rule
+    // or the safety scanner are eligible, because those are the only two
+    // BLOCK sources that capture ctx.params at block time (see
+    // control-gate.ts's logStop calls) -- kill switch, spend cap, and
+    // circuit breaker blocks have no params to replay and stay out of scope.
+    //
+    // overridden_at is claimed ATOMICALLY (a single UPDATE ... WHERE
+    // overridden_at IS NULL) before the real write runs, mirroring
+    // /approvals/:id/execute's own claim, so two concurrent override
+    // attempts on the same blocked decision can only ever have ONE of them
+    // actually carry the action out.
+    const overrideMatch = url.pathname.match(/\/decisions\/([0-9a-fA-F-]{36})\/override\/?$/);
+    if (overrideMatch) {
+      const decisionId = overrideMatch[1];
+      const reason = typeof body?.reason === "string" ? body.reason.trim() : "";
+      if (!reason) {
+        return json({ ok: false, error: "reason_required", message: "A reason is required to override a blocked action." }, 400);
+      }
+
+      const { data: origRow } = await supabase
+        .from("agent_decisions").select("*").eq("id", decisionId).maybeSingle();
+      const orig = origRow as Record<string, unknown> | null;
+      if (!orig) return json({ ok: false, error: "not_found" }, 404);
+      if (orig.user_id !== userId) return json({ ok: false, error: "forbidden" }, 403);
+
+      const eligibleSource = orig.source === "hard_rule" || orig.source === "safety_scanner";
+      const isBlock = String(orig.decision || "").startsWith("BLOCK ");
+      const hasParams = orig.params !== null && orig.params !== undefined;
+      if (!eligibleSource || !isBlock || !hasParams) {
+        return json({
+          ok: false,
+          error: "not_overridable",
+          message: "Only a hard-rule or safety-scanner BLOCK with a captured action payload can be overridden here.",
+        }, 400);
+      }
+
+      const actType = String(orig.action_type || "");
+      if (!PROVIDER_WRITE_KINDS.has(actType)) {
+        return json({
+          ok: false,
+          error: "not_executable",
+          message: `"${actType}" has no provider-write path to re-run from here.`,
+        }, 400);
+      }
+
+      // Atomic claim: only succeeds if overridden_at is still NULL right now.
+      const { data: claimed } = await supabase
+        .from("agent_decisions")
+        .update({ overridden_at: new Date().toISOString() })
+        .eq("id", decisionId)
+        .is("overridden_at", null)
+        .select("id")
+        .maybeSingle();
+      if (!claimed) {
+        return json({
+          ok: true, executed: false, already_overridden: true,
+          message: "This blocked action was already overridden — nothing ran again.",
+        });
+      }
+
+      const origProvider = (orig.provider as string) ?? null;
+      const origAgentId = (orig.agent_id as string) ?? null;
+      const { data: overrideRow } = await supabase.from("agent_decisions").insert({
+        user_id: userId,
+        agent_id: origAgentId,
+        agent_run_id: orig.agent_run_id ?? null,
+        decision: `OVERRIDE ${actType} (${origProvider ?? "unknown"})`,
+        reasoning: reason.slice(0, 800),
+        alternatives_considered: [],
+        confidence_score: 100,
+        source: "human_override",
+        escalated: false,
+        override_of: decisionId,
+        action_type: actType,
+        provider: origProvider,
+      }).select("id").maybeSingle();
+      const overrideDecisionId = (overrideRow as { id?: string } | null)?.id ?? null;
+
+      // A human bypassing a block is consequential regardless of whether the
+      // resulting write itself later succeeds -- alert and open an incident
+      // for the override event, not for the write's outcome.
+      await sendCriticalAlert(supabase, userId, {
+        event: "break_glass_override",
+        summary: `A blocked action was overridden by a human: "${reason.slice(0, 300)}"`,
+        decisionId: overrideDecisionId,
+        actionType: actType,
+        provider: origProvider,
+        actor: userId,
+      });
+
+      const result = await runProviderWrite(
+        actType, supabase, userId, origAgentId ?? "", (orig.params ?? {}) as Record<string, unknown>,
+      );
+      if (!result.ok) {
+        // Nothing real happened -- release the claim so this stays
+        // retryable. Each retry still gets its own audited human_override
+        // decision row above, so the audit trail of every attempt survives
+        // even though the claim itself resets.
+        await supabase.from("agent_decisions").update({ overridden_at: null }).eq("id", decisionId);
+      }
+      return json({
+        ok: result.ok, executed: result.ok, override_decision_id: overrideDecisionId,
+        summary: result.summary, url: result.url ?? null, ref: result.ref ?? null,
+      }, result.ok ? 200 : 502);
+    }
+
+
     // ---- POST /control-engine/replay ----------------------------------------
     // Re-evaluates the 30 control scenarios against a DRAFT policy version and
     // diffs them against the active version. Deterministic layers only (hard

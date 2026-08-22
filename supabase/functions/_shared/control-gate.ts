@@ -205,7 +205,20 @@ export async function runControlGate(
 
   const trace: TraceEntry[] = [];
 
-  const logStop = async (decision: string, reasoning: string, source: AgentDecisionSource, escalated: boolean, hardRuleId?: string | null) => {
+  const logStop = async (
+    decision: string,
+    reasoning: string,
+    source: AgentDecisionSource,
+    escalated: boolean,
+    hardRuleId?: string | null,
+    // The action payload -- ONLY passed by the two BLOCK call sites
+    // (hard_rule, safety_scanner) that have it in scope and mean for it to
+    // be replayable later by a break-glass override. Every other call site
+    // omits this, so it stays null there, deliberately -- capturing the
+    // full params blob on every block (kill switch, spend cap, circuit
+    // breaker) is out of scope, not an oversight.
+    params?: unknown,
+  ) => {
     try {
       const { data } = await admin.from("agent_decisions").insert({
         user_id: userId,
@@ -226,6 +239,7 @@ export async function runControlGate(
         hard_rule_id: hardRuleId ?? null,
         action_type: actionType,
         provider,
+        params: params ?? null,
         // The trace array is closed over and already has every entry pushed
         // up to this call site — finalizeTrace fills the rest as not_reached.
         gate_trace: finalizeTrace(trace),
@@ -450,6 +464,10 @@ export async function runControlGate(
       : `Your hard rule requires approval first: "${matched.rule_text}". Nothing ran — approve it explicitly to proceed.`;
     const decisionId = await logStop(
       `${blocking ? "BLOCK" : "APPROVAL_REQUIRED"} ${actionType} (${provider})`, reason, "hard_rule", !blocking, matched.id,
+      // Only a real BLOCK needs its params captured for a possible
+      // break-glass override -- an APPROVAL_REQUIRED verdict already has
+      // its own params-carrying pending_approvals row.
+      blocking ? ctx.params : undefined,
     );
     await recordShadowHits(decisionId, blocking ? "block" : "modify");
     let approvalId: string | null = null;
@@ -550,6 +568,10 @@ export async function runControlGate(
       `${reason}\nMatched: ${safety.matches.map((m) => `${m.name} on ${m.matched_on}`).join("; ")}`,
       "safety_scanner",
       !blocking,
+      undefined,
+      // Same rule as the hard_rule branch above: only a real BLOCK gets its
+      // params captured.
+      blocking ? ctx.params : undefined,
     );
     await recordShadowHits(decisionId, blocking ? "block" : "modify");
     await recordSafetyShadowHits(decisionId, blocking ? "block" : "modify");

@@ -243,6 +243,31 @@ Deno.test("a decision NOT enforced by a hard rule records hard_rule_id as null",
   assertEquals(logged?.hard_rule_id ?? null, null);
 });
 
+Deno.test("a hard-rule BLOCK captures ctx.params, for a possible break-glass override later (2026-08-23)", async () => {
+  const { client, inserts } = fakeSupabase({
+    hard_rules: {
+      data: [{ id: "r1", rule_text: "Never post to #general", action_type_pattern: "slack_post_message", effect: "always_block", provider: "Slack", enabled: true }],
+      error: null,
+    },
+  });
+  await runControlGate(client, { ...baseCtx, actionType: "slack_post_message", provider: "Slack" });
+  const logged = (inserts.agent_decisions ?? [])[0] as { params?: unknown } | undefined;
+  assertEquals(logged?.params, baseCtx.params);
+});
+
+Deno.test("a hard-rule APPROVAL_REQUIRED does NOT capture params on the decision row -- the pending_approvals row already carries it", async () => {
+  const { client, inserts } = fakeSupabase({
+    hard_rules: {
+      data: [{ id: "r2", rule_text: "High-value orders need a human", action_type_pattern: "shopify_create_draft_order", effect: "always_require_approval", provider: null, enabled: true }],
+      error: null,
+    },
+    pending_approvals: { data: { id: "approval-1" }, error: null },
+  });
+  await runControlGate(client, { ...baseCtx, actionType: "shopify_create_draft_order", provider: "Shopify" });
+  const logged = (inserts.agent_decisions ?? [])[0] as { params?: unknown } | undefined;
+  assertEquals(logged?.params ?? null, null);
+});
+
 Deno.test("a matching always_require_approval hard rule queues an approval instead of blocking outright", async () => {
   const { client } = fakeSupabase({
     hard_rules: {
@@ -398,6 +423,13 @@ Deno.test("a safety-scanner block-severity match blocks", async () => {
   assertFalse(result.ok);
   assertEquals(result.verdict, "block");
   assertEquals(result.source, "safety_scanner");
+});
+
+Deno.test("a safety-scanner BLOCK captures ctx.params, for a possible break-glass override later (2026-08-23)", async () => {
+  const { client, inserts } = fakeSupabase();
+  await runControlGate(client, { ...baseCtx, description: "delete all customer records" });
+  const logged = (inserts.agent_decisions ?? [])[0] as { params?: unknown } | undefined;
+  assertEquals(logged?.params, baseCtx.params);
 });
 
 Deno.test("a safety-scanner require_approval-severity match queues approval, does not hard-block", async () => {
