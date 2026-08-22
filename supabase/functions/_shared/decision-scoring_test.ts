@@ -179,10 +179,17 @@ class FakeQuery implements PromiseLike<Row> {
 }
 function fakeSupabase(tables: Record<string, Row>) {
   const calls: { table: string }[] = [];
+  const inserts: Record<string, unknown[]> = {};
   return {
-    // deno-lint-ignore no-explicit-any
-    from: (table: string) => { calls.push({ table }); return new FakeQuery(() => tables[table] ?? { data: null, error: null }); },
+    from: (table: string) => {
+      calls.push({ table });
+      const q = new FakeQuery(() => tables[table] ?? { data: null, error: null });
+      // deno-lint-ignore no-explicit-any
+      (q as any).insert = (row?: unknown) => { (inserts[table] ??= []).push(row); return q; };
+      return q;
+    },
     calls,
+    inserts,
     // deno-lint-ignore no-explicit-any
   } as any;
 }
@@ -222,6 +229,31 @@ Deno.test("logDecision: checks for a decision_logged webhook subscriber (SIEM ex
   });
   assertEquals(decisionId, "decision-1");
   assert((client.calls as { table: string }[]).some((c) => c.table === "webhooks"), "expected logDecision to check for a decision_logged webhook subscriber");
+});
+
+Deno.test("logDecision: writes structured action_type/provider alongside the free-text decision (2026-08-23)", async () => {
+  const client = fakeSupabase({
+    agent_decisions: { data: { id: "decision-2" }, error: null },
+  });
+  await logDecision(client, { userId: "user-1" }, {
+    decision: "ALLOW send_email (Gmail)", reasoning: "fine", alternatives: [], score: 80,
+    actionType: "send_email", provider: "Gmail",
+  });
+  const logged = (client.inserts as Record<string, unknown[]>).agent_decisions?.[0] as { action_type?: string; provider?: string } | undefined;
+  assertEquals(logged?.action_type, "send_email");
+  assertEquals(logged?.provider, "Gmail");
+});
+
+Deno.test("logDecision: action_type/provider are null when not supplied, not undefined/omitted", async () => {
+  const client = fakeSupabase({
+    agent_decisions: { data: { id: "decision-3" }, error: null },
+  });
+  await logDecision(client, { userId: "user-1" }, {
+    decision: "ALLOW something", reasoning: "fine", alternatives: [], score: 80,
+  });
+  const logged = (client.inserts as Record<string, unknown[]>).agent_decisions?.[0] as { action_type?: string | null; provider?: string | null } | undefined;
+  assertEquals(logged?.action_type ?? null, null);
+  assertEquals(logged?.provider ?? null, null);
 });
 
 Deno.test("loadStrictness: never throws, defaults to balanced on error", async () => {

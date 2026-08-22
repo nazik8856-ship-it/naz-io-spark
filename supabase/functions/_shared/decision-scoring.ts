@@ -159,6 +159,9 @@ export const logDecision = async (
     policyVersion?: number | null;
     /** The full gate trace (every layer checked) that judged this action before the model ever ran. */
     trace?: unknown;
+    /** Structured mirror of what's already embedded in `decision`'s free text -- lets a filterable decision log (or a future real-traffic policy replay) query directly instead of regex-parsing. */
+    actionType?: string | null;
+    provider?: string | null;
   },
 ): Promise<string | null> => {
   try {
@@ -175,6 +178,8 @@ export const logDecision = async (
       escalated: d.escalated ?? false,
       policy_version: d.policyVersion ?? null,
       gate_trace: d.trace ?? null,
+      action_type: d.actionType ?? null,
+      provider: d.provider ?? null,
     }).select("id").single();
     const decisionId = (data as { id?: string } | null)?.id ?? null;
     if (decisionId) {

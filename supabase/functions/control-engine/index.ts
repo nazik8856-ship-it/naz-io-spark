@@ -221,6 +221,8 @@ serve(async (req) => {
         stepIndex: undefined,
         escalated: false,
         source: "human_override",
+        actionType: (row.tool as string) ?? null,
+        provider: (row.provider as string) ?? null,
       });
 
       return json({
@@ -728,6 +730,8 @@ serve(async (req) => {
       source: "model",
       policyVersion: gate.policyVersion,
       trace: gate.trace,
+      actionType,
+      provider,
     });
 
     await recordShadowHits(decisionId ?? null, decision);

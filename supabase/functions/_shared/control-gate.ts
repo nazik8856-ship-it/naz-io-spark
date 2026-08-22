@@ -224,6 +224,8 @@ export async function runControlGate(
         // live rule matched anything in the last N days" from real data
         // instead of guessing. Null for every other source.
         hard_rule_id: hardRuleId ?? null,
+        action_type: actionType,
+        provider,
         // The trace array is closed over and already has every entry pushed
         // up to this call site — finalizeTrace fills the rest as not_reached.
         gate_trace: finalizeTrace(trace),
@@ -661,6 +663,8 @@ export async function runControlGate(
         escalated: true,
         policy_version: policyVersion,
         gate_trace: finalizeTrace(trace),
+        action_type: actionType,
+        provider,
       }).select("id").maybeSingle();
       decisionId = (data as { id?: string } | null)?.id ?? null;
     } catch { /* logging must never break the fail-closed block */ }
@@ -781,6 +785,8 @@ export async function recordBreakerAttempt(
           source: "circuit_breaker_trip" satisfies AgentDecisionSource,
           escalated: true,
           policy_version: input.policyVersion ?? null,
+          action_type: actionType,
+          provider,
         }).select("id").maybeSingle();
         tripId = (data as { id?: string } | null)?.id ?? null;
       } catch { /* logging must never break the breaker */ }

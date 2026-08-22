@@ -508,6 +508,8 @@ serve(async (req) => {
       score: number;
       stepIndex?: number;
       escalated?: boolean;
+      actionType?: string | null;
+      provider?: string | null;
     }): Promise<string | null> =>
       logDecisionRow(supabase, { userId, agentId, runId }, { ...d, policyVersion: activePolicyVersion });
 
@@ -1389,6 +1391,8 @@ Rules:
             score: conf.score,
             stepIndex: steps,
             escalated: lowConfidence,
+            actionType: tool.kind,
+            provider: providerHint ?? null,
           });
 
           // Escalation gate: pause BEFORE executing anything the model is
