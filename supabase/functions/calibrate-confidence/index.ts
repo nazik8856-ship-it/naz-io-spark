@@ -8,6 +8,7 @@
 // a signal that the scoring prompt needs review.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
+import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -120,6 +121,17 @@ Deno.serve(async (req) => {
             `only succeeded ${successRate.toFixed(0)}% of the time across ${decisive} measured outcomes. ` +
             `The scoring prompt is overconfident in this range and needs review.`;
           flagged += 1;
+        }
+
+        // High-severity miscalibration is a real "something is actually
+        // wrong with the model's judgement" signal -- surface it the same
+        // way any other critical control-system event does (Slack/log +
+        // an auto-opened incident), not just as a row nobody looks at.
+        if (severity === "severe") {
+          await sendCriticalAlert(supabase, userId, {
+            event: "confidence_miscalibrated",
+            summary: note!,
+          });
         }
 
         upserts.push({
