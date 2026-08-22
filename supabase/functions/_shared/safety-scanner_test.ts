@@ -4,7 +4,7 @@
 // high-stakes action through. `scanWithRules` is pure (no DB), so these run
 // directly against the built-in rule set with a fixed, known-bad/known-benign
 // input set. Run with: deno test supabase/functions/_shared/safety-scanner_test.ts
-import { BUILTIN_SAFETY_RULES, scanWithRules } from "./safety-scanner.ts";
+import { BUILTIN_SAFETY_RULES, scanWithRules, scanAction, type SafetyRule } from "./safety-scanner.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
@@ -169,4 +169,49 @@ Deno.test("an invalid custom regex pattern is skipped, not thrown", () => {
   const broken = [{ id: "custom:broken", name: "broken", category: "custom", pattern: "(unclosed", severity: "block" as const, enabled: true, builtin: false }];
   const r = scanWithRules(broken, { body: "anything" }, "");
   assertFalse(r.matched);
+});
+
+// ---- shadow-mode custom rules (2026-08-22 parity with hard_rules) ----------
+
+const shadowRule: SafetyRule = {
+  id: "custom:shadow-1", name: "Trial safety rule", category: "custom",
+  pattern: "trial-flag-word", severity: "block", enabled: true, builtin: false, shadow_mode: true,
+};
+const liveRule: SafetyRule = {
+  id: "custom:live-1", name: "Live safety rule", category: "custom",
+  pattern: "live-flag-word", severity: "block", enabled: true, builtin: false, shadow_mode: false,
+};
+
+Deno.test("scanAction: a shadow-mode custom rule that matches never blocks or requires approval", async () => {
+  const r = await scanAction({} as never, "user-1", { body: "contains trial-flag-word here" }, "", [shadowRule]);
+  assertFalse(r.matched, "a shadow-mode-only match must not set matched=true");
+  assertEquals(r.severity, null);
+});
+
+Deno.test("scanAction: a shadow-mode custom rule that matches is recorded in shadowMatches", async () => {
+  const r = await scanAction({} as never, "user-1", { body: "contains trial-flag-word here" }, "", [shadowRule]);
+  assertEquals(r.shadowMatches.length, 1);
+  assertEquals(r.shadowMatches[0].rule_id, "custom:shadow-1");
+});
+
+Deno.test("scanAction: a live custom rule still blocks exactly as before, unaffected by an unrelated shadow rule", async () => {
+  const r = await scanAction({} as never, "user-1", { body: "contains live-flag-word and trial-flag-word" }, "", [shadowRule, liveRule]);
+  assert(r.matched);
+  assertEquals(r.severity, "block");
+  assert(r.matches.some((m) => m.rule_id === "custom:live-1"), "the live rule must still be in the real matches");
+  assertFalse(r.matches.some((m) => m.rule_id === "custom:shadow-1"), "the shadow rule must never appear in real matches");
+  assertEquals(r.shadowMatches.length, 1);
+  assertEquals(r.shadowMatches[0].rule_id, "custom:shadow-1");
+});
+
+Deno.test("scanAction: builtins still block normally when only a shadow custom rule is also configured", async () => {
+  const r = await scanAction({} as never, "user-1", { note: "charge card 4111111111111111" }, "", [shadowRule]);
+  assert(r.matched);
+  assertEquals(r.severity, "block");
+  assert(r.matches.some((m) => m.rule_id === "builtin:card_number"));
+});
+
+Deno.test("scanAction: with no shadow rules configured, shadowMatches is empty", async () => {
+  const r = await scanAction({} as never, "user-1", { body: "totally benign text" }, "", [liveRule]);
+  assertEquals(r.shadowMatches, []);
 });

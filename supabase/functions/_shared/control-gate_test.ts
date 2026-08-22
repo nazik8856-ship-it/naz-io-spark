@@ -10,7 +10,7 @@
 // safety scanner.
 //
 // Run with: deno test --allow-none supabase/functions/_shared/control-gate_test.ts
-import { runControlGate } from "./control-gate.ts";
+import { runControlGate, recordBreakerAttempt } from "./control-gate.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
@@ -32,10 +32,14 @@ function assertEquals<T>(actual: T, expected: T, msg?: string): void {
 type Row = { data?: unknown; error?: unknown };
 
 class FakeQuery implements PromiseLike<Row> {
+  // Filters applied via .eq()/.is() on this particular query chain, keyed
+  // by column name — lets a test assert e.g. that an agent-scoped read
+  // actually filtered on agent_id, not just that the table was touched.
+  filters: Record<string, unknown> = {};
   constructor(private resolve: () => Row) {}
   select() { return this; }
-  eq() { return this; }
-  is() { return this; }
+  eq(col: string, val: unknown) { this.filters[col] = val; return this; }
+  is(col: string, val: unknown) { this.filters[col] = val; return this; }
   gte() { return this; }
   in() { return this; }
   contains() { return this; }
@@ -57,14 +61,17 @@ class FakeQuery implements PromiseLike<Row> {
 }
 
 function fakeSupabase(tables: Record<string, Row> = {}, rpcs: Record<string, Row> = {}) {
-  const calls: { table?: string; rpc?: string }[] = [];
+  const calls: { table?: string; rpc?: string; filters?: Record<string, unknown> }[] = [];
   const inserts: Record<string, unknown[]> = {};
+  const updates: Record<string, unknown[]> = {};
   const client = {
     from(table: string) {
-      calls.push({ table });
       const q = new FakeQuery(() => tables[table] ?? { data: null, error: null });
+      calls.push({ table, filters: q.filters });
       // deno-lint-ignore no-explicit-any
       (q as any).insert = (row?: unknown) => { (inserts[table] ??= []).push(row); return q; };
+      // deno-lint-ignore no-explicit-any
+      (q as any).update = (row?: unknown) => { (updates[table] ??= []).push(row); return q; };
       return q;
     },
     rpc(name: string) {
@@ -73,7 +80,7 @@ function fakeSupabase(tables: Record<string, Row> = {}, rpcs: Record<string, Row
     },
   };
   // deno-lint-ignore no-explicit-any
-  return { client: client as any, calls, inserts };
+  return { client: client as any, calls, inserts, updates };
 }
 
 const baseCtx = {
@@ -255,6 +262,78 @@ Deno.test("a NOT-tripped circuit breaker does not block", async () => {
   assert(result.ok);
 });
 
+// ---- per-agent circuit breaker scoping (2026-08-22) ------------------------
+// A breaker is inherently "have MY recent attempts failed" -- when an
+// agentId is known it must live entirely on that agent's own row, never
+// shared with the account-wide row or another agent's row.
+
+Deno.test("an agent-scoped gate check reads that agent's own breaker row, not the account-wide one", async () => {
+  const { client, calls } = fakeSupabase({
+    circuit_breakers: { data: { id: "b1", recent_outcomes: [], tripped: false, trip_count: 0, tripped_at: null, failure_rate: 0, last_reason: null }, error: null },
+  });
+  await runControlGate(client, { ...baseCtx, agentId: "agent-1" });
+  const breakerRead = calls.find((c) => c.table === "circuit_breakers");
+  assertEquals(breakerRead?.filters?.agent_id, "agent-1");
+});
+
+Deno.test("an agent-less gate check reads the account-wide breaker row (agent_id IS NULL)", async () => {
+  const { client, calls } = fakeSupabase({
+    circuit_breakers: { data: { id: "b1", recent_outcomes: [], tripped: false, trip_count: 0, tripped_at: null, failure_rate: 0, last_reason: null }, error: null },
+  });
+  await runControlGate(client, baseCtx); // no agentId
+  const breakerRead = calls.find((c) => c.table === "circuit_breakers");
+  assertEquals(breakerRead?.filters?.agent_id, null);
+});
+
+Deno.test("recordBreakerAttempt for a known agent inserts a new row scoped to that agent, not account-wide", async () => {
+  const { client, inserts, calls } = fakeSupabase({}); // no existing breaker row anywhere
+  await recordBreakerAttempt(client, {
+    userId: "user-1", actionType: "send_email", provider: "Gmail", failed: true, why: "boom", agentId: "agent-1",
+  });
+  const inserted = (inserts.circuit_breakers ?? [])[0] as { agent_id?: string | null } | undefined;
+  assertEquals(inserted?.agent_id, "agent-1");
+  const reads = calls.filter((c) => c.table === "circuit_breakers");
+  assertEquals(reads[0]?.filters?.agent_id, "agent-1", "the initial lookup must be scoped to this agent's own row");
+});
+
+Deno.test("recordBreakerAttempt with no agent inserts a new row scoped account-wide (agent_id null)", async () => {
+  const { client, inserts } = fakeSupabase({});
+  await recordBreakerAttempt(client, {
+    userId: "user-1", actionType: "send_email", provider: "Gmail", failed: true, why: "boom",
+  });
+  const inserted = (inserts.circuit_breakers ?? [])[0] as { agent_id?: string | null } | undefined;
+  assertEquals(inserted?.agent_id ?? null, null);
+});
+
+Deno.test("recordBreakerAttempt updates the existing agent-scoped row by id instead of blindly upserting", async () => {
+  // Two partial unique indexes now back circuit_breakers (account-wide vs.
+  // per-agent), so a plain upsert can't infer the right conflict target --
+  // this proves the find-then-update-by-id fallback actually runs.
+  const { client, updates, calls } = fakeSupabase({
+    circuit_breakers: { data: { id: "existing-row", recent_outcomes: ["ok"], tripped: false, trip_count: 0 }, error: null },
+  });
+  await recordBreakerAttempt(client, {
+    userId: "user-1", actionType: "send_email", provider: "Gmail", failed: true, why: "boom", agentId: "agent-1",
+  });
+  const updated = (updates.circuit_breakers ?? [])[0] as { agent_id?: string | null } | undefined;
+  assert(updated !== undefined, "expected an update, not an insert, when a row already exists");
+  assertEquals(updated?.agent_id, "agent-1");
+  const updateCall = calls.filter((c) => c.table === "circuit_breakers")[1];
+  assertEquals(updateCall?.filters?.id, "existing-row", "must target the found row by id, not a blind upsert");
+});
+
+Deno.test("recordBreakerAttempt re-reads the same agent-scoped row it just wrote, not the account-wide row", async () => {
+  const { client, calls } = fakeSupabase({
+    circuit_breakers: { data: { id: "existing-row", recent_outcomes: ["ok"], tripped: false, trip_count: 0 }, error: null },
+  });
+  await recordBreakerAttempt(client, {
+    userId: "user-1", actionType: "send_email", provider: "Gmail", failed: true, why: "boom", agentId: "agent-1",
+  });
+  const breakerCalls = calls.filter((c) => c.table === "circuit_breakers");
+  assertEquals(breakerCalls.length, 3, "read, then update, then a final re-read");
+  assertEquals(breakerCalls[2]?.filters?.agent_id, "agent-1", "the final re-read must stay scoped to this agent");
+});
+
 // ---- layer 5: deterministic safety scanner (runs last, before any model) --
 
 Deno.test("a safety-scanner block-severity match blocks", async () => {
@@ -276,6 +355,86 @@ Deno.test("a safety-scanner require_approval-severity match queues approval, doe
   assertFalse(result.ok);
   assertEquals(result.verdict, "require_approval");
   assertEquals(result.approvalId, "approval-2");
+});
+
+// ---- safety rule shadow-mode parity (2026-08-22) ---------------------------
+
+const shadowSafetyRules = {
+  safety_rules: {
+    data: [{ id: "sr-1", name: "Trial rule", category: "custom", pattern: "shadow-trigger", severity: "block", enabled: true, shadow_mode: true }],
+    error: null,
+  },
+};
+
+Deno.test("a shadow-mode custom safety rule never blocks; it's surfaced in safety.shadowMatches instead", async () => {
+  const { client } = fakeSupabase(shadowSafetyRules);
+  const result = await runControlGate(client, { ...baseCtx, description: "contains shadow-trigger text" });
+  assert(result.ok, "a shadow-mode safety rule must never actually block");
+  assertEquals(result.safety.shadowMatches.length, 1);
+  assertEquals(result.safety.shadowMatches[0].rule_id, "sr-1");
+});
+
+Deno.test("recordSafetyShadowHits, called by the caller once the real final decision is known, inserts a row", async () => {
+  const { client, inserts } = fakeSupabase(shadowSafetyRules);
+  const result = await runControlGate(client, { ...baseCtx, description: "contains shadow-trigger text" });
+  await result.recordSafetyShadowHits("decision-99", "allow");
+  // insert() is called once with an ARRAY of rows (one per shadow match),
+  // so each push into `inserts` is itself that array.
+  const calls = (inserts.safety_rule_shadow_hits ?? []) as Record<string, unknown>[][];
+  assertEquals(calls.length, 1);
+  const rows = calls[0];
+  assertEquals(rows.length, 1);
+  assertEquals(rows[0].rule_id, "sr-1");
+  assertEquals(rows[0].decision_id, "decision-99");
+  assertEquals(rows[0].actual_decision, "allow");
+  assertEquals(rows[0].would_have, "block");
+});
+
+Deno.test("a live safety-scanner block also auto-records any shadow-mode safety rule that ALSO matched", async () => {
+  const { client, inserts } = fakeSupabase(shadowSafetyRules);
+  // "delete all" trips the builtin (live) block rule; "shadow-trigger" in
+  // the same description also matches the shadow-mode custom rule.
+  const result = await runControlGate(client, { ...baseCtx, description: "delete all customer records, ref shadow-trigger" });
+  assertFalse(result.ok);
+  assertEquals(result.source, "safety_scanner");
+  const calls = (inserts.safety_rule_shadow_hits ?? []) as Record<string, unknown>[][];
+  assertEquals(calls.length, 1);
+  assertEquals(calls[0].length, 1);
+  assertEquals(calls[0][0].rule_id, "sr-1");
+  assertEquals(calls[0][0].actual_decision, "block");
+});
+
+Deno.test("a live (non-shadow) custom safety rule match is recorded to safety_rule_matches for the dead-rule finder", async () => {
+  const { client, inserts } = fakeSupabase({
+    safety_rules: {
+      data: [{ id: "sr-live-1", name: "Live rule", category: "custom", pattern: "live-flag-word", severity: "block", enabled: true, shadow_mode: false }],
+      error: null,
+    },
+  });
+  const result = await runControlGate(client, { ...baseCtx, description: "contains live-flag-word" });
+  assertFalse(result.ok);
+  assertEquals(result.source, "safety_scanner");
+  const calls = (inserts.safety_rule_matches ?? []) as Record<string, unknown>[][];
+  assertEquals(calls.length, 1);
+  assertEquals(calls[0].length, 1);
+  assertEquals(calls[0][0].rule_id, "sr-live-1");
+});
+
+Deno.test("a builtin-only safety match never writes to safety_rule_matches (builtin ids aren't real safety_rules rows)", async () => {
+  const { client, inserts } = fakeSupabase();
+  const result = await runControlGate(client, { ...baseCtx, description: "delete all customer records" });
+  assertFalse(result.ok);
+  assertEquals(result.source, "safety_scanner");
+  assertEquals(inserts.safety_rule_matches ?? [], []);
+});
+
+Deno.test("a kill-switch block never reaches the safety scanner, so no shadow safety hit is recorded even with a matching shadow rule configured", async () => {
+  const { client, inserts } = fakeSupabase({
+    profiles: { data: { kill_switch: true }, error: null },
+    ...shadowSafetyRules,
+  });
+  await runControlGate(client, { ...baseCtx, description: "contains shadow-trigger text" });
+  assertEquals(inserts.safety_rule_shadow_hits ?? [], []);
 });
 
 Deno.test("nothing trips: the gate allows, safety scan still returned but unmatched", async () => {

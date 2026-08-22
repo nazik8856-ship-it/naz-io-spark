@@ -16,6 +16,7 @@ export const INCIDENT_KINDS = [
   "gate_error",
   "self_audit_regression",
   "approval_escalated",
+  "confidence_miscalibrated",
 ] as const;
 export type IncidentKind = typeof INCIDENT_KINDS[number];
 

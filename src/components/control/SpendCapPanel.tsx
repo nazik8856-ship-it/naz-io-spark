@@ -37,6 +37,7 @@ export default function SpendCapPanel() {
   const [draft, setDraft] = useState(String(DEFAULT_CAP));
   const [saving, setSaving] = useState(false);
   const [forecast, setForecast] = useState<number | null>(null);
+  const [dualControl, setDualControl] = useState(false);
 
   const load = useCallback(async () => {
     if (!accountId) return;
@@ -46,7 +47,7 @@ export default function SpendCapPanel() {
     const daysInMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).getUTCDate();
     const daysElapsed = now.getUTCDate();
 
-    const [{ data: agentRows }, capQuery, dailyQuery, monthQuery] = await Promise.all([
+    const [{ data: agentRows }, capQuery, dailyQuery, monthQuery, { data: profile }] = await Promise.all([
       anyDb.from("agents").select("id, name").eq("user_id", accountId).order("name"),
       scopeAgentId
         ? anyDb.from("ai_spend_caps").select("daily_cap_usd, enabled").eq("user_id", accountId).eq("agent_id", scopeAgentId).maybeSingle()
@@ -57,8 +58,10 @@ export default function SpendCapPanel() {
       scopeAgentId
         ? anyDb.from("ai_spend_daily").select("cost_usd").eq("user_id", accountId).eq("agent_id", scopeAgentId).gte("day", monthStart)
         : anyDb.from("ai_spend_daily").select("cost_usd").eq("user_id", accountId).is("agent_id", null).gte("day", monthStart),
+      anyDb.from("profiles").select("require_dual_control_for_policy").eq("id", accountId).maybeSingle(),
     ]);
     setAgents((agentRows ?? []) as AgentOption[]);
+    setDualControl(!!(profile as { require_dual_control_for_policy?: boolean } | null)?.require_dual_control_for_policy);
     const capRow = capQuery.data;
     const usageRow = dailyQuery.data;
     const configured = scopeAgentId ? !!capRow : true; // account-wide always effectively configured (falls back to $5 default)
@@ -81,6 +84,24 @@ export default function SpendCapPanel() {
     const value = Number(draft);
     if (!Number.isFinite(value) || value <= 0) {
       toast({ title: "Enter a valid cap", description: "The daily cap must be more than $0.", variant: "destructive" });
+      return;
+    }
+    if (dualControl) {
+      setSaving(true);
+      const { error } = await anyDb.rpc("request_policy_change", {
+        _change_type: "raise_spend_cap",
+        _target_user_id: accountId,
+        _agent_id: scopeAgentId || null,
+        _new_value: { daily_cap_usd: value },
+        _description: scopeAgentId ? `Set this agent's daily spend cap to ${money(value)}` : `Set the account-wide daily spend cap to ${money(value)}`,
+      });
+      setSaving(false);
+      setEditing(false);
+      if (error) {
+        toast({ title: "Could not request this change", description: friendlyErrorMessage(error.message), variant: "destructive" });
+        return;
+      }
+      toast({ title: "Change requested", description: "A second owner needs to approve this from Policy change requests before it applies." });
       return;
     }
     setSaving(true);

@@ -50,4 +50,50 @@ describe("findCoverageGaps", () => {
   it("no capabilities and no rules is an empty gap list, not a crash", () => {
     expect(findCoverageGaps([], [])).toEqual([]);
   });
+
+  // ---- per-agent scoping (2026-08-22) ----------------------------------
+
+  it("with no agentId (account-wide view), a rule scoped to ANY agent still counts as coverage -- unchanged legacy behavior", () => {
+    const gaps = findCoverageGaps(
+      [{ kind: "send_email", provider: "Gmail" }],
+      [{ action_type_pattern: "*", provider: null, agent_id: "agent-other" }],
+    );
+    expect(gaps).toEqual([]);
+  });
+
+  it("with an agentId, a rule scoped to a DIFFERENT agent does NOT cover this agent -- a real gap the account-wide view hides", () => {
+    const gaps = findCoverageGaps(
+      [{ kind: "send_email", provider: "Gmail" }],
+      [{ action_type_pattern: "*", provider: null, agent_id: "agent-other" }],
+      "agent-mine",
+    );
+    expect(gaps).toEqual([{ kind: "send_email", provider: "Gmail" }]);
+  });
+
+  it("with an agentId, a rule scoped to THIS agent covers it", () => {
+    const gaps = findCoverageGaps(
+      [{ kind: "send_email", provider: "Gmail" }],
+      [{ action_type_pattern: "*", provider: null, agent_id: "agent-mine" }],
+      "agent-mine",
+    );
+    expect(gaps).toEqual([]);
+  });
+
+  it("with an agentId, an account-wide rule (agent_id null) still covers it", () => {
+    const gaps = findCoverageGaps(
+      [{ kind: "send_email", provider: "Gmail" }],
+      [{ action_type_pattern: "*", provider: null, agent_id: null }],
+      "agent-mine",
+    );
+    expect(gaps).toEqual([]);
+  });
+
+  it("agentId of null (no agent in context) only counts account-wide rules as coverage", () => {
+    const gaps = findCoverageGaps(
+      [{ kind: "send_email", provider: "Gmail" }],
+      [{ action_type_pattern: "*", provider: null, agent_id: "agent-mine" }],
+      null,
+    );
+    expect(gaps).toEqual([{ kind: "send_email", provider: "Gmail" }]);
+  });
 });

@@ -65,6 +65,7 @@ const AcceptInvite = lazyWithReload(() => import("./pages/AcceptInvite"));
 const OpsPlatformIncidents = lazyWithReload(() => import("./pages/OpsPlatformIncidents"));
 const ControlPolicyTemplates = lazyWithReload(() => import("./pages/ControlPolicyTemplates"));
 const ControlRuleEffectiveness = lazyWithReload(() => import("./pages/ControlRuleEffectiveness"));
+const ControlConfidenceCalibration = lazyWithReload(() => import("./pages/ControlConfidenceCalibration"));
 const ControlRoiReport = lazyWithReload(() => import("./pages/ControlRoiReport"));
 const ControlAgentPolicy = lazyWithReload(() => import("./pages/ControlAgentPolicy"));
 const ControlLiveFeed = lazyWithReload(() => import("./pages/ControlLiveFeed"));
@@ -136,6 +137,7 @@ const App = () => (
                 <Route path="/control-system/team" element={<ControlTeam />} />
                 <Route path="/control-system/templates" element={<ControlPolicyTemplates />} />
                 <Route path="/control-system/rule-effectiveness" element={<ControlRuleEffectiveness />} />
+                <Route path="/control-system/confidence-calibration" element={<ControlConfidenceCalibration />} />
                 <Route path="/control-system/roi" element={<ControlRoiReport />} />
                 <Route path="/control-system/agent-policy" element={<ControlAgentPolicy />} />
                 <Route path="/control-system/live" element={<ControlLiveFeed />} />

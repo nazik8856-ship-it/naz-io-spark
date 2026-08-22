@@ -73,6 +73,8 @@ export type GateResult = {
   trace: TraceEntry[];
   /** Records what matching shadow rules WOULD have done, against the real verdict. */
   recordShadowHits: (decisionId: string | null, actualDecision: string) => Promise<void>;
+  /** Same, for shadow-mode safety rules (safety.shadowMatches). */
+  recordSafetyShadowHits: (decisionId: string | null, actualDecision: string) => Promise<void>;
   /** Feeds an attempt into the rolling circuit-breaker window. */
   recordAttempt: (failed: boolean, why: string) => Promise<Record<string, unknown> | null>;
 };
@@ -299,17 +301,22 @@ export async function runControlGate(
     } catch { /* trial logging must never break a decision */ }
   };
 
-  // ---- circuit breaker state ------------------------------------------------
+  // ---- circuit breaker state --------------------------------------------
+  // Per-agent, not account-wide-with-fallback (2026-08-22): when this
+  // action is tied to an agent, its breaker lives ENTIRELY on that
+  // agent's own row -- zero shared state with any other agent or the
+  // account-wide row. Only an agent-less (chat-driven) action ever reads
+  // the account-wide (agent_id NULL) row.
   type Breaker = {
     id: string; recent_outcomes: string[]; tripped: boolean;
     trip_count: number; tripped_at: string | null; failure_rate: number; last_reason: string | null;
   };
-  const { data: breakerRow } = await admin
+  const breakerQuery = admin
     .from("circuit_breakers")
     .select("id, recent_outcomes, tripped, trip_count, tripped_at, failure_rate, last_reason")
     .eq("user_id", userId)
-    .eq("action_type", actionType)
-    .maybeSingle();
+    .eq("action_type", actionType);
+  const { data: breakerRow } = await (agentId ? breakerQuery.eq("agent_id", agentId) : breakerQuery.is("agent_id", null)).maybeSingle();
   const breaker = (breakerRow as Breaker | null) ?? null;
 
   const recordAttempt = async (failed: boolean, why: string) => {
@@ -328,12 +335,16 @@ export async function runControlGate(
   };
 
 
-  const emptyScan: SafetyScan = { matched: false, severity: null, matches: [], summary: null };
+  const emptyScan: SafetyScan = { matched: false, severity: null, matches: [], summary: null, shadowMatches: [] };
   const base = {
     spend,
     shadowRules,
     recordShadowHits,
     recordAttempt,
+    // Overridden below once the safety scanner has actually run (steps 5+)
+    // -- before that, nothing was scanned, so there's no shadow safety
+    // data to record.
+    recordSafetyShadowHits: async () => {},
     hardRule: null as GateResult["hardRule"],
     circuitBreaker: null as Record<string, unknown> | null,
     anomaly: null as AnomalyCheck | null,
@@ -486,6 +497,26 @@ export async function runControlGate(
     status: (safety.matched && safety.severity) ? "stopped" : "ok",
     detail: safety.matched ? safety.summary : null,
   });
+  // Same "would this have mattered" recording hard-rule shadow hits get --
+  // only meaningful now that `safety` actually exists (nothing was scanned
+  // before this point, so the no-op default in `base` covers every earlier
+  // return).
+  const recordSafetyShadowHits = async (decisionId: string | null, actualDecision: string) => {
+    if (!safety.shadowMatches.length) return;
+    try {
+      await admin.from("safety_rule_shadow_hits").insert(
+        safety.shadowMatches.map((m) => ({
+          user_id: userId,
+          rule_id: m.rule_id,
+          decision_id: decisionId,
+          action_type: actionType,
+          provider,
+          would_have: m.severity,
+          actual_decision: actualDecision,
+        })),
+      );
+    } catch { /* trial logging must never break a decision */ }
+  };
   if (safety.matched && safety.severity) {
     const blocking = safety.severity === "block";
     const reason = safety.summary!;
@@ -496,6 +527,24 @@ export async function runControlGate(
       !blocking,
     );
     await recordShadowHits(decisionId, blocking ? "block" : "modify");
+    await recordSafetyShadowHits(decisionId, blocking ? "block" : "modify");
+    // Real linkage for the safety-rule dead-rule finder (mirrors
+    // agent_decisions.hard_rule_id) -- only custom rules, builtin ids
+    // ("builtin:...") aren't real safety_rules rows to link against.
+    const customMatches = safety.matches.filter((m) => !m.rule_id.startsWith("builtin:"));
+    if (customMatches.length) {
+      try {
+        await admin.from("safety_rule_matches").insert(
+          customMatches.map((m) => ({
+            user_id: userId,
+            rule_id: m.rule_id,
+            decision_id: decisionId,
+            action_type: actionType,
+            provider,
+          })),
+        );
+      } catch { /* trial logging must never break a decision */ }
+    }
     let approvalId: string | null = null;
     if (!blocking) {
       approvalId = await createPendingApproval(admin, {
@@ -512,6 +561,7 @@ export async function runControlGate(
       approvalId,
       source: "safety_scanner",
       safety,
+      recordSafetyShadowHits,
       trace: finalizeTrace(trace),
     };
   }
@@ -537,6 +587,7 @@ export async function runControlGate(
         `APPROVAL_REQUIRED ${actionType} (${provider})`, reason, "anomaly_detector", true,
       );
       await recordShadowHits(decisionId, "modify");
+      await recordSafetyShadowHits(decisionId, "modify");
       const approvalId = await createPendingApproval(admin, {
         userId, decisionId, agentId, runId, actionType, provider,
         description: ctx.description, params: ctx.params, reason, riskTier: "high", origin: ctx.origin,
@@ -550,6 +601,8 @@ export async function runControlGate(
         approvalId,
         source: "anomaly_detector",
         anomaly,
+        safety,
+        recordSafetyShadowHits,
         trace: finalizeTrace(trace),
       };
     }
@@ -561,7 +614,7 @@ export async function runControlGate(
     });
   }
 
-  return { ...base, ok: true, verdict: "allow", reason: null, decisionId: null, source: null, safety, trace: finalizeTrace(trace) };
+  return { ...base, ok: true, verdict: "allow", reason: null, decisionId: null, source: null, safety, recordSafetyShadowHits, trace: finalizeTrace(trace) };
   } catch (err) {
     // Explicit fail-closed: an unexpected error while judging an action
     // means the action is BLOCKED, never allowed through by default. Best
@@ -569,7 +622,7 @@ export async function runControlGate(
     // succeeding.
     const message = err instanceof Error ? err.message : String(err);
     const reason = "Blocked — the control gate hit an unexpected error and failed closed. Nothing was assessed or run.";
-    const emptyScan: SafetyScan = { matched: false, severity: null, matches: [], summary: null };
+    const emptyScan: SafetyScan = { matched: false, severity: null, matches: [], summary: null, shadowMatches: [] };
     let decisionId: string | null = null;
     try {
       const { data } = await admin.from("agent_decisions").insert({
@@ -615,6 +668,7 @@ export async function runControlGate(
       policyVersionId,
       trace: finalizeTrace(trace),
       recordShadowHits: async () => {},
+      recordSafetyShadowHits: async () => {},
       recordAttempt: async () => null,
     };
   }
@@ -641,23 +695,29 @@ export async function recordBreakerAttempt(
   },
 ): Promise<Record<string, unknown> | null> {
   const { userId, actionType, provider, failed } = input;
+  const agentId = input.agentId ?? null;
   const why = input.why ?? "";
   try {
-    const { data: breakerRow } = await admin
+    // Per-agent scoping (2026-08-22): a known agentId reads/writes ONLY
+    // that agent's own row (agent_id = agentId); an agent-less action
+    // reads/writes ONLY the account-wide row (agent_id IS NULL). Never a
+    // mix of the two.
+    const readQuery = admin
       .from("circuit_breakers")
-      .select("recent_outcomes, tripped, trip_count")
+      .select("id, recent_outcomes, tripped, trip_count")
       .eq("user_id", userId)
-      .eq("action_type", actionType)
-      .maybeSingle();
-    const breaker = (breakerRow as { recent_outcomes?: string[]; tripped?: boolean; trip_count?: number } | null) ?? null;
+      .eq("action_type", actionType);
+    const { data: breakerRow } = await (agentId ? readQuery.eq("agent_id", agentId) : readQuery.is("agent_id", null)).maybeSingle();
+    const breaker = (breakerRow as { id?: string; recent_outcomes?: string[]; tripped?: boolean; trip_count?: number } | null) ?? null;
 
     const windowArr = [...(breaker?.recent_outcomes ?? []), failed ? "fail" : "ok"].slice(-BREAKER_WINDOW);
     const failures = windowArr.filter((o) => o === "fail").length;
     const rate = windowArr.length ? failures / windowArr.length : 0;
     const shouldTrip = windowArr.length >= BREAKER_MIN_ATTEMPTS && rate > BREAKER_FAIL_RATE;
 
-    await admin.from("circuit_breakers").upsert({
+    const payload = {
       user_id: userId,
+      agent_id: agentId,
       action_type: actionType,
       recent_outcomes: windowArr,
       attempts: windowArr.length,
@@ -668,7 +728,16 @@ export async function recordBreakerAttempt(
       trip_count: (breaker?.trip_count ?? 0) + (shouldTrip ? 1 : 0),
       last_reason: failed ? why.slice(0, 400) : null,
       last_attempt_at: new Date().toISOString(),
-    }, { onConflict: "user_id,action_type" });
+    };
+    // Two partial unique indexes back this table now (account-wide vs.
+    // per-agent), so a plain upsert can no longer infer the right conflict
+    // target -- same fix SpendCapPanel.tsx already applies client-side for
+    // ai_spend_caps: find the row first, then update or insert explicitly.
+    if (breaker?.id) {
+      await admin.from("circuit_breakers").update(payload).eq("id", breaker.id);
+    } else {
+      await admin.from("circuit_breakers").insert(payload);
+    }
 
     if (shouldTrip) {
       const tripReason =
@@ -703,12 +772,12 @@ export async function recordBreakerAttempt(
       }
     }
 
-    const { data: after } = await admin
+    const afterQuery = admin
       .from("circuit_breakers")
       .select("tripped, failure_rate, attempts, failures, trip_count, tripped_at")
       .eq("user_id", userId)
-      .eq("action_type", actionType)
-      .maybeSingle();
+      .eq("action_type", actionType);
+    const { data: after } = await (agentId ? afterQuery.eq("agent_id", agentId) : afterQuery.is("agent_id", null)).maybeSingle();
     return (after as Record<string, unknown> | null) ?? null;
   } catch {
     return null;

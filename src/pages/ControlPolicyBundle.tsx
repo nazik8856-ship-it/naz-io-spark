@@ -42,7 +42,7 @@ export default function ControlPolicyBundle() {
     const [{ data: agentRows }, { data: hardRules }, { data: safetyRules }, { data: profile }, { data: caps }, { data: overrides }] = await Promise.all([
       anyDb.from("agents").select("id, name").eq("user_id", accountId),
       anyDb.from("hard_rules").select("rule_text, action_type_pattern, effect, provider, shadow_mode, agent_id").eq("user_id", accountId),
-      anyDb.from("safety_rules").select("name, category, pattern, severity, enabled, agent_id").eq("user_id", accountId),
+      anyDb.from("safety_rules").select("name, category, pattern, severity, enabled, shadow_mode, agent_id").eq("user_id", accountId),
       anyDb.from("profiles").select("control_strictness").eq("id", accountId).maybeSingle(),
       anyDb.from("ai_spend_caps").select("daily_cap_usd, enabled, agent_id").eq("user_id", accountId),
       anyDb.from("agent_strictness_overrides").select("agent_id, strictness").eq("user_id", accountId),

@@ -2,9 +2,11 @@
 //
 // Fires ONLY for kill-switch trips (manual or automatic), hard-rule blocks,
 // circuit-breaker trips, self-audit regressions, gate errors (the gate
-// itself failing closed on an unexpected exception), and escalated pending
-// approvals (untouched past the risk-scaled threshold). Routine allow /
-// modify / deferred verdicts never alert.
+// itself failing closed on an unexpected exception), escalated pending
+// approvals (untouched past the risk-scaled threshold), and a severely
+// miscalibrated confidence bucket (the model claims a confidence range it
+// doesn't actually earn). Routine allow / modify / deferred verdicts never
+// alert.
 //
 // Delivery: Slack via slack_post_message when the account has a connected Slack
 // integration; otherwise a prominent server log. Never throws — alerting must
@@ -21,7 +23,8 @@ export type CriticalAlertEvent =
   | "circuit_breaker_trip"
   | "self_audit_regression"
   | "gate_error"
-  | "approval_escalated";
+  | "approval_escalated"
+  | "confidence_miscalibrated";
 
 const APP_BASE_URL = "https://www.nazai.net";
 
@@ -39,6 +42,7 @@ export const LABELS: Record<CriticalAlertEvent, string> = {
   self_audit_regression: "🧪 Weekly control-system self-audit found a regression",
   gate_error: "🚨 Control gate hit an unexpected error and failed closed",
   approval_escalated: "⏰ A pending approval has been waiting too long",
+  confidence_miscalibrated: "📉 The model is overconfident in a real confidence range",
 };
 
 export function decisionLink(decisionId?: string | null): string | null {

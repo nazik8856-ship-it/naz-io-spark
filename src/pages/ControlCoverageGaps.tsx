@@ -6,6 +6,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 import { findCoverageGaps, type CapabilityForCoverage, type HardRuleForCoverage } from "@/lib/coverage-gaps";
 
+type AgentOption = { id: string; name: string };
+
 /**
  * COVERAGE GAPS — which real, connectable action kinds currently have NO
  * live hard rule matching them at all. If something goes wrong with one of
@@ -18,14 +20,17 @@ export default function ControlCoverageGaps() {
   const [loading, setLoading] = useState(true);
   const [gaps, setGaps] = useState<CapabilityForCoverage[]>([]);
   const [totalReal, setTotalReal] = useState(0);
+  const [agents, setAgents] = useState<AgentOption[]>([]);
+  const [scopeAgentId, setScopeAgentId] = useState("");
 
   const load = useCallback(async () => {
     if (!user) return;
     setLoading(true);
     const { data: sess } = await supabase.auth.getSession();
-    const [statusRes, rulesRes] = await Promise.all([
+    const [statusRes, rulesRes, { data: agentRows }] = await Promise.all([
       supabase.functions.invoke("capability-status", { body: {} }),
-      supabase.from("hard_rules").select("action_type_pattern, provider, enabled, shadow_mode").eq("user_id", user.id),
+      supabase.from("hard_rules").select("action_type_pattern, provider, enabled, shadow_mode, agent_id").eq("user_id", user.id),
+      supabase.from("agents").select("id, name").eq("user_id", user.id).order("name"),
     ]);
     void sess;
 
@@ -44,10 +49,17 @@ export default function ControlCoverageGaps() {
       .map((c) => ({ kind: c.kind, provider: c.provider }));
     const hardRules = (rulesRes.data ?? []) as HardRuleForCoverage[];
 
+    setAgents((agentRows ?? []) as AgentOption[]);
     setTotalReal(capabilities.length);
-    setGaps(findCoverageGaps(capabilities, hardRules));
+    // Account-wide by default (scopeAgentId === "" -> agentId undefined,
+    // unchanged legacy pooled-rules behavior). Picking an agent switches to
+    // the stricter, agent-accurate view -- a gap that's hidden account-wide
+    // because SOME agent has a rule for it can still be a real gap for a
+    // DIFFERENT agent that has no rule of its own and no account-wide
+    // default covering it either.
+    setGaps(findCoverageGaps(capabilities, hardRules, scopeAgentId ? scopeAgentId : undefined));
     setLoading(false);
-  }, [user]);
+  }, [user, scopeAgentId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -72,6 +84,22 @@ export default function ControlCoverageGaps() {
           Real, connected action kinds with no live hard rule covering them — a blind spot, not necessarily a
           problem. The safety scanner and anomaly detector still apply everywhere.
         </p>
+
+        {agents.length > 0 && (
+          <div className="mt-4">
+            <select
+              value={scopeAgentId}
+              onChange={(e) => setScopeAgentId(e.target.value)}
+              aria-label="Coverage scope"
+              className="rounded-md border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-300 outline-none"
+            >
+              <option value="">Account-wide (any rule counts)</option>
+              {agents.map((a) => (
+                <option key={a.id} value={a.id}>{a.name} (this agent's rules only)</option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {loading ? (
           <p className="mt-8 font-mono text-xs uppercase text-zinc-500">Loading…</p>

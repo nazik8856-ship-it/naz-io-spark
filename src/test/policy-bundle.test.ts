@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildPolicyBundle, validatePolicyBundle, resolveImportForAccount, POLICY_BUNDLE_VERSION, type PolicyBundle } from "@/lib/policy-bundle";
+import { buildPolicyBundle, validatePolicyBundle, resolveImportForAccount, POLICY_BUNDLE_VERSION, BREAKER_DEFAULTS, type PolicyBundle } from "@/lib/policy-bundle";
 
 describe("buildPolicyBundle", () => {
   it("resolves agent_id to agent_name for rules and agent settings", () => {
@@ -43,6 +43,14 @@ describe("buildPolicyBundle", () => {
     expect(bundle.version).toBe(POLICY_BUNDLE_VERSION);
     expect(typeof bundle.exported_at).toBe("string");
   });
+
+  it("always includes circuit breaker defaults, documentation-only (no per-agent/per-account configurability exists to vary)", () => {
+    const bundle = buildPolicyBundle({
+      accountWideStrictness: "balanced", accountWideSpendCapUsd: 5, accountWideSpendCapEnabled: true,
+      agentNamesById: {}, agentSettings: [], hardRules: [], safetyRules: [],
+    });
+    expect(bundle.account_wide.circuit_breaker_defaults).toEqual(BREAKER_DEFAULTS);
+  });
 });
 
 const validBundle: PolicyBundle = {
@@ -51,7 +59,7 @@ const validBundle: PolicyBundle = {
   account_wide: { strictness: "balanced", spend_cap_usd: 5, spend_cap_enabled: true },
   agents: [{ agent_name: "Support Bot", strictness_override: "strict", spend_cap_usd: 2 }],
   hard_rules: [{ rule_text: "no refunds", action_type_pattern: "*refund*", effect: "always_require_approval", provider: null, shadow_mode: false, agent_name: "Support Bot" }],
-  safety_rules: [{ name: "no PII", category: "custom", pattern: "ssn", severity: "block", enabled: true, agent_name: null }],
+  safety_rules: [{ name: "no PII", category: "custom", pattern: "ssn", severity: "block", enabled: true, shadow_mode: false, agent_name: null }],
 };
 
 describe("validatePolicyBundle", () => {
@@ -115,9 +123,9 @@ describe("resolveImportForAccount", () => {
     expect(resolved.hardRuleInserts[0].shadow_mode).toBe(true);
   });
 
-  it("every imported safety rule is enabled false regardless of the source's own state", () => {
+  it("every imported safety rule is shadow_mode true regardless of the source's own state", () => {
     const resolved = resolveImportForAccount(validBundle, "user-2", {});
-    expect(resolved.safetyRuleInserts[0].enabled).toBe(false);
+    expect(resolved.safetyRuleInserts[0].shadow_mode).toBe(true);
   });
 
   it("an account-wide rule (agent_name null) is never a warning", () => {

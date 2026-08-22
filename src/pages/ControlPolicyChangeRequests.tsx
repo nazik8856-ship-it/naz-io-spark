@@ -24,10 +24,11 @@ type Request = {
 
 /**
  * POLICY CHANGE REQUESTS — dual control on policy changes themselves.
- * When an account requires it (toggle on Hard rules), promoting a rule to
- * live creates a request here instead of applying immediately. A
- * DIFFERENT owner-tier person than whoever requested it must approve —
- * requesting your own change never counts as the second confirmation.
+ * When an account requires it (toggle on Hard rules), promoting a hard or
+ * safety rule to live, raising a spend cap, or changing strictness all
+ * create a request here instead of applying immediately. A DIFFERENT
+ * owner-tier person than whoever requested it must approve — requesting
+ * your own change never counts as the second confirmation.
  */
 export default function ControlPolicyChangeRequests() {
   const navigate = useNavigate();
@@ -65,7 +66,7 @@ export default function ControlPolicyChangeRequests() {
       toast({ title: "Couldn't approve", description: friendlyErrorMessage(error.message), variant: "destructive" });
       return;
     }
-    toast({ title: "Approved and applied", description: "The rule is now live." });
+    toast({ title: "Approved and applied", description: "This change is now in effect." });
     void load();
   };
 
@@ -104,8 +105,8 @@ export default function ControlPolicyChangeRequests() {
           <ShieldCheck className="h-5 w-5 text-cyan-300" /> Policy change requests
         </h1>
         <p className="mt-1 text-sm text-zinc-400">
-          Rule promotions waiting on a second owner's approval. Requesting a change yourself never
-          counts as that second confirmation.
+          Rule promotions, spend cap raises, and strictness changes waiting on a second owner's
+          approval. Requesting a change yourself never counts as that second confirmation.
         </p>
 
         <section className="mt-6 space-y-2">
