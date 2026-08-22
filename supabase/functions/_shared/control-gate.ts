@@ -31,6 +31,29 @@ export const BREAKER_WINDOW = 10;
 export const BREAKER_MIN_ATTEMPTS = 4;
 export const BREAKER_FAIL_RATE = 0.5;
 
+// The exact set agent_decisions_source_check (migrations) currently allows.
+// 2026-08-23: found that "agent_kill_switch"/"agent_ai_spend_cap" had been
+// written by this file since 2026-08-21 without ever being added to that
+// constraint -- three days of per-agent kill-switch/spend-cap blocks
+// produced no agent_decisions row at all, silently (supabase-js doesn't
+// throw on a constraint violation, and logStop() only destructures `data`).
+// Typing logStop's `source` param (and every direct agent_decisions insert
+// in this file) against this union makes that class of drift a compile
+// error instead of a silent runtime no-op: adding a new source string here
+// without also extending the real CHECK constraint is still possible, but
+// forgetting to add a NEW source to this list when introducing one in code
+// is now caught by tsc, not discovered days later by an empty audit trail.
+// "model" and "human_override" are written elsewhere (decision-scoring.ts,
+// agent-runtime.ts, control-engine.ts), not from this file, but are listed
+// for completeness since they share the same constraint.
+export const AGENT_DECISION_SOURCES = [
+  "model", "human_override",
+  "kill_switch", "ai_spend_cap", "agent_kill_switch", "agent_ai_spend_cap",
+  "hard_rule", "circuit_breaker", "circuit_breaker_trip",
+  "safety_scanner", "anomaly_detector", "gate_error",
+] as const;
+export type AgentDecisionSource = typeof AGENT_DECISION_SOURCES[number];
+
 export type GateContext = {
   userId: string;
   actionType: string;
@@ -182,7 +205,7 @@ export async function runControlGate(
 
   const trace: TraceEntry[] = [];
 
-  const logStop = async (decision: string, reasoning: string, source: string, escalated: boolean, hardRuleId?: string | null) => {
+  const logStop = async (decision: string, reasoning: string, source: AgentDecisionSource, escalated: boolean, hardRuleId?: string | null) => {
     try {
       const { data } = await admin.from("agent_decisions").insert({
         user_id: userId,
@@ -634,7 +657,7 @@ export async function runControlGate(
         reasoning: `${reason}\n${message}`.slice(0, 800),
         alternatives_considered: [],
         confidence_score: 100,
-        source: "gate_error",
+        source: "gate_error" satisfies AgentDecisionSource,
         escalated: true,
         policy_version: policyVersion,
         gate_trace: finalizeTrace(trace),
@@ -755,7 +778,7 @@ export async function recordBreakerAttempt(
           reasoning: tripReason.slice(0, 800),
           alternatives_considered: [],
           confidence_score: 100,
-          source: "circuit_breaker_trip",
+          source: "circuit_breaker_trip" satisfies AgentDecisionSource,
           escalated: true,
           policy_version: input.policyVersion ?? null,
         }).select("id").maybeSingle();

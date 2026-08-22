@@ -10,7 +10,7 @@
 // safety scanner.
 //
 // Run with: deno test --allow-none supabase/functions/_shared/control-gate_test.ts
-import { runControlGate, recordBreakerAttempt } from "./control-gate.ts";
+import { runControlGate, recordBreakerAttempt, AGENT_DECISION_SOURCES } from "./control-gate.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
@@ -132,6 +132,60 @@ Deno.test("spend under cap and kill switch off does not block at this layer", as
   const result = await runControlGate(client, baseCtx);
   assert(result.ok);
   assertEquals(result.verdict, "allow");
+});
+
+// ---- agent-scoped kill switch / spend cap (2026-08-23 regression guard) ---
+// 20260821020000_per_agent_spend_cap.sql (Wave 5 session 1) started writing
+// source: "agent_kill_switch" / "agent_ai_spend_cap" from these branches,
+// but agent_decisions_source_check's CHECK constraint was never extended to
+// allow them -- three days after it was last touched. Since supabase-js
+// doesn't throw on a constraint violation and logStop() only destructures
+// `data`, every per-agent kill-switch/spend-cap block silently produced NO
+// agent_decisions row at all from 2026-08-21 until the fix in
+// 20260823010000_fix_agent_decisions_source_check_per_agent.sql.
+//
+// control-gate.ts now exports AGENT_DECISION_SOURCES as the real source of
+// truth (logStop's `source` param and every direct agent_decisions insert
+// are typed against it, so a NEW source string used without extending that
+// list is now a compile error, not a silent audit-trail gap). This test
+// checks that exported list against the exact set the current migration
+// allows -- there's still no live DB in this sandbox to check the real
+// constraint, so this one list-vs-list comparison is the one place drift
+// between code and migration can still slip through undetected.
+const CURRENT_MIGRATION_ALLOWS = new Set([
+  "model", "human_override",
+  "kill_switch", "ai_spend_cap",
+  "agent_kill_switch", "agent_ai_spend_cap",
+  "hard_rule", "circuit_breaker", "circuit_breaker_trip",
+  "safety_scanner", "anomaly_detector", "gate_error",
+]);
+
+Deno.test("an agent's own kill switch blocks only that agent, source is a constraint-valid value, and a real decisionId is produced", async () => {
+  const { client, inserts } = fakeSupabase({
+    profiles: { data: { kill_switch: false }, error: null },
+    agents: { data: { kill_switch: true }, error: null },
+    agent_decisions: { data: { id: "decision-agent-1" }, error: null },
+  });
+  const result = await runControlGate(client, { ...baseCtx, agentId: "agent-1" });
+  assertFalse(result.ok);
+  assertEquals(result.verdict, "block");
+  assertEquals(result.source, "agent_kill_switch");
+  assert(result.decisionId, "a per-agent kill-switch block must produce a real decisionId, not a silently-dropped insert");
+  const logged = (inserts.agent_decisions ?? [])[0] as { source?: string } | undefined;
+  assert(
+    logged?.source !== undefined && CURRENT_MIGRATION_ALLOWS.has(logged.source),
+    `source "${logged?.source}" must be a member of agent_decisions_source_check's allowed list, or the insert will silently fail against the real constraint`,
+  );
+  assertEquals(logged?.source, "agent_kill_switch");
+});
+
+Deno.test("AGENT_DECISION_SOURCES (control-gate.ts's real source of truth) matches the current agent_decisions_source_check migration exactly", () => {
+  for (const source of AGENT_DECISION_SOURCES) {
+    assert(CURRENT_MIGRATION_ALLOWS.has(source), `"${source}" is a valid AgentDecisionSource in code but missing from the migration's allowed list`);
+  }
+  for (const source of CURRENT_MIGRATION_ALLOWS) {
+    assert((AGENT_DECISION_SOURCES as readonly string[]).includes(source), `"${source}" is allowed by the migration but missing from AGENT_DECISION_SOURCES -- either update the migration list here or add it to control-gate.ts`);
+  }
 });
 
 // ---- layer 3: hard rules ----------------------------------------------------
