@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, ShieldCheck, Check, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+// Stale generated types: control-system tables aren't in types.ts yet.
+const anyDb = supabase as any;
 import { useAuth } from "@/hooks/useAuth";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { canWriteAsOwner } from "@/lib/account-switcher";
@@ -45,7 +47,7 @@ export default function ControlPolicyChangeRequests() {
         .eq("user_id", accountId)
         .order("created_at", { ascending: false })
         .limit(100),
-      supabase.from("account_members").select("member_id, email").eq("account_owner_id", accountId).eq("status", "active"),
+      anyDb.from("account_members").select("member_id, email").eq("account_owner_id", accountId).eq("status", "active"),
     ]);
     setRequests((data ?? []) as Request[]);
     setNames(buildActorNameMap(user.id, (members ?? []) as { member_id: string | null; email: string }[]));
@@ -57,7 +59,7 @@ export default function ControlPolicyChangeRequests() {
 
   const approve = async (id: string) => {
     setBusy(id);
-    const { error } = await supabase.rpc("approve_policy_change", { _request_id: id });
+    const { error } = await anyDb.rpc("approve_policy_change", { _request_id: id });
     setBusy(null);
     if (error) {
       toast({ title: "Couldn't approve", description: friendlyErrorMessage(error.message), variant: "destructive" });
@@ -69,7 +71,7 @@ export default function ControlPolicyChangeRequests() {
 
   const reject = async (id: string) => {
     setBusy(id);
-    const { error } = await supabase.rpc("reject_policy_change", { _request_id: id });
+    const { error } = await anyDb.rpc("reject_policy_change", { _request_id: id });
     setBusy(null);
     if (error) {
       toast({ title: "Couldn't reject", description: friendlyErrorMessage(error.message), variant: "destructive" });

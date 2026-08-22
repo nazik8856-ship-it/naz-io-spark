@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Users, UserPlus, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+// Stale generated types: control-system tables aren't in types.ts yet.
+const anyDb = supabase as any;
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 
@@ -70,7 +72,7 @@ export default function ControlTeam() {
   };
 
   const revoke = async (id: string) => {
-    const { error } = await supabase.from("account_members").update({ status: "revoked" }).eq("id", id);
+    const { error } = await anyDb.from("account_members").update({ status: "revoked" }).eq("id", id);
     if (error) { toast({ title: "Couldn't revoke it", description: error.message, variant: "destructive" }); return; }
     load();
   };

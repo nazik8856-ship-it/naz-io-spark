@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, CheckCircle2, ShieldAlert } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+// Stale generated types: control-system tables aren't in types.ts yet.
+const anyDb = supabase as any;
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 

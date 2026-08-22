@@ -2,6 +2,8 @@ import { useCallback, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Download, Upload, AlertTriangle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+// Stale generated types: control-system tables aren't in types.ts yet.
+const anyDb = supabase as any;
 import { useAuth } from "@/hooks/useAuth";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { canWriteAsOwner } from "@/lib/account-switcher";
@@ -38,12 +40,12 @@ export default function ControlPolicyBundle() {
     if (!accountId) return;
     setExporting(true);
     const [{ data: agentRows }, { data: hardRules }, { data: safetyRules }, { data: profile }, { data: caps }, { data: overrides }] = await Promise.all([
-      supabase.from("agents").select("id, name").eq("user_id", accountId),
-      supabase.from("hard_rules").select("rule_text, action_type_pattern, effect, provider, shadow_mode, agent_id").eq("user_id", accountId),
-      supabase.from("safety_rules").select("name, category, pattern, severity, enabled, agent_id").eq("user_id", accountId),
-      supabase.from("profiles").select("control_strictness").eq("id", accountId).maybeSingle(),
-      supabase.from("ai_spend_caps").select("daily_cap_usd, enabled, agent_id").eq("user_id", accountId),
-      supabase.from("agent_strictness_overrides").select("agent_id, strictness").eq("user_id", accountId),
+      anyDb.from("agents").select("id, name").eq("user_id", accountId),
+      anyDb.from("hard_rules").select("rule_text, action_type_pattern, effect, provider, shadow_mode, agent_id").eq("user_id", accountId),
+      anyDb.from("safety_rules").select("name, category, pattern, severity, enabled, agent_id").eq("user_id", accountId),
+      anyDb.from("profiles").select("control_strictness").eq("id", accountId).maybeSingle(),
+      anyDb.from("ai_spend_caps").select("daily_cap_usd, enabled, agent_id").eq("user_id", accountId),
+      anyDb.from("agent_strictness_overrides").select("agent_id, strictness").eq("user_id", accountId),
     ]);
     setExporting(false);
 
@@ -110,7 +112,7 @@ export default function ControlPolicyBundle() {
   const applyImport = async () => {
     if (!bundle || !canWrite || !accountId) return;
     setImporting(true);
-    const { data: agentRows } = await supabase.from("agents").select("id, name").eq("user_id", accountId);
+    const { data: agentRows } = await anyDb.from("agents").select("id, name").eq("user_id", accountId);
     const agentIdsByName: Record<string, string> = {};
     for (const a of (agentRows ?? []) as AgentOption[]) agentIdsByName[a.name] = a.id;
 
@@ -118,8 +120,8 @@ export default function ControlPolicyBundle() {
     setImportWarnings(resolved.warnings);
 
     const [hardRes, safetyRes] = await Promise.all([
-      resolved.hardRuleInserts.length ? supabase.from("hard_rules").insert(resolved.hardRuleInserts) : Promise.resolve({ error: null }),
-      resolved.safetyRuleInserts.length ? supabase.from("safety_rules").insert(resolved.safetyRuleInserts) : Promise.resolve({ error: null }),
+      resolved.hardRuleInserts.length ? anyDb.from("hard_rules").insert(resolved.hardRuleInserts) : Promise.resolve({ error: null }),
+      resolved.safetyRuleInserts.length ? anyDb.from("safety_rules").insert(resolved.safetyRuleInserts) : Promise.resolve({ error: null }),
     ]);
     setImporting(false);
     if (hardRes.error || safetyRes.error) {

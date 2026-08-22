@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Download, Trash2, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+// Stale generated types: control-system tables aren't in types.ts yet.
+const anyDb = supabase as any;
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 
@@ -55,7 +57,7 @@ export default function ControlAccountData() {
     if (!user) return;
     setExporting(true);
     const results = await Promise.all(
-      GOVERNANCE_TABLES.map((table) => supabase.from(table).select("*").eq("user_id", user.id)),
+      GOVERNANCE_TABLES.map((table) => anyDb.from(table).select("*").eq("user_id", user.id)),
     );
     setExporting(false);
     const failed = results.find((r) => r.error);
@@ -83,7 +85,7 @@ export default function ControlAccountData() {
   const requestDeletion = async () => {
     if (!user || confirmText !== "DELETE") return;
     setRequesting(true);
-    const { data, error } = await supabase.rpc("request_data_deletion");
+    const { data, error } = await anyDb.rpc("request_data_deletion");
     setRequesting(false);
     if (error) {
       toast({ title: "Couldn't schedule deletion", description: error.message, variant: "destructive" });
@@ -96,7 +98,7 @@ export default function ControlAccountData() {
 
   const cancel = async () => {
     if (!pending) return;
-    const { error } = await supabase.rpc("cancel_data_deletion", { _request_id: pending.id });
+    const { error } = await anyDb.rpc("cancel_data_deletion", { _request_id: pending.id });
     if (error) {
       toast({ title: "Couldn't cancel", description: error.message, variant: "destructive" });
       return;

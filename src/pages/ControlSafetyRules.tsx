@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, ScanSearch, Plus, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+// Stale generated types: control-system tables aren't in types.ts yet.
+const anyDb = supabase as any;
 import { useAuth } from "@/hooks/useAuth";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { canWriteAsOwner } from "@/lib/account-switcher";
@@ -59,7 +61,7 @@ export default function ControlSafetyRules() {
         .select("id, name, category, pattern, severity, enabled, agent_id")
         .eq("user_id", accountId)
         .order("created_at", { ascending: false }),
-      supabase.from("agents").select("id, name").eq("user_id", accountId).order("name"),
+      anyDb.from("agents").select("id, name").eq("user_id", accountId).order("name"),
     ]);
     setRules((data ?? []) as unknown as Rule[]);
     setAgents((agentRows ?? []) as AgentOption[]);
@@ -74,7 +76,7 @@ export default function ControlSafetyRules() {
       return;
     }
     setBusy(true);
-    const { error } = await supabase.from("safety_rules").insert({
+    const { error } = await anyDb.from("safety_rules").insert({
       user_id: accountId, name: name.trim(), pattern: pattern.trim(), severity, category: "custom",
       agent_id: appliesToAgentId || null,
     });
@@ -86,12 +88,12 @@ export default function ControlSafetyRules() {
 
   const toggle = async (r: Rule) => {
     if (!canWrite) return;
-    await supabase.from("safety_rules").update({ enabled: !r.enabled }).eq("id", r.id);
+    await anyDb.from("safety_rules").update({ enabled: !r.enabled }).eq("id", r.id);
     load();
   };
   const remove = async (r: Rule) => {
     if (!canWrite) return;
-    await supabase.from("safety_rules").delete().eq("id", r.id);
+    await anyDb.from("safety_rules").delete().eq("id", r.id);
     load();
   };
 
