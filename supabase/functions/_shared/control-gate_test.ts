@@ -188,6 +188,32 @@ Deno.test("AGENT_DECISION_SOURCES (control-gate.ts's real source of truth) match
   }
 });
 
+// ---- gate observability: total latency (2026-08-23) ------------------------
+
+Deno.test("runControlGate: a blocking result carries a non-negative gateDurationMs and persists it onto the logged decision", async () => {
+  const { client, updates } = fakeSupabase({
+    hard_rules: {
+      data: [{ id: "r1", rule_text: "blocks", action_type_pattern: "*", effect: "always_block", enabled: true }],
+      error: null,
+    },
+    agent_decisions: { data: { id: "decision-1" }, error: null },
+  });
+  const result = await runControlGate(client, baseCtx);
+  assert(typeof result.gateDurationMs === "number" && result.gateDurationMs >= 0, "gateDurationMs must be a non-negative number");
+  const updated = (updates.agent_decisions ?? [])[0] as { gate_duration_ms?: number } | undefined;
+  assert(updated !== undefined, "expected an UPDATE on agent_decisions to persist gate_duration_ms");
+  assertEquals(updated?.gate_duration_ms, result.gateDurationMs);
+});
+
+Deno.test("runControlGate: an allow verdict (no decisionId) still reports gateDurationMs but issues no update", async () => {
+  const { client, updates } = fakeSupabase();
+  const result = await runControlGate(client, baseCtx);
+  assertEquals(result.verdict, "allow");
+  assertEquals(result.decisionId, null);
+  assert(typeof result.gateDurationMs === "number" && result.gateDurationMs >= 0, "gateDurationMs must be a non-negative number");
+  assertEquals(updates.agent_decisions ?? [], []);
+});
+
 // ---- layer 3: hard rules ----------------------------------------------------
 
 Deno.test("a matching always_block hard rule blocks and is NOT judged by the model", async () => {

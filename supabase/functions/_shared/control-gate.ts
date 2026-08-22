@@ -94,6 +94,8 @@ export type GateResult = {
   policyVersionId: string | null;
   /** Every layer the gate checked, in order — not just the one that stopped it. */
   trace: TraceEntry[];
+  /** Total wall-clock time the gate spent on this call, in milliseconds. */
+  gateDurationMs: number;
   /** Records what matching shadow rules WOULD have done, against the real verdict. */
   recordShadowHits: (decisionId: string | null, actualDecision: string) => Promise<void>;
   /** Same, for shadow-mode safety rules (safety.shadowMatches). */
@@ -176,10 +178,18 @@ export async function createPendingApproval(
   }
 }
 
-export async function runControlGate(
+/**
+ * The real gate logic — has ~6 distinct early-return points (kill switch,
+ * spend cap, hard rule, circuit breaker, safety scanner, anomaly detector)
+ * plus the allow fallthrough and the fail-closed catch block, so timing is
+ * NOT threaded through every individual `return` here. Instead the
+ * exported runControlGate wrapper below times the whole call once and
+ * persists it generically off whatever decisionId this returns.
+ */
+async function runControlGateInner(
   admin: SupabaseClient,
   ctx: GateContext,
-): Promise<GateResult> {
+): Promise<Omit<GateResult, "gateDurationMs">> {
   const { userId, actionType, provider } = ctx;
   const agentId = ctx.agentId ?? null;
   const runId = ctx.runId ?? null;
@@ -721,6 +731,28 @@ export async function runControlGate(
       recordAttempt: async () => null,
     };
   }
+}
+
+/**
+ * Total gate latency, end to end — wraps runControlGateInner with a single
+ * performance.now() start/stop rather than editing each of its internal
+ * return points individually. Persisted onto whatever decision row that
+ * call already logged (every early-return branch that stops/escalates an
+ * action produces a decisionId; the allow fallthrough doesn't log its own
+ * row here at all — the caller logs that one separately once model
+ * scoring finishes, so there's nothing of the gate's own to attach this
+ * to on that path). Never lets the persist step affect the real result.
+ */
+export async function runControlGate(admin: SupabaseClient, ctx: GateContext): Promise<GateResult> {
+  const start = performance.now();
+  const result = await runControlGateInner(admin, ctx);
+  const gateDurationMs = Math.round(performance.now() - start);
+  if (result.decisionId) {
+    try {
+      await admin.from("agent_decisions").update({ gate_duration_ms: gateDurationMs }).eq("id", result.decisionId);
+    } catch { /* observability must never affect the gate's real result */ }
+  }
+  return { ...result, gateDurationMs };
 }
 
 /**

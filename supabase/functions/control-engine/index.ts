@@ -275,6 +275,7 @@ serve(async (req) => {
         human_response: d.human_response,
         source: d.source,
         gate_trace: d.gate_trace ?? null,
+        gate_duration_ms: d.gate_duration_ms ?? null,
         rule_enforced: d.source === "hard_rule",
         model_judged: d.source === "model",
         kill_switch: d.source === "kill_switch",
