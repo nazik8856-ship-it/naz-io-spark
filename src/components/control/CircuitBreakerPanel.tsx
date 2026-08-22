@@ -1,6 +1,8 @@
 import { useEffect, useState, useCallback } from "react";
 import { ZapOff, RotateCcw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+// Stale generated types: control-system tables aren't in types.ts yet.
+const anyDb = supabase as any;
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { canWriteAsOwner } from "@/lib/account-switcher";
 import { friendlyErrorMessage } from "@/lib/friendly-errors";
@@ -41,10 +43,10 @@ export default function CircuitBreakerPanel() {
   const load = useCallback(async () => {
     if (!accountId) return;
     const [{ data: agentRows }, breakerQuery] = await Promise.all([
-      supabase.from("agents").select("id, name").eq("user_id", accountId).order("name"),
+      anyDb.from("agents").select("id, name").eq("user_id", accountId).order("name"),
       (scopeAgentId
-        ? supabase.from("circuit_breakers").select("id, action_type, tripped, failure_rate, attempts, failures, trip_count, tripped_at").eq("user_id", accountId).eq("agent_id", scopeAgentId)
-        : supabase.from("circuit_breakers").select("id, action_type, tripped, failure_rate, attempts, failures, trip_count, tripped_at").eq("user_id", accountId).is("agent_id", null)
+        ? anyDb.from("circuit_breakers").select("id, action_type, tripped, failure_rate, attempts, failures, trip_count, tripped_at").eq("user_id", accountId).eq("agent_id", scopeAgentId)
+        : anyDb.from("circuit_breakers").select("id, action_type, tripped, failure_rate, attempts, failures, trip_count, tripped_at").eq("user_id", accountId).is("agent_id", null)
       ).order("tripped", { ascending: false }).order("failure_rate", { ascending: false }),
     ]);
     setAgents((agentRows ?? []) as AgentOption[]);
@@ -56,7 +58,7 @@ export default function CircuitBreakerPanel() {
   const reset = async (b: Breaker) => {
     if (!canWrite) return;
     setBusy(b.id);
-    const { error } = await supabase
+    const { error } = await anyDb
       .from("circuit_breakers")
       .update({ tripped: false, tripped_at: null, recent_outcomes: [], attempts: 0, failures: 0, failure_rate: 0 })
       .eq("id", b.id);

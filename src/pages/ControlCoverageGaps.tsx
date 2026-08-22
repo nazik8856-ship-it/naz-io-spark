@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, ShieldOff } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+// Stale generated types: control-system tables aren't in types.ts yet.
+const anyDb = supabase as any;
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 import { findCoverageGaps, type CapabilityForCoverage, type HardRuleForCoverage } from "@/lib/coverage-gaps";
@@ -29,8 +31,8 @@ export default function ControlCoverageGaps() {
     const { data: sess } = await supabase.auth.getSession();
     const [statusRes, rulesRes, { data: agentRows }] = await Promise.all([
       supabase.functions.invoke("capability-status", { body: {} }),
-      supabase.from("hard_rules").select("action_type_pattern, provider, enabled, shadow_mode, agent_id").eq("user_id", user.id),
-      supabase.from("agents").select("id, name").eq("user_id", user.id).order("name"),
+      anyDb.from("hard_rules").select("action_type_pattern, provider, enabled, shadow_mode, agent_id").eq("user_id", user.id),
+      anyDb.from("agents").select("id, name").eq("user_id", user.id).order("name"),
     ]);
     void sess;
 
