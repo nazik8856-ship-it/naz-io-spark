@@ -173,9 +173,22 @@ export default function HardRulesPanel() {
     });
   };
 
-  const remove = async (id: string) => {
+  const remove = async (r: HardRule) => {
     if (!canWrite) return;
-    const { error } = await anyDb.from("hard_rules").delete().eq("id", id);
+    if (dualControl) {
+      const { error } = await anyDb.rpc("request_policy_change", {
+        _change_type: "delete_hard_rule",
+        _row_id: r.id,
+        _description: `Delete rule "${r.rule_text}"`,
+      });
+      if (error) {
+        toast({ title: "Could not request deletion", description: friendlyErrorMessage(error.message), variant: "destructive" });
+        return;
+      }
+      toast({ title: "Deletion requested", description: "A second owner needs to approve this from Policy change requests before it's removed." });
+      return;
+    }
+    const { error } = await anyDb.from("hard_rules").delete().eq("id", r.id);
     if (error) {
       toast({ title: "Could not remove rule", description: friendlyErrorMessage(error.message), variant: "destructive" });
       return;
@@ -352,7 +365,7 @@ export default function HardRulesPanel() {
                     </div>
                     {canWrite && (
                       <button
-                        onClick={() => remove(r.id)}
+                        onClick={() => remove(r)}
                         aria-label={`Remove rule: ${r.rule_text}`}
                         className="text-zinc-500 hover:text-red-400 transition-colors"
                       >

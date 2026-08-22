@@ -158,7 +158,24 @@ export default function ControlSafetyRules() {
   };
   const remove = async (r: Rule) => {
     if (!canWrite) return;
-    await anyDb.from("safety_rules").delete().eq("id", r.id);
+    if (dualControl) {
+      const { error } = await anyDb.rpc("request_policy_change", {
+        _change_type: "delete_safety_rule",
+        _row_id: r.id,
+        _description: `Delete safety rule "${r.name}"`,
+      });
+      if (error) {
+        toast({ title: "Could not request deletion", description: friendlyErrorMessage(error.message), variant: "destructive" });
+        return;
+      }
+      toast({ title: "Deletion requested", description: "A second owner needs to approve this from Policy change requests before it's removed." });
+      return;
+    }
+    const { error } = await anyDb.from("safety_rules").delete().eq("id", r.id);
+    if (error) {
+      toast({ title: "Could not remove rule", description: friendlyErrorMessage(error.message), variant: "destructive" });
+      return;
+    }
     load();
   };
 
