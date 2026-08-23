@@ -7,6 +7,7 @@
 // (https://www.canva.dev/docs/connect/authentication/).
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { readSecret, updateSecret } from "./integration-secrets.ts";
+import { fetchWithRetry } from "./fetch-retry.ts";
 
 // Grouped scope catalogue shown in the NazAI pre-consent screen. Only the
 // groups the user checks are actually included in the authorization URL sent
@@ -186,7 +187,7 @@ export async function canvaAuthedFetch(
 ): Promise<Response> {
   let access = await ensureAccessToken(admin, row);
   if (!access) return new Response(JSON.stringify({ error: "no_access_token" }), { status: 401 });
-  const doFetch = (tok: string) => fetch(url, {
+  const doFetch = (tok: string) => fetchWithRetry(url, {
     ...init,
     headers: { ...(init.headers || {}), Authorization: `Bearer ${tok}` },
   });

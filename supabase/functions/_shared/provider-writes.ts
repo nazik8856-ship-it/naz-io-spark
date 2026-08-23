@@ -9,11 +9,17 @@
 //   3. only then return ok:true
 // A bare HTTP 200 is never treated as success. Any API error or failed
 // verification returns ok:false with a plain-language reason.
+//
+// Every outbound fetch() here goes through fetchWithRetry (2026-08-24) --
+// a transparent passthrough on success or a permanent rejection, only
+// retrying a thrown network error or a 429/5xx, so a transient provider
+// hiccup is no longer indistinguishable from a real, permanent failure.
 // ============================================================================
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { readSecret } from "./integration-secrets.ts";
 import { canvaAuthedFetch } from "./canva.ts";
 import { figmaAuthedFetch } from "./figma.ts";
+import { fetchWithRetry } from "./fetch-retry.ts";
 
 export type WriteResult = {
   ok: boolean;
@@ -75,7 +81,7 @@ export async function slackPostMessage(
 
   let body: Record<string, unknown>;
   try {
-    const r = await fetch("https://slack.com/api/chat.postMessage", {
+    const r = await fetchWithRetry("https://slack.com/api/chat.postMessage", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=utf-8" },
       body: JSON.stringify({ channel, text, ...(threadTs ? { thread_ts: threadTs } : {}) }),
@@ -96,7 +102,7 @@ export async function slackPostMessage(
   // receipt (per Slack's API design) but say so plainly.
   let verifiedNote = "confirmed by Slack receipt ts=" + ts;
   try {
-    const vr = await fetch(
+    const vr = await fetchWithRetry(
       `https://slack.com/api/conversations.history?channel=${encodeURIComponent(ch)}&latest=${ts}&inclusive=true&limit=1`,
       { headers: { Authorization: `Bearer ${token}` } },
     );
@@ -160,7 +166,7 @@ export async function notionCreatePage(
 
   let created: Record<string, unknown>;
   try {
-    const r = await fetch("https://api.notion.com/v1/pages", {
+    const r = await fetchWithRetry("https://api.notion.com/v1/pages", {
       method: "POST",
       headers: NOTION_HEADERS(token),
       body: JSON.stringify({ parent, properties, ...(bodyMd ? { children: notionBlocks(bodyMd) } : {}) }),
@@ -175,7 +181,7 @@ export async function notionCreatePage(
 
   const pageId = String(created.id);
   // Verification: GET the page back and confirm it exists and isn't archived.
-  const vr = await fetch(`https://api.notion.com/v1/pages/${pageId}`, { headers: NOTION_HEADERS(token) });
+  const vr = await fetchWithRetry(`https://api.notion.com/v1/pages/${pageId}`, { headers: NOTION_HEADERS(token) });
   const vb = await vr.json().catch(() => ({}));
   if (!vr.ok || vb?.id !== pageId || vb?.archived === true) {
     return fail(
@@ -207,14 +213,14 @@ export async function notionUpdatePage(
       const patch: Record<string, unknown> = {};
       if (archived !== undefined) patch.archived = archived;
       if (title) patch.properties = { title: { title: [{ text: { content: title.slice(0, 200) } }] } };
-      const r = await fetch(`https://api.notion.com/v1/pages/${pageId}`, {
+      const r = await fetchWithRetry(`https://api.notion.com/v1/pages/${pageId}`, {
         method: "PATCH", headers: NOTION_HEADERS(token), body: JSON.stringify(patch),
       });
       const b = await r.json().catch(() => ({}));
       if (!r.ok) return fail(`Notion page NOT updated: ${String(b?.message || `HTTP ${r.status}`)}`, pageId);
     }
     if (appendMd) {
-      const r = await fetch(`https://api.notion.com/v1/blocks/${pageId}/children`, {
+      const r = await fetchWithRetry(`https://api.notion.com/v1/blocks/${pageId}/children`, {
         method: "PATCH", headers: NOTION_HEADERS(token), body: JSON.stringify({ children: notionBlocks(appendMd) }),
       });
       const b = await r.json().catch(() => ({}));
@@ -225,7 +231,7 @@ export async function notionUpdatePage(
   }
 
   // Verification: re-fetch the page (and its last_edited_time) to confirm.
-  const vr = await fetch(`https://api.notion.com/v1/pages/${pageId}`, { headers: NOTION_HEADERS(token) });
+  const vr = await fetchWithRetry(`https://api.notion.com/v1/pages/${pageId}`, { headers: NOTION_HEADERS(token) });
   const vb = await vr.json().catch(() => ({}));
   if (!vr.ok || vb?.id !== pageId) {
     return fail(`Notion update could NOT be verified (page ${pageId} not readable back). Treat as failed.`, pageId);
@@ -461,7 +467,7 @@ export async function shopifyCreateDraftOrder(
 
   let created: Record<string, unknown>;
   try {
-    const r = await fetch(`https://${ctx.shop}/admin/api/${SHOPIFY_API_VERSION}/draft_orders.json`, {
+    const r = await fetchWithRetry(`https://${ctx.shop}/admin/api/${SHOPIFY_API_VERSION}/draft_orders.json`, {
       method: "POST", headers: shopifyHeaders(ctx.token), body: JSON.stringify({ draft_order: draft }),
     });
     created = await r.json().catch(() => ({}));
@@ -477,7 +483,7 @@ export async function shopifyCreateDraftOrder(
   if (!id) return fail("Shopify returned no draft order id — treat as NOT created.");
 
   // Verification: re-fetch the draft order by id.
-  const vr = await fetch(`https://${ctx.shop}/admin/api/${SHOPIFY_API_VERSION}/draft_orders/${id}.json`, {
+  const vr = await fetchWithRetry(`https://${ctx.shop}/admin/api/${SHOPIFY_API_VERSION}/draft_orders/${id}.json`, {
     headers: shopifyHeaders(ctx.token),
   });
   const vb = await vr.json().catch(() => ({}));
@@ -517,7 +523,7 @@ export async function shopifyUpdateProduct(
   }
 
   try {
-    const r = await fetch(`https://${ctx.shop}/admin/api/${SHOPIFY_API_VERSION}/products/${productId}.json`, {
+    const r = await fetchWithRetry(`https://${ctx.shop}/admin/api/${SHOPIFY_API_VERSION}/products/${productId}.json`, {
       method: "PUT", headers: shopifyHeaders(ctx.token), body: JSON.stringify({ product: patch }),
     });
     const b = await r.json().catch(() => ({}));
@@ -529,7 +535,7 @@ export async function shopifyUpdateProduct(
   }
 
   // Verification: re-fetch the product and confirm the requested fields really changed.
-  const vr = await fetch(`https://${ctx.shop}/admin/api/${SHOPIFY_API_VERSION}/products/${productId}.json`, {
+  const vr = await fetchWithRetry(`https://${ctx.shop}/admin/api/${SHOPIFY_API_VERSION}/products/${productId}.json`, {
     headers: shopifyHeaders(ctx.token),
   });
   const vb = await vr.json().catch(() => ({}));
@@ -728,7 +734,7 @@ async function googleSendEmail(
   const from = String(auth.creds.email || "me");
   const sent = await gmailSend(auth.access, from, to, subject, body);
   if (!sent.ok || !sent.id) return fail(`Gmail refused the send: ${sent.error || "no message id returned"}. Nothing was delivered.`);
-  const vr = await fetch(
+  const vr = await fetchWithRetry(
     `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(sent.id)}?format=metadata`,
     { headers: { Authorization: `Bearer ${auth.access}` } },
   );
@@ -754,20 +760,20 @@ async function googleCreateDoc(
   const auth = await googleAccess(admin, userId, agentId);
   if ("ok" in auth) return auth;
   const h = { Authorization: `Bearer ${auth.access}`, "Content-Type": "application/json" };
-  const cr = await fetch("https://docs.googleapis.com/v1/documents", {
+  const cr = await fetchWithRetry("https://docs.googleapis.com/v1/documents", {
     method: "POST", headers: h, body: JSON.stringify({ title }),
   });
   const cb = await gJson(cr);
   const docId = (cb as { documentId?: string }).documentId;
   if (!cr.ok || !docId) return fail(`Google Docs refused to create the doc: ${gErr(cb, cr)}.`);
   if (text) {
-    const ur = await fetch(`https://docs.googleapis.com/v1/documents/${docId}:batchUpdate`, {
+    const ur = await fetchWithRetry(`https://docs.googleapis.com/v1/documents/${docId}:batchUpdate`, {
       method: "POST", headers: h,
       body: JSON.stringify({ requests: [{ insertText: { location: { index: 1 }, text } }] }),
     });
     if (!ur.ok) return fail(`Doc was created but the content failed to write: ${gErr(await gJson(ur), ur)}.`, docId);
   }
-  const vr = await fetch(`https://docs.googleapis.com/v1/documents/${docId}`, { headers: h });
+  const vr = await fetchWithRetry(`https://docs.googleapis.com/v1/documents/${docId}`, { headers: h });
   const vb = await gJson(vr);
   if (!vr.ok || (vb as { documentId?: string }).documentId !== docId) {
     return fail(`Doc creation could not be verified: ${gErr(vb, vr)}.`, docId);
@@ -786,7 +792,7 @@ async function googleEditDoc(
   const auth = await googleAccess(admin, userId, agentId);
   if ("ok" in auth) return auth;
   const h = { Authorization: `Bearer ${auth.access}`, "Content-Type": "application/json" };
-  const rr = await fetch(`https://docs.googleapis.com/v1/documents/${docId}`, { headers: h });
+  const rr = await fetchWithRetry(`https://docs.googleapis.com/v1/documents/${docId}`, { headers: h });
   const rb = await gJson(rr);
   if (!rr.ok) return fail(`Could not open that Google Doc: ${gErr(rb, rr)}.`, docId);
   const content = ((rb as { body?: { content?: { endIndex?: number }[] } }).body?.content || []);
@@ -798,11 +804,11 @@ async function googleEditDoc(
   } else {
     requests.push({ insertText: { location: { index: endIndex }, text: `\n${text}` } });
   }
-  const ur = await fetch(`https://docs.googleapis.com/v1/documents/${docId}:batchUpdate`, {
+  const ur = await fetchWithRetry(`https://docs.googleapis.com/v1/documents/${docId}:batchUpdate`, {
     method: "POST", headers: h, body: JSON.stringify({ requests }),
   });
   if (!ur.ok) return fail(`The doc edit failed: ${gErr(await gJson(ur), ur)}.`, docId);
-  const vr = await fetch(`https://docs.googleapis.com/v1/documents/${docId}`, { headers: h });
+  const vr = await fetchWithRetry(`https://docs.googleapis.com/v1/documents/${docId}`, { headers: h });
   const vb = await gJson(vr);
   const flat = JSON.stringify(vb).replace(/\\n/g, " ");
   const probe = text.slice(0, 40).replace(/["\\]/g, "");
@@ -825,20 +831,20 @@ async function googleCreateSheet(
   const auth = await googleAccess(admin, userId, agentId);
   if ("ok" in auth) return auth;
   const h = { Authorization: `Bearer ${auth.access}`, "Content-Type": "application/json" };
-  const cr = await fetch("https://sheets.googleapis.com/v4/spreadsheets", {
+  const cr = await fetchWithRetry("https://sheets.googleapis.com/v4/spreadsheets", {
     method: "POST", headers: h, body: JSON.stringify({ properties: { title } }),
   });
   const cb = await gJson(cr);
   const sheetId = (cb as { spreadsheetId?: string }).spreadsheetId;
   if (!cr.ok || !sheetId) return fail(`Google Sheets refused to create the sheet: ${gErr(cb, cr)}.`);
   if (rows.length) {
-    const ur = await fetch(
+    const ur = await fetchWithRetry(
       `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/A1?valueInputOption=RAW`,
       { method: "PUT", headers: h, body: JSON.stringify({ values: rows }) },
     );
     if (!ur.ok) return fail(`Sheet was created but the rows failed to write: ${gErr(await gJson(ur), ur)}.`, sheetId);
   }
-  const vr = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}`, { headers: h });
+  const vr = await fetchWithRetry(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}`, { headers: h });
   const vb = await gJson(vr);
   if (!vr.ok || (vb as { spreadsheetId?: string }).spreadsheetId !== sheetId) {
     return fail(`Sheet creation could not be verified: ${gErr(vb, vr)}.`, sheetId);
@@ -860,12 +866,12 @@ async function googleEditSheet(
   const auth = await googleAccess(admin, userId, agentId);
   if ("ok" in auth) return auth;
   const h = { Authorization: `Bearer ${auth.access}`, "Content-Type": "application/json" };
-  const ur = await fetch(
+  const ur = await fetchWithRetry(
     `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(range)}?valueInputOption=RAW`,
     { method: "PUT", headers: h, body: JSON.stringify({ values }) },
   );
   if (!ur.ok) return fail(`The sheet update failed: ${gErr(await gJson(ur), ur)}.`, sheetId, range);
-  const vr = await fetch(
+  const vr = await fetchWithRetry(
     `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(range)}`,
     { headers: h },
   );
@@ -891,7 +897,7 @@ async function googleCreateCalendarEvent(
   const auth = await googleAccess(admin, userId, agentId);
   if ("ok" in auth) return auth;
   const h = { Authorization: `Bearer ${auth.access}`, "Content-Type": "application/json" };
-  const cr = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
+  const cr = await fetchWithRetry("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
     method: "POST", headers: h,
     body: JSON.stringify({
       summary: title,
@@ -903,7 +909,7 @@ async function googleCreateCalendarEvent(
   const cb = await gJson(cr);
   const eventId = (cb as { id?: string }).id;
   if (!cr.ok || !eventId) return fail(`Google Calendar refused to create the event: ${gErr(cb, cr)}.`);
-  const vr = await fetch(
+  const vr = await fetchWithRetry(
     `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`,
     { headers: h },
   );
