@@ -3,6 +3,7 @@
 // work here, same separation as toCsv (src/lib/csv.ts): serialization is
 // pure and testable, download-triggering lives in the page component.
 import { summarizeConfigChange } from "./config-change-diff";
+import { gateLatencyStats, isAuditIntegritySweepFailing } from "./control-health";
 
 export type ComplianceTestRun = { created_at: string; pass_rate_pct: number; regressions: unknown[] };
 export type ComplianceIncident = {
@@ -20,6 +21,13 @@ export type ComplianceChange = {
   after: Record<string, unknown> | null;
   created_at: string;
 };
+export type ComplianceAuditIntegrityRun = {
+  created_at: string;
+  checked: number;
+  verified: number;
+  unsigned: number;
+  mismatched_count: number;
+};
 
 export type ComplianceReportInput = {
   from: string;
@@ -28,6 +36,13 @@ export type ComplianceReportInput = {
   testRuns: ComplianceTestRun[];
   incidents: ComplianceIncident[];
   changes: ComplianceChange[];
+  // 2026-08-24: raw gate_duration_ms values (not pre-aggregated) so the
+  // builder computes avg/p95 itself via gateLatencyStats -- same "pure
+  // builder does the transform" shape as everything else here. An empty
+  // array (no timed decisions in range) renders its own explicit line, not
+  // a silently missing section.
+  gateLatencyMs: number[];
+  auditIntegrityRuns: ComplianceAuditIntegrityRun[];
 };
 
 /** Pure — builds the report as Markdown text. */
@@ -54,7 +69,11 @@ export function buildComplianceReport(input: ComplianceReportInput): string {
     lines.push("None in this range.");
   } else {
     for (const i of input.incidents) {
-      lines.push(`- [${i.status}] ${i.kind} — ${i.summary}`);
+      // Called out distinctly rather than left as plain text indistinguishable
+      // from any other incident kind -- a correlated (multi-agent, fleet-wide)
+      // trip is a materially different signal than one agent's own breaker.
+      const label = i.kind === "correlated_breaker_trip" ? "🕸️ [CORRELATED] " : "";
+      lines.push(`- ${label}[${i.status}] ${i.kind} — ${i.summary}`);
       lines.push(`  Opened: ${i.opened_at}${i.resolved_at ? ` · Resolved: ${i.resolved_at}` : ""}`);
       if (i.resolution_note) lines.push(`  Note: ${i.resolution_note}`);
     }
@@ -67,6 +86,29 @@ export function buildComplianceReport(input: ComplianceReportInput): string {
   } else {
     for (const c of input.changes) {
       lines.push(`- ${c.created_at} — ${c.table_name} ${c.action}: ${summarizeConfigChange(c.before, c.after)}`);
+    }
+  }
+  lines.push("");
+
+  const latency = gateLatencyStats(input.gateLatencyMs);
+  lines.push("## Gate latency");
+  if (!latency.count) {
+    lines.push("No timed decisions in this range.");
+  } else {
+    lines.push(`Avg ${latency.avgMs}ms · p95 ${latency.p95Ms}ms, across ${latency.count} decision(s).`);
+  }
+  lines.push("");
+
+  lines.push(`## Audit-integrity sweeps (${input.auditIntegrityRuns.length})`);
+  if (!input.auditIntegrityRuns.length) {
+    lines.push("None in this range.");
+  } else {
+    for (const run of input.auditIntegrityRuns) {
+      const failing = isAuditIntegritySweepFailing(run);
+      lines.push(
+        `- ${run.created_at}: ${failing ? "FAILING" : "passing"} — ${run.checked} checked, ${run.verified} verified, ` +
+        `${run.unsigned} unsigned, ${run.mismatched_count} mismatch(es)`,
+      );
     }
   }
 
