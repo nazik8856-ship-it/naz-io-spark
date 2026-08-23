@@ -10,6 +10,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { runControlGate } from "../_shared/control-gate.ts";
+import { claimRowOnce, releaseRowClaim } from "../_shared/idempotency.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -52,14 +53,26 @@ serve(async (req) => {
     if (evt.user_id !== userId) return json({ error: "Forbidden" }, 403);
     if (evt.kind !== "pending_approval") return json({ error: "Not a pending_approval" }, 400);
 
-    // Idempotency: skip if already resolved.
-    const { data: existing } = await admin.from("agent_events")
-      .select("id, kind")
-      .eq("agent_id", evt.agent_id)
-      .in("kind", ["approval_granted", "approval_rejected"])
-      .contains("payload", { original_event_id: eventId })
-      .limit(1).maybeSingle();
-    if (existing) return json({ ok: true, alreadyResolved: existing.kind });
+    // Idempotency: atomically claim this event row before doing anything
+    // else. The prior "SELECT for an existing resolution, then decide" check
+    // was read-then-act -- two concurrent approve clicks on the same eventId
+    // could both pass it before either logged its resolution, both re-run
+    // the gate below, and both dispatch the real action. claimRowOnce is a
+    // single UPDATE ... WHERE resolved_at IS NULL, so only one concurrent (or
+    // retried) request can ever win it.
+    const claimed = await claimRowOnce(admin, "agent_events", eventId, "resolved_at");
+    if (!claimed) {
+      const { data: existing } = await admin.from("agent_events")
+        .select("id, kind")
+        .eq("agent_id", evt.agent_id)
+        .in("kind", ["approval_granted", "approval_rejected"])
+        .contains("payload", { original_event_id: eventId })
+        .limit(1).maybeSingle();
+      if (existing) return json({ ok: true, alreadyResolved: existing.kind });
+      // Claimed by another in-flight request that hasn't logged its
+      // resolution event yet -- fail toward NOT re-running the action.
+      return json({ ok: true, alreadyResolved: "in_progress" });
+    }
 
     const logEvent = (kind: string, payload: Record<string, unknown>) =>
       admin.from("agent_events").insert({
@@ -133,6 +146,10 @@ serve(async (req) => {
         });
         const respBody = await r.json().catch(() => ({}));
         const ok = r.ok && (respBody?.success !== false);
+        // A genuine delivery failure isn't a resolved outcome -- release the
+        // claim so a real retry (re-clicking approve) isn't permanently
+        // blocked, same release-on-failure shape /approvals/:id/execute uses.
+        if (!ok) await releaseRowClaim(admin, "agent_events", eventId, "resolved_at");
         await logEvent("approval_granted", {
           original_event_id: eventId,
           action: actionType,
@@ -145,6 +162,7 @@ serve(async (req) => {
         return json({ ok, resolved: "approved", result: respBody });
       } catch (e) {
         const msg = e instanceof Error ? e.message : "unknown";
+        await releaseRowClaim(admin, "agent_events", eventId, "resolved_at");
         await logEvent("approval_granted", { original_event_id: eventId, action: actionType, ok: false, summary: `Send exception: ${msg}` });
         return json({ ok: false, error: msg }, 500);
       }
@@ -169,6 +187,7 @@ serve(async (req) => {
         });
         clearTimeout(t);
         const respText = (await r.text().catch(() => "")).slice(0, 200);
+        if (!r.ok) await releaseRowClaim(admin, "agent_events", eventId, "resolved_at");
         await logEvent("approval_granted", {
           original_event_id: eventId, action: actionType, note,
           ok: r.ok, summary: `${r.status} ${respText}`,
@@ -177,6 +196,7 @@ serve(async (req) => {
         return json({ ok: r.ok, resolved: "approved", status: r.status });
       } catch (e) {
         const msg = e instanceof Error ? e.message : "unknown";
+        await releaseRowClaim(admin, "agent_events", eventId, "resolved_at");
         await logEvent("approval_granted", { original_event_id: eventId, action: actionType, ok: false, summary: `POST exception: ${msg}` });
         return json({ ok: false, error: msg }, 500);
       }
