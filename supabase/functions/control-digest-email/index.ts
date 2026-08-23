@@ -5,6 +5,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getSpendStatus } from "../_shared/spend-guard.ts";
 import { digestHasContent } from "../_shared/digest.ts";
+import { isAuditIntegrityFailure } from "../_shared/audit-integrity.ts";
 import { resolveNotificationRecipients, type MemberRow, type PreferenceRow } from "../_shared/notification-preferences.ts";
 
 const corsHeaders = {
@@ -37,10 +38,12 @@ Deno.serve(async (req) => {
 
   for (const userId of userIds) {
     try {
-      const [{ data: incidents }, { data: approvals }, spend] = await Promise.all([
+      const [{ data: incidents }, { data: approvals }, spend, { count: correlatedBreakerTrips }, { data: auditRuns }] = await Promise.all([
         admin.from("incidents").select("summary").eq("user_id", userId).eq("status", "open").order("opened_at", { ascending: false }).limit(5),
         admin.from("pending_approvals").select("created_at").eq("user_id", userId).eq("status", "pending"),
         getSpendStatus(admin, userId),
+        admin.from("incidents").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("status", "open").eq("kind", "correlated_breaker_trip"),
+        admin.from("audit_integrity_runs").select("mismatched_count, unsigned").eq("user_id", userId).order("created_at", { ascending: false }).limit(1),
       ]);
 
       const openIncidents = (incidents ?? []).length;
@@ -49,8 +52,10 @@ Deno.serve(async (req) => {
       const oldestPendingHours = pendingRows.length
         ? Math.max(...pendingRows.map((r) => (Date.now() - new Date(r.created_at).getTime()) / (1000 * 60 * 60)))
         : 0;
+      const latestAuditRun = (auditRuns ?? [])[0] as { mismatched_count: number; unsigned: number } | undefined;
+      const auditIntegrityFailing = latestAuditRun ? isAuditIntegrityFailure({ checked: 0, verified: 0, ...latestAuditRun }) : false;
 
-      const signal = { openIncidents, pendingApprovals, spendPct: spend.pct };
+      const signal = { openIncidents, pendingApprovals, spendPct: spend.pct, auditIntegrityFailing };
       if (!digestHasContent(signal)) {
         outcomes.push({ userId, sent: false, reason: "nothing to report" });
         continue;
@@ -87,6 +92,8 @@ Deno.serve(async (req) => {
               spendPct: spend.pct,
               spendUsd: spend.spent_usd,
               capUsd: spend.cap_usd,
+              auditIntegrityFailing,
+              correlatedBreakerTrips: correlatedBreakerTrips ?? 0,
             },
           }),
         }),

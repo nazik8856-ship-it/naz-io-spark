@@ -44,18 +44,24 @@ Deno.serve(async (req) => {
   for (const userId of userIds) {
     try {
       const [{ data: thisWeekDecisions }, { data: lastWeekDecisions }, { data: thisWeekSpend }, { data: lastWeekSpend }] = await Promise.all([
-        admin.from("agent_decisions").select("escalated").eq("user_id", userId).gte("created_at", thisWeekStart),
-        admin.from("agent_decisions").select("escalated").eq("user_id", userId).gte("created_at", lastWeekStart).lt("created_at", thisWeekStart),
+        admin.from("agent_decisions").select("escalated, gate_duration_ms").eq("user_id", userId).gte("created_at", thisWeekStart),
+        admin.from("agent_decisions").select("escalated, gate_duration_ms").eq("user_id", userId).gte("created_at", lastWeekStart).lt("created_at", thisWeekStart),
         admin.from("ai_spend_daily").select("cost_usd").eq("user_id", userId).gte("day", thisWeekStart.slice(0, 10)),
         admin.from("ai_spend_daily").select("cost_usd").eq("user_id", userId).gte("day", lastWeekStart.slice(0, 10)).lt("day", thisWeekStart.slice(0, 10)),
       ]);
 
-      const thisRows = (thisWeekDecisions ?? []) as { escalated: boolean }[];
-      const lastRows = (lastWeekDecisions ?? []) as { escalated: boolean }[];
+      const thisRows = (thisWeekDecisions ?? []) as { escalated: boolean; gate_duration_ms: number | null }[];
+      const lastRows = (lastWeekDecisions ?? []) as { escalated: boolean; gate_duration_ms: number | null }[];
       const thisEscalationPct = thisRows.length ? Math.round((thisRows.filter((r) => r.escalated).length / thisRows.length) * 1000) / 10 : 0;
       const lastEscalationPct = lastRows.length ? Math.round((lastRows.filter((r) => r.escalated).length / lastRows.length) * 1000) / 10 : 0;
       const thisSpend = ((thisWeekSpend ?? []) as { cost_usd: number }[]).reduce((n, r) => n + Number(r.cost_usd || 0), 0);
       const lastSpend = ((lastWeekSpend ?? []) as { cost_usd: number }[]).reduce((n, r) => n + Number(r.cost_usd || 0), 0);
+      const avgMs = (rows: { gate_duration_ms: number | null }[]) => {
+        const timed = rows.map((r) => r.gate_duration_ms).filter((v): v is number => typeof v === "number");
+        return timed.length ? Math.round(timed.reduce((s, v) => s + v, 0) / timed.length) : 0;
+      };
+      const thisGateLatencyMs = avgMs(thisRows);
+      const lastGateLatencyMs = avgMs(lastRows);
 
       // Nothing happened either week — skip, same "no empty digest" principle as the daily one.
       if (thisRows.length === 0 && lastRows.length === 0 && thisSpend === 0 && lastSpend === 0) {
@@ -90,6 +96,7 @@ Deno.serve(async (req) => {
               decisions: computeTrend(thisRows.length, lastRows.length),
               escalationRatePct: computeTrend(thisEscalationPct, lastEscalationPct),
               spendUsd: computeTrend(Math.round(thisSpend * 100) / 100, Math.round(lastSpend * 100) / 100),
+              gateLatencyMs: computeTrend(thisGateLatencyMs, lastGateLatencyMs),
             },
           }),
         }),

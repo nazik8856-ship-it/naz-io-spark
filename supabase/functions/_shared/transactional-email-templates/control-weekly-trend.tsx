@@ -20,6 +20,7 @@ interface WeeklyTrendProps {
   decisions?: TrendProps
   escalationRatePct?: TrendProps
   spendUsd?: TrendProps
+  gateLatencyMs?: TrendProps
   controlSystemUrl?: string
 }
 
@@ -35,7 +36,7 @@ const TrendLine = ({ label, t, unit = '' }: { label: string; t?: TrendProps; uni
   </Text>
 )
 
-const WeeklyTrendEmail = ({ decisions, escalationRatePct, spendUsd, controlSystemUrl = 'https://www.nazai.net/control-system/health' }: WeeklyTrendProps) => (
+const WeeklyTrendEmail = ({ decisions, escalationRatePct, spendUsd, gateLatencyMs, controlSystemUrl = 'https://www.nazai.net/control-system/health' }: WeeklyTrendProps) => (
   <Html lang="en" dir="ltr">
     <Head />
     <Preview>Your weekly NazAI Control System trend summary</Preview>
@@ -51,6 +52,11 @@ const WeeklyTrendEmail = ({ decisions, escalationRatePct, spendUsd, controlSyste
           <TrendLine label="Decisions" t={decisions} />
           <TrendLine label="Escalation rate" t={escalationRatePct} unit="%" />
           <TrendLine label="AI spend" t={spendUsd} unit=" USD" />
+          {/* Hidden when there's no timed decision in either week (gate_duration_ms
+              is a recent addition -- some orgs/weeks genuinely have nothing to show). */}
+          {((gateLatencyMs?.current ?? 0) > 0 || (gateLatencyMs?.previous ?? 0) > 0) && (
+            <TrendLine label="Gate latency (avg)" t={gateLatencyMs} unit="ms" />
+          )}
           <Hr style={hr} />
           <Button style={button} href={controlSystemUrl}>
             View control-plane health
@@ -69,6 +75,7 @@ export const template = {
     decisions: { current: 42, previous: 30, changePct: 40, direction: 'up' },
     escalationRatePct: { current: 8, previous: 12, changePct: -33.3, direction: 'down' },
     spendUsd: { current: 3.2, previous: 4.1, changePct: -22, direction: 'down' },
+    gateLatencyMs: { current: 180, previous: 210, changePct: -14.3, direction: 'down' },
   },
 } satisfies TemplateEntry
 
