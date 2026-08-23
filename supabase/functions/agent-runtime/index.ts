@@ -15,6 +15,7 @@ import { PROVIDER_WRITE_KINDS, runProviderWrite } from "../_shared/provider-writ
 import { runControlGate } from "../_shared/control-gate.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { claimIdempotencyKey, saveIdempotencyResponse, releaseIdempotencyKey, buildRealActionKey } from "../_shared/idempotency.ts";
+import { timingSafeEqual } from "../_shared/timing-safe.ts";
 
 import {
   readConfidence,
@@ -138,7 +139,7 @@ serve(async (req) => {
         const { data: sec } = await adminClient.rpc("read_webhook_secret", { _agent_id: agentId });
         if (typeof sec === "string") expected = sec;
       }
-      if (!expected || provided !== expected) {
+      if (!expected || !timingSafeEqual(provided, expected)) {
         return json({ error: "Unauthorized" }, 401);
       }
       userId = (ownerRow.user_id as string | undefined) ?? "";
