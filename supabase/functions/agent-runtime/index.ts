@@ -1916,7 +1916,15 @@ Rules:
                 body: JSON.stringify({
                   templateName: "agent-notification",
                   recipientEmail: to,
-                  idempotencyKey: `agent-${agentId}-${runId}-${Date.now()}`,
+                  // Reuses the SAME stable key our own claim above uses --
+                  // was previously `agent-${agentId}-${runId}-${Date.now()}`,
+                  // which embedded the wall clock and so could never
+                  // actually dedupe a real retry of the identical send
+                  // (send-transactional-email forwards this straight
+                  // through to the underlying email API's own idempotency
+                  // handling, so a fresh value on every attempt defeated
+                  // that layer of protection too, not just our own).
+                  idempotencyKey: emailActionKey,
                   templateData: { subject, body, agentName: manifest.name },
                 }),
               });
