@@ -6,7 +6,7 @@
 // is a simple query. Service-role only, same auth pattern as every other
 // scheduled function this session.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { buildSignaturePayload } from "../_shared/webhooks.ts";
+import { buildSignaturePayload, handleWebhookDeliveryOutcome } from "../_shared/webhooks.ts";
 import { isRetryEligible, computeNextRetryAt } from "../_shared/webhook-retry.ts";
 
 const corsHeaders = {
@@ -59,10 +59,10 @@ Deno.serve(async (req) => {
   for (const d of (due ?? []) as DueDelivery[]) {
     const { data: hookRow } = await admin
       .from("webhooks")
-      .select("id, url, secret, enabled")
+      .select("id, url, secret, enabled, alerted_at")
       .eq("id", d.webhook_id)
       .maybeSingle();
-    const hook = hookRow as { id: string; url: string; secret: string; enabled: boolean } | null;
+    const hook = hookRow as { id: string; url: string; secret: string; enabled: boolean; alerted_at: string | null } | null;
     if (!hook || !hook.enabled) {
       results.push({ id: d.id, retried: false });
       continue;
@@ -111,6 +111,8 @@ Deno.serve(async (req) => {
     // The original row's own next_retry_at is cleared either way -- it's
     // been acted on, the newest row in the chain is now the live one.
     await admin.from("webhook_deliveries").update({ next_retry_at: null }).eq("id", d.id);
+
+    await handleWebhookDeliveryOutcome(admin, d.user_id, hook, { ok, attempt: nextAttempt });
 
     results.push({ id: d.id, retried: true, ok });
   }

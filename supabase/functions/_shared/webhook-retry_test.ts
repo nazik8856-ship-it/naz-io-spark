@@ -1,7 +1,7 @@
 // Real tests for the webhook delivery retry/backoff logic.
 //
 // Run with: deno test --allow-none supabase/functions/_shared/webhook-retry_test.ts
-import { isRetryEligible, computeBackoffSeconds, computeNextRetryAt, MAX_ATTEMPTS } from "./webhook-retry.ts";
+import { isRetryEligible, isExhausted, computeBackoffSeconds, computeNextRetryAt, MAX_ATTEMPTS } from "./webhook-retry.ts";
 
 function assertEquals<T>(actual: T, expected: T, msg?: string): void {
   if (actual !== expected) {
@@ -21,6 +21,21 @@ Deno.test("isRetryEligible: a failed delivery under the max attempt count is ret
 Deno.test("isRetryEligible: a failed delivery at or past the max attempt count is not retried", () => {
   assertEquals(isRetryEligible(MAX_ATTEMPTS, false), false);
   assertEquals(isRetryEligible(MAX_ATTEMPTS + 1, false), false);
+});
+
+Deno.test("isExhausted: a successful delivery is never exhausted, at any attempt number", () => {
+  assertEquals(isExhausted(1, true), false);
+  assertEquals(isExhausted(MAX_ATTEMPTS, true), false);
+});
+
+Deno.test("isExhausted: a failed delivery under the max attempt count is not yet exhausted", () => {
+  assertEquals(isExhausted(1, false), false);
+  assertEquals(isExhausted(MAX_ATTEMPTS - 1, false), false);
+});
+
+Deno.test("isExhausted: a failed delivery at or past the max attempt count is exhausted", () => {
+  assertEquals(isExhausted(MAX_ATTEMPTS, false), true);
+  assertEquals(isExhausted(MAX_ATTEMPTS + 1, false), true);
 });
 
 Deno.test("computeBackoffSeconds: doubles each attempt", () => {

@@ -5,7 +5,8 @@
 // critical_alerts earlier this session: a silently-failing webhook (wrong
 // URL, endpoint down, timeout) must never be invisible.
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { isRetryEligible, computeNextRetryAt } from "./webhook-retry.ts";
+import { isRetryEligible, isExhausted, computeNextRetryAt } from "./webhook-retry.ts";
+import { sendCriticalAlert } from "./critical-alerts.ts";
 
 export const WEBHOOK_EVENTS = [
   "approval_created",
@@ -37,6 +38,37 @@ async function hmacHex(secret: string, message: string): Promise<string> {
 
 type Hook = { id: string; url: string; secret: string; events: string[] };
 
+/**
+ * Clears a webhook's dead-letter flag on any successful delivery, or fires
+ * (and records) a one-time webhook_delivery_exhausted alert the first time
+ * its retries exhaust. alerted_at lives on the webhook itself, not the
+ * individual delivery row -- a permanently-broken endpoint gets a FRESH
+ * delivery chain (and its own independent exhaustion) for every new event
+ * that fires while it's down, so scoping the flag to one delivery row would
+ * only silence that one chain, not the endpoint. Never throws.
+ */
+export async function handleWebhookDeliveryOutcome(
+  admin: SupabaseClient,
+  userId: string,
+  hook: { id: string; url: string; alerted_at?: string | null },
+  outcome: { ok: boolean; attempt: number },
+): Promise<void> {
+  try {
+    if (outcome.ok) {
+      if (hook.alerted_at) {
+        await admin.from("webhooks").update({ alerted_at: null }).eq("id", hook.id);
+      }
+      return;
+    }
+    if (!isExhausted(outcome.attempt, outcome.ok) || hook.alerted_at) return;
+    await sendCriticalAlert(admin, userId, {
+      event: "webhook_delivery_exhausted",
+      summary: `Webhook deliveries to ${hook.url} have failed ${outcome.attempt} times in a row and retries are now exhausted. No further attempts will be made for this event — new events will still be attempted fresh.`,
+    });
+    await admin.from("webhooks").update({ alerted_at: new Date().toISOString() }).eq("id", hook.id);
+  } catch { /* dead-letter alerting must never break delivery */ }
+}
+
 /** Best-effort: delivers `event` to every enabled webhook subscribed to it. Never throws. */
 export async function triggerWebhooks(
   admin: SupabaseClient,
@@ -47,10 +79,10 @@ export async function triggerWebhooks(
   try {
     const { data } = await admin
       .from("webhooks")
-      .select("id, url, secret, events")
+      .select("id, url, secret, events, alerted_at")
       .eq("user_id", userId)
       .eq("enabled", true);
-    const hooks = ((data ?? []) as Hook[]).filter((h) => Array.isArray(h.events) && h.events.includes(event));
+    const hooks = ((data ?? []) as (Hook & { alerted_at?: string | null })[]).filter((h) => Array.isArray(h.events) && h.events.includes(event));
     if (!hooks.length) return;
 
     const body = JSON.stringify({ event, data: payload, sent_at: new Date().toISOString() });
@@ -78,8 +110,8 @@ export async function triggerWebhooks(
       } catch (err) {
         errMsg = err instanceof Error ? err.message : String(err);
       }
+      const attempt = 1;
       try {
-        const attempt = 1;
         await admin.from("webhook_deliveries").insert({
           webhook_id: hook.id,
           user_id: userId,
@@ -92,6 +124,7 @@ export async function triggerWebhooks(
           next_retry_at: isRetryEligible(attempt, ok) ? computeNextRetryAt(attempt, new Date()).toISOString() : null,
         });
       } catch { /* delivery logging must never break the caller's own flow */ }
+      await handleWebhookDeliveryOutcome(admin, userId, hook, { ok, attempt });
     }));
   } catch { /* webhook delivery must never break the caller's own flow */ }
 }

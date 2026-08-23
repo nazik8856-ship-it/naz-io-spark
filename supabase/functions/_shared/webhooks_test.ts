@@ -1,7 +1,8 @@
 // Real tests for outbound webhook delivery + logging.
 //
 // Run with: deno test --allow-net --allow-env supabase/functions/_shared/webhooks_test.ts
-import { triggerWebhooks, buildSignaturePayload, WEBHOOK_EVENTS } from "./webhooks.ts";
+import { triggerWebhooks, buildSignaturePayload, WEBHOOK_EVENTS, handleWebhookDeliveryOutcome } from "./webhooks.ts";
+import { MAX_ATTEMPTS } from "./webhook-retry.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
@@ -121,6 +122,76 @@ Deno.test("a webhook not subscribed to this event is skipped even if other hooks
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+// ---- handleWebhookDeliveryOutcome (dead-letter alerting) -------------------
+// alerted_at lives on the webhook itself (not the delivery row) so a
+// permanently-broken endpoint doesn't re-alert for every fresh event chain
+// that independently exhausts against it.
+
+function fakeAlertingSupabase() {
+  const webhookUpdates: Record<string, unknown>[] = [];
+  const inserts: Record<string, unknown[]> = {};
+  const generic = () => ({
+    select() { return this; },
+    eq() { return this; },
+    insert(row?: unknown) { return this; },
+    maybeSingle() { return Promise.resolve({ data: null, error: null }); },
+    then(onfulfilled: (v: { data: null; error: null }) => unknown) { return Promise.resolve({ data: null, error: null }).then(onfulfilled); },
+  });
+  const client = {
+    from(table: string) {
+      if (table === "webhooks") {
+        return {
+          update(row: Record<string, unknown>) {
+            webhookUpdates.push(row);
+            return { eq() { return Promise.resolve({ data: null, error: null }); } };
+          },
+        };
+      }
+      const g = generic();
+      // deno-lint-ignore no-explicit-any
+      (g as any).insert = (row?: unknown) => { (inserts[table] ??= []).push(row); return g; };
+      return g;
+    },
+    // deno-lint-ignore no-explicit-any
+  } as any;
+  return { client, webhookUpdates, inserts };
+}
+
+Deno.test("handleWebhookDeliveryOutcome: a successful delivery clears a previously-set alerted_at", async () => {
+  const { client, webhookUpdates } = fakeAlertingSupabase();
+  await handleWebhookDeliveryOutcome(client, "user-1", { id: "h1", url: "https://example.com", alerted_at: "2026-08-20T00:00:00Z" }, { ok: true, attempt: 1 });
+  assertEquals(webhookUpdates.length, 1);
+  assertEquals(webhookUpdates[0].alerted_at, null);
+});
+
+Deno.test("handleWebhookDeliveryOutcome: a successful delivery with no prior alert does nothing", async () => {
+  const { client, webhookUpdates } = fakeAlertingSupabase();
+  await handleWebhookDeliveryOutcome(client, "user-1", { id: "h1", url: "https://example.com", alerted_at: null }, { ok: true, attempt: 1 });
+  assertEquals(webhookUpdates.length, 0);
+});
+
+Deno.test("handleWebhookDeliveryOutcome: a failed delivery under the max attempt count does not alert", async () => {
+  const { client, webhookUpdates } = fakeAlertingSupabase();
+  await handleWebhookDeliveryOutcome(client, "user-1", { id: "h1", url: "https://example.com", alerted_at: null }, { ok: false, attempt: 1 });
+  assertEquals(webhookUpdates.length, 0);
+});
+
+Deno.test("handleWebhookDeliveryOutcome: exhausted retries fires a one-time alert and stamps alerted_at", async () => {
+  const { client, webhookUpdates, inserts } = fakeAlertingSupabase();
+  await handleWebhookDeliveryOutcome(client, "user-1", { id: "h1", url: "https://example.com", alerted_at: null }, { ok: false, attempt: MAX_ATTEMPTS });
+  assertEquals(webhookUpdates.length, 1);
+  assert(typeof webhookUpdates[0].alerted_at === "string", "expected alerted_at to be stamped");
+  assertEquals((inserts.critical_alerts ?? []).length, 1, "expected the dead-letter alert to be recorded");
+  assertEquals((inserts.incidents ?? []).length, 1, "webhook_delivery_exhausted is incident-worthy");
+});
+
+Deno.test("handleWebhookDeliveryOutcome: an already-alerted webhook does not alert again", async () => {
+  const { client, webhookUpdates, inserts } = fakeAlertingSupabase();
+  await handleWebhookDeliveryOutcome(client, "user-1", { id: "h1", url: "https://example.com", alerted_at: "2026-08-24T00:00:00Z" }, { ok: false, attempt: MAX_ATTEMPTS });
+  assertEquals(webhookUpdates.length, 0, "must not alert a second time for the same still-dead endpoint");
+  assertEquals((inserts.critical_alerts ?? []).length, 0);
 });
 
 Deno.test("triggerWebhooks never throws even if the webhooks table read itself fails", async () => {
