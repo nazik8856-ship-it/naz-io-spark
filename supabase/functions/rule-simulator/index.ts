@@ -9,11 +9,17 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { ruleMatchesAction, selectRulesForAgent } from "../_shared/rule-matching.ts";
 import { scanWithRules, BUILTIN_SAFETY_RULES, type SafetyRule } from "../_shared/safety-scanner.ts";
 import { projectVerdict } from "../_shared/rule-simulator-logic.ts";
+import { checkRateLimit } from "../_shared/rate-limit.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+// Confirmed zero rate-limit coverage. Purely local matching/scanning logic
+// (no model call, no real write), so this is generous -- sized against
+// scripted abuse, not normal interactive use in the policy editor.
+const RATE_LIMIT_PER_MINUTE = 60;
 
 const json = (b: unknown, status = 200) =>
   new Response(JSON.stringify(b), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -47,6 +53,20 @@ Deno.serve(async (req) => {
   const { data: userData, error: userErr } = await userClient.auth.getUser();
   if (userErr || !userData?.user) return json({ error: "unauthorized" }, 401);
   const userId = userData.user.id;
+
+  // increment_rate_limit is service_role-only -- a separate admin client is
+  // needed purely for this check, the rest of the handler stays on userClient.
+  const admin = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+  );
+  const rate = await checkRateLimit(admin, userId, "rule-simulator", RATE_LIMIT_PER_MINUTE, 60);
+  if (!rate.allowed) {
+    return json({
+      error: "rate_limited",
+      message: `Too many requests — ${rate.count} in the last minute (limit ${rate.limit}). Try again shortly.`,
+    }, 429);
+  }
 
   const body = await req.json().catch(() => ({}));
   const actionType = String(body?.action_type || "").trim();

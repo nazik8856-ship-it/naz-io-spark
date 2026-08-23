@@ -19,6 +19,7 @@ import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { ensureAccessToken, gmailList } from "../_shared/gmail.ts";
 import { readSecret } from "../_shared/integration-secrets.ts";
+import { checkRateLimit } from "../_shared/rate-limit.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -27,6 +28,12 @@ const corsHeaders = {
 
 type Credentials = Record<string, string>;
 type SyncResult = { ok: boolean; kind: string; data: Record<string, unknown>; error?: string };
+
+// Confirmed zero rate-limit coverage on the authed (per-user) path. Each
+// call fans out to real provider APIs (Stripe, Shopify, GA4, ...), so this
+// is conservative -- the cron path is trusted (service-role only) and
+// unaffected.
+const RATE_LIMIT_PER_MINUTE = 10;
 
 const j = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), {
@@ -403,6 +410,14 @@ Deno.serve(async (req) => {
     const authed = createClient(SUPABASE_URL, ANON_KEY, { global: { headers: { Authorization: auth } } });
     const { data: { user }, error: userErr } = await authed.auth.getUser();
     if (userErr || !user) return j(401, { error: "Not authenticated" });
+
+    const rate = await checkRateLimit(admin, user.id, "integration-sync", RATE_LIMIT_PER_MINUTE, 60);
+    if (!rate.allowed) {
+      return j(429, {
+        error: "rate_limited",
+        message: `Too many requests — ${rate.count} in the last minute (limit ${rate.limit}). Try again shortly.`,
+      });
+    }
 
     let q = admin
       .from("agent_integrations")

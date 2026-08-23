@@ -11,11 +11,18 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { runControlGate } from "../_shared/control-gate.ts";
 import { claimRowOnce, releaseRowClaim } from "../_shared/idempotency.ts";
+import { checkRateLimit } from "../_shared/rate-limit.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+// Confirmed zero rate-limit coverage on this endpoint. A human approve/
+// reject click is naturally low-frequency; this is sized to allow a real
+// burst of queued items being worked through at once without ever letting
+// a misbehaving/scripted caller hammer the gate re-check + dispatch path.
+const RATE_LIMIT_PER_MINUTE = 30;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -37,6 +44,14 @@ serve(async (req) => {
     const { data: claims, error: claimsErr } = await userClient.auth.getClaims(token);
     if (claimsErr || !claims?.claims?.sub) return json({ error: "Unauthorized" }, 401);
     const userId = claims.claims.sub as string;
+
+    const rate = await checkRateLimit(admin, userId, "agent-approval", RATE_LIMIT_PER_MINUTE, 60);
+    if (!rate.allowed) {
+      return json({
+        error: "rate_limited",
+        message: `Too many requests — ${rate.count} in the last minute (limit ${rate.limit}). Try again shortly.`,
+      }, 429);
+    }
 
     const body = await req.json().catch(() => ({}));
     const eventId = String(body.eventId || "").trim();
