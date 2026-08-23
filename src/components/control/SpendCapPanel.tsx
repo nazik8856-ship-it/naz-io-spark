@@ -29,6 +29,12 @@ export default function SpendCapPanel() {
   const [agents, setAgents] = useState<AgentOption[]>([]);
   const [scopeAgentId, setScopeAgentId] = useState("");
   const [hasCap, setHasCap] = useState(true); // account-wide always has a cap (auto-created); per-agent may not
+  // Distinct from hasCap: whether an ai_spend_caps ROW actually exists, vs.
+  // the account-wide $5 fallback silently applying with nothing ever
+  // configured. spend-guard.ts's DEFAULT_DAILY_CAP_USD applies to a brand
+  // new account with zero setup -- this makes that zero-config state
+  // visible instead of looking identical to a deliberately-set $5 cap.
+  const [isCustomCap, setIsCustomCap] = useState(true);
   const [cap, setCap] = useState<number>(DEFAULT_CAP);
   const [enabled, setEnabled] = useState(true);
   const [spent, setSpent] = useState(0);
@@ -66,6 +72,7 @@ export default function SpendCapPanel() {
     const usageRow = dailyQuery.data;
     const configured = scopeAgentId ? !!capRow : true; // account-wide always effectively configured (falls back to $5 default)
     setHasCap(configured);
+    setIsCustomCap(!!capRow);
     const c = Number(capRow?.daily_cap_usd ?? DEFAULT_CAP);
     setCap(c);
     setDraft(c.toFixed(2));
@@ -123,6 +130,7 @@ export default function SpendCapPanel() {
     }
     setCap(value);
     setHasCap(true);
+    setIsCustomCap(true);
     setEnabled(true);
     setEditing(false);
     toast({
@@ -161,6 +169,11 @@ export default function SpendCapPanel() {
                 <span className="font-mono" style={{ color }}>
                   {money(spent)} / {money(cap)}
                 </span>
+                {!scopeAgentId && !isCustomCap && (
+                  <span className="rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-mono uppercase text-amber-300">
+                    Default — not set
+                  </span>
+                )}
                 <span className="text-zinc-500">· {calls} calls today</span>
               </>
             ) : (
@@ -201,6 +214,12 @@ export default function SpendCapPanel() {
         <div className="h-1.5 w-full rounded-full bg-white/5 overflow-hidden">
           <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
         </div>
+      )}
+
+      {!scopeAgentId && !isCustomCap && (
+        <p className="text-[11px] text-amber-300/80">
+          No cap has been set on purpose — {money(DEFAULT_CAP)}/day is applying silently as the built-in default. Set one explicitly if that's not the number you want.
+        </p>
       )}
 
       {hasCap && forecast !== null && (

@@ -1,6 +1,7 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, X, Sparkles } from "lucide-react";
+import { useActiveAccount } from "@/hooks/useActiveAccount";
 import LiveAgentChat from "@/components/agents/LiveAgentChat";
 import DecisionCard, { type ControlDecision } from "@/components/control/DecisionCard";
 import KillSwitchPanel from "@/components/control/KillSwitchPanel";
@@ -16,9 +17,13 @@ import AccountSwitcher from "@/components/control/AccountSwitcher";
 import PolicyOverviewPanel from "@/components/control/PolicyOverviewPanel";
 import NotificationPreferencesPanel from "@/components/control/NotificationPreferencesPanel";
 import { supabase } from "@/integrations/supabase/client";
+// Stale generated types: control-system tables aren't in types.ts yet.
+const anyDb = supabase as any;
 import { toast } from "@/hooks/use-toast";
 
 type Turn = { role: "user" | "assistant"; content: string; node?: ReactNode };
+
+const TEMPLATES_NUDGE_DISMISSED_KEY = "nazai_templates_nudge_dismissed";
 
 /**
  * AI CONTROL SYSTEM
@@ -27,9 +32,40 @@ type Turn = { role: "user" | "assistant"; content: string; node?: ReactNode };
  */
 export default function ControlSystem() {
   const navigate = useNavigate();
+  const { accountId } = useActiveAccount();
   const [turns, setTurns] = useState<Turn[]>([]);
   const [streaming, setStreaming] = useState(false);
   const [dryRun, setDryRun] = useState(false);
+  const [showTemplatesNudge, setShowTemplatesNudge] = useState(false);
+
+  useEffect(() => {
+    if (!accountId) return;
+    let cancelled = false;
+    try {
+      if (localStorage.getItem(TEMPLATES_NUDGE_DISMISSED_KEY) === accountId) return;
+    } catch { /* localStorage unavailable -- fall through and check anyway */ }
+    (async () => {
+      // A brand-new account gets zero seeded hard_rules/safety_rules --
+      // handle_new_user() only inserts a profiles row, nothing nudges a
+      // fresh account toward ControlPolicyTemplates.tsx otherwise.
+      const [hardRules, safetyRules] = await Promise.all([
+        anyDb.from("hard_rules").select("id", { count: "exact", head: true }).eq("user_id", accountId),
+        anyDb.from("safety_rules").select("id", { count: "exact", head: true }).eq("user_id", accountId),
+      ]);
+      if (cancelled) return;
+      if ((hardRules.count ?? 0) === 0 && (safetyRules.count ?? 0) === 0) {
+        setShowTemplatesNudge(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [accountId]);
+
+  const dismissTemplatesNudge = () => {
+    setShowTemplatesNudge(false);
+    try {
+      localStorage.setItem(TEMPLATES_NUDGE_DISMISSED_KEY, accountId);
+    } catch { /* best effort -- worst case it reappears next visit */ }
+  };
 
   const handleSend = async (text: string) => {
     const history = turns
@@ -213,6 +249,28 @@ export default function ControlSystem() {
           </button>
         </nav>
       </header>
+
+      {showTemplatesNudge && (
+        <div className="flex items-center gap-3 border-b border-cyan-500/20 bg-cyan-500/[0.06] px-6 py-2.5">
+          <Sparkles className="h-4 w-4 shrink-0 text-cyan-300" />
+          <p className="text-xs text-cyan-100">
+            No hard rules or safety rules set up yet — start from a policy template so your AI has real guardrails from day one.
+          </p>
+          <button
+            onClick={() => navigate("/control-system/templates")}
+            className="ml-auto shrink-0 rounded border border-cyan-500/40 bg-cyan-500/10 px-3 py-1 text-[11px] font-mono uppercase tracking-wider text-cyan-300 hover:bg-cyan-500/20"
+          >
+            Browse templates
+          </button>
+          <button
+            onClick={dismissTemplatesNudge}
+            aria-label="Dismiss"
+            className="shrink-0 text-cyan-300/60 hover:text-cyan-200"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
 
 
       <StrictnessPanel />
