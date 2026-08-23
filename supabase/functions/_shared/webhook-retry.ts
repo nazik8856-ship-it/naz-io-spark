@@ -14,6 +14,16 @@ export function isRetryEligible(attempt: number, ok: boolean): boolean {
 }
 
 /**
+ * Whether this failed attempt was the LAST one -- retries are now exhausted
+ * with no further attempt scheduled. A permanently-broken receiving
+ * endpoint previously produced no signal at all once this became true; the
+ * caller uses this to fire a one-time dead-letter alert.
+ */
+export function isExhausted(attempt: number, ok: boolean): boolean {
+  return !ok && attempt >= MAX_ATTEMPTS;
+}
+
+/**
  * Exponential backoff, no jitter (deterministic, so it's directly
  * testable): 30s, 60s, 120s, 240s, capped at 1 hour. `attempt` is the
  * attempt number that just failed (1 = the first try).

@@ -30,6 +30,14 @@ import { triggerWebhooks } from "./webhooks.ts";
 export const BREAKER_WINDOW = 10;
 export const BREAKER_MIN_ATTEMPTS = 4;
 export const BREAKER_FAIL_RATE = 0.5;
+// 2026-08-24: a tripped breaker never cleared itself -- no cron, no
+// time-based logic anywhere, manual reset only (CircuitBreakerPanel.tsx).
+// Contrast with the spend-cap kill switch, which already auto-clears at UTC
+// day rollover. Once tripped_at is older than this cooldown, the NEXT
+// attempt for that action type is let through as a single half-open
+// "trial" instead of blocked outright -- if it succeeds the breaker clears,
+// if it fails it re-trips immediately and the cooldown timer restarts.
+export const BREAKER_COOLDOWN_MS = 15 * 60_000;
 
 // The exact set agent_decisions_source_check (migrations) currently allows.
 // 2026-08-23: found that "agent_kill_switch"/"agent_ai_spend_cap" had been
@@ -87,6 +95,14 @@ export type GateResult = {
   shadowRules: ShadowHit[];
   hardRule: { id: string; rule_text: string; effect: string } | null;
   circuitBreaker: Record<string, unknown> | null;
+  /** True when a tripped breaker's cooldown had elapsed and this specific
+   * attempt was let through as a half-open recovery trial rather than
+   * blocked outright. A caller that records the real outcome through a
+   * path OTHER than this result's own `recordAttempt` (e.g. agent-runtime,
+   * which relays the gate check over HTTP to control-engine and records the
+   * outcome itself afterwards) must thread this through so that outcome
+   * still gets the trial's decisive (not windowed) treatment. */
+  circuitBreakerHalfOpenTrial: boolean;
   anomaly: AnomalyCheck | null;
   killSwitch: boolean;
   /** The policy version whose snapshot judged this action. */
@@ -371,6 +387,16 @@ async function runControlGateInner(
   const { data: breakerRow } = await (agentId ? breakerQuery.eq("agent_id", agentId) : breakerQuery.is("agent_id", null)).maybeSingle();
   const breaker = (breakerRow as Breaker | null) ?? null;
 
+  // Half-open cooldown: a tripped breaker whose tripped_at is old enough
+  // lets exactly the NEXT attempt through as a trial, rather than staying
+  // blocked forever until a human clicks reset. Every OTHER gate layer
+  // still runs normally for this attempt -- this only bypasses the
+  // breaker's own outright block.
+  const isHalfOpenTrial = !!(
+    breaker?.tripped && breaker.tripped_at &&
+    (Date.now() - new Date(breaker.tripped_at).getTime() > BREAKER_COOLDOWN_MS)
+  );
+
   const recordAttempt = async (failed: boolean, why: string) => {
     if (ctx.dryRun) return null;
     return await recordBreakerAttempt(admin, {
@@ -383,6 +409,7 @@ async function runControlGateInner(
       runId,
       stepIndex,
       policyVersion,
+      isHalfOpenTrial,
     });
   };
 
@@ -399,6 +426,7 @@ async function runControlGateInner(
     recordSafetyShadowHits: async () => {},
     hardRule: null as GateResult["hardRule"],
     circuitBreaker: null as Record<string, unknown> | null,
+    circuitBreakerHalfOpenTrial: isHalfOpenTrial,
     anomaly: null as AnomalyCheck | null,
     killSwitch: false,
     policyVersion,
@@ -516,10 +544,13 @@ async function runControlGateInner(
   // ---- 4: circuit breaker ---------------------------------------------------
   trace.push({
     layer: "circuit_breaker", label: "Circuit breaker",
-    status: breaker?.tripped ? "stopped" : "ok",
-    detail: breaker ? `failure rate ${Math.round((breaker.failure_rate ?? 0) * 100)}% over last ${BREAKER_WINDOW} attempts` : null,
+    status: (breaker?.tripped && !isHalfOpenTrial) ? "stopped" : "ok",
+    detail: breaker
+      ? `failure rate ${Math.round((breaker.failure_rate ?? 0) * 100)}% over last ${BREAKER_WINDOW} attempts` +
+        (isHalfOpenTrial ? " (cooldown elapsed — letting this one attempt through as a recovery trial)" : "")
+      : null,
   });
-  if (breaker?.tripped) {
+  if (breaker?.tripped && !isHalfOpenTrial) {
     const reason =
       `Blocked — the circuit breaker for "${actionType}" is tripped. ` +
       `${Math.round((breaker.failure_rate ?? 0) * 100)}% of the last ${BREAKER_WINDOW} attempts failed or were blocked, ` +
@@ -727,6 +758,7 @@ async function runControlGateInner(
       shadowRules: [],
       hardRule: null,
       circuitBreaker: null,
+      circuitBreakerHalfOpenTrial: false,
       anomaly: null,
       killSwitch: false,
       policyVersion,
@@ -779,6 +811,11 @@ export async function recordBreakerAttempt(
     runId?: string | null;
     stepIndex?: number | null;
     policyVersion?: number | null;
+    /** True when the gate let this attempt through as a half-open recovery
+     * trial (breaker was tripped, but past its cooldown). The trial's own
+     * outcome is decisive on its own -- it doesn't wait for the rolling
+     * window to confirm a pattern the way a normal attempt does. */
+    isHalfOpenTrial?: boolean;
   },
 ): Promise<Record<string, unknown> | null> {
   const { userId, actionType, provider, failed } = input;
@@ -800,16 +837,31 @@ export async function recordBreakerAttempt(
     const windowArr = [...(breaker?.recent_outcomes ?? []), failed ? "fail" : "ok"].slice(-BREAKER_WINDOW);
     const failures = windowArr.filter((o) => o === "fail").length;
     const rate = windowArr.length ? failures / windowArr.length : 0;
-    const shouldTrip = windowArr.length >= BREAKER_MIN_ATTEMPTS && rate > BREAKER_FAIL_RATE;
+    const normalShouldTrip = windowArr.length >= BREAKER_MIN_ATTEMPTS && rate > BREAKER_FAIL_RATE;
+
+    // A half-open trial's own outcome overrides the windowed calculation --
+    // a single success must clear an already-tripped breaker outright (the
+    // normal windowed math wouldn't: one "ok" among nine stale "fail"s in
+    // the window still computes a >50% rate and would stay tripped), and a
+    // single failure must re-trip immediately, not wait for a fresh run of
+    // BREAKER_MIN_ATTEMPTS. A successful trial also resets the window
+    // (rather than keeping the stale mostly-failed history) so the very
+    // next real attempt after recovery isn't one bad outcome away from
+    // re-tripping off leftover pre-cooldown failures.
+    const isTrial = !!input.isHalfOpenTrial;
+    const shouldTrip = isTrial ? failed : normalShouldTrip;
+    const effectiveWindow = isTrial && !failed ? ["ok"] : windowArr;
+    const effectiveFailures = isTrial && !failed ? 0 : failures;
+    const effectiveRate = isTrial && !failed ? 0 : rate;
 
     const payload = {
       user_id: userId,
       agent_id: agentId,
       action_type: actionType,
-      recent_outcomes: windowArr,
-      attempts: windowArr.length,
-      failures,
-      failure_rate: Number(rate.toFixed(3)),
+      recent_outcomes: effectiveWindow,
+      attempts: effectiveWindow.length,
+      failures: effectiveFailures,
+      failure_rate: Number(effectiveRate.toFixed(3)),
       tripped: shouldTrip,
       tripped_at: shouldTrip ? new Date().toISOString() : null,
       trip_count: (breaker?.trip_count ?? 0) + (shouldTrip ? 1 : 0),

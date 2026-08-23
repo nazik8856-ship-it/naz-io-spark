@@ -22,6 +22,8 @@ interface ControlDigestProps {
   spendPct?: number
   spendUsd?: number
   capUsd?: number
+  auditIntegrityFailing?: boolean
+  correlatedBreakerTrips?: number
   controlSystemUrl?: string
 }
 
@@ -33,6 +35,8 @@ const ControlDigestEmail = ({
   spendPct = 0,
   spendUsd = 0,
   capUsd = 0,
+  auditIntegrityFailing = false,
+  correlatedBreakerTrips = 0,
   controlSystemUrl = 'https://www.nazai.net/control-system',
 }: ControlDigestProps) => (
   <Html lang="en" dir="ltr">
@@ -76,6 +80,18 @@ const ControlDigestEmail = ({
             </Text>
           )}
 
+          {auditIntegrityFailing && (
+            <Text style={sectionLabel}>
+              🧾 Audit-integrity sweep is failing — a signature mismatch or unsigned decision was found
+            </Text>
+          )}
+
+          {correlatedBreakerTrips > 0 && (
+            <Text style={sectionLabel}>
+              🕸️ {correlatedBreakerTrips} correlated circuit-breaker trip{correlatedBreakerTrips === 1 ? '' : 's'} (multiple agents, same action type)
+            </Text>
+          )}
+
           <Hr style={hr} />
           <Button style={button} href={controlSystemUrl}>
             Open Control System
@@ -101,6 +117,8 @@ export const template = {
     spendPct: 62,
     spendUsd: 3.1,
     capUsd: 5,
+    auditIntegrityFailing: false,
+    correlatedBreakerTrips: 1,
   },
 } satisfies TemplateEntry
 

@@ -1,4 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { checkRateLimit } from "../_shared/rate-limit.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -10,6 +12,17 @@ const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
 const OPENAI_MODEL = "gpt-4o-mini";
 const LOVABLE_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 const LOVABLE_MODEL = "google/gemini-3-flash-preview";
+
+// Confirmed zero rate-limit coverage and zero auth resolution -- this
+// endpoint has never decoded the caller's JWT at all (verify_jwt = false
+// at the platform level), even though the real frontend caller sends the
+// signed-in user's own access token (authedFunctionHeaders() in
+// GenerationWorkspace.tsx). Real model calls, so worth limiting.
+// Best-effort only: if a real userId can't be resolved from the token,
+// the call proceeds unlimited exactly as it always has -- this adds
+// rate limiting for the identifiable case, it deliberately does NOT turn
+// into a new hard auth requirement for a route that never had one.
+const RATE_LIMIT_PER_MINUTE = 20;
 
 function deriveSystemPrompt(spec: string): string {
   return `You are the autonomous AI agent described in the specification below. Stay fully in-character as this agent at all times. Never break character, never mention being an LLM, never say you cannot perform real actions — instead, simulate performing them concretely with realistic outputs (booked confirmations, generated drafts, decisions, follow-ups, etc.). When the user asks you to do something within your capabilities, DO IT — produce the concrete deliverable the agent would produce (a confirmation, a plan, a message, a summary, a recommendation). Be concise, professional, and useful. Honor the guardrails in your spec and ask for human approval only when the spec requires it.
@@ -85,6 +98,26 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
+    const authHeader = req.headers.get("Authorization") || "";
+    if (authHeader.startsWith("Bearer ")) {
+      try {
+        const userClient = createClient(
+          Deno.env.get("SUPABASE_URL")!,
+          Deno.env.get("SUPABASE_ANON_KEY")!,
+          { global: { headers: { Authorization: authHeader } } },
+        );
+        const { data: userData } = await userClient.auth.getUser();
+        const userId = userData?.user?.id;
+        if (userId) {
+          const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+          const rate = await checkRateLimit(admin, userId, "run-ai-agent", RATE_LIMIT_PER_MINUTE, 60);
+          if (!rate.allowed) {
+            return errorResponse(429, `Too many requests — ${rate.count} in the last minute (limit ${rate.limit}). Try again shortly.`);
+          }
+        }
+      } catch { /* best-effort only -- never block on identification failing */ }
+    }
+
     const cfg = pickGateway();
     if (!cfg) return errorResponse(500, "No AI key configured (OPENAI_API_KEY or LOVABLE_API_KEY)");
 

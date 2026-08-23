@@ -6,8 +6,9 @@
 // approvals (untouched past the risk-scaled threshold), a severely
 // miscalibrated confidence bucket (the model claims a confidence range it
 // doesn't actually earn), a break-glass override of a blocked action, a
-// correlated (multi-agent, fleet-wide) circuit breaker trip, and an audit
-// trail integrity failure (a signature mismatch or an unsigned decision).
+// correlated (multi-agent, fleet-wide) circuit breaker trip, an audit
+// trail integrity failure (a signature mismatch or an unsigned decision),
+// and a webhook endpoint whose deliveries have exhausted every retry.
 // Routine allow / modify / deferred verdicts never alert.
 //
 // Delivery: Slack via slack_post_message when the account has a connected Slack
@@ -29,7 +30,8 @@ export type CriticalAlertEvent =
   | "confidence_miscalibrated"
   | "break_glass_override"
   | "correlated_breaker_trip"
-  | "audit_integrity_failure";
+  | "audit_integrity_failure"
+  | "webhook_delivery_exhausted";
 
 const APP_BASE_URL = "https://www.nazai.net";
 
@@ -51,6 +53,7 @@ export const LABELS: Record<CriticalAlertEvent, string> = {
   break_glass_override: "🔓 A blocked action was overridden by a human",
   correlated_breaker_trip: "🕸️ Multiple agents tripped the same circuit breaker",
   audit_integrity_failure: "🧾 Audit trail integrity check failed",
+  webhook_delivery_exhausted: "📡 A webhook endpoint stopped receiving deliveries",
 };
 
 export function decisionLink(decisionId?: string | null): string | null {

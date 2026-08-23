@@ -1,0 +1,13 @@
+-- agent-approval's "skip if already resolved" check was read-then-act (a
+-- SELECT for an existing approval_granted/approval_rejected event, then a
+-- decision) -- two concurrent approve clicks on the same eventId could both
+-- pass the check before either logged its resolution, both re-running the
+-- gate and both dispatching the real action.
+--
+-- Adds a nullable resolved_at column on the pending_approval event row
+-- itself so agent-approval can claim it atomically (a single UPDATE ...
+-- WHERE resolved_at IS NULL), the same "claimRowOnce" shape as
+-- pending_approvals.executed_at and agent_decisions.overridden_at.
+-- Historical rows stay NULL; nothing here is a resolved event itself so
+-- there's nothing to backfill.
+ALTER TABLE public.agent_events ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMP WITH TIME ZONE;

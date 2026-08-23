@@ -50,7 +50,7 @@ export default function ControlComplianceReport() {
     const fromIso = new Date(`${from}T00:00:00.000Z`).toISOString();
     const toIso = new Date(`${to}T23:59:59.999Z`).toISOString();
 
-    const [runs, incidents, changes] = await Promise.all([
+    const [runs, incidents, changes, decisions, auditRuns] = await Promise.all([
       anyDb.from("control_test_runs").select("created_at, pass_rate_pct, regressions")
         .eq("user_id", user.id).gte("created_at", fromIso).lte("created_at", toIso)
         .order("created_at", { ascending: true }),
@@ -60,13 +60,19 @@ export default function ControlComplianceReport() {
       anyDb.from("config_changes").select("table_name, action, before, after, created_at")
         .eq("user_id", user.id).gte("created_at", fromIso).lte("created_at", toIso)
         .order("created_at", { ascending: true }),
+      anyDb.from("agent_decisions").select("gate_duration_ms")
+        .eq("user_id", user.id).gte("created_at", fromIso).lte("created_at", toIso),
+      anyDb.from("audit_integrity_runs").select("created_at, checked, verified, unsigned, mismatched_count")
+        .eq("user_id", user.id).gte("created_at", fromIso).lte("created_at", toIso)
+        .order("created_at", { ascending: true }),
     ]);
 
     setGenerating(false);
-    if (runs.error || incidents.error || changes.error) {
+    if (runs.error || incidents.error || changes.error || decisions.error || auditRuns.error) {
       toast({
         title: "Couldn't generate the report",
-        description: runs.error?.message || incidents.error?.message || changes.error?.message,
+        description: runs.error?.message || incidents.error?.message || changes.error?.message
+          || decisions.error?.message || auditRuns.error?.message,
         variant: "destructive",
       });
       return;
@@ -82,6 +88,11 @@ export default function ControlComplianceReport() {
       incidents: (incidents.data ?? []) as any,
       // deno-lint-ignore no-explicit-any
       changes: (changes.data ?? []) as any,
+      gateLatencyMs: ((decisions.data ?? []) as { gate_duration_ms: number | null }[])
+        .map((d) => d.gate_duration_ms)
+        .filter((v): v is number => typeof v === "number"),
+      // deno-lint-ignore no-explicit-any
+      auditIntegrityRuns: (auditRuns.data ?? []) as any,
     });
     setPreview(report);
   };

@@ -6,6 +6,16 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { exchangeCode, fetchUserInfo } from "../_shared/canva.ts";
 import { createSecret, updateSecret, readSecret } from "../_shared/integration-secrets.ts";
+import { checkRateLimit } from "../_shared/rate-limit.ts";
+
+// Confirmed zero rate-limit coverage. This endpoint is public and
+// unauthenticated (the OAuth provider redirects the browser here directly),
+// so there's no real userId to key on until AFTER the one-time state token
+// is consumed below -- this protects against repeated completions against
+// the SAME account, not pre-auth guessing of the state param itself (that
+// surface is the state token's own entropy + single-use consumption, not a
+// rate limit).
+const RATE_LIMIT_PER_MINUTE = 10;
 
 const html = (title: string, msg: string, ok: boolean) => `<!doctype html>
 <html><head><meta charset="utf-8"><title>${title}</title>
@@ -53,6 +63,11 @@ Deno.serve(async (req) => {
     const groups = Array.isArray(transaction.scope_groups) ? transaction.scope_groups as string[] : [];
     if (!userId || !verifier) {
       return respond("Invalid state", "OAuth transaction data is incomplete. Please try again.", false, 400);
+    }
+
+    const rate = await checkRateLimit(admin, userId, "canva-oauth-callback", RATE_LIMIT_PER_MINUTE, 60);
+    if (!rate.allowed) {
+      return respond("Too many requests", "Too many connection attempts for this account. Try again shortly.", false, 429);
     }
 
     const tok = await exchangeCode(code, verifier);

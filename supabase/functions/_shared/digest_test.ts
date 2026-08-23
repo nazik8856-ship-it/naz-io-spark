@@ -30,3 +30,12 @@ Deno.test("spend at or above 80% of cap is worth a digest", () => {
   assert(digestHasContent({ openIncidents: 0, pendingApprovals: 0, spendPct: 80 }));
   assert(digestHasContent({ openIncidents: 0, pendingApprovals: 0, spendPct: 100 }));
 });
+
+Deno.test("a failing audit-integrity sweep is worth a digest, even with nothing else going on", () => {
+  assert(digestHasContent({ openIncidents: 0, pendingApprovals: 0, spendPct: 0, auditIntegrityFailing: true }));
+});
+
+Deno.test("a passing (or absent) audit-integrity sweep does not force a digest on its own", () => {
+  assertFalse(digestHasContent({ openIncidents: 0, pendingApprovals: 0, spendPct: 0, auditIntegrityFailing: false }));
+  assertFalse(digestHasContent({ openIncidents: 0, pendingApprovals: 0, spendPct: 0 }));
+});

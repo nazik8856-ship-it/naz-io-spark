@@ -5,6 +5,12 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { createSecret, updateSecret } from "../_shared/integration-secrets.ts";
 import { exchangeCode, fetchShopInfo, normalizeShop, verifyCallbackHmac } from "../_shared/shopify.ts";
+import { checkRateLimit } from "../_shared/rate-limit.ts";
+
+// Confirmed zero rate-limit coverage. Public/unauthenticated endpoint, so
+// there's no real userId to key on until AFTER the one-time transaction is
+// consumed below.
+const RATE_LIMIT_PER_MINUTE = 10;
 
 const html = (title: string, msg: string, ok: boolean, shop?: string) => `<!doctype html>
 <html><head><meta charset="utf-8"><title>${title}</title>
@@ -59,6 +65,11 @@ Deno.serve(async (req) => {
     const expectedShop = normalizeShop(tx.shop_domain as string);
     if (!userId || !expectedShop || expectedShop !== shopParam) {
       return respond("Invalid callback", "Shop domain mismatch. Request rejected.", false, shopParam, 400);
+    }
+
+    const rate = await checkRateLimit(admin, userId, "shopify-oauth-callback", RATE_LIMIT_PER_MINUTE, 60);
+    if (!rate.allowed) {
+      return respond("Too many requests", "Too many connection attempts for this account. Try again shortly.", false, shopParam, 429);
     }
 
     const tok = await exchangeCode(shopParam, code);

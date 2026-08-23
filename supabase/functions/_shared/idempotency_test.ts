@@ -1,7 +1,7 @@
 // Real tests for the idempotency-key claim/replay/release logic.
 //
 // Run with: deno test --allow-env supabase/functions/_shared/idempotency_test.ts
-import { claimIdempotencyKey, saveIdempotencyResponse, releaseIdempotencyKey } from "./idempotency.ts";
+import { claimIdempotencyKey, saveIdempotencyResponse, releaseIdempotencyKey, claimRowOnce, releaseRowClaim, buildRealActionKey } from "./idempotency.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
@@ -106,6 +106,109 @@ Deno.test("a key already claimed with no response yet reports in_progress", asyn
   const { client } = fakeStore({ key: "key-1", userId: "user-1", response: null });
   const result = await claimIdempotencyKey(client, "user-1", "key-1");
   assertEquals(result, { status: "in_progress" });
+});
+
+// ---- claimRowOnce / releaseRowClaim (2026-08-24) ---------------------------
+
+/** Generic single-row fake, keyed by id, for the row-claim helper tests. */
+function fakeRowStore(initial: Record<string, unknown>) {
+  const row: Record<string, unknown> = { ...initial };
+  const client = {
+    from(_table: string) {
+      let requireColNull: string | null = null;
+      let pendingUpdate: Record<string, unknown> | null = null;
+      const api = {
+        select() { return api; },
+        eq() { return api; },
+        is(col: string, val: unknown) { if (val === null) requireColNull = col; return api; },
+        update(patch: Record<string, unknown>) { pendingUpdate = patch; return api; },
+        maybeSingle() { return api; },
+        // deno-lint-ignore no-explicit-any
+        then(onfulfilled?: any, onrejected?: any): any {
+          const resolve = () => {
+            if (pendingUpdate) {
+              if (requireColNull && row[requireColNull] !== null && row[requireColNull] !== undefined) {
+                return { data: null, error: null }; // claim fails: column already set
+              }
+              Object.assign(row, pendingUpdate);
+              return { data: { id: row.id }, error: null };
+            }
+            return { data: null, error: null };
+          };
+          return Promise.resolve(resolve()).then(onfulfilled, onrejected);
+        },
+      };
+      return api;
+    },
+    // deno-lint-ignore no-explicit-any
+  } as any;
+  return { client, row };
+}
+
+Deno.test("claimRowOnce: a row whose claim column is NULL is claimed successfully", async () => {
+  const { client, row } = fakeRowStore({ id: "row-1", executed_at: null });
+  const claimed = await claimRowOnce(client, "pending_approvals", "row-1", "executed_at");
+  assert(claimed);
+  assert(row.executed_at !== null, "expected the claim column to be stamped");
+});
+
+Deno.test("claimRowOnce: a row whose claim column is already set is NOT claimed again", async () => {
+  const { client } = fakeRowStore({ id: "row-1", executed_at: "2026-08-24T00:00:00Z" });
+  const claimed = await claimRowOnce(client, "pending_approvals", "row-1", "executed_at");
+  assertEquals(claimed, false);
+});
+
+Deno.test("claimRowOnce: never throws even if the underlying call throws, and fails toward NOT claiming", async () => {
+  const client = {
+    from() {
+      return { eq() { return this; }, is() { return this; }, update() { return this; }, select() { return this; }, maybeSingle() { return this; }, then() { throw new Error("db down"); } };
+    },
+    // deno-lint-ignore no-explicit-any
+  } as any;
+  const claimed = await claimRowOnce(client, "pending_approvals", "row-1", "executed_at");
+  assertEquals(claimed, false);
+});
+
+Deno.test("releaseRowClaim: sets the claim column back to null, freeing it for a real retry", async () => {
+  const { client, row } = fakeRowStore({ id: "row-1", executed_at: "2026-08-24T00:00:00Z" });
+  await releaseRowClaim(client, "pending_approvals", "row-1", "executed_at");
+  assertEquals(row.executed_at, null);
+});
+
+Deno.test("releaseRowClaim: never throws even if the underlying call throws", async () => {
+  const client = {
+    from() {
+      return { eq() { return this; }, update() { return this; }, then() { throw new Error("db down"); } };
+    },
+    // deno-lint-ignore no-explicit-any
+  } as any;
+  await releaseRowClaim(client, "pending_approvals", "row-1", "executed_at");
+});
+
+// ---- buildRealActionKey (2026-08-24) ---------------------------------------
+
+Deno.test("buildRealActionKey: identical scope/kind/input always produces the identical key", async () => {
+  const a = await buildRealActionKey("run-1", "slack_post_message", { channel: "#general", text: "hi" });
+  const b = await buildRealActionKey("run-1", "slack_post_message", { channel: "#general", text: "hi" });
+  assertEquals(a, b);
+});
+
+Deno.test("buildRealActionKey: a different scope (run id) produces a different key for the same action", async () => {
+  const a = await buildRealActionKey("run-1", "slack_post_message", { channel: "#general", text: "hi" });
+  const b = await buildRealActionKey("run-2", "slack_post_message", { channel: "#general", text: "hi" });
+  assert(a !== b);
+});
+
+Deno.test("buildRealActionKey: a different kind produces a different key for the same input", async () => {
+  const a = await buildRealActionKey("run-1", "slack_post_message", { channel: "#general", text: "hi" });
+  const b = await buildRealActionKey("run-1", "send_email", { channel: "#general", text: "hi" });
+  assert(a !== b);
+});
+
+Deno.test("buildRealActionKey: even slightly different input content produces a different key", async () => {
+  const a = await buildRealActionKey("run-1", "send_email", { to: "a@b.com", subject: "hi", body: "hello" });
+  const b = await buildRealActionKey("run-1", "send_email", { to: "a@b.com", subject: "hi", body: "hello!" });
+  assert(a !== b);
 });
 
 Deno.test("a key with a saved response replays it instead of re-claiming", async () => {

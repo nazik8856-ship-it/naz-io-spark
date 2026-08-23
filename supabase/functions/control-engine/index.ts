@@ -1115,6 +1115,12 @@ serve(async (req) => {
       execution,
       execution_note: executionNote,
       circuit_breaker: breakerState,
+      // assess_only callers (agent-runtime) record the real execution
+      // outcome themselves, after this response, via their own
+      // recordBreakerAttempt call -- they need this flag to give that later
+      // call the same decisive (not windowed) half-open-trial treatment
+      // gate.recordAttempt already gives it here.
+      breaker_half_open_trial: gate.circuitBreakerHalfOpenTrial,
       reversibility: {
         reversible: reversibility.reversible,
         undo_kind: reversibility.undo_kind,

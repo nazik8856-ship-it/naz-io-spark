@@ -3,11 +3,17 @@
 // in a popup; Figma redirects back to figma-oauth-callback with ?code.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { signState, buildAuthUrl, scopesForGroups, FIGMA_DEFAULT_GROUPS } from "../_shared/figma.ts";
+import { checkRateLimit } from "../_shared/rate-limit.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+// Confirmed zero rate-limit coverage across every OAuth start/callback
+// endpoint. Human-driven (one click per connection attempt), so this is
+// generous -- sized against a scripted loop, not normal use.
+const RATE_LIMIT_PER_MINUTE = 10;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -23,6 +29,19 @@ Deno.serve(async (req) => {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+    // increment_rate_limit is service_role-only -- a separate admin client is
+    // needed purely for this check, the rest of the handler stays on `supabase`.
+    const admin = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+    const rate = await checkRateLimit(admin, user.id, "figma-oauth-start", RATE_LIMIT_PER_MINUTE, 60);
+    if (!rate.allowed) {
+      return new Response(JSON.stringify({
+        error: "rate_limited",
+        message: `Too many requests — ${rate.count} in the last minute (limit ${rate.limit}). Try again shortly.`,
+      }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (!Deno.env.get("FIGMA_CLIENT_ID") || !Deno.env.get("FIGMA_CLIENT_SECRET")) {
       return new Response(JSON.stringify({
