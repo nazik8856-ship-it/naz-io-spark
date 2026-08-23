@@ -6,6 +6,12 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { exchangeCode, fetchTeamInfo, scopesForGroups, SLACK_DEFAULT_GROUPS } from "../_shared/slack.ts";
 import { createSecret, updateSecret } from "../_shared/integration-secrets.ts";
+import { checkRateLimit } from "../_shared/rate-limit.ts";
+
+// Confirmed zero rate-limit coverage. Public/unauthenticated endpoint, so
+// there's no real userId to key on until AFTER the one-time transaction is
+// consumed below.
+const RATE_LIMIT_PER_MINUTE = 10;
 
 const html = (title: string, msg: string, ok: boolean, team?: string) => `<!doctype html>
 <html><head><meta charset="utf-8"><title>${title}</title>
@@ -52,6 +58,11 @@ Deno.serve(async (req) => {
       ? (tx.scope_groups as string[])
       : SLACK_DEFAULT_GROUPS;
     const grantedScopes = scopesForGroups(grantedGroups);
+
+    const rate = await checkRateLimit(admin, userId, "slack-oauth-callback", RATE_LIMIT_PER_MINUTE, 60);
+    if (!rate.allowed) {
+      return respond("Too many requests", "Too many connection attempts for this account. Try again shortly.", false, undefined, 429);
+    }
 
     const tok = await exchangeCode(code);
     const teamId = tok.team?.id || "";

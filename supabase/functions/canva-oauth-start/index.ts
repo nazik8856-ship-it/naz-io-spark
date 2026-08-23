@@ -4,11 +4,17 @@
 // back to canva-oauth-callback with ?code.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { buildAuthUrl, resolveCanvaScopes, generatePkce, generateRandomBase64Url, isConfigured } from "../_shared/canva.ts";
+import { checkRateLimit } from "../_shared/rate-limit.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+// Confirmed zero rate-limit coverage across every OAuth start/callback
+// endpoint. Human-driven (one click per connection attempt), so this is
+// generous -- sized against a scripted loop, not normal use.
+const RATE_LIMIT_PER_MINUTE = 10;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -24,6 +30,17 @@ Deno.serve(async (req) => {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+    const admin = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+    const rate = await checkRateLimit(admin, user.id, "canva-oauth-start", RATE_LIMIT_PER_MINUTE, 60);
+    if (!rate.allowed) {
+      return new Response(JSON.stringify({
+        error: "rate_limited",
+        message: `Too many requests — ${rate.count} in the last minute (limit ${rate.limit}). Try again shortly.`,
+      }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (!isConfigured()) {
       return new Response(JSON.stringify({
@@ -45,10 +62,6 @@ Deno.serve(async (req) => {
     const origin = typeof body.origin === "string" ? body.origin : "";
     const { verifier, challenge } = await generatePkce();
     const state = generateRandomBase64Url(32);
-    const admin = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    );
 
     // Keep the verifier out of the browser and out of OAuth state. The callback
     // atomically consumes this short-lived row using the opaque random state.

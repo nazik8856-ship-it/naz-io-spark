@@ -4,6 +4,18 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { verifyState, exchangeCode, fetchUserInfo } from "../_shared/gmail.ts";
 import { createSecret, updateSecret, readSecret } from "../_shared/integration-secrets.ts";
+import { checkRateLimit } from "../_shared/rate-limit.ts";
+
+// Confirmed zero rate-limit coverage. Public/unauthenticated endpoint;
+// verifyState gives a real userId once the signature checks out, so this
+// keys on that -- but note verifyState's state is a signed, time-boxed
+// token, NOT single-use like Canva/Notion/Shopify/Slack's DB-backed
+// transaction (no consume step marks it spent). This rate limit does not
+// close that gap -- a valid state could still be replayed more than once
+// within its 10-minute window, just no more than RATE_LIMIT_PER_MINUTE
+// times per minute for the account it resolves to. Flagging as a real,
+// separate follow-on rather than silently expanding this item's scope.
+const RATE_LIMIT_PER_MINUTE = 10;
 
 const html = (title: string, msg: string, ok: boolean, service: string | null = null) => `<!doctype html>
 <html><head><meta charset="utf-8"><title>${title}</title>
@@ -45,10 +57,15 @@ Deno.serve(async (req) => {
   const agentId: string | null = null;
   const serviceKind = typeof parsed.k === "string" ? String(parsed.k) : "gmail";
 
+  const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  const rate = await checkRateLimit(admin, userId, "gmail-oauth-callback", RATE_LIMIT_PER_MINUTE, 60);
+  if (!rate.allowed) {
+    return respond("Too many requests", "Too many connection attempts for this account. Try again shortly.", false, 429);
+  }
+
   try {
     const tok = await exchangeCode(code);
     const info = await fetchUserInfo(tok.access_token);
-    const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const now = new Date().toISOString();
     const credentials = {
       access_token: tok.access_token,
