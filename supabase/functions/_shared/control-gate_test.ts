@@ -358,10 +358,11 @@ Deno.test("a disabled hard rule is ignored", async () => {
 
 // ---- layer 4: circuit breaker ----------------------------------------------
 
-Deno.test("a tripped circuit breaker blocks the matching action type", async () => {
+Deno.test("a tripped circuit breaker blocks the matching action type (still within cooldown)", async () => {
   const { client } = fakeSupabase({
     circuit_breakers: {
-      data: { id: "b1", recent_outcomes: ["fail", "fail", "fail", "ok"], tripped: true, trip_count: 1, tripped_at: "2026-08-17T00:00:00Z", failure_rate: 0.75, last_reason: "x" },
+      // Recent trip, well within BREAKER_COOLDOWN_MS -- must still block outright.
+      data: { id: "b1", recent_outcomes: ["fail", "fail", "fail", "ok"], tripped: true, trip_count: 1, tripped_at: new Date().toISOString(), failure_rate: 0.75, last_reason: "x" },
       error: null,
     },
   });
@@ -369,6 +370,7 @@ Deno.test("a tripped circuit breaker blocks the matching action type", async () 
   assertFalse(result.ok);
   assertEquals(result.verdict, "block");
   assertEquals(result.source, "circuit_breaker");
+  assertFalse(result.circuitBreakerHalfOpenTrial, "still within cooldown -- this is a real block, not a trial");
 });
 
 Deno.test("a NOT-tripped circuit breaker does not block", async () => {
@@ -377,6 +379,58 @@ Deno.test("a NOT-tripped circuit breaker does not block", async () => {
   });
   const result = await runControlGate(client, baseCtx);
   assert(result.ok);
+  assertFalse(result.circuitBreakerHalfOpenTrial);
+});
+
+// ---- half-open cooldown auto-recovery (2026-08-24) -------------------------
+// A tripped breaker never cleared itself before this -- manual reset only.
+// Once tripped_at is old enough, the NEXT attempt is let through as a single
+// trial rather than blocked outright.
+
+Deno.test("a tripped breaker past its cooldown lets the next attempt through as a half-open trial", async () => {
+  const staleTrip = new Date(Date.now() - 20 * 60_000).toISOString(); // 20 min ago > 15 min cooldown
+  const { client } = fakeSupabase({
+    circuit_breakers: {
+      data: { id: "b1", recent_outcomes: ["fail", "fail", "fail", "fail"], tripped: true, trip_count: 1, tripped_at: staleTrip, failure_rate: 1, last_reason: "x" },
+      error: null,
+    },
+  });
+  const result = await runControlGate(client, baseCtx);
+  assert(result.ok, "the trial attempt must be let through, not blocked");
+  assertEquals(result.verdict, "allow");
+  assert(result.circuitBreakerHalfOpenTrial, "must be flagged as a half-open trial so the caller records its outcome decisively");
+});
+
+Deno.test("half-open trial: a successful outcome clears the breaker outright, even with a mostly-failed window", async () => {
+  const staleTrip = new Date(Date.now() - 20 * 60_000).toISOString();
+  const { client, updates } = fakeSupabase({
+    circuit_breakers: {
+      data: { id: "b1", recent_outcomes: ["fail", "fail", "fail", "fail", "fail", "fail", "fail", "fail", "fail"], tripped: true, trip_count: 1, tripped_at: staleTrip, failure_rate: 1, last_reason: "x" },
+      error: null,
+    },
+  });
+  const result = await runControlGate(client, baseCtx);
+  await result.recordAttempt(false, "ok");
+  const updated = (updates.circuit_breakers ?? [])[0] as { tripped?: boolean; tripped_at?: string | null; recent_outcomes?: string[] } | undefined;
+  assertEquals(updated?.tripped, false, "one successful trial must clear the breaker even though the raw window is still mostly failed");
+  assertEquals(updated?.tripped_at, null);
+  assertEquals(updated?.recent_outcomes, ["ok"], "the window resets on a successful trial so leftover stale failures can't immediately re-trip it");
+});
+
+Deno.test("half-open trial: a failed outcome re-trips immediately and restarts the cooldown", async () => {
+  const staleTrip = new Date(Date.now() - 20 * 60_000).toISOString();
+  const { client, updates } = fakeSupabase({
+    circuit_breakers: {
+      data: { id: "b1", recent_outcomes: ["ok", "ok", "ok"], tripped: true, trip_count: 1, tripped_at: staleTrip, failure_rate: 1, last_reason: "x" },
+      error: null,
+    },
+  });
+  const result = await runControlGate(client, baseCtx);
+  await result.recordAttempt(true, "still broken");
+  const updated = (updates.circuit_breakers ?? [])[0] as { tripped?: boolean; tripped_at?: string | null; trip_count?: number } | undefined;
+  assertEquals(updated?.tripped, true, "a failed trial must re-trip immediately, not wait for a fresh window to confirm a pattern");
+  assert(!!updated?.tripped_at, "tripped_at must be restamped so the cooldown restarts from now");
+  assertEquals(updated?.trip_count, 2, "a re-trip after a failed trial counts as a new trip");
 });
 
 // ---- per-agent circuit breaker scoping (2026-08-22) ------------------------

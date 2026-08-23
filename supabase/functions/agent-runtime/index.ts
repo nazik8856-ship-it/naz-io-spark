@@ -1144,6 +1144,12 @@ Rules:
       confidenceScore?: number | null;
       strictness?: string | null;
       via: "control-engine" | "local-gate";
+      /** True when a tripped breaker's cooldown had elapsed and this attempt
+       * was let through as a half-open recovery trial -- the later
+       * recordBreakerAttempt call for this same attempt needs to know, so a
+       * successful trial actually clears the breaker instead of being
+       * outvoted by a still-mostly-failed rolling window. */
+      breakerHalfOpenTrial?: boolean;
     };
 
     const assessWithControlEngine = async (a: {
@@ -1212,6 +1218,7 @@ Rules:
               confidenceScore: typeof d.confidence_score === "number" ? d.confidence_score : null,
               strictness: (d.strictness as string) ?? null,
               via: "control-engine",
+              breakerHalfOpenTrial: d.breaker_half_open_trial === true,
             };
           }
           await logEvent("reason", {
@@ -1246,6 +1253,7 @@ Rules:
         safety: gate.safety.matched ? gate.safety : null,
         shadowRules: gate.shadowRules,
         via: "local-gate",
+        breakerHalfOpenTrial: gate.circuitBreakerHalfOpenTrial,
       };
     };
 
@@ -1544,6 +1552,7 @@ Rules:
               agentId,
               runId,
               stepIndex: steps,
+              isHalfOpenTrial: verdict.breakerHalfOpenTrial,
             });
 
           if (verdict.shadowRules?.length) {
