@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { pctOf, alertDeliverySplit, isTrendingDown } from "@/lib/control-health";
+import { pctOf, alertDeliverySplit, isTrendingDown, gateLatencyStats, isAuditIntegritySweepFailing } from "@/lib/control-health";
 
 describe("pctOf", () => {
   it("computes a percentage to one decimal place", () => {
@@ -60,5 +60,44 @@ describe("isTrendingDown", () => {
     ];
     expect(isTrendingDown(equal)).toBe(false);
     expect(isTrendingDown(higher)).toBe(false);
+  });
+});
+
+describe("gateLatencyStats", () => {
+  it("no data returns all zeros, not NaN", () => {
+    expect(gateLatencyStats([])).toEqual({ avgMs: 0, p95Ms: 0, count: 0 });
+  });
+
+  it("computes a rounded average", () => {
+    expect(gateLatencyStats([10, 20, 30])).toEqual({ avgMs: 20, p95Ms: 30, count: 3 });
+  });
+
+  it("p95 is dominated by the tail, not the average", () => {
+    const durations = Array.from({ length: 100 }, (_, i) => i + 1); // 1..100
+    const stats = gateLatencyStats(durations);
+    expect(stats.p95Ms).toBe(95);
+    expect(stats.avgMs).toBe(51);
+  });
+
+  it("input order doesn't matter", () => {
+    expect(gateLatencyStats([30, 10, 20])).toEqual(gateLatencyStats([10, 20, 30]));
+  });
+});
+
+describe("isAuditIntegritySweepFailing", () => {
+  it("no run yet is not a failure", () => {
+    expect(isAuditIntegritySweepFailing(null)).toBe(false);
+  });
+
+  it("a clean run (no mismatches, nothing unsigned) is not a failure", () => {
+    expect(isAuditIntegritySweepFailing({ mismatched_count: 0, unsigned: 0, created_at: "2026-08-24" })).toBe(false);
+  });
+
+  it("any mismatch is a failure", () => {
+    expect(isAuditIntegritySweepFailing({ mismatched_count: 1, unsigned: 0, created_at: "2026-08-24" })).toBe(true);
+  });
+
+  it("any unsigned decision in range is a failure", () => {
+    expect(isAuditIntegritySweepFailing({ mismatched_count: 0, unsigned: 1, created_at: "2026-08-24" })).toBe(true);
   });
 });

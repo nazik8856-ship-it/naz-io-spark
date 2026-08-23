@@ -4,9 +4,15 @@ import { ArrowLeft, Activity, TrendingDown, TrendingUp } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
-import { pctOf, alertDeliverySplit, isTrendingDown } from "@/lib/control-health";
+import { pctOf, alertDeliverySplit, isTrendingDown, gateLatencyStats, isAuditIntegritySweepFailing, type GateLatencyStats, type AuditIntegrityRunSummary } from "@/lib/control-health";
 import { computeSlaStats, type SlaStats } from "@/lib/approval-sla";
 import { actorName, buildActorNameMap } from "@/lib/actor-names";
+import { classifyAnomalyCoverage } from "@/lib/anomaly-coverage";
+
+// gate_duration_ms and audit_integrity_runs (2026-08-23) aren't in the
+// generated types.ts yet -- same stale-types workaround every page touching
+// a recent column already uses (see ControlCoverageGaps.tsx).
+const anyDb = supabase as any;
 
 const WINDOW_DAYS = 30;
 
@@ -46,28 +52,39 @@ export default function ControlHealthView() {
   const [openIncidents, setOpenIncidents] = useState(0);
   const [sla, setSla] = useState<{ byRiskTier: Record<string, SlaStats>; byApprover: Record<string, SlaStats> }>({ byRiskTier: {}, byApprover: {} });
   const [names, setNames] = useState<Record<string, string>>({});
+  const [gateLatency, setGateLatency] = useState<GateLatencyStats>({ avgMs: 0, p95Ms: 0, count: 0 });
+  const [anomalyCoverage, setAnomalyCoverage] = useState<{ pct: number; severity: "none" | "low" | "moderate" | "high" }>({ pct: 0, severity: "none" });
+  const [latestAuditRun, setLatestAuditRun] = useState<AuditIntegrityRunSummary>(null);
+  const [correlatedTripCount, setCorrelatedTripCount] = useState(0);
 
   const load = useCallback(async () => {
     if (!user) return;
     setLoading(true);
     const since = new Date(Date.now() - WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
-    const [decisions, alerts, breakers, runs, incidents, resolvedApprovals, members] = await Promise.all([
-      supabase.from("agent_decisions").select("source").eq("user_id", user.id).gte("created_at", since),
+    const [decisions, alerts, breakers, runs, incidents, resolvedApprovals, members, anomalyTotalRes, anomalyAgentlessRes, auditRunRes, correlatedRes] = await Promise.all([
+      anyDb.from("agent_decisions").select("source, gate_duration_ms").eq("user_id", user.id).gte("created_at", since),
       supabase.from("critical_alerts").select("delivered_via").eq("user_id", user.id).gte("created_at", since),
       supabase.from("circuit_breakers").select("action_type, tripped, failure_rate, trip_count").eq("user_id", user.id).eq("tripped", true),
       supabase.from("control_test_runs").select("pass_rate_pct, created_at, regressions").eq("user_id", user.id).order("created_at", { ascending: false }).limit(10),
       supabase.from("incidents").select("id", { count: "exact", head: true }).eq("user_id", user.id).eq("status", "open"),
       supabase.from("pending_approvals").select("risk_tier, resolved_by, created_at, resolved_at").eq("user_id", user.id).not("resolved_at", "is", null).gte("created_at", since),
       supabase.from("account_members").select("member_id, email").eq("account_owner_id", user.id).eq("status", "active"),
+      anyDb.from("agent_decisions").select("id", { count: "exact", head: true }).eq("user_id", user.id).gte("created_at", since),
+      anyDb.from("agent_decisions").select("id", { count: "exact", head: true }).eq("user_id", user.id).gte("created_at", since).is("agent_id", null),
+      anyDb.from("audit_integrity_runs").select("mismatched_count, unsigned, created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(1),
+      anyDb.from("incidents").select("id", { count: "exact", head: true }).eq("user_id", user.id).eq("status", "open").eq("kind", "correlated_breaker_trip"),
     ]);
 
-    const decisionRows = (decisions.data ?? []) as { source: string }[];
+    const decisionRows = (decisions.data ?? []) as { source: string; gate_duration_ms: number | null }[];
     const total = decisionRows.length;
     const gateErrors = decisionRows.filter((d) => d.source === "gate_error").length;
     setTotalDecisions(total);
     setGateErrorCount(gateErrors);
     setGateErrorPct(pctOf(gateErrors, total));
+    setGateLatency(gateLatencyStats(
+      decisionRows.map((d) => d.gate_duration_ms).filter((v): v is number => typeof v === "number"),
+    ));
 
     setAlertSplit(alertDeliverySplit((alerts.data ?? []) as { delivered_via: "slack" | "log" }[]));
     setTrippedBreakers((breakers.data ?? []) as { action_type: string; failure_rate: number; trip_count: number }[]);
@@ -75,6 +92,10 @@ export default function ControlHealthView() {
     setOpenIncidents(incidents.count ?? 0);
     setSla(computeSlaStats((resolvedApprovals.data ?? []) as { risk_tier: string; resolved_by: string | null; created_at: string; resolved_at: string }[]));
     setNames(buildActorNameMap(user.id, (members.data ?? []) as { member_id: string | null; email: string }[]));
+    setAnomalyCoverage(classifyAnomalyCoverage(anomalyTotalRes.count ?? 0, anomalyAgentlessRes.count ?? 0));
+    const latestRun = (auditRunRes.data ?? [])[0] as AuditIntegrityRunSummary | undefined;
+    setLatestAuditRun(latestRun ?? null);
+    setCorrelatedTripCount(correlatedRes.count ?? 0);
 
     if (decisions.error || alerts.error || breakers.error || runs.error || incidents.error) {
       toast({ title: "Some data didn't load", description: "Refresh to try again.", variant: "destructive" });
@@ -156,6 +177,40 @@ export default function ControlHealthView() {
                   label: "Self-audit trend",
                   value: trendingDown ? "Down" : "Stable/up",
                   tone: trendingDown ? "bad" : "ok",
+                }}
+              />
+              <StatCard
+                stat={{
+                  label: "Gate latency",
+                  value: gateLatency.count ? `${gateLatency.avgMs}ms avg` : "—",
+                  sub: gateLatency.count ? `p95 ${gateLatency.p95Ms}ms · ${gateLatency.count} timed` : "No timing data yet",
+                  tone: gateLatency.count && gateLatency.p95Ms > 1000 ? "warn" : "ok",
+                }}
+              />
+              <StatCard
+                stat={{
+                  label: "Anomaly coverage",
+                  value: `${anomalyCoverage.pct}% agentless`,
+                  sub: `Severity: ${anomalyCoverage.severity}`,
+                  tone: anomalyCoverage.severity === "high" ? "bad" : anomalyCoverage.severity === "moderate" || anomalyCoverage.severity === "low" ? "warn" : "ok",
+                }}
+              />
+              <StatCard
+                stat={{
+                  label: "Audit integrity",
+                  value: latestAuditRun ? (isAuditIntegritySweepFailing(latestAuditRun) ? "Failing" : "Passing") : "No runs yet",
+                  sub: latestAuditRun
+                    ? `${latestAuditRun.mismatched_count} mismatch(es) · ${latestAuditRun.unsigned} unsigned · ${new Date(latestAuditRun.created_at).toLocaleDateString()}`
+                    : undefined,
+                  tone: !latestAuditRun ? "ok" : isAuditIntegritySweepFailing(latestAuditRun) ? "bad" : "ok",
+                }}
+              />
+              <StatCard
+                stat={{
+                  label: "Correlated breaker trips",
+                  value: String(correlatedTripCount),
+                  sub: "Open incidents, fleet-wide",
+                  tone: correlatedTripCount > 0 ? "bad" : "ok",
                 }}
               />
             </div>
