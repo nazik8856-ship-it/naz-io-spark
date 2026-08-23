@@ -14,6 +14,7 @@ import {
 import { PROVIDER_WRITE_KINDS, runProviderWrite } from "../_shared/provider-writes.ts";
 import { runControlGate } from "../_shared/control-gate.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
+import { claimIdempotencyKey, saveIdempotencyResponse, releaseIdempotencyKey, buildRealActionKey } from "../_shared/idempotency.ts";
 
 import {
   readConfidence,
@@ -1847,6 +1848,20 @@ Rules:
             messages.push({ role: "user", content: `${msg} Continue with other work or finish.` });
             continue;
           }
+          // Real-action idempotency claim -- see buildRealActionKey's own
+          // comment for exactly what this does and doesn't protect against.
+          const emailActionKey = await buildRealActionKey(runId, "send_email", { to, subject, body });
+          const emailClaim = await claimIdempotencyKey(supabase, userId, emailActionKey);
+          if (emailClaim.status !== "claimed") {
+            const cached = emailClaim.status === "replay" ? emailClaim.response as { ok?: boolean; summary?: string } : null;
+            const msg = cached
+              ? `Already sent earlier in this run — not repeating it: ${cached.summary ?? ""}`
+              : `This exact email is already being sent elsewhere in this run — not repeating it.`;
+            await logEvent("tool_result", { tool: tool.name, ok: cached?.ok ?? false, summary: msg });
+            await logEvent("action", { type: "send_email", target: to, ok: cached?.ok ?? false, result_ref: null, summary: msg });
+            messages.push({ role: "user", content: `${msg}\n\nContinue with other work or finish.` });
+            continue;
+          }
           try {
             const svc = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
             // Prefer real Gmail send when the user has connected Gmail (agent-scoped, then global).
@@ -1913,6 +1928,8 @@ Rules:
                 : `Send failed: ${respBody?.error || respBody?.reason || `HTTP ${r.status}`}`;
             }
 
+            if (ok) await saveIdempotencyResponse(supabase, userId, emailActionKey, { ok, summary });
+            else await releaseIdempotencyKey(supabase, userId, emailActionKey);
             await logEvent("tool_result", { tool: tool.name, ok, summary });
             await logEvent("action", { type: "send_email", target: to, ok, result_ref: messageId, summary });
             if (ok) {
@@ -1922,6 +1939,7 @@ Rules:
             }
             messages.push({ role: "user", content: `${summary}\n\nContinue.` });
           } catch (e) {
+            await releaseIdempotencyKey(supabase, userId, emailActionKey);
             const msg = `send_email exception: ${e instanceof Error ? e.message : "unknown"}`;
             await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
             await logEvent("action", { type: "send_email", target: to, ok: false, result_ref: null, summary: msg });
@@ -2765,12 +2783,27 @@ Rules:
         // Each one calls the external API for real and then re-fetches (or uses
         // the provider's authoritative receipt) before reporting success.
         if (PROVIDER_WRITE_KINDS.has(tool.kind)) {
+          // Real-action idempotency claim -- see buildRealActionKey's own
+          // comment for exactly what this does and doesn't protect against.
+          const actionKey = await buildRealActionKey(runId, tool.kind, input);
+          const claim = await claimIdempotencyKey(supabase, userId, actionKey);
+          if (claim.status !== "claimed") {
+            const cached = claim.status === "replay" ? claim.response as { ok?: boolean; summary?: string; ref?: string | null } : null;
+            const msg = cached
+              ? `Already done earlier in this run — not repeating it: ${cached.summary ?? ""}`
+              : `This exact ${tool.kind} action is already being carried out elsewhere in this run — not repeating it.`;
+            await logEvent("tool_result", { tool: tool.name, ok: cached?.ok ?? false, summary: msg });
+            messages.push({ role: "user", content: `${msg}\n\nContinue with other work or finish.` });
+            continue;
+          }
           let res;
           try {
             res = await runProviderWrite(tool.kind, supabase, userId, agentId, input);
           } catch (e) {
             res = { ok: false, summary: `${tool.kind} threw: ${e instanceof Error ? e.message : String(e)} — treat as NOT done.`, ref: null, url: null, target: null };
           }
+          if (res.ok) await saveIdempotencyResponse(supabase, userId, actionKey, res);
+          else await releaseIdempotencyKey(supabase, userId, actionKey);
           await logEvent("tool_result", { tool: tool.name, ok: res.ok, summary: res.summary });
           await logEvent("action", {
             type: tool.kind,
@@ -3038,6 +3071,7 @@ function extractAction(raw: string): Record<string, unknown> | null {
   if (!obj) return null;
   try { return JSON.parse(obj[0]); } catch { return null; }
 }
+
 
 async function executeTool(
   tool: Tool, input: Record<string, unknown>, _supabase: SupabaseClient,

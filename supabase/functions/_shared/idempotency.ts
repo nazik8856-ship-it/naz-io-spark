@@ -131,3 +131,37 @@ export async function releaseRowClaim(
     await admin.from(table).update({ [column]: null }).eq("id", id);
   } catch { /* best effort */ }
 }
+
+// ---------------------------------------------------------------------------
+// Content-hashed real-action key (2026-08-24) — for a caller that has no
+// pre-existing row to claim (agent-runtime's tool-execution loop synthesizes
+// each step on the fly, nothing to UPDATE), pairs with claimIdempotencyKey
+// above instead of claimRowOnce. Protects against the SAME logical caller
+// (e.g. one agent run) emitting the IDENTICAL real-world action twice --
+// e.g. losing track of having already sent a message and sending it again a
+// few steps later. Keyed on (scope, kind, normalized input) rather than a
+// step counter, since a repeat can surface at ANY later step, not
+// necessarily the same one.
+//
+// Deliberately NOT a defense against two SEPARATE callers/invocations for
+// the same trigger (e.g. a webhook redelivered after the first run already
+// fully completed) -- that is a distinct, larger problem (trigger-level
+// dedup), out of scope here.
+// ---------------------------------------------------------------------------
+
+async function sha256Hex(input: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(input));
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * Pure (modulo the digest call) -- builds a stable idempotency key from a
+ * scope (e.g. a run id), an action kind, and its input. Note: relies on
+ * `input` being constructed the same way every time a given call site
+ * builds it (JSON.stringify is not object-key-order-independent) -- true
+ * for every current call site, which always passes a literal object with
+ * the same field order.
+ */
+export async function buildRealActionKey(scope: string, kind: string, input: unknown): Promise<string> {
+  return `real-action:${scope}:${kind}:${await sha256Hex(JSON.stringify(input))}`;
+}

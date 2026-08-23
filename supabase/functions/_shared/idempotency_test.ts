@@ -1,7 +1,7 @@
 // Real tests for the idempotency-key claim/replay/release logic.
 //
 // Run with: deno test --allow-env supabase/functions/_shared/idempotency_test.ts
-import { claimIdempotencyKey, saveIdempotencyResponse, releaseIdempotencyKey, claimRowOnce, releaseRowClaim } from "./idempotency.ts";
+import { claimIdempotencyKey, saveIdempotencyResponse, releaseIdempotencyKey, claimRowOnce, releaseRowClaim, buildRealActionKey } from "./idempotency.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
@@ -183,6 +183,32 @@ Deno.test("releaseRowClaim: never throws even if the underlying call throws", as
     // deno-lint-ignore no-explicit-any
   } as any;
   await releaseRowClaim(client, "pending_approvals", "row-1", "executed_at");
+});
+
+// ---- buildRealActionKey (2026-08-24) ---------------------------------------
+
+Deno.test("buildRealActionKey: identical scope/kind/input always produces the identical key", async () => {
+  const a = await buildRealActionKey("run-1", "slack_post_message", { channel: "#general", text: "hi" });
+  const b = await buildRealActionKey("run-1", "slack_post_message", { channel: "#general", text: "hi" });
+  assertEquals(a, b);
+});
+
+Deno.test("buildRealActionKey: a different scope (run id) produces a different key for the same action", async () => {
+  const a = await buildRealActionKey("run-1", "slack_post_message", { channel: "#general", text: "hi" });
+  const b = await buildRealActionKey("run-2", "slack_post_message", { channel: "#general", text: "hi" });
+  assert(a !== b);
+});
+
+Deno.test("buildRealActionKey: a different kind produces a different key for the same input", async () => {
+  const a = await buildRealActionKey("run-1", "slack_post_message", { channel: "#general", text: "hi" });
+  const b = await buildRealActionKey("run-1", "send_email", { channel: "#general", text: "hi" });
+  assert(a !== b);
+});
+
+Deno.test("buildRealActionKey: even slightly different input content produces a different key", async () => {
+  const a = await buildRealActionKey("run-1", "send_email", { to: "a@b.com", subject: "hi", body: "hello" });
+  const b = await buildRealActionKey("run-1", "send_email", { to: "a@b.com", subject: "hi", body: "hello!" });
+  assert(a !== b);
 });
 
 Deno.test("a key with a saved response replays it instead of re-claiming", async () => {
