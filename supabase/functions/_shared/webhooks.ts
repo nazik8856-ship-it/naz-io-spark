@@ -7,6 +7,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isRetryEligible, isExhausted, computeNextRetryAt } from "./webhook-retry.ts";
 import { sendCriticalAlert } from "./critical-alerts.ts";
+import { previousSecretActive } from "./webhook-secret-rotation.ts";
 
 export const WEBHOOK_EVENTS = [
   "approval_created",
@@ -36,7 +37,14 @@ async function hmacHex(secret: string, message: string): Promise<string> {
   return Array.from(new Uint8Array(sig)).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-type Hook = { id: string; url: string; secret: string; events: string[] };
+type Hook = {
+  id: string;
+  url: string;
+  secret: string;
+  events: string[];
+  previous_secret?: string | null;
+  previous_secret_expires_at?: string | null;
+};
 
 /**
  * Clears a webhook's dead-letter flag on any successful delivery, or fires
@@ -79,7 +87,7 @@ export async function triggerWebhooks(
   try {
     const { data } = await admin
       .from("webhooks")
-      .select("id, url, secret, events, alerted_at")
+      .select("id, url, secret, events, alerted_at, previous_secret, previous_secret_expires_at")
       .eq("user_id", userId)
       .eq("enabled", true);
     const hooks = ((data ?? []) as (Hook & { alerted_at?: string | null })[]).filter((h) => Array.isArray(h.events) && h.events.includes(event));
@@ -93,15 +101,23 @@ export async function triggerWebhooks(
       let ok = false;
       let errMsg: string | null = null;
       try {
-        const signature = await hmacHex(hook.secret, buildSignaturePayload(timestamp, body));
+        const signaturePayload = buildSignaturePayload(timestamp, body);
+        const signature = await hmacHex(hook.secret, signaturePayload);
+        const headers: Record<string, string> = {
+          "Content-Type": "application/json",
+          "X-NazAI-Event": event,
+          "X-NazAI-Timestamp": timestamp,
+          "X-NazAI-Signature": signature,
+        };
+        // While a rotated-out secret is still inside its grace window, sign
+        // with it too so the receiver can swap in the new secret on their
+        // own schedule instead of at the exact moment of rotation.
+        if (previousSecretActive(hook)) {
+          headers["X-NazAI-Signature-Previous"] = await hmacHex(hook.previous_secret as string, signaturePayload);
+        }
         const resp = await fetch(hook.url, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-NazAI-Event": event,
-            "X-NazAI-Timestamp": timestamp,
-            "X-NazAI-Signature": signature,
-          },
+          headers,
           body,
           signal: AbortSignal.timeout(8000),
         });
