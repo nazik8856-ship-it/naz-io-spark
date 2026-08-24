@@ -23,7 +23,7 @@ import { recordAiSpend } from "../_shared/spend-guard.ts";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
 import { runControlGate, createPendingApproval } from "../_shared/control-gate.ts";
 import { checkApprovalQuorum } from "../_shared/quorum.ts";
-import { claimIdempotencyKey, saveIdempotencyResponse, releaseIdempotencyKey, type ClaimResult } from "../_shared/idempotency.ts";
+import { claimIdempotencyKey, saveIdempotencyResponse, releaseIdempotencyKey, claimRowOnce, releaseRowClaim, type ClaimResult } from "../_shared/idempotency.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { triggerWebhooks } from "../_shared/webhooks.ts";
 
@@ -347,13 +347,7 @@ serve(async (req) => {
       }
 
       // Atomic claim: only succeeds if executed_at is still NULL right now.
-      const { data: claimed } = await supabase
-        .from("pending_approvals")
-        .update({ executed_at: new Date().toISOString() })
-        .eq("id", approvalId)
-        .is("executed_at", null)
-        .select("id")
-        .maybeSingle();
+      const claimed = await claimRowOnce(supabase, "pending_approvals", approvalId, "executed_at");
       if (!claimed) {
         return json({
           ok: true, executed: false, already_executed: true,
@@ -366,7 +360,7 @@ serve(async (req) => {
       );
       if (!result.ok) {
         // Nothing real happened — release the claim so this stays retryable.
-        await supabase.from("pending_approvals").update({ executed_at: null }).eq("id", approvalId);
+        await releaseRowClaim(supabase, "pending_approvals", approvalId, "executed_at");
       }
       return json({
         ok: result.ok, executed: result.ok, approvals: distinct, required: needed,
@@ -425,13 +419,7 @@ serve(async (req) => {
       }
 
       // Atomic claim: only succeeds if overridden_at is still NULL right now.
-      const { data: claimed } = await supabase
-        .from("agent_decisions")
-        .update({ overridden_at: new Date().toISOString() })
-        .eq("id", decisionId)
-        .is("overridden_at", null)
-        .select("id")
-        .maybeSingle();
+      const claimed = await claimRowOnce(supabase, "agent_decisions", decisionId, "overridden_at");
       if (!claimed) {
         return json({
           ok: true, executed: false, already_overridden: true,
@@ -485,7 +473,7 @@ serve(async (req) => {
         // retryable. Each retry still gets its own audited human_override
         // decision row above, so the audit trail of every attempt survives
         // even though the claim itself resets.
-        await supabase.from("agent_decisions").update({ overridden_at: null }).eq("id", decisionId);
+        await releaseRowClaim(supabase, "agent_decisions", decisionId, "overridden_at");
       }
       return json({
         ok: result.ok, executed: result.ok, override_decision_id: overrideDecisionId,
