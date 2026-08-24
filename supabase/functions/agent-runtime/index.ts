@@ -16,6 +16,7 @@ import { runControlGate } from "../_shared/control-gate.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { claimIdempotencyKey, saveIdempotencyResponse, releaseIdempotencyKey, buildRealActionKey } from "../_shared/idempotency.ts";
 import { timingSafeEqual } from "../_shared/timing-safe.ts";
+import { recordAiSpend, estimateCostUsd } from "../_shared/spend-guard.ts";
 
 import {
   readConfidence,
@@ -1110,6 +1111,7 @@ Rules:
         });
         if (!resp.ok) return null;
         const data = await resp.json();
+        await recordAiSpend(supabase, userId, MODEL, data?.usage, "agent-runtime-correction", agentId);
         const raw: string = data?.choices?.[0]?.message?.content ?? "";
         const block = extractAction(raw);
         const nextInput = block?.input;
@@ -1124,6 +1126,13 @@ Rules:
 
     let finalSummary = "Run ended without explicit summary.";
     let steps = 0, finished = false, paused = false;
+    // This run's own accumulated AI spend -- separate from the account-wide
+    // daily total recordAiSpend already tracks. Confirmed: only control-engine
+    // metered gateway usage before this; agent-runtime's own reasoning-loop
+    // calls (up to MAX_STEPS per run) were invisible to the daily spend cap
+    // entirely, so a stuck/looping agent could burn unbounded tokens across
+    // unbounded runs without ever tripping it.
+    let runSpendUsd = 0;
 
     // ---- Control-engine gate for real tool calls ---------------------------
     // Routes the "should this action run" question through the SAME endpoint
@@ -1281,6 +1290,11 @@ Rules:
         break;
       }
       const data = await resp.json();
+      // Meter this reasoning-loop call against the org's daily spend cap
+      // (warns at 90%, auto-trips the kill switch at 100%) -- same call
+      // shape control-engine already uses for its own gateway calls.
+      await recordAiSpend(supabase, userId, MODEL, data?.usage, "agent-runtime", agentId);
+      runSpendUsd += estimateCostUsd(MODEL, data?.usage);
       const raw: string = data?.choices?.[0]?.message?.content ?? "";
       messages.push({ role: "assistant", content: raw });
 
@@ -3015,6 +3029,7 @@ Reply with ONE fenced JSON block:
       });
       if (gResp.ok) {
         const gData = await gResp.json();
+        await recordAiSpend(supabase, userId, MODEL, gData?.usage, "agent-runtime-grading", agentId);
         const raw = gData?.choices?.[0]?.message?.content ?? "";
         const parsed = extractAction(raw);
         if (parsed) {
@@ -3092,8 +3107,8 @@ function extractAction(raw: string): Record<string, unknown> | null {
 
 
 async function executeTool(
-  tool: Tool, input: Record<string, unknown>, _supabase: SupabaseClient,
-  _agentId: string, _runId: string, _userId: string,
+  tool: Tool, input: Record<string, unknown>, supabase: SupabaseClient,
+  agentId: string, _runId: string, userId: string,
   logEvent: (k: string, p: Record<string, unknown>) => Promise<unknown>,
 ): Promise<{ summary: string; error?: boolean }> {
   try {
@@ -3115,6 +3130,7 @@ async function executeTool(
       });
       if (!resp.ok) return { summary: `Search gateway ${resp.status}`, error: true };
       const data = await resp.json();
+      await recordAiSpend(supabase, userId, MODEL, data?.usage, "agent-runtime-tool", agentId);
       return { summary: (data?.choices?.[0]?.message?.content ?? "(empty)").slice(0, 1200) };
     }
     if (tool.kind === "http_get") {
@@ -3165,6 +3181,7 @@ async function executeTool(
       });
       if (!resp.ok) return { summary: `deep_analyze gateway ${resp.status}`, error: true };
       const data = await resp.json();
+      await recordAiSpend(supabase, userId, DEEP_MODEL, data?.usage, "agent-runtime-tool", agentId);
       return { summary: (data?.choices?.[0]?.message?.content ?? "(empty)").slice(0, 3500) };
     }
     if (tool.kind === "audit_url") {
@@ -3194,6 +3211,7 @@ async function executeTool(
       });
       if (!resp.ok) return { summary: `audit_url gateway ${resp.status}`, error: true };
       const data = await resp.json();
+      await recordAiSpend(supabase, userId, DEEP_MODEL, data?.usage, "agent-runtime-tool", agentId);
       return { summary: (data?.choices?.[0]?.message?.content ?? "(empty)").slice(0, 3500) };
     }
     if (tool.kind === "make_plan") {
@@ -3215,6 +3233,7 @@ async function executeTool(
       });
       if (!resp.ok) return { summary: `make_plan gateway ${resp.status}`, error: true };
       const data = await resp.json();
+      await recordAiSpend(supabase, userId, DEEP_MODEL, data?.usage, "agent-runtime-tool", agentId);
       return { summary: (data?.choices?.[0]?.message?.content ?? "(empty)").slice(0, 3000) };
     }
     return { summary: `Unknown tool kind ${tool.kind}.`, error: true };

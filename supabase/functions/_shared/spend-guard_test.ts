@@ -73,6 +73,13 @@ Deno.test("estimateCostUsd: completion tokens derived from total_tokens when not
   assertEquals(cost, 0.25 + 2);
 });
 
+Deno.test("estimateCostUsd: agent-runtime's DEEP_MODEL is priced at its own pro-tier rate, not silently falling back to default", () => {
+  const deepCost = estimateCostUsd("google/gemini-3.1-pro-preview", { prompt_tokens: 1_000_000, completion_tokens: 1_000_000 });
+  const defaultCost = estimateCostUsd("default", { prompt_tokens: 1_000_000, completion_tokens: 1_000_000 });
+  assertEquals(deepCost, 1.25 + 10);
+  assert(deepCost > defaultCost, "the pro-tier model actually used for deep_analyze/audit_url/make_plan must not be under-priced as if it were the cheap default");
+});
+
 // ---- shouldClearAutoSpendTrip ----------------------------------------------
 
 Deno.test("shouldClearAutoSpendTrip: no row at all -> nothing to clear", () => {
