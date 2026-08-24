@@ -17,6 +17,7 @@ import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { claimIdempotencyKey, saveIdempotencyResponse, releaseIdempotencyKey, buildRealActionKey } from "../_shared/idempotency.ts";
 import { timingSafeEqual } from "../_shared/timing-safe.ts";
 import { recordAiSpend, estimateCostUsd } from "../_shared/spend-guard.ts";
+import { triggerWebhooks } from "../_shared/webhooks.ts";
 
 import {
   readConfidence,
@@ -751,11 +752,12 @@ serve(async (req) => {
         const { data: existing } = await supabase.from("agent_decisions")
           .select("id").eq("override_of", decisionId).limit(1).maybeSingle();
         if (existing) continue;
-        await supabase.from("agent_decisions").insert({
+        const overrideDecision = `Operator ${verdict === "approve" ? "approved" : verdict === "reject" ? "rejected" : "redirected"}: ${String(r.payload?.decision_text || "low-confidence step").slice(0, 300)}`;
+        const { data: overrideRow } = await supabase.from("agent_decisions").insert({
           user_id: userId,
           agent_id: agentId,
           agent_run_id: runId,
-          decision: `Operator ${verdict === "approve" ? "approved" : verdict === "reject" ? "rejected" : "redirected"}: ${String(r.payload?.decision_text || "low-confidence step").slice(0, 300)}`,
+          decision: overrideDecision,
           reasoning: `Human override after confidence escalation. Operator answered: ${answer.slice(0, 600)}`,
           alternatives_considered: normalizeAlternatives(r.payload?.alternatives),
           confidence_score: 100,
@@ -763,7 +765,15 @@ serve(async (req) => {
           human_response: answer.slice(0, 1000),
           override_of: decisionId,
           escalated: true,
-        });
+        }).select("id").maybeSingle();
+        const overrideDecisionId = (overrideRow as { id?: string } | null)?.id ?? null;
+        if (overrideDecisionId) {
+          try {
+            await triggerWebhooks(supabase, userId, "decision_logged", {
+              id: overrideDecisionId, decision: overrideDecision, source: "human_override", escalated: true, agent_id: agentId,
+            });
+          } catch { /* ignore */ }
+        }
       }
     };
     await loadEscalationVerdicts().catch(() => {});

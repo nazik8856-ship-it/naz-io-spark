@@ -25,6 +25,7 @@ import { runControlGate, createPendingApproval } from "../_shared/control-gate.t
 import { checkApprovalQuorum } from "../_shared/quorum.ts";
 import { claimIdempotencyKey, saveIdempotencyResponse, releaseIdempotencyKey, type ClaimResult } from "../_shared/idempotency.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
+import { triggerWebhooks } from "../_shared/webhooks.ts";
 
 // Generous enough that a legitimate agent-runtime run bursting several
 // assess_only calls, or a human actively using the chat, never trips it —
@@ -455,6 +456,14 @@ serve(async (req) => {
         provider: origProvider,
       }).select("id").maybeSingle();
       const overrideDecisionId = (overrideRow as { id?: string } | null)?.id ?? null;
+      if (overrideDecisionId) {
+        try {
+          await triggerWebhooks(supabase, userId, "decision_logged", {
+            id: overrideDecisionId, decision: `OVERRIDE ${actType} (${origProvider ?? "unknown"})`,
+            source: "human_override", escalated: false, agent_id: origAgentId,
+          });
+        } catch { /* ignore */ }
+      }
 
       // A human bypassing a block is consequential regardless of whether the
       // resulting write itself later succeeds -- alert and open an incident

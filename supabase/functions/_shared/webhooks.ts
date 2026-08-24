@@ -16,11 +16,15 @@ export const WEBHOOK_EVENTS = [
   "incident_resolved",
   // Fires on every logged decision (SIEM/observability export) -- opt-in,
   // like every other event: a webhook only receives it if "decision_logged"
-  // is explicitly in its own `events` list. Wired from the two real
-  // decision-logging chokepoints (control-gate.ts's logStop for
-  // deterministic stops, decision-scoring.ts's logDecision for the
-  // model-scored path) -- NOT yet from the rarer kill-switch-trip and
-  // undo-record logging paths, a documented gap, not a silent one.
+  // is explicitly in its own `events` list. Wired from every real
+  // decision-logging chokepoint: control-gate.ts's logStop (deterministic
+  // stops), decision-scoring.ts's logDecision (the model-scored path, also
+  // used by control-engine's real /undo route), spend-guard.ts's two
+  // direct kill-switch-trip inserts, and the two human_override inserts
+  // (control-engine's break-glass /override route, agent-runtime's
+  // low-confidence-escalation resume flow) that bypass logStop/logDecision.
+  // control-gate.ts's gate_error and circuit_breaker_trip event inserts
+  // still bypass this -- a real, separate, out-of-scope gap, not silent.
   "decision_logged",
 ] as const;
 export type WebhookEvent = typeof WEBHOOK_EVENTS[number];

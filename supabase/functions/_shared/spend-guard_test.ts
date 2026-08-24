@@ -4,7 +4,7 @@
 // re-implementation of their logic.
 //
 // Run with: deno test --allow-none supabase/functions/_shared/spend-guard_test.ts
-import { estimateCostUsd, getAgentSpendStatus, getSpendStatus, shouldClearAutoSpendTrip } from "./spend-guard.ts";
+import { estimateCostUsd, getAgentSpendStatus, getSpendStatus, shouldClearAutoSpendTrip, recordAiSpend } from "./spend-guard.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
@@ -168,4 +168,56 @@ Deno.test("getAgentSpendStatus: an agent with its own cap but under spend is not
   const status = await getAgentSpendStatus(client, "user-1", "agent-1");
   assert(status.has_cap);
   assertFalse(status.over_cap);
+});
+
+// ---- recordAiSpend's kill-switch-trip logging (regression: this insert
+// bypassed logStop/logDecision entirely and never checked for a
+// decision_logged webhook subscriber, unlike every other decision-logging
+// chokepoint) -----------------------------------------------------------
+
+class RichFakeQuery implements PromiseLike<Row> {
+  filters: Record<string, unknown> = {};
+  constructor(private resolve: () => Row) {}
+  select() { return this; }
+  eq(col: string, val: unknown) { this.filters[col] = val; return this; }
+  is(col: string, val: unknown) { this.filters[col] = val; return this; }
+  order() { return this; }
+  limit() { return this; }
+  insert(_row?: unknown) { return this; }
+  update(_row?: unknown) { return this; }
+  maybeSingle() { return this; }
+  single() { return this; }
+  // deno-lint-ignore no-explicit-any
+  then<TResult1 = Row, TResult2 = never>(
+    onfulfilled?: ((value: Row) => TResult1 | PromiseLike<TResult1>) | null,
+    onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
+    // deno-lint-ignore no-explicit-any
+  ): any {
+    return Promise.resolve(this.resolve()).then(onfulfilled ?? undefined, onrejected ?? undefined);
+  }
+}
+
+function fakeSupabaseWithCalls(tables: Record<string, Row> = {}) {
+  const calls: { table: string }[] = [];
+  const client = {
+    from(table: string) {
+      calls.push({ table });
+      return new RichFakeQuery(() => tables[table] ?? { data: null, error: null });
+    },
+    rpc(_name: string) {
+      return new RichFakeQuery(() => ({ data: null, error: null }));
+    },
+  };
+  // deno-lint-ignore no-explicit-any
+  return { client: client as any, calls };
+}
+
+Deno.test("recordAiSpend: tripping the account-wide kill switch checks for a decision_logged webhook subscriber", async () => {
+  const { client, calls } = fakeSupabaseWithCalls({
+    ai_spend_caps: { data: { daily_cap_usd: 5, enabled: true }, error: null },
+    ai_spend_daily: { data: { id: "d1", cost_usd: 10, calls: 40, warned_at: null, capped_at: null }, error: null },
+    agent_decisions: { data: { id: "decision-1" }, error: null },
+  });
+  await recordAiSpend(client, "user-1", "openai/gpt-5-mini", { prompt_tokens: 100, completion_tokens: 100 }, "test", null);
+  assert(calls.some((c) => c.table === "webhooks"), "expected the kill-switch trip to check for a decision_logged webhook subscriber");
 });
