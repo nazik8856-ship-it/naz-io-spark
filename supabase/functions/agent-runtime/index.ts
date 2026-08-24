@@ -46,6 +46,15 @@ const LOVABLE_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 const MODEL = "google/gemini-3-flash-preview";
 const DEEP_MODEL = "google/gemini-3.1-pro-preview"; // stronger reasoning for deep analysis / audits / plans
 const MAX_STEPS = 24;
+// Per-run spend ceiling, independent of the account's DAILY cap
+// (ai_spend_caps) -- a single run could stay comfortably under a generous
+// daily cap while burning far more than any one run legitimately needs, if
+// e.g. the model gets stuck re-reasoning without ever finishing. $2 covers
+// a real, even fairly involved run (24 main-loop steps on the cheap flash
+// model plus a handful of DEEP_MODEL tool calls) with real margin, while
+// still catching a genuinely runaway one. Independently tunable from
+// MAX_STEPS since token cost per step varies by what the step actually did.
+const MAX_RUN_SPEND_USD = 2.0;
 // Run-start limit: nothing previously stopped a misbehaving scheduler/webhook/
 // caller from triggering unlimited full agent runs. Separate from
 // STEP_RATE_LIMIT_PER_MINUTE below -- one run can legitimately make many
@@ -1297,6 +1306,14 @@ Rules:
       runSpendUsd += estimateCostUsd(MODEL, data?.usage);
       const raw: string = data?.choices?.[0]?.message?.content ?? "";
       messages.push({ role: "assistant", content: raw });
+
+      if (runSpendUsd >= MAX_RUN_SPEND_USD) {
+        await logEvent("error", {
+          phase: "spend_ceiling",
+          message: `Run stopped after spending $${runSpendUsd.toFixed(2)} of this run's own $${MAX_RUN_SPEND_USD.toFixed(2)} ceiling — independent of the account's daily cap.`,
+        });
+        break;
+      }
 
       const parsed = extractAction(raw);
       if (!parsed) {
