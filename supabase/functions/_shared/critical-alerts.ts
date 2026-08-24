@@ -18,6 +18,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { slackPostMessage } from "./provider-writes.ts";
 import { isIncidentWorthy, openIncident } from "./incidents.ts";
+import { resolveNotificationRecipients, type MemberRow, type PreferenceRow } from "./notification-preferences.ts";
 
 export type CriticalAlertEvent =
   | "kill_switch_on"
@@ -74,7 +75,7 @@ async function persistAlert(
   userId: string,
   opts: { event: CriticalAlertEvent; summary: string; decisionId?: string | null; actionType?: string | null; provider?: string | null; actor?: string | null },
   deliveredVia: "slack" | "log",
-): Promise<void> {
+): Promise<string | null> {
   let alertId: string | null = null;
   try {
     const { data } = await admin.from("critical_alerts").insert({
@@ -100,6 +101,61 @@ async function persistAlert(
       alertId,
     });
   }
+  return alertId;
+}
+
+/**
+ * Email fallback for when Slack delivery didn't happen (not connected, or
+ * slackPostMessage failed) -- until now that meant zero out-of-band signal
+ * beyond a server log line. Uses the same owner/member notification-
+ * preference resolution the digest and weekly-trend emails already use.
+ * Never throws — alerting must never break the decision path.
+ */
+async function sendCriticalAlertEmail(
+  admin: SupabaseClient,
+  userId: string,
+  opts: { event: CriticalAlertEvent; summary: string; decisionId?: string | null; actionType?: string | null; provider?: string | null; actor?: string | null },
+  alertId: string | null,
+): Promise<void> {
+  try {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!supabaseUrl || !serviceKey) return;
+
+    const [{ data: authUser, error: authErr }, { data: members }, { data: prefs }] = await Promise.all([
+      admin.auth.admin.getUserById(userId),
+      admin.from("account_members").select("member_id, email, status").eq("account_owner_id", userId),
+      admin.from("notification_preferences")
+        .select("recipient_id, digest_enabled, weekly_trend_enabled, critical_alert_email_enabled")
+        .eq("account_owner_id", userId),
+    ]);
+    const ownerEmail = authErr ? null : authUser?.user?.email ?? null;
+    const recipients = resolveNotificationRecipients(
+      userId, ownerEmail, (members ?? []) as MemberRow[], (prefs ?? []) as PreferenceRow[], "critical_alert_email_enabled",
+    );
+    if (!recipients.length) return;
+
+    const link = decisionLink(opts.decisionId);
+    await Promise.all(recipients.map((r) =>
+      fetch(`${supabaseUrl}/functions/v1/send-transactional-email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+        body: JSON.stringify({
+          templateName: "critical-alert",
+          recipientEmail: r.email,
+          idempotencyKey: `critical-alert-${alertId ?? `${userId}-${opts.event}`}-${r.recipientId}`,
+          templateData: {
+            eventLabel: LABELS[opts.event],
+            summary: opts.summary,
+            actionType: opts.actionType ?? null,
+            provider: opts.provider ?? null,
+            actor: opts.actor ?? null,
+            decisionUrl: link,
+          },
+        }),
+      }).catch(() => null)
+    ));
+  } catch { /* email fallback must never break alerting */ }
 }
 
 export async function sendCriticalAlert(
@@ -150,6 +206,7 @@ export async function sendCriticalAlert(
   }
 
   console.error(`[CONTROL ALERT] ${LABELS[opts.event]} — ${text.replace(/\n/g, " | ")}`);
-  await persistAlert(admin, userId, opts, "log");
+  const alertId = await persistAlert(admin, userId, opts, "log");
+  await sendCriticalAlertEmail(admin, userId, opts, alertId);
   return "log";
 }

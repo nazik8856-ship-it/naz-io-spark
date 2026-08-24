@@ -77,3 +77,18 @@ Deno.test("a pending (not-yet-accepted) member never gets a notification", () =>
 Deno.test("no owner email on file and nobody opted in is an empty recipient list, not a crash", () => {
   assertEquals(resolveNotificationRecipients("owner-1", null, [], [], "digest_enabled"), []);
 });
+
+Deno.test("critical_alert_email_enabled: the owner with no preference row gets it, same as digest_enabled", () => {
+  const recipients = resolveNotificationRecipients("owner-1", "owner@x.com", [], [], "critical_alert_email_enabled");
+  assertEquals(recipients, [{ recipientId: "owner-1", email: "owner@x.com" }]);
+});
+
+Deno.test("critical_alert_email_enabled: a team member who explicitly opted in DOES get it", () => {
+  const recipients = resolveNotificationRecipients(
+    "owner-1", "owner@x.com",
+    [{ member_id: "member-1", email: "teammate@x.com", status: "active" }],
+    [{ recipient_id: "member-1", digest_enabled: false, weekly_trend_enabled: false, critical_alert_email_enabled: true }],
+    "critical_alert_email_enabled",
+  );
+  assertEquals(recipients, [{ recipientId: "owner-1", email: "owner@x.com" }, { recipientId: "member-1", email: "teammate@x.com" }]);
+});
