@@ -65,6 +65,12 @@ Deno.serve(async (req) => {
       });
     }
     const state = await signState({ u: user.id, a: agentId, o: origin, g: requestedGroups });
+    // Single-use, mirroring Canva/Notion/Shopify/Slack's own DB-backed
+    // transaction pattern -- verifyState's HMAC + expiry check alone let a
+    // leaked/replayed state be redeemed more than once inside its window.
+    await admin.from("figma_oauth_transactions").delete().lt("expires_at", new Date().toISOString());
+    const { error: txErr } = await admin.from("figma_oauth_transactions").insert({ state, user_id: user.id });
+    if (txErr) throw new Error(`Could not initialize Figma OAuth: ${txErr.message}`);
     return new Response(JSON.stringify({ url: buildAuthUrl(state, scopes) }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

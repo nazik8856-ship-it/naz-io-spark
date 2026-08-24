@@ -7,15 +7,8 @@ import { verifyState, exchangeCode, fetchUserInfo, FIGMA_SCOPES, FIGMA_DEFAULT_G
 import { createSecret, updateSecret, readSecret } from "../_shared/integration-secrets.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 
-// Confirmed zero rate-limit coverage. Public/unauthenticated endpoint;
-// verifyState gives a real userId once the signature checks out, so this
-// keys on that -- but note verifyState's state is a signed, time-boxed
-// token, NOT single-use like Canva/Notion/Shopify/Slack's DB-backed
-// transaction (no consume step marks it spent). This rate limit does not
-// close that gap -- a valid state could still be replayed more than once
-// within its 10-minute window, just no more than RATE_LIMIT_PER_MINUTE
-// times per minute for the account it resolves to. Flagging as a real,
-// separate follow-on rather than silently expanding this item's scope.
+// Rate-limits repeated completions against the same account, keyed on the
+// userId verifyState resolves once the signature checks out.
 const RATE_LIMIT_PER_MINUTE = 10;
 
 const html = (title: string, msg: string, ok: boolean) => `<!doctype html>
@@ -58,6 +51,16 @@ Deno.serve(async (req) => {
   const grantedScopes = scopesForGroups(grantedGroups);
 
   const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+
+  // Single-use, mirroring Canva/Notion/Shopify/Slack's own DB-backed
+  // transaction pattern -- verifyState's HMAC + expiry check alone let a
+  // leaked/replayed state be redeemed more than once inside its window.
+  const { data: txRows, error: txErr } = await admin.rpc("consume_figma_oauth_transaction", { _state: state });
+  const tx = Array.isArray(txRows) ? txRows[0] : null;
+  if (txErr || !tx) {
+    return respond("Invalid state", "OAuth state is invalid, expired, or already used. Please try again.", false, 400);
+  }
+
   const rate = await checkRateLimit(admin, userId, "figma-oauth-callback", RATE_LIMIT_PER_MINUTE, 60);
   if (!rate.allowed) {
     return respond("Too many requests", "Too many connection attempts for this account. Try again shortly.", false, 429);
