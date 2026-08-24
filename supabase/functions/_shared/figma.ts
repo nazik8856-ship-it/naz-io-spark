@@ -172,6 +172,7 @@ export async function ensureAccessToken(
       status: "connected",
       last_error: null,
       last_verified_at: new Date().toISOString(),
+      revoked_alerted_at: null,
     }).eq("id", row.id);
     return tok.access_token;
   } catch (e) {
@@ -182,6 +183,7 @@ export async function ensureAccessToken(
       last_error: code === "invalid_grant"
         ? "Figma refresh token expired — reconnect required."
         : `Figma token refresh transient failure: ${msg}`.slice(0, 500),
+      ...(code === "invalid_grant" ? {} : { revoked_alerted_at: null }),
     }).eq("id", row.id);
     return null;
   }

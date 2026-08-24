@@ -130,6 +130,7 @@ Deno.serve(async (req) => {
           status: "connected",
           last_verified_at: now,
           last_error: null,
+          revoked_alerted_at: null,
         },
         { onConflict: "user_id,provider,agent_id" },
       );

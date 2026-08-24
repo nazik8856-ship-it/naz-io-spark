@@ -227,6 +227,7 @@ export async function ensureAccessToken(
       status: "connected",
       last_error: null,
       last_verified_at: new Date().toISOString(),
+      revoked_alerted_at: null,
     }).eq("id", row.id);
     return tok.access_token;
   } catch (e) {
