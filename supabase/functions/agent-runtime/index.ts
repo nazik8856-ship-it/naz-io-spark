@@ -55,6 +55,14 @@ const MAX_STEPS = 24;
 // still catching a genuinely runaway one. Independently tunable from
 // MAX_STEPS since token cost per step varies by what the step actually did.
 const MAX_RUN_SPEND_USD = 2.0;
+// Confirmed: the main reasoning loop's gateway fetch had no AbortController
+// or timeout at all, unlike the http_post tool's own fetch (5s) or
+// _shared/fetch-retry.ts's callers -- a slow/hanging gateway response
+// stalled the whole run with no step-level bound, relying entirely on the
+// platform's outer function timeout. 45s mirrors the frontend's own
+// generation-request timeout (GenerationWorkspace.tsx's TIMEOUT_MS), with a
+// little extra margin since this is a non-streaming, server-side call.
+const STEP_TIMEOUT_MS = 45_000;
 // Run-start limit: nothing previously stopped a misbehaving scheduler/webhook/
 // caller from triggering unlimited full agent runs. Separate from
 // STEP_RATE_LIMIT_PER_MINUTE below -- one run can legitimately make many
@@ -1286,11 +1294,28 @@ Rules:
         outputGuard.pending = null;
       }
 
-      const resp = await fetch(LOVABLE_URL, {
-        method: "POST",
-        headers: { "Lovable-API-Key": key, "Content-Type": "application/json" },
-        body: JSON.stringify({ model: MODEL, messages, temperature: 0.4 }),
-      });
+      const stepCtrl = new AbortController();
+      const stepTimeout = setTimeout(() => stepCtrl.abort(), STEP_TIMEOUT_MS);
+      let resp: Response;
+      try {
+        resp = await fetch(LOVABLE_URL, {
+          method: "POST",
+          headers: { "Lovable-API-Key": key, "Content-Type": "application/json" },
+          body: JSON.stringify({ model: MODEL, messages, temperature: 0.4 }),
+          signal: stepCtrl.signal,
+        });
+      } catch (e) {
+        const timedOut = e instanceof Error && e.name === "AbortError";
+        await logEvent("error", {
+          phase: "ai_loop",
+          message: timedOut
+            ? `Step timed out after ${STEP_TIMEOUT_MS / 1000}s`
+            : `Gateway request failed: ${e instanceof Error ? e.message : "unknown"}`,
+        });
+        break;
+      } finally {
+        clearTimeout(stepTimeout);
+      }
       if (resp.status === 429) { await logEvent("error", { phase: "ai_loop", message: "Rate limit" }); break; }
       if (resp.status === 402) { await logEvent("error", { phase: "ai_loop", message: "AI credits exhausted" }); break; }
       if (!resp.ok) {
