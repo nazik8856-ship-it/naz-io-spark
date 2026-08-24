@@ -390,6 +390,24 @@ serve(async (req) => {
     // holder so TS control-flow analysis doesn't narrow it to null.
     const failGuard: { state: { failedTool: string; nudged: boolean } | null } = { state: null };
 
+    // Identical-action loop detection, scoped to tools that never reach the
+    // control gate. Confirmed: ACTION_CAPPED_KINDS tools eventually get a
+    // circuit-breaker intervention after repeated failures, but calc,
+    // http_get, web_search, deep_analyze, make_plan, audit_url,
+    // read_analytics, read_email, and integration_query never touch the gate
+    // at all -- a model stuck retrying one of these identically could burn
+    // the full step budget with zero loop-specific circuit breaker or
+    // dedupe. In-memory only (scoped to this one run, never persisted) --
+    // this isn't a safety mechanism like the real circuit breaker, just a
+    // "stop wasting steps" nudge for a pattern the model itself can recover
+    // from once told plainly.
+    const UNGATED_TOOL_KINDS = new Set([
+      "calc", "http_get", "web_search", "deep_analyze", "make_plan",
+      "audit_url", "read_analytics", "read_email", "integration_query",
+    ]);
+    const UNGATED_REPEAT_LIMIT = 2; // the 3rd identical attempt is intercepted
+    const recentUngatedCalls = new Map<string, number>();
+
     const ARTIFACT_KINDS: Record<string, string> = {
       create_doc: "doc", edit_doc: "doc",
       create_sheet: "sheet", edit_sheet: "sheet",
@@ -1442,6 +1460,25 @@ Rules:
         }
         const input = validation.data;
 
+        // Identical-action loop detection for tools the control gate never
+        // sees (see UNGATED_TOOL_KINDS above). Hashes (kind, input) rather
+        // than a step counter, since these tools have no circuit breaker of
+        // their own to eventually intervene.
+        if (UNGATED_TOOL_KINDS.has(tool.kind)) {
+          const repeatKey = `${tool.kind}::${JSON.stringify(input)}`;
+          const priorAttempts = recentUngatedCalls.get(repeatKey) ?? 0;
+          if (priorAttempts >= UNGATED_REPEAT_LIMIT) {
+            await logEvent("reason", {
+              thought: `Intercepted a repeat of "${tool.name}" with identical input — already tried ${priorAttempts} times this run with no new outcome.`,
+            });
+            messages.push({
+              role: "user",
+              content: `"${tool.name}" was NOT run again — you've already called it with this exact input ${priorAttempts} times this run and it won't produce a different result. Try a genuinely different input, a different tool, or move on to finishing with what you already have.`,
+            });
+            continue;
+          }
+          recentUngatedCalls.set(repeatKey, priorAttempts + 1);
+        }
 
         // Retry-alternative-first guard: block ask_user until the model has
         // tried at least one different tool after the last failure.
