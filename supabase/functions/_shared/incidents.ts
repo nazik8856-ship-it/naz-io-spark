@@ -24,6 +24,7 @@ export const INCIDENT_KINDS = [
   "correlated_breaker_trip",
   "audit_integrity_failure",
   "webhook_delivery_exhausted",
+  "integration_revoked",
 ] as const;
 export type IncidentKind = typeof INCIDENT_KINDS[number];
 

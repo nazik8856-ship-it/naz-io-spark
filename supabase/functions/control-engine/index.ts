@@ -23,8 +23,10 @@ import { recordAiSpend } from "../_shared/spend-guard.ts";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
 import { runControlGate, createPendingApproval } from "../_shared/control-gate.ts";
 import { checkApprovalQuorum } from "../_shared/quorum.ts";
-import { claimIdempotencyKey, saveIdempotencyResponse, releaseIdempotencyKey, type ClaimResult } from "../_shared/idempotency.ts";
+import { claimIdempotencyKey, saveIdempotencyResponse, releaseIdempotencyKey, claimRowOnce, releaseRowClaim, type ClaimResult } from "../_shared/idempotency.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
+import { triggerWebhooks } from "../_shared/webhooks.ts";
+import { loadActiveConfidenceBucketFlags, widenThresholdForFlags } from "../_shared/confidence-bucket-flags.ts";
 
 // Generous enough that a legitimate agent-runtime run bursting several
 // assess_only calls, or a human actively using the chat, never trips it —
@@ -346,13 +348,7 @@ serve(async (req) => {
       }
 
       // Atomic claim: only succeeds if executed_at is still NULL right now.
-      const { data: claimed } = await supabase
-        .from("pending_approvals")
-        .update({ executed_at: new Date().toISOString() })
-        .eq("id", approvalId)
-        .is("executed_at", null)
-        .select("id")
-        .maybeSingle();
+      const claimed = await claimRowOnce(supabase, "pending_approvals", approvalId, "executed_at");
       if (!claimed) {
         return json({
           ok: true, executed: false, already_executed: true,
@@ -365,7 +361,7 @@ serve(async (req) => {
       );
       if (!result.ok) {
         // Nothing real happened — release the claim so this stays retryable.
-        await supabase.from("pending_approvals").update({ executed_at: null }).eq("id", approvalId);
+        await releaseRowClaim(supabase, "pending_approvals", approvalId, "executed_at");
       }
       return json({
         ok: result.ok, executed: result.ok, approvals: distinct, required: needed,
@@ -424,13 +420,7 @@ serve(async (req) => {
       }
 
       // Atomic claim: only succeeds if overridden_at is still NULL right now.
-      const { data: claimed } = await supabase
-        .from("agent_decisions")
-        .update({ overridden_at: new Date().toISOString() })
-        .eq("id", decisionId)
-        .is("overridden_at", null)
-        .select("id")
-        .maybeSingle();
+      const claimed = await claimRowOnce(supabase, "agent_decisions", decisionId, "overridden_at");
       if (!claimed) {
         return json({
           ok: true, executed: false, already_overridden: true,
@@ -455,6 +445,14 @@ serve(async (req) => {
         provider: origProvider,
       }).select("id").maybeSingle();
       const overrideDecisionId = (overrideRow as { id?: string } | null)?.id ?? null;
+      if (overrideDecisionId) {
+        try {
+          await triggerWebhooks(supabase, userId, "decision_logged", {
+            id: overrideDecisionId, decision: `OVERRIDE ${actType} (${origProvider ?? "unknown"})`,
+            source: "human_override", escalated: false, agent_id: origAgentId,
+          });
+        } catch { /* ignore */ }
+      }
 
       // A human bypassing a block is consequential regardless of whether the
       // resulting write itself later succeeds -- alert and open an incident
@@ -476,7 +474,7 @@ serve(async (req) => {
         // retryable. Each retry still gets its own audited human_override
         // decision row above, so the audit trail of every attempt survives
         // even though the claim itself resets.
-        await supabase.from("agent_decisions").update({ overridden_at: null }).eq("id", decisionId);
+        await releaseRowClaim(supabase, "agent_decisions", decisionId, "overridden_at");
       }
       return json({
         ok: result.ok, executed: result.ok, override_decision_id: overrideDecisionId,
@@ -792,7 +790,16 @@ serve(async (req) => {
     const conf = readConfidence(parsed);
     if (fitEvidence.nudge) conf.score = Math.max(0, Math.min(100, conf.score + fitEvidence.nudge));
     const alternatives = normalizeAlternatives(parsed.alternatives);
-    const threshold = thresholdForRisk(riskTier, baseThreshold, strictness);
+    // A bucket flagged severely miscalibrated (calibrate-confidence's
+    // weekly job, on real measured outcomes) widens the effective threshold
+    // for any decision scored inside that exact range, until a human
+    // clears the flag -- fail toward more review, never less.
+    const activeConfidenceFlags = await loadActiveConfidenceBucketFlags(supabase, userId);
+    const threshold = widenThresholdForFlags(
+      thresholdForRisk(riskTier, baseThreshold, strictness),
+      conf.score,
+      activeConfidenceFlags,
+    );
     // Blast-radius rule: an action that CANNOT be undone and is high risk
     // always needs a human, no matter how confident the model is.
     const reversibility = reversibilityFor(actionType);

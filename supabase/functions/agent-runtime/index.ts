@@ -16,6 +16,8 @@ import { runControlGate } from "../_shared/control-gate.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { claimIdempotencyKey, saveIdempotencyResponse, releaseIdempotencyKey, buildRealActionKey } from "../_shared/idempotency.ts";
 import { timingSafeEqual } from "../_shared/timing-safe.ts";
+import { recordAiSpend, estimateCostUsd } from "../_shared/spend-guard.ts";
+import { triggerWebhooks } from "../_shared/webhooks.ts";
 
 import {
   readConfidence,
@@ -45,6 +47,23 @@ const LOVABLE_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 const MODEL = "google/gemini-3-flash-preview";
 const DEEP_MODEL = "google/gemini-3.1-pro-preview"; // stronger reasoning for deep analysis / audits / plans
 const MAX_STEPS = 24;
+// Per-run spend ceiling, independent of the account's DAILY cap
+// (ai_spend_caps) -- a single run could stay comfortably under a generous
+// daily cap while burning far more than any one run legitimately needs, if
+// e.g. the model gets stuck re-reasoning without ever finishing. $2 covers
+// a real, even fairly involved run (24 main-loop steps on the cheap flash
+// model plus a handful of DEEP_MODEL tool calls) with real margin, while
+// still catching a genuinely runaway one. Independently tunable from
+// MAX_STEPS since token cost per step varies by what the step actually did.
+const MAX_RUN_SPEND_USD = 2.0;
+// Confirmed: the main reasoning loop's gateway fetch had no AbortController
+// or timeout at all, unlike the http_post tool's own fetch (5s) or
+// _shared/fetch-retry.ts's callers -- a slow/hanging gateway response
+// stalled the whole run with no step-level bound, relying entirely on the
+// platform's outer function timeout. 45s mirrors the frontend's own
+// generation-request timeout (GenerationWorkspace.tsx's TIMEOUT_MS), with a
+// little extra margin since this is a non-streaming, server-side call.
+const STEP_TIMEOUT_MS = 45_000;
 // Run-start limit: nothing previously stopped a misbehaving scheduler/webhook/
 // caller from triggering unlimited full agent runs. Separate from
 // STEP_RATE_LIMIT_PER_MINUTE below -- one run can legitimately make many
@@ -371,6 +390,24 @@ serve(async (req) => {
     // one alternative before it is allowed to ask_user. Wrapped in an object
     // holder so TS control-flow analysis doesn't narrow it to null.
     const failGuard: { state: { failedTool: string; nudged: boolean } | null } = { state: null };
+
+    // Identical-action loop detection, scoped to tools that never reach the
+    // control gate. Confirmed: ACTION_CAPPED_KINDS tools eventually get a
+    // circuit-breaker intervention after repeated failures, but calc,
+    // http_get, web_search, deep_analyze, make_plan, audit_url,
+    // read_analytics, read_email, and integration_query never touch the gate
+    // at all -- a model stuck retrying one of these identically could burn
+    // the full step budget with zero loop-specific circuit breaker or
+    // dedupe. In-memory only (scoped to this one run, never persisted) --
+    // this isn't a safety mechanism like the real circuit breaker, just a
+    // "stop wasting steps" nudge for a pattern the model itself can recover
+    // from once told plainly.
+    const UNGATED_TOOL_KINDS = new Set([
+      "calc", "http_get", "web_search", "deep_analyze", "make_plan",
+      "audit_url", "read_analytics", "read_email", "integration_query",
+    ]);
+    const UNGATED_REPEAT_LIMIT = 2; // the 3rd identical attempt is intercepted
+    const recentUngatedCalls = new Map<string, number>();
 
     const ARTIFACT_KINDS: Record<string, string> = {
       create_doc: "doc", edit_doc: "doc",
@@ -715,11 +752,12 @@ serve(async (req) => {
         const { data: existing } = await supabase.from("agent_decisions")
           .select("id").eq("override_of", decisionId).limit(1).maybeSingle();
         if (existing) continue;
-        await supabase.from("agent_decisions").insert({
+        const overrideDecision = `Operator ${verdict === "approve" ? "approved" : verdict === "reject" ? "rejected" : "redirected"}: ${String(r.payload?.decision_text || "low-confidence step").slice(0, 300)}`;
+        const { data: overrideRow } = await supabase.from("agent_decisions").insert({
           user_id: userId,
           agent_id: agentId,
           agent_run_id: runId,
-          decision: `Operator ${verdict === "approve" ? "approved" : verdict === "reject" ? "rejected" : "redirected"}: ${String(r.payload?.decision_text || "low-confidence step").slice(0, 300)}`,
+          decision: overrideDecision,
           reasoning: `Human override after confidence escalation. Operator answered: ${answer.slice(0, 600)}`,
           alternatives_considered: normalizeAlternatives(r.payload?.alternatives),
           confidence_score: 100,
@@ -727,7 +765,15 @@ serve(async (req) => {
           human_response: answer.slice(0, 1000),
           override_of: decisionId,
           escalated: true,
-        });
+        }).select("id").maybeSingle();
+        const overrideDecisionId = (overrideRow as { id?: string } | null)?.id ?? null;
+        if (overrideDecisionId) {
+          try {
+            await triggerWebhooks(supabase, userId, "decision_logged", {
+              id: overrideDecisionId, decision: overrideDecision, source: "human_override", escalated: true, agent_id: agentId,
+            });
+          } catch { /* ignore */ }
+        }
       }
     };
     await loadEscalationVerdicts().catch(() => {});
@@ -1110,6 +1156,7 @@ Rules:
         });
         if (!resp.ok) return null;
         const data = await resp.json();
+        await recordAiSpend(supabase, userId, MODEL, data?.usage, "agent-runtime-correction", agentId);
         const raw: string = data?.choices?.[0]?.message?.content ?? "";
         const block = extractAction(raw);
         const nextInput = block?.input;
@@ -1124,6 +1171,13 @@ Rules:
 
     let finalSummary = "Run ended without explicit summary.";
     let steps = 0, finished = false, paused = false;
+    // This run's own accumulated AI spend -- separate from the account-wide
+    // daily total recordAiSpend already tracks. Confirmed: only control-engine
+    // metered gateway usage before this; agent-runtime's own reasoning-loop
+    // calls (up to MAX_STEPS per run) were invisible to the daily spend cap
+    // entirely, so a stuck/looping agent could burn unbounded tokens across
+    // unbounded runs without ever tripping it.
+    let runSpendUsd = 0;
 
     // ---- Control-engine gate for real tool calls ---------------------------
     // Routes the "should this action run" question through the SAME endpoint
@@ -1268,11 +1322,28 @@ Rules:
         outputGuard.pending = null;
       }
 
-      const resp = await fetch(LOVABLE_URL, {
-        method: "POST",
-        headers: { "Lovable-API-Key": key, "Content-Type": "application/json" },
-        body: JSON.stringify({ model: MODEL, messages, temperature: 0.4 }),
-      });
+      const stepCtrl = new AbortController();
+      const stepTimeout = setTimeout(() => stepCtrl.abort(), STEP_TIMEOUT_MS);
+      let resp: Response;
+      try {
+        resp = await fetch(LOVABLE_URL, {
+          method: "POST",
+          headers: { "Lovable-API-Key": key, "Content-Type": "application/json" },
+          body: JSON.stringify({ model: MODEL, messages, temperature: 0.4 }),
+          signal: stepCtrl.signal,
+        });
+      } catch (e) {
+        const timedOut = e instanceof Error && e.name === "AbortError";
+        await logEvent("error", {
+          phase: "ai_loop",
+          message: timedOut
+            ? `Step timed out after ${STEP_TIMEOUT_MS / 1000}s`
+            : `Gateway request failed: ${e instanceof Error ? e.message : "unknown"}`,
+        });
+        break;
+      } finally {
+        clearTimeout(stepTimeout);
+      }
       if (resp.status === 429) { await logEvent("error", { phase: "ai_loop", message: "Rate limit" }); break; }
       if (resp.status === 402) { await logEvent("error", { phase: "ai_loop", message: "AI credits exhausted" }); break; }
       if (!resp.ok) {
@@ -1281,8 +1352,21 @@ Rules:
         break;
       }
       const data = await resp.json();
+      // Meter this reasoning-loop call against the org's daily spend cap
+      // (warns at 90%, auto-trips the kill switch at 100%) -- same call
+      // shape control-engine already uses for its own gateway calls.
+      await recordAiSpend(supabase, userId, MODEL, data?.usage, "agent-runtime", agentId);
+      runSpendUsd += estimateCostUsd(MODEL, data?.usage);
       const raw: string = data?.choices?.[0]?.message?.content ?? "";
       messages.push({ role: "assistant", content: raw });
+
+      if (runSpendUsd >= MAX_RUN_SPEND_USD) {
+        await logEvent("error", {
+          phase: "spend_ceiling",
+          message: `Run stopped after spending $${runSpendUsd.toFixed(2)} of this run's own $${MAX_RUN_SPEND_USD.toFixed(2)} ceiling — independent of the account's daily cap.`,
+        });
+        break;
+      }
 
       const parsed = extractAction(raw);
       if (!parsed) {
@@ -1386,6 +1470,25 @@ Rules:
         }
         const input = validation.data;
 
+        // Identical-action loop detection for tools the control gate never
+        // sees (see UNGATED_TOOL_KINDS above). Hashes (kind, input) rather
+        // than a step counter, since these tools have no circuit breaker of
+        // their own to eventually intervene.
+        if (UNGATED_TOOL_KINDS.has(tool.kind)) {
+          const repeatKey = `${tool.kind}::${JSON.stringify(input)}`;
+          const priorAttempts = recentUngatedCalls.get(repeatKey) ?? 0;
+          if (priorAttempts >= UNGATED_REPEAT_LIMIT) {
+            await logEvent("reason", {
+              thought: `Intercepted a repeat of "${tool.name}" with identical input — already tried ${priorAttempts} times this run with no new outcome.`,
+            });
+            messages.push({
+              role: "user",
+              content: `"${tool.name}" was NOT run again — you've already called it with this exact input ${priorAttempts} times this run and it won't produce a different result. Try a genuinely different input, a different tool, or move on to finishing with what you already have.`,
+            });
+            continue;
+          }
+          recentUngatedCalls.set(repeatKey, priorAttempts + 1);
+        }
 
         // Retry-alternative-first guard: block ask_user until the model has
         // tried at least one different tool after the last failure.
@@ -3015,6 +3118,7 @@ Reply with ONE fenced JSON block:
       });
       if (gResp.ok) {
         const gData = await gResp.json();
+        await recordAiSpend(supabase, userId, MODEL, gData?.usage, "agent-runtime-grading", agentId);
         const raw = gData?.choices?.[0]?.message?.content ?? "";
         const parsed = extractAction(raw);
         if (parsed) {
@@ -3092,8 +3196,8 @@ function extractAction(raw: string): Record<string, unknown> | null {
 
 
 async function executeTool(
-  tool: Tool, input: Record<string, unknown>, _supabase: SupabaseClient,
-  _agentId: string, _runId: string, _userId: string,
+  tool: Tool, input: Record<string, unknown>, supabase: SupabaseClient,
+  agentId: string, _runId: string, userId: string,
   logEvent: (k: string, p: Record<string, unknown>) => Promise<unknown>,
 ): Promise<{ summary: string; error?: boolean }> {
   try {
@@ -3115,6 +3219,7 @@ async function executeTool(
       });
       if (!resp.ok) return { summary: `Search gateway ${resp.status}`, error: true };
       const data = await resp.json();
+      await recordAiSpend(supabase, userId, MODEL, data?.usage, "agent-runtime-tool", agentId);
       return { summary: (data?.choices?.[0]?.message?.content ?? "(empty)").slice(0, 1200) };
     }
     if (tool.kind === "http_get") {
@@ -3165,6 +3270,7 @@ async function executeTool(
       });
       if (!resp.ok) return { summary: `deep_analyze gateway ${resp.status}`, error: true };
       const data = await resp.json();
+      await recordAiSpend(supabase, userId, DEEP_MODEL, data?.usage, "agent-runtime-tool", agentId);
       return { summary: (data?.choices?.[0]?.message?.content ?? "(empty)").slice(0, 3500) };
     }
     if (tool.kind === "audit_url") {
@@ -3194,6 +3300,7 @@ async function executeTool(
       });
       if (!resp.ok) return { summary: `audit_url gateway ${resp.status}`, error: true };
       const data = await resp.json();
+      await recordAiSpend(supabase, userId, DEEP_MODEL, data?.usage, "agent-runtime-tool", agentId);
       return { summary: (data?.choices?.[0]?.message?.content ?? "(empty)").slice(0, 3500) };
     }
     if (tool.kind === "make_plan") {
@@ -3215,6 +3322,7 @@ async function executeTool(
       });
       if (!resp.ok) return { summary: `make_plan gateway ${resp.status}`, error: true };
       const data = await resp.json();
+      await recordAiSpend(supabase, userId, DEEP_MODEL, data?.usage, "agent-runtime-tool", agentId);
       return { summary: (data?.choices?.[0]?.message?.content ?? "(empty)").slice(0, 3000) };
     }
     return { summary: `Unknown tool kind ${tool.kind}.`, error: true };

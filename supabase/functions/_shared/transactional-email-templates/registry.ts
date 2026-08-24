@@ -15,6 +15,7 @@ import { template as controlDigest } from './control-digest.tsx'
 import { template as controlWeeklyTrend } from './control-weekly-trend.tsx'
 import { template as accountInvite } from './account-invite.tsx'
 import { template as controlMonthlyReport } from './control-monthly-report.tsx'
+import { template as criticalAlert } from './critical-alert.tsx'
 
 export const TEMPLATES: Record<string, TemplateEntry> = {
   'welcome-nazai': welcomeNazai,
@@ -23,4 +24,5 @@ export const TEMPLATES: Record<string, TemplateEntry> = {
   'control-weekly-trend': controlWeeklyTrend,
   'account-invite': accountInvite,
   'control-monthly-report': controlMonthlyReport,
+  'critical-alert': criticalAlert,
 }

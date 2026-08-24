@@ -119,6 +119,7 @@ Deno.serve(async (req) => {
       status: "connected",
       last_verified_at: now,
       last_error: null,
+      revoked_alerted_at: null,
     };
     const persistence = existing?.id
       ? admin.from("agent_integrations").update(integrationRow).eq("id", existing.id)

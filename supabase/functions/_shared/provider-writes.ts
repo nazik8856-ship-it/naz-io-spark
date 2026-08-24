@@ -20,6 +20,7 @@ import { readSecret } from "./integration-secrets.ts";
 import { canvaAuthedFetch } from "./canva.ts";
 import { figmaAuthedFetch } from "./figma.ts";
 import { fetchWithRetry } from "./fetch-retry.ts";
+import { diffSheetWrite } from "./sheet-diff.ts";
 
 export type WriteResult = {
   ok: boolean;
@@ -220,11 +221,27 @@ export async function notionUpdatePage(
       if (!r.ok) return fail(`Notion page NOT updated: ${String(b?.message || `HTTP ${r.status}`)}`, pageId);
     }
     if (appendMd) {
+      const wantBlocks = notionBlocks(appendMd);
       const r = await fetchWithRetry(`https://api.notion.com/v1/blocks/${pageId}/children`, {
-        method: "PATCH", headers: NOTION_HEADERS(token), body: JSON.stringify({ children: notionBlocks(appendMd) }),
+        method: "PATCH", headers: NOTION_HEADERS(token), body: JSON.stringify({ children: wantBlocks }),
       });
       const b = await r.json().catch(() => ({}));
       if (!r.ok) return fail(`Notion content append failed: ${String(b?.message || `HTTP ${r.status}`)}`, pageId);
+      const created = Array.isArray(b?.results) ? (b.results as { id?: string }[]) : [];
+      if (created.length !== wantBlocks.length || created.some((c) => !c.id)) {
+        return fail(`Notion accepted the append but only created ${created.length} of ${wantBlocks.length} expected block(s). Treat as failed.`, pageId);
+      }
+      // Re-fetch the LAST appended block independently by its own id (not the
+      // create response we just got) to confirm the content actually landed.
+      const lastId = created[created.length - 1].id as string;
+      const lastWant = wantBlocks[wantBlocks.length - 1].paragraph.rich_text[0].text.content;
+      const br = await fetchWithRetry(`https://api.notion.com/v1/blocks/${lastId}`, { headers: NOTION_HEADERS(token) });
+      const bb = await br.json().catch(() => ({}));
+      const gotText = ((bb?.paragraph?.rich_text as { plain_text?: string; text?: { content?: string } }[] | undefined) || [])
+        .map((t) => t.plain_text ?? t.text?.content ?? "").join("");
+      if (!br.ok || gotText !== lastWant) {
+        return fail(`Notion append could NOT be verified by re-reading the new block (expected the appended text, found something else). Treat as failed.`, pageId);
+      }
     }
   } catch (e) {
     return fail(`Notion update failed: ${e instanceof Error ? e.message : String(e)}`, pageId);
@@ -238,6 +255,13 @@ export async function notionUpdatePage(
   }
   if (archived !== undefined && vb?.archived !== archived) {
     return fail(`Notion archived state did not change (still archived=${vb?.archived}). Treat as failed.`, pageId);
+  }
+  if (title) {
+    const titleParts = (vb?.properties?.title?.title as { plain_text?: string; text?: { content?: string } }[] | undefined) || [];
+    const gotTitle = titleParts.map((t) => t.plain_text ?? t.text?.content ?? "").join("").trim();
+    if (gotTitle !== title.slice(0, 200)) {
+      return fail(`Notion title did NOT change as requested (still "${gotTitle || "(unchanged)"}"). Treat as failed.`, pageId);
+    }
   }
   const url = (vb.url as string) || `https://www.notion.so/${pageId.replace(/-/g, "")}`;
   return {
@@ -878,6 +902,8 @@ async function googleEditSheet(
   const vb = await gJson(vr);
   const got = (vb as { values?: unknown[][] }).values || [];
   if (!vr.ok || !got.length) return fail(`The update could not be verified when re-reading ${range}: ${gErr(vb, vr)}.`, sheetId, range);
+  const diff = diffSheetWrite(values, got);
+  if (!diff.ok) return fail(`The update could not be verified when re-reading ${range}: ${diff.reason}.`, sheetId, range);
   return {
     ok: true,
     summary: `Range ${range} in sheet ${sheetId} was really updated and verified by re-reading ${got.length} row(s).`,

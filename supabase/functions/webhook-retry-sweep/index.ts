@@ -8,6 +8,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildSignaturePayload, handleWebhookDeliveryOutcome } from "../_shared/webhooks.ts";
 import { isRetryEligible, computeNextRetryAt } from "../_shared/webhook-retry.ts";
+import { previousSecretActive } from "../_shared/webhook-secret-rotation.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -44,6 +45,18 @@ Deno.serve(async (req) => {
 
   const admin = createClient(Deno.env.get("SUPABASE_URL")!, serviceKey);
 
+  // Clear out expired previous_secret values -- once a rotated-out secret's
+  // grace window has passed, deliveries should stop dual-signing with it.
+  // Piggybacks on this sweep's existing 5-minute cron rather than a new
+  // scheduled function, since it's a small, unrelated-but-webhook-scoped
+  // cleanup pass over the same table.
+  const { error: rotationClearErr } = await admin
+    .from("webhooks")
+    .update({ previous_secret: null, previous_secret_expires_at: null })
+    .not("previous_secret_expires_at", "is", null)
+    .lt("previous_secret_expires_at", new Date().toISOString());
+  if (rotationClearErr) console.error(`[WEBHOOK RETRY SWEEP] failed to clear expired previous_secret values: ${rotationClearErr.message}`);
+
   const { data: due, error: dueErr } = await admin
     .from("webhook_deliveries")
     .select("id, webhook_id, user_id, event, payload, attempt, original_delivery_id")
@@ -59,10 +72,13 @@ Deno.serve(async (req) => {
   for (const d of (due ?? []) as DueDelivery[]) {
     const { data: hookRow } = await admin
       .from("webhooks")
-      .select("id, url, secret, enabled, alerted_at")
+      .select("id, url, secret, enabled, alerted_at, previous_secret, previous_secret_expires_at")
       .eq("id", d.webhook_id)
       .maybeSingle();
-    const hook = hookRow as { id: string; url: string; secret: string; enabled: boolean; alerted_at: string | null } | null;
+    const hook = hookRow as {
+      id: string; url: string; secret: string; enabled: boolean; alerted_at: string | null;
+      previous_secret: string | null; previous_secret_expires_at: string | null;
+    } | null;
     if (!hook || !hook.enabled) {
       results.push({ id: d.id, retried: false });
       continue;
@@ -74,16 +90,21 @@ Deno.serve(async (req) => {
     let ok = false;
     let errMsg: string | null = null;
     try {
-      const signature = await hmacHex(hook.secret, buildSignaturePayload(timestamp, body));
+      const signaturePayload = buildSignaturePayload(timestamp, body);
+      const signature = await hmacHex(hook.secret, signaturePayload);
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        "X-NazAI-Event": d.event,
+        "X-NazAI-Timestamp": timestamp,
+        "X-NazAI-Signature": signature,
+        "X-NazAI-Retry-Attempt": String(d.attempt + 1),
+      };
+      if (previousSecretActive(hook)) {
+        headers["X-NazAI-Signature-Previous"] = await hmacHex(hook.previous_secret as string, signaturePayload);
+      }
       const resp = await fetch(hook.url, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-NazAI-Event": d.event,
-          "X-NazAI-Timestamp": timestamp,
-          "X-NazAI-Signature": signature,
-          "X-NazAI-Retry-Attempt": String(d.attempt + 1),
-        },
+        headers,
         body,
         signal: AbortSignal.timeout(8000),
       });

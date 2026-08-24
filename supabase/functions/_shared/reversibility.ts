@@ -81,6 +81,21 @@ export const REVERSIBILITY: Record<string, Reversibility> = {
   edit_doc: NONE("Document edits are appended in place and the previous body is not snapshotted, so there is nothing to restore."),
   edit_sheet: NONE("Sheet range edits are not snapshotted before writing, so the previous values cannot be restored."),
   http_post: NONE("An external webhook call cannot be taken back."),
+  // These three previously fell through to the generic fallback message by
+  // omission, not a reasoned decision. All three share a real, more
+  // consequential reason to stay NONE for now, on top of any per-kind
+  // one: agent-runtime's own inline tool dispatch for these kinds (and,
+  // confirmed while investigating this, its PROVIDER_WRITE_KINDS dispatch
+  // too) never inserts an action_reversals row at all -- only actions
+  // executed directly through control-engine's own dispatch do. So even a
+  // kind with a real, technically-straightforward compensating action has
+  // no undo mechanism actually wired to invoke it today. Marking these
+  // reversible:true would overstate what's actually available; a real fix
+  // (wiring action_reversals into agent-runtime's own dispatch) is a
+  // separate, larger structural item, not folded into this one.
+  generate_report: NONE("Saved as an agent_reports row -- deleting it would be straightforward, but agent-runtime's tool dispatch never records an action_reversals entry for it, so there is no undo mechanism wired to invoke that delete."),
+  schedule_followup: NONE("Creates a new scheduled agent_runs row -- cancelling it would be straightforward, but agent-runtime's tool dispatch never records an action_reversals entry for it, so there is no undo mechanism wired to invoke that cancellation."),
+  upsert_client_note: NONE("Appends to a client's note history in place (or creates a new client record) with no pre-write snapshot of which case applied or what the prior notes were, the same reason edit_doc/edit_sheet are not reversible -- and, like the two above, agent-runtime's tool dispatch never records an action_reversals entry for it either."),
 };
 
 export function reversibilityFor(kind: string): Reversibility {

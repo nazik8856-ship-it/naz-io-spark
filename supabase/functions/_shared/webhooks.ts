@@ -7,6 +7,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isRetryEligible, isExhausted, computeNextRetryAt } from "./webhook-retry.ts";
 import { sendCriticalAlert } from "./critical-alerts.ts";
+import { previousSecretActive } from "./webhook-secret-rotation.ts";
 
 export const WEBHOOK_EVENTS = [
   "approval_created",
@@ -15,11 +16,15 @@ export const WEBHOOK_EVENTS = [
   "incident_resolved",
   // Fires on every logged decision (SIEM/observability export) -- opt-in,
   // like every other event: a webhook only receives it if "decision_logged"
-  // is explicitly in its own `events` list. Wired from the two real
-  // decision-logging chokepoints (control-gate.ts's logStop for
-  // deterministic stops, decision-scoring.ts's logDecision for the
-  // model-scored path) -- NOT yet from the rarer kill-switch-trip and
-  // undo-record logging paths, a documented gap, not a silent one.
+  // is explicitly in its own `events` list. Wired from every real
+  // decision-logging chokepoint: control-gate.ts's logStop (deterministic
+  // stops), decision-scoring.ts's logDecision (the model-scored path, also
+  // used by control-engine's real /undo route), spend-guard.ts's two
+  // direct kill-switch-trip inserts, and the two human_override inserts
+  // (control-engine's break-glass /override route, agent-runtime's
+  // low-confidence-escalation resume flow) that bypass logStop/logDecision.
+  // control-gate.ts's gate_error and circuit_breaker_trip event inserts
+  // still bypass this -- a real, separate, out-of-scope gap, not silent.
   "decision_logged",
 ] as const;
 export type WebhookEvent = typeof WEBHOOK_EVENTS[number];
@@ -36,7 +41,14 @@ async function hmacHex(secret: string, message: string): Promise<string> {
   return Array.from(new Uint8Array(sig)).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-type Hook = { id: string; url: string; secret: string; events: string[] };
+type Hook = {
+  id: string;
+  url: string;
+  secret: string;
+  events: string[];
+  previous_secret?: string | null;
+  previous_secret_expires_at?: string | null;
+};
 
 /**
  * Clears a webhook's dead-letter flag on any successful delivery, or fires
@@ -79,7 +91,7 @@ export async function triggerWebhooks(
   try {
     const { data } = await admin
       .from("webhooks")
-      .select("id, url, secret, events, alerted_at")
+      .select("id, url, secret, events, alerted_at, previous_secret, previous_secret_expires_at")
       .eq("user_id", userId)
       .eq("enabled", true);
     const hooks = ((data ?? []) as (Hook & { alerted_at?: string | null })[]).filter((h) => Array.isArray(h.events) && h.events.includes(event));
@@ -93,15 +105,23 @@ export async function triggerWebhooks(
       let ok = false;
       let errMsg: string | null = null;
       try {
-        const signature = await hmacHex(hook.secret, buildSignaturePayload(timestamp, body));
+        const signaturePayload = buildSignaturePayload(timestamp, body);
+        const signature = await hmacHex(hook.secret, signaturePayload);
+        const headers: Record<string, string> = {
+          "Content-Type": "application/json",
+          "X-NazAI-Event": event,
+          "X-NazAI-Timestamp": timestamp,
+          "X-NazAI-Signature": signature,
+        };
+        // While a rotated-out secret is still inside its grace window, sign
+        // with it too so the receiver can swap in the new secret on their
+        // own schedule instead of at the exact moment of rotation.
+        if (previousSecretActive(hook)) {
+          headers["X-NazAI-Signature-Previous"] = await hmacHex(hook.previous_secret as string, signaturePayload);
+        }
         const resp = await fetch(hook.url, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-NazAI-Event": event,
-            "X-NazAI-Timestamp": timestamp,
-            "X-NazAI-Signature": signature,
-          },
+          headers,
           body,
           signal: AbortSignal.timeout(8000),
         });

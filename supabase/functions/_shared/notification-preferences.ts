@@ -4,9 +4,14 @@
 // logic, shared by every scheduled notification function (digest, weekly
 // trend, monthly report).
 
-export type NotificationChannel = "digest_enabled" | "weekly_trend_enabled";
+export type NotificationChannel = "digest_enabled" | "weekly_trend_enabled" | "critical_alert_email_enabled";
 
-export type PreferenceRow = { recipient_id: string; digest_enabled: boolean; weekly_trend_enabled: boolean };
+export type PreferenceRow = {
+  recipient_id: string;
+  digest_enabled: boolean;
+  weekly_trend_enabled: boolean;
+  critical_alert_email_enabled?: boolean;
+};
 export type MemberRow = { member_id: string | null; email: string; status: string };
 export type Recipient = { recipientId: string; email: string };
 

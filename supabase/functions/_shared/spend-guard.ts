@@ -11,6 +11,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { slackPostMessage } from "./provider-writes.ts";
 import { sendCriticalAlert } from "./critical-alerts.ts";
+import { triggerWebhooks } from "./webhooks.ts";
 
 export const DEFAULT_DAILY_CAP_USD = 5.0;
 
@@ -20,6 +21,7 @@ const PRICES: Record<string, [number, number]> = {
   "google/gemini-2.5-flash": [0.3, 2.5],
   "google/gemini-2.5-flash-lite": [0.1, 0.4],
   "google/gemini-2.5-pro": [1.25, 10],
+  "google/gemini-3.1-pro-preview": [1.25, 10],
   "openai/gpt-5-mini": [0.25, 2],
   default: [0.3, 2.5],
 };
@@ -256,6 +258,14 @@ async function enforceAccountSpendCap(
         source: "ai_spend_cap",
         escalated: true,
       }).select("id").maybeSingle();
+      const killSwitchDecisionId = (logged as { id?: string } | null)?.id ?? null;
+      if (killSwitchDecisionId) {
+        try {
+          await triggerWebhooks(admin, userId, "decision_logged", {
+            id: killSwitchDecisionId, decision: "KILL_SWITCH_ON (daily AI spend cap)", source: "ai_spend_cap", escalated: true, agent_id: null,
+          });
+        } catch { /* ignore */ }
+      }
       via = await sendCriticalAlert(admin, userId, {
         event: "kill_switch_auto",
         summary: text,
@@ -330,6 +340,14 @@ async function enforceAgentSpendCap(
         source: "ai_spend_cap",
         escalated: true,
       }).select("id").maybeSingle();
+      const agentKillSwitchDecisionId = (logged as { id?: string } | null)?.id ?? null;
+      if (agentKillSwitchDecisionId) {
+        try {
+          await triggerWebhooks(admin, userId, "decision_logged", {
+            id: agentKillSwitchDecisionId, decision: "AGENT_KILL_SWITCH_ON (daily AI spend cap)", source: "ai_spend_cap", escalated: true, agent_id: agentId,
+          });
+        } catch { /* ignore */ }
+      }
       via = await sendCriticalAlert(admin, userId, {
         event: "kill_switch_auto",
         summary: text,
