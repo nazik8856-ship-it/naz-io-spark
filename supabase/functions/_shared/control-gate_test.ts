@@ -787,6 +787,28 @@ Deno.test("anomaly: the org's strictness dial (profiles.control_strictness) is a
   assertEquals(result.source, "anomaly_detector");
 });
 
+Deno.test("anomaly: this agent's OWN strictness override is used, not just the account default (regression: agentId was previously dropped)", async () => {
+  // Account default is balanced (no profiles.control_strictness row at
+  // all) -- balanced needs 3 days of history to ever flag anything, so with
+  // only 2 days this would stay silent UNLESS the agent's own "strict"
+  // override (which only needs 2 days) is actually read. Proves
+  // loadStrictness is called with agentId, not just userId.
+  const { client } = fakeSupabase({
+    agent_strictness_overrides: { data: { strictness: "strict" }, error: null },
+    agent_events: {
+      data: [
+        { payload: { type: "slack_post_message", ok: true }, created_at: "2026-08-01T10:00:00Z" },
+        { payload: { type: "slack_post_message", ok: true }, created_at: "2026-08-02T10:00:00Z" },
+      ],
+      error: null,
+    },
+    pending_approvals: { data: { id: "approval-anomaly-override" }, error: null },
+  });
+  const result = await runControlGate(client, { ...baseCtx, agentId: "agent-4" });
+  assertFalse(result.ok, "the agent's own strict override must be honored, not silently ignored in favor of the account default");
+  assertEquals(result.source, "anomaly_detector");
+});
+
 // ---- fail-closed on unexpected errors --------------------------------------
 
 Deno.test("an unexpected DB error mid-gate fails CLOSED (blocked), never open (allowed)", async () => {

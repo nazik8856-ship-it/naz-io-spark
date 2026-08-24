@@ -664,7 +664,12 @@ async function runControlGateInner(
   // Only meaningful when this action is tied to a specific agent with its own
   // history to baseline against — a one-off chat-originated action has none.
   if (agentId) {
-    const anomalyStrictness = await loadStrictness(admin, userId);
+    // Was previously dropping agentId, so an agent's own strictness override
+    // (agent_strictness_overrides) was silently ignored here -- a "Strict"
+    // agent got the account's default anomaly tolerance instead of its own,
+    // contradicting this file's own header comment that anomaly sensitivity
+    // "scales with the same org strictness dial as the confidence bar."
+    const anomalyStrictness = await loadStrictness(admin, userId, agentId);
     const baseline = await loadAgentBaseline(admin, agentId);
     const todayCount = (await countTodaySuccesses(admin, agentId, actionType)) + 1; // +1: the one about to run
     const anomaly = detectAnomaly(baseline, actionType, todayCount, {}, anomalyStrictness);
