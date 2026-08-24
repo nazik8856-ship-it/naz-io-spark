@@ -26,6 +26,7 @@ import { checkApprovalQuorum } from "../_shared/quorum.ts";
 import { claimIdempotencyKey, saveIdempotencyResponse, releaseIdempotencyKey, claimRowOnce, releaseRowClaim, type ClaimResult } from "../_shared/idempotency.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { triggerWebhooks } from "../_shared/webhooks.ts";
+import { loadActiveConfidenceBucketFlags, widenThresholdForFlags } from "../_shared/confidence-bucket-flags.ts";
 
 // Generous enough that a legitimate agent-runtime run bursting several
 // assess_only calls, or a human actively using the chat, never trips it —
@@ -789,7 +790,16 @@ serve(async (req) => {
     const conf = readConfidence(parsed);
     if (fitEvidence.nudge) conf.score = Math.max(0, Math.min(100, conf.score + fitEvidence.nudge));
     const alternatives = normalizeAlternatives(parsed.alternatives);
-    const threshold = thresholdForRisk(riskTier, baseThreshold, strictness);
+    // A bucket flagged severely miscalibrated (calibrate-confidence's
+    // weekly job, on real measured outcomes) widens the effective threshold
+    // for any decision scored inside that exact range, until a human
+    // clears the flag -- fail toward more review, never less.
+    const activeConfidenceFlags = await loadActiveConfidenceBucketFlags(supabase, userId);
+    const threshold = widenThresholdForFlags(
+      thresholdForRisk(riskTier, baseThreshold, strictness),
+      conf.score,
+      activeConfidenceFlags,
+    );
     // Blast-radius rule: an action that CANNOT be undone and is high risk
     // always needs a human, no matter how confident the model is.
     const reversibility = reversibilityFor(actionType);

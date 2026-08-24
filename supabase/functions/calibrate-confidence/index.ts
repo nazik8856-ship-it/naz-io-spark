@@ -9,6 +9,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
+import { flagBucketIfNew } from "../_shared/confidence-bucket-flags.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -128,10 +129,29 @@ Deno.serve(async (req) => {
         // way any other critical control-system event does (Slack/log +
         // an auto-opened incident), not just as a row nobody looks at.
         if (severity === "severe") {
+          const beforeAlert = new Date().toISOString();
           await sendCriticalAlert(supabase, userId, {
             event: "confidence_miscalibrated",
             summary: note!,
           });
+          // Best-effort: find the incident sendCriticalAlert just opened, to
+          // link it on the flag row. Matched on kind + exact summary + opened
+          // since this call started, since sendCriticalAlert doesn't return
+          // the incident id it created. A miss here just means incident_id
+          // stays null -- the flag (and the threshold widening it drives)
+          // still gets created either way.
+          const { data: incRow } = await supabase
+            .from("incidents")
+            .select("id")
+            .eq("user_id", userId)
+            .eq("kind", "confidence_miscalibrated")
+            .eq("summary", note!.slice(0, 2000))
+            .gte("opened_at", beforeAlert)
+            .order("opened_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          const incidentId = (incRow as { id?: string } | null)?.id ?? null;
+          await flagBucketIfNew(supabase, userId, b.min, Math.min(b.max, 100), incidentId);
         }
 
         upserts.push({
