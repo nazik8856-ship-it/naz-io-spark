@@ -6,9 +6,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 import { toCsv } from "@/lib/csv";
 import { filterBySearch } from "@/lib/search-filter";
-
-type TraceStatus = "ok" | "stopped" | "skipped" | "not_reached";
-type TraceEntry = { layer: string; label: string; status: TraceStatus; detail: string | null };
+import { GateTraceList, type TraceEntry } from "@/components/control/GateTraceList";
 
 type DecisionRow = {
   id: string;
@@ -23,36 +21,6 @@ type DecisionRow = {
   created_at: string;
   gate_trace: TraceEntry[] | null;
 };
-
-const TRACE_STATUS_STYLE: Record<TraceStatus, string> = {
-  ok: "text-emerald-400",
-  stopped: "text-rose-400",
-  skipped: "text-zinc-500",
-  not_reached: "text-zinc-600",
-};
-
-const TRACE_STATUS_LABEL: Record<TraceStatus, string> = {
-  ok: "ok",
-  stopped: "stopped here",
-  skipped: "skipped",
-  not_reached: "not reached",
-};
-
-/** Full gate checklist — every layer this decision passed through, not just the one that stopped it. */
-function GateTraceList({ trace }: { trace: TraceEntry[] }) {
-  return (
-    <ul className="mt-2 space-y-1 rounded border border-white/10 bg-black/20 p-2 font-mono text-[10px]">
-      {trace.map((e) => (
-        <li key={e.layer} className="flex flex-wrap items-baseline gap-x-2">
-          <span className={TRACE_STATUS_STYLE[e.status]}>{e.status === "ok" ? "✓" : e.status === "stopped" ? "✕" : "·"}</span>
-          <span className="text-zinc-300">{e.label}:</span>
-          <span className={TRACE_STATUS_STYLE[e.status]}>{TRACE_STATUS_LABEL[e.status]}</span>
-          {e.detail && <span className="text-zinc-500">— {e.detail}</span>}
-        </li>
-      ))}
-    </ul>
-  );
-}
 
 const CONFIDENCE_BAR = 60;
 
