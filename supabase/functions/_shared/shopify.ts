@@ -2,6 +2,7 @@
 // the callback query, authorization URL building, and code→token exchange.
 // Shopify's OAuth flow is documented at:
 // https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens/authorization-code-grant
+import { getRotatableClientSecret, verifyWithClientSecretRotation, withClientSecretRotation } from "./oauth-secret-rotation.ts";
 
 export const SHOPIFY_SCOPES = [
   "read_products",
@@ -73,8 +74,8 @@ function timingSafeEqualHex(a: string, b: string): boolean {
  * with the app's client secret. Compare hex-encoded, timing-safe.
  */
 export async function verifyCallbackHmac(url: URL): Promise<boolean> {
-  const secret = Deno.env.get("SHOPIFY_CLIENT_SECRET") || "";
-  if (!secret) return false;
+  const secrets = getRotatableClientSecret("SHOPIFY_CLIENT_SECRET");
+  if (!secrets.current) return false;
   const providedHmac = url.searchParams.get("hmac");
   if (!providedHmac) return false;
 
@@ -85,8 +86,10 @@ export async function verifyCallbackHmac(url: URL): Promise<boolean> {
   }
   entries.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   const message = entries.map(([k, v]) => `${k}=${v}`).join("&");
-  const computed = await hmacSha256Hex(secret, message);
-  return timingSafeEqualHex(computed.toLowerCase(), providedHmac.toLowerCase());
+  return verifyWithClientSecretRotation(secrets, async (secret) => {
+    const computed = await hmacSha256Hex(secret, message);
+    return timingSafeEqualHex(computed.toLowerCase(), providedHmac.toLowerCase());
+  });
 }
 
 export type ShopifyTokenResponse = {
@@ -95,16 +98,25 @@ export type ShopifyTokenResponse = {
 };
 
 export async function exchangeCode(shop: string, code: string): Promise<ShopifyTokenResponse> {
-  const r = await fetch(`https://${shop}/admin/oauth/access_token`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({
-      client_id: Deno.env.get("SHOPIFY_CLIENT_ID") || "",
-      client_secret: Deno.env.get("SHOPIFY_CLIENT_SECRET") || "",
-      code,
-    }),
-  });
-  const data = await r.json().catch(() => ({}));
+  const secrets = getRotatableClientSecret("SHOPIFY_CLIENT_SECRET");
+  const clientId = Deno.env.get("SHOPIFY_CLIENT_ID") || "";
+  const { r, data } = await withClientSecretRotation(
+    secrets,
+    async (secret) => {
+      const res = await fetch(`https://${shop}/admin/oauth/access_token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ client_id: clientId, client_secret: secret, code }),
+      });
+      return { r: res, data: await res.json().catch(() => ({})) };
+    },
+    // Shopify doesn't consistently document a machine-readable error code
+    // for a bad client_secret specifically -- a 401 on this endpoint (as
+    // opposed to a 400 for a bad/reused authorization code, which Shopify
+    // does use) is the closest available signal that the CLIENT itself,
+    // not the request, was rejected.
+    ({ r, data }) => !r.ok && !data?.access_token && r.status === 401,
+  );
   if (!r.ok || !data?.access_token) {
     throw new Error(data?.error_description || data?.error || `Shopify token exchange failed (${r.status})`);
   }

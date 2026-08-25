@@ -8,6 +8,7 @@
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { readSecret, updateSecret } from "./integration-secrets.ts";
 import { fetchWithRetry } from "./fetch-retry.ts";
+import { getRotatableClientSecret, withClientSecretRotation } from "./oauth-secret-rotation.ts";
 
 // Grouped scope catalogue shown in the NazAI pre-consent screen. Only the
 // groups the user checks are actually included in the authorization URL sent
@@ -76,27 +77,36 @@ type CanvaTokenResponse = {
   scope?: string;
 };
 
-function basicAuthHeader(): string {
+function basicAuthHeader(clientSecret: string): string {
   const clientId = Deno.env.get("CANVA_CLIENT_ID") || "";
-  const clientSecret = Deno.env.get("CANVA_CLIENT_SECRET") || "";
   return "Basic " + btoa(`${clientId}:${clientSecret}`);
 }
 
 export async function exchangeCode(code: string, codeVerifier: string): Promise<CanvaTokenResponse> {
-  const r = await fetch("https://api.canva.com/rest/v1/oauth/token", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Authorization: basicAuthHeader(),
+  const secrets = getRotatableClientSecret("CANVA_CLIENT_SECRET");
+  const { r, data } = await withClientSecretRotation(
+    secrets,
+    async (clientSecret) => {
+      const res = await fetch("https://api.canva.com/rest/v1/oauth/token", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Authorization: basicAuthHeader(clientSecret),
+        },
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          code,
+          redirect_uri: CANVA_REDIRECT_URI,
+          code_verifier: codeVerifier,
+        }),
+      });
+      return { r: res, data: await res.json().catch(() => ({})) };
     },
-    body: new URLSearchParams({
-      grant_type: "authorization_code",
-      code,
-      redirect_uri: CANVA_REDIRECT_URI,
-      code_verifier: codeVerifier,
-    }),
-  });
-  const data = await r.json().catch(() => ({}));
+    // Canva doesn't document a distinct machine-readable code for a bad
+    // client secret vs. a bad authorization code -- 401 (Basic-auth
+    // rejection) is the closest available signal, same caveat as Notion/Figma.
+    ({ r }) => r.status === 401,
+  );
   if (!r.ok) {
     throw new Error(data?.message || data?.error_description || data?.error || `Canva token exchange failed (${r.status})`);
   }
@@ -104,15 +114,26 @@ export async function exchangeCode(code: string, codeVerifier: string): Promise<
 }
 
 export async function refreshToken(refresh_token: string): Promise<CanvaTokenResponse> {
-  const r = await fetch("https://api.canva.com/rest/v1/oauth/token", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Authorization: basicAuthHeader(),
+  const secrets = getRotatableClientSecret("CANVA_CLIENT_SECRET");
+  const { r, data } = await withClientSecretRotation(
+    secrets,
+    async (clientSecret) => {
+      const res = await fetch("https://api.canva.com/rest/v1/oauth/token", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Authorization: basicAuthHeader(clientSecret),
+        },
+        body: new URLSearchParams({ grant_type: "refresh_token", refresh_token }),
+      });
+      return { r: res, data: await res.json().catch(() => ({})) };
     },
-    body: new URLSearchParams({ grant_type: "refresh_token", refresh_token }),
-  });
-  const data = await r.json().catch(() => ({}));
+    // Same collapsed 400/401 range as Figma's own refresh -- still safe to
+    // retry even if the real cause is a revoked refresh token, since both
+    // secrets would then fail identically and the classification below is
+    // unaffected either way.
+    ({ r }) => r.status === 400 || r.status === 401,
+  );
   if (!r.ok) {
     const e = new Error(data?.message || data?.error || `Canva refresh failed (${r.status})`);
     if (r.status === 400 || r.status === 401) (e as unknown as { code?: string }).code = "invalid_grant";

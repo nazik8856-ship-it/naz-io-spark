@@ -4,6 +4,7 @@
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { readSecret, updateSecret } from "./integration-secrets.ts";
 import { fetchWithRetry } from "./fetch-retry.ts";
+import { getRotatableClientSecret, withClientSecretRotation } from "./oauth-secret-rotation.ts";
 
 // Scope groups shown on NazAI's pre-consent screen. The user checks which
 // capabilities to grant; only those scopes are forwarded to Figma's consent
@@ -100,20 +101,29 @@ type FigmaTokenResponse = {
 
 export async function exchangeCode(code: string): Promise<FigmaTokenResponse> {
   const clientId = Deno.env.get("FIGMA_CLIENT_ID") || "";
-  const clientSecret = Deno.env.get("FIGMA_CLIENT_SECRET") || "";
-  const r = await fetch("https://api.figma.com/v1/oauth/token", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Authorization: "Basic " + btoa(`${clientId}:${clientSecret}`),
+  const secrets = getRotatableClientSecret("FIGMA_CLIENT_SECRET");
+  const { r, data } = await withClientSecretRotation(
+    secrets,
+    async (clientSecret) => {
+      const res = await fetch("https://api.figma.com/v1/oauth/token", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Authorization: "Basic " + btoa(`${clientId}:${clientSecret}`),
+        },
+        body: new URLSearchParams({
+          redirect_uri: FIGMA_REDIRECT_URI,
+          code,
+          grant_type: "authorization_code",
+        }),
+      });
+      return { r: res, data: await res.json().catch(() => ({})) };
     },
-    body: new URLSearchParams({
-      redirect_uri: FIGMA_REDIRECT_URI,
-      code,
-      grant_type: "authorization_code",
-    }),
-  });
-  const data = await r.json().catch(() => ({}));
+    // Figma doesn't document a distinct machine-readable code for a bad
+    // client secret vs. a bad authorization code -- 401 (Basic-auth
+    // rejection) is the closest available signal, same caveat as Notion.
+    ({ r }) => r.status === 401,
+  );
   if (!r.ok) {
     throw new Error(data?.message || data?.error_description || data?.error || `Figma token exchange failed (${r.status})`);
   }
@@ -122,16 +132,27 @@ export async function exchangeCode(code: string): Promise<FigmaTokenResponse> {
 
 export async function refreshToken(refresh_token: string): Promise<FigmaTokenResponse> {
   const clientId = Deno.env.get("FIGMA_CLIENT_ID") || "";
-  const clientSecret = Deno.env.get("FIGMA_CLIENT_SECRET") || "";
-  const r = await fetch("https://api.figma.com/v1/oauth/refresh", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Authorization: "Basic " + btoa(`${clientId}:${clientSecret}`),
+  const secrets = getRotatableClientSecret("FIGMA_CLIENT_SECRET");
+  const { r, data } = await withClientSecretRotation(
+    secrets,
+    async (clientSecret) => {
+      const res = await fetch("https://api.figma.com/v1/oauth/refresh", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Authorization: "Basic " + btoa(`${clientId}:${clientSecret}`),
+        },
+        body: new URLSearchParams({ refresh_token }),
+      });
+      return { r: res, data: await res.json().catch(() => ({})) };
     },
-    body: new URLSearchParams({ refresh_token }),
-  });
-  const data = await r.json().catch(() => ({}));
+    // Figma collapses "bad client secret" and "revoked refresh token" into
+    // the same 400/401 range -- retrying with a previous secret here is
+    // still safe even when the real cause is a revoked refresh token: both
+    // secrets will fail identically, and the existing invalid_grant
+    // classification below is unaffected either way.
+    ({ r }) => r.status === 400 || r.status === 401,
+  );
   if (!r.ok) {
     const e = new Error(data?.message || data?.error || `Figma refresh failed (${r.status})`);
     if (r.status === 400 || r.status === 401) (e as unknown as { code?: string }).code = "invalid_grant";
