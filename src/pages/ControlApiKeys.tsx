@@ -182,7 +182,7 @@ export default function ControlApiKeys() {
     setTestBusy(true);
     setTestResult(null);
     try {
-      const resp = await fetch(`${SUPABASE_FUNCTIONS_URL}/control-api`, {
+      const resp = await fetch(`${SUPABASE_FUNCTIONS_URL}/control-api/v1`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${testKey.trim()}` },
         body: JSON.stringify({

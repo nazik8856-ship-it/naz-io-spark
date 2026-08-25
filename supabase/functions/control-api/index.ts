@@ -29,14 +29,21 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { resolveApiKeyAuth } from "../_shared/control-api-auth.ts";
 import { runControlGate } from "../_shared/control-gate.ts";
 import { checkIpRateLimit, checkRateLimit } from "../_shared/rate-limit.ts";
+import { checkApiVersion, CONTROL_API_VERSION } from "../_shared/api-versioning.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const json = (b: unknown, status = 200) =>
-  new Response(JSON.stringify(b), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+// Every response carries api_version, so a caller can tell which version of
+// this API answered without having to remember which URL they hit — an
+// individual call can still override it (none do today).
+const json = (b: Record<string, unknown>, status = 200) =>
+  new Response(JSON.stringify({ api_version: CONTROL_API_VERSION, ...b }), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
 
 const PRE_AUTH_RATE_LIMIT_PER_MINUTE = 60;
 const POST_AUTH_RATE_LIMIT_PER_MINUTE = 30;
@@ -44,6 +51,19 @@ const POST_AUTH_RATE_LIMIT_PER_MINUTE = 30;
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
+
+  // A bare /control-api URL is an alias for CONTROL_API_VERSION (today's
+  // only version); an explicit .../v1 segment is the canonical documented
+  // form. A request naming any OTHER version is rejected outright rather
+  // than silently served by this version's current behavior -- so a real
+  // future v2 has room to actually change shape.
+  const versionCheck = checkApiVersion(new URL(req.url).pathname);
+  if (!versionCheck.ok) {
+    return json({
+      error: "unsupported_version",
+      message: `This Control API only supports ${CONTROL_API_VERSION} today. Requested: ${versionCheck.requested}.`,
+    }, 400);
+  }
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;

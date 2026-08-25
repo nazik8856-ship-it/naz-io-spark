@@ -20,7 +20,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-const EXAMPLE_CURL = `curl -X POST "${SUPABASE_FUNCTIONS_URL}/control-api" \\
+const EXAMPLE_CURL = `curl -X POST "${SUPABASE_FUNCTIONS_URL}/control-api/v1" \\
   -H "Authorization: Bearer nazai_sk_<your key>" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -32,6 +32,7 @@ const EXAMPLE_CURL = `curl -X POST "${SUPABASE_FUNCTIONS_URL}/control-api" \\
   }'`;
 
 const EXAMPLE_RESPONSE = `{
+  "api_version": "v1",
   "verdict": "allow",
   "reason": "No hard rule, safety match, spend cap, or circuit breaker stopped this action.",
   "decision_id": null,
@@ -92,7 +93,22 @@ export default function ControlApiDocs() {
         </Section>
 
         <Section title="Endpoint">
-          <CodeBlock>{`POST ${SUPABASE_FUNCTIONS_URL}/control-api`}</CodeBlock>
+          <CodeBlock>{`POST ${SUPABASE_FUNCTIONS_URL}/control-api/v1`}</CodeBlock>
+          <p className="mt-2 text-xs text-zinc-500">
+            The unversioned <span className="font-mono">{`${SUPABASE_FUNCTIONS_URL}/control-api`}</span> URL
+            still works today too — it's an alias for v1, the only version that exists right now. Use the
+            versioned URL above for anything you're building for the long term.
+          </p>
+        </Section>
+
+        <Section title="Versioning">
+          <p>
+            Every response includes an <span className="font-mono text-cyan-300">api_version</span> field so
+            you always know which version answered. If NazAI ever needs to change this API in a way that would
+            break existing integrations, that change ships as a new version (e.g. v2) at its own URL —{" "}
+            <span className="font-mono">v1</span> keeps working exactly as documented here, unchanged. We won't
+            silently change what v1 does out from under you.
+          </p>
         </Section>
 
         <Section title="Request body">
@@ -158,6 +174,10 @@ export default function ControlApiDocs() {
               </tr>
             </thead>
             <tbody className="text-zinc-300">
+              <tr className="border-b border-white/5">
+                <td className="py-1.5 pr-3 font-mono text-cyan-300">api_version</td>
+                <td className="py-1.5">Which version of this API answered — <span className="font-mono">"v1"</span> today, on every response.</td>
+              </tr>
               <tr className="border-b border-white/5">
                 <td className="py-1.5 pr-3 font-mono text-cyan-300">verdict</td>
                 <td className="py-1.5">
