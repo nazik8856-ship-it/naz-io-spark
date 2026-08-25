@@ -59,6 +59,7 @@ export const AGENT_DECISION_SOURCES = [
   "kill_switch", "ai_spend_cap", "agent_kill_switch", "agent_ai_spend_cap",
   "hard_rule", "circuit_breaker", "circuit_breaker_trip",
   "safety_scanner", "anomaly_detector", "gate_error",
+  "external_api",
 ] as const;
 export type AgentDecisionSource = typeof AGENT_DECISION_SOURCES[number];
 
@@ -72,7 +73,13 @@ export type GateContext = {
   runId?: string | null;
   stepIndex?: number | null;
   dryRun?: boolean;
-  origin: "control-engine" | "agent-runtime" | "agent-approval";
+  origin: "control-engine" | "agent-runtime" | "agent-approval" | "external-api";
+  // Which api_keys row authenticated this request, when origin is
+  // "external-api" -- threaded onto any agent_decisions row this call
+  // logs so a decision is traceable back to a specific key without
+  // exposing the key's raw secret or hash anywhere in the audit log.
+  // Always null for every other origin.
+  apiKeyId?: string | null;
 };
 
 export type ShadowHit = {
@@ -210,6 +217,7 @@ async function runControlGateInner(
   const agentId = ctx.agentId ?? null;
   const runId = ctx.runId ?? null;
   const stepIndex = typeof ctx.stepIndex === "number" ? ctx.stepIndex : null;
+  const apiKeyId = ctx.apiKeyId ?? null;
 
   // ---- 0: pin the policy version that judges this action --------------------
   // The gate reads the ACTIVE policy version's snapshot, not the live tables, so
@@ -269,6 +277,7 @@ async function runControlGateInner(
         provider,
         params: params ?? null,
         description: description ?? null,
+        api_key_id: apiKeyId,
         // The trace array is closed over and already has every entry pushed
         // up to this call site — finalizeTrace fills the rest as not_reached.
         gate_trace: finalizeTrace(trace),
@@ -739,6 +748,7 @@ async function runControlGateInner(
         gate_trace: finalizeTrace(trace),
         action_type: actionType,
         provider,
+        api_key_id: apiKeyId,
       }).select("id").maybeSingle();
       decisionId = (data as { id?: string } | null)?.id ?? null;
     } catch { /* logging must never break the fail-closed block */ }

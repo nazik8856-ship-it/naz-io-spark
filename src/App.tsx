@@ -59,6 +59,8 @@ const ControlHealthView = lazyWithReload(() => import("./pages/ControlHealthView
 const ControlChangeLog = lazyWithReload(() => import("./pages/ControlChangeLog"));
 const ControlCoverageGaps = lazyWithReload(() => import("./pages/ControlCoverageGaps"));
 const ControlWebhooks = lazyWithReload(() => import("./pages/ControlWebhooks"));
+const ControlApiKeys = lazyWithReload(() => import("./pages/ControlApiKeys"));
+const ControlApiDocs = lazyWithReload(() => import("./pages/ControlApiDocs"));
 const ControlComplianceReport = lazyWithReload(() => import("./pages/ControlComplianceReport"));
 const ControlTeam = lazyWithReload(() => import("./pages/ControlTeam"));
 const AcceptInvite = lazyWithReload(() => import("./pages/AcceptInvite"));
@@ -134,6 +136,8 @@ const App = () => (
                 <Route path="/control-system/changes" element={<ControlChangeLog />} />
                 <Route path="/control-system/coverage" element={<ControlCoverageGaps />} />
                 <Route path="/control-system/webhooks" element={<ControlWebhooks />} />
+                <Route path="/control-system/api-keys" element={<ControlApiKeys />} />
+                <Route path="/control-system/api-docs" element={<ControlApiDocs />} />
                 <Route path="/control-system/compliance" element={<ControlComplianceReport />} />
                 <Route path="/control-system/team" element={<ControlTeam />} />
                 <Route path="/control-system/templates" element={<ControlPolicyTemplates />} />

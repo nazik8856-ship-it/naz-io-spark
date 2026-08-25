@@ -141,6 +141,20 @@ serve(async (req) => {
     const userId = userData?.user?.id ?? (isInternal ? internalUserId! : undefined);
     if (!userId) return json({ error: "Not authenticated" }, 401);
 
+    // Trusted decision-source override -- only honored when the caller
+    // actually holds the service-role key (isInternal), so a normal user
+    // JWT holder can never spoof where a decision "came from." Set by
+    // control-api/index.ts when it forwards an external API-key caller's
+    // request in here for the full LLM-scored assessment (mode="full").
+    // Every other internal caller (agent-runtime) never sends this header,
+    // so decisions there keep logging as "model", exactly as before.
+    const decisionSourceHeader = req.headers.get("x-decision-source");
+    const trustedDecisionSource = isInternal && decisionSourceHeader === "external_api" ? "external_api" : null;
+    // Same trust boundary as the decision-source header above -- only
+    // honored when isInternal, so a normal user can never attribute a
+    // decision to an api_keys row that isn't theirs.
+    const trustedApiKeyId = isInternal ? (req.headers.get("x-api-key-id") || null) : null;
+
     // ---- Rate limit --------------------------------------------------------
     // Nothing previously stopped a misbehaving client from hammering this
     // endpoint. Fails OPEN if the limiter itself can't be reached — an
@@ -608,6 +622,7 @@ serve(async (req) => {
       stepIndex: stepIndex ?? null,
       dryRun,
       origin: "control-engine",
+      apiKeyId: trustedApiKeyId,
     });
     const spendStatus = gate.spend;
     void spendStatus;
@@ -867,11 +882,12 @@ serve(async (req) => {
       score: conf.score,
       stepIndex,
       escalated,
-      source: "model",
+      source: trustedDecisionSource ?? "model",
       policyVersion: gate.policyVersion,
       trace: gate.trace,
       actionType,
       provider,
+      apiKeyId: trustedApiKeyId,
     });
 
     await recordShadowHits(decisionId ?? null, decision);

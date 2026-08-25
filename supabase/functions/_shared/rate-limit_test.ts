@@ -1,7 +1,7 @@
 // Real tests for the rate-limit window bucketing + atomic-check wrapper.
 //
 // Run with: deno test --allow-none supabase/functions/_shared/rate-limit_test.ts
-import { computeWindowStart, checkRateLimit } from "./rate-limit.ts";
+import { computeWindowStart, checkRateLimit, checkIpRateLimit } from "./rate-limit.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
@@ -69,5 +69,32 @@ Deno.test("checkRateLimit: fails OPEN (allowed) if the RPC call throws", async (
   const client = { rpc() { throw new Error("network error"); } };
   // deno-lint-ignore no-explicit-any
   const result = await checkRateLimit(client as any, "user-1", "control-engine", 10, 60);
+  assertEquals(result.allowed, true);
+});
+
+// ---- checkIpRateLimit (pre-auth, IP-keyed -- control-api) ------------------
+
+Deno.test("checkIpRateLimit: under the limit is allowed", async () => {
+  const client = fakeClient({ data: 5, error: null });
+  const result = await checkIpRateLimit(client, "1.2.3.4", "control-api-preauth", 10, 60);
+  assertEquals(result, { allowed: true, count: 5, limit: 10 });
+});
+
+Deno.test("checkIpRateLimit: over the limit is blocked", async () => {
+  const client = fakeClient({ data: 11, error: null });
+  const result = await checkIpRateLimit(client, "1.2.3.4", "control-api-preauth", 10, 60);
+  assertEquals(result, { allowed: false, count: 11, limit: 10 });
+});
+
+Deno.test("checkIpRateLimit: fails OPEN (allowed) when the RPC itself errors", async () => {
+  const client = fakeClient({ data: null, error: { message: "db down" } });
+  const result = await checkIpRateLimit(client, "1.2.3.4", "control-api-preauth", 10, 60);
+  assertEquals(result.allowed, true);
+});
+
+Deno.test("checkIpRateLimit: fails OPEN (allowed) if the RPC call throws", async () => {
+  const client = { rpc() { throw new Error("network error"); } };
+  // deno-lint-ignore no-explicit-any
+  const result = await checkIpRateLimit(client as any, "1.2.3.4", "control-api-preauth", 10, 60);
   assertEquals(result.allowed, true);
 });

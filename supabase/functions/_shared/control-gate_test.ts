@@ -112,6 +112,28 @@ Deno.test("kill switch on blocks outright, attributed to kill_switch even when a
   assertEquals(result.hardRule, null, "the hard rule must not be the thing enforced once the kill switch trips first");
 });
 
+Deno.test("a logged block carries apiKeyId onto the agent_decisions row, for tracing an external-api-sourced decision back to its key ('Outer NazAI' plan item 8)", async () => {
+  const { client, inserts } = fakeSupabase({
+    profiles: { data: { kill_switch: true }, error: null },
+    agent_decisions: { data: { id: "decision-1" }, error: null },
+  });
+  const result = await runControlGate(client, { ...baseCtx, origin: "external-api", apiKeyId: "key-1" });
+  assertFalse(result.ok);
+  const logged = (inserts.agent_decisions ?? [])[0] as { api_key_id?: string | null } | undefined;
+  assertEquals(logged?.api_key_id, "key-1");
+});
+
+Deno.test("a logged block has a null api_key_id when the request didn't come through the public Control API", async () => {
+  const { client, inserts } = fakeSupabase({
+    profiles: { data: { kill_switch: true }, error: null },
+    agent_decisions: { data: { id: "decision-1" }, error: null },
+  });
+  const result = await runControlGate(client, baseCtx);
+  assertFalse(result.ok);
+  const logged = (inserts.agent_decisions ?? [])[0] as { api_key_id?: string | null } | undefined;
+  assertEquals(logged?.api_key_id ?? null, null);
+});
+
 Deno.test("daily spend cap over budget blocks, same as the kill switch", async () => {
   const { client } = fakeSupabase({
     ai_spend_caps: { data: { daily_cap_usd: 5, enabled: true }, error: null },
@@ -158,6 +180,7 @@ const CURRENT_MIGRATION_ALLOWS = new Set([
   "agent_kill_switch", "agent_ai_spend_cap",
   "hard_rule", "circuit_breaker", "circuit_breaker_trip",
   "safety_scanner", "anomaly_detector", "gate_error",
+  "external_api",
 ]);
 
 Deno.test("an agent's own kill switch blocks only that agent, source is a constraint-valid value, and a real decisionId is produced", async () => {
