@@ -22,6 +22,7 @@ import {
 import { CAPABILITY_REGISTRY, canOfferTool } from "../_shared/capability-registry.ts";
 import { recordAiSpend } from "../_shared/spend-guard.ts";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
+import { openIncident } from "../_shared/incidents.ts";
 import { runControlGate, createPendingApproval } from "../_shared/control-gate.ts";
 import { checkApprovalQuorum } from "../_shared/quorum.ts";
 import { claimIdempotencyKey, saveIdempotencyResponse, releaseIdempotencyKey, claimRowOnce, releaseRowClaim, type ClaimResult } from "../_shared/idempotency.ts";
@@ -124,6 +125,13 @@ const CHECK_TOOL = {
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  // Hoisted out of the try block (rather than declared with const inside
+  // it) so the outer catch below can still see whichever account this
+  // request belongs to, if resolution got that far before failing --
+  // undefined only for the narrow case of a failure before auth itself
+  // resolves (e.g. a missing platform env var), where there's no account
+  // to attribute a record/alert/incident to in the first place.
+  let userId: string | undefined;
   try {
     const key = Deno.env.get("LOVABLE_API_KEY");
     if (!key) return json({ error: "Missing LOVABLE_API_KEY" }, 500);
@@ -139,7 +147,7 @@ serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const internalUserId = req.headers.get("x-internal-user-id");
     const isInternal = token === serviceKey && !!internalUserId;
-    const userId = userData?.user?.id ?? (isInternal ? internalUserId! : undefined);
+    userId = userData?.user?.id ?? (isInternal ? internalUserId! : undefined);
     if (!userId) return json({ error: "Not authenticated" }, 401);
 
     // Trusted decision-source override -- only honored when the caller
@@ -1199,6 +1207,55 @@ serve(async (req) => {
     return json(responseBody);
 
   } catch (e) {
-    return json({ error: "unexpected", message: String((e as Error)?.message || e) }, 500);
+    const message = String((e as Error)?.message || e);
+    // "15 more items" plan, item 4: this outer catch used to just return a
+    // bare 500 -- no decision row, no alert, no incident, unlike the INNER
+    // gate-logic catch (control-gate.ts's own fail-closed block) which at
+    // least records and alerts. It catches things the inner one never
+    // sees: a missing/invalid auth token making it past getUser() in some
+    // unexpected shape, malformed request bodies, an LLM provider timing
+    // out, or any other uncaught exception anywhere in this large handler.
+    //
+    // Only meaningful when an account is already known -- userId is
+    // undefined only for the narrower case of a failure before auth even
+    // resolved (e.g. a missing platform env var), where there's no
+    // specific customer to attribute a record/alert/incident to; that
+    // case still surfaces via this log line, but a genuinely account-less
+    // alerting path is a separate, bigger undertaking than this item (more
+    // naturally paired with a platform-wide mechanism, not a per-account
+    // one).
+    if (userId) {
+      const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+      let decisionId: string | null = null;
+      try {
+        const { data } = await admin.from("agent_decisions").insert({
+          user_id: userId,
+          decision: "BLOCK control-engine (unexpected error)".slice(0, 400),
+          reasoning: `Blocked — control-engine hit an unhandled error and failed closed.\n${message}`.slice(0, 800),
+          alternatives_considered: [],
+          confidence_score: 100,
+          source: "gate_error",
+          escalated: true,
+        }).select("id").maybeSingle();
+        decisionId = (data as { id?: string } | null)?.id ?? null;
+      } catch { /* logging must never mask the real error below */ }
+      try {
+        await sendCriticalAlert(admin, userId, {
+          event: "gate_error",
+          summary: `control-engine failed with an unhandled error: ${message}`,
+          decisionId,
+        });
+      } catch { /* alerting must never mask the real error below */ }
+      try {
+        await openIncident(admin, userId, {
+          kind: "gate_error",
+          summary: `control-engine failed with an unhandled error: ${message}`,
+          decisionId,
+        });
+      } catch { /* incident tracking must never mask the real error below */ }
+    } else {
+      console.error("control-engine: unhandled error before an account could be resolved:", message);
+    }
+    return json({ error: "unexpected", message }, 500);
   }
 });

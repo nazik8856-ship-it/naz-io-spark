@@ -20,6 +20,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { clearExpiredSpendKillSwitch, clearExpiredAgentSpendKillSwitch, getSpendStatus, getAgentSpendStatus, type SpendStatus } from "./spend-guard.ts";
 import { sendCriticalAlert } from "./critical-alerts.ts";
+import { openIncident } from "./incidents.ts";
 import { scanAction, type SafetyRule, type SafetyScan } from "./safety-scanner.ts";
 import { countTodaySuccesses, detectAnomaly, loadAgentBaseline, type AnomalyCheck } from "./anomaly-detector.ts";
 import { loadStrictness } from "./decision-scoring.ts";
@@ -761,6 +762,21 @@ async function runControlGateInner(
         provider,
       });
     } catch { /* alerting must never break the fail-closed block */ }
+    // "15 more items" plan, item 4: gate_error is a real, listed
+    // IncidentKind (incidents.ts explicitly calls out "the gate itself
+    // failing closed" as incident-worthy) but this fail-closed block never
+    // actually opened one -- only recorded the decision and alerted.
+    // Fixed alongside control-engine/index.ts's own outer catch getting
+    // the same three-part treatment for the first time.
+    try {
+      await openIncident(admin, userId, {
+        kind: "gate_error",
+        summary: `${reason} (${message})`,
+        actionType,
+        provider,
+        decisionId,
+      });
+    } catch { /* incident tracking must never break the fail-closed block */ }
     return {
       ok: false,
       verdict: "block",

@@ -860,6 +860,31 @@ Deno.test("an unexpected DB error mid-gate fails CLOSED (blocked), never open (a
   assert(typeof result.reason === "string" && result.reason.length > 0, "must explain why it blocked");
 });
 
+Deno.test("an unexpected DB error mid-gate opens a real incident, not just a decision row and an alert", async () => {
+  // gate_error is a real, listed IncidentKind (incidents.ts explicitly
+  // calls out "the gate itself failing closed" as incident-worthy) -- this
+  // asserts the fail-closed block actually opens one, not just logs a
+  // decision and fires a Slack alert.
+  const insertedTables: string[] = [];
+  const client = {
+    from(table: string) {
+      const q = new FakeQuery(() => {
+        if (table === "profiles") throw new Error("simulated connection reset");
+        return { data: null, error: null };
+      });
+      // deno-lint-ignore no-explicit-any
+      (q as any).insert = (row?: unknown) => { insertedTables.push(table); return q; };
+      return q;
+    },
+    rpc() {
+      return new FakeQuery(() => ({ data: null, error: null }));
+    },
+    // deno-lint-ignore no-explicit-any
+  } as any;
+  await runControlGate(client, baseCtx);
+  assert(insertedTables.includes("incidents"), `expected an incidents insert, got tables: ${insertedTables.join(", ")}`);
+});
+
 Deno.test("an unexpected error mid-gate still returns safe no-op recordShadowHits/recordAttempt closures", async () => {
   // Callers unconditionally call gate.recordShadowHits(...) / gate.recordAttempt(...)
   // after checking gate.ok — the fail-closed branch must hand back real,
