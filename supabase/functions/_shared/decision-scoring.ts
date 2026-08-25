@@ -162,6 +162,8 @@ export const logDecision = async (
     /** Structured mirror of what's already embedded in `decision`'s free text -- lets a filterable decision log (or a future real-traffic policy replay) query directly instead of regex-parsing. */
     actionType?: string | null;
     provider?: string | null;
+    /** Which api_keys row authenticated this request, when it came through the public control-api endpoint. Null for every other caller. */
+    apiKeyId?: string | null;
   },
 ): Promise<string | null> => {
   try {
@@ -180,6 +182,7 @@ export const logDecision = async (
       gate_trace: d.trace ?? null,
       action_type: d.actionType ?? null,
       provider: d.provider ?? null,
+      api_key_id: d.apiKeyId ?? null,
     }).select("id").single();
     const decisionId = (data as { id?: string } | null)?.id ?? null;
     if (decisionId) {

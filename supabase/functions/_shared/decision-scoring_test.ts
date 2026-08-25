@@ -256,6 +256,29 @@ Deno.test("logDecision: action_type/provider are null when not supplied, not und
   assertEquals(logged?.provider ?? null, null);
 });
 
+Deno.test("logDecision: writes api_key_id when supplied, for tracing an external-api-sourced decision back to its key ('Outer NazAI' plan item 8)", async () => {
+  const client = fakeSupabase({
+    agent_decisions: { data: { id: "decision-4" }, error: null },
+  });
+  await logDecision(client, { userId: "user-1" }, {
+    decision: "ALLOW send_email (Gmail)", reasoning: "fine", alternatives: [], score: 80,
+    source: "external_api", apiKeyId: "key-1",
+  });
+  const logged = (client.inserts as Record<string, unknown[]>).agent_decisions?.[0] as { api_key_id?: string | null } | undefined;
+  assertEquals(logged?.api_key_id, "key-1");
+});
+
+Deno.test("logDecision: api_key_id is null when not supplied, not undefined/omitted", async () => {
+  const client = fakeSupabase({
+    agent_decisions: { data: { id: "decision-5" }, error: null },
+  });
+  await logDecision(client, { userId: "user-1" }, {
+    decision: "ALLOW something", reasoning: "fine", alternatives: [], score: 80,
+  });
+  const logged = (client.inserts as Record<string, unknown[]>).agent_decisions?.[0] as { api_key_id?: string | null } | undefined;
+  assertEquals(logged?.api_key_id ?? null, null);
+});
+
 Deno.test("loadStrictness: never throws, defaults to balanced on error", async () => {
   // deno-lint-ignore no-explicit-any
   const client = { from: () => { throw new Error("boom"); } } as any;

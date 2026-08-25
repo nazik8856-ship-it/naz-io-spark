@@ -150,6 +150,10 @@ serve(async (req) => {
     // so decisions there keep logging as "model", exactly as before.
     const decisionSourceHeader = req.headers.get("x-decision-source");
     const trustedDecisionSource = isInternal && decisionSourceHeader === "external_api" ? "external_api" : null;
+    // Same trust boundary as the decision-source header above -- only
+    // honored when isInternal, so a normal user can never attribute a
+    // decision to an api_keys row that isn't theirs.
+    const trustedApiKeyId = isInternal ? (req.headers.get("x-api-key-id") || null) : null;
 
     // ---- Rate limit --------------------------------------------------------
     // Nothing previously stopped a misbehaving client from hammering this
@@ -618,6 +622,7 @@ serve(async (req) => {
       stepIndex: stepIndex ?? null,
       dryRun,
       origin: "control-engine",
+      apiKeyId: trustedApiKeyId,
     });
     const spendStatus = gate.spend;
     void spendStatus;
@@ -882,6 +887,7 @@ serve(async (req) => {
       trace: gate.trace,
       actionType,
       provider,
+      apiKeyId: trustedApiKeyId,
     });
 
     await recordShadowHits(decisionId ?? null, decision);

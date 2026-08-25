@@ -104,6 +104,7 @@ Deno.serve(async (req) => {
       userId, actionType, provider, description, params,
       agentId: null, runId: null, stepIndex: null,
       origin: "external-api",
+      apiKeyId: row.key_id ?? null,
     });
     if (!gate.ok) {
       return json({
@@ -135,6 +136,7 @@ Deno.serve(async (req) => {
       Authorization: `Bearer ${serviceKey}`,
       "x-internal-user-id": userId,
       "x-decision-source": "external_api",
+      "x-api-key-id": row.key_id ?? "",
     },
     body: JSON.stringify({ action_type: actionType, provider, description, params, assess_only: true }),
   });
