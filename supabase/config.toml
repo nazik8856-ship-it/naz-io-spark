@@ -98,6 +98,9 @@ verify_jwt = true
 [functions.api-keys]
 verify_jwt = true
 
+[functions.control-api]
+verify_jwt = false
+
 
 
 
