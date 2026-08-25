@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, KeyRound, Plus, Copy, Ban, Check } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { ArrowLeft, KeyRound, Plus, Copy, Ban, Check, Send } from "lucide-react";
+import { supabase, SUPABASE_FUNCTIONS_URL } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 
@@ -40,6 +40,20 @@ export default function ControlApiKeys() {
   const [justCreated, setJustCreated] = useState<{ key: string; name: string } | null>(null);
   const [copied, setCopied] = useState(false);
 
+  // In-app API tester -- fires a REAL request at the public control-api
+  // endpoint, exactly as an external caller would, so a key can be
+  // verified without reaching for curl. Deliberately a plain fetch with
+  // the pasted key as the Bearer token, not supabase.functions.invoke
+  // (which would attach this browser session's own NazAI login instead).
+  const [testKey, setTestKey] = useState("");
+  const [testActionType, setTestActionType] = useState("send_email");
+  const [testProvider, setTestProvider] = useState("Gmail");
+  const [testDescription, setTestDescription] = useState("Reply to a customer inquiry.");
+  const [testParams, setTestParams] = useState("{}");
+  const [testMode, setTestMode] = useState<"fast" | "full">("fast");
+  const [testBusy, setTestBusy] = useState(false);
+  const [testResult, setTestResult] = useState<{ status: number; body: Record<string, unknown> } | null>(null);
+
   const load = useCallback(async () => {
     if (!user) return;
     setLoading(true);
@@ -72,6 +86,7 @@ export default function ControlApiKeys() {
     setName("");
     setJustCreated({ key: res.key, name: res.name || trimmed });
     setCopied(false);
+    setTestKey(res.key);
     load();
   };
 
@@ -95,6 +110,45 @@ export default function ControlApiKeys() {
       setTimeout(() => setCopied(false), 1600);
     } catch {
       toast({ title: "Couldn't copy", description: "Select and copy the key manually.", variant: "destructive" });
+    }
+  };
+
+  const runTest = async () => {
+    if (!testKey.trim()) {
+      toast({ title: "Paste a key first", variant: "destructive" });
+      return;
+    }
+    if (!testActionType.trim() || !testDescription.trim()) {
+      toast({ title: "action_type and description are required", variant: "destructive" });
+      return;
+    }
+    let parsedParams: unknown = {};
+    try {
+      parsedParams = testParams.trim() ? JSON.parse(testParams) : {};
+    } catch {
+      toast({ title: "params must be valid JSON", variant: "destructive" });
+      return;
+    }
+    setTestBusy(true);
+    setTestResult(null);
+    try {
+      const resp = await fetch(`${SUPABASE_FUNCTIONS_URL}/control-api`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${testKey.trim()}` },
+        body: JSON.stringify({
+          action_type: testActionType.trim(),
+          provider: testProvider.trim() || undefined,
+          description: testDescription.trim(),
+          params: parsedParams,
+          mode: testMode,
+        }),
+      });
+      const body = await resp.json().catch(() => ({}));
+      setTestResult({ status: resp.status, body });
+    } catch (e) {
+      setTestResult({ status: 0, body: { error: e instanceof Error ? e.message : "Network error" } });
+    } finally {
+      setTestBusy(false);
     }
   };
 
@@ -208,6 +262,107 @@ export default function ControlApiKeys() {
             ))}
           </ul>
         )}
+
+        <div className="mt-10 rounded border border-white/10 bg-white/[0.02] p-4">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-200">
+            <Send className="h-4 w-4 text-cyan-400" /> Test the API
+          </h2>
+          <p className="mt-1 text-xs text-zinc-400">
+            Sends a real request to the public Control API using the key below — exactly what an external
+            caller would do. Nothing here ever gets carried out; it only returns a verdict.
+          </p>
+
+          <div className="mt-4 grid gap-3">
+            <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+              API key
+              <input
+                value={testKey}
+                onChange={(e) => setTestKey(e.target.value)}
+                placeholder="nazai_sk_..."
+                className="rounded border border-white/10 bg-black/40 px-2 py-1.5 font-mono text-xs text-zinc-200"
+              />
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+                action_type
+                <input
+                  value={testActionType}
+                  onChange={(e) => setTestActionType(e.target.value)}
+                  className="rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+                provider
+                <input
+                  value={testProvider}
+                  onChange={(e) => setTestProvider(e.target.value)}
+                  className="rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200"
+                />
+              </label>
+            </div>
+            <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+              description
+              <input
+                value={testDescription}
+                onChange={(e) => setTestDescription(e.target.value)}
+                className="rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+              params (JSON)
+              <textarea
+                value={testParams}
+                onChange={(e) => setTestParams(e.target.value)}
+                rows={3}
+                className="rounded border border-white/10 bg-black/40 px-2 py-1.5 font-mono text-xs text-zinc-200"
+              />
+            </label>
+            <div className="flex items-center gap-4 text-xs text-zinc-300">
+              <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Mode</span>
+              <label className="flex items-center gap-1.5">
+                <input type="radio" name="test-mode" checked={testMode === "fast"} onChange={() => setTestMode("fast")} className="accent-cyan-500" />
+                fast (deterministic only)
+              </label>
+              <label className="flex items-center gap-1.5">
+                <input type="radio" name="test-mode" checked={testMode === "full"} onChange={() => setTestMode("full")} className="accent-cyan-500" />
+                full (LLM-scored)
+              </label>
+            </div>
+            <button
+              disabled={testBusy}
+              onClick={runTest}
+              className="flex w-fit items-center gap-1.5 rounded border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 font-mono text-[11px] uppercase text-cyan-300 hover:bg-cyan-500/20 disabled:opacity-50"
+            >
+              <Send className="h-3.5 w-3.5" /> {testBusy ? "Sending…" : "Send test request"}
+            </button>
+          </div>
+
+          {testResult && (
+            <div className="mt-4 rounded border border-white/10 bg-black/40 p-3">
+              <div className="flex items-center gap-2 text-[10px] font-mono uppercase tracking-wider">
+                <span className={testResult.status >= 200 && testResult.status < 300 ? "text-emerald-400" : "text-rose-400"}>
+                  HTTP {testResult.status || "network error"}
+                </span>
+                {typeof testResult.body.verdict === "string" && (
+                  <span
+                    className={
+                      testResult.body.verdict === "allow"
+                        ? "text-emerald-400"
+                        : testResult.body.verdict === "block"
+                        ? "text-rose-400"
+                        : "text-amber-400"
+                    }
+                  >
+                    verdict: {String(testResult.body.verdict)}
+                  </span>
+                )}
+              </div>
+              <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-all text-[11px] text-zinc-300">
+                {JSON.stringify(testResult.body, null, 2)}
+              </pre>
+            </div>
+          )}
+        </div>
       </main>
     </div>
   );
