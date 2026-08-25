@@ -158,6 +158,7 @@ const CURRENT_MIGRATION_ALLOWS = new Set([
   "agent_kill_switch", "agent_ai_spend_cap",
   "hard_rule", "circuit_breaker", "circuit_breaker_trip",
   "safety_scanner", "anomaly_detector", "gate_error",
+  "external_api",
 ]);
 
 Deno.test("an agent's own kill switch blocks only that agent, source is a constraint-valid value, and a real decisionId is produced", async () => {

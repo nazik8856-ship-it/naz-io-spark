@@ -59,6 +59,7 @@ export const AGENT_DECISION_SOURCES = [
   "kill_switch", "ai_spend_cap", "agent_kill_switch", "agent_ai_spend_cap",
   "hard_rule", "circuit_breaker", "circuit_breaker_trip",
   "safety_scanner", "anomaly_detector", "gate_error",
+  "external_api",
 ] as const;
 export type AgentDecisionSource = typeof AGENT_DECISION_SOURCES[number];
 
@@ -72,7 +73,7 @@ export type GateContext = {
   runId?: string | null;
   stepIndex?: number | null;
   dryRun?: boolean;
-  origin: "control-engine" | "agent-runtime" | "agent-approval";
+  origin: "control-engine" | "agent-runtime" | "agent-approval" | "external-api";
 };
 
 export type ShadowHit = {
