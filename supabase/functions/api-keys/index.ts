@@ -1,0 +1,90 @@
+// "Outer NazAI" plan, item 3: create / list / revoke API keys.
+//
+// A NazAI user manages their own keys here (verify_jwt = true — normal
+// logged-in-user function). The raw secret is generated here, hashed, and
+// returned to the caller EXACTLY ONCE on creation — matching how every
+// professional API-key product (Stripe, etc.) handles this. It is never
+// persisted in plaintext and never retrievable again after this response;
+// api_keys.key_hash is the only thing stored (see the schema migration for
+// why a fast indexed hash, not bcrypt, is the correct primitive here).
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { sha256Hex, generateRawKey, displayPrefixFor } from "../_shared/api-key-auth.ts";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
+const json = (b: unknown, status = 200) =>
+  new Response(JSON.stringify(b), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  const authHeader = req.headers.get("Authorization") || "";
+  if (!authHeader.startsWith("Bearer ")) return json({ error: "unauthorized" }, 401);
+
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+  const userClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
+    global: { headers: { Authorization: authHeader } },
+  });
+  const { data: userData, error: userErr } = await userClient.auth.getUser();
+  if (userErr || !userData?.user) return json({ error: "unauthorized" }, 401);
+  const userId = userData.user.id;
+
+  const admin = createClient(supabaseUrl, serviceKey);
+  const url = new URL(req.url);
+
+  // ---- POST /api-keys/:id/revoke -------------------------------------------
+  const revokeMatch = url.pathname.match(/\/api-keys\/([0-9a-fA-F-]{36})\/revoke\/?$/);
+  if (req.method === "POST" && revokeMatch) {
+    const keyId = revokeMatch[1];
+    const { data, error } = await admin
+      .from("api_keys")
+      .update({ revoked_at: new Date().toISOString() })
+      .eq("id", keyId)
+      .eq("user_id", userId)
+      .is("revoked_at", null)
+      .select("id")
+      .maybeSingle();
+    if (error) return json({ error: error.message }, 500);
+    if (!data) return json({ ok: true, already_revoked: true });
+    return json({ ok: true, revoked: true });
+  }
+
+  // ---- GET /api-keys --------------------------------------------------------
+  if (req.method === "GET") {
+    const { data, error } = await admin
+      .from("api_keys")
+      .select("id, name, key_prefix, scopes, last_used_at, revoked_at, expires_at, created_at")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false });
+    if (error) return json({ error: error.message }, 500);
+    return json({ ok: true, keys: data ?? [] });
+  }
+
+  // ---- POST /api-keys ---------------------------------------------------
+  if (req.method === "POST") {
+    const body = await req.json().catch(() => ({}));
+    const name = String(body?.name || "").trim().slice(0, 120);
+    if (!name) return json({ error: "A name is required for the key (e.g. \"Production integration\")." }, 400);
+
+    const rawKey = generateRawKey();
+    const keyHash = await sha256Hex(rawKey);
+    const displayPrefix = displayPrefixFor(rawKey);
+
+    const { data, error } = await admin
+      .from("api_keys")
+      .insert({ user_id: userId, name, key_prefix: displayPrefix, key_hash: keyHash })
+      .select("id, name, key_prefix, scopes, created_at")
+      .maybeSingle();
+    if (error) return json({ error: error.message }, 500);
+    if (!data) return json({ error: "Couldn't create the key" }, 500);
+
+    return json({ ok: true, key: rawKey, ...data });
+  }
+
+  return json({ error: "Method not allowed" }, 405);
+});
