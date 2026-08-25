@@ -176,6 +176,12 @@ export default function ControlSystem() {
             API Keys
           </button>
           <button
+            onClick={() => navigate("/control-system/api-docs")}
+            className="rounded border border-white/15 bg-white/5 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-zinc-300 hover:bg-white/10"
+          >
+            API Docs
+          </button>
+          <button
             onClick={() => navigate("/control-system/compliance")}
             className="rounded border border-white/15 bg-white/5 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-zinc-300 hover:bg-white/10"
           >
