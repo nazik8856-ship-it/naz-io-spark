@@ -92,6 +92,49 @@ const baseCtx = {
   origin: "control-engine" as const,
 };
 
+// ---- layer 0.5: platform-wide kill switch (must short-circuit even before
+// the per-account spend cap / kill switch) -------------------------------
+
+Deno.test("the platform kill switch blocks every account outright, before the per-account kill switch is even checked", async () => {
+  const { client, calls } = fakeSupabase({
+    platform_settings: { data: { kill_switch: true }, error: null },
+    // If the account-level kill switch were read first (or at all, once
+    // the platform one already stopped everything), this would trip too --
+    // configuring it as OFF here means a false pass could only happen by
+    // the platform check failing to actually short-circuit.
+    profiles: { data: { kill_switch: false }, error: null },
+  });
+  const result = await runControlGate(client, baseCtx);
+  assertFalse(result.ok);
+  assertEquals(result.verdict, "block");
+  assertEquals(result.source, "platform_kill_switch");
+  assert(result.killSwitch);
+  assert(
+    !calls.some((c) => c.table === "profiles"),
+    "the platform-wide stop must short-circuit before the per-account kill switch is even read",
+  );
+});
+
+Deno.test("the platform kill switch off (the default) lets normal per-account gating proceed", async () => {
+  const { client } = fakeSupabase({
+    platform_settings: { data: { kill_switch: false }, error: null },
+    profiles: { data: { kill_switch: false }, error: null },
+  });
+  const result = await runControlGate(client, baseCtx);
+  assert(result.ok, "with both kill switches off, the action must be allowed through this layer");
+});
+
+Deno.test("no platform_settings row at all (not yet configured) behaves the same as it being off, not a crash", async () => {
+  // Mirrors how every other table in this fake defaults to { data: null,
+  // error: null } for anything not explicitly configured -- asserts the
+  // gate treats a missing/null row as "not killed," not an exception.
+  const { client } = fakeSupabase({
+    profiles: { data: { kill_switch: false }, error: null },
+  });
+  const result = await runControlGate(client, baseCtx);
+  assert(result.ok);
+});
+
 // ---- layer 1/2: spend cap + kill switch (must short-circuit first) --------
 
 Deno.test("kill switch on blocks outright, attributed to kill_switch even when a hard rule would ALSO match", async () => {
@@ -180,7 +223,8 @@ const CURRENT_MIGRATION_ALLOWS = new Set([
   "agent_kill_switch", "agent_ai_spend_cap",
   "hard_rule", "circuit_breaker", "circuit_breaker_trip",
   "safety_scanner", "anomaly_detector", "gate_error",
-  "external_api",
+  "external_api", "platform_kill_switch",
+  "kill_switch_flip", "platform_kill_switch_flip",
 ]);
 
 Deno.test("an agent's own kill switch blocks only that agent, source is a constraint-valid value, and a real decisionId is produced", async () => {
