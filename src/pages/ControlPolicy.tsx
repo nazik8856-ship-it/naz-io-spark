@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { supabase, SUPABASE_FUNCTIONS_URL, SUPABASE_ANON } from "@/integrations/supabase/client";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
-import { canWriteAsOwner } from "@/lib/account-switcher";
+import { hasPermission } from "@/lib/account-switcher";
 import { toast } from "@/hooks/use-toast";
 import { diffPolicySnapshots, type PolicySnapshotShape } from "@/lib/policy-diff";
 
@@ -59,8 +59,8 @@ type RealTrafficReplay = {
  */
 export default function ControlPolicy() {
   const navigate = useNavigate();
-  const { accountId, role } = useActiveAccount();
-  const canWrite = canWriteAsOwner(role);
+  const { accountId, role, permissions } = useActiveAccount();
+  const canWrite = hasPermission(role, permissions, "policy");
   const [versions, setVersions] = useState<PolicyVersion[]>([]);
   const [openSnapshot, setOpenSnapshot] = useState<string | null>(null);
   const [replay, setReplay] = useState<Replay | null>(null);

@@ -6,7 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 const anyDb = supabase as any;
 import { useAuth } from "@/hooks/useAuth";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
-import { canWriteAsOwner } from "@/lib/account-switcher";
+import { hasPermission } from "@/lib/account-switcher";
 import { friendlyErrorMessage } from "@/lib/friendly-errors";
 import { toast } from "@/hooks/use-toast";
 import { findSafetyRuleRedundancies } from "@/lib/safety-rule-redundancy";
@@ -47,8 +47,8 @@ const BUILTINS: { name: string; category: string; severity: Severity }[] = [
 export default function ControlSafetyRules() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { accountId, role } = useActiveAccount();
-  const canWrite = canWriteAsOwner(role);
+  const { accountId, role, permissions } = useActiveAccount();
+  const canWrite = hasPermission(role, permissions, "policy");
   const [rules, setRules] = useState<Rule[]>([]);
   const [agents, setAgents] = useState<AgentOption[]>([]);
   const [reports, setReports] = useState<Record<string, ShadowReport>>({});

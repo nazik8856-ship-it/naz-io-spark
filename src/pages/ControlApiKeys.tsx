@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { ArrowLeft, KeyRound, Plus, Copy, Ban, Check, Send } from "lucide-react";
 import { supabase, SUPABASE_FUNCTIONS_URL } from "@/integrations/supabase/client";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
-import { canWriteAsOwner } from "@/lib/account-switcher";
+import { hasPermission } from "@/lib/account-switcher";
 import { toast } from "@/hooks/use-toast";
 
 // api_keys is new (2026-08-26) -- not yet in the generated Supabase types
@@ -44,8 +44,8 @@ function decisionColorClass(decision: string | null): string {
  */
 export default function ControlApiKeys() {
   const navigate = useNavigate();
-  const { accountId, role } = useActiveAccount();
-  const canWrite = canWriteAsOwner(role);
+  const { accountId, role, permissions } = useActiveAccount();
+  const canWrite = hasPermission(role, permissions, "integrations");
   const [keys, setKeys] = useState<ApiKeyRow[]>([]);
   const [activityByKey, setActivityByKey] = useState<Record<string, KeyActivity>>({});
   const [loading, setLoading] = useState(true);

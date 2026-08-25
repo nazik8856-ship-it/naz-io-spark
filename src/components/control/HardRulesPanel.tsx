@@ -5,7 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 const anyDb = supabase as any;
 import { useAuth } from "@/hooks/useAuth";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
-import { canWriteAsOwner } from "@/lib/account-switcher";
+import { hasPermission } from "@/lib/account-switcher";
 import { friendlyErrorMessage } from "@/lib/friendly-errors";
 import { toast } from "@/hooks/use-toast";
 
@@ -47,8 +47,8 @@ const SCOPES: { label: string; pattern: string }[] = [
  */
 export default function HardRulesPanel() {
   const { user } = useAuth();
-  const { accountId, role } = useActiveAccount();
-  const canWrite = canWriteAsOwner(role);
+  const { accountId, role, permissions } = useActiveAccount();
+  const canWrite = hasPermission(role, permissions, "policy");
   const [open, setOpen] = useState(false);
   const [rules, setRules] = useState<HardRule[]>([]);
   const [agents, setAgents] = useState<AgentOption[]>([]);

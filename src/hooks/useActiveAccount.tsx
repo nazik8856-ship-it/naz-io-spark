@@ -1,13 +1,21 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { buildAccountOptions, resolveActiveAccountId, roleForAccount, type AccountOption, type AccountRole } from "@/lib/account-switcher";
+import { buildAccountOptions, resolveActiveAccountId, roleForAccount, permissionsForAccount, type AccountOption, type AccountRole } from "@/lib/account-switcher";
+
+// account_members.permissions (2026-08-27) isn't in the generated Supabase
+// types yet -- same established workaround as every other page touching a
+// recent column this sandbox can't regenerate types for.
+const anyDb = supabase as any;
 
 const STORAGE_KEY = "nazai_active_account_id";
 
 type ActiveAccountContextValue = {
   accountId: string;
   role: AccountRole;
+  // null = this member has unrestricted owner access (the default);
+  // irrelevant for "self"/"approver"/"viewer".
+  permissions: string[] | null;
   accounts: AccountOption[];
   setAccountId: (id: string) => void;
   loading: boolean;
@@ -37,13 +45,13 @@ export function ActiveAccountProvider({ children }: { children: ReactNode }) {
     }
     let cancelled = false;
     setLoading(true);
-    supabase
+    anyDb
       .from("account_members")
-      .select("account_owner_id, role")
+      .select("account_owner_id, role, permissions")
       .eq("member_id", user.id)
       .eq("status", "active")
-      .then(async ({ data }) => {
-        const memberships = (data ?? []) as { account_owner_id: string; role: "owner" | "approver" | "viewer" }[];
+      .then(async ({ data }: { data: unknown }) => {
+        const memberships = (data ?? []) as { account_owner_id: string; role: "owner" | "approver" | "viewer"; permissions: string[] | null }[];
         let ownerNames: Record<string, string> = {};
         if (memberships.length > 0) {
           const { data: owners } = await supabase
@@ -70,9 +78,10 @@ export function ActiveAccountProvider({ children }: { children: ReactNode }) {
   };
 
   const role = useMemo(() => roleForAccount(accounts, accountId), [accounts, accountId]);
+  const permissions = useMemo(() => permissionsForAccount(accounts, accountId), [accounts, accountId]);
 
   return (
-    <ActiveAccountContext.Provider value={{ accountId: accountId || user?.id || "", role, accounts, setAccountId, loading }}>
+    <ActiveAccountContext.Provider value={{ accountId: accountId || user?.id || "", role, permissions, accounts, setAccountId, loading }}>
       {children}
     </ActiveAccountContext.Provider>
   );

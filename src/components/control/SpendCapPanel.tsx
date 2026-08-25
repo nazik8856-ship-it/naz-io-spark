@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 // Stale generated types: control-system tables aren't in types.ts yet.
 const anyDb = supabase as any;
 import { useActiveAccount } from "@/hooks/useActiveAccount";
-import { canWriteAsOwner } from "@/lib/account-switcher";
+import { hasPermission } from "@/lib/account-switcher";
 import { friendlyErrorMessage } from "@/lib/friendly-errors";
 import { toast } from "@/hooks/use-toast";
 import { projectMonthlySpend } from "@/lib/roi-report";
@@ -24,8 +24,8 @@ type AgentOption = { id: string; name: string };
  * until the next UTC day.
  */
 export default function SpendCapPanel() {
-  const { accountId, role } = useActiveAccount();
-  const canWrite = canWriteAsOwner(role);
+  const { accountId, role, permissions } = useActiveAccount();
+  const canWrite = hasPermission(role, permissions, "spend");
   const [agents, setAgents] = useState<AgentOption[]>([]);
   const [scopeAgentId, setScopeAgentId] = useState("");
   const [hasCap, setHasCap] = useState(true); // account-wide always has a cap (auto-created); per-agent may not

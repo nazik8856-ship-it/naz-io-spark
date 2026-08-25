@@ -339,7 +339,7 @@ serve(async (req) => {
       const userClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
         global: { headers: { Authorization: req.headers.get("Authorization") || "" } },
       });
-      return resolveAccountScope(userClient, userId, requested);
+      return resolveAccountScope(userClient, userId, requested, "policy");
     };
 
     // ---- POST /control-engine/approvals/:id/execute -------------------------

@@ -54,7 +54,7 @@ Deno.serve(async (req) => {
   if (req.method === "POST" && revokeMatch) {
     const keyId = revokeMatch[1];
     const body = await req.json().catch(() => ({}));
-    const targetUserId = await resolveAccountScope(userClient, userId, body?.account_id);
+    const targetUserId = await resolveAccountScope(userClient, userId, body?.account_id, "integrations");
     if (!targetUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
 
     const { data, error } = await admin
@@ -72,7 +72,7 @@ Deno.serve(async (req) => {
 
   // ---- GET /api-keys --------------------------------------------------------
   if (req.method === "GET") {
-    const targetUserId = await resolveAccountScope(userClient, userId, url.searchParams.get("account_id"));
+    const targetUserId = await resolveAccountScope(userClient, userId, url.searchParams.get("account_id"), "integrations");
     if (!targetUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
 
     const { data, error } = await admin
@@ -90,7 +90,7 @@ Deno.serve(async (req) => {
     const name = String(body?.name || "").trim().slice(0, 120);
     if (!name) return json({ error: "A name is required for the key (e.g. \"Production integration\")." }, 400);
 
-    const targetUserId = await resolveAccountScope(userClient, userId, body?.account_id);
+    const targetUserId = await resolveAccountScope(userClient, userId, body?.account_id, "integrations");
     if (!targetUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
 
     const rawKey = generateRawKey();

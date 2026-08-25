@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Webhook, Trash2, Plus } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
-import { canWriteAsOwner } from "@/lib/account-switcher";
+import { hasPermission } from "@/lib/account-switcher";
 import { toast } from "@/hooks/use-toast";
 
 const EVENTS = ["approval_created", "approval_escalated", "incident_opened", "incident_resolved", "decision_logged"] as const;
@@ -32,8 +32,8 @@ function randomSecret(): string {
  */
 export default function ControlWebhooks() {
   const navigate = useNavigate();
-  const { accountId, role } = useActiveAccount();
-  const canWrite = canWriteAsOwner(role);
+  const { accountId, role, permissions } = useActiveAccount();
+  const canWrite = hasPermission(role, permissions, "integrations");
   const [hooks, setHooks] = useState<WebhookRow[]>([]);
   const [recentByHook, setRecentByHook] = useState<Record<string, DeliveryRow[]>>({});
   const [loading, setLoading] = useState(true);

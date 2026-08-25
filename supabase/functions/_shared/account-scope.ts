@@ -14,14 +14,19 @@ export type AccountScopeClient = { rpc: (name: string, args: Record<string, unkn
 /**
  * Resolves which account a request should act on: the caller's own id by
  * default (or when no account_id is named), or a different account only
- * if the caller genuinely holds 'owner' role team membership on it.
- * Returns null when a requested account was named but isn't authorized --
- * the caller should treat that as 403, not silently fall back to their own.
+ * if the caller genuinely holds 'owner' role team membership on it --
+ * narrowed further to a specific permission category (e.g. 'integrations',
+ * 'policy') when the caller names one, so an owner-role member restricted
+ * to a subset of the owner write surface can't act outside it just by
+ * calling an edge function directly. Returns null when a requested
+ * account was named but isn't authorized -- the caller should treat that
+ * as 403, not silently fall back to their own.
  */
 export async function resolveAccountScope(
   userClient: AccountScopeClient,
   callerId: string,
   requestedAccountId: unknown,
+  permission?: string,
 ): Promise<string | null> {
   if (typeof requestedAccountId !== "string" || !requestedAccountId || requestedAccountId === callerId) {
     return callerId;
@@ -29,6 +34,7 @@ export async function resolveAccountScope(
   const { data, error } = await userClient.rpc("is_account_member", {
     _account_owner_id: requestedAccountId,
     _min_role: "owner",
+    _permission: permission ?? null,
   });
   if (error || !data) return null;
   return requestedAccountId;

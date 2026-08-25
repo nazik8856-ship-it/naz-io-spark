@@ -43,7 +43,7 @@ Deno.test("resolveAccountScope: a different account_id with real owner membershi
   assertEquals(result, "owner-account-9");
   assertEquals(client.calls.length, 1);
   assertEquals(client.calls[0].name, "is_account_member");
-  assertEquals(client.calls[0].args, { _account_owner_id: "owner-account-9", _min_role: "owner" });
+  assertEquals(client.calls[0].args, { _account_owner_id: "owner-account-9", _min_role: "owner", _permission: null });
 });
 
 Deno.test("resolveAccountScope: a different account_id WITHOUT owner membership -> returns null, not a silent fallback", async () => {
@@ -71,4 +71,20 @@ Deno.test("resolveAccountScope: an empty-string account_id is treated as absent"
   const result = await resolveAccountScope(client, "caller-1", "");
   assertEquals(result, "caller-1");
   assertEquals(client.calls.length, 0);
+});
+
+Deno.test("resolveAccountScope: forwards a given permission category to the RPC", async () => {
+  const client = fakeMembershipClient({ data: true, error: null });
+  const result = await resolveAccountScope(client, "caller-1", "owner-account-9", "integrations");
+  assertEquals(result, "owner-account-9");
+  assertEquals(client.calls[0].args, { _account_owner_id: "owner-account-9", _min_role: "owner", _permission: "integrations" });
+});
+
+Deno.test("resolveAccountScope: a member restricted to a DIFFERENT permission category is denied", async () => {
+  // Simulates is_account_member itself returning false because the
+  // member's permissions array doesn't include the one asked for -- the
+  // fake here just returns the DB's answer directly, same as the real RPC.
+  const client = fakeMembershipClient({ data: false, error: null });
+  const result = await resolveAccountScope(client, "caller-1", "owner-account-9", "spend");
+  assertEquals(result, null);
 });
