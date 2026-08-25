@@ -14,13 +14,21 @@
 // verify_jwt = false (like agent-runtime) -- this does its own auth via
 // the Authorization: Bearer nazai_sk_... header, not a Supabase JWT.
 //
-// Rate limiting (item 7), API-key traceability on the logged decision
-// (item 8), and abuse alerting (item 9) land as their own follow-on
-// commits on this same file -- nothing to rate-limit or trace until the
-// endpoint itself exists.
+// API-key traceability on the logged decision (item 8) and abuse alerting
+// (item 9) land as their own follow-on commits on this same file.
+//
+// Two-tier rate limiting (item 7): a coarse pre-auth limit keyed by source
+// IP blunts brute-forcing/probing invalid keys before each guess spends a
+// hash + indexed DB lookup (via the new checkIpRateLimit -- there's no
+// real userId yet at this point, so this can't reuse checkRateLimit's
+// user_id-uuid-FK'd counter). Post-resolution, checkRateLimit's normal
+// per-account counter applies before any LLM call, set meaningfully lower
+// than control-engine's internal 120/min since this endpoint is now
+// internet-reachable.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sha256Hex, isValidRawKeyFormat } from "../_shared/api-key-auth.ts";
 import { runControlGate } from "../_shared/control-gate.ts";
+import { checkIpRateLimit, checkRateLimit } from "../_shared/rate-limit.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -30,6 +38,9 @@ const corsHeaders = {
 const json = (b: unknown, status = 200) =>
   new Response(JSON.stringify(b), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
+const PRE_AUTH_RATE_LIMIT_PER_MINUTE = 60;
+const POST_AUTH_RATE_LIMIT_PER_MINUTE = 30;
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
@@ -37,6 +48,15 @@ Deno.serve(async (req) => {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const admin = createClient(supabaseUrl, serviceKey);
+
+  // ---- Pre-auth rate limit, keyed by source IP -----------------------------
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+    || req.headers.get("cf-connecting-ip")
+    || "unknown";
+  const ipRate = await checkIpRateLimit(admin, ip, "control-api-preauth", PRE_AUTH_RATE_LIMIT_PER_MINUTE, 60);
+  if (!ipRate.allowed) {
+    return json({ error: "rate_limited", message: "Too many requests from this address. Try again shortly." }, 429);
+  }
 
   // ---- Auth: Authorization: Bearer nazai_sk_... ----------------------------
   const authHeader = req.headers.get("Authorization") || "";
@@ -54,6 +74,15 @@ Deno.serve(async (req) => {
     return json({ error: "unauthorized", message: "Invalid, expired, or revoked API key." }, 401);
   }
   const userId = row.user_id;
+
+  // ---- Post-auth rate limit, keyed by the resolved account -----------------
+  const rate = await checkRateLimit(admin, userId, "control-api", POST_AUTH_RATE_LIMIT_PER_MINUTE, 60);
+  if (!rate.allowed) {
+    return json({
+      error: "rate_limited",
+      message: `Too many requests — ${rate.count} in the last minute (limit ${rate.limit}). Try again shortly.`,
+    }, 429);
+  }
 
   const body = await req.json().catch(() => ({}));
   const actionType = String(body?.action_type || "").trim();
