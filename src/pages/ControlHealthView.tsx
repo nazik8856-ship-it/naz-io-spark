@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Activity, TrendingDown, TrendingUp } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { toast } from "@/hooks/use-toast";
 import { pctOf, alertDeliverySplit, isTrendingDown, gateLatencyStats, isAuditIntegritySweepFailing, type GateLatencyStats, type AuditIntegrityRunSummary } from "@/lib/control-health";
 import { computeSlaStats, type SlaStats } from "@/lib/approval-sla";
@@ -42,6 +43,7 @@ function StatCard({ stat }: { stat: Stat }) {
 export default function ControlHealthView() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { accountId } = useActiveAccount();
   const [loading, setLoading] = useState(true);
   const [gateErrorPct, setGateErrorPct] = useState(0);
   const [gateErrorCount, setGateErrorCount] = useState(0);
@@ -58,22 +60,22 @@ export default function ControlHealthView() {
   const [correlatedTripCount, setCorrelatedTripCount] = useState(0);
 
   const load = useCallback(async () => {
-    if (!user) return;
+    if (!user || !accountId) return;
     setLoading(true);
     const since = new Date(Date.now() - WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
     const [decisions, alerts, breakers, runs, incidents, resolvedApprovals, members, anomalyTotalRes, anomalyAgentlessRes, auditRunRes, correlatedRes] = await Promise.all([
-      anyDb.from("agent_decisions").select("source, gate_duration_ms").eq("user_id", user.id).gte("created_at", since),
-      supabase.from("critical_alerts").select("delivered_via").eq("user_id", user.id).gte("created_at", since),
-      supabase.from("circuit_breakers").select("action_type, tripped, failure_rate, trip_count").eq("user_id", user.id).eq("tripped", true),
-      supabase.from("control_test_runs").select("pass_rate_pct, created_at, regressions").eq("user_id", user.id).order("created_at", { ascending: false }).limit(10),
-      supabase.from("incidents").select("id", { count: "exact", head: true }).eq("user_id", user.id).eq("status", "open"),
-      supabase.from("pending_approvals").select("risk_tier, resolved_by, created_at, resolved_at").eq("user_id", user.id).not("resolved_at", "is", null).gte("created_at", since),
-      supabase.from("account_members").select("member_id, email").eq("account_owner_id", user.id).eq("status", "active"),
-      anyDb.from("agent_decisions").select("id", { count: "exact", head: true }).eq("user_id", user.id).gte("created_at", since),
-      anyDb.from("agent_decisions").select("id", { count: "exact", head: true }).eq("user_id", user.id).gte("created_at", since).is("agent_id", null),
-      anyDb.from("audit_integrity_runs").select("mismatched_count, unsigned, created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(1),
-      anyDb.from("incidents").select("id", { count: "exact", head: true }).eq("user_id", user.id).eq("status", "open").eq("kind", "correlated_breaker_trip"),
+      anyDb.from("agent_decisions").select("source, gate_duration_ms").eq("user_id", accountId).gte("created_at", since),
+      supabase.from("critical_alerts").select("delivered_via").eq("user_id", accountId).gte("created_at", since),
+      supabase.from("circuit_breakers").select("action_type, tripped, failure_rate, trip_count").eq("user_id", accountId).eq("tripped", true),
+      supabase.from("control_test_runs").select("pass_rate_pct, created_at, regressions").eq("user_id", accountId).order("created_at", { ascending: false }).limit(10),
+      supabase.from("incidents").select("id", { count: "exact", head: true }).eq("user_id", accountId).eq("status", "open"),
+      supabase.from("pending_approvals").select("risk_tier, resolved_by, created_at, resolved_at").eq("user_id", accountId).not("resolved_at", "is", null).gte("created_at", since),
+      supabase.from("account_members").select("member_id, email").eq("account_owner_id", accountId).eq("status", "active"),
+      anyDb.from("agent_decisions").select("id", { count: "exact", head: true }).eq("user_id", accountId).gte("created_at", since),
+      anyDb.from("agent_decisions").select("id", { count: "exact", head: true }).eq("user_id", accountId).gte("created_at", since).is("agent_id", null),
+      anyDb.from("audit_integrity_runs").select("mismatched_count, unsigned, created_at").eq("user_id", accountId).order("created_at", { ascending: false }).limit(1),
+      anyDb.from("incidents").select("id", { count: "exact", head: true }).eq("user_id", accountId).eq("status", "open").eq("kind", "correlated_breaker_trip"),
     ]);
 
     const decisionRows = (decisions.data ?? []) as { source: string; gate_duration_ms: number | null }[];
@@ -101,7 +103,7 @@ export default function ControlHealthView() {
       toast({ title: "Some data didn't load", description: "Refresh to try again.", variant: "destructive" });
     }
     setLoading(false);
-  }, [user]);
+  }, [user, accountId]);
 
   useEffect(() => { load(); }, [load]);
 

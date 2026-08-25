@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 // Stale generated types: control-system tables aren't in types.ts yet.
 const anyDb = supabase as any;
 import { useAuth } from "@/hooks/useAuth";
+import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { toast } from "@/hooks/use-toast";
 import { buildComplianceReport } from "@/lib/compliance-report";
 
@@ -20,6 +21,7 @@ const daysAgoIso = (n: number) => new Date(Date.now() - n * 24 * 60 * 60 * 1000)
 export default function ControlComplianceReport() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { accountId } = useActiveAccount();
   const [from, setFrom] = useState(daysAgoIso(30));
   const [to, setTo] = useState(todayIso());
   const [generating, setGenerating] = useState(false);
@@ -45,25 +47,25 @@ export default function ControlComplianceReport() {
   };
 
   const generate = async () => {
-    if (!user) return;
+    if (!accountId) return;
     setGenerating(true);
     const fromIso = new Date(`${from}T00:00:00.000Z`).toISOString();
     const toIso = new Date(`${to}T23:59:59.999Z`).toISOString();
 
     const [runs, incidents, changes, decisions, auditRuns] = await Promise.all([
       anyDb.from("control_test_runs").select("created_at, pass_rate_pct, regressions")
-        .eq("user_id", user.id).gte("created_at", fromIso).lte("created_at", toIso)
+        .eq("user_id", accountId).gte("created_at", fromIso).lte("created_at", toIso)
         .order("created_at", { ascending: true }),
       anyDb.from("incidents").select("kind, status, summary, opened_at, resolved_at, resolution_note")
-        .eq("user_id", user.id).gte("opened_at", fromIso).lte("opened_at", toIso)
+        .eq("user_id", accountId).gte("opened_at", fromIso).lte("opened_at", toIso)
         .order("opened_at", { ascending: true }),
       anyDb.from("config_changes").select("table_name, action, before, after, created_at")
-        .eq("user_id", user.id).gte("created_at", fromIso).lte("created_at", toIso)
+        .eq("user_id", accountId).gte("created_at", fromIso).lte("created_at", toIso)
         .order("created_at", { ascending: true }),
       anyDb.from("agent_decisions").select("gate_duration_ms")
-        .eq("user_id", user.id).gte("created_at", fromIso).lte("created_at", toIso),
+        .eq("user_id", accountId).gte("created_at", fromIso).lte("created_at", toIso),
       anyDb.from("audit_integrity_runs").select("created_at, checked, verified, unsigned, mismatched_count")
-        .eq("user_id", user.id).gte("created_at", fromIso).lte("created_at", toIso)
+        .eq("user_id", accountId).gte("created_at", fromIso).lte("created_at", toIso)
         .order("created_at", { ascending: true }),
     ]);
 
