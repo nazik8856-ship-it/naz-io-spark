@@ -25,6 +25,7 @@ export const INCIDENT_KINDS = [
   "audit_integrity_failure",
   "webhook_delivery_exhausted",
   "integration_revoked",
+  "control_api_abuse",
 ] as const;
 export type IncidentKind = typeof INCIDENT_KINDS[number];
 

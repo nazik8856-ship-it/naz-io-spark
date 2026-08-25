@@ -8,8 +8,11 @@
 // doesn't actually earn), a break-glass override of a blocked action, a
 // correlated (multi-agent, fleet-wide) circuit breaker trip, an audit
 // trail integrity failure (a signature mismatch or an unsigned decision),
-// a webhook endpoint whose deliveries have exhausted every retry, and a
-// connected integration whose token was revoked or expired.
+// a webhook endpoint whose deliveries have exhausted every retry, a
+// connected integration whose token was revoked or expired, and an
+// api_keys key whose recent call volume or non-allow rate through the
+// public control-api endpoint looks like abuse (a leaked key being
+// probed, or a misbehaving external integration).
 // Routine allow / modify / deferred verdicts never alert.
 //
 // Delivery: Slack via slack_post_message when the account has a connected Slack
@@ -34,7 +37,8 @@ export type CriticalAlertEvent =
   | "correlated_breaker_trip"
   | "audit_integrity_failure"
   | "webhook_delivery_exhausted"
-  | "integration_revoked";
+  | "integration_revoked"
+  | "control_api_abuse";
 
 const APP_BASE_URL = "https://www.nazai.net";
 
@@ -58,6 +62,7 @@ export const LABELS: Record<CriticalAlertEvent, string> = {
   audit_integrity_failure: "🧾 Audit trail integrity check failed",
   webhook_delivery_exhausted: "📡 A webhook endpoint stopped receiving deliveries",
   integration_revoked: "🔌 A connected integration was revoked or expired",
+  control_api_abuse: "🚩 Unusual activity on a public Control API key",
 };
 
 export function decisionLink(decisionId?: string | null): string | null {
