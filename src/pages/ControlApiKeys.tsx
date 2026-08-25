@@ -22,6 +22,17 @@ type ApiKeyRow = {
   created_at: string;
 };
 
+type KeyActivity = { callsToday: number; lastDecision: string | null; lastDecisionAt: string | null };
+
+/** Pure -- color for a decision's free-text verb prefix (this codebase's own convention: "ALLOW ...", "BLOCK ...", "MODIFY/DEFERRED ..."). */
+function decisionColorClass(decision: string | null): string {
+  const upper = (decision ?? "").trim().toUpperCase();
+  if (upper.startsWith("ALLOW")) return "text-emerald-400";
+  if (upper.startsWith("BLOCK") || upper.startsWith("CIRCUIT_BREAKER")) return "text-rose-400";
+  if (!upper) return "text-zinc-400";
+  return "text-amber-400";
+}
+
 /**
  * "OUTER NAZAI" — the public Control API. Lets an EXTERNAL platform submit
  * one of its own proposed actions to NazAI's decision-gating engine and
@@ -34,6 +45,7 @@ export default function ControlApiKeys() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [keys, setKeys] = useState<ApiKeyRow[]>([]);
+  const [activityByKey, setActivityByKey] = useState<Record<string, KeyActivity>>({});
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -63,7 +75,43 @@ export default function ControlApiKeys() {
       .eq("user_id", user.id)
       .order("created_at", { ascending: false });
     if (error) toast({ title: "Couldn't load API keys", description: error.message, variant: "destructive" });
-    setKeys((data ?? []) as unknown as ApiKeyRow[]);
+    const rows = (data ?? []) as unknown as ApiKeyRow[];
+    setKeys(rows);
+
+    if (rows.length) {
+      const ids = rows.map((r) => r.id);
+      const todayStart = new Date();
+      todayStart.setUTCHours(0, 0, 0, 0);
+      // Two lightweight, approximate queries (same posture as
+      // ControlWebhooks.tsx's own recentByHook: a bounded recent-rows
+      // fetch grouped client-side, not a live-aggregation guarantee for
+      // every key) -- exact counts for "today," and the most recent
+      // decision per key from a bounded recent window, not a full scan.
+      const [{ data: todayRows }, { data: recentRows }] = await Promise.all([
+        anyDb.from("agent_decisions").select("api_key_id").in("api_key_id", ids).gte("created_at", todayStart.toISOString()),
+        anyDb.from("agent_decisions").select("api_key_id, decision, created_at").in("api_key_id", ids).order("created_at", { ascending: false }).limit(200),
+      ]);
+      const callsToday: Record<string, number> = {};
+      for (const r of (todayRows ?? []) as { api_key_id: string }[]) {
+        callsToday[r.api_key_id] = (callsToday[r.api_key_id] ?? 0) + 1;
+      }
+      const lastByKey: Record<string, { decision: string; created_at: string }> = {};
+      for (const r of (recentRows ?? []) as { api_key_id: string; decision: string; created_at: string }[]) {
+        // Rows arrive newest-first, so the first one seen per key is its most recent.
+        if (!lastByKey[r.api_key_id]) lastByKey[r.api_key_id] = r;
+      }
+      const activity: Record<string, KeyActivity> = {};
+      for (const id of ids) {
+        activity[id] = {
+          callsToday: callsToday[id] ?? 0,
+          lastDecision: lastByKey[id]?.decision ?? null,
+          lastDecisionAt: lastByKey[id]?.created_at ?? null,
+        };
+      }
+      setActivityByKey(activity);
+    } else {
+      setActivityByKey({});
+    }
     setLoading(false);
   }, [user]);
 
@@ -236,6 +284,17 @@ export default function ControlApiKeys() {
                     <div className="mt-1 text-[10px] font-mono text-zinc-500">
                       Created {new Date(k.created_at).toLocaleDateString()}
                       {k.last_used_at ? ` · Last used ${new Date(k.last_used_at).toLocaleString()}` : " · Never used"}
+                    </div>
+                    <div className="mt-1 text-[10px] font-mono text-zinc-500">
+                      {(activityByKey[k.id]?.callsToday ?? 0)} call{(activityByKey[k.id]?.callsToday ?? 0) === 1 ? "" : "s"} today
+                      {activityByKey[k.id]?.lastDecision && (
+                        <>
+                          {" · Last verdict: "}
+                          <span className={decisionColorClass(activityByKey[k.id]?.lastDecision ?? null)}>
+                            {activityByKey[k.id]?.lastDecision}
+                          </span>
+                        </>
+                      )}
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
