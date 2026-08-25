@@ -44,6 +44,7 @@ const SOURCES = [
   "model", "human_override", "kill_switch", "ai_spend_cap",
   "agent_kill_switch", "agent_ai_spend_cap", "hard_rule", "circuit_breaker",
   "circuit_breaker_trip", "safety_scanner", "anomaly_detector", "gate_error",
+  "external_api",
 ];
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
@@ -207,7 +208,19 @@ export default function ControlDecisionHistory() {
                   <tr key={row.id} className="border-b border-white/5 align-top">
                     <td className="py-3 pr-3 font-mono text-[11px] text-zinc-500">
                       {new Date(row.created_at).toLocaleString()}
-                      <div className="text-zinc-600">{row.source}</div>
+                      {row.source === "external_api" ? (
+                        // Called out distinctly, same reasoning as
+                        // correlated_breaker_trip in the compliance
+                        // report -- this decision came from OUTSIDE the
+                        // account's own agents via the public Control
+                        // API, a materially different provenance than
+                        // every other source in this table.
+                        <div className="mt-0.5 inline-flex items-center gap-1 rounded border border-cyan-500/40 bg-cyan-500/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-cyan-300">
+                          🌐 external api
+                        </div>
+                      ) : (
+                        <div className="text-zinc-600">{row.source}</div>
+                      )}
                     </td>
                     <td className="py-3 pr-3">
                       <span className={`rounded border px-2 py-0.5 font-mono text-[10px] uppercase ${OUTCOME_STYLE[outcome]}`}>

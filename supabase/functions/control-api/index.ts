@@ -26,7 +26,7 @@
 // than control-engine's internal 120/min since this endpoint is now
 // internet-reachable.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { sha256Hex, isValidRawKeyFormat } from "../_shared/api-key-auth.ts";
+import { resolveApiKeyAuth } from "../_shared/control-api-auth.ts";
 import { runControlGate } from "../_shared/control-gate.ts";
 import { checkIpRateLimit, checkRateLimit } from "../_shared/rate-limit.ts";
 
@@ -59,21 +59,9 @@ Deno.serve(async (req) => {
   }
 
   // ---- Auth: Authorization: Bearer nazai_sk_... ----------------------------
-  const authHeader = req.headers.get("Authorization") || "";
-  const presented = authHeader.startsWith("Bearer ") ? authHeader.slice("Bearer ".length).trim() : "";
-  if (!presented || !isValidRawKeyFormat(presented)) {
-    return json({
-      error: "unauthorized",
-      message: "Missing or malformed API key. Send Authorization: Bearer nazai_sk_<key>.",
-    }, 401);
-  }
-  const keyHash = await sha256Hex(presented);
-  const { data: resolved, error: resolveErr } = await admin.rpc("resolve_api_key", { _key_hash: keyHash });
-  const row = (Array.isArray(resolved) ? resolved[0] : resolved) as { user_id?: string; key_id?: string } | null;
-  if (resolveErr || !row?.user_id) {
-    return json({ error: "unauthorized", message: "Invalid, expired, or revoked API key." }, 401);
-  }
-  const userId = row.user_id;
+  const auth = await resolveApiKeyAuth(admin, req.headers.get("Authorization"));
+  if (!auth.ok) return json(auth.body, auth.status);
+  const userId = auth.userId;
 
   // ---- Post-auth rate limit, keyed by the resolved account -----------------
   const rate = await checkRateLimit(admin, userId, "control-api", POST_AUTH_RATE_LIMIT_PER_MINUTE, 60);
@@ -104,7 +92,7 @@ Deno.serve(async (req) => {
       userId, actionType, provider, description, params,
       agentId: null, runId: null, stepIndex: null,
       origin: "external-api",
-      apiKeyId: row.key_id ?? null,
+      apiKeyId: auth.keyId,
     });
     if (!gate.ok) {
       return json({
@@ -136,7 +124,7 @@ Deno.serve(async (req) => {
       Authorization: `Bearer ${serviceKey}`,
       "x-internal-user-id": userId,
       "x-decision-source": "external_api",
-      "x-api-key-id": row.key_id ?? "",
+      "x-api-key-id": auth.keyId ?? "",
     },
     body: JSON.stringify({ action_type: actionType, provider, description, params, assess_only: true }),
   });
