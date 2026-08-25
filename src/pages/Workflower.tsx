@@ -26,6 +26,9 @@ import {
   Music2,
   FileText,
   Mail,
+  ShieldCheck,
+  KeyRound,
+  Link2,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
@@ -155,6 +158,14 @@ const Workflower = () => {
   const openAuthOrDashboard = () => {
     if (user) {
       navigate("/dashboard");
+    } else {
+      setAuthModalOpen(true);
+    }
+  };
+
+  const openControlApi = (path: string) => {
+    if (user) {
+      navigate(path);
     } else {
       setAuthModalOpen(true);
     }
@@ -603,6 +614,92 @@ const Workflower = () => {
         </section>
 
         {/* Brand-Snap Canvas now lives in Dashboard → Settings (less landing-page clutter, easier discovery in-app). */}
+
+        {/* CONTROL API — bring your own platform under the same governance */}
+        <section className="py-24 md:py-28 px-6 md:px-8 border-t border-white/5">
+          <div className="max-w-6xl mx-auto">
+            <div className="text-center mb-16">
+              <span
+                className="text-[10px] tracking-[0.5em] text-[#06b6d4] font-black uppercase block mb-4"
+                style={{ fontFamily: "'JetBrains Mono', monospace", textShadow: "0 0 12px rgba(6,182,212,0.4)" }}
+              >
+                Control API
+              </span>
+              <h2
+                className="text-3xl md:text-5xl font-black tracking-tighter text-white mb-4"
+                style={{ fontFamily: "'Inter', sans-serif" }}
+              >
+                Bring your own platform under the same governance.
+              </h2>
+              <p className="text-sm text-white/50 max-w-2xl mx-auto leading-relaxed" style={{ fontFamily: "'Inter', sans-serif" }}>
+                NazAI's decision-gating engine isn't only for NazAI's own agents. Any external system — your
+                own backend, another AI agent, a partner's platform — can submit a proposed action and get
+                back a real verdict, judged by the same hard rules, safety scanner, and spend caps your own
+                agents already answer to.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-4">
+              {[
+                {
+                  icon: Link2,
+                  title: "Submit any action",
+                  desc: "POST an action_type, description, and params from anywhere that can make an HTTP call — not just AI agent frameworks.",
+                },
+                {
+                  icon: ShieldCheck,
+                  title: "One real verdict",
+                  desc: "Allow, modify, block, or deferred — the exact same hard-rule, safety-scanner, spend-cap, and kill-switch judgment your own agents get, with an audit trail entry to match.",
+                },
+                {
+                  icon: KeyRound,
+                  title: "Verdict-only, always",
+                  desc: "A key can only ever ask \"should this run?\" — it can never create, edit, or delete your policy. Every rule change still happens inside NazAI, by you.",
+                },
+              ].map((item, i) => (
+                <motion.div
+                  key={item.title}
+                  initial={{ opacity: 0, y: 20 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true, margin: "-50px" }}
+                  transition={{ duration: 0.5, delay: i * 0.08 }}
+                  className="rounded-xl border border-white/5 bg-white/[0.02] p-5 md:p-6 hover:border-[#06b6d4]/30 hover:bg-white/[0.04] transition-all backdrop-blur-sm"
+                >
+                  <item.icon className="h-6 w-6 text-[#06b6d4] mb-4" />
+                  <h3
+                    className="text-base md:text-lg font-bold text-white mb-2 tracking-tight"
+                    style={{ fontFamily: "'Inter', sans-serif" }}
+                  >
+                    {item.title}
+                  </h3>
+                  <p
+                    className="text-[12px] md:text-[13px] text-white/55 leading-relaxed"
+                    style={{ fontFamily: "'Inter', sans-serif" }}
+                  >
+                    {item.desc}
+                  </p>
+                </motion.div>
+              ))}
+            </div>
+
+            <div className="flex flex-wrap items-center justify-center gap-4 mt-12">
+              <button
+                onClick={() => openControlApi("/control-system/api-keys")}
+                className="rounded-lg px-6 py-3 text-sm font-bold text-[#020617] bg-[#06b6d4] hover:bg-[#22d3ee] transition-colors"
+                style={{ fontFamily: "'Inter', sans-serif" }}
+              >
+                Generate an API key
+              </button>
+              <button
+                onClick={() => openControlApi("/control-system/api-docs")}
+                className="rounded-lg px-6 py-3 text-sm font-bold text-white border border-white/15 hover:bg-white/5 transition-colors"
+                style={{ fontFamily: "'Inter', sans-serif" }}
+              >
+                Read the docs
+              </button>
+            </div>
+          </div>
+        </section>
 
         {/* SYSTEM PULSE — Latest Updates */}
         <section className="py-20 md:py-24 px-6 md:px-8 border-t border-white/5">
