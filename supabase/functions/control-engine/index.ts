@@ -6,6 +6,7 @@
 // verdict to agent_decisions.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { resolveAccountScope } from "../_shared/account-scope.ts";
 import {
   readConfidence,
   normalizeAlternatives,
@@ -309,6 +310,30 @@ serve(async (req) => {
 
     const body = await req.json().catch(() => ({}));
 
+    // "15 more items" plan, item 3: the policy-version routes below
+    // (/replay, /replay-real, /policy/:id/activate) all filtered
+    // policy_versions by `userId` -- which, for a genuine user-JWT call,
+    // is always the CALLER's own id, with no way for an invited team
+    // owner to manage policy versions on an account they don't literally
+    // own (the exact gap ControlPolicy.tsx's own missing accountId wiring
+    // mirrors on the frontend side). Resolves an optional account_id the
+    // same way api-keys/index.ts's resolveAccountScope does -- verified
+    // via is_account_member, never trusted outright -- but only lazily,
+    // and only for these three routes: an internal service-role call
+    // already names its target explicitly via x-internal-user-id and has
+    // no "acting on behalf of a team" concept, and every other route in
+    // this file has never accepted an account_id at all, so this must
+    // not change behavior for any of them.
+    const resolvePolicyScopeUserId = async (): Promise<string | null> => {
+      if (isInternal) return userId;
+      const requested = body?.account_id;
+      if (typeof requested !== "string" || !requested || requested === userId) return userId;
+      const userClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
+        global: { headers: { Authorization: req.headers.get("Authorization") || "" } },
+      });
+      return resolveAccountScope(userClient, userId, requested);
+    };
+
     // ---- POST /control-engine/approvals/:id/execute -------------------------
     // The ONLY path that carries out an action queued for human approval.
     // Quorum is re-checked here from the stored sign-off log — a row with
@@ -502,6 +527,8 @@ serve(async (req) => {
     // diffs them against the active version. Deterministic layers only (hard
     // rules + safety scanner): no model calls, no writes, no provider traffic.
     if (url.pathname.replace(/\/$/, "").endsWith("/replay")) {
+      const scopedUserId = await resolvePolicyScopeUserId();
+      if (!scopedUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
       const draftRef = {
         id: typeof body?.policy_version_id === "string" ? body.policy_version_id : undefined,
         version: typeof body?.version === "number" ? body.version : undefined,
@@ -509,7 +536,7 @@ serve(async (req) => {
       if (!draftRef.id && typeof draftRef.version !== "number") {
         return json({ error: "Provide policy_version_id or version of the draft to replay." }, 400);
       }
-      const report = await replayDraft(supabase, userId, draftRef);
+      const report = await replayDraft(supabase, scopedUserId, draftRef);
       if ("error" in report) return json({ error: report.error }, report.status);
       return json(report);
     }
@@ -522,6 +549,8 @@ serve(async (req) => {
     // (get_replayable_real_decisions); plain historical ALLOWs have none
     // captured and are excluded, by design.
     if (url.pathname.replace(/\/$/, "").endsWith("/replay-real")) {
+      const scopedUserId = await resolvePolicyScopeUserId();
+      if (!scopedUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
       const draftRef = {
         id: typeof body?.policy_version_id === "string" ? body.policy_version_id : undefined,
         version: typeof body?.version === "number" ? body.version : undefined,
@@ -530,7 +559,7 @@ serve(async (req) => {
         return json({ error: "Provide policy_version_id or version of the draft to replay." }, 400);
       }
       const limit = typeof body?.limit === "number" ? body.limit : undefined;
-      const report = await replayRealTraffic(supabase, userId, draftRef, limit);
+      const report = await replayRealTraffic(supabase, scopedUserId, draftRef, limit);
       if ("error" in report) return json({ error: report.error }, report.status);
       return json(report);
     }
@@ -540,8 +569,10 @@ serve(async (req) => {
     // the active policy currently passes cannot go live.
     const activateMatch = url.pathname.match(/\/policy\/([0-9a-fA-F-]{36})\/activate\/?$/);
     if (activateMatch) {
+      const scopedUserId = await resolvePolicyScopeUserId();
+      if (!scopedUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
       const draftId = activateMatch[1];
-      const report = await replayDraft(supabase, userId, { id: draftId });
+      const report = await replayDraft(supabase, scopedUserId, { id: draftId });
       if ("error" in report) return json({ error: report.error }, report.status);
       if (!report.safe_to_activate) {
         return json({
@@ -556,12 +587,12 @@ serve(async (req) => {
         await supabase.from("policy_versions")
           .update({ status: "archived" })
           .eq("id", report.active_version.id)
-          .eq("user_id", userId);
+          .eq("user_id", scopedUserId);
       }
       const { error: actErr } = await supabase.from("policy_versions")
         .update({ status: "active", activated_at: nowIso })
         .eq("id", draftId)
-        .eq("user_id", userId);
+        .eq("user_id", scopedUserId);
       if (actErr) return json({ ok: false, activated: false, error: actErr.message }, 500);
       return json({ ok: true, activated: true, policy_version: report.draft_version.version, replay: report });
     }

@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { supabase, SUPABASE_FUNCTIONS_URL, SUPABASE_ANON } from "@/integrations/supabase/client";
-import { useAuth } from "@/hooks/useAuth";
+import { useActiveAccount } from "@/hooks/useActiveAccount";
+import { canWriteAsOwner } from "@/lib/account-switcher";
 import { toast } from "@/hooks/use-toast";
 import { diffPolicySnapshots, type PolicySnapshotShape } from "@/lib/policy-diff";
 
@@ -58,7 +59,8 @@ type RealTrafficReplay = {
  */
 export default function ControlPolicy() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { accountId, role } = useActiveAccount();
+  const canWrite = canWriteAsOwner(role);
   const [versions, setVersions] = useState<PolicyVersion[]>([]);
   const [openSnapshot, setOpenSnapshot] = useState<string | null>(null);
   const [replay, setReplay] = useState<Replay | null>(null);
@@ -69,14 +71,14 @@ export default function ControlPolicy() {
   const [busy, setBusy] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    if (!user) return;
+    if (!accountId) return;
     const { data } = await supabase
       .from("policy_versions")
       .select("id, version, status, notes, snapshot, created_at, activated_at")
-      .eq("user_id", user.id)
+      .eq("user_id", accountId)
       .order("version", { ascending: false });
     setVersions((data ?? []) as unknown as PolicyVersion[]);
-  }, [user]);
+  }, [accountId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -89,7 +91,10 @@ export default function ControlPolicy() {
         apikey: SUPABASE_ANON,
         Authorization: `Bearer ${sess?.session?.access_token ?? SUPABASE_ANON}`,
       },
-      body: JSON.stringify(payload),
+      // account_id lets control-engine act on the account being VIEWED,
+      // not just the caller's own -- verified server-side via
+      // is_account_member, same as api-keys/index.ts's create/revoke.
+      body: JSON.stringify({ ...payload, account_id: accountId }),
     });
     return { ok: res.ok, body: await res.json().catch(() => ({})) as Record<string, unknown> };
   };
@@ -121,6 +126,7 @@ export default function ControlPolicy() {
   };
 
   const activate = async (v: PolicyVersion) => {
+    if (!canWrite) return;
     setBusy(v.id);
     const { ok, body } = await call(`/policy/${v.id}/activate`);
     setBusy(null);
@@ -134,6 +140,7 @@ export default function ControlPolicy() {
   };
 
   const rollback = async () => {
+    if (!canWrite) return;
     const active = versions.find((v) => v.status === "active");
     const previous = versions.find((v) => v.status === "archived");
     if (!previous) {
@@ -142,12 +149,13 @@ export default function ControlPolicy() {
     }
     setBusy(previous.id);
     if (active) {
-      await supabase.from("policy_versions").update({ status: "archived" }).eq("id", active.id);
+      await supabase.from("policy_versions").update({ status: "archived" }).eq("id", active.id).eq("user_id", accountId);
     }
     const { error } = await supabase
       .from("policy_versions")
       .update({ status: "active", activated_at: new Date().toISOString() })
-      .eq("id", previous.id);
+      .eq("id", previous.id)
+      .eq("user_id", accountId);
     setBusy(null);
     if (error) {
       toast({ title: "Rollback failed", description: error.message, variant: "destructive" });
@@ -184,13 +192,15 @@ export default function ControlPolicy() {
               A draft can only go live if it doesn't regress any scenario the active policy passes.
             </p>
           </div>
-          <button
-            onClick={rollback}
-            disabled={busy !== null}
-            className="rounded border border-white/15 px-3 py-1.5 text-sm hover:bg-white/10 disabled:opacity-50"
-          >
-            Rollback to previous
-          </button>
+          {canWrite && (
+            <button
+              onClick={rollback}
+              disabled={busy !== null}
+              className="rounded border border-white/15 px-3 py-1.5 text-sm hover:bg-white/10 disabled:opacity-50"
+            >
+              Rollback to previous
+            </button>
+          )}
         </div>
 
         <table className="w-full text-sm border border-white/10">
@@ -241,7 +251,7 @@ export default function ControlPolicy() {
                       {diffFor === v.id ? "Hide diff" : "Diff vs active"}
                     </button>
                   )}
-                  {v.status !== "active" && (
+                  {v.status !== "active" && canWrite && (
                     <button
                       onClick={() => activate(v)}
                       disabled={busy === v.id}
