@@ -45,7 +45,11 @@ export type CriticalAlertEvent =
   | "audit_integrity_failure"
   | "webhook_delivery_exhausted"
   | "integration_revoked"
-  | "control_api_abuse";
+  | "control_api_abuse"
+  // "Zero human review" plan, item 14: a sharply higher-than-normal share
+  // of an account's decisions are suddenly being auto-resolved with no
+  // human review, compared to that same account's own recent baseline.
+  | "auto_resolution_share_spike";
 
 const APP_BASE_URL = "https://www.nazai.net";
 
@@ -71,6 +75,7 @@ export const LABELS: Record<CriticalAlertEvent, string> = {
   webhook_delivery_exhausted: "📡 A webhook endpoint stopped receiving deliveries",
   integration_revoked: "🔌 A connected integration was revoked or expired",
   control_api_abuse: "🚩 Unusual activity on a public Control API key",
+  auto_resolution_share_spike: "🤖 An unusually large share of decisions are being resolved automatically",
 };
 
 export function decisionLink(decisionId?: string | null): string | null {

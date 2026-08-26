@@ -32,6 +32,10 @@ export const INCIDENT_KINDS = [
   // during an outage, not merely blocked), so it must never be
   // indistinguishable from an ordinary gate_error incident in a report.
   "gate_error_fail_open",
+  // "Zero human review" plan, item 14: a sharply higher-than-normal share
+  // of an account's decisions suddenly being auto-resolved with no human
+  // review, compared to that account's own recent baseline.
+  "auto_resolution_share_spike",
 ] as const;
 export type IncidentKind = typeof INCIDENT_KINDS[number];
 
