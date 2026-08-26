@@ -26,6 +26,13 @@ export const WEBHOOK_EVENTS = [
   // control-gate.ts's gate_error and circuit_breaker_trip event inserts
   // still bypass this -- a real, separate, out-of-scope gap, not silent.
   "decision_logged",
+  // "Zero human review" plan, item 5: fired by the safety-net sweep when it
+  // resolves a pending_approvals row that had been stuck too long on an
+  // api key with an automatic policy configured -- distinct from
+  // "approval_created" (a human-facing queue entry) since nothing here was
+  // ever queued for a person; this is telling the calling company their
+  // own automation's backstop just fired.
+  "approval_auto_resolved",
 ] as const;
 export type WebhookEvent = typeof WEBHOOK_EVENTS[number];
 

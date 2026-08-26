@@ -1,7 +1,7 @@
 // Real tests for the API key auto-resolve policy's pure resolution logic.
 //
 // Run with: deno test --allow-none supabase/functions/_shared/api-key-policy_test.ts
-import { resolveOnUncertain, isValidOnUncertainPolicy, ON_UNCERTAIN_POLICIES, extractNarrowedAction, narrowedActionResolution, classifyPendingApprovalStatus } from "./api-key-policy.ts";
+import { resolveOnUncertain, isValidOnUncertainPolicy, ON_UNCERTAIN_POLICIES, extractNarrowedAction, narrowedActionResolution, classifyPendingApprovalStatus, isStuckPastMaxWait, resolveSweepFallback, STUCK_APPROVAL_MAX_WAIT_MINUTES } from "./api-key-policy.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
@@ -96,4 +96,47 @@ Deno.test("narrowedActionResolution: a clean re-check (pass_through) auto-approv
 Deno.test("narrowedActionResolution: the narrowed version STILL tripping a rule or safety match auto-denies, never a blind allow", () => {
   assertEquals(narrowedActionResolution("require_approval").resolution, "rejected");
   assertEquals(narrowedActionResolution("block").resolution, "rejected");
+});
+
+// ---- item 5: safety-net sweep's stuck-detection and fallback logic ----
+
+Deno.test("isStuckPastMaxWait: a row younger than the max wait is not stuck", () => {
+  const now = new Date("2026-08-28T12:00:00Z");
+  const createdAt = new Date(now.getTime() - (STUCK_APPROVAL_MAX_WAIT_MINUTES - 1) * 60_000).toISOString();
+  assert(!isStuckPastMaxWait(createdAt, now));
+});
+
+Deno.test("isStuckPastMaxWait: a row exactly at or past the max wait is stuck", () => {
+  const now = new Date("2026-08-28T12:00:00Z");
+  const atThreshold = new Date(now.getTime() - STUCK_APPROVAL_MAX_WAIT_MINUTES * 60_000).toISOString();
+  const pastThreshold = new Date(now.getTime() - (STUCK_APPROVAL_MAX_WAIT_MINUTES + 5) * 60_000).toISOString();
+  assert(isStuckPastMaxWait(atThreshold, now));
+  assert(isStuckPastMaxWait(pastThreshold, now));
+});
+
+Deno.test("resolveSweepFallback: 'human_review', null, and unrecognized values are never swept -- left pending for a human", () => {
+  const expected = { autoResolved: false, resolution: null, status: "pending" };
+  assertEquals(resolveSweepFallback("human_review"), expected);
+  assertEquals(resolveSweepFallback(null), expected);
+  assertEquals(resolveSweepFallback("something_new_and_unrecognized"), expected);
+});
+
+Deno.test("resolveSweepFallback: 'auto_allow'/'auto_deny' resolve exactly like resolveOnUncertain", () => {
+  assertEquals(resolveSweepFallback("auto_allow"), { autoResolved: true, resolution: "approved", status: "auto_approved" });
+  assertEquals(resolveSweepFallback("auto_deny"), { autoResolved: true, resolution: "rejected", status: "auto_rejected" });
+});
+
+Deno.test("resolveSweepFallback: 'auto_narrow' always resolves to rejected -- a sweep has no model output left to narrow with", () => {
+  assertEquals(resolveSweepFallback("auto_narrow"), { autoResolved: true, resolution: "rejected", status: "auto_rejected" });
+});
+
+Deno.test("resolveSweepFallback: 'callback' resolves using the key's own configured callback_fallback, not a hardcoded default", () => {
+  assertEquals(resolveSweepFallback("callback", "auto_allow"), { autoResolved: true, resolution: "approved", status: "auto_approved" });
+  assertEquals(resolveSweepFallback("callback", "auto_deny"), { autoResolved: true, resolution: "rejected", status: "auto_rejected" });
+});
+
+Deno.test("resolveSweepFallback: 'callback' with a missing/unrecognized callback_fallback defaults to the safer auto_deny, never guesses allow", () => {
+  assertEquals(resolveSweepFallback("callback", null), { autoResolved: true, resolution: "rejected", status: "auto_rejected" });
+  assertEquals(resolveSweepFallback("callback", undefined), { autoResolved: true, resolution: "rejected", status: "auto_rejected" });
+  assertEquals(resolveSweepFallback("callback", "bogus"), { autoResolved: true, resolution: "rejected", status: "auto_rejected" });
 });

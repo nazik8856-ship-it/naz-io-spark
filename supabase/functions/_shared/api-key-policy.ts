@@ -82,6 +82,53 @@ export function narrowedActionResolution(gateOutcome: "pass_through" | "require_
   };
 }
 
+/**
+ * "Zero human review" plan, item 5: how long a still-pending
+ * pending_approvals row can sit untouched before the safety-net sweep
+ * treats it as stuck, for an api key that has ALREADY opted into some
+ * form of automatic resolution. Deliberately short and fixed, not
+ * risk-tier-scaled like ESCALATION_HOURS (escalation.ts) -- those hours
+ * are calibrated for a HUMAN to notice and act on an alert; this is a
+ * backstop for automation that was already supposed to resolve within
+ * seconds (a live "callback" policy's own bounded wait tops out at 60s,
+ * item 4), so anything still pending this long on such a key almost
+ * certainly means the normal path never ran to completion at all (a
+ * crash mid-request, a policy set after the row was already queued),
+ * not that it's still working.
+ */
+export const STUCK_APPROVAL_MAX_WAIT_MINUTES = 15;
+
+const minutesSince = (isoDate: string, now: Date): number =>
+  (now.getTime() - new Date(isoDate).getTime()) / (1000 * 60);
+
+/** Pure -- is this still-pending row stuck long enough for the safety-net sweep to act on it? */
+export function isStuckPastMaxWait(createdAtIso: string, now: Date = new Date()): boolean {
+  return minutesSince(createdAtIso, now) >= STUCK_APPROVAL_MAX_WAIT_MINUTES;
+}
+
+/**
+ * Pure -- what the safety-net sweep resolves a stuck row to, given the
+ * api key's own on_uncertain policy. Unlike resolveOnUncertain (used at
+ * the MOMENT an outcome is first decided, with a real model output or
+ * caller system available to consult), this always has a real answer
+ * for every automatic policy value: "auto_narrow" and "callback" both
+ * fall back to their own already-established safety-first default
+ * (item 3's own "nothing usable to narrow with -> reject"; item 4's own
+ * configured callback_fallback) instead of resolveOnUncertain's generic
+ * "still pending" for those two values, since a sweep has no live model
+ * output or caller system left to ask -- by the time this runs, whatever
+ * was supposed to answer already had its chance and didn't.
+ * "human_review" (or an unrecognized/missing value) is untouched here,
+ * same as resolveOnUncertain -- this sweep is a backstop for automation
+ * that already opted in, never a way to override an account that is
+ * still deliberately relying on a human.
+ */
+export function resolveSweepFallback(policy: string | null | undefined, callbackFallback?: string | null): AutoResolution {
+  if (policy === "callback") return resolveOnUncertain(callbackFallback === "auto_allow" ? "auto_allow" : "auto_deny");
+  if (policy === "auto_narrow") return resolveOnUncertain("auto_deny");
+  return resolveOnUncertain(policy);
+}
+
 export type PendingApprovalDisposition = "approved" | "rejected" | "pending";
 
 /**
