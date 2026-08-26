@@ -461,10 +461,13 @@ const pendingApprovalBaseInput = {
   origin: "external-api",
 };
 
-Deno.test("createPendingApproval: forcedResolution bypasses the apiKeyId policy lookup entirely, even if one is also set", async () => {
+Deno.test("createPendingApproval: forcedResolution's outcome is never affected by the real api key policy, even though the key row is still loaded (for item 6's shadow-mode preview)", async () => {
   const { client, calls, inserts } = fakeSupabase({
     // If forcedResolution didn't take priority, this policy would resolve
     // to auto_allow instead of the forced "rejected" -- proves precedence.
+    // The key row IS still fetched (item 6 needs shadow_on_uncertain
+    // regardless of which path decided the real outcome), but its
+    // on_uncertain value has zero effect on the result below.
     api_keys: { data: { on_uncertain: "auto_allow" }, error: null },
     pending_approvals: { data: { id: "approval-1" }, error: null },
   });
@@ -475,7 +478,7 @@ Deno.test("createPendingApproval: forcedResolution bypasses the apiKeyId policy 
   });
   assert(outcome.autoResolved);
   assertEquals(outcome.resolution, "rejected");
-  assert(!calls.some((c) => c.table === "api_keys"), "forcedResolution must skip the api_keys lookup entirely");
+  assert(calls.some((c) => c.table === "api_keys"), "the key row is now loaded regardless of forcedResolution, for shadow-mode's sake");
   const inserted = (inserts.pending_approvals ?? [])[0] as { status?: string; comment?: string } | undefined;
   assertEquals(inserted?.status, "auto_rejected");
   assertEquals(inserted?.comment, "narrowed version still failed");
@@ -516,6 +519,58 @@ Deno.test("createPendingApproval: on_uncertain='callback' delegates to notifyAnd
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+// ---- item 6: shadow-mode preview of a candidate on_uncertain policy ----
+
+Deno.test("createPendingApproval: a configured shadow_on_uncertain records what it WOULD have decided, without affecting the real outcome", async () => {
+  const { client, inserts } = fakeSupabase({
+    // Real policy is human_review (the default) -- account is previewing
+    // auto_deny in shadow before ever turning it on for real.
+    api_keys: { data: { on_uncertain: "human_review", shadow_on_uncertain: "auto_deny" }, error: null },
+    pending_approvals: { data: { id: "approval-1" }, error: null },
+  });
+  const outcome = await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
+  // The real outcome is untouched -- still a genuine pending row for a human.
+  assertFalse(outcome.autoResolved);
+  assertEquals((inserts.pending_approvals ?? [])[0]?.status, "pending");
+  const shadowInsert = (inserts.api_key_shadow_observations ?? [])[0] as { shadow_resolution?: string; api_key_id?: string; approval_id?: string } | undefined;
+  assertEquals(shadowInsert?.shadow_resolution, "rejected");
+  assertEquals(shadowInsert?.api_key_id, "key-1");
+  assertEquals(shadowInsert?.approval_id, "approval-1");
+});
+
+Deno.test("createPendingApproval: no shadow_on_uncertain configured means no shadow observation is recorded", async () => {
+  const { client, inserts } = fakeSupabase({
+    api_keys: { data: { on_uncertain: "human_review" }, error: null },
+    pending_approvals: { data: { id: "approval-1" }, error: null },
+  });
+  await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
+  assertEquals(inserts.api_key_shadow_observations, undefined);
+});
+
+Deno.test("createPendingApproval: shadow_on_uncertain='human_review' has nothing meaningful to preview, so nothing is recorded", async () => {
+  const { client, inserts } = fakeSupabase({
+    api_keys: { data: { on_uncertain: "auto_allow", shadow_on_uncertain: "human_review" }, error: null },
+    pending_approvals: { data: { id: "approval-1" }, error: null },
+  });
+  await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
+  assertEquals(inserts.api_key_shadow_observations, undefined);
+});
+
+Deno.test("createPendingApproval: shadow-mode observation is recorded even when the real outcome came from forcedResolution", async () => {
+  const { client, inserts } = fakeSupabase({
+    api_keys: { data: { on_uncertain: "human_review", shadow_on_uncertain: "auto_allow" }, error: null },
+    pending_approvals: { data: { id: "approval-1" }, error: null },
+  });
+  const outcome = await createPendingApproval(client, {
+    ...pendingApprovalBaseInput,
+    apiKeyId: "key-1",
+    forcedResolution: { resolution: "rejected", note: "narrowed version still failed" },
+  });
+  assertEquals(outcome.resolution, "rejected");
+  const shadowInsert = (inserts.api_key_shadow_observations ?? [])[0] as { shadow_resolution?: string } | undefined;
+  assertEquals(shadowInsert?.shadow_resolution, "approved", "the shadow guess reflects the SHADOW policy, independent of forcedResolution's real answer");
 });
 
 Deno.test("a hard rule scoped to a different provider does not match", async () => {

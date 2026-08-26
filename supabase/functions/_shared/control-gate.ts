@@ -28,7 +28,7 @@ import { finalizeTrace, type TraceEntry } from "./gate-trace.ts";
 import { ruleMatchesAction, selectRulesForAgent } from "./rule-matching.ts";
 import { triggerWebhooks } from "./webhooks.ts";
 import { recordPolicyWatchObservations } from "./policy-watch.ts";
-import { resolveOnUncertain, type AutoResolution } from "./api-key-policy.ts";
+import { resolveOnUncertain, resolveSweepFallback, type AutoResolution } from "./api-key-policy.ts";
 import { notifyAndAwaitCallback, type CallbackConfig } from "./callback-delegation.ts";
 
 export const BREAKER_WINDOW = 10;
@@ -191,13 +191,20 @@ export type ApiKeyCallbackRow = {
   callback_secret: string | null;
   callback_timeout_seconds: number | null;
   callback_fallback: string | null;
+  // "Zero human review" plan, item 6: a separate, optional shadow-mode
+  // policy value an account can preview without it actually governing any
+  // real escalation -- read alongside the real columns above since both
+  // are always needed together (the shadow guess below reuses
+  // callback_fallback for a 'callback' shadow value, same as the real
+  // resolution path does).
+  shadow_on_uncertain: string | null;
 };
 
 /** "Zero human review" plan, item 4: the fuller row createPendingApproval's own "callback" branch needs -- kept separate from loadOnUncertainPolicy above since most callers only ever need the one column. */
 async function loadApiKeyCallbackConfig(admin: SupabaseClient, apiKeyId: string): Promise<ApiKeyCallbackRow | null> {
   const { data } = await admin
     .from("api_keys")
-    .select("on_uncertain, callback_url, callback_secret, callback_timeout_seconds, callback_fallback")
+    .select("on_uncertain, callback_url, callback_secret, callback_timeout_seconds, callback_fallback, shadow_on_uncertain")
     .eq("id", apiKeyId)
     .maybeSingle();
   return data as ApiKeyCallbackRow | null;
@@ -248,14 +255,21 @@ export async function createPendingApproval(
     // real id to notify about and poll), then delegated to
     // notifyAndAwaitCallback right after the insert.
     let callbackConfig: CallbackConfig | null = null;
+    // "Zero human review" plan, item 6: loaded whenever an api key is
+    // known, EVEN when forcedResolution also short-circuits the real
+    // resolution below -- shadow-mode observation (right after the insert
+    // further down) needs this key's shadow_on_uncertain regardless of
+    // which path decided the real outcome, so a shadow policy can be
+    // previewed against every escalation this key sees, not just the ones
+    // that reach the plain apiKeyId branch.
+    const keyRow = input.apiKeyId ? await loadApiKeyCallbackConfig(admin, input.apiKeyId) : null;
     if (input.forcedResolution) {
       auto = input.forcedResolution.resolution === "approved"
         ? { autoResolved: true, resolution: "approved", status: "auto_approved" }
         : { autoResolved: true, resolution: "rejected", status: "auto_rejected" };
       comment = input.forcedResolution.note;
-    } else if (input.apiKeyId) {
-      const keyRow = await loadApiKeyCallbackConfig(admin, input.apiKeyId);
-      if (keyRow?.on_uncertain === "callback" && keyRow.callback_url && keyRow.callback_secret) {
+    } else if (keyRow) {
+      if (keyRow.on_uncertain === "callback" && keyRow.callback_url && keyRow.callback_secret) {
         callbackConfig = {
           url: keyRow.callback_url,
           secret: keyRow.callback_secret,
@@ -263,7 +277,7 @@ export async function createPendingApproval(
           fallback: keyRow.callback_fallback === "auto_allow" ? "auto_allow" : "auto_deny",
         };
       } else {
-        auto = resolveOnUncertain(keyRow?.on_uncertain ?? null);
+        auto = resolveOnUncertain(keyRow.on_uncertain ?? null);
         if (auto.autoResolved) {
           comment = `Resolved automatically to ${auto.resolution} by this API key's configured policy — no human reviewed this.`;
         }
@@ -291,6 +305,31 @@ export async function createPendingApproval(
       comment,
     }).select("id").maybeSingle();
     const id = (data as { id?: string } | null)?.id ?? null;
+    // "Zero human review" plan, item 6: a shadow policy is previewed
+    // independently of whatever actually resolved this escalation (a real
+    // policy, a human, or forcedResolution above) -- reuses
+    // resolveSweepFallback, the exact same "what would this policy value
+    // decide with no live model output or caller system left to consult"
+    // logic item 5's safety-net sweep already needed for the identical
+    // shape of problem. Only recorded when the shadow value would
+    // genuinely auto-resolve something (never for 'human_review' or an
+    // unrecognized value, which have nothing meaningful to preview) --
+    // never lets a bad shadow config affect the real outcome above.
+    if (id && keyRow?.shadow_on_uncertain) {
+      const shadowGuess = resolveSweepFallback(keyRow.shadow_on_uncertain, keyRow.callback_fallback);
+      if (shadowGuess.autoResolved && shadowGuess.resolution) {
+        try {
+          await admin.from("api_key_shadow_observations").insert({
+            user_id: input.userId,
+            api_key_id: input.apiKeyId,
+            approval_id: id,
+            action_type: input.actionType,
+            provider: input.provider,
+            shadow_resolution: shadowGuess.resolution,
+          });
+        } catch { /* shadow-mode observation must never affect the real outcome */ }
+      }
+    }
     // "Zero human review" plan, item 4: delegate to the caller's own
     // system instead of the generic human-facing webhook below -- a real
     // row was needed first (notifyAndAwaitCallback both notifies about

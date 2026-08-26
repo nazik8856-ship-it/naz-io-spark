@@ -21,7 +21,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sha256Hex, generateRawKey, displayPrefixFor } from "../_shared/api-key-auth.ts";
 import { resolveAccountScope } from "../_shared/account-scope.ts";
-import { isValidOnUncertainPolicy } from "../_shared/api-key-policy.ts";
+import { isValidOnUncertainPolicy, summarizeShadowObservations, type ShadowObservationRow } from "../_shared/api-key-policy.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -88,6 +88,17 @@ Deno.serve(async (req) => {
     // with -- reject it outright rather than silently accepting a policy
     // that could never actually notify anyone.
     const update: Record<string, unknown> = { on_uncertain: body.on_uncertain };
+    // Item 6: a SEPARATE, optional shadow-mode policy -- lets an account
+    // preview a candidate on_uncertain value against real traffic without
+    // it ever governing a real escalation. `null` explicitly clears it
+    // (stops shadowing); omitting the field entirely leaves whatever was
+    // set before untouched.
+    if (body?.shadow_on_uncertain !== undefined) {
+      if (body.shadow_on_uncertain !== null && !isValidOnUncertainPolicy(body.shadow_on_uncertain)) {
+        return json({ error: "shadow_on_uncertain must be null or one of: human_review, auto_deny, auto_allow, auto_narrow, callback" }, 400);
+      }
+      update.shadow_on_uncertain = body.shadow_on_uncertain;
+    }
     if (body.on_uncertain === "callback") {
       const callbackUrl = String(body?.callback_url || "").trim();
       const callbackSecret = String(body?.callback_secret || "").trim();
@@ -118,11 +129,54 @@ Deno.serve(async (req) => {
       .update(update)
       .eq("id", keyId)
       .eq("user_id", targetUserId)
-      .select("id, on_uncertain, callback_url, callback_timeout_seconds, callback_fallback")
+      .select("id, on_uncertain, callback_url, callback_timeout_seconds, callback_fallback, shadow_on_uncertain")
       .maybeSingle();
     if (error) return json({ error: error.message }, 500);
     if (!data) return json({ error: "Key not found for this account." }, 404);
     return json({ ok: true, ...data });
+  }
+
+  // ---- GET /api-keys/:id/shadow-summary --------------------------------
+  // "Zero human review" plan, item 6: what a shadow_on_uncertain policy
+  // WOULD have decided on real escalations so far, next to what actually
+  // happened -- read live off pending_approvals.status through the
+  // approval_id foreign key rather than a second stored "actual outcome"
+  // column, so a shadow observation taken before a human later resolves
+  // the real row still compares correctly with zero extra writes.
+  const shadowSummaryMatch = url.pathname.match(/\/api-keys\/([0-9a-fA-F-]{36})\/shadow-summary\/?$/);
+  if (req.method === "GET" && shadowSummaryMatch) {
+    const keyId = shadowSummaryMatch[1];
+    const targetUserId = await resolveAccountScope(userClient, userId, url.searchParams.get("account_id"), "integrations");
+    if (!targetUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
+
+    const { data: keyRow, error: keyErr } = await admin
+      .from("api_keys")
+      .select("id, shadow_on_uncertain")
+      .eq("id", keyId)
+      .eq("user_id", targetUserId)
+      .maybeSingle();
+    if (keyErr) return json({ error: keyErr.message }, 500);
+    if (!keyRow) return json({ error: "Key not found for this account." }, 404);
+    const shadowPolicy = (keyRow as { shadow_on_uncertain: string | null }).shadow_on_uncertain;
+    if (!shadowPolicy) return json({ ok: true, shadow_on_uncertain: null, summary: null });
+
+    const { data: obs, error: obsErr } = await admin
+      .from("api_key_shadow_observations")
+      .select("shadow_resolution, action_type, provider, created_at, pending_approvals(status)")
+      .eq("api_key_id", keyId)
+      .order("created_at", { ascending: false })
+      .limit(500);
+    if (obsErr) return json({ error: obsErr.message }, 500);
+
+    type ObsRow = { shadow_resolution: "approved" | "rejected"; action_type: string; provider: string | null; created_at: string; pending_approvals: { status: string | null } | null };
+    const rows: ShadowObservationRow[] = ((obs ?? []) as ObsRow[]).map((r) => ({
+      shadow_resolution: r.shadow_resolution,
+      actual_status: r.pending_approvals?.status ?? null,
+      action_type: r.action_type,
+      provider: r.provider,
+      created_at: r.created_at,
+    }));
+    return json({ ok: true, shadow_on_uncertain: shadowPolicy, summary: summarizeShadowObservations(rows) });
   }
 
   // ---- GET /api-keys --------------------------------------------------------
@@ -132,7 +186,7 @@ Deno.serve(async (req) => {
 
     const { data, error } = await admin
       .from("api_keys")
-      .select("id, name, key_prefix, scopes, on_uncertain, last_used_at, revoked_at, expires_at, created_at")
+      .select("id, name, key_prefix, scopes, on_uncertain, shadow_on_uncertain, last_used_at, revoked_at, expires_at, created_at")
       .eq("user_id", targetUserId)
       .order("created_at", { ascending: false });
     if (error) return json({ error: error.message }, 500);

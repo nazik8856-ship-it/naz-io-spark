@@ -1,7 +1,7 @@
 // Real tests for the API key auto-resolve policy's pure resolution logic.
 //
 // Run with: deno test --allow-none supabase/functions/_shared/api-key-policy_test.ts
-import { resolveOnUncertain, isValidOnUncertainPolicy, ON_UNCERTAIN_POLICIES, extractNarrowedAction, narrowedActionResolution, classifyPendingApprovalStatus, isStuckPastMaxWait, resolveSweepFallback, STUCK_APPROVAL_MAX_WAIT_MINUTES } from "./api-key-policy.ts";
+import { resolveOnUncertain, isValidOnUncertainPolicy, ON_UNCERTAIN_POLICIES, extractNarrowedAction, narrowedActionResolution, classifyPendingApprovalStatus, isStuckPastMaxWait, resolveSweepFallback, STUCK_APPROVAL_MAX_WAIT_MINUTES, summarizeShadowObservations, type ShadowObservationRow } from "./api-key-policy.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
@@ -139,4 +139,47 @@ Deno.test("resolveSweepFallback: 'callback' with a missing/unrecognized callback
   assertEquals(resolveSweepFallback("callback", null), { autoResolved: true, resolution: "rejected", status: "auto_rejected" });
   assertEquals(resolveSweepFallback("callback", undefined), { autoResolved: true, resolution: "rejected", status: "auto_rejected" });
   assertEquals(resolveSweepFallback("callback", "bogus"), { autoResolved: true, resolution: "rejected", status: "auto_rejected" });
+});
+
+// ---- item 6: shadow-mode summary for a candidate on_uncertain policy ----
+
+const shadowRow = (over: Partial<ShadowObservationRow> = {}): ShadowObservationRow => ({
+  shadow_resolution: "approved",
+  actual_status: "approved",
+  action_type: "send_email",
+  provider: "Gmail",
+  created_at: "2026-08-28T00:00:00Z",
+  ...over,
+});
+
+Deno.test("summarizeShadowObservations: a still-pending real approval is counted in total but not decided", () => {
+  const summary = summarizeShadowObservations([shadowRow({ actual_status: "pending" }), shadowRow({ actual_status: null })]);
+  assertEquals(summary.total, 2);
+  assertEquals(summary.decided, 0);
+  assertEquals(summary.agreed, 0);
+  assertEquals(summary.disagreed, 0);
+});
+
+Deno.test("summarizeShadowObservations: matching shadow guess and real (possibly auto-) outcome count as agreement, either way of phrasing 'approved'", () => {
+  const summary = summarizeShadowObservations([
+    shadowRow({ shadow_resolution: "approved", actual_status: "approved" }),
+    shadowRow({ shadow_resolution: "approved", actual_status: "auto_approved" }),
+    shadowRow({ shadow_resolution: "rejected", actual_status: "rejected" }),
+  ]);
+  assertEquals(summary.total, 3);
+  assertEquals(summary.decided, 3);
+  assertEquals(summary.agreed, 3);
+  assertEquals(summary.disagreed, 0);
+  assertEquals(summary.disagreement_samples, []);
+});
+
+Deno.test("summarizeShadowObservations: a shadow guess that differs from the real outcome is a disagreement, surfaced as a sample", () => {
+  const disagreement = shadowRow({ shadow_resolution: "approved", actual_status: "rejected", action_type: "delete_record" });
+  const summary = summarizeShadowObservations([disagreement, shadowRow({ shadow_resolution: "rejected", actual_status: "auto_rejected" })]);
+  assertEquals(summary.decided, 2);
+  assertEquals(summary.agreed, 1);
+  assertEquals(summary.disagreed, 1);
+  assertEquals(summary.disagreement_samples.length, 1);
+  assertEquals(summary.disagreement_samples[0].action_type, "delete_record");
+  assertEquals(summary.disagreement_samples[0].actual, "rejected");
 });

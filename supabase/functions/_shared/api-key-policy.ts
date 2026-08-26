@@ -143,3 +143,55 @@ export function classifyPendingApprovalStatus(status: string | null | undefined)
   if (status === "rejected" || status === "auto_rejected") return "rejected";
   return "pending";
 }
+
+// ---- item 6: shadow-mode summary for an api key's candidate on_uncertain policy ----
+
+export type ShadowObservationRow = {
+  shadow_resolution: "approved" | "rejected";
+  /** The linked pending_approvals row's CURRENT status, read live at
+   * summary time -- never stored alongside shadow_resolution itself, so a
+   * row observed before a human later resolves the real approval still
+   * compares correctly without any second write. */
+  actual_status: string | null;
+  action_type: string;
+  provider: string | null;
+  created_at: string;
+};
+
+export type ShadowDisagreementSample = ShadowObservationRow & { actual: PendingApprovalDisposition };
+
+export type ShadowPolicySummary = {
+  /** Every observation recorded for this shadow policy, decided or not. */
+  total: number;
+  /** How many of those have a real, final outcome to compare against yet
+   * -- still-pending real approvals can't be scored either way. */
+  decided: number;
+  agreed: number;
+  disagreed: number;
+  disagreement_samples: ShadowDisagreementSample[];
+};
+
+const MAX_SHADOW_DISAGREEMENT_SAMPLES = 25;
+
+/**
+ * Pure -- builds the human-reviewable summary from a batch of stored
+ * shadow observation rows (each already joined with its
+ * pending_approvals row's live status by the caller). Mirrors
+ * summarizePolicyWatch's shape (policy-watch.ts) for the same whole-draft
+ * shadow-mode idea, applied here to one api key's on_uncertain policy
+ * instead of a whole policy version.
+ */
+export function summarizeShadowObservations(rows: ShadowObservationRow[]): ShadowPolicySummary {
+  const decided = rows.filter((r) => classifyPendingApprovalStatus(r.actual_status) !== "pending");
+  const scored = decided.map((r) => ({ ...r, actual: classifyPendingApprovalStatus(r.actual_status) }));
+  const disagreement_samples = scored
+    .filter((r) => r.actual !== r.shadow_resolution)
+    .slice(0, MAX_SHADOW_DISAGREEMENT_SAMPLES);
+  return {
+    total: rows.length,
+    decided: decided.length,
+    agreed: scored.filter((r) => r.actual === r.shadow_resolution).length,
+    disagreed: scored.filter((r) => r.actual !== r.shadow_resolution).length,
+    disagreement_samples,
+  };
+}
