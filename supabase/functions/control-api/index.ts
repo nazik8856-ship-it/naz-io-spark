@@ -41,7 +41,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { resolveApiKeyAuth } from "../_shared/control-api-auth.ts";
 import { runControlGate } from "../_shared/control-gate.ts";
-import { checkIpRateLimit, checkRateLimit } from "../_shared/rate-limit.ts";
+import { checkIpRateLimit, checkRateLimit, resolveConfiguredRateLimit } from "../_shared/rate-limit.ts";
 import { checkApiVersion, CONTROL_API_VERSION } from "../_shared/api-versioning.ts";
 import { parseControlApiAction, MAX_BATCH_ACTIONS, type ParsedControlApiAction } from "../_shared/control-api-action.ts";
 import { encodeExportCursor, decodeExportCursor, clampExportLimit, exportCursorFilter } from "../_shared/decision-export.ts";
@@ -89,8 +89,14 @@ async function judgeOneAction(
   userId: string,
   keyId: string | null,
   action: ParsedControlApiAction,
+  // "Zero human review" plan, item 11: the caller resolves this ONCE per
+  // request (a single DB read even for a whole batch of actions), not
+  // once per action -- checkRateLimit itself already accepts an
+  // arbitrary limit as a plain parameter, so the only change needed here
+  // is what gets passed in.
+  rateLimitPerMinute: number,
 ): Promise<Record<string, unknown>> {
-  const rate = await checkRateLimit(admin, userId, "control-api", POST_AUTH_RATE_LIMIT_PER_MINUTE, 60);
+  const rate = await checkRateLimit(admin, userId, "control-api", rateLimitPerMinute, 60);
   if (!rate.allowed) {
     return {
       error: "rate_limited",
@@ -351,6 +357,20 @@ Deno.serve(async (req) => {
 
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
 
+  // "Zero human review" plan, item 11: read once per request (not once
+  // per action -- judgeOneAction is called once per batch entry below),
+  // and only for the routes that actually reach the rate-limited verdict
+  // path -- every route above this line returns early without ever
+  // needing it.
+  let rateLimitPerMinute = POST_AUTH_RATE_LIMIT_PER_MINUTE;
+  if (auth.keyId) {
+    const { data: keyRow } = await admin.from("api_keys").select("rate_limit_per_minute").eq("id", auth.keyId).maybeSingle();
+    rateLimitPerMinute = resolveConfiguredRateLimit(
+      (keyRow as { rate_limit_per_minute?: number | null } | null)?.rate_limit_per_minute,
+      POST_AUTH_RATE_LIMIT_PER_MINUTE,
+    );
+  }
+
   const body = await req.json().catch(() => ({}));
 
   // ---- Batch mode: `{ actions: [...] }` instead of one action -------------
@@ -376,7 +396,7 @@ Deno.serve(async (req) => {
         results.push({ index: i, error: parsed.error });
         continue;
       }
-      const verdict = await judgeOneAction(admin, supabaseUrl, serviceKey, userId, auth.keyId, parsed);
+      const verdict = await judgeOneAction(admin, supabaseUrl, serviceKey, userId, auth.keyId, parsed, rateLimitPerMinute);
       if (verdict.rateLimited) stopped = true;
       const { rateLimited: _drop, ...rest } = verdict;
       results.push({ index: i, ...rest });
@@ -388,7 +408,7 @@ Deno.serve(async (req) => {
   const parsed = parseControlApiAction(body);
   if ("error" in parsed) return json({ error: parsed.error }, 400);
 
-  const verdict = await judgeOneAction(admin, supabaseUrl, serviceKey, userId, auth.keyId, parsed);
+  const verdict = await judgeOneAction(admin, supabaseUrl, serviceKey, userId, auth.keyId, parsed, rateLimitPerMinute);
   if (verdict.rateLimited) {
     const { rateLimited: _drop, ...rest } = verdict;
     return json(rest, 429);

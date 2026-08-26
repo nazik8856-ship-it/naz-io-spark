@@ -1,7 +1,7 @@
 // Real tests for the rate-limit window bucketing + atomic-check wrapper.
 //
 // Run with: deno test --allow-none supabase/functions/_shared/rate-limit_test.ts
-import { computeWindowStart, checkRateLimit, checkIpRateLimit } from "./rate-limit.ts";
+import { computeWindowStart, checkRateLimit, checkIpRateLimit, resolveConfiguredRateLimit } from "./rate-limit.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
@@ -26,6 +26,25 @@ Deno.test("computeWindowStart: crossing a window boundary produces a different b
   const a = new Date("2026-08-19T12:00:59.000Z");
   const b = new Date("2026-08-19T12:01:00.000Z");
   assert(computeWindowStart(a, 60) !== computeWindowStart(b, 60));
+});
+
+// ---- item 11: per-api-key configurable rate limit ----
+
+Deno.test("resolveConfiguredRateLimit: a valid positive configured value wins over the fallback", () => {
+  assertEquals(resolveConfiguredRateLimit(500, 30), 500);
+  assertEquals(resolveConfiguredRateLimit(1, 30), 1, "even a stricter-than-default configured value must be honored");
+});
+
+Deno.test("resolveConfiguredRateLimit: null/undefined fall back to the platform default", () => {
+  assertEquals(resolveConfiguredRateLimit(null, 30), 30);
+  assertEquals(resolveConfiguredRateLimit(undefined, 30), 30);
+});
+
+Deno.test("resolveConfiguredRateLimit: zero, negative, or non-finite values are never treated as 'no limit' -- fall back instead", () => {
+  assertEquals(resolveConfiguredRateLimit(0, 30), 30);
+  assertEquals(resolveConfiguredRateLimit(-5, 30), 30);
+  assertEquals(resolveConfiguredRateLimit(NaN, 30), 30);
+  assertEquals(resolveConfiguredRateLimit(Infinity, 30), 30);
 });
 
 Deno.test("computeWindowStart: works for non-60s windows too", () => {

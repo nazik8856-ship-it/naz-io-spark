@@ -109,6 +109,20 @@ Deno.serve(async (req) => {
       }
       update.on_gate_error = body.on_gate_error;
     }
+    // Item 11: an account can raise (or lower) its OWN key's request-rate
+    // limit instead of sharing the platform's fixed default. `null`
+    // explicitly clears it back to the default.
+    if (body?.rate_limit_per_minute !== undefined) {
+      if (body.rate_limit_per_minute !== null) {
+        const limit = Number(body.rate_limit_per_minute);
+        if (!Number.isInteger(limit) || limit < 1 || limit > 6000) {
+          return json({ error: "rate_limit_per_minute must be an integer between 1 and 6000, or null to use the default" }, 400);
+        }
+        update.rate_limit_per_minute = limit;
+      } else {
+        update.rate_limit_per_minute = null;
+      }
+    }
     if (body.on_uncertain === "callback") {
       const callbackUrl = String(body?.callback_url || "").trim();
       const callbackSecret = String(body?.callback_secret || "").trim();
@@ -139,7 +153,7 @@ Deno.serve(async (req) => {
       .update(update)
       .eq("id", keyId)
       .eq("user_id", targetUserId)
-      .select("id, on_uncertain, callback_url, callback_timeout_seconds, callback_fallback, shadow_on_uncertain, on_gate_error")
+      .select("id, on_uncertain, callback_url, callback_timeout_seconds, callback_fallback, shadow_on_uncertain, on_gate_error, rate_limit_per_minute")
       .maybeSingle();
     if (error) return json({ error: error.message }, 500);
     if (!data) return json({ error: "Key not found for this account." }, 404);
@@ -196,7 +210,7 @@ Deno.serve(async (req) => {
 
     const { data, error } = await admin
       .from("api_keys")
-      .select("id, name, key_prefix, scopes, on_uncertain, shadow_on_uncertain, on_gate_error, last_used_at, revoked_at, expires_at, created_at")
+      .select("id, name, key_prefix, scopes, on_uncertain, shadow_on_uncertain, on_gate_error, rate_limit_per_minute, last_used_at, revoked_at, expires_at, created_at")
       .eq("user_id", targetUserId)
       .order("created_at", { ascending: false });
     if (error) return json({ error: error.message }, 500);

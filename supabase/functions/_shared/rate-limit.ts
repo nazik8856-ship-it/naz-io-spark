@@ -18,6 +18,21 @@ export function computeWindowStart(now: Date, windowSeconds: number): string {
 
 export type RateLimitResult = { allowed: boolean; count: number; limit: number };
 
+/**
+ * "Zero human review" plan, item 11: resolves the rate limit to actually
+ * enforce for a request -- an api key's own configured
+ * rate_limit_per_minute when it's a valid positive number, otherwise the
+ * platform's own default. A missing/null/non-positive configured value
+ * is never itself treated as the limit (which would silently disable
+ * rate limiting) -- this item's whole point is letting a key ask for
+ * MORE (or less) than the default, never letting a bad value slip
+ * through as "no limit."
+ */
+export function resolveConfiguredRateLimit(configured: number | null | undefined, fallback: number): number {
+  if (typeof configured === "number" && Number.isFinite(configured) && configured > 0) return configured;
+  return fallback;
+}
+
 export async function checkRateLimit(
   admin: SupabaseClient,
   userId: string,
