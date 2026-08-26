@@ -46,6 +46,7 @@ import { checkApiVersion, CONTROL_API_VERSION } from "../_shared/api-versioning.
 import { parseControlApiAction, MAX_BATCH_ACTIONS, type ParsedControlApiAction } from "../_shared/control-api-action.ts";
 import { encodeExportCursor, decodeExportCursor, clampExportLimit, exportCursorFilter } from "../_shared/decision-export.ts";
 import { claimRowOnce } from "../_shared/idempotency.ts";
+import { classifyPlatformStatus, platformStatusMessage, DEGRADED_LOOKBACK_MINUTES } from "../_shared/platform-status.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -222,6 +223,33 @@ Deno.serve(async (req) => {
   const auth = await resolveApiKeyAuth(admin, req.headers.get("Authorization"));
   if (!auth.ok) return json(auth.body, auth.status);
   const userId = auth.userId;
+
+  // ---- GET /control-api/v1/status -------------------------------------
+  // "Zero human review" plan, item 9: the only way an external caller
+  // previously found out NazAI was paused or degraded was getting an
+  // unexpected block back -- no way to check ahead of time. Deliberately
+  // nothing account-specific here (an account's own kill switch, spend
+  // cap, or a single misconfigured rule are normal, expected reasons for
+  // a block, unrelated to NazAI's own health) -- see
+  // _shared/platform-status.ts for the full reasoning. Authenticated the
+  // same way as every other route on this API rather than left
+  // unauthenticated, for consistency with the rest of this surface.
+  if (req.method === "GET" && /\/status\/?$/.test(url.pathname)) {
+    const { data: platformRow } = await admin.from("platform_settings").select("kill_switch").eq("id", 1).maybeSingle();
+    const killSwitch = (platformRow as { kill_switch?: boolean } | null)?.kill_switch === true;
+
+    const since = new Date(Date.now() - DEGRADED_LOOKBACK_MINUTES * 60 * 1000).toISOString();
+    const { data: recentDecisions } = await admin
+      .from("agent_decisions")
+      .select("source")
+      .gte("created_at", since);
+    const rows = (recentDecisions ?? []) as { source: string | null }[];
+    const total = rows.length;
+    const gateErrors = rows.filter((r) => r.source === "gate_error" || r.source === "gate_error_fail_open").length;
+
+    const status = classifyPlatformStatus(killSwitch, total, gateErrors);
+    return json({ ok: true, status, message: platformStatusMessage(status) });
+  }
 
   // ---- GET /control-api/v1/decisions ---------------------------------------
   // "15 more items" plan, item 15: a paginated decision-export endpoint, so
