@@ -1,0 +1,19 @@
+{
+  "name": "@nazai/control-api-client",
+  "version": "1.0.0",
+  "description": "TypeScript client for NazAI's public Control API -- submit an action, get back a verdict.",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}

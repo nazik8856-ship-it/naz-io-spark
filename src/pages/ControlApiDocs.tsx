@@ -50,6 +50,19 @@ const EXAMPLE_BATCH_CURL = `curl -X POST "${SUPABASE_FUNCTIONS_URL}/control-api/
     ]
   }'`;
 
+const EXAMPLE_SDK = `import { ControlApiClient } from "@nazai/control-api-client";
+
+const client = new ControlApiClient({
+  apiKey: process.env.NAZAI_API_KEY!, // nazai_sk_...
+  baseUrl: "${SUPABASE_FUNCTIONS_URL}",
+});
+
+const verdict = await client.check({
+  actionType: "send_email",
+  provider: "Gmail",
+  description: "Reply to a customer refund request.",
+});`;
+
 const EXAMPLE_BATCH_RESPONSE = `{
   "api_version": "v1",
   "batch": true,
@@ -243,6 +256,16 @@ export default function ControlApiDocs() {
             <span className="font-mono"> "error": "rate_limited"</span> instead of each one spending its own request
             finding that out — just retry those from where the batch stopped.
           </p>
+        </Section>
+
+        <Section title="TypeScript SDK">
+          <p>
+            Prefer not to hand-write the HTTP request? A small, hand-crafted{" "}
+            <span className="font-mono text-cyan-300">@nazai/control-api-client</span> package (in this
+            repository's <span className="font-mono">sdk/control-api-client</span> directory) handles the
+            authorization header and both verdict modes for you:
+          </p>
+          <CodeBlock>{EXAMPLE_SDK}</CodeBlock>
         </Section>
 
         <Section title="Rate limits">
