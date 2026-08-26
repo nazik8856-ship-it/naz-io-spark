@@ -44,16 +44,11 @@ export default function ControlCoverageGaps() {
     const since = new Date(Date.now() - ANOMALY_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
     const { data: sess } = await supabase.auth.getSession();
     const [statusRes, rulesRes, { data: agentRows }, totalRes, agentlessRes, breakdownRes] = await Promise.all([
-      // NOTE: capability-status derives its account purely from the
-      // caller's own JWT (auth.uid()) with no account_id parameter and no
-      // team RLS on agent_integrations -- so this one section still
-      // reflects the CURRENT LOGGED-IN PERSON's own connected providers,
-      // not the account being viewed, even after this page's other
-      // queries below are fixed. A real, separate gap (fixing it needs an
-      // edge-function change plus new RLS, not just a query swap here) --
-      // left as a known, documented limitation rather than silently
-      // pretending it's covered by this fix.
-      supabase.functions.invoke("capability-status", { body: {} }),
+      // Follow-up from item 1 (tracked as task #85): capability-status now
+      // accepts account_id and agent_integrations has a team-read RLS
+      // policy, so this reflects the account being VIEWED, not just
+      // whoever's currently logged in.
+      supabase.functions.invoke("capability-status", { body: { account_id: accountId } }),
       anyDb.from("hard_rules").select("action_type_pattern, provider, enabled, shadow_mode, agent_id").eq("user_id", accountId),
       anyDb.from("agents").select("id, name").eq("user_id", accountId).order("name"),
       // Anomaly-detector coverage: what fraction of recent decisions had no
