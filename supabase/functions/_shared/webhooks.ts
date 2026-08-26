@@ -34,7 +34,10 @@ export function buildSignaturePayload(timestamp: string, body: string): string {
   return `${timestamp}.${body}`;
 }
 
-async function hmacHex(secret: string, message: string): Promise<string> {
+// Exported so callback-delegation.ts ("zero human review" plan, item 4)
+// can sign its own ad-hoc outbound POST the exact same way, rather than
+// reimplementing HMAC-SHA256 signing a second time.
+export async function hmacHex(secret: string, message: string): Promise<string> {
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   const sig = await crypto.subtle.sign("HMAC", key, enc.encode(message));

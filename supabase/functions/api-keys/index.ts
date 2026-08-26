@@ -82,17 +82,43 @@ Deno.serve(async (req) => {
     const keyId = policyMatch[1];
     const body = await req.json().catch(() => ({}));
     if (!isValidOnUncertainPolicy(body?.on_uncertain)) {
-      return json({ error: "on_uncertain must be one of: human_review, auto_deny, auto_allow, auto_narrow" }, 400);
+      return json({ error: "on_uncertain must be one of: human_review, auto_deny, auto_allow, auto_narrow, callback" }, 400);
+    }
+    // Item 4: "callback" needs somewhere to notify and something to sign
+    // with -- reject it outright rather than silently accepting a policy
+    // that could never actually notify anyone.
+    const update: Record<string, unknown> = { on_uncertain: body.on_uncertain };
+    if (body.on_uncertain === "callback") {
+      const callbackUrl = String(body?.callback_url || "").trim();
+      const callbackSecret = String(body?.callback_secret || "").trim();
+      if (!callbackUrl || !callbackSecret) {
+        return json({ error: "on_uncertain='callback' requires both callback_url and callback_secret" }, 400);
+      }
+      update.callback_url = callbackUrl;
+      update.callback_secret = callbackSecret;
+      if (body?.callback_timeout_seconds !== undefined) {
+        const timeout = Number(body.callback_timeout_seconds);
+        if (!Number.isFinite(timeout) || timeout < 5 || timeout > 60) {
+          return json({ error: "callback_timeout_seconds must be a number between 5 and 60" }, 400);
+        }
+        update.callback_timeout_seconds = timeout;
+      }
+      if (body?.callback_fallback !== undefined) {
+        if (body.callback_fallback !== "auto_allow" && body.callback_fallback !== "auto_deny") {
+          return json({ error: "callback_fallback must be 'auto_allow' or 'auto_deny'" }, 400);
+        }
+        update.callback_fallback = body.callback_fallback;
+      }
     }
     const targetUserId = await resolveAccountScope(userClient, userId, body?.account_id, "integrations");
     if (!targetUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
 
     const { data, error } = await admin
       .from("api_keys")
-      .update({ on_uncertain: body.on_uncertain })
+      .update(update)
       .eq("id", keyId)
       .eq("user_id", targetUserId)
-      .select("id, on_uncertain")
+      .select("id, on_uncertain, callback_url, callback_timeout_seconds, callback_fallback")
       .maybeSingle();
     if (error) return json({ error: error.message }, 500);
     if (!data) return json({ error: "Key not found for this account." }, 404);
@@ -119,7 +145,7 @@ Deno.serve(async (req) => {
     const name = String(body?.name || "").trim().slice(0, 120);
     if (!name) return json({ error: "A name is required for the key (e.g. \"Production integration\")." }, 400);
     if (body?.on_uncertain !== undefined && !isValidOnUncertainPolicy(body.on_uncertain)) {
-      return json({ error: "on_uncertain must be one of: human_review, auto_deny, auto_allow, auto_narrow" }, 400);
+      return json({ error: "on_uncertain must be one of: human_review, auto_deny, auto_allow, auto_narrow, callback" }, 400);
     }
 
     const targetUserId = await resolveAccountScope(userClient, userId, body?.account_id, "integrations");

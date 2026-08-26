@@ -1,7 +1,7 @@
 // Real tests for the API key auto-resolve policy's pure resolution logic.
 //
 // Run with: deno test --allow-none supabase/functions/_shared/api-key-policy_test.ts
-import { resolveOnUncertain, isValidOnUncertainPolicy, ON_UNCERTAIN_POLICIES, extractNarrowedAction, narrowedActionResolution } from "./api-key-policy.ts";
+import { resolveOnUncertain, isValidOnUncertainPolicy, ON_UNCERTAIN_POLICIES, extractNarrowedAction, narrowedActionResolution, classifyPendingApprovalStatus } from "./api-key-policy.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
@@ -45,6 +45,26 @@ Deno.test("isValidOnUncertainPolicy: rejects anything else, including non-string
 
 Deno.test("resolveOnUncertain: 'auto_narrow' is not handled here -- falls back to pending, same as human_review, since this function has no way to attempt a narrow itself", () => {
   assertEquals(resolveOnUncertain("auto_narrow"), { autoResolved: false, resolution: null, status: "pending" });
+});
+
+Deno.test("resolveOnUncertain: 'callback' is not handled here either -- same pending fallback, no async I/O possible in a pure function", () => {
+  assertEquals(resolveOnUncertain("callback"), { autoResolved: false, resolution: null, status: "pending" });
+});
+
+// ---- item 4: callback delegation's pure status classification ----
+
+Deno.test("classifyPendingApprovalStatus: a human decision and its auto-resolved equivalent classify the same way", () => {
+  assertEquals(classifyPendingApprovalStatus("approved"), "approved");
+  assertEquals(classifyPendingApprovalStatus("auto_approved"), "approved");
+  assertEquals(classifyPendingApprovalStatus("rejected"), "rejected");
+  assertEquals(classifyPendingApprovalStatus("auto_rejected"), "rejected");
+});
+
+Deno.test("classifyPendingApprovalStatus: 'pending' and any unrecognized value are both still-pending", () => {
+  assertEquals(classifyPendingApprovalStatus("pending"), "pending");
+  assertEquals(classifyPendingApprovalStatus(null), "pending");
+  assertEquals(classifyPendingApprovalStatus(undefined), "pending");
+  assertEquals(classifyPendingApprovalStatus("something_else"), "pending");
 });
 
 // ---- item 3: structured narrowed-action extraction + re-check classification ----

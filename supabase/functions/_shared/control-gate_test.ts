@@ -494,6 +494,30 @@ Deno.test("createPendingApproval: forcedResolution 'approved' inserts an already
   assert(inserted?.resolved_at);
 });
 
+Deno.test("createPendingApproval: on_uncertain='callback' delegates to notifyAndAwaitCallback and falls back on timeout, end to end", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (() => Promise.resolve(new Response("{}", { status: 200 }))) as typeof fetch;
+  try {
+    const { client, inserts, updates } = fakeSupabase({
+      api_keys: {
+        data: {
+          on_uncertain: "callback", callback_url: "https://caller.example/callback",
+          callback_secret: "s3cr3t", callback_timeout_seconds: 1, callback_fallback: "auto_deny",
+        },
+        error: null,
+      },
+      pending_approvals: { data: { id: "approval-1", status: "pending" }, error: null },
+    });
+    const outcome = await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
+    assert(outcome.autoResolved);
+    assertEquals(outcome.resolution, "rejected");
+    assertEquals((inserts.pending_approvals ?? [])[0]?.status, "pending", "the row must be inserted as genuinely pending -- the callback flow needs a real row to notify about and poll");
+    assert((updates.pending_approvals ?? []).some((u) => (u as { status?: string }).status === "auto_rejected"), "the timeout fallback must decorate the row with the final auto_rejected status");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 Deno.test("a hard rule scoped to a different provider does not match", async () => {
   const { client } = fakeSupabase({
     hard_rules: {

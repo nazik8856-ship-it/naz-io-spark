@@ -29,6 +29,7 @@ import { ruleMatchesAction, selectRulesForAgent } from "./rule-matching.ts";
 import { triggerWebhooks } from "./webhooks.ts";
 import { recordPolicyWatchObservations } from "./policy-watch.ts";
 import { resolveOnUncertain, type AutoResolution } from "./api-key-policy.ts";
+import { notifyAndAwaitCallback, type CallbackConfig } from "./callback-delegation.ts";
 
 export const BREAKER_WINDOW = 10;
 export const BREAKER_MIN_ATTEMPTS = 4;
@@ -184,6 +185,24 @@ export async function loadOnUncertainPolicy(admin: SupabaseClient, apiKeyId: str
   return (data as { on_uncertain?: string } | null)?.on_uncertain ?? null;
 }
 
+export type ApiKeyCallbackRow = {
+  on_uncertain: string | null;
+  callback_url: string | null;
+  callback_secret: string | null;
+  callback_timeout_seconds: number | null;
+  callback_fallback: string | null;
+};
+
+/** "Zero human review" plan, item 4: the fuller row createPendingApproval's own "callback" branch needs -- kept separate from loadOnUncertainPolicy above since most callers only ever need the one column. */
+async function loadApiKeyCallbackConfig(admin: SupabaseClient, apiKeyId: string): Promise<ApiKeyCallbackRow | null> {
+  const { data } = await admin
+    .from("api_keys")
+    .select("on_uncertain, callback_url, callback_secret, callback_timeout_seconds, callback_fallback")
+    .eq("id", apiKeyId)
+    .maybeSingle();
+  return data as ApiKeyCallbackRow | null;
+}
+
 /**
  * Queue a human approval for an escalated action -- or, when the calling
  * API key has an auto-resolve policy configured (its `on_uncertain`
@@ -223,15 +242,31 @@ export async function createPendingApproval(
   try {
     let auto: AutoResolution = { autoResolved: false, resolution: null, status: "pending" };
     let comment: string | null = null;
+    // "Zero human review" plan, item 4: set only when this key's policy is
+    // "callback" with a real callback_url configured -- the row is still
+    // inserted as a genuine pending row below (the callback flow needs a
+    // real id to notify about and poll), then delegated to
+    // notifyAndAwaitCallback right after the insert.
+    let callbackConfig: CallbackConfig | null = null;
     if (input.forcedResolution) {
       auto = input.forcedResolution.resolution === "approved"
         ? { autoResolved: true, resolution: "approved", status: "auto_approved" }
         : { autoResolved: true, resolution: "rejected", status: "auto_rejected" };
       comment = input.forcedResolution.note;
     } else if (input.apiKeyId) {
-      auto = resolveOnUncertain(await loadOnUncertainPolicy(admin, input.apiKeyId));
-      if (auto.autoResolved) {
-        comment = `Resolved automatically to ${auto.resolution} by this API key's configured policy — no human reviewed this.`;
+      const keyRow = await loadApiKeyCallbackConfig(admin, input.apiKeyId);
+      if (keyRow?.on_uncertain === "callback" && keyRow.callback_url && keyRow.callback_secret) {
+        callbackConfig = {
+          url: keyRow.callback_url,
+          secret: keyRow.callback_secret,
+          timeoutSeconds: keyRow.callback_timeout_seconds ?? 20,
+          fallback: keyRow.callback_fallback === "auto_allow" ? "auto_allow" : "auto_deny",
+        };
+      } else {
+        auto = resolveOnUncertain(keyRow?.on_uncertain ?? null);
+        if (auto.autoResolved) {
+          comment = `Resolved automatically to ${auto.resolution} by this API key's configured policy — no human reviewed this.`;
+        }
       }
     }
     const resolvedAt = auto.autoResolved ? new Date().toISOString() : null;
@@ -256,6 +291,21 @@ export async function createPendingApproval(
       comment,
     }).select("id").maybeSingle();
     const id = (data as { id?: string } | null)?.id ?? null;
+    // "Zero human review" plan, item 4: delegate to the caller's own
+    // system instead of the generic human-facing webhook below -- a real
+    // row was needed first (notifyAndAwaitCallback both notifies about
+    // and polls THIS id), so this only happens once the insert above has
+    // actually produced one.
+    if (id && callbackConfig) {
+      const delegated = await notifyAndAwaitCallback(admin, id, callbackConfig, {
+        action_type: input.actionType,
+        provider: input.provider,
+        description: input.description,
+        params: input.params ?? {},
+        reason: input.reason,
+      });
+      return { approvalId: id, autoResolved: true, resolution: delegated.resolution };
+    }
     // A resolution nobody needs to act on shouldn't page anyone -- only a
     // real, still-pending queue entry fires the human-facing webhook.
     if (id && !auto.autoResolved) {

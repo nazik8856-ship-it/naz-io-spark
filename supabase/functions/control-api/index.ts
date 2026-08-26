@@ -45,6 +45,7 @@ import { checkIpRateLimit, checkRateLimit } from "../_shared/rate-limit.ts";
 import { checkApiVersion, CONTROL_API_VERSION } from "../_shared/api-versioning.ts";
 import { parseControlApiAction, MAX_BATCH_ACTIONS, type ParsedControlApiAction } from "../_shared/control-api-action.ts";
 import { encodeExportCursor, decodeExportCursor, clampExportLimit, exportCursorFilter } from "../_shared/decision-export.ts";
+import { claimRowOnce } from "../_shared/idempotency.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -258,6 +259,40 @@ Deno.serve(async (req) => {
     const nextCursor = hasMore && last ? encodeExportCursor({ createdAt: last.created_at, id: last.id }) : null;
 
     return json({ decisions: page, has_more: hasMore, next_cursor: nextCursor });
+  }
+
+  // ---- POST /control-api/v1/decisions/:id/resolve --------------------------
+  // "Zero human review" plan, item 4: the other half of the "callback"
+  // on_uncertain policy -- once NazAI notifies this key's callback_url that
+  // a decision needs an answer, the calling company's own system posts its
+  // answer here. Looked up by decision_id (the only id a caller actually
+  // has -- pending_approvals.id was never surfaced in any response) and
+  // scoped to this key's own account, so a caller can never resolve
+  // another account's approval. Claimed atomically (the same primitive
+  // callback-delegation.ts's own timeout fallback uses) so a resolve
+  // arriving in the same instant as the timeout can't double-resolve it.
+  const resolveMatch = url.pathname.match(/\/decisions\/([0-9a-fA-F-]{36})\/resolve\/?$/);
+  if (req.method === "POST" && resolveMatch) {
+    const decisionId = resolveMatch[1];
+    const body = await req.json().catch(() => ({}));
+    const resolution = body?.resolution === "approved" ? "approved" : body?.resolution === "rejected" ? "rejected" : null;
+    if (!resolution) return json({ error: "resolution must be 'approved' or 'rejected'" }, 400);
+
+    const { data: approval } = await admin.from("pending_approvals")
+      .select("id, status")
+      .eq("decision_id", decisionId)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (!approval) return json({ error: "not_found", message: "No pending approval found for that decision on this account." }, 404);
+
+    const won = await claimRowOnce(admin, "pending_approvals", (approval as { id: string }).id, "resolved_at");
+    if (!won) return json({ ok: true, already_resolved: true });
+
+    await admin.from("pending_approvals").update({
+      status: resolution,
+      comment: "Resolved via the Control API's /resolve endpoint by the calling system, per this key's 'callback' policy.",
+    }).eq("id", (approval as { id: string }).id);
+    return json({ ok: true, resolved: resolution });
   }
 
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
