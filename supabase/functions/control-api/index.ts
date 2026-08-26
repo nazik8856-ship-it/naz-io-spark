@@ -47,6 +47,7 @@ import { parseControlApiAction, MAX_BATCH_ACTIONS, type ParsedControlApiAction }
 import { encodeExportCursor, decodeExportCursor, clampExportLimit, exportCursorFilter } from "../_shared/decision-export.ts";
 import { claimRowOnce } from "../_shared/idempotency.ts";
 import { classifyPlatformStatus, platformStatusMessage, DEGRADED_LOOKBACK_MINUTES } from "../_shared/platform-status.ts";
+import { classifyDecisionVerification, type RawDecisionVerification } from "../_shared/decision-verification.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -321,6 +322,31 @@ Deno.serve(async (req) => {
       comment: "Resolved via the Control API's /resolve endpoint by the calling system, per this key's 'callback' policy.",
     }).eq("id", (approval as { id: string }).id);
     return json({ ok: true, resolved: resolution });
+  }
+
+  // ---- GET /control-api/v1/decisions/:id/verify ------------------------
+  // "Zero human review" plan, item 10: every decision is already secretly
+  // signed internally, but that check was only ever reachable by a
+  // signed-in NazAI user -- a company building its own compliance trail
+  // around a fully-automated integration shouldn't have to just take
+  // NazAI's word for it. Ownership is checked HERE, not left to the RPC's
+  // own check -- verify_decision_signature() only raises when called as a
+  // real authenticated user whose uid differs from the row's; called via
+  // this admin (service-role) client, that check is always skipped, so
+  // without this explicit lookup a caller could verify ANY account's
+  // decision by id. Never distinguishes "doesn't exist" from "exists but
+  // isn't yours" -- same not_found shape either way, matching /resolve's
+  // own pattern just above.
+  const verifyMatch = url.pathname.match(/\/decisions\/([0-9a-fA-F-]{36})\/verify\/?$/);
+  if (req.method === "GET" && verifyMatch) {
+    const decisionId = verifyMatch[1];
+    const { data: owned } = await admin.from("agent_decisions").select("id").eq("id", decisionId).eq("user_id", userId).maybeSingle();
+    if (!owned) return json({ error: "not_found", message: "No decision with that id exists for this account." }, 404);
+
+    const { data: raw, error } = await admin.rpc("verify_decision_signature", { _id: decisionId });
+    if (error) return json({ error: "verification_failed", message: error.message }, 500);
+    const result = classifyDecisionVerification((raw ?? {}) as RawDecisionVerification);
+    return json({ ok: true, decision_id: decisionId, ...result });
   }
 
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
