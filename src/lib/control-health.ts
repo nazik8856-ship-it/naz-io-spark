@@ -61,3 +61,45 @@ export function isAuditIntegritySweepFailing(latest: AuditIntegrityRunSummary): 
   if (!latest) return false;
   return latest.mismatched_count > 0 || latest.unsigned > 0;
 }
+
+// "15 more items" plan, item 14: uptime/error-rate depends on item 4
+// (control-engine's outer catch recording a real gate_error decision on
+// any uncaught failure, not just the inner gate-logic catch) -- once that
+// landed, the SAME gate_error source count the existing "Gate error rate"
+// stat card already computes is now the complete picture of "is the
+// engine crashing," as opposed to a decision that's simply blocking on
+// purpose (hard_rule/safety_scanner/kill_switch/etc, none of which are
+// gate_error). Uptime is that count's complement -- the customer-facing
+// framing every status page uses -- not a new signal.
+export type EngineUptimeStats = { uptimePct: number | null; errorCount: number; total: number };
+
+/**
+ * Pure -- null uptimePct means "no decision volume in this window at all,"
+ * which must never render as a false "100% uptime": there's simply nothing
+ * to measure yet, distinct from real traffic running clean.
+ */
+export function engineUptimeStats(errorCount: number, total: number): EngineUptimeStats {
+  if (total <= 0) return { uptimePct: null, errorCount, total };
+  return { uptimePct: Math.round((1 - errorCount / total) * 1000) / 10, errorCount, total };
+}
+
+export type GateErrorEvent = { reasoning: string | null; created_at: string };
+
+/**
+ * Pure -- the most recent gate_error decisions, newest first, capped. Gives
+ * a customer the WHAT (what actually failed) behind the uptime percentage,
+ * not just a number -- a 99.8% 30-day uptime could be one blip 29 days ago
+ * or an ongoing problem today, and only the actual recent events tell them
+ * which.
+ */
+export function recentGateErrors<T extends { source: string; reasoning: string | null; created_at: string }>(
+  rows: T[],
+  limit = 5,
+): GateErrorEvent[] {
+  return rows
+    .filter((r) => r.source === "gate_error")
+    .slice()
+    .sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0))
+    .slice(0, limit)
+    .map((r) => ({ reasoning: r.reasoning, created_at: r.created_at }));
+}

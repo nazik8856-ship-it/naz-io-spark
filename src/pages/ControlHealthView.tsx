@@ -5,7 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { toast } from "@/hooks/use-toast";
-import { pctOf, alertDeliverySplit, isTrendingDown, gateLatencyStats, isAuditIntegritySweepFailing, type GateLatencyStats, type AuditIntegrityRunSummary } from "@/lib/control-health";
+import { pctOf, alertDeliverySplit, isTrendingDown, gateLatencyStats, isAuditIntegritySweepFailing, engineUptimeStats, recentGateErrors, type GateLatencyStats, type AuditIntegrityRunSummary, type GateErrorEvent } from "@/lib/control-health";
 import { computeSlaStats, type SlaStats } from "@/lib/approval-sla";
 import { actorName, buildActorNameMap } from "@/lib/actor-names";
 import { classifyAnomalyCoverage } from "@/lib/anomaly-coverage";
@@ -58,6 +58,8 @@ export default function ControlHealthView() {
   const [anomalyCoverage, setAnomalyCoverage] = useState<{ pct: number; severity: "none" | "low" | "moderate" | "high" }>({ pct: 0, severity: "none" });
   const [latestAuditRun, setLatestAuditRun] = useState<AuditIntegrityRunSummary>(null);
   const [correlatedTripCount, setCorrelatedTripCount] = useState(0);
+  const [uptimePct, setUptimePct] = useState<number | null>(null);
+  const [recentErrors, setRecentErrors] = useState<GateErrorEvent[]>([]);
 
   const load = useCallback(async () => {
     if (!user || !accountId) return;
@@ -65,7 +67,7 @@ export default function ControlHealthView() {
     const since = new Date(Date.now() - WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
     const [decisions, alerts, breakers, runs, incidents, resolvedApprovals, members, anomalyTotalRes, anomalyAgentlessRes, auditRunRes, correlatedRes] = await Promise.all([
-      anyDb.from("agent_decisions").select("source, gate_duration_ms").eq("user_id", accountId).gte("created_at", since),
+      anyDb.from("agent_decisions").select("source, gate_duration_ms, reasoning, created_at").eq("user_id", accountId).gte("created_at", since),
       supabase.from("critical_alerts").select("delivered_via").eq("user_id", accountId).gte("created_at", since),
       supabase.from("circuit_breakers").select("action_type, tripped, failure_rate, trip_count").eq("user_id", accountId).eq("tripped", true),
       supabase.from("control_test_runs").select("pass_rate_pct, created_at, regressions").eq("user_id", accountId).order("created_at", { ascending: false }).limit(10),
@@ -78,7 +80,7 @@ export default function ControlHealthView() {
       anyDb.from("incidents").select("id", { count: "exact", head: true }).eq("user_id", accountId).eq("status", "open").eq("kind", "correlated_breaker_trip"),
     ]);
 
-    const decisionRows = (decisions.data ?? []) as { source: string; gate_duration_ms: number | null }[];
+    const decisionRows = (decisions.data ?? []) as { source: string; gate_duration_ms: number | null; reasoning: string | null; created_at: string }[];
     const total = decisionRows.length;
     const gateErrors = decisionRows.filter((d) => d.source === "gate_error").length;
     setTotalDecisions(total);
@@ -87,6 +89,12 @@ export default function ControlHealthView() {
     setGateLatency(gateLatencyStats(
       decisionRows.map((d) => d.gate_duration_ms).filter((v): v is number => typeof v === "number"),
     ));
+    // Item 14: uptime is the gate_error rate's complement -- the same
+    // crash/timeout signal item 4 made complete, framed the way a status
+    // page would. A capped recent-errors list gives the "what actually
+    // broke" a bare percentage can't.
+    setUptimePct(engineUptimeStats(gateErrors, total).uptimePct);
+    setRecentErrors(recentGateErrors(decisionRows, 5));
 
     setAlertSplit(alertDeliverySplit((alerts.data ?? []) as { delivered_via: "slack" | "log" }[]));
     setTrippedBreakers((breakers.data ?? []) as { action_type: string; failure_rate: number; trip_count: number }[]);
@@ -135,6 +143,14 @@ export default function ControlHealthView() {
         ) : (
           <>
             <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <StatCard
+                stat={{
+                  label: "Engine uptime",
+                  value: uptimePct === null ? "—" : `${uptimePct}%`,
+                  sub: uptimePct === null ? "No decisions in this window yet" : `${gateErrorCount} crash(es)/timeout(s) of ${totalDecisions} decisions`,
+                  tone: uptimePct === null ? "ok" : uptimePct < 99 ? "bad" : uptimePct < 100 ? "warn" : "ok",
+                }}
+              />
               <StatCard
                 stat={{
                   label: "Gate error rate",
@@ -216,6 +232,22 @@ export default function ControlHealthView() {
                 }}
               />
             </div>
+
+            {recentErrors.length > 0 && (
+              <div className="mt-6 rounded border border-rose-500/30 bg-rose-500/[0.04] p-4">
+                <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+                  Recent engine crashes/timeouts
+                </div>
+                <ul className="mt-2 space-y-1.5 text-xs text-zinc-300">
+                  {recentErrors.map((e, i) => (
+                    <li key={i} className="flex items-start gap-2">
+                      <span className="w-36 shrink-0 font-mono text-zinc-500">{new Date(e.created_at).toLocaleString()}</span>
+                      <span className="text-rose-200">{e.reasoning ?? "No details recorded."}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {testRuns.length > 0 && (
               <div className="mt-6 rounded border border-white/10 bg-white/[0.02] p-4">

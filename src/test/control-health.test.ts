@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { pctOf, alertDeliverySplit, isTrendingDown, gateLatencyStats, isAuditIntegritySweepFailing } from "@/lib/control-health";
+import { pctOf, alertDeliverySplit, isTrendingDown, gateLatencyStats, isAuditIntegritySweepFailing, engineUptimeStats, recentGateErrors } from "@/lib/control-health";
 
 describe("pctOf", () => {
   it("computes a percentage to one decimal place", () => {
@@ -99,5 +99,55 @@ describe("isAuditIntegritySweepFailing", () => {
 
   it("any unsigned decision in range is a failure", () => {
     expect(isAuditIntegritySweepFailing({ mismatched_count: 0, unsigned: 1, created_at: "2026-08-24" })).toBe(true);
+  });
+});
+
+describe("engineUptimeStats", () => {
+  it("no decisions at all in the window -> null uptimePct, not a false 100%", () => {
+    expect(engineUptimeStats(0, 0)).toEqual({ uptimePct: null, errorCount: 0, total: 0 });
+  });
+
+  it("zero errors out of real traffic is exactly 100% uptime", () => {
+    expect(engineUptimeStats(0, 500)).toEqual({ uptimePct: 100, errorCount: 0, total: 500 });
+  });
+
+  it("some gate errors bring uptime below 100, rounded to one decimal", () => {
+    expect(engineUptimeStats(1, 3)).toEqual({ uptimePct: 66.7, errorCount: 1, total: 3 });
+  });
+
+  it("every decision erroring is exactly 0% uptime, not negative or NaN", () => {
+    expect(engineUptimeStats(10, 10)).toEqual({ uptimePct: 0, errorCount: 10, total: 10 });
+  });
+});
+
+describe("recentGateErrors", () => {
+  const rows = [
+    { source: "hard_rule", reasoning: "blocked on purpose", created_at: "2026-08-20T00:00:00Z" },
+    { source: "gate_error", reasoning: "provider timeout", created_at: "2026-08-25T00:00:00Z" },
+    { source: "gate_error", reasoning: "missing api key", created_at: "2026-08-22T00:00:00Z" },
+    { source: "safety_scanner", reasoning: "flagged content", created_at: "2026-08-26T00:00:00Z" },
+  ];
+
+  it("only returns gate_error rows, excluding deliberate blocks", () => {
+    const result = recentGateErrors(rows);
+    expect(result).toHaveLength(2);
+    expect(result.every((r) => "reasoning" in r)).toBe(true);
+  });
+
+  it("sorts newest first regardless of input order", () => {
+    const result = recentGateErrors(rows);
+    expect(result[0]).toEqual({ reasoning: "provider timeout", created_at: "2026-08-25T00:00:00Z" });
+    expect(result[1]).toEqual({ reasoning: "missing api key", created_at: "2026-08-22T00:00:00Z" });
+  });
+
+  it("caps at the given limit", () => {
+    const many = Array.from({ length: 10 }, (_, i) => ({
+      source: "gate_error", reasoning: `error ${i}`, created_at: `2026-08-${10 + i}T00:00:00Z`,
+    }));
+    expect(recentGateErrors(many, 5)).toHaveLength(5);
+  });
+
+  it("no gate_error rows returns an empty array, not a crash", () => {
+    expect(recentGateErrors([{ source: "hard_rule", reasoning: "x", created_at: "2026-08-20T00:00:00Z" }])).toEqual([]);
   });
 });
