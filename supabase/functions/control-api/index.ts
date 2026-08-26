@@ -46,7 +46,7 @@ import { getApiKeySpendStatus } from "../_shared/spend-guard.ts";
 import { checkApiVersion, CONTROL_API_VERSION } from "../_shared/api-versioning.ts";
 import { parseControlApiAction, MAX_BATCH_ACTIONS, type ParsedControlApiAction } from "../_shared/control-api-action.ts";
 import { encodeExportCursor, decodeExportCursor, clampExportLimit, exportCursorFilter } from "../_shared/decision-export.ts";
-import { claimRowOnce } from "../_shared/idempotency.ts";
+import { claimRowOnce, claimIdempotencyKey, saveIdempotencyResponse, releaseIdempotencyKey } from "../_shared/idempotency.ts";
 import { classifyPlatformStatus, platformStatusMessage, DEGRADED_LOOKBACK_MINUTES } from "../_shared/platform-status.ts";
 import { classifyDecisionVerification, type RawDecisionVerification } from "../_shared/decision-verification.ts";
 
@@ -77,13 +77,64 @@ const EXPORT_RATE_LIMIT_PER_MINUTE = 20;
 const DECISION_EXPORT_FIELDS =
   "id, decision, reasoning, confidence_score, escalated, source, agent_id, action_type, provider, policy_version, created_at";
 
+// "Zero human review" plan, item 13: a thin wrapper around the real
+// per-action logic (renamed judgeOneActionInner below) that wires in the
+// SAME idempotency primitives control-engine already built and proved
+// for its own real-execution step (_shared/idempotency.ts) -- generalized
+// here to the whole judged verdict, since control-api never executes
+// anything itself: the "real side effect" a retry could duplicate is
+// logging a second agent_decisions row and, in mode="full", spending AI
+// budget a second time, not a provider write. A replay never even calls
+// judgeOneActionInner, so it costs neither a rate-limit slot nor (in
+// full mode) another AI-gateway call. A rate-limited or failed-assessment
+// outcome is deliberately NOT cached -- releasing the claim instead --
+// so a genuine retry with the same key can still go through once the
+// transient condition clears, rather than being stuck replaying a
+// failure forever.
+async function judgeOneAction(
+  admin: ReturnType<typeof createClient>,
+  supabaseUrl: string,
+  serviceKey: string,
+  userId: string,
+  keyId: string | null,
+  action: ParsedControlApiAction,
+  rateLimitPerMinute: number,
+): Promise<Record<string, unknown>> {
+  const { idempotencyKey } = action;
+  if (!idempotencyKey) {
+    return judgeOneActionInner(admin, supabaseUrl, serviceKey, userId, keyId, action, rateLimitPerMinute);
+  }
+
+  const claim = await claimIdempotencyKey(admin, userId, idempotencyKey);
+  if (claim.status === "replay") return claim.response as Record<string, unknown>;
+  if (claim.status === "in_progress") {
+    return {
+      error: "idempotency_key_in_progress",
+      message: "A request with this idempotency key is already being judged (or didn't finish cleanly). Retry shortly, or use a new key for a genuinely new attempt.",
+    };
+  }
+
+  try {
+    const result = await judgeOneActionInner(admin, supabaseUrl, serviceKey, userId, keyId, action, rateLimitPerMinute);
+    if (result.rateLimited || result.error === "assessment_failed") {
+      await releaseIdempotencyKey(admin, userId, idempotencyKey);
+    } else {
+      await saveIdempotencyResponse(admin, userId, idempotencyKey, result);
+    }
+    return result;
+  } catch (err) {
+    await releaseIdempotencyKey(admin, userId, idempotencyKey);
+    throw err;
+  }
+}
+
 // Runs the exact same per-action logic for both a single request and one
 // entry of a batch: consumes one post-auth rate-limit slot, then either the
 // fast deterministic gate or the full LLM-scored assessment. Returns the
 // verdict body (never throws -- an assessment failure comes back as an
 // `error` field, matching how the pre-batch single-action path always
 // reported it).
-async function judgeOneAction(
+async function judgeOneActionInner(
   admin: ReturnType<typeof createClient>,
   supabaseUrl: string,
   serviceKey: string,
