@@ -7,8 +7,20 @@
 // persisted in plaintext and never retrievable again after this response;
 // api_keys.key_hash is the only thing stored (see the schema migration for
 // why a fast indexed hash, not bcrypt, is the correct primitive here).
+//
+// "15 more items" plan, item 2: this function originally always acted on
+// the CALLER's own user id -- meaning an invited team owner viewing a
+// shared account could never actually create or revoke a key for that
+// account, only their own, even after the frontend page and the table's
+// RLS both learned about team accounts. Every route now accepts an
+// optional account_id and, when it names an account other than the
+// caller's own, verifies the caller genuinely holds the 'owner' role on
+// it via the same is_account_member() RPC the DB's own RLS policies use --
+// this can't just rely on RLS the way the frontend's plain SELECT can,
+// since every write here goes through the service-role admin client.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sha256Hex, generateRawKey, displayPrefixFor } from "../_shared/api-key-auth.ts";
+import { resolveAccountScope } from "../_shared/account-scope.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -41,11 +53,15 @@ Deno.serve(async (req) => {
   const revokeMatch = url.pathname.match(/\/api-keys\/([0-9a-fA-F-]{36})\/revoke\/?$/);
   if (req.method === "POST" && revokeMatch) {
     const keyId = revokeMatch[1];
+    const body = await req.json().catch(() => ({}));
+    const targetUserId = await resolveAccountScope(userClient, userId, body?.account_id, "integrations");
+    if (!targetUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
+
     const { data, error } = await admin
       .from("api_keys")
       .update({ revoked_at: new Date().toISOString() })
       .eq("id", keyId)
-      .eq("user_id", userId)
+      .eq("user_id", targetUserId)
       .is("revoked_at", null)
       .select("id")
       .maybeSingle();
@@ -56,10 +72,13 @@ Deno.serve(async (req) => {
 
   // ---- GET /api-keys --------------------------------------------------------
   if (req.method === "GET") {
+    const targetUserId = await resolveAccountScope(userClient, userId, url.searchParams.get("account_id"), "integrations");
+    if (!targetUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
+
     const { data, error } = await admin
       .from("api_keys")
       .select("id, name, key_prefix, scopes, last_used_at, revoked_at, expires_at, created_at")
-      .eq("user_id", userId)
+      .eq("user_id", targetUserId)
       .order("created_at", { ascending: false });
     if (error) return json({ error: error.message }, 500);
     return json({ ok: true, keys: data ?? [] });
@@ -71,13 +90,16 @@ Deno.serve(async (req) => {
     const name = String(body?.name || "").trim().slice(0, 120);
     if (!name) return json({ error: "A name is required for the key (e.g. \"Production integration\")." }, 400);
 
+    const targetUserId = await resolveAccountScope(userClient, userId, body?.account_id, "integrations");
+    if (!targetUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
+
     const rawKey = generateRawKey();
     const keyHash = await sha256Hex(rawKey);
     const displayPrefix = displayPrefixFor(rawKey);
 
     const { data, error } = await admin
       .from("api_keys")
-      .insert({ user_id: userId, name, key_prefix: displayPrefix, key_hash: keyHash })
+      .insert({ user_id: targetUserId, name, key_prefix: displayPrefix, key_hash: keyHash })
       .select("id, name, key_prefix, scopes, created_at")
       .maybeSingle();
     if (error) return json({ error: error.message }, 500);

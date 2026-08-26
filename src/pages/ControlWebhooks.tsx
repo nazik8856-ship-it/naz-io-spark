@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Webhook, Trash2, Plus } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/hooks/useAuth";
+import { useActiveAccount } from "@/hooks/useActiveAccount";
+import { hasPermission } from "@/lib/account-switcher";
 import { toast } from "@/hooks/use-toast";
 
 const EVENTS = ["approval_created", "approval_escalated", "incident_opened", "incident_resolved", "decision_logged"] as const;
@@ -31,7 +32,8 @@ function randomSecret(): string {
  */
 export default function ControlWebhooks() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { accountId, role, permissions } = useActiveAccount();
+  const canWrite = hasPermission(role, permissions, "integrations");
   const [hooks, setHooks] = useState<WebhookRow[]>([]);
   const [recentByHook, setRecentByHook] = useState<Record<string, DeliveryRow[]>>({});
   const [loading, setLoading] = useState(true);
@@ -40,12 +42,12 @@ export default function ControlWebhooks() {
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
-    if (!user) return;
+    if (!accountId) return;
     setLoading(true);
     const { data, error } = await supabase
       .from("webhooks")
       .select("id, url, secret, events, enabled, created_at")
-      .eq("user_id", user.id)
+      .eq("user_id", accountId)
       .order("created_at", { ascending: false });
     if (error) toast({ title: "Couldn't load webhooks", description: error.message, variant: "destructive" });
     const rows = (data ?? []) as unknown as WebhookRow[];
@@ -55,7 +57,7 @@ export default function ControlWebhooks() {
       const { data: deliveries } = await supabase
         .from("webhook_deliveries")
         .select("webhook_id, ok, status_code, created_at")
-        .eq("user_id", user.id)
+        .eq("user_id", accountId)
         .order("created_at", { ascending: false })
         .limit(50);
       const grouped: Record<string, DeliveryRow[]> = {};
@@ -65,7 +67,7 @@ export default function ControlWebhooks() {
       setRecentByHook(grouped);
     }
     setLoading(false);
-  }, [user]);
+  }, [accountId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -77,7 +79,7 @@ export default function ControlWebhooks() {
     });
 
   const create = async () => {
-    if (!user) return;
+    if (!accountId || !canWrite) return;
     if (!/^https:\/\//.test(url)) {
       toast({ title: "Needs an https:// URL", variant: "destructive" });
       return;
@@ -88,7 +90,7 @@ export default function ControlWebhooks() {
     }
     setBusy(true);
     const { error } = await supabase.from("webhooks").insert({
-      user_id: user.id,
+      user_id: accountId,
       url,
       secret: randomSecret(),
       events: [...events],
@@ -105,12 +107,14 @@ export default function ControlWebhooks() {
   };
 
   const toggleEnabled = async (h: WebhookRow) => {
+    if (!canWrite) return;
     const { error } = await supabase.from("webhooks").update({ enabled: !h.enabled }).eq("id", h.id);
     if (error) { toast({ title: "Couldn't update it", description: error.message, variant: "destructive" }); return; }
     load();
   };
 
   const remove = async (id: string) => {
+    if (!canWrite) return;
     const { error } = await supabase.from("webhooks").delete().eq("id", id);
     if (error) { toast({ title: "Couldn't delete it", description: error.message, variant: "destructive" }); return; }
     load();
@@ -138,33 +142,39 @@ export default function ControlWebhooks() {
           created or escalated, or an incident opens or resolves. Each delivery is HMAC-SHA256 signed.
         </p>
 
-        <div className="mt-6 space-y-3 rounded border border-white/10 bg-white/[0.02] p-4">
-          <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
-            Endpoint URL
-            <input
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://example.com/webhooks/nazai"
-              className="rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200"
-            />
-          </label>
-          <div className="flex flex-wrap gap-2">
-            {EVENTS.map((e) => (
-              <label key={e} className="flex items-center gap-1.5 text-xs text-zinc-300" title={e === "decision_logged" ? "Fires on every decision, not just the rare ones — high volume by design (SIEM/observability export)." : undefined}>
-                <input type="checkbox" checked={events.has(e)} onChange={() => toggleEvent(e)} className="accent-cyan-500" />
-                {e}
-                {e === "decision_logged" && <span className="text-[10px] text-amber-300/70">(high volume)</span>}
-              </label>
-            ))}
+        {canWrite ? (
+          <div className="mt-6 space-y-3 rounded border border-white/10 bg-white/[0.02] p-4">
+            <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+              Endpoint URL
+              <input
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="https://example.com/webhooks/nazai"
+                className="rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200"
+              />
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {EVENTS.map((e) => (
+                <label key={e} className="flex items-center gap-1.5 text-xs text-zinc-300" title={e === "decision_logged" ? "Fires on every decision, not just the rare ones — high volume by design (SIEM/observability export)." : undefined}>
+                  <input type="checkbox" checked={events.has(e)} onChange={() => toggleEvent(e)} className="accent-cyan-500" />
+                  {e}
+                  {e === "decision_logged" && <span className="text-[10px] text-amber-300/70">(high volume)</span>}
+                </label>
+              ))}
+            </div>
+            <button
+              disabled={busy}
+              onClick={create}
+              className="flex items-center gap-1.5 rounded border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 font-mono text-[11px] uppercase text-cyan-300 hover:bg-cyan-500/20 disabled:opacity-50"
+            >
+              <Plus className="h-3.5 w-3.5" /> Add webhook
+            </button>
           </div>
-          <button
-            disabled={busy}
-            onClick={create}
-            className="flex items-center gap-1.5 rounded border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 font-mono text-[11px] uppercase text-cyan-300 hover:bg-cyan-500/20 disabled:opacity-50"
-          >
-            <Plus className="h-3.5 w-3.5" /> Add webhook
-          </button>
-        </div>
+        ) : (
+          <p className="mt-6 rounded border border-white/10 bg-white/[0.02] p-4 text-sm text-zinc-500">
+            Only an account owner can add, enable/disable, or delete webhooks. You can view them below.
+          </p>
+        )}
 
         {loading ? (
           <p className="mt-8 font-mono text-xs uppercase text-zinc-500">Loading…</p>
@@ -199,13 +209,16 @@ export default function ControlWebhooks() {
                     <div className="flex shrink-0 items-center gap-2">
                       <button
                         onClick={() => toggleEnabled(h)}
-                        className={`rounded border px-2 py-1 text-[10px] font-mono uppercase ${h.enabled ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" : "border-white/15 text-zinc-400"}`}
+                        disabled={!canWrite}
+                        className={`rounded border px-2 py-1 text-[10px] font-mono uppercase disabled:opacity-50 ${h.enabled ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" : "border-white/15 text-zinc-400"}`}
                       >
                         {h.enabled ? "Enabled" : "Disabled"}
                       </button>
-                      <button onClick={() => remove(h.id)} className="rounded border border-rose-500/30 p-1.5 text-rose-300 hover:bg-rose-500/10">
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                      {canWrite && (
+                        <button onClick={() => remove(h.id)} className="rounded border border-rose-500/30 p-1.5 text-rose-300 hover:bg-rose-500/10">
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 </li>

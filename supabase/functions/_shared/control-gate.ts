@@ -20,12 +20,14 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { clearExpiredSpendKillSwitch, clearExpiredAgentSpendKillSwitch, getSpendStatus, getAgentSpendStatus, type SpendStatus } from "./spend-guard.ts";
 import { sendCriticalAlert } from "./critical-alerts.ts";
+import { openIncident } from "./incidents.ts";
 import { scanAction, type SafetyRule, type SafetyScan } from "./safety-scanner.ts";
 import { countTodaySuccesses, detectAnomaly, loadAgentBaseline, type AnomalyCheck } from "./anomaly-detector.ts";
 import { loadStrictness } from "./decision-scoring.ts";
 import { finalizeTrace, type TraceEntry } from "./gate-trace.ts";
 import { ruleMatchesAction, selectRulesForAgent } from "./rule-matching.ts";
 import { triggerWebhooks } from "./webhooks.ts";
+import { recordPolicyWatchObservations } from "./policy-watch.ts";
 
 export const BREAKER_WINDOW = 10;
 export const BREAKER_MIN_ATTEMPTS = 4;
@@ -59,7 +61,14 @@ export const AGENT_DECISION_SOURCES = [
   "kill_switch", "ai_spend_cap", "agent_kill_switch", "agent_ai_spend_cap",
   "hard_rule", "circuit_breaker", "circuit_breaker_trip",
   "safety_scanner", "anomaly_detector", "gate_error",
-  "external_api",
+  "external_api", "platform_kill_switch",
+  // Flip-EVENT sources (not a gate stop -- logged by KillSwitchPanel.tsx
+  // when someone toggles a switch, distinct from "kill_switch"/
+  // "platform_kill_switch" which mark an ACTION blocked because a switch
+  // was already on). "kill_switch_flip" was a pre-existing, previously
+  // undiscovered instance of this exact "used in code, missing from this
+  // constraint" bug -- every flip has silently failed to log until now.
+  "kill_switch_flip", "platform_kill_switch_flip",
 ] as const;
 export type AgentDecisionSource = typeof AGENT_DECISION_SOURCES[number];
 
@@ -308,7 +317,50 @@ async function runControlGateInner(
   // function makes. Fail closed explicitly, here, so the property holds no
   // matter what calls this later (including a future outer-NazAI caller).
   try {
-  // ---- 1 & 2: spend cap + global kill switch --------------------------------
+  // ---- 0.5: platform-wide kill switch ---------------------------------------
+  // Checked before EVERY other layer, for every account -- a platform
+  // operator's emergency stop across the whole platform at once, distinct
+  // from the per-account kill switch two lines below (that one's own
+  // trace label was "Global kill switch," which is now actively
+  // misleading now that a REAL platform-wide one exists -- relabeled to
+  // "Account kill switch" just below). Reads platform_settings fresh on
+  // every call, no caching, same "takes effect on the very next call"
+  // property this project already holds api key revocation to. A read
+  // failure here falls through to this same try block's own fail-closed
+  // catch, same as every other check in this function -- no special
+  // handling needed.
+  const { data: platformRow } = await admin
+    .from("platform_settings").select("kill_switch").eq("id", 1).maybeSingle();
+  const platformKilled = (platformRow as { kill_switch?: boolean } | null)?.kill_switch === true;
+  trace.push({
+    layer: "platform_kill_switch", label: "Platform kill switch",
+    status: platformKilled ? "stopped" : "ok",
+    detail: platformKilled ? "A platform operator has paused every account" : null,
+  });
+  if (platformKilled) {
+    const reason = "Blocked — a platform operator has paused all decision-gating across every account. This isn't specific to your account; try again shortly.";
+    const decisionId = await logStop(`BLOCK ${actionType} (${provider})`, reason, "platform_kill_switch", false);
+    return {
+      ok: false, verdict: "block", reason, decisionId, source: "platform_kill_switch",
+      approvalId: null,
+      spend: { enabled: false, cap_usd: 0, spent_usd: 0, calls: 0, pct: 0, over_cap: false, day: new Date().toISOString().slice(0, 10) },
+      safety: { matched: false, severity: null, matches: [], summary: null, shadowMatches: [] },
+      shadowRules: [],
+      hardRule: null,
+      circuitBreaker: null,
+      circuitBreakerHalfOpenTrial: false,
+      anomaly: null,
+      killSwitch: true,
+      policyVersion,
+      policyVersionId,
+      trace: finalizeTrace(trace),
+      recordShadowHits: async () => {},
+      recordSafetyShadowHits: async () => {},
+      recordAttempt: async () => null,
+    };
+  }
+
+  // ---- 1 & 2: spend cap + account-level kill switch --------------------------
   await clearExpiredSpendKillSwitch(admin, userId);
   const spend = await getSpendStatus(admin, userId);
   const { data: killRow } = await admin
@@ -451,7 +503,7 @@ async function runControlGateInner(
     detail: spend.over_cap ? `$${spend.spent_usd.toFixed(2)} of $${spend.cap_usd.toFixed(2)} across ${spend.calls} calls` : null,
   });
   trace.push({
-    layer: "kill_switch", label: "Global kill switch",
+    layer: "kill_switch", label: "Account kill switch",
     status: killed ? "stopped" : "ok",
     detail: killed ? "Kill switch is on for this account" : null,
   });
@@ -761,6 +813,21 @@ async function runControlGateInner(
         provider,
       });
     } catch { /* alerting must never break the fail-closed block */ }
+    // "15 more items" plan, item 4: gate_error is a real, listed
+    // IncidentKind (incidents.ts explicitly calls out "the gate itself
+    // failing closed" as incident-worthy) but this fail-closed block never
+    // actually opened one -- only recorded the decision and alerted.
+    // Fixed alongside control-engine/index.ts's own outer catch getting
+    // the same three-part treatment for the first time.
+    try {
+      await openIncident(admin, userId, {
+        kind: "gate_error",
+        summary: `${reason} (${message})`,
+        actionType,
+        provider,
+        decisionId,
+      });
+    } catch { /* incident tracking must never break the fail-closed block */ }
     return {
       ok: false,
       verdict: "block",
@@ -805,6 +872,22 @@ export async function runControlGate(admin: SupabaseClient, ctx: GateContext): P
       await admin.from("agent_decisions").update({ gate_duration_ms: gateDurationMs }).eq("id", result.decisionId);
     } catch { /* observability must never affect the gate's real result */ }
   }
+  // "15 more items" plan, item 13: continuous whole-policy-version shadow
+  // watching. Every live decision funnels through here regardless of
+  // caller (control-engine, agent-runtime, control-api), making this the
+  // one place to silently re-evaluate the SAME action against any DRAFT
+  // policy version this account currently has marked "watching" -- a
+  // no-op query for the overwhelming majority of accounts watching
+  // nothing. Never let a failure here affect the real gate result.
+  try {
+    await recordPolicyWatchObservations(
+      admin,
+      ctx.userId,
+      { action_type: ctx.actionType, provider: ctx.provider, description: ctx.description, params: ctx.params },
+      result.verdict === "allow" ? "pass_through" : result.verdict,
+      result.decisionId,
+    );
+  } catch { /* shadow-mode observation must never affect the gate's real result */ }
   return { ...result, gateDurationMs };
 }
 

@@ -6,6 +6,7 @@
 // verdict to agent_decisions.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { resolveAccountScope } from "../_shared/account-scope.ts";
 import {
   readConfidence,
   normalizeAlternatives,
@@ -21,6 +22,7 @@ import {
 import { CAPABILITY_REGISTRY, canOfferTool } from "../_shared/capability-registry.ts";
 import { recordAiSpend } from "../_shared/spend-guard.ts";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
+import { openIncident } from "../_shared/incidents.ts";
 import { runControlGate, createPendingApproval } from "../_shared/control-gate.ts";
 import { checkApprovalQuorum } from "../_shared/quorum.ts";
 import { claimIdempotencyKey, saveIdempotencyResponse, releaseIdempotencyKey, claimRowOnce, releaseRowClaim, type ClaimResult } from "../_shared/idempotency.ts";
@@ -37,6 +39,7 @@ const RATE_LIMIT_PER_MINUTE = 120;
 import { PROVIDER_WRITE_KINDS, runProviderWrite } from "../_shared/provider-writes.ts";
 import { reversibilityFor, captureUndoState, runUndo } from "../_shared/reversibility.ts";
 import { replayDraft, replayRealTraffic } from "../_shared/policy-replay.ts";
+import { summarizePolicyWatch, type PolicyWatchObservationRow } from "../_shared/policy-watch.ts";
 import { loadFitEvidence, applyFitEvidence } from "../_shared/fit-learning.ts";
 import {
   collectUntrustedFields,
@@ -123,6 +126,13 @@ const CHECK_TOOL = {
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  // Hoisted out of the try block (rather than declared with const inside
+  // it) so the outer catch below can still see whichever account this
+  // request belongs to, if resolution got that far before failing --
+  // undefined only for the narrow case of a failure before auth itself
+  // resolves (e.g. a missing platform env var), where there's no account
+  // to attribute a record/alert/incident to in the first place.
+  let userId: string | undefined;
   try {
     const key = Deno.env.get("LOVABLE_API_KEY");
     if (!key) return json({ error: "Missing LOVABLE_API_KEY" }, 500);
@@ -138,7 +148,7 @@ serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const internalUserId = req.headers.get("x-internal-user-id");
     const isInternal = token === serviceKey && !!internalUserId;
-    const userId = userData?.user?.id ?? (isInternal ? internalUserId! : undefined);
+    userId = userData?.user?.id ?? (isInternal ? internalUserId! : undefined);
     if (!userId) return json({ error: "Not authenticated" }, 401);
 
     // Trusted decision-source override -- only honored when the caller
@@ -308,6 +318,30 @@ serve(async (req) => {
     if (req.method === "GET") return json({ error: "Unsupported GET path" }, 404);
 
     const body = await req.json().catch(() => ({}));
+
+    // "15 more items" plan, item 3: the policy-version routes below
+    // (/replay, /replay-real, /policy/:id/activate) all filtered
+    // policy_versions by `userId` -- which, for a genuine user-JWT call,
+    // is always the CALLER's own id, with no way for an invited team
+    // owner to manage policy versions on an account they don't literally
+    // own (the exact gap ControlPolicy.tsx's own missing accountId wiring
+    // mirrors on the frontend side). Resolves an optional account_id the
+    // same way api-keys/index.ts's resolveAccountScope does -- verified
+    // via is_account_member, never trusted outright -- but only lazily,
+    // and only for these three routes: an internal service-role call
+    // already names its target explicitly via x-internal-user-id and has
+    // no "acting on behalf of a team" concept, and every other route in
+    // this file has never accepted an account_id at all, so this must
+    // not change behavior for any of them.
+    const resolvePolicyScopeUserId = async (): Promise<string | null> => {
+      if (isInternal) return userId;
+      const requested = body?.account_id;
+      if (typeof requested !== "string" || !requested || requested === userId) return userId;
+      const userClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
+        global: { headers: { Authorization: req.headers.get("Authorization") || "" } },
+      });
+      return resolveAccountScope(userClient, userId, requested, "policy");
+    };
 
     // ---- POST /control-engine/approvals/:id/execute -------------------------
     // The ONLY path that carries out an action queued for human approval.
@@ -502,6 +536,8 @@ serve(async (req) => {
     // diffs them against the active version. Deterministic layers only (hard
     // rules + safety scanner): no model calls, no writes, no provider traffic.
     if (url.pathname.replace(/\/$/, "").endsWith("/replay")) {
+      const scopedUserId = await resolvePolicyScopeUserId();
+      if (!scopedUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
       const draftRef = {
         id: typeof body?.policy_version_id === "string" ? body.policy_version_id : undefined,
         version: typeof body?.version === "number" ? body.version : undefined,
@@ -509,7 +545,7 @@ serve(async (req) => {
       if (!draftRef.id && typeof draftRef.version !== "number") {
         return json({ error: "Provide policy_version_id or version of the draft to replay." }, 400);
       }
-      const report = await replayDraft(supabase, userId, draftRef);
+      const report = await replayDraft(supabase, scopedUserId, draftRef);
       if ("error" in report) return json({ error: report.error }, report.status);
       return json(report);
     }
@@ -522,6 +558,8 @@ serve(async (req) => {
     // (get_replayable_real_decisions); plain historical ALLOWs have none
     // captured and are excluded, by design.
     if (url.pathname.replace(/\/$/, "").endsWith("/replay-real")) {
+      const scopedUserId = await resolvePolicyScopeUserId();
+      if (!scopedUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
       const draftRef = {
         id: typeof body?.policy_version_id === "string" ? body.policy_version_id : undefined,
         version: typeof body?.version === "number" ? body.version : undefined,
@@ -530,7 +568,7 @@ serve(async (req) => {
         return json({ error: "Provide policy_version_id or version of the draft to replay." }, 400);
       }
       const limit = typeof body?.limit === "number" ? body.limit : undefined;
-      const report = await replayRealTraffic(supabase, userId, draftRef, limit);
+      const report = await replayRealTraffic(supabase, scopedUserId, draftRef, limit);
       if ("error" in report) return json({ error: report.error }, report.status);
       return json(report);
     }
@@ -540,8 +578,10 @@ serve(async (req) => {
     // the active policy currently passes cannot go live.
     const activateMatch = url.pathname.match(/\/policy\/([0-9a-fA-F-]{36})\/activate\/?$/);
     if (activateMatch) {
+      const scopedUserId = await resolvePolicyScopeUserId();
+      if (!scopedUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
       const draftId = activateMatch[1];
-      const report = await replayDraft(supabase, userId, { id: draftId });
+      const report = await replayDraft(supabase, scopedUserId, { id: draftId });
       if ("error" in report) return json({ error: report.error }, report.status);
       if (!report.safe_to_activate) {
         return json({
@@ -556,14 +596,71 @@ serve(async (req) => {
         await supabase.from("policy_versions")
           .update({ status: "archived" })
           .eq("id", report.active_version.id)
-          .eq("user_id", userId);
+          .eq("user_id", scopedUserId);
       }
       const { error: actErr } = await supabase.from("policy_versions")
-        .update({ status: "active", activated_at: nowIso })
+        // Watching a draft only makes sense before it goes live -- once
+        // it's the real active policy, it's no longer "shadow" observed,
+        // it's enforced directly. Stop watching automatically on activation
+        // rather than leaving a stale watching=true on a now-active row.
+        .update({ status: "active", activated_at: nowIso, watching: false, watching_since: null })
         .eq("id", draftId)
-        .eq("user_id", userId);
+        .eq("user_id", scopedUserId);
       if (actErr) return json({ ok: false, activated: false, error: actErr.message }, 500);
       return json({ ok: true, activated: true, policy_version: report.draft_version.version, replay: report });
+    }
+
+    // ---- POST /control-engine/policy/:id/watch ------------------------------
+    // "15 more items" plan, item 13: mark a whole DRAFT policy version as
+    // "watching" -- from now on, every new live decision is silently
+    // re-evaluated against this draft's snapshot too (see control-gate.ts's
+    // runControlGate wrapper), without ever affecting the real decision.
+    // Distinct from the existing per-RULE shadow_mode on hard_rules/
+    // safety_rules, which watches one rule at a time; this watches an
+    // entire policy version, continuously, until stopped or activated.
+    const watchMatch = url.pathname.match(/\/policy\/([0-9a-fA-F-]{36})\/watch\/?$/);
+    if (watchMatch) {
+      const scopedUserId = await resolvePolicyScopeUserId();
+      if (!scopedUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
+      const draftId = watchMatch[1];
+      const start = body?.start !== false;
+      const { data: draftRow } = await supabase.from("policy_versions")
+        .select("id, status").eq("id", draftId).eq("user_id", scopedUserId).maybeSingle();
+      if (!draftRow) return json({ error: "Policy version not found for this account." }, 404);
+      if (start && draftRow.status !== "draft") {
+        return json({ error: "Only a draft policy version can be put into watch mode." }, 400);
+      }
+      const { error: watchErr } = await supabase.from("policy_versions")
+        .update({ watching: start, watching_since: start ? new Date().toISOString() : null })
+        .eq("id", draftId).eq("user_id", scopedUserId);
+      if (watchErr) return json({ error: watchErr.message }, 500);
+      return json({ ok: true, watching: start });
+    }
+
+    // ---- POST /control-engine/policy/:id/watch-summary -----------------------
+    // The human-reviewable report a watching draft builds up over however
+    // many days it's been observing real traffic: how many live decisions
+    // it's seen, how many it would have decided differently, and a capped
+    // sample of the changed ones -- reusing the exact same regression/
+    // improvement classifier real-traffic replay already uses, since a
+    // watch observation and a real-traffic-replay row are the same shape
+    // of comparison.
+    const watchSummaryMatch = url.pathname.match(/\/policy\/([0-9a-fA-F-]{36})\/watch-summary\/?$/);
+    if (watchSummaryMatch) {
+      const scopedUserId = await resolvePolicyScopeUserId();
+      if (!scopedUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
+      const draftId = watchSummaryMatch[1];
+      const { data: draftRow } = await supabase.from("policy_versions")
+        .select("id, watching, watching_since").eq("id", draftId).eq("user_id", scopedUserId).maybeSingle();
+      if (!draftRow) return json({ error: "Policy version not found for this account." }, 404);
+      const { data: obsRows, error: obsErr } = await supabase.from("policy_watch_observations")
+        .select("action_type, provider, active_outcome, draft_outcome, created_at")
+        .eq("policy_version_id", draftId)
+        .order("created_at", { ascending: false })
+        .limit(2000);
+      if (obsErr) return json({ error: obsErr.message }, 500);
+      const summary = summarizePolicyWatch(draftId, draftRow.watching_since, (obsRows ?? []) as PolicyWatchObservationRow[]);
+      return json({ ok: true, watching: draftRow.watching, ...summary });
     }
 
     const actionType = String(body?.action_type || "").trim();
@@ -1168,6 +1265,55 @@ serve(async (req) => {
     return json(responseBody);
 
   } catch (e) {
-    return json({ error: "unexpected", message: String((e as Error)?.message || e) }, 500);
+    const message = String((e as Error)?.message || e);
+    // "15 more items" plan, item 4: this outer catch used to just return a
+    // bare 500 -- no decision row, no alert, no incident, unlike the INNER
+    // gate-logic catch (control-gate.ts's own fail-closed block) which at
+    // least records and alerts. It catches things the inner one never
+    // sees: a missing/invalid auth token making it past getUser() in some
+    // unexpected shape, malformed request bodies, an LLM provider timing
+    // out, or any other uncaught exception anywhere in this large handler.
+    //
+    // Only meaningful when an account is already known -- userId is
+    // undefined only for the narrower case of a failure before auth even
+    // resolved (e.g. a missing platform env var), where there's no
+    // specific customer to attribute a record/alert/incident to; that
+    // case still surfaces via this log line, but a genuinely account-less
+    // alerting path is a separate, bigger undertaking than this item (more
+    // naturally paired with a platform-wide mechanism, not a per-account
+    // one).
+    if (userId) {
+      const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+      let decisionId: string | null = null;
+      try {
+        const { data } = await admin.from("agent_decisions").insert({
+          user_id: userId,
+          decision: "BLOCK control-engine (unexpected error)".slice(0, 400),
+          reasoning: `Blocked — control-engine hit an unhandled error and failed closed.\n${message}`.slice(0, 800),
+          alternatives_considered: [],
+          confidence_score: 100,
+          source: "gate_error",
+          escalated: true,
+        }).select("id").maybeSingle();
+        decisionId = (data as { id?: string } | null)?.id ?? null;
+      } catch { /* logging must never mask the real error below */ }
+      try {
+        await sendCriticalAlert(admin, userId, {
+          event: "gate_error",
+          summary: `control-engine failed with an unhandled error: ${message}`,
+          decisionId,
+        });
+      } catch { /* alerting must never mask the real error below */ }
+      try {
+        await openIncident(admin, userId, {
+          kind: "gate_error",
+          summary: `control-engine failed with an unhandled error: ${message}`,
+          decisionId,
+        });
+      } catch { /* incident tracking must never mask the real error below */ }
+    } else {
+      console.error("control-engine: unhandled error before an account could be resolved:", message);
+    }
+    return json({ error: "unexpected", message }, 500);
   }
 });

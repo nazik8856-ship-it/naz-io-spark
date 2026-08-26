@@ -1,6 +1,7 @@
 // Shared Gmail OAuth + API helpers.
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { readSecret, updateSecret } from "./integration-secrets.ts";
+import { getRotatableClientSecret, withClientSecretRotation, isStandardInvalidClientError } from "./oauth-secret-rotation.ts";
 
 // Per-service scope sets. Each Connect button in the catalogue requests only
 // the scopes it needs — Google grants are cumulative on the account thanks to
@@ -106,20 +107,25 @@ export async function exchangeCode(code: string) {
   return exchangeGoogleCode(code, GMAIL_REDIRECT_URI);
 }
 
-export async function exchangeGoogleCode(code: string, redirectUri: string) {
+async function requestGoogleToken(body: Record<string, string>, clientSecret: string) {
   const r = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      code,
-      client_id: Deno.env.get("GOOGLE_OAUTH_CLIENT_ID") || "",
-      client_secret: Deno.env.get("GOOGLE_OAUTH_CLIENT_SECRET") || "",
-      redirect_uri: redirectUri,
-      grant_type: "authorization_code",
-    }),
+    body: new URLSearchParams({ ...body, client_secret: clientSecret }),
   });
-  const data = await r.json();
-  if (!r.ok) throw new Error(data?.error_description || data?.error || `Token exchange failed (${r.status})`);
+  const data = await r.json().catch(() => ({}));
+  return { ok: r.ok, status: r.status, data };
+}
+
+export async function exchangeGoogleCode(code: string, redirectUri: string) {
+  const secrets = getRotatableClientSecret("GOOGLE_OAUTH_CLIENT_SECRET");
+  const clientId = Deno.env.get("GOOGLE_OAUTH_CLIENT_ID") || "";
+  const { ok, status, data } = await withClientSecretRotation(
+    secrets,
+    (secret) => requestGoogleToken({ code, client_id: clientId, redirect_uri: redirectUri, grant_type: "authorization_code" }, secret),
+    (r) => !r.ok && isStandardInvalidClientError(r.data),
+  );
+  if (!ok) throw new Error(data?.error_description || data?.error || `Token exchange failed (${status})`);
   return data as {
     access_token: string;
     refresh_token?: string;
@@ -133,20 +139,17 @@ export async function exchangeGoogleCode(code: string, redirectUri: string) {
 export async function refreshToken(refresh_token: string) {
   // Retry transient failures (network / 5xx) once with a short backoff so a
   // single flaky call doesn't invalidate a live agent run.
+  const secrets = getRotatableClientSecret("GOOGLE_OAUTH_CLIENT_SECRET");
+  const clientId = Deno.env.get("GOOGLE_OAUTH_CLIENT_ID") || "";
   let lastErr: unknown = null;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const r = await fetch("https://oauth2.googleapis.com/token", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          client_id: Deno.env.get("GOOGLE_OAUTH_CLIENT_ID") || "",
-          client_secret: Deno.env.get("GOOGLE_OAUTH_CLIENT_SECRET") || "",
-          refresh_token,
-          grant_type: "refresh_token",
-        }),
-      });
-      const data = await r.json().catch(() => ({}));
+      const { ok, status, data } = await withClientSecretRotation(
+        secrets,
+        (secret) => requestGoogleToken({ refresh_token, grant_type: "refresh_token", client_id: clientId }, secret),
+        (res) => !res.ok && isStandardInvalidClientError(res.data),
+      );
+      const r = { ok, status };
       if (r.ok) return data as { access_token: string; expires_in: number; scope: string; token_type: string; refresh_token?: string };
       const errCode = String(data?.error || "");
       // invalid_grant = refresh token revoked/expired — do NOT retry, propagate a

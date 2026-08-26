@@ -5,7 +5,14 @@
 // of the model guessing or the operator having to trust a marketing claim.
 //
 // GET/POST /capability-status — requires the caller's JWT. Response is
-// scoped to the caller's own connected integrations.
+// scoped to the caller's own connected integrations by default, or a
+// different account's via account_id (body for POST, query string for
+// GET) -- same as every other item-1-fixed page, this queries with the
+// CALLER's own JWT-scoped client, so the new team-read RLS policy on
+// agent_integrations (not resolveAccountScope, which requires 'owner'
+// role -- overkill for a pure read-only visibility endpoint) is what
+// actually enforces this: a bogus/unauthorized account_id simply returns
+// no rows, exactly like ControlChangeLog.tsx et al.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CAPABILITY_REGISTRY, buildCapabilityBlock, canOfferTool } from "../_shared/capability-registry.ts";
 
@@ -35,10 +42,15 @@ Deno.serve(async (req) => {
   if (userErr || !userData?.user) return json({ error: "unauthorized" }, 401);
   const userId = userData.user.id;
 
+  const url = new URL(req.url);
+  const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
+  const requestedAccountId = body?.account_id ?? url.searchParams.get("account_id");
+  const accountId = typeof requestedAccountId === "string" && requestedAccountId ? requestedAccountId : userId;
+
   const { data: conns } = await supabase
     .from("agent_integrations")
     .select("provider")
-    .eq("user_id", userId)
+    .eq("user_id", accountId)
     .eq("status", "connected");
   const connected = ((conns ?? []) as { provider: string }[]).map((c) => c.provider);
 

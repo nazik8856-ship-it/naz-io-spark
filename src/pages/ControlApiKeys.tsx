@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, KeyRound, Plus, Copy, Ban, Check, Send } from "lucide-react";
 import { supabase, SUPABASE_FUNCTIONS_URL } from "@/integrations/supabase/client";
-import { useAuth } from "@/hooks/useAuth";
+import { useActiveAccount } from "@/hooks/useActiveAccount";
+import { hasPermission } from "@/lib/account-switcher";
 import { toast } from "@/hooks/use-toast";
 
 // api_keys is new (2026-08-26) -- not yet in the generated Supabase types
@@ -43,7 +44,8 @@ function decisionColorClass(decision: string | null): string {
  */
 export default function ControlApiKeys() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { accountId, role, permissions } = useActiveAccount();
+  const canWrite = hasPermission(role, permissions, "integrations");
   const [keys, setKeys] = useState<ApiKeyRow[]>([]);
   const [activityByKey, setActivityByKey] = useState<Record<string, KeyActivity>>({});
   const [loading, setLoading] = useState(true);
@@ -67,12 +69,12 @@ export default function ControlApiKeys() {
   const [testResult, setTestResult] = useState<{ status: number; body: Record<string, unknown> } | null>(null);
 
   const load = useCallback(async () => {
-    if (!user) return;
+    if (!accountId) return;
     setLoading(true);
     const { data, error } = await anyDb
       .from("api_keys")
       .select("id, name, key_prefix, scopes, last_used_at, revoked_at, expires_at, created_at")
-      .eq("user_id", user.id)
+      .eq("user_id", accountId)
       .order("created_at", { ascending: false });
     if (error) toast({ title: "Couldn't load API keys", description: error.message, variant: "destructive" });
     const rows = (data ?? []) as unknown as ApiKeyRow[];
@@ -113,7 +115,7 @@ export default function ControlApiKeys() {
       setActivityByKey({});
     }
     setLoading(false);
-  }, [user]);
+  }, [accountId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -124,7 +126,7 @@ export default function ControlApiKeys() {
       return;
     }
     setBusy(true);
-    const { data, error } = await supabase.functions.invoke("api-keys", { body: { name: trimmed } });
+    const { data, error } = await supabase.functions.invoke("api-keys", { body: { name: trimmed, account_id: accountId } });
     setBusy(false);
     const res = (data ?? {}) as { ok?: boolean; key?: string; name?: string; error?: string };
     if (error || !res.ok || !res.key) {
@@ -139,7 +141,7 @@ export default function ControlApiKeys() {
   };
 
   const revoke = async (row: ApiKeyRow) => {
-    const { data, error } = await supabase.functions.invoke(`api-keys/${row.id}/revoke`, { body: {} });
+    const { data, error } = await supabase.functions.invoke(`api-keys/${row.id}/revoke`, { body: { account_id: accountId } });
     const res = (data ?? {}) as { ok?: boolean; error?: string };
     if (error || !res.ok) {
       toast({ title: "Couldn't revoke it", description: res.error || error?.message, variant: "destructive" });
@@ -180,7 +182,7 @@ export default function ControlApiKeys() {
     setTestBusy(true);
     setTestResult(null);
     try {
-      const resp = await fetch(`${SUPABASE_FUNCTIONS_URL}/control-api`, {
+      const resp = await fetch(`${SUPABASE_FUNCTIONS_URL}/control-api/v1`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${testKey.trim()}` },
         body: JSON.stringify({
@@ -224,24 +226,30 @@ export default function ControlApiKeys() {
           outside. See the <button onClick={() => navigate("/control-system/api-docs")} className="text-cyan-400 underline underline-offset-2 hover:text-cyan-300">developer docs</button> for the request/response shape.
         </p>
 
-        <div className="mt-6 space-y-3 rounded border border-white/10 bg-white/[0.02] p-4">
-          <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
-            Key name
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Production integration"
-              className="rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200"
-            />
-          </label>
-          <button
-            disabled={busy}
-            onClick={create}
-            className="flex items-center gap-1.5 rounded border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 font-mono text-[11px] uppercase text-cyan-300 hover:bg-cyan-500/20 disabled:opacity-50"
-          >
-            <Plus className="h-3.5 w-3.5" /> Generate key
-          </button>
-        </div>
+        {canWrite ? (
+          <div className="mt-6 space-y-3 rounded border border-white/10 bg-white/[0.02] p-4">
+            <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+              Key name
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Production integration"
+                className="rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200"
+              />
+            </label>
+            <button
+              disabled={busy}
+              onClick={create}
+              className="flex items-center gap-1.5 rounded border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 font-mono text-[11px] uppercase text-cyan-300 hover:bg-cyan-500/20 disabled:opacity-50"
+            >
+              <Plus className="h-3.5 w-3.5" /> Generate key
+            </button>
+          </div>
+        ) : (
+          <p className="mt-6 rounded border border-white/10 bg-white/[0.02] p-4 text-sm text-zinc-500">
+            Only an account owner can generate or revoke API keys. You can view the keys below.
+          </p>
+        )}
 
         {justCreated && (
           <div className="mt-4 rounded border border-amber-500/40 bg-amber-500/10 p-4">
@@ -307,12 +315,14 @@ export default function ControlApiKeys() {
                         <span className="rounded border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-[10px] font-mono uppercase text-emerald-300">
                           Active
                         </span>
-                        <button
-                          onClick={() => revoke(k)}
-                          className="flex items-center gap-1 rounded border border-rose-500/30 px-2 py-1.5 text-[10px] font-mono uppercase text-rose-300 hover:bg-rose-500/10"
-                        >
-                          <Ban className="h-3.5 w-3.5" /> Revoke
-                        </button>
+                        {canWrite && (
+                          <button
+                            onClick={() => revoke(k)}
+                            className="flex items-center gap-1 rounded border border-rose-500/30 px-2 py-1.5 text-[10px] font-mono uppercase text-rose-300 hover:bg-rose-500/10"
+                          >
+                            <Ban className="h-3.5 w-3.5" /> Revoke
+                          </button>
+                        )}
                       </>
                     )}
                   </div>

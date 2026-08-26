@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, History, Undo2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/hooks/useAuth";
+import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { toast } from "@/hooks/use-toast";
 import { summarizeConfigChange } from "@/lib/config-change-diff";
 
@@ -40,7 +40,7 @@ const ACTION_LABEL: Record<string, string> = { insert: "created", update: "chang
  */
 export default function ControlChangeLog() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { accountId } = useActiveAccount();
   const [rows, setRows] = useState<ChangeRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>("all");
@@ -48,12 +48,12 @@ export default function ControlChangeLog() {
   const [rollingBack, setRollingBack] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    if (!user) return;
+    if (!accountId) return;
     setLoading(true);
     let query = supabase
       .from("config_changes")
       .select("id, table_name, action, before, after, created_at")
-      .eq("user_id", user.id)
+      .eq("user_id", accountId)
       .order("created_at", { ascending: false })
       .limit(200);
     if (filter !== "all") query = query.eq("table_name", filter);
@@ -61,7 +61,7 @@ export default function ControlChangeLog() {
     if (error) toast({ title: "Couldn't load the change log", description: error.message, variant: "destructive" });
     setRows((data ?? []) as unknown as ChangeRow[]);
     setLoading(false);
-  }, [user, filter]);
+  }, [accountId, filter]);
 
   useEffect(() => { load(); }, [load]);
 

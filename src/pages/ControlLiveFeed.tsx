@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Radio, Pause, Play } from "lucide-react";
+import { ArrowLeft, Radio, Pause, Play, ChevronDown, ChevronRight } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { classifyDecisionOutcome, type DecisionOutcome } from "@/lib/roi-report";
+import { GateTraceList, type TraceEntry } from "@/components/control/GateTraceList";
 
 const MAX_ROWS = 200;
 
@@ -17,6 +18,7 @@ type DecisionRow = {
   confidence_score: number;
   agent_id: string | null;
   created_at: string;
+  gate_trace: TraceEntry[] | null;
 };
 
 type AgentOption = { id: string; name: string };
@@ -45,17 +47,25 @@ export default function ControlLiveFeed() {
   const [agents, setAgents] = useState<AgentOption[]>([]);
   const [paused, setPaused] = useState(false);
   const [connected, setConnected] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const pausedRef = useRef(paused);
   pausedRef.current = paused;
 
   const agentName = (id: string | null) => (id ? agents.find((a) => a.id === id)?.name ?? "Unknown agent" : "Chat");
+
+  const toggleTrace = (id: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
 
   const loadRecent = useCallback(async () => {
     if (!accountId) return;
     const [{ data }, { data: agentRows }] = await Promise.all([
       supabase
         .from("agent_decisions")
-        .select("id, decision, reasoning, source, escalated, confidence_score, agent_id, created_at")
+        .select("id, decision, reasoning, source, escalated, confidence_score, agent_id, created_at, gate_trace")
         .eq("user_id", accountId)
         .order("created_at", { ascending: false })
         .limit(50),
@@ -142,6 +152,18 @@ export default function ControlLiveFeed() {
                   <span>· confidence {r.confidence_score}</span>
                   {r.escalated && <span className="text-amber-300">· escalated</span>}
                 </div>
+                {r.gate_trace && r.gate_trace.length > 0 && (
+                  <>
+                    <button
+                      onClick={() => toggleTrace(r.id)}
+                      className="mt-1 flex items-center gap-1 font-mono text-[10px] uppercase text-zinc-500 hover:text-zinc-300"
+                    >
+                      {expanded.has(r.id) ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                      Why
+                    </button>
+                    {expanded.has(r.id) && <GateTraceList trace={r.gate_trace} />}
+                  </>
+                )}
               </li>
             );
           })}

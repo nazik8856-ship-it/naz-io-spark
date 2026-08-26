@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 const anyDb = supabase as any;
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
+import { ACCOUNT_PERMISSIONS, PERMISSION_LABEL, type AccountPermission } from "@/lib/account-switcher";
 
 type Role = "owner" | "approver" | "viewer";
 type MemberRow = {
@@ -18,6 +19,7 @@ type MemberRow = {
   accepted_at: string | null;
   ooo_until: string | null;
   ooo_fallback_member_id: string | null;
+  permissions: string[] | null;
 };
 
 const ROLE_LABEL: Record<Role, string> = { owner: "Owner", approver: "Approver", viewer: "Viewer" };
@@ -26,8 +28,10 @@ const ROLE_LABEL: Record<Role, string> = { owner: "Owner", approver: "Approver",
  * TEAM — invite people to this account with a role (owner/approver/
  * viewer). Active members can view this account's decisions, incidents,
  * agents and rules; approvers/owners can also co-sign pending approvals;
- * owners can flip the kill switch. Write access to rules/spend caps stays
- * owner-account-only for now (a deliberate, separate follow-up).
+ * owners can flip the kill switch. An owner-role member gets every
+ * owner-level write (policy, spend/strictness, integrations) by default --
+ * `permissions` (null) below narrows that to a specific subset instead of
+ * the single bundled owner switch, if the account owner chooses to.
  */
 export default function ControlTeam() {
   const navigate = useNavigate();
@@ -43,7 +47,7 @@ export default function ControlTeam() {
     setLoading(true);
     const { data, error } = await anyDb
       .from("account_members")
-      .select("id, member_id, email, role, status, invited_at, accepted_at, ooo_until, ooo_fallback_member_id")
+      .select("id, member_id, email, role, status, invited_at, accepted_at, ooo_until, ooo_fallback_member_id, permissions")
       .eq("account_owner_id", user.id)
       .order("invited_at", { ascending: false });
     if (error) toast({ title: "Couldn't load your team", description: error.message, variant: "destructive" });
@@ -74,6 +78,22 @@ export default function ControlTeam() {
   const revoke = async (id: string) => {
     const { error } = await anyDb.from("account_members").update({ status: "revoked" }).eq("id", id);
     if (error) { toast({ title: "Couldn't revoke it", description: error.message, variant: "destructive" }); return; }
+    load();
+  };
+
+  // Narrows an owner-role member to a specific subset of the owner write
+  // surface (policy / spend & strictness / integrations) instead of the
+  // single bundled owner switch. Toggling a permission OFF adds it to the
+  // exclusion set stored as `permissions`; toggling every one back ON
+  // clears the column back to null (unrestricted), rather than leaving an
+  // array that happens to list everything -- null is the canonical
+  // "unrestricted" value every check in this codebase already expects.
+  const togglePermission = async (m: MemberRow, permission: AccountPermission) => {
+    const current = m.permissions ?? [...ACCOUNT_PERMISSIONS];
+    const next = current.includes(permission) ? current.filter((p) => p !== permission) : [...current, permission];
+    const toStore = ACCOUNT_PERMISSIONS.every((p) => next.includes(p)) ? null : next;
+    const { error } = await anyDb.from("account_members").update({ permissions: toStore }).eq("id", m.id);
+    if (error) { toast({ title: "Couldn't update permissions", description: error.message, variant: "destructive" }); return; }
     load();
   };
 
@@ -108,7 +128,9 @@ export default function ControlTeam() {
         </h1>
         <p className="mt-1 text-sm text-zinc-400">
           Invite people to this account. Viewers can see this account's decisions, incidents, agents and
-          rules; Approvers can also co-sign pending approvals; Owners can additionally flip the kill switch.
+          rules; Approvers can also co-sign pending approvals; Owners can additionally flip the kill switch
+          and manage policy, spend/strictness, and integrations — pick which of those an owner actually
+          gets below, instead of granting all of it by default.
         </p>
 
         <div className="mt-6 flex flex-wrap items-end gap-2 rounded border border-white/10 bg-white/[0.02] p-3">
@@ -213,6 +235,28 @@ export default function ControlTeam() {
                         Clear
                       </button>
                     )}
+                  </div>
+                )}
+
+                {m.status === "active" && m.role === "owner" && (
+                  <div className="mt-2 flex flex-wrap items-center gap-3 border-t border-white/5 pt-2">
+                    <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+                      Owner access
+                    </span>
+                    {ACCOUNT_PERMISSIONS.map((p) => {
+                      const granted = m.permissions === null || m.permissions.includes(p);
+                      return (
+                        <label key={p} className="flex items-center gap-1.5 text-xs text-zinc-300" title={PERMISSION_LABEL[p]}>
+                          <input
+                            type="checkbox"
+                            checked={granted}
+                            onChange={() => togglePermission(m, p)}
+                            className="accent-cyan-500"
+                          />
+                          {p}
+                        </label>
+                      );
+                    })}
                   </div>
                 )}
               </li>

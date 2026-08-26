@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, History as HistoryIcon } from "lucide-react";
+import { ArrowLeft, History as HistoryIcon, ChevronDown, ChevronRight } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { toast } from "@/hooks/use-toast";
 import { filterBySearch } from "@/lib/search-filter";
 import { classifyDecisionOutcome, type DecisionOutcome } from "@/lib/roi-report";
+import { GateTraceList, type TraceEntry } from "@/components/control/GateTraceList";
 
-// action_type/provider (2026-08-23) aren't in the generated Supabase types yet.
+// action_type/provider (2026-08-23) and gate_trace (2026-08-18) aren't in
+// the generated Supabase types yet.
 const anyDb = supabase as any;
 
 const PAGE_SIZE = 100;
@@ -24,6 +26,7 @@ type DecisionRow = {
   action_type: string | null;
   provider: string | null;
   created_at: string;
+  gate_trace: TraceEntry[] | null;
 };
 
 type AgentOption = { id: string; name: string };
@@ -67,6 +70,7 @@ export default function ControlDecisionHistory() {
   const [loading, setLoading] = useState(true);
   const [limit, setLimit] = useState(PAGE_SIZE);
   const [hasMore, setHasMore] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const [search, setSearch] = useState("");
   const [sourceFilter, setSourceFilter] = useState("all");
@@ -77,6 +81,13 @@ export default function ControlDecisionHistory() {
 
   const agentName = (id: string | null) => (id ? agents.find((a) => a.id === id)?.name ?? "Unknown agent" : "Chat");
 
+  const toggleTrace = (id: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+
   const load = useCallback(async () => {
     if (!accountId) return;
     setLoading(true);
@@ -84,7 +95,7 @@ export default function ControlDecisionHistory() {
     const toIso = new Date(`${to}T23:59:59.999Z`).toISOString();
     let query = anyDb
       .from("agent_decisions")
-      .select("id, decision, reasoning, confidence_score, escalated, source, agent_id, action_type, provider, created_at")
+      .select("id, decision, reasoning, confidence_score, escalated, source, agent_id, action_type, provider, created_at, gate_trace")
       .eq("user_id", accountId)
       .gte("created_at", fromIso)
       .lte("created_at", toIso)
@@ -235,6 +246,18 @@ export default function ControlDecisionHistory() {
                         <div className="mt-1 font-mono text-[10px] uppercase text-zinc-500">
                           {row.action_type}{row.action_type && row.provider ? " · " : ""}{row.provider}
                         </div>
+                      )}
+                      {row.gate_trace && row.gate_trace.length > 0 && (
+                        <>
+                          <button
+                            onClick={() => toggleTrace(row.id)}
+                            className="mt-1 flex items-center gap-1 font-mono text-[10px] uppercase text-zinc-500 hover:text-zinc-300"
+                          >
+                            {expanded.has(row.id) ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                            Why
+                          </button>
+                          {expanded.has(row.id) && <GateTraceList trace={row.gate_trace} />}
+                        </>
                       )}
                     </td>
                     <td className="py-3 pr-3 font-mono text-[11px] text-zinc-400">{row.confidence_score}%</td>

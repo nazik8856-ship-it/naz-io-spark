@@ -20,7 +20,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-const EXAMPLE_CURL = `curl -X POST "${SUPABASE_FUNCTIONS_URL}/control-api" \\
+const EXAMPLE_CURL = `curl -X POST "${SUPABASE_FUNCTIONS_URL}/control-api/v1" \\
   -H "Authorization: Bearer nazai_sk_<your key>" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -32,11 +32,60 @@ const EXAMPLE_CURL = `curl -X POST "${SUPABASE_FUNCTIONS_URL}/control-api" \\
   }'`;
 
 const EXAMPLE_RESPONSE = `{
+  "api_version": "v1",
   "verdict": "allow",
   "reason": "No hard rule, safety match, spend cap, or circuit breaker stopped this action.",
   "decision_id": null,
   "gate_source": null,
   "mode": "fast"
+}`;
+
+const EXAMPLE_BATCH_CURL = `curl -X POST "${SUPABASE_FUNCTIONS_URL}/control-api/v1" \\
+  -H "Authorization: Bearer nazai_sk_<your key>" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "actions": [
+      { "action_type": "send_email", "provider": "Gmail", "description": "Reply to a refund request." },
+      { "action_type": "post_public_content", "provider": "Slack", "description": "Post the weekly update." }
+    ]
+  }'`;
+
+const EXAMPLE_SDK = `import { ControlApiClient } from "@nazai/control-api-client";
+
+const client = new ControlApiClient({
+  apiKey: process.env.NAZAI_API_KEY!, // nazai_sk_...
+  baseUrl: "${SUPABASE_FUNCTIONS_URL}",
+});
+
+const verdict = await client.check({
+  actionType: "send_email",
+  provider: "Gmail",
+  description: "Reply to a customer refund request.",
+});
+
+// Pull new decisions on your own schedule:
+const page = await client.listDecisions({ since: "2026-08-01T00:00:00Z" });
+for (const d of page.decisions) console.log(d.actionType, d.decision);`;
+
+const EXAMPLE_EXPORT_RESPONSE = `{
+  "api_version": "v1",
+  "decisions": [
+    { "id": "...", "decision": "ALLOW send_email (Gmail)", "reasoning": "...", "confidence_score": 91,
+      "escalated": false, "source": "model", "agent_id": null, "action_type": "send_email",
+      "provider": "Gmail", "policy_version": 3, "created_at": "2026-08-27T10:00:00Z" }
+  ],
+  "has_more": true,
+  "next_cursor": "dxc1:MjAyNi0wOC0yN1QxMDowMDowMFp8YWJjLTEyMw=="
+}`;
+
+const EXAMPLE_BATCH_RESPONSE = `{
+  "api_version": "v1",
+  "batch": true,
+  "count": 2,
+  "results": [
+    { "index": 0, "verdict": "allow", "reason": "...", "decision_id": null, "gate_source": null, "mode": "fast" },
+    { "index": 1, "verdict": "block", "reason": "...", "decision_id": "...", "gate_source": "hard_rule", "mode": "fast" }
+  ]
 }`;
 
 /**
@@ -92,7 +141,22 @@ export default function ControlApiDocs() {
         </Section>
 
         <Section title="Endpoint">
-          <CodeBlock>{`POST ${SUPABASE_FUNCTIONS_URL}/control-api`}</CodeBlock>
+          <CodeBlock>{`POST ${SUPABASE_FUNCTIONS_URL}/control-api/v1`}</CodeBlock>
+          <p className="mt-2 text-xs text-zinc-500">
+            The unversioned <span className="font-mono">{`${SUPABASE_FUNCTIONS_URL}/control-api`}</span> URL
+            still works today too — it's an alias for v1, the only version that exists right now. Use the
+            versioned URL above for anything you're building for the long term.
+          </p>
+        </Section>
+
+        <Section title="Versioning">
+          <p>
+            Every response includes an <span className="font-mono text-cyan-300">api_version</span> field so
+            you always know which version answered. If NazAI ever needs to change this API in a way that would
+            break existing integrations, that change ships as a new version (e.g. v2) at its own URL —{" "}
+            <span className="font-mono">v1</span> keeps working exactly as documented here, unchanged. We won't
+            silently change what v1 does out from under you.
+          </p>
         </Section>
 
         <Section title="Request body">
@@ -159,6 +223,10 @@ export default function ControlApiDocs() {
             </thead>
             <tbody className="text-zinc-300">
               <tr className="border-b border-white/5">
+                <td className="py-1.5 pr-3 font-mono text-cyan-300">api_version</td>
+                <td className="py-1.5">Which version of this API answered — <span className="font-mono">"v1"</span> today, on every response.</td>
+              </tr>
+              <tr className="border-b border-white/5">
                 <td className="py-1.5 pr-3 font-mono text-cyan-300">verdict</td>
                 <td className="py-1.5">
                   <span className="text-emerald-400">allow</span> — go ahead. <span className="text-amber-400">modify</span> — safer
@@ -187,6 +255,52 @@ export default function ControlApiDocs() {
           <CodeBlock>{EXAMPLE_CURL}</CodeBlock>
           <p className="mt-3">Response:</p>
           <CodeBlock>{EXAMPLE_RESPONSE}</CodeBlock>
+        </Section>
+
+        <Section title="Batch requests">
+          <p>
+            Have a lot of actions to check at once? Send an <span className="font-mono text-cyan-300">actions</span> array
+            instead of a single action, and get back one verdict per action, in the same order — up to 50 actions per
+            request, using the exact same checks and rate limit as calling this endpoint once per action.
+          </p>
+          <CodeBlock>{EXAMPLE_BATCH_CURL}</CodeBlock>
+          <p className="mt-3">Response:</p>
+          <CodeBlock>{EXAMPLE_BATCH_RESPONSE}</CodeBlock>
+          <p className="mt-2 text-xs text-zinc-500">
+            If a batch runs into the rate limit partway through, the remaining actions come back marked
+            <span className="font-mono"> "error": "rate_limited"</span> instead of each one spending its own request
+            finding that out — just retry those from where the batch stopped.
+          </p>
+        </Section>
+
+        <Section title="Exporting your decision history">
+          <p>
+            For your own reporting or monitoring tools to pull new decisions automatically — instead of a
+            person re-downloading a file — use the same key against:
+          </p>
+          <CodeBlock>{`GET ${SUPABASE_FUNCTIONS_URL}/control-api/v1/decisions?since=2026-08-01T00:00:00Z&limit=100`}</CodeBlock>
+          <p className="mt-2">
+            Response comes back as a page of up to 500 decisions plus a <span className="font-mono text-cyan-300">next_cursor</span>.
+            Keep calling with <span className="font-mono">?cursor=&lt;next_cursor&gt;</span> until{" "}
+            <span className="font-mono">has_more</span> is <span className="font-mono">false</span>, then save the last cursor
+            you got and resume from there next time — new decisions can't be skipped or double-counted between polls,
+            even if more land while you're mid-page.
+          </p>
+          <CodeBlock>{EXAMPLE_EXPORT_RESPONSE}</CodeBlock>
+          <p className="mt-2 text-xs text-zinc-500">
+            20 requests per minute per key — a separate budget from the verdict endpoint above, since export polling
+            and per-action checks are different traffic shapes.
+          </p>
+        </Section>
+
+        <Section title="TypeScript SDK">
+          <p>
+            Prefer not to hand-write the HTTP request? A small, hand-crafted{" "}
+            <span className="font-mono text-cyan-300">@nazai/control-api-client</span> package (in this
+            repository's <span className="font-mono">sdk/control-api-client</span> directory) handles the
+            authorization header and both verdict modes for you:
+          </p>
+          <CodeBlock>{EXAMPLE_SDK}</CodeBlock>
         </Section>
 
         <Section title="Rate limits">

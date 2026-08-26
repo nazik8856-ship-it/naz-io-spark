@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 // Stale generated types: control-system tables aren't in types.ts yet.
 const anyDb = supabase as any;
 import { useAuth } from "@/hooks/useAuth";
+import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { toast } from "@/hooks/use-toast";
 import { buildRoiReport, projectMonthlySpend, type DecisionForRoi } from "@/lib/roi-report";
 import { computeTrend } from "@/lib/trend";
@@ -25,6 +26,7 @@ type ForecastRow = { label: string; projected: number };
 export default function ControlRoiReport() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { accountId } = useActiveAccount();
   const [from, setFrom] = useState(daysAgoIso(30));
   const [to, setTo] = useState(todayIso());
   const [generating, setGenerating] = useState(false);
@@ -54,7 +56,7 @@ export default function ControlRoiReport() {
   // always answers "at this month's pace so far, what will month-end look
   // like", so it loads on mount rather than waiting for Generate.
   const loadForecasts = useCallback(async () => {
-    if (!user) return;
+    if (!accountId) return;
     const now = new Date();
     const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
     const daysInMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).getUTCDate();
@@ -62,9 +64,9 @@ export default function ControlRoiReport() {
     const monthStartIso = monthStart.toISOString().slice(0, 10);
 
     const [{ data: accountRows }, { data: agentRows }, { data: agents }] = await Promise.all([
-      anyDb.from("ai_spend_daily").select("cost_usd").eq("user_id", user.id).is("agent_id", null).gte("day", monthStartIso),
-      anyDb.from("ai_spend_daily").select("agent_id, cost_usd").eq("user_id", user.id).not("agent_id", "is", null).gte("day", monthStartIso),
-      anyDb.from("agents").select("id, name").eq("user_id", user.id),
+      anyDb.from("ai_spend_daily").select("cost_usd").eq("user_id", accountId).is("agent_id", null).gte("day", monthStartIso),
+      anyDb.from("ai_spend_daily").select("agent_id, cost_usd").eq("user_id", accountId).not("agent_id", "is", null).gte("day", monthStartIso),
+      anyDb.from("agents").select("id, name").eq("user_id", accountId),
     ]);
 
     const agentNames: Record<string, string> = {};
@@ -83,12 +85,12 @@ export default function ControlRoiReport() {
       rows.push({ label: agentNames[agentId] ?? `Agent ${agentId.slice(0, 8)}…`, projected: projectMonthlySpend(costs, daysElapsed, daysInMonth) });
     }
     setForecasts(rows);
-  }, [user]);
+  }, [accountId]);
 
   useEffect(() => { void loadForecasts(); }, [loadForecasts]);
 
   const generate = async () => {
-    if (!user) return;
+    if (!accountId) return;
     setGenerating(true);
     const fromIso = new Date(`${from}T00:00:00.000Z`).toISOString();
     const toIso = new Date(`${to}T23:59:59.999Z`).toISOString();
@@ -96,12 +98,12 @@ export default function ControlRoiReport() {
     const prevFromIso = new Date(new Date(fromIso).getTime() - rangeMs).toISOString();
 
     const [decisions, prevDecisions, accountSpend, prevAccountSpend, agentSpend, agents] = await Promise.all([
-      anyDb.from("agent_decisions").select("decision, escalated, agent_id").eq("user_id", user.id).gte("created_at", fromIso).lte("created_at", toIso),
-      anyDb.from("agent_decisions").select("id", { count: "exact", head: true }).eq("user_id", user.id).gte("created_at", prevFromIso).lt("created_at", fromIso),
-      anyDb.from("ai_spend_daily").select("cost_usd").eq("user_id", user.id).is("agent_id", null).gte("day", from).lte("day", to),
-      anyDb.from("ai_spend_daily").select("cost_usd").eq("user_id", user.id).is("agent_id", null).gte("day", prevFromIso.slice(0, 10)).lt("day", from),
-      anyDb.from("ai_spend_daily").select("agent_id, cost_usd").eq("user_id", user.id).not("agent_id", "is", null).gte("day", from).lte("day", to),
-      anyDb.from("agents").select("id, name").eq("user_id", user.id),
+      anyDb.from("agent_decisions").select("decision, escalated, agent_id").eq("user_id", accountId).gte("created_at", fromIso).lte("created_at", toIso),
+      anyDb.from("agent_decisions").select("id", { count: "exact", head: true }).eq("user_id", accountId).gte("created_at", prevFromIso).lt("created_at", fromIso),
+      anyDb.from("ai_spend_daily").select("cost_usd").eq("user_id", accountId).is("agent_id", null).gte("day", from).lte("day", to),
+      anyDb.from("ai_spend_daily").select("cost_usd").eq("user_id", accountId).is("agent_id", null).gte("day", prevFromIso.slice(0, 10)).lt("day", from),
+      anyDb.from("ai_spend_daily").select("agent_id, cost_usd").eq("user_id", accountId).not("agent_id", "is", null).gte("day", from).lte("day", to),
+      anyDb.from("agents").select("id, name").eq("user_id", accountId),
     ]);
 
     setGenerating(false);

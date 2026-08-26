@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { supabase, SUPABASE_FUNCTIONS_URL, SUPABASE_ANON } from "@/integrations/supabase/client";
-import { useAuth } from "@/hooks/useAuth";
+import { useActiveAccount } from "@/hooks/useActiveAccount";
+import { hasPermission } from "@/lib/account-switcher";
 import { toast } from "@/hooks/use-toast";
 import { diffPolicySnapshots, type PolicySnapshotShape } from "@/lib/policy-diff";
 
@@ -14,6 +15,26 @@ type PolicyVersion = {
   snapshot: Record<string, unknown>;
   created_at: string;
   activated_at: string | null;
+  watching: boolean;
+  watching_since: string | null;
+};
+
+type WatchSummary = {
+  policy_version_id: string;
+  watching: boolean;
+  watching_since: string | null;
+  total: number;
+  same: number;
+  regressions: number;
+  improvements: number;
+  changed_samples: {
+    action_type: string;
+    provider: string | null;
+    active_outcome: string;
+    draft_outcome: string;
+    diff: "regression" | "improvement";
+    created_at: string;
+  }[];
 };
 
 type DiffRow = {
@@ -58,7 +79,8 @@ type RealTrafficReplay = {
  */
 export default function ControlPolicy() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { accountId, role, permissions } = useActiveAccount();
+  const canWrite = hasPermission(role, permissions, "policy");
   const [versions, setVersions] = useState<PolicyVersion[]>([]);
   const [openSnapshot, setOpenSnapshot] = useState<string | null>(null);
   const [replay, setReplay] = useState<Replay | null>(null);
@@ -66,17 +88,20 @@ export default function ControlPolicy() {
   const [realReplay, setRealReplay] = useState<RealTrafficReplay | null>(null);
   const [realReplayFor, setRealReplayFor] = useState<string | null>(null);
   const [realReplayBusy, setRealReplayBusy] = useState<string | null>(null);
+  const [watchSummary, setWatchSummary] = useState<WatchSummary | null>(null);
+  const [watchSummaryFor, setWatchSummaryFor] = useState<string | null>(null);
+  const [watchSummaryBusy, setWatchSummaryBusy] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    if (!user) return;
+    if (!accountId) return;
     const { data } = await supabase
       .from("policy_versions")
-      .select("id, version, status, notes, snapshot, created_at, activated_at")
-      .eq("user_id", user.id)
+      .select("id, version, status, notes, snapshot, created_at, activated_at, watching, watching_since")
+      .eq("user_id", accountId)
       .order("version", { ascending: false });
     setVersions((data ?? []) as unknown as PolicyVersion[]);
-  }, [user]);
+  }, [accountId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -89,7 +114,10 @@ export default function ControlPolicy() {
         apikey: SUPABASE_ANON,
         Authorization: `Bearer ${sess?.session?.access_token ?? SUPABASE_ANON}`,
       },
-      body: JSON.stringify(payload),
+      // account_id lets control-engine act on the account being VIEWED,
+      // not just the caller's own -- verified server-side via
+      // is_account_member, same as api-keys/index.ts's create/revoke.
+      body: JSON.stringify({ ...payload, account_id: accountId }),
     });
     return { ok: res.ok, body: await res.json().catch(() => ({})) as Record<string, unknown> };
   };
@@ -120,7 +148,35 @@ export default function ControlPolicy() {
     setRealReplay(body as unknown as RealTrafficReplay);
   };
 
+  const toggleWatching = async (v: PolicyVersion) => {
+    if (!canWrite) return;
+    setBusy(v.id);
+    const start = !v.watching;
+    const { ok, body } = await call(`/policy/${v.id}/watch`, { start });
+    setBusy(null);
+    if (!ok) {
+      toast({ title: start ? "Couldn't start watching" : "Couldn't stop watching", description: String(body.error ?? "Unknown error"), variant: "destructive" });
+      return;
+    }
+    toast({ title: start ? `Now watching v${v.version} against live traffic` : `Stopped watching v${v.version}` });
+    await load();
+  };
+
+  const viewWatchSummary = async (v: PolicyVersion) => {
+    setWatchSummaryBusy(v.id);
+    setWatchSummaryFor(v.id);
+    const { ok, body } = await call(`/policy/${v.id}/watch-summary`);
+    setWatchSummaryBusy(null);
+    if (!ok) {
+      setWatchSummary(null);
+      toast({ title: "Couldn't load watch summary", description: String(body.error ?? "Unknown error"), variant: "destructive" });
+      return;
+    }
+    setWatchSummary(body as unknown as WatchSummary);
+  };
+
   const activate = async (v: PolicyVersion) => {
+    if (!canWrite) return;
     setBusy(v.id);
     const { ok, body } = await call(`/policy/${v.id}/activate`);
     setBusy(null);
@@ -134,6 +190,7 @@ export default function ControlPolicy() {
   };
 
   const rollback = async () => {
+    if (!canWrite) return;
     const active = versions.find((v) => v.status === "active");
     const previous = versions.find((v) => v.status === "archived");
     if (!previous) {
@@ -142,12 +199,13 @@ export default function ControlPolicy() {
     }
     setBusy(previous.id);
     if (active) {
-      await supabase.from("policy_versions").update({ status: "archived" }).eq("id", active.id);
+      await supabase.from("policy_versions").update({ status: "archived" }).eq("id", active.id).eq("user_id", accountId);
     }
     const { error } = await supabase
       .from("policy_versions")
       .update({ status: "active", activated_at: new Date().toISOString() })
-      .eq("id", previous.id);
+      .eq("id", previous.id)
+      .eq("user_id", accountId);
     setBusy(null);
     if (error) {
       toast({ title: "Rollback failed", description: error.message, variant: "destructive" });
@@ -184,13 +242,15 @@ export default function ControlPolicy() {
               A draft can only go live if it doesn't regress any scenario the active policy passes.
             </p>
           </div>
-          <button
-            onClick={rollback}
-            disabled={busy !== null}
-            className="rounded border border-white/15 px-3 py-1.5 text-sm hover:bg-white/10 disabled:opacity-50"
-          >
-            Rollback to previous
-          </button>
+          {canWrite && (
+            <button
+              onClick={rollback}
+              disabled={busy !== null}
+              className="rounded border border-white/15 px-3 py-1.5 text-sm hover:bg-white/10 disabled:opacity-50"
+            >
+              Rollback to previous
+            </button>
+          )}
         </div>
 
         <table className="w-full text-sm border border-white/10">
@@ -208,7 +268,10 @@ export default function ControlPolicy() {
             {versions.map((v) => (
               <tr key={v.id} className="border-t border-white/10 align-top">
                 <td className="p-2">v{v.version}</td>
-                <td className="p-2">{v.status}</td>
+                <td className="p-2">
+                  {v.status}
+                  {v.watching && <span className="ml-1.5 text-[10px] uppercase tracking-wider text-emerald-400">· watching</span>}
+                </td>
                 <td className="p-2 text-zinc-400">{v.notes ?? "—"}</td>
                 <td className="p-2 text-zinc-400">{new Date(v.created_at).toLocaleString()}</td>
                 <td className="p-2 text-zinc-400">{v.activated_at ? new Date(v.activated_at).toLocaleString() : "—"}</td>
@@ -233,6 +296,28 @@ export default function ControlPolicy() {
                   >
                     {realReplayBusy === v.id ? "Running…" : "Replay against real traffic"}
                   </button>
+                  {v.status === "draft" && canWrite && (
+                    <button
+                      onClick={() => toggleWatching(v)}
+                      disabled={busy === v.id}
+                      className={`rounded border px-2 py-1 disabled:opacity-50 ${
+                        v.watching
+                          ? "border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/10"
+                          : "border-white/15 hover:bg-white/10"
+                      }`}
+                    >
+                      {busy === v.id ? "…" : v.watching ? "Watching — stop" : "Start watching"}
+                    </button>
+                  )}
+                  {(v.watching || v.watching_since) && (
+                    <button
+                      onClick={() => viewWatchSummary(v)}
+                      disabled={watchSummaryBusy === v.id}
+                      className="rounded border border-cyan-500/30 px-2 py-1 text-cyan-300 hover:bg-cyan-500/10 disabled:opacity-50"
+                    >
+                      {watchSummaryBusy === v.id ? "Loading…" : "Watch summary"}
+                    </button>
+                  )}
                   {activeVersion && v.id !== activeVersion.id && (
                     <button
                       onClick={() => setDiffFor(diffFor === v.id ? null : v.id)}
@@ -241,7 +326,7 @@ export default function ControlPolicy() {
                       {diffFor === v.id ? "Hide diff" : "Diff vs active"}
                     </button>
                   )}
-                  {v.status !== "active" && (
+                  {v.status !== "active" && canWrite && (
                     <button
                       onClick={() => activate(v)}
                       disabled={busy === v.id}
@@ -393,6 +478,57 @@ export default function ControlPolicy() {
                       <td className="p-2">{r.active.gate_outcome}</td>
                       <td className="p-2">{r.draft.gate_outcome}</td>
                       <td className={`p-2 ${r.diff === "regression" ? "text-rose-300" : "text-emerald-300"}`}>{r.diff}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+
+        {watchSummary && watchSummaryFor && (
+          <div className="space-y-2">
+            <h2 className="text-sm font-semibold">
+              Watch summary — v{versions.find((v) => v.id === watchSummaryFor)?.version ?? "?"}
+              {watchSummary.watching ? (
+                <span className="ml-2 text-xs font-normal text-emerald-400">
+                  watching live traffic since {watchSummary.watching_since ? new Date(watchSummary.watching_since).toLocaleString() : "—"}
+                </span>
+              ) : (
+                <span className="ml-2 text-xs font-normal text-zinc-500">not currently watching</span>
+              )}
+            </h2>
+            <p className="text-sm text-zinc-400">
+              {watchSummary.total} live decision(s) observed so far · {watchSummary.same} unchanged ·{" "}
+              {watchSummary.regressions} regression(s), {watchSummary.improvements} improvement(s).
+            </p>
+            {watchSummary.total === 0 ? (
+              <p className="rounded border border-white/10 bg-black/20 p-3 text-xs text-zinc-500">
+                No live decisions observed yet — check back after this draft has been watching for a while.
+              </p>
+            ) : watchSummary.changed_samples.length === 0 ? (
+              <p className="rounded border border-emerald-500/30 bg-emerald-500/[0.04] p-3 text-xs text-emerald-300">
+                No live decisions observed so far would have gone differently under this draft.
+              </p>
+            ) : (
+              <table className="w-full text-xs border border-white/10">
+                <thead className="bg-white/5 text-left text-zinc-400">
+                  <tr>
+                    <th className="p-2">Action</th>
+                    <th className="p-2">Active</th>
+                    <th className="p-2">Draft</th>
+                    <th className="p-2">Change</th>
+                    <th className="p-2">When</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {watchSummary.changed_samples.map((r, i) => (
+                    <tr key={i} className="border-t border-white/10 align-top">
+                      <td className="p-2 font-mono">{r.action_type} · {r.provider ?? "unknown"}</td>
+                      <td className="p-2">{r.active_outcome}</td>
+                      <td className="p-2">{r.draft_outcome}</td>
+                      <td className={`p-2 ${r.diff === "regression" ? "text-rose-300" : "text-emerald-300"}`}>{r.diff}</td>
+                      <td className="p-2 text-zinc-500">{new Date(r.created_at).toLocaleString()}</td>
                     </tr>
                   ))}
                 </tbody>

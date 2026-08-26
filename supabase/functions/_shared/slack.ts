@@ -3,6 +3,7 @@
 // token plus team info. Tokens are long-lived unless the workspace admin
 // enables token rotation, so we don't ship a refresh loop here.
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { getRotatableClientSecret, withClientSecretRotation } from "./oauth-secret-rotation.ts";
 
 // Bot scope groups shown on NazAI's pre-consent screen. User checks which
 // capabilities to grant; only those scopes are forwarded to Slack.
@@ -58,18 +59,27 @@ export type SlackTokenResponse = {
 
 export async function exchangeCode(code: string): Promise<SlackTokenResponse> {
   const clientId = Deno.env.get("SLACK_CLIENT_ID") || "";
-  const clientSecret = Deno.env.get("SLACK_CLIENT_SECRET") || "";
-  const r = await fetch("https://slack.com/api/oauth.v2.access", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: clientId,
-      client_secret: clientSecret,
-      code,
-      redirect_uri: SLACK_REDIRECT_URI,
-    }),
-  });
-  const data = await r.json().catch(() => ({} as SlackTokenResponse));
+  const secrets = getRotatableClientSecret("SLACK_CLIENT_SECRET");
+  const { r, data } = await withClientSecretRotation(
+    secrets,
+    async (clientSecret) => {
+      const res = await fetch("https://slack.com/api/oauth.v2.access", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          client_id: clientId,
+          client_secret: clientSecret,
+          code,
+          redirect_uri: SLACK_REDIRECT_URI,
+        }),
+      });
+      return { r: res, data: await res.json().catch(() => ({} as SlackTokenResponse)) };
+    },
+    // Slack documents a specific machine-readable error for this case,
+    // unlike most of the other five providers -- no 401-status guessing
+    // needed here.
+    ({ data }) => data?.error === "bad_client_secret",
+  );
   if (!r.ok || !data?.ok) {
     throw new Error(data?.error || `Slack token exchange failed (${r.status})`);
   }

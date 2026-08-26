@@ -4,7 +4,7 @@ import { ArrowLeft, ShieldOff } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 // Stale generated types: control-system tables aren't in types.ts yet.
 const anyDb = supabase as any;
-import { useAuth } from "@/hooks/useAuth";
+import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { toast } from "@/hooks/use-toast";
 import { findCoverageGaps, type CapabilityForCoverage, type HardRuleForCoverage } from "@/lib/coverage-gaps";
 import { classifyAnomalyCoverage, topAgentlessActionTypes, type AgentlessActionType, type CoverageSeverity } from "@/lib/anomaly-coverage";
@@ -28,7 +28,7 @@ const SEVERITY_STYLE: Record<CoverageSeverity, string> = {
  */
 export default function ControlCoverageGaps() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { accountId } = useActiveAccount();
   const [loading, setLoading] = useState(true);
   const [gaps, setGaps] = useState<CapabilityForCoverage[]>([]);
   const [totalReal, setTotalReal] = useState(0);
@@ -39,21 +39,25 @@ export default function ControlCoverageGaps() {
   const [anomalyBreakdown, setAnomalyBreakdown] = useState<AgentlessActionType[]>([]);
 
   const load = useCallback(async () => {
-    if (!user) return;
+    if (!accountId) return;
     setLoading(true);
     const since = new Date(Date.now() - ANOMALY_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
     const { data: sess } = await supabase.auth.getSession();
     const [statusRes, rulesRes, { data: agentRows }, totalRes, agentlessRes, breakdownRes] = await Promise.all([
-      supabase.functions.invoke("capability-status", { body: {} }),
-      anyDb.from("hard_rules").select("action_type_pattern, provider, enabled, shadow_mode, agent_id").eq("user_id", user.id),
-      anyDb.from("agents").select("id, name").eq("user_id", user.id).order("name"),
+      // Follow-up from item 1 (tracked as task #85): capability-status now
+      // accepts account_id and agent_integrations has a team-read RLS
+      // policy, so this reflects the account being VIEWED, not just
+      // whoever's currently logged in.
+      supabase.functions.invoke("capability-status", { body: { account_id: accountId } }),
+      anyDb.from("hard_rules").select("action_type_pattern, provider, enabled, shadow_mode, agent_id").eq("user_id", accountId),
+      anyDb.from("agents").select("id, name").eq("user_id", accountId).order("name"),
       // Anomaly-detector coverage: what fraction of recent decisions had no
       // agentId at all, so the per-agent baseline check was skipped for them
       // entirely (a documented, deliberate skip in control-gate.ts, not a
       // bug -- this just answers whether it's a SIZED gap or not, live).
-      anyDb.from("agent_decisions").select("id", { count: "exact", head: true }).eq("user_id", user.id).gte("created_at", since),
-      anyDb.from("agent_decisions").select("id", { count: "exact", head: true }).eq("user_id", user.id).gte("created_at", since).is("agent_id", null),
-      anyDb.from("agent_decisions").select("action_type, provider").eq("user_id", user.id).gte("created_at", since).is("agent_id", null).limit(500),
+      anyDb.from("agent_decisions").select("id", { count: "exact", head: true }).eq("user_id", accountId).gte("created_at", since),
+      anyDb.from("agent_decisions").select("id", { count: "exact", head: true }).eq("user_id", accountId).gte("created_at", since).is("agent_id", null),
+      anyDb.from("agent_decisions").select("action_type, provider").eq("user_id", accountId).gte("created_at", since).is("agent_id", null).limit(500),
     ]);
     void sess;
 
@@ -87,7 +91,7 @@ export default function ControlCoverageGaps() {
     setAnomalyBreakdown(topAgentlessActionTypes((breakdownRes.data ?? []) as { action_type: string | null; provider: string | null }[]));
 
     setLoading(false);
-  }, [user, scopeAgentId]);
+  }, [accountId, scopeAgentId]);
 
   useEffect(() => { load(); }, [load]);
 
