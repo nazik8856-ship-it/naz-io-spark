@@ -123,6 +123,19 @@ Deno.serve(async (req) => {
         update.rate_limit_per_minute = null;
       }
     }
+    // Item 12: a SEPARATE daily AI-spend ceiling just for this key's own
+    // mode="full" (AI-scored) usage -- stored in ai_spend_caps (the same
+    // table the account-wide and per-agent caps already use), not a
+    // column on api_keys itself, since it's a third parallel dimension of
+    // that exact mechanism. Validated here; the actual write happens
+    // after the api_keys update below succeeds, once the key is
+    // confirmed to exist for this account.
+    if (body?.ai_spend_cap_usd !== undefined && body.ai_spend_cap_usd !== null) {
+      const cap = Number(body.ai_spend_cap_usd);
+      if (!Number.isFinite(cap) || cap <= 0) {
+        return json({ error: "ai_spend_cap_usd must be a positive number, or null to remove the cap" }, 400);
+      }
+    }
     if (body.on_uncertain === "callback") {
       const callbackUrl = String(body?.callback_url || "").trim();
       const callbackSecret = String(body?.callback_secret || "").trim();
@@ -157,7 +170,31 @@ Deno.serve(async (req) => {
       .maybeSingle();
     if (error) return json({ error: error.message }, 500);
     if (!data) return json({ error: "Key not found for this account." }, 404);
-    return json({ ok: true, ...data });
+
+    let aiSpendCapUsd: number | null | undefined;
+    if (body?.ai_spend_cap_usd !== undefined) {
+      if (body.ai_spend_cap_usd === null) {
+        await admin.from("ai_spend_caps").delete().eq("user_id", targetUserId).eq("api_key_id", keyId);
+        aiSpendCapUsd = null;
+      } else {
+        const cap = Number(body.ai_spend_cap_usd);
+        // Two-step find-then-update-or-insert -- ai_spend_caps' per-key
+        // uniqueness is a PARTIAL unique index (WHERE api_key_id IS NOT
+        // NULL, matching the per-agent cap's own shape), so a plain
+        // upsert can't infer the right conflict target, same fix
+        // record_ai_spend's own agent/account rows and this project's
+        // circuit-breaker rows already apply for the identical reason.
+        const { data: existingCap } = await admin
+          .from("ai_spend_caps").select("id").eq("user_id", targetUserId).eq("api_key_id", keyId).maybeSingle();
+        if (existingCap) {
+          await admin.from("ai_spend_caps").update({ daily_cap_usd: cap, enabled: true }).eq("id", (existingCap as { id: string }).id);
+        } else {
+          await admin.from("ai_spend_caps").insert({ user_id: targetUserId, api_key_id: keyId, daily_cap_usd: cap, enabled: true });
+        }
+        aiSpendCapUsd = cap;
+      }
+    }
+    return json({ ok: true, ...data, ...(aiSpendCapUsd !== undefined ? { ai_spend_cap_usd: aiSpendCapUsd } : {}) });
   }
 
   // ---- GET /api-keys/:id/shadow-summary --------------------------------

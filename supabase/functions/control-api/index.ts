@@ -42,6 +42,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { resolveApiKeyAuth } from "../_shared/control-api-auth.ts";
 import { runControlGate } from "../_shared/control-gate.ts";
 import { checkIpRateLimit, checkRateLimit, resolveConfiguredRateLimit } from "../_shared/rate-limit.ts";
+import { getApiKeySpendStatus } from "../_shared/spend-guard.ts";
 import { checkApiVersion, CONTROL_API_VERSION } from "../_shared/api-versioning.ts";
 import { parseControlApiAction, MAX_BATCH_ACTIONS, type ParsedControlApiAction } from "../_shared/control-api-action.ts";
 import { encodeExportCursor, decodeExportCursor, clampExportLimit, exportCursorFilter } from "../_shared/decision-export.ts";
@@ -157,6 +158,55 @@ async function judgeOneAction(
   }
 
   // ---- mode="full": the full LLM-scored intent/risk/fit assessment --------
+  // "Zero human review" plan, item 12: checked BEFORE ever forwarding to
+  // control-engine -- and therefore before any real AI-gateway cost is
+  // incurred -- so a key with its own configured cap that's already used
+  // up for today is blocked outright here, not after paying for an
+  // assessment whose own cost would just push it further over. A key
+  // with no cap of its own (has_cap: false) is completely unaffected --
+  // only the account-wide cap (enforced inside control-engine itself,
+  // unchanged) ever applies to it.
+  if (keyId) {
+    const keySpend = await getApiKeySpendStatus(admin, userId, keyId);
+    if (keySpend.has_cap && keySpend.over_cap) {
+      const reason =
+        `Blocked — this API key's own daily AI spend cap is used up ($${keySpend.spent_usd.toFixed(2)} of ` +
+        `$${keySpend.cap_usd.toFixed(2)} across ${keySpend.calls} calls today). This is separate from the ` +
+        `account-wide cap and resumes tomorrow (UTC), or when an owner raises it.`;
+      let decisionId: string | null = null;
+      try {
+        const { data: logged } = await admin.from("agent_decisions").insert({
+          user_id: userId,
+          decision: `BLOCK ${actionType} (${provider})`.slice(0, 400),
+          reasoning: reason,
+          alternatives_considered: [],
+          confidence_score: 100,
+          // Reuses the existing "ai_spend_cap" source -- this is the
+          // exact same kind of block as the account-wide/per-agent one,
+          // just at a third granularity, not a new outcome needing its
+          // own value.
+          source: "ai_spend_cap",
+          escalated: false,
+          action_type: actionType,
+          provider,
+          api_key_id: keyId,
+        }).select("id").maybeSingle();
+        decisionId = (logged as { id?: string } | null)?.id ?? null;
+      } catch { /* logging must never break the cap enforcement itself */ }
+      return {
+        verdict: "block",
+        reason,
+        decision_id: decisionId,
+        confidence_score: null,
+        modification: null,
+        policy_version: null,
+        mode: "full",
+        resolved_automatically: false,
+        resolution_reason: null,
+      };
+    }
+  }
+
   // Forwards into control-engine using its existing internal service-role
   // bypass (the same path agent-runtime already uses) with assess_only so
   // control-engine judges the action but never tries to carry it out --
