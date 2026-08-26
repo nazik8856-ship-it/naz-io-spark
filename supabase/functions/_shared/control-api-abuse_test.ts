@@ -1,7 +1,7 @@
 // Real tests for the control-api abuse-sweep pure classification logic.
 //
 // Run with: deno test --allow-none supabase/functions/_shared/control-api-abuse_test.ts
-import { isNonAllowDecision, summarizeKeyActivity, isVolumeAbuse, isBlockRateAbuse, summarizeAbuseReason } from "./control-api-abuse.ts";
+import { isNonAllowDecision, summarizeKeyActivity, isVolumeAbuse, isBlockRateAbuse, summarizeAbuseReason, isCurrentlyPaused, computePauseUntil, pausedKeyMessage, PAUSE_COOLDOWN_MINUTES } from "./control-api-abuse.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
@@ -85,4 +85,34 @@ Deno.test("summarizeAbuseReason: mentions only volume when just volume fires", (
 Deno.test("summarizeAbuseReason: mentions the rate when just the rate fires", () => {
   const reason = summarizeAbuseReason({ apiKeyId: "k", userId: "u", total: 30, nonAllow: 20 }, 500, 20, 0.5);
   assert(reason.includes("20 of 30"));
+});
+
+// ---- item 7: auto-pause a runaway key ----
+
+Deno.test("isCurrentlyPaused: null/undefined pausedUntil is never paused", () => {
+  assertFalse(isCurrentlyPaused(null));
+  assertFalse(isCurrentlyPaused(undefined));
+});
+
+Deno.test("isCurrentlyPaused: a future timestamp is currently paused; a past one is not", () => {
+  const now = new Date("2026-08-28T12:00:00Z");
+  assert(isCurrentlyPaused("2026-08-28T12:30:00Z", now));
+  assertFalse(isCurrentlyPaused("2026-08-28T11:30:00Z", now));
+});
+
+Deno.test("isCurrentlyPaused: exactly now is no longer paused (the window has to be strictly in the future)", () => {
+  const now = new Date("2026-08-28T12:00:00Z");
+  assertFalse(isCurrentlyPaused(now.toISOString(), now));
+});
+
+Deno.test("computePauseUntil: PAUSE_COOLDOWN_MINUTES from now, exactly", () => {
+  const now = new Date("2026-08-28T12:00:00Z");
+  const expected = new Date(now.getTime() + PAUSE_COOLDOWN_MINUTES * 60_000).toISOString();
+  assertEquals(computePauseUntil(now), expected);
+});
+
+Deno.test("pausedKeyMessage: names the resume time and is explicit that no human action is needed", () => {
+  const msg = pausedKeyMessage("2026-08-28T12:30:00.000Z");
+  assert(msg.includes("2026-08-28T12:30:00.000Z"));
+  assert(msg.toLowerCase().includes("automatically") || msg.toLowerCase().includes("on its own"));
 });

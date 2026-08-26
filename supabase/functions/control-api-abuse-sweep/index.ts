@@ -14,8 +14,9 @@
 // gets its own alert (same moving-window reasoning as
 // webhooks.alerted_at / agent_integrations.revoked_alerted_at).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { summarizeKeyActivity, isVolumeAbuse, isBlockRateAbuse, summarizeAbuseReason, type DecisionRow } from "../_shared/control-api-abuse.ts";
+import { summarizeKeyActivity, isVolumeAbuse, isBlockRateAbuse, summarizeAbuseReason, computePauseUntil, type DecisionRow } from "../_shared/control-api-abuse.ts";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
+import { openIncident } from "../_shared/incidents.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -62,26 +63,43 @@ Deno.serve(async (req) => {
 
     const { data: keyRow } = await admin
       .from("api_keys")
-      .select("abuse_alerted_at, key_prefix")
+      .select("abuse_alerted_at, key_prefix, pause_count")
       .eq("id", a.apiKeyId)
       .maybeSingle();
-    const key = keyRow as { abuse_alerted_at?: string | null; key_prefix?: string } | null;
+    const key = keyRow as { abuse_alerted_at?: string | null; key_prefix?: string; pause_count?: number } | null;
     const alreadyAlerted = !!key?.abuse_alerted_at;
 
     if (abusive && !alreadyAlerted) {
+      // "Zero human review" plan, item 7: alerting alone only ever reaches
+      // a human -- exactly the wrong answer for a fully-automated
+      // integration where nobody may be watching alerts at all. Pause the
+      // key itself for a bounded cooldown at the same moment it's
+      // alerted, so a leaked/misbehaving key stops actually running the
+      // instant this sweep notices it, not whenever a person gets to it.
+      const pausedUntil = computePauseUntil();
+      const reason = summarizeAbuseReason(a, VOLUME_THRESHOLD, BLOCK_RATE_MIN_SAMPLE, BLOCK_RATE_THRESHOLD);
+      const summary = `Your Control API key ${key?.key_prefix ?? "(unknown)"} shows ${reason} It has been automatically paused and will resume accepting requests on its own at ${pausedUntil}.`;
       try {
-        await sendCriticalAlert(admin, a.userId, {
-          event: "control_api_abuse",
-          summary: `Your Control API key ${key?.key_prefix ?? "(unknown)"} shows ${summarizeAbuseReason(a, VOLUME_THRESHOLD, BLOCK_RATE_MIN_SAMPLE, BLOCK_RATE_THRESHOLD)}`,
-        });
+        await sendCriticalAlert(admin, a.userId, { event: "control_api_abuse", summary });
         const { error: updErr } = await admin
           .from("api_keys")
-          .update({ abuse_alerted_at: new Date().toISOString() })
+          .update({
+            abuse_alerted_at: new Date().toISOString(),
+            paused_until: pausedUntil,
+            pause_count: (key?.pause_count ?? 0) + 1,
+          })
           .eq("id", a.apiKeyId);
-        if (updErr) console.error(`[CONTROL API ABUSE SWEEP] failed to stamp ${a.apiKeyId}: ${updErr.message}`);
-        else alerted.push(a.apiKeyId);
+        if (updErr) console.error(`[CONTROL API ABUSE SWEEP] failed to stamp/pause ${a.apiKeyId}: ${updErr.message}`);
+        else {
+          alerted.push(a.apiKeyId);
+          // A real, auditable automated intervention (not just an alert) --
+          // same tier as kill_switch_auto / circuit_breaker_trip, both of
+          // which also open an incident the moment the SYSTEM itself takes
+          // an action, not only when it merely notices something.
+          await openIncident(admin, a.userId, { kind: "control_api_abuse", summary });
+        }
       } catch (e) {
-        console.error(`[CONTROL API ABUSE SWEEP] alert failed for ${a.apiKeyId}: ${e instanceof Error ? e.message : String(e)}`);
+        console.error(`[CONTROL API ABUSE SWEEP] alert/pause failed for ${a.apiKeyId}: ${e instanceof Error ? e.message : String(e)}`);
       }
     } else if (!abusive && alreadyAlerted) {
       const { error: clearErr } = await admin
@@ -92,8 +110,30 @@ Deno.serve(async (req) => {
     }
   }
 
+  // A paused key stops producing agent_decisions rows at all (rejected at
+  // auth, before the gate ever runs) -- so once genuinely paused, it can
+  // vanish from `activity` entirely and the clearing branch above would
+  // never see it again to clear abuse_alerted_at, even long after its
+  // pause naturally expired and it went back to being healthy. Separately
+  // reconsider every key still flagged (alerted or currently paused) that
+  // had ZERO activity in this window at all -- zero traffic is, by
+  // definition, not abusive.
+  const { data: flaggedRows } = await admin
+    .from("api_keys")
+    .select("id")
+    .or(`abuse_alerted_at.not.is.null,paused_until.gt.${new Date().toISOString()}`);
+  const activeIds = new Set(activity.map((a) => a.apiKeyId));
+  for (const row of (flaggedRows ?? []) as { id: string }[]) {
+    if (activeIds.has(row.id)) continue; // already handled above
+    const { error: clearErr } = await admin
+      .from("api_keys")
+      .update({ abuse_alerted_at: null })
+      .eq("id", row.id);
+    if (!clearErr) cleared.push(row.id);
+  }
+
   if (alerted.length > 0) {
-    console.error(`[CONTROL API ABUSE SWEEP] alerted on ${alerted.length} key(s): ${alerted.join(", ")}`);
+    console.error(`[CONTROL API ABUSE SWEEP] alerted/paused ${alerted.length} key(s): ${alerted.join(", ")}`);
   }
 
   return json({ ok: true, keysChecked: activity.length, alerted: alerted.length, cleared: cleared.length });
