@@ -40,6 +40,26 @@ const EXAMPLE_RESPONSE = `{
   "mode": "fast"
 }`;
 
+const EXAMPLE_BATCH_CURL = `curl -X POST "${SUPABASE_FUNCTIONS_URL}/control-api/v1" \\
+  -H "Authorization: Bearer nazai_sk_<your key>" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "actions": [
+      { "action_type": "send_email", "provider": "Gmail", "description": "Reply to a refund request." },
+      { "action_type": "post_public_content", "provider": "Slack", "description": "Post the weekly update." }
+    ]
+  }'`;
+
+const EXAMPLE_BATCH_RESPONSE = `{
+  "api_version": "v1",
+  "batch": true,
+  "count": 2,
+  "results": [
+    { "index": 0, "verdict": "allow", "reason": "...", "decision_id": null, "gate_source": null, "mode": "fast" },
+    { "index": 1, "verdict": "block", "reason": "...", "decision_id": "...", "gate_source": "hard_rule", "mode": "fast" }
+  ]
+}`;
+
 /**
  * The "Outer NazAI" Control API's developer reference — how an external
  * platform submits one of its own proposed actions to NazAI's
@@ -207,6 +227,22 @@ export default function ControlApiDocs() {
           <CodeBlock>{EXAMPLE_CURL}</CodeBlock>
           <p className="mt-3">Response:</p>
           <CodeBlock>{EXAMPLE_RESPONSE}</CodeBlock>
+        </Section>
+
+        <Section title="Batch requests">
+          <p>
+            Have a lot of actions to check at once? Send an <span className="font-mono text-cyan-300">actions</span> array
+            instead of a single action, and get back one verdict per action, in the same order — up to 50 actions per
+            request, using the exact same checks and rate limit as calling this endpoint once per action.
+          </p>
+          <CodeBlock>{EXAMPLE_BATCH_CURL}</CodeBlock>
+          <p className="mt-3">Response:</p>
+          <CodeBlock>{EXAMPLE_BATCH_RESPONSE}</CodeBlock>
+          <p className="mt-2 text-xs text-zinc-500">
+            If a batch runs into the rate limit partway through, the remaining actions come back marked
+            <span className="font-mono"> "error": "rate_limited"</span> instead of each one spending its own request
+            finding that out — just retry those from where the batch stopped.
+          </p>
         </Section>
 
         <Section title="Rate limits">
