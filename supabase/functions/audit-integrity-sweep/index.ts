@@ -21,7 +21,8 @@
 // 2. A real user JWT — runs the sweep for just that one caller.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
-import { isAuditIntegrityFailure, summarizeAuditIntegrityFailure, type SignatureVerifyResult } from "../_shared/audit-integrity.ts";
+import { isAuditIntegrityFailure, summarizeAuditIntegrityFailure, isAutoResolutionMismatch, type SignatureVerifyResult, type AuditIntegrityResult } from "../_shared/audit-integrity.ts";
+import { evaluateAction, type PolicySnapshot } from "../_shared/policy-replay.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -35,18 +36,68 @@ const json = (b: unknown, status = 200) =>
 // between what this sweep last covered and what it covers now.
 const LOOKBACK_DAYS = 8;
 
+// "Zero human review" plan, item 15: re-evaluates every auto-approved
+// pending_approvals row in range against the account's CURRENT policy
+// snapshot, reusing the exact same deterministic hard-rule + safety-
+// scanner re-check control-engine's auto_narrow flow and policy-watch.ts
+// already use elsewhere (policy-replay.ts's evaluateAction) -- never a
+// new evaluation mechanism. Only auto_approved is checked: an
+// auto_rejected row was never going to run anything, so there's nothing
+// meaningful to re-check it against. Never throws -- a failure here
+// (e.g. no active policy version yet) reports zero checked, never
+// blocking the signature half of this sweep.
+async function checkAutoResolutions(
+  admin: ReturnType<typeof createClient>,
+  userId: string,
+  from: string,
+  to: string,
+): Promise<{ checked: number; mismatched: number }> {
+  try {
+    const [{ data: pv }, { data: rows }] = await Promise.all([
+      admin.rpc("get_active_policy_version", { _user_id: userId }),
+      admin.from("pending_approvals")
+        .select("action_type, provider, description, params")
+        .eq("user_id", userId)
+        .eq("status", "auto_approved")
+        .gte("created_at", from)
+        .lte("created_at", to),
+    ]);
+    const row = (Array.isArray(pv) ? pv[0] : pv) as { snapshot?: PolicySnapshot } | null;
+    const snapshot: PolicySnapshot = row?.snapshot ?? {};
+    const actions = (rows ?? []) as { action_type: string; provider: string; description: string; params: unknown }[];
+
+    let mismatched = 0;
+    for (const a of actions) {
+      const { gate_outcome } = evaluateAction(
+        { action_type: a.action_type, provider: a.provider, description: a.description, params: a.params },
+        snapshot,
+      );
+      if (isAutoResolutionMismatch(gate_outcome)) mismatched++;
+    }
+    return { checked: actions.length, mismatched };
+  } catch {
+    return { checked: 0, mismatched: 0 };
+  }
+}
+
 async function sweepOrg(
   admin: ReturnType<typeof createClient>,
   userId: string,
   from: string,
   to: string,
   triggeredBy: "manual" | "scheduled",
-): Promise<{ userId: string; ok: boolean; error: string | null } & Partial<SignatureVerifyResult>> {
+): Promise<{ userId: string; ok: boolean; error: string | null } & Partial<AuditIntegrityResult>> {
   const { data, error } = await admin.rpc("verify_decision_signatures_batch_for", {
     _user_id: userId, _from: from, _to: to, _limit: 20000,
   });
   if (error) return { userId, ok: false, error: error.message };
-  const result = data as SignatureVerifyResult;
+  const signatureResult = data as SignatureVerifyResult;
+  const autoResolutions = await checkAutoResolutions(admin, userId, from, to);
+  const result: AuditIntegrityResult = {
+    ...signatureResult,
+    auto_resolutions_checked: autoResolutions.checked,
+    auto_resolutions_mismatched: autoResolutions.mismatched,
+  };
 
   await admin.from("audit_integrity_runs").insert({
     user_id: userId,
@@ -55,6 +106,8 @@ async function sweepOrg(
     verified: result.verified,
     unsigned: result.unsigned,
     mismatched_count: result.mismatched_count,
+    auto_resolutions_checked: result.auto_resolutions_checked,
+    auto_resolutions_mismatched: result.auto_resolutions_mismatched,
     range_from: from,
     range_to: to,
   });

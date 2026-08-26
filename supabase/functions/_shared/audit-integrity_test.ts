@@ -1,7 +1,7 @@
 // Real tests for the audit-integrity sweep's pure classification logic.
 //
 // Run with: deno test --allow-none supabase/functions/_shared/audit-integrity_test.ts
-import { isAuditIntegrityFailure, summarizeAuditIntegrityFailure, type SignatureVerifyResult } from "./audit-integrity.ts";
+import { isAuditIntegrityFailure, summarizeAuditIntegrityFailure, isAutoResolutionMismatch, type SignatureVerifyResult } from "./audit-integrity.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
@@ -49,4 +49,33 @@ Deno.test("summarizeAuditIntegrityFailure: a clean sweep's summary mentions neit
   const summary = summarizeAuditIntegrityFailure(clean);
   assertFalse(summary.includes("mismatch"));
   assertFalse(summary.includes("unsigned") && summary.includes("no signature"));
+});
+
+// ---- item 15: auto-resolution policy re-check ----
+
+Deno.test("isAutoResolutionMismatch: pass_through is not a mismatch", () => {
+  assertFalse(isAutoResolutionMismatch("pass_through"));
+});
+
+Deno.test("isAutoResolutionMismatch: block or require_approval are both mismatches", () => {
+  assert(isAutoResolutionMismatch("block"));
+  assert(isAutoResolutionMismatch("require_approval"));
+});
+
+Deno.test("isAuditIntegrityFailure: a clean sweep with auto-resolution fields present but zero mismatches is still not a failure", () => {
+  assertFalse(isAuditIntegrityFailure({ ...clean, auto_resolutions_checked: 5, auto_resolutions_mismatched: 0 }));
+});
+
+Deno.test("isAuditIntegrityFailure: any auto-resolution mismatch is a failure, even with clean signatures", () => {
+  assert(isAuditIntegrityFailure({ ...clean, auto_resolutions_checked: 5, auto_resolutions_mismatched: 1 }));
+});
+
+Deno.test("isAuditIntegrityFailure: auto-resolution fields omitted entirely defaults to no failure from that dimension", () => {
+  assertFalse(isAuditIntegrityFailure(clean));
+});
+
+Deno.test("summarizeAuditIntegrityFailure: calls out an auto-resolution mismatch distinctly, with both counts", () => {
+  const summary = summarizeAuditIntegrityFailure({ ...clean, auto_resolutions_checked: 8, auto_resolutions_mismatched: 2 });
+  assert(summary.includes("2 of 8 auto-resolved"));
+  assert(summary.toLowerCase().includes("current policy"));
 });
