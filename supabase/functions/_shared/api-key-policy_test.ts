@@ -1,7 +1,7 @@
 // Real tests for the API key auto-resolve policy's pure resolution logic.
 //
 // Run with: deno test --allow-none supabase/functions/_shared/api-key-policy_test.ts
-import { resolveOnUncertain, isValidOnUncertainPolicy, ON_UNCERTAIN_POLICIES } from "./api-key-policy.ts";
+import { resolveOnUncertain, isValidOnUncertainPolicy, ON_UNCERTAIN_POLICIES, extractNarrowedAction, narrowedActionResolution } from "./api-key-policy.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
@@ -41,4 +41,39 @@ Deno.test("isValidOnUncertainPolicy: rejects anything else, including non-string
   assert(!isValidOnUncertainPolicy(undefined));
   assert(!isValidOnUncertainPolicy(123));
   assert(!isValidOnUncertainPolicy({}));
+});
+
+Deno.test("resolveOnUncertain: 'auto_narrow' is not handled here -- falls back to pending, same as human_review, since this function has no way to attempt a narrow itself", () => {
+  assertEquals(resolveOnUncertain("auto_narrow"), { autoResolved: false, resolution: null, status: "pending" });
+});
+
+// ---- item 3: structured narrowed-action extraction + re-check classification ----
+
+Deno.test("extractNarrowedAction: a 'modify' decision with a real non-empty params object is usable", () => {
+  assertEquals(extractNarrowedAction("modify", { to: ["a@b.com"] }), { to: ["a@b.com"] });
+});
+
+Deno.test("extractNarrowedAction: only ever usable for a 'modify' decision, never block/allow/deferred", () => {
+  for (const decision of ["allow", "block", "deferred"]) {
+    assertEquals(extractNarrowedAction(decision, { to: ["a@b.com"] }), null, `${decision} should never be narrowable`);
+  }
+});
+
+Deno.test("extractNarrowedAction: an empty object, a non-object, an array, or a missing value are all 'nothing to narrow with'", () => {
+  assertEquals(extractNarrowedAction("modify", {}), null);
+  assertEquals(extractNarrowedAction("modify", null), null);
+  assertEquals(extractNarrowedAction("modify", undefined), null);
+  assertEquals(extractNarrowedAction("modify", "a string, not an object"), null);
+  assertEquals(extractNarrowedAction("modify", ["not", "an", "object"]), null);
+});
+
+Deno.test("narrowedActionResolution: a clean re-check (pass_through) auto-approves", () => {
+  const result = narrowedActionResolution("pass_through");
+  assertEquals(result.resolution, "approved");
+  assert(result.note.includes("approved"));
+});
+
+Deno.test("narrowedActionResolution: the narrowed version STILL tripping a rule or safety match auto-denies, never a blind allow", () => {
+  assertEquals(narrowedActionResolution("require_approval").resolution, "rejected");
+  assertEquals(narrowedActionResolution("block").resolution, "rejected");
 });

@@ -173,6 +173,18 @@ export type PendingApprovalOutcome = {
 };
 
 /**
+ * Shared lookup so this file's own apiKeyId-based branch below and a
+ * caller that needs to know the policy value BEFORE deciding how to call
+ * createPendingApproval (control-engine's auto_narrow flow, "zero human
+ * review" plan item 3) don't duplicate the same query.
+ */
+export async function loadOnUncertainPolicy(admin: SupabaseClient, apiKeyId: string | null | undefined): Promise<string | null> {
+  if (!apiKeyId) return null;
+  const { data } = await admin.from("api_keys").select("on_uncertain").eq("id", apiKeyId).maybeSingle();
+  return (data as { on_uncertain?: string } | null)?.on_uncertain ?? null;
+}
+
+/**
  * Queue a human approval for an escalated action -- or, when the calling
  * API key has an auto-resolve policy configured (its `on_uncertain`
  * column), resolve it automatically instead and record that it happened
@@ -196,22 +208,33 @@ export async function createPendingApproval(
     requiredApprovals?: number;
     // "Zero human review" plan, item 1: only ever non-null for an
     // external-api-origin call (GateContext's own documented invariant --
-    // null for every other origin). When present, this outcome is
-    // governed by that key's on_uncertain policy instead of always
-    // creating a human-only queue entry.
+    // null for every other origin). When present (and forcedResolution
+    // isn't), this outcome is governed by that key's on_uncertain policy
+    // instead of always creating a human-only queue entry.
     apiKeyId?: string | null;
+    // "Zero human review" plan, item 3: set by a caller (control-engine's
+    // auto_narrow flow) that has ALREADY computed the outcome itself --
+    // e.g. by re-checking a model-suggested narrower action against the
+    // deterministic gate -- bypassing the simple apiKeyId policy lookup
+    // above entirely. Takes priority over apiKeyId when both are set.
+    forcedResolution?: { resolution: "approved" | "rejected"; note: string } | null;
   },
 ): Promise<PendingApprovalOutcome> {
   try {
     let auto: AutoResolution = { autoResolved: false, resolution: null, status: "pending" };
-    if (input.apiKeyId) {
-      const { data: keyRow } = await admin.from("api_keys").select("on_uncertain").eq("id", input.apiKeyId).maybeSingle();
-      auto = resolveOnUncertain((keyRow as { on_uncertain?: string } | null)?.on_uncertain);
+    let comment: string | null = null;
+    if (input.forcedResolution) {
+      auto = input.forcedResolution.resolution === "approved"
+        ? { autoResolved: true, resolution: "approved", status: "auto_approved" }
+        : { autoResolved: true, resolution: "rejected", status: "auto_rejected" };
+      comment = input.forcedResolution.note;
+    } else if (input.apiKeyId) {
+      auto = resolveOnUncertain(await loadOnUncertainPolicy(admin, input.apiKeyId));
+      if (auto.autoResolved) {
+        comment = `Resolved automatically to ${auto.resolution} by this API key's configured policy — no human reviewed this.`;
+      }
     }
     const resolvedAt = auto.autoResolved ? new Date().toISOString() : null;
-    const comment = auto.autoResolved
-      ? `Resolved automatically to ${auto.resolution} by this API key's configured policy — no human reviewed this.`
-      : null;
 
     const { data } = await admin.from("pending_approvals").insert({
       user_id: input.userId,

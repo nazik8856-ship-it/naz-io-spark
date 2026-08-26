@@ -82,7 +82,7 @@ Deno.serve(async (req) => {
     const keyId = policyMatch[1];
     const body = await req.json().catch(() => ({}));
     if (!isValidOnUncertainPolicy(body?.on_uncertain)) {
-      return json({ error: "on_uncertain must be one of: human_review, auto_deny, auto_allow" }, 400);
+      return json({ error: "on_uncertain must be one of: human_review, auto_deny, auto_allow, auto_narrow" }, 400);
     }
     const targetUserId = await resolveAccountScope(userClient, userId, body?.account_id, "integrations");
     if (!targetUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
@@ -119,7 +119,7 @@ Deno.serve(async (req) => {
     const name = String(body?.name || "").trim().slice(0, 120);
     if (!name) return json({ error: "A name is required for the key (e.g. \"Production integration\")." }, 400);
     if (body?.on_uncertain !== undefined && !isValidOnUncertainPolicy(body.on_uncertain)) {
-      return json({ error: "on_uncertain must be one of: human_review, auto_deny, auto_allow" }, 400);
+      return json({ error: "on_uncertain must be one of: human_review, auto_deny, auto_allow, auto_narrow" }, 400);
     }
 
     const targetUserId = await resolveAccountScope(userClient, userId, body?.account_id, "integrations");

@@ -10,7 +10,7 @@
 // safety scanner.
 //
 // Run with: deno test --allow-none supabase/functions/_shared/control-gate_test.ts
-import { runControlGate, recordBreakerAttempt, AGENT_DECISION_SOURCES } from "./control-gate.ts";
+import { runControlGate, recordBreakerAttempt, AGENT_DECISION_SOURCES, createPendingApproval } from "./control-gate.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
@@ -445,6 +445,53 @@ Deno.test("SAFETY BOUNDARY: an outright BLOCKING hard rule is never auto-overrid
   assertFalse(result.ok, "a real block must never be overridden by an auto-resolve policy meant only for 'needs a second look' outcomes");
   assertEquals(result.verdict, "block");
   assertFalse(result.autoResolved, "createPendingApproval (and therefore any policy) is never even consulted on the blocking path");
+});
+
+// ---- item 3: createPendingApproval's forcedResolution (control-engine's auto_narrow flow) ----
+
+const pendingApprovalBaseInput = {
+  userId: "user-1",
+  decisionId: "decision-1",
+  actionType: "send_email",
+  provider: "Gmail",
+  description: "Reply to a customer.",
+  params: { to: "a@b.com" },
+  reason: "Needs a second look.",
+  riskTier: "high",
+  origin: "external-api",
+};
+
+Deno.test("createPendingApproval: forcedResolution bypasses the apiKeyId policy lookup entirely, even if one is also set", async () => {
+  const { client, calls, inserts } = fakeSupabase({
+    // If forcedResolution didn't take priority, this policy would resolve
+    // to auto_allow instead of the forced "rejected" -- proves precedence.
+    api_keys: { data: { on_uncertain: "auto_allow" }, error: null },
+    pending_approvals: { data: { id: "approval-1" }, error: null },
+  });
+  const outcome = await createPendingApproval(client, {
+    ...pendingApprovalBaseInput,
+    apiKeyId: "key-1",
+    forcedResolution: { resolution: "rejected", note: "narrowed version still failed" },
+  });
+  assert(outcome.autoResolved);
+  assertEquals(outcome.resolution, "rejected");
+  assert(!calls.some((c) => c.table === "api_keys"), "forcedResolution must skip the api_keys lookup entirely");
+  const inserted = (inserts.pending_approvals ?? [])[0] as { status?: string; comment?: string } | undefined;
+  assertEquals(inserted?.status, "auto_rejected");
+  assertEquals(inserted?.comment, "narrowed version still failed");
+});
+
+Deno.test("createPendingApproval: forcedResolution 'approved' inserts an already-resolved, auto_approved row", async () => {
+  const { client, inserts } = fakeSupabase({ pending_approvals: { data: { id: "approval-1" }, error: null } });
+  const outcome = await createPendingApproval(client, {
+    ...pendingApprovalBaseInput,
+    forcedResolution: { resolution: "approved", note: "narrowed version passed cleanly" },
+  });
+  assert(outcome.autoResolved);
+  assertEquals(outcome.resolution, "approved");
+  const inserted = (inserts.pending_approvals ?? [])[0] as { status?: string; resolved_at?: string | null } | undefined;
+  assertEquals(inserted?.status, "auto_approved");
+  assert(inserted?.resolved_at);
 });
 
 Deno.test("a hard rule scoped to a different provider does not match", async () => {

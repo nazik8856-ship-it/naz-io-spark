@@ -23,7 +23,8 @@ import { CAPABILITY_REGISTRY, canOfferTool } from "../_shared/capability-registr
 import { recordAiSpend } from "../_shared/spend-guard.ts";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
 import { openIncident } from "../_shared/incidents.ts";
-import { runControlGate, createPendingApproval } from "../_shared/control-gate.ts";
+import { runControlGate, createPendingApproval, loadOnUncertainPolicy } from "../_shared/control-gate.ts";
+import { extractNarrowedAction, narrowedActionResolution } from "../_shared/api-key-policy.ts";
 import { checkApprovalQuorum } from "../_shared/quorum.ts";
 import { claimIdempotencyKey, saveIdempotencyResponse, releaseIdempotencyKey, claimRowOnce, releaseRowClaim, type ClaimResult } from "../_shared/idempotency.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
@@ -38,7 +39,7 @@ const RATE_LIMIT_PER_MINUTE = 120;
 
 import { PROVIDER_WRITE_KINDS, runProviderWrite } from "../_shared/provider-writes.ts";
 import { reversibilityFor, captureUndoState, runUndo } from "../_shared/reversibility.ts";
-import { replayDraft, replayRealTraffic } from "../_shared/policy-replay.ts";
+import { replayDraft, replayRealTraffic, evaluateAction, type PolicySnapshot } from "../_shared/policy-replay.ts";
 import { summarizePolicyWatch, type PolicyWatchObservationRow } from "../_shared/policy-watch.ts";
 import { loadFitEvidence, applyFitEvidence } from "../_shared/fit-learning.ts";
 import {
@@ -95,6 +96,18 @@ const CHECK_TOOL = {
         modification: {
           type: "string",
           description: "A safer narrowed variant of the action, or empty string if none needed.",
+        },
+        // "Zero human review" plan, item 3: `modification` above is free
+        // text -- useless to an automated caller with no human to read and
+        // act on it. This is the same suggestion in a form a caller's own
+        // system (or NazAI's own auto_narrow policy) can actually retry
+        // with. Deliberately NOT in `required` below -- omit entirely
+        // when there's no structured narrower version to offer, same as
+        // `modification` uses an empty string for "none."
+        modified_params: {
+          type: "object",
+          description:
+            "If 'modification' describes a narrower/safer version of this action, the actual params object for that narrower version (e.g. fewer recipients, a smaller amount, a redacted field) -- same shape as the original params, just narrower. Omit entirely if there's no structured narrower version to suggest.",
         },
         why_not_now: {
           type: "string",
@@ -862,7 +875,11 @@ serve(async (req) => {
               "this business is right now. If not_a_fit, fill in why_not_now, what_would_change_it, " +
               "improvement_steps (concrete), and reconsider_when — otherwise leave those empty.\n" +
               "Give a confidence score 0-100 for your own assessment, plain-language reasoning, " +
-              "and a safer narrowed 'modification' if the action should be tightened before running.\n" +
+              "and a safer narrowed 'modification' if the action should be tightened before running. " +
+              "When you suggest a modification, also fill in 'modified_params' with the actual narrower " +
+              "params for it (same shape as the original params, just narrower) whenever you can express " +
+              "it structurally -- e.g. a shorter recipient list, a smaller amount, a redacted field. " +
+              "Only leave it out when the fix genuinely can't be expressed as changed params.\n" +
               "Always call the check_action tool.\n\n" +
               `ORG STRICTNESS: ${STRICTNESS_PRESETS[strictness].label} — ${STRICTNESS_PRESETS[strictness].blurb} ` +
               `Grade risk and fit through that lens: on Strict, lean toward the higher risk tier and toward ` +
@@ -930,6 +947,12 @@ serve(async (req) => {
     const irreversibleHighRisk = !reversibility.reversible && irreversibleNeedsHuman(riskTier, strictness);
     let escalated = shouldEscalate(conf.score, threshold) || irreversibleHighRisk;
     const modification = String(parsed.modification || "").trim();
+    // "Zero human review" plan, item 3: only meaningful alongside a real
+    // `modification`, and only usable when it's a genuine non-empty object
+    // -- extractNarrowedAction (api-key-policy.ts) is the single source of
+    // truth for what counts as "usable," consulted again below once the
+    // final `decision` is known.
+    const modifiedParams = parsed.modified_params ?? null;
     const reasoning = String(parsed.reasoning || "").trim();
 
     // ---- Verdict ----------------------------------------------------------
@@ -1014,6 +1037,39 @@ serve(async (req) => {
     let autoResolved = false;
     let autoResolutionReason: string | null = null;
     if (decision === "modify" || decision === "block" || escalated) {
+      // "Zero human review" plan, item 3: an "auto_narrow" policy needs a
+      // real safety re-check BEFORE createPendingApproval's simple
+      // apiKeyId lookup could ever get involved -- computed here as a
+      // forcedResolution so createPendingApproval just records the
+      // outcome, the same way it already does for control-gate.ts's own
+      // deterministic-layer call sites.
+      let forcedResolution: { resolution: "approved" | "rejected"; note: string } | null = null;
+      if (trustedApiKeyId && (await loadOnUncertainPolicy(supabase, trustedApiKeyId)) === "auto_narrow") {
+        const narrowedParams = extractNarrowedAction(decision, modifiedParams);
+        if (narrowedParams) {
+          // Fail closed: if the snapshot lookup itself throws, treat the
+          // re-check as failed (never a blind auto-allow on an error).
+          let recheckOutcome: "pass_through" | "require_approval" | "block" = "block";
+          try {
+            const { data: pv } = await supabase.rpc("get_active_policy_version", { _user_id: userId });
+            const row = (Array.isArray(pv) ? pv[0] : pv) as { snapshot?: PolicySnapshot } | null;
+            const evalResult = evaluateAction(
+              { action_type: actionType, provider, description: `${description} (narrowed automatically)`, params: narrowedParams },
+              (row?.snapshot ?? {}) as PolicySnapshot,
+            );
+            recheckOutcome = evalResult.gate_outcome;
+          } catch { /* recheckOutcome stays "block" -- auto-denied below */ }
+          forcedResolution = narrowedActionResolution(recheckOutcome);
+        } else {
+          // Policy says auto_narrow, but there's nothing structured to
+          // retry with -- never left silently pending for a human who
+          // was never going to look; deny rather than guess.
+          forcedResolution = {
+            resolution: "rejected",
+            note: "Resolved automatically to rejected: this key's policy is auto_narrow, but no usable structured narrower version was provided to retry — no human reviewed this.",
+          };
+        }
+      }
       const outcome = await createPendingApproval(supabase, {
         userId,
         decisionId: decisionId ?? null,
@@ -1027,6 +1083,7 @@ serve(async (req) => {
         riskTier,
         origin: decisionOrigin,
         apiKeyId: trustedApiKeyId,
+        forcedResolution,
       });
       approvalId = outcome.approvalId;
       if (outcome.autoResolved) {
