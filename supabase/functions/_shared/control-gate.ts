@@ -28,6 +28,7 @@ import { finalizeTrace, type TraceEntry } from "./gate-trace.ts";
 import { ruleMatchesAction, selectRulesForAgent } from "./rule-matching.ts";
 import { triggerWebhooks } from "./webhooks.ts";
 import { recordPolicyWatchObservations } from "./policy-watch.ts";
+import { resolveOnUncertain, type AutoResolution } from "./api-key-policy.ts";
 
 export const BREAKER_WINDOW = 10;
 export const BREAKER_MIN_ATTEMPTS = 4;
@@ -134,6 +135,14 @@ export type GateResult = {
   recordSafetyShadowHits: (decisionId: string | null, actualDecision: string) => Promise<void>;
   /** Feeds an attempt into the rolling circuit-breaker window. */
   recordAttempt: (failed: boolean, why: string) => Promise<Record<string, unknown> | null>;
+  /** "Zero human review" plan, item 1: true when a "needs a second look"
+   * outcome (a non-blocking hard rule or safety-scanner match) was resolved
+   * automatically by the calling API key's on_uncertain policy instead of
+   * creating a pending_approvals row for a human -- never true for an
+   * outright block, which no policy can override. */
+  autoResolved: boolean;
+  /** Set only when autoResolved is true -- explains what the policy did and why, distinct from `reason` (which stays the original trigger explanation). */
+  autoResolutionReason: string | null;
 };
 
 
@@ -157,7 +166,18 @@ type PolicySnapshot = {
 };
 
 
-/** Queue a human approval for an escalated action. Never throws. */
+export type PendingApprovalOutcome = {
+  approvalId: string | null;
+  autoResolved: boolean;
+  resolution: "approved" | "rejected" | null;
+};
+
+/**
+ * Queue a human approval for an escalated action -- or, when the calling
+ * API key has an auto-resolve policy configured (its `on_uncertain`
+ * column), resolve it automatically instead and record that it happened
+ * that way, no pending_approvals row left for a human. Never throws.
+ */
 export async function createPendingApproval(
   admin: SupabaseClient,
   input: {
@@ -174,9 +194,25 @@ export async function createPendingApproval(
     origin: string;
     approverRole?: string;
     requiredApprovals?: number;
+    // "Zero human review" plan, item 1: only ever non-null for an
+    // external-api-origin call (GateContext's own documented invariant --
+    // null for every other origin). When present, this outcome is
+    // governed by that key's on_uncertain policy instead of always
+    // creating a human-only queue entry.
+    apiKeyId?: string | null;
   },
-): Promise<string | null> {
+): Promise<PendingApprovalOutcome> {
   try {
+    let auto: AutoResolution = { autoResolved: false, resolution: null, status: "pending" };
+    if (input.apiKeyId) {
+      const { data: keyRow } = await admin.from("api_keys").select("on_uncertain").eq("id", input.apiKeyId).maybeSingle();
+      auto = resolveOnUncertain((keyRow as { on_uncertain?: string } | null)?.on_uncertain);
+    }
+    const resolvedAt = auto.autoResolved ? new Date().toISOString() : null;
+    const comment = auto.autoResolved
+      ? `Resolved automatically to ${auto.resolution} by this API key's configured policy — no human reviewed this.`
+      : null;
+
     const { data } = await admin.from("pending_approvals").insert({
       user_id: input.userId,
       decision_id: input.decisionId,
@@ -192,10 +228,14 @@ export async function createPendingApproval(
       origin: input.origin,
       approver_role: input.approverRole ?? "owner",
       required_approvals: Math.max(1, Math.min(5, input.requiredApprovals ?? (input.riskTier === "high" ? 2 : 1))),
-      status: "pending",
+      status: auto.status,
+      resolved_at: resolvedAt,
+      comment,
     }).select("id").maybeSingle();
     const id = (data as { id?: string } | null)?.id ?? null;
-    if (id) {
+    // A resolution nobody needs to act on shouldn't page anyone -- only a
+    // real, still-pending queue entry fires the human-facing webhook.
+    if (id && !auto.autoResolved) {
       await triggerWebhooks(admin, input.userId, "approval_created", {
         approval_id: id,
         action_type: input.actionType,
@@ -204,9 +244,9 @@ export async function createPendingApproval(
         reason: input.reason,
       });
     }
-    return id;
+    return { approvalId: id, autoResolved: auto.autoResolved, resolution: auto.resolution };
   } catch {
-    return null;
+    return { approvalId: null, autoResolved: false, resolution: null };
   }
 }
 
@@ -357,6 +397,8 @@ async function runControlGateInner(
       recordShadowHits: async () => {},
       recordSafetyShadowHits: async () => {},
       recordAttempt: async () => null,
+      autoResolved: false,
+      autoResolutionReason: null,
     };
   }
 
@@ -495,6 +537,8 @@ async function runControlGateInner(
     approvalId: null as string | null,
     safety: emptyScan,
     trace: [] as TraceEntry[],
+    autoResolved: false,
+    autoResolutionReason: null as string | null,
   };
 
   trace.push({
@@ -575,6 +619,11 @@ async function runControlGateInner(
     );
     await recordShadowHits(decisionId, blocking ? "block" : "modify");
     let approvalId: string | null = null;
+    let verdict: GateResult["verdict"] = blocking ? "block" : "require_approval";
+    let ok = false;
+    let finalReason = reason;
+    let autoResolved = false;
+    let autoResolutionReason: string | null = null;
     if (blocking) {
       await sendCriticalAlert(admin, userId, {
         event: "hard_rule_block",
@@ -584,21 +633,31 @@ async function runControlGateInner(
         provider,
       });
     } else {
-      approvalId = await createPendingApproval(admin, {
+      const outcome = await createPendingApproval(admin, {
         userId, decisionId, agentId, runId, actionType, provider,
         description: ctx.description, params: ctx.params, reason, riskTier: "high", origin: ctx.origin,
+        apiKeyId,
       });
+      approvalId = outcome.approvalId;
+      if (outcome.autoResolved) {
+        autoResolved = true;
+        ok = outcome.resolution === "approved";
+        verdict = ok ? "allow" : "block";
+        autoResolutionReason = `Resolved automatically to ${outcome.resolution} by this API key's configured policy — no human reviewed this.`;
+      }
     }
     return {
       ...base,
-      ok: false,
-      verdict: blocking ? "block" : "require_approval",
-      reason,
+      ok,
+      verdict,
+      reason: finalReason,
       decisionId,
       approvalId,
       source: "hard_rule",
       hardRule: { id: matched.id, rule_text: matched.rule_text, effect: matched.effect },
       trace: finalizeTrace(trace),
+      autoResolved,
+      autoResolutionReason,
     };
   }
 
@@ -701,16 +760,28 @@ async function runControlGateInner(
       } catch { /* trial logging must never break a decision */ }
     }
     let approvalId: string | null = null;
+    let verdict: GateResult["verdict"] = blocking ? "block" : "require_approval";
+    let ok = false;
+    let autoResolved = false;
+    let autoResolutionReason: string | null = null;
     if (!blocking) {
-      approvalId = await createPendingApproval(admin, {
+      const outcome = await createPendingApproval(admin, {
         userId, decisionId, agentId, runId, actionType, provider,
         description: ctx.description, params: ctx.params, reason, riskTier: "high", origin: ctx.origin,
+        apiKeyId,
       });
+      approvalId = outcome.approvalId;
+      if (outcome.autoResolved) {
+        autoResolved = true;
+        ok = outcome.resolution === "approved";
+        verdict = ok ? "allow" : "block";
+        autoResolutionReason = `Resolved automatically to ${outcome.resolution} by this API key's configured policy — no human reviewed this.`;
+      }
     }
     return {
       ...base,
-      ok: false,
-      verdict: blocking ? "block" : "require_approval",
+      ok,
+      verdict,
       reason,
       decisionId,
       approvalId,
@@ -718,6 +789,8 @@ async function runControlGateInner(
       safety,
       recordSafetyShadowHits,
       trace: finalizeTrace(trace),
+      autoResolved,
+      autoResolutionReason,
     };
   }
 
@@ -748,22 +821,35 @@ async function runControlGateInner(
       );
       await recordShadowHits(decisionId, "modify");
       await recordSafetyShadowHits(decisionId, "modify");
-      const approvalId = await createPendingApproval(admin, {
+      // In practice unreachable for origin: "external-api" today -- control-api
+      // always passes agentId: null, and this whole branch is gated on agentId
+      // above -- but wired identically to the other two call sites anyway so a
+      // future external-api caller that DOES thread an agentId isn't left with
+      // an inconsistent third path.
+      const outcome = await createPendingApproval(admin, {
         userId, decisionId, agentId, runId, actionType, provider,
         description: ctx.description, params: ctx.params, reason, riskTier: "high", origin: ctx.origin,
+        apiKeyId,
       });
+      const autoResolved = outcome.autoResolved;
+      const ok = autoResolved && outcome.resolution === "approved";
+      const verdict: GateResult["verdict"] = autoResolved ? (ok ? "allow" : "block") : "require_approval";
       return {
         ...base,
-        ok: false,
-        verdict: "require_approval",
+        ok,
+        verdict,
         reason,
         decisionId,
-        approvalId,
+        approvalId: outcome.approvalId,
         source: "anomaly_detector",
         anomaly,
         safety,
         recordSafetyShadowHits,
         trace: finalizeTrace(trace),
+        autoResolved,
+        autoResolutionReason: autoResolved
+          ? `Resolved automatically to ${outcome.resolution} by this API key's configured policy — no human reviewed this.`
+          : null,
       };
     }
   } else {
@@ -849,6 +935,8 @@ async function runControlGateInner(
       recordShadowHits: async () => {},
       recordSafetyShadowHits: async () => {},
       recordAttempt: async () => null,
+      autoResolved: false,
+      autoResolutionReason: null,
     };
   }
 }

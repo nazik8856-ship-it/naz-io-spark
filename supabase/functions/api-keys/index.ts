@@ -21,6 +21,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sha256Hex, generateRawKey, displayPrefixFor } from "../_shared/api-key-auth.ts";
 import { resolveAccountScope } from "../_shared/account-scope.ts";
+import { isValidOnUncertainPolicy } from "../_shared/api-key-policy.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -70,6 +71,34 @@ Deno.serve(async (req) => {
     return json({ ok: true, revoked: true });
   }
 
+  // ---- POST /api-keys/:id/policy ---------------------------------------
+  // "Zero human review" plan, item 1: lets an account set (or change) a
+  // key's on_uncertain auto-resolve policy without needing a UI panel for
+  // it yet -- a direct API call, same as the rest of this backend-only
+  // round. Default stays 'human_review' (today's exact behavior) for any
+  // key that never calls this.
+  const policyMatch = url.pathname.match(/\/api-keys\/([0-9a-fA-F-]{36})\/policy\/?$/);
+  if (req.method === "POST" && policyMatch) {
+    const keyId = policyMatch[1];
+    const body = await req.json().catch(() => ({}));
+    if (!isValidOnUncertainPolicy(body?.on_uncertain)) {
+      return json({ error: "on_uncertain must be one of: human_review, auto_deny, auto_allow" }, 400);
+    }
+    const targetUserId = await resolveAccountScope(userClient, userId, body?.account_id, "integrations");
+    if (!targetUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
+
+    const { data, error } = await admin
+      .from("api_keys")
+      .update({ on_uncertain: body.on_uncertain })
+      .eq("id", keyId)
+      .eq("user_id", targetUserId)
+      .select("id, on_uncertain")
+      .maybeSingle();
+    if (error) return json({ error: error.message }, 500);
+    if (!data) return json({ error: "Key not found for this account." }, 404);
+    return json({ ok: true, ...data });
+  }
+
   // ---- GET /api-keys --------------------------------------------------------
   if (req.method === "GET") {
     const targetUserId = await resolveAccountScope(userClient, userId, url.searchParams.get("account_id"), "integrations");
@@ -77,7 +106,7 @@ Deno.serve(async (req) => {
 
     const { data, error } = await admin
       .from("api_keys")
-      .select("id, name, key_prefix, scopes, last_used_at, revoked_at, expires_at, created_at")
+      .select("id, name, key_prefix, scopes, on_uncertain, last_used_at, revoked_at, expires_at, created_at")
       .eq("user_id", targetUserId)
       .order("created_at", { ascending: false });
     if (error) return json({ error: error.message }, 500);
@@ -89,6 +118,9 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const name = String(body?.name || "").trim().slice(0, 120);
     if (!name) return json({ error: "A name is required for the key (e.g. \"Production integration\")." }, 400);
+    if (body?.on_uncertain !== undefined && !isValidOnUncertainPolicy(body.on_uncertain)) {
+      return json({ error: "on_uncertain must be one of: human_review, auto_deny, auto_allow" }, 400);
+    }
 
     const targetUserId = await resolveAccountScope(userClient, userId, body?.account_id, "integrations");
     if (!targetUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
@@ -99,8 +131,11 @@ Deno.serve(async (req) => {
 
     const { data, error } = await admin
       .from("api_keys")
-      .insert({ user_id: targetUserId, name, key_prefix: displayPrefix, key_hash: keyHash })
-      .select("id, name, key_prefix, scopes, created_at")
+      .insert({
+        user_id: targetUserId, name, key_prefix: displayPrefix, key_hash: keyHash,
+        ...(body.on_uncertain ? { on_uncertain: body.on_uncertain } : {}),
+      })
+      .select("id, name, key_prefix, scopes, on_uncertain, created_at")
       .maybeSingle();
     if (error) return json({ error: error.message }, 500);
     if (!data) return json({ error: "Couldn't create the key" }, 500);

@@ -387,6 +387,66 @@ Deno.test("a matching always_require_approval hard rule queues an approval inste
   assertEquals(result.approvalId, "approval-1");
 });
 
+// ---- "zero human review" plan, item 1: per-API-key auto-resolve policy ----
+
+const requireApprovalHardRuleTables = {
+  hard_rules: {
+    data: [{ id: "r2", rule_text: "High-value orders need a human", action_type_pattern: "shopify_create_draft_order", effect: "always_require_approval", provider: null, enabled: true }],
+    error: null,
+  },
+  pending_approvals: { data: { id: "approval-1" }, error: null },
+};
+
+Deno.test("no apiKeyId (an internal, non-external-api call) never consults api_keys at all -- unchanged behavior", async () => {
+  const { client, calls } = fakeSupabase(requireApprovalHardRuleTables);
+  const result = await runControlGate(client, { ...baseCtx, actionType: "shopify_create_draft_order", provider: "Shopify" });
+  assertEquals(result.verdict, "require_approval");
+  assertFalse(result.autoResolved);
+  assert(!calls.some((c) => c.table === "api_keys"), "no apiKeyId means no reason to ever look up a policy");
+});
+
+Deno.test("apiKeyId set but the key's policy is 'human_review' (or the row is missing) behaves exactly like today -- still queued, not resolved", async () => {
+  const { client } = fakeSupabase({ ...requireApprovalHardRuleTables, api_keys: { data: { on_uncertain: "human_review" }, error: null } });
+  const result = await runControlGate(client, { ...baseCtx, origin: "external-api", apiKeyId: "key-1", actionType: "shopify_create_draft_order", provider: "Shopify" });
+  assertFalse(result.ok);
+  assertEquals(result.verdict, "require_approval");
+  assertFalse(result.autoResolved);
+  assertEquals(result.autoResolutionReason, null);
+});
+
+Deno.test("apiKeyId with on_uncertain='auto_allow' resolves a non-blocking hard-rule match to an outright allow, automatically", async () => {
+  const { client, inserts } = fakeSupabase({ ...requireApprovalHardRuleTables, api_keys: { data: { on_uncertain: "auto_allow" }, error: null } });
+  const result = await runControlGate(client, { ...baseCtx, origin: "external-api", apiKeyId: "key-1", actionType: "shopify_create_draft_order", provider: "Shopify" });
+  assert(result.ok, "auto_allow must flip a non-blocking match to ok:true");
+  assertEquals(result.verdict, "allow");
+  assert(result.autoResolved);
+  assert(result.autoResolutionReason?.includes("approved"));
+  const inserted = (inserts.pending_approvals ?? [])[0] as { status?: string; resolved_at?: string | null } | undefined;
+  assertEquals(inserted?.status, "auto_approved");
+  assert(inserted?.resolved_at, "an auto-resolved row must carry a real resolved_at, not sit as 'pending' forever");
+});
+
+Deno.test("apiKeyId with on_uncertain='auto_deny' resolves a non-blocking hard-rule match to a block, automatically", async () => {
+  const { client, inserts } = fakeSupabase({ ...requireApprovalHardRuleTables, api_keys: { data: { on_uncertain: "auto_deny" }, error: null } });
+  const result = await runControlGate(client, { ...baseCtx, origin: "external-api", apiKeyId: "key-1", actionType: "shopify_create_draft_order", provider: "Shopify" });
+  assertFalse(result.ok);
+  assertEquals(result.verdict, "block");
+  assert(result.autoResolved);
+  const inserted = (inserts.pending_approvals ?? [])[0] as { status?: string } | undefined;
+  assertEquals(inserted?.status, "auto_rejected");
+});
+
+Deno.test("SAFETY BOUNDARY: an outright BLOCKING hard rule is never auto-overridden by any policy, even auto_allow", async () => {
+  const { client } = fakeSupabase({
+    hard_rules: { data: [{ id: "r1", rule_text: "never send this", action_type_pattern: "*", effect: "always_block", provider: null, enabled: true }], error: null },
+    api_keys: { data: { on_uncertain: "auto_allow" }, error: null },
+  });
+  const result = await runControlGate(client, { ...baseCtx, origin: "external-api", apiKeyId: "key-1" });
+  assertFalse(result.ok, "a real block must never be overridden by an auto-resolve policy meant only for 'needs a second look' outcomes");
+  assertEquals(result.verdict, "block");
+  assertFalse(result.autoResolved, "createPendingApproval (and therefore any policy) is never even consulted on the blocking path");
+});
+
 Deno.test("a hard rule scoped to a different provider does not match", async () => {
   const { client } = fakeSupabase({
     hard_rules: {
@@ -607,6 +667,20 @@ Deno.test("a safety-scanner require_approval-severity match queues approval, doe
   assertFalse(result.ok);
   assertEquals(result.verdict, "require_approval");
   assertEquals(result.approvalId, "approval-2");
+});
+
+Deno.test("item 1: an auto_allow policy also resolves a safety-scanner require_approval match automatically", async () => {
+  const { client } = fakeSupabase({
+    pending_approvals: { data: { id: "approval-2" }, error: null },
+    api_keys: { data: { on_uncertain: "auto_allow" }, error: null },
+  });
+  const result = await runControlGate(client, {
+    ...baseCtx, origin: "external-api", apiKeyId: "key-1",
+    description: "send this update to all customers on the list",
+  });
+  assert(result.ok);
+  assertEquals(result.verdict, "allow");
+  assert(result.autoResolved);
 });
 
 // ---- safety rule shadow-mode parity (2026-08-22) ---------------------------

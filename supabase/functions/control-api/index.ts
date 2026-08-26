@@ -110,6 +110,23 @@ async function judgeOneAction(
       origin: "external-api",
       apiKeyId: keyId,
     });
+    // "Zero human review" plan, item 1: a "needs a second look" outcome
+    // (non-blocking hard rule / safety match) resolved automatically by
+    // this key's on_uncertain policy instead of creating a pending_approvals
+    // row for a human. Checked before the plain ok/not-ok branches below
+    // since an auto-resolved verdict can be either "allow" or "block" --
+    // never left to fall through to their generic wording.
+    if (gate.autoResolved) {
+      return {
+        verdict: gate.verdict === "block" ? "block" : "allow",
+        reason: gate.reason,
+        decision_id: gate.decisionId,
+        gate_source: gate.source,
+        mode: "fast",
+        resolved_automatically: true,
+        resolution_reason: gate.autoResolutionReason,
+      };
+    }
     if (!gate.ok) {
       return {
         verdict: gate.verdict === "block" ? "block" : "modify",
@@ -117,6 +134,7 @@ async function judgeOneAction(
         decision_id: gate.decisionId,
         gate_source: gate.source,
         mode: "fast",
+        resolved_automatically: false,
       };
     }
     return {
@@ -125,6 +143,7 @@ async function judgeOneAction(
       decision_id: null,
       gate_source: null,
       mode: "fast",
+      resolved_automatically: false,
     };
   }
 
