@@ -176,6 +176,13 @@ async function judgeOneAction(
     modification: data?.modification ?? null,
     policy_version: data?.policy_version ?? null,
     mode: "full",
+    // "Zero human review" plan, item 2: control-engine now resolves a
+    // "modify"/"block"/escalated model verdict automatically per this
+    // key's on_uncertain policy, same as item 1 does for the deterministic
+    // layer -- relayed here so a caller never has to guess whether a human
+    // review was actually queued.
+    resolved_automatically: data?.resolved_automatically === true,
+    resolution_reason: data?.resolution_reason ?? null,
   };
 }
 

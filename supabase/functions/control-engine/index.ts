@@ -164,6 +164,14 @@ serve(async (req) => {
     // honored when isInternal, so a normal user can never attribute a
     // decision to an api_keys row that isn't theirs.
     const trustedApiKeyId = isInternal ? (req.headers.get("x-api-key-id") || null) : null;
+    // "Zero human review" plan, item 2: pending_approvals.origin was
+    // hardcoded to "control-engine" everywhere in this file, even for a
+    // request genuinely forwarded from control-api's mode="full" path --
+    // so a pending approval created by an external company's own decision
+    // was mislabeled as an internal one, and (for the createPendingApproval
+    // call below) the api key was never threaded through at all, silently
+    // blocking item 1's auto-resolve policy from ever applying here.
+    const decisionOrigin: "external-api" | "control-engine" = trustedDecisionSource === "external_api" ? "external-api" : "control-engine";
 
     // ---- Rate limit --------------------------------------------------------
     // Nothing previously stopped a misbehaving client from hammering this
@@ -718,7 +726,7 @@ serve(async (req) => {
       runId,
       stepIndex: stepIndex ?? null,
       dryRun,
-      origin: "control-engine",
+      origin: decisionOrigin,
       apiKeyId: trustedApiKeyId,
     });
     const spendStatus = gate.spend;
@@ -760,9 +768,13 @@ serve(async (req) => {
         model_judged: false,
         executed: false,
         execution: null,
-        execution_note: blocked
-          ? `Nothing was assessed or run — stopped by the control gate (${gate.source}).`
-          : `Nothing ran — this is queued for your approval (${gate.source}).`,
+        execution_note: gate.autoResolved
+          ? `Resolved automatically to ${blocked ? "block" : "allow"} by this API key's configured policy — no human reviewed this.`
+          : blocked
+            ? `Nothing was assessed or run — stopped by the control gate (${gate.source}).`
+            : `Nothing ran — this is queued for your approval (${gate.source}).`,
+        resolved_automatically: gate.autoResolved,
+        resolution_reason: gate.autoResolutionReason,
       });
     }
     const shadowMatches = gate.shadowRules;
@@ -990,10 +1002,19 @@ serve(async (req) => {
     await recordShadowHits(decisionId ?? null, decision);
     await recordSafetyShadowHits(decisionId ?? null, decision);
 
-    // Escalated or blocked verdicts get a real human queue entry, not just an alert.
+    // Escalated or blocked verdicts get a real human queue entry, not just an
+    // alert -- or, when the calling API key has an on_uncertain policy
+    // configured ("zero human review" plan, items 1-2), resolved
+    // automatically instead. The agent_decisions row above already logged
+    // the model's own original judgment (unchanged, for an honest audit
+    // trail); only what gets RETURNED to the caller reflects the
+    // auto-resolution, same precedent as control-gate.ts's own three
+    // deterministic-layer call sites.
     let approvalId: string | null = null;
+    let autoResolved = false;
+    let autoResolutionReason: string | null = null;
     if (decision === "modify" || decision === "block" || escalated) {
-      approvalId = await createPendingApproval(supabase, {
+      const outcome = await createPendingApproval(supabase, {
         userId,
         decisionId: decisionId ?? null,
         agentId,
@@ -1004,9 +1025,22 @@ serve(async (req) => {
         params,
         reason,
         riskTier,
-        origin: "control-engine",
+        origin: decisionOrigin,
+        apiKeyId: trustedApiKeyId,
       });
+      approvalId = outcome.approvalId;
+      if (outcome.autoResolved) {
+        autoResolved = true;
+        autoResolutionReason = `Resolved automatically to ${outcome.resolution} by this API key's configured policy — no human reviewed this.`;
+        decision = outcome.resolution === "approved" ? "allow" : "block";
+        escalated = false;
+      }
     }
+    // `deferred` was built from the model's ORIGINAL decision, before any
+    // auto-resolution above could have moved it away from "deferred" --
+    // stale deferred guidance would otherwise ship alongside a decision
+    // that's no longer actually deferred.
+    const finalDeferred = autoResolved ? null : deferred;
 
 
 
@@ -1228,7 +1262,9 @@ serve(async (req) => {
       escalated,
       modification: modification || null,
       alternatives,
-      deferred,
+      deferred: finalDeferred,
+      resolved_automatically: autoResolved,
+      resolution_reason: autoResolutionReason,
       executed,
       assess_only: assessOnly,
       dry_run: dryRun,
