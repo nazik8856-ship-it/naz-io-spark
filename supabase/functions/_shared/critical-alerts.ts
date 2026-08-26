@@ -31,6 +31,13 @@ export type CriticalAlertEvent =
   | "circuit_breaker_trip"
   | "self_audit_regression"
   | "gate_error"
+  // "Zero human review" plan, item 8: a DIFFERENT event from plain
+  // "gate_error" -- that one always means the gate failed CLOSED, so its
+  // fixed label text below ("...and failed closed") would be actively
+  // WRONG for a key that chose to fail open instead. Never reuse
+  // "gate_error" for this outcome, even though both originate from the
+  // exact same catch block in control-gate.ts.
+  | "gate_error_fail_open"
   | "approval_escalated"
   | "confidence_miscalibrated"
   | "break_glass_override"
@@ -55,6 +62,7 @@ export const LABELS: Record<CriticalAlertEvent, string> = {
   circuit_breaker_trip: "⚡ Circuit breaker tripped",
   self_audit_regression: "🧪 Weekly control-system self-audit found a regression",
   gate_error: "🚨 Control gate hit an unexpected error and failed closed",
+  gate_error_fail_open: "⚠️ Control gate hit an unexpected error and failed OPEN (per API key policy)",
   approval_escalated: "⏰ A pending approval has been waiting too long",
   confidence_miscalibrated: "📉 The model is overconfident in a real confidence range",
   break_glass_override: "🔓 A blocked action was overridden by a human",

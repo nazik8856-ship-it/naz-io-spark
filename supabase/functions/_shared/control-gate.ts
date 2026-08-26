@@ -71,6 +71,14 @@ export const AGENT_DECISION_SOURCES = [
   // undiscovered instance of this exact "used in code, missing from this
   // constraint" bug -- every flip has silently failed to log until now.
   "kill_switch_flip", "platform_kill_switch_flip",
+  // "Zero human review" plan, item 8: distinct from plain "gate_error" --
+  // that value always means the gate failed CLOSED (the platform
+  // default); this one means a specific api key's own on_gate_error
+  // policy chose to fail OPEN instead. Deliberately a different value,
+  // not a boolean flag next to "gate_error", so the two are never
+  // silently blended together in a report or audit query grouped by
+  // source.
+  "gate_error_fail_open",
 ] as const;
 export type AgentDecisionSource = typeof AGENT_DECISION_SOURCES[number];
 
@@ -979,7 +987,26 @@ async function runControlGateInner(
     // effort to log and alert, but the block itself never depends on either
     // succeeding.
     const message = err instanceof Error ? err.message : String(err);
-    const reason = "Blocked — the control gate hit an unexpected error and failed closed. Nothing was assessed or run.";
+    // "Zero human review" plan, item 8: an api key can explicitly choose,
+    // in advance, to fail OPEN instead of the platform's own default
+    // fail-closed stance for exactly this case -- NazAI's own gate
+    // throwing an unexpected error, never a deliberate kill switch (those
+    // are separate, earlier return points in this same function, not
+    // reachable from this catch block at all). Looked up in its own
+    // try/catch: if reading the policy itself fails, this stays fail
+    // CLOSED -- this is the one place in the whole gate where "I don't
+    // know what to do" must never default to letting something through.
+    let failOpen = false;
+    if (apiKeyId) {
+      try {
+        const { data: keyRow } = await admin.from("api_keys").select("on_gate_error").eq("id", apiKeyId).maybeSingle();
+        failOpen = (keyRow as { on_gate_error?: string } | null)?.on_gate_error === "allow";
+      } catch { /* a failed policy lookup here must still fail closed, never open */ }
+    }
+    const reason = failOpen
+      ? "Allowed — the control gate hit an unexpected error, but this API key is configured to fail OPEN during a NazAI outage rather than block. This action was NOT judged by any rule, safety scanner, or model."
+      : "Blocked — the control gate hit an unexpected error and failed closed. Nothing was assessed or run.";
+    const source: AgentDecisionSource = failOpen ? "gate_error_fail_open" : "gate_error";
     const emptyScan: SafetyScan = { matched: false, severity: null, matches: [], summary: null, shadowMatches: [] };
     let decisionId: string | null = null;
     try {
@@ -988,11 +1015,11 @@ async function runControlGateInner(
         agent_id: agentId,
         agent_run_id: runId,
         step_index: stepIndex,
-        decision: `BLOCK ${actionType} (${provider})`.slice(0, 400),
+        decision: `${failOpen ? "ALLOW" : "BLOCK"} ${actionType} (${provider})`.slice(0, 400),
         reasoning: `${reason}\n${message}`.slice(0, 800),
         alternatives_considered: [],
         confidence_score: 100,
-        source: "gate_error" satisfies AgentDecisionSource,
+        source,
         escalated: true,
         policy_version: policyVersion,
         gate_trace: finalizeTrace(trace),
@@ -1001,37 +1028,41 @@ async function runControlGateInner(
         api_key_id: apiKeyId,
       }).select("id").maybeSingle();
       decisionId = (data as { id?: string } | null)?.id ?? null;
-    } catch { /* logging must never break the fail-closed block */ }
+    } catch { /* logging must never break the fail-closed/fail-open block */ }
     try {
       await sendCriticalAlert(admin, userId, {
-        event: "gate_error",
+        event: failOpen ? "gate_error_fail_open" : "gate_error",
         summary: `${reason} (${message})`,
         decisionId,
         actionType,
         provider,
       });
-    } catch { /* alerting must never break the fail-closed block */ }
+    } catch { /* alerting must never break the fail-closed/fail-open block */ }
     // "15 more items" plan, item 4: gate_error is a real, listed
     // IncidentKind (incidents.ts explicitly calls out "the gate itself
     // failing closed" as incident-worthy) but this fail-closed block never
     // actually opened one -- only recorded the decision and alerted.
     // Fixed alongside control-engine/index.ts's own outer catch getting
-    // the same three-part treatment for the first time.
+    // the same three-part treatment for the first time. Still opened for
+    // a fail-OPEN outcome too -- "every time that setting actually kicks
+    // in, it's logged clearly as its own distinct, auditable event" (item
+    // 8's own scope) applies just as much to an incident as to the
+    // decision row above.
     try {
       await openIncident(admin, userId, {
-        kind: "gate_error",
+        kind: failOpen ? "gate_error_fail_open" : "gate_error",
         summary: `${reason} (${message})`,
         actionType,
         provider,
         decisionId,
       });
-    } catch { /* incident tracking must never break the fail-closed block */ }
+    } catch { /* incident tracking must never break the fail-closed/fail-open block */ }
     return {
-      ok: false,
-      verdict: "block",
+      ok: failOpen,
+      verdict: failOpen ? "allow" : "block",
       reason,
       decisionId,
-      source: "gate_error",
+      source,
       approvalId: null,
       spend: { enabled: true, cap_usd: 0, spent_usd: 0, calls: 0, pct: 0, over_cap: false, day: new Date().toISOString().slice(0, 10) },
       safety: emptyScan,

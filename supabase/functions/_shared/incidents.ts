@@ -26,6 +26,12 @@ export const INCIDENT_KINDS = [
   "webhook_delivery_exhausted",
   "integration_revoked",
   "control_api_abuse",
+  // "Zero human review" plan, item 8: a distinct kind from plain
+  // "gate_error" -- a fail-OPEN outcome is operationally far more
+  // significant than a normal fail-closed one (something ran UNJUDGED
+  // during an outage, not merely blocked), so it must never be
+  // indistinguishable from an ordinary gate_error incident in a report.
+  "gate_error_fail_open",
 ] as const;
 export type IncidentKind = typeof INCIDENT_KINDS[number];
 

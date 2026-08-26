@@ -99,6 +99,16 @@ Deno.serve(async (req) => {
       }
       update.shadow_on_uncertain = body.shadow_on_uncertain;
     }
+    // Item 8: a SEPARATE choice from on_uncertain entirely -- what happens
+    // if the control gate ITSELF throws an unexpected error (a NazAI
+    // outage), not a "needs a second look" verdict. Default stays 'block'
+    // for any key that never calls this.
+    if (body?.on_gate_error !== undefined) {
+      if (body.on_gate_error !== "block" && body.on_gate_error !== "allow") {
+        return json({ error: "on_gate_error must be 'block' or 'allow'" }, 400);
+      }
+      update.on_gate_error = body.on_gate_error;
+    }
     if (body.on_uncertain === "callback") {
       const callbackUrl = String(body?.callback_url || "").trim();
       const callbackSecret = String(body?.callback_secret || "").trim();
@@ -129,7 +139,7 @@ Deno.serve(async (req) => {
       .update(update)
       .eq("id", keyId)
       .eq("user_id", targetUserId)
-      .select("id, on_uncertain, callback_url, callback_timeout_seconds, callback_fallback, shadow_on_uncertain")
+      .select("id, on_uncertain, callback_url, callback_timeout_seconds, callback_fallback, shadow_on_uncertain, on_gate_error")
       .maybeSingle();
     if (error) return json({ error: error.message }, 500);
     if (!data) return json({ error: "Key not found for this account." }, 404);
@@ -186,7 +196,7 @@ Deno.serve(async (req) => {
 
     const { data, error } = await admin
       .from("api_keys")
-      .select("id, name, key_prefix, scopes, on_uncertain, shadow_on_uncertain, last_used_at, revoked_at, expires_at, created_at")
+      .select("id, name, key_prefix, scopes, on_uncertain, shadow_on_uncertain, on_gate_error, last_used_at, revoked_at, expires_at, created_at")
       .eq("user_id", targetUserId)
       .order("created_at", { ascending: false });
     if (error) return json({ error: error.message }, 500);

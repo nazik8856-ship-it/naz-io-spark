@@ -225,6 +225,7 @@ const CURRENT_MIGRATION_ALLOWS = new Set([
   "safety_scanner", "anomaly_detector", "gate_error",
   "external_api", "platform_kill_switch",
   "kill_switch_flip", "platform_kill_switch_flip",
+  "gate_error_fail_open",
 ]);
 
 Deno.test("an agent's own kill switch blocks only that agent, source is a constraint-valid value, and a real decisionId is produced", async () => {
@@ -1127,6 +1128,57 @@ Deno.test("an unexpected DB error mid-gate opens a real incident, not just a dec
   } as any;
   await runControlGate(client, baseCtx);
   assert(insertedTables.includes("incidents"), `expected an incidents insert, got tables: ${insertedTables.join(", ")}`);
+});
+
+// ---- item 8: per-key fail-open/fail-closed on an unexpected gate error ----
+
+Deno.test("item 8: an api key configured on_gate_error='allow' fails OPEN on an unexpected gate error, with its own distinct source", async () => {
+  const client = {
+    from(table: string) {
+      if (table === "profiles") return new FakeQuery(() => { throw new Error("simulated connection reset"); });
+      if (table === "api_keys") return new FakeQuery(() => ({ data: { on_gate_error: "allow" }, error: null }));
+      return new FakeQuery(() => ({ data: null, error: null }));
+    },
+    rpc() { return new FakeQuery(() => ({ data: null, error: null })); },
+    // deno-lint-ignore no-explicit-any
+  } as any;
+  const result = await runControlGate(client, { ...baseCtx, origin: "external-api", apiKeyId: "key-1" });
+  assert(result.ok, "a key configured to fail open must be let through on an unexpected gate error");
+  assertEquals(result.verdict, "allow");
+  assertEquals(result.source, "gate_error_fail_open", "must be a DIFFERENT source than plain gate_error, never blended together");
+  assert(result.reason?.toLowerCase().includes("fail open") || result.reason?.toLowerCase().includes("allowed"));
+});
+
+Deno.test("item 8: the default (on_gate_error='block', or no policy at all) still fails closed even with a real apiKeyId", async () => {
+  const client = {
+    from(table: string) {
+      if (table === "profiles") return new FakeQuery(() => { throw new Error("simulated connection reset"); });
+      if (table === "api_keys") return new FakeQuery(() => ({ data: { on_gate_error: "block" }, error: null }));
+      return new FakeQuery(() => ({ data: null, error: null }));
+    },
+    rpc() { return new FakeQuery(() => ({ data: null, error: null })); },
+    // deno-lint-ignore no-explicit-any
+  } as any;
+  const result = await runControlGate(client, { ...baseCtx, origin: "external-api", apiKeyId: "key-1" });
+  assertFalse(result.ok);
+  assertEquals(result.verdict, "block");
+  assertEquals(result.source, "gate_error");
+});
+
+Deno.test("item 8: a failure to even READ the on_gate_error policy still fails closed, never accidentally open", async () => {
+  const client = {
+    from(table: string) {
+      if (table === "profiles") return new FakeQuery(() => { throw new Error("simulated connection reset"); });
+      if (table === "api_keys") return new FakeQuery(() => { throw new Error("api_keys lookup also down"); });
+      return new FakeQuery(() => ({ data: null, error: null }));
+    },
+    rpc() { return new FakeQuery(() => ({ data: null, error: null })); },
+    // deno-lint-ignore no-explicit-any
+  } as any;
+  const result = await runControlGate(client, { ...baseCtx, origin: "external-api", apiKeyId: "key-1" });
+  assertFalse(result.ok, "an unreadable policy must never accidentally default to fail-open");
+  assertEquals(result.verdict, "block");
+  assertEquals(result.source, "gate_error");
 });
 
 Deno.test("an unexpected error mid-gate still returns safe no-op recordShadowHits/recordAttempt closures", async () => {
