@@ -27,6 +27,7 @@ import { loadStrictness } from "./decision-scoring.ts";
 import { finalizeTrace, type TraceEntry } from "./gate-trace.ts";
 import { ruleMatchesAction, selectRulesForAgent } from "./rule-matching.ts";
 import { triggerWebhooks } from "./webhooks.ts";
+import { recordPolicyWatchObservations } from "./policy-watch.ts";
 
 export const BREAKER_WINDOW = 10;
 export const BREAKER_MIN_ATTEMPTS = 4;
@@ -871,6 +872,22 @@ export async function runControlGate(admin: SupabaseClient, ctx: GateContext): P
       await admin.from("agent_decisions").update({ gate_duration_ms: gateDurationMs }).eq("id", result.decisionId);
     } catch { /* observability must never affect the gate's real result */ }
   }
+  // "15 more items" plan, item 13: continuous whole-policy-version shadow
+  // watching. Every live decision funnels through here regardless of
+  // caller (control-engine, agent-runtime, control-api), making this the
+  // one place to silently re-evaluate the SAME action against any DRAFT
+  // policy version this account currently has marked "watching" -- a
+  // no-op query for the overwhelming majority of accounts watching
+  // nothing. Never let a failure here affect the real gate result.
+  try {
+    await recordPolicyWatchObservations(
+      admin,
+      ctx.userId,
+      { action_type: ctx.actionType, provider: ctx.provider, description: ctx.description, params: ctx.params },
+      result.verdict === "allow" ? "pass_through" : result.verdict,
+      result.decisionId,
+    );
+  } catch { /* shadow-mode observation must never affect the gate's real result */ }
   return { ...result, gateDurationMs };
 }
 

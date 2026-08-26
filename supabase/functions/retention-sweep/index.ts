@@ -16,6 +16,13 @@
 // past the cutoff are eligible. critical_alerts, webhook_deliveries, and
 // config_changes are pure point-in-time records with no such state, so
 // they sweep on age alone, same as agent_decisions/agent_events already do.
+//
+// Item 13 (same round): policy_watch_observations (added by continuous
+// whole-policy shadow watching) is the exact same "will accumulate
+// forever" shape item 9 was built to close -- it didn't exist yet when
+// item 9 landed, so item 9 couldn't have caught it. It's a pure
+// point-in-time record like critical_alerts/webhook_deliveries/
+// config_changes, so it sweeps on age alone too.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { retentionCutoffIso } from "../_shared/retention.ts";
 
@@ -49,13 +56,14 @@ Deno.serve(async (req) => {
     deletedWebhookDeliveries: number;
     deletedApprovals: number;
     deletedConfigChanges: number;
+    deletedPolicyWatchObservations: number;
     error: string | null;
   }[] = [];
 
   for (const p of (profiles ?? []) as { id: string; retention_days: number }[]) {
     const cutoff = retentionCutoffIso(p.retention_days);
     try {
-      const [decisions, events, incidents, alerts, deliveries, approvals, changes] = await Promise.all([
+      const [decisions, events, incidents, alerts, deliveries, approvals, changes, watchObs] = await Promise.all([
         admin.from("agent_decisions").delete().eq("user_id", p.id).lt("created_at", cutoff).select("id"),
         admin.from("agent_events").delete().eq("user_id", p.id).lt("created_at", cutoff).select("id"),
         admin.from("incidents").delete().eq("user_id", p.id).eq("status", "resolved").lt("opened_at", cutoff).select("id"),
@@ -63,6 +71,7 @@ Deno.serve(async (req) => {
         admin.from("webhook_deliveries").delete().eq("user_id", p.id).lt("created_at", cutoff).select("id"),
         admin.from("pending_approvals").delete().eq("user_id", p.id).neq("status", "pending").lt("created_at", cutoff).select("id"),
         admin.from("config_changes").delete().eq("user_id", p.id).lt("created_at", cutoff).select("id"),
+        admin.from("policy_watch_observations").delete().eq("user_id", p.id).lt("created_at", cutoff).select("id"),
       ]);
       outcomes.push({
         userId: p.id,
@@ -73,14 +82,16 @@ Deno.serve(async (req) => {
         deletedWebhookDeliveries: (deliveries.data ?? []).length,
         deletedApprovals: (approvals.data ?? []).length,
         deletedConfigChanges: (changes.data ?? []).length,
+        deletedPolicyWatchObservations: (watchObs.data ?? []).length,
         error: decisions.error?.message ?? events.error?.message ?? incidents.error?.message
           ?? alerts.error?.message ?? deliveries.error?.message ?? approvals.error?.message
-          ?? changes.error?.message ?? null,
+          ?? changes.error?.message ?? watchObs.error?.message ?? null,
       });
     } catch (e) {
       outcomes.push({
         userId: p.id, deletedDecisions: 0, deletedEvents: 0, deletedIncidents: 0,
         deletedAlerts: 0, deletedWebhookDeliveries: 0, deletedApprovals: 0, deletedConfigChanges: 0,
+        deletedPolicyWatchObservations: 0,
         error: e instanceof Error ? e.message : "unknown error",
       });
     }
@@ -96,6 +107,7 @@ Deno.serve(async (req) => {
     totalDeletedWebhookDeliveries: outcomes.reduce((n, o) => n + o.deletedWebhookDeliveries, 0),
     totalDeletedApprovals: outcomes.reduce((n, o) => n + o.deletedApprovals, 0),
     totalDeletedConfigChanges: outcomes.reduce((n, o) => n + o.deletedConfigChanges, 0),
+    totalDeletedPolicyWatchObservations: outcomes.reduce((n, o) => n + o.deletedPolicyWatchObservations, 0),
     outcomes,
   });
 });

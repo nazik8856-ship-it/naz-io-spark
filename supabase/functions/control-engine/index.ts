@@ -39,6 +39,7 @@ const RATE_LIMIT_PER_MINUTE = 120;
 import { PROVIDER_WRITE_KINDS, runProviderWrite } from "../_shared/provider-writes.ts";
 import { reversibilityFor, captureUndoState, runUndo } from "../_shared/reversibility.ts";
 import { replayDraft, replayRealTraffic } from "../_shared/policy-replay.ts";
+import { summarizePolicyWatch, type PolicyWatchObservationRow } from "../_shared/policy-watch.ts";
 import { loadFitEvidence, applyFitEvidence } from "../_shared/fit-learning.ts";
 import {
   collectUntrustedFields,
@@ -598,11 +599,68 @@ serve(async (req) => {
           .eq("user_id", scopedUserId);
       }
       const { error: actErr } = await supabase.from("policy_versions")
-        .update({ status: "active", activated_at: nowIso })
+        // Watching a draft only makes sense before it goes live -- once
+        // it's the real active policy, it's no longer "shadow" observed,
+        // it's enforced directly. Stop watching automatically on activation
+        // rather than leaving a stale watching=true on a now-active row.
+        .update({ status: "active", activated_at: nowIso, watching: false, watching_since: null })
         .eq("id", draftId)
         .eq("user_id", scopedUserId);
       if (actErr) return json({ ok: false, activated: false, error: actErr.message }, 500);
       return json({ ok: true, activated: true, policy_version: report.draft_version.version, replay: report });
+    }
+
+    // ---- POST /control-engine/policy/:id/watch ------------------------------
+    // "15 more items" plan, item 13: mark a whole DRAFT policy version as
+    // "watching" -- from now on, every new live decision is silently
+    // re-evaluated against this draft's snapshot too (see control-gate.ts's
+    // runControlGate wrapper), without ever affecting the real decision.
+    // Distinct from the existing per-RULE shadow_mode on hard_rules/
+    // safety_rules, which watches one rule at a time; this watches an
+    // entire policy version, continuously, until stopped or activated.
+    const watchMatch = url.pathname.match(/\/policy\/([0-9a-fA-F-]{36})\/watch\/?$/);
+    if (watchMatch) {
+      const scopedUserId = await resolvePolicyScopeUserId();
+      if (!scopedUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
+      const draftId = watchMatch[1];
+      const start = body?.start !== false;
+      const { data: draftRow } = await supabase.from("policy_versions")
+        .select("id, status").eq("id", draftId).eq("user_id", scopedUserId).maybeSingle();
+      if (!draftRow) return json({ error: "Policy version not found for this account." }, 404);
+      if (start && draftRow.status !== "draft") {
+        return json({ error: "Only a draft policy version can be put into watch mode." }, 400);
+      }
+      const { error: watchErr } = await supabase.from("policy_versions")
+        .update({ watching: start, watching_since: start ? new Date().toISOString() : null })
+        .eq("id", draftId).eq("user_id", scopedUserId);
+      if (watchErr) return json({ error: watchErr.message }, 500);
+      return json({ ok: true, watching: start });
+    }
+
+    // ---- POST /control-engine/policy/:id/watch-summary -----------------------
+    // The human-reviewable report a watching draft builds up over however
+    // many days it's been observing real traffic: how many live decisions
+    // it's seen, how many it would have decided differently, and a capped
+    // sample of the changed ones -- reusing the exact same regression/
+    // improvement classifier real-traffic replay already uses, since a
+    // watch observation and a real-traffic-replay row are the same shape
+    // of comparison.
+    const watchSummaryMatch = url.pathname.match(/\/policy\/([0-9a-fA-F-]{36})\/watch-summary\/?$/);
+    if (watchSummaryMatch) {
+      const scopedUserId = await resolvePolicyScopeUserId();
+      if (!scopedUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
+      const draftId = watchSummaryMatch[1];
+      const { data: draftRow } = await supabase.from("policy_versions")
+        .select("id, watching, watching_since").eq("id", draftId).eq("user_id", scopedUserId).maybeSingle();
+      if (!draftRow) return json({ error: "Policy version not found for this account." }, 404);
+      const { data: obsRows, error: obsErr } = await supabase.from("policy_watch_observations")
+        .select("action_type, provider, active_outcome, draft_outcome, created_at")
+        .eq("policy_version_id", draftId)
+        .order("created_at", { ascending: false })
+        .limit(2000);
+      if (obsErr) return json({ error: obsErr.message }, 500);
+      const summary = summarizePolicyWatch(draftId, draftRow.watching_since, (obsRows ?? []) as PolicyWatchObservationRow[]);
+      return json({ ok: true, watching: draftRow.watching, ...summary });
     }
 
     const actionType = String(body?.action_type || "").trim();
