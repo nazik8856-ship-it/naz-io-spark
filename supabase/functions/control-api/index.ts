@@ -44,6 +44,7 @@ import { runControlGate } from "../_shared/control-gate.ts";
 import { checkIpRateLimit, checkRateLimit } from "../_shared/rate-limit.ts";
 import { checkApiVersion, CONTROL_API_VERSION } from "../_shared/api-versioning.ts";
 import { parseControlApiAction, MAX_BATCH_ACTIONS, type ParsedControlApiAction } from "../_shared/control-api-action.ts";
+import { encodeExportCursor, decodeExportCursor, clampExportLimit, exportCursorFilter } from "../_shared/decision-export.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -61,6 +62,16 @@ const json = (b: Record<string, unknown>, status = 200) =>
 
 const PRE_AUTH_RATE_LIMIT_PER_MINUTE = 60;
 const POST_AUTH_RATE_LIMIT_PER_MINUTE = 30;
+// A separate, smaller budget from the verdict endpoint's -- export polling
+// is a very different traffic shape (a customer's own system pulling new
+// pages on a schedule) from per-action verdict checks, and shouldn't
+// compete with them for the same counter.
+const EXPORT_RATE_LIMIT_PER_MINUTE = 20;
+// Same field set ControlDecisionHistory.tsx already exposes to a signed-in
+// customer in-app, plus policy_version -- nothing here that isn't already
+// something the account owner can see themselves.
+const DECISION_EXPORT_FIELDS =
+  "id, decision, reasoning, confidence_score, escalated, source, agent_id, action_type, provider, policy_version, created_at";
 
 // Runs the exact same per-action logic for both a single request and one
 // entry of a batch: consumes one post-auth rate-limit slot, then either the
@@ -151,14 +162,15 @@ async function judgeOneAction(
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
-  if (req.method !== "POST") return json({ error: "POST only" }, 405);
+
+  const url = new URL(req.url);
 
   // A bare /control-api URL is an alias for CONTROL_API_VERSION (today's
   // only version); an explicit .../v1 segment is the canonical documented
   // form. A request naming any OTHER version is rejected outright rather
   // than silently served by this version's current behavior -- so a real
   // future v2 has room to actually change shape.
-  const versionCheck = checkApiVersion(new URL(req.url).pathname);
+  const versionCheck = checkApiVersion(url.pathname);
   if (!versionCheck.ok) {
     return json({
       error: "unsupported_version",
@@ -183,6 +195,46 @@ Deno.serve(async (req) => {
   const auth = await resolveApiKeyAuth(admin, req.headers.get("Authorization"));
   if (!auth.ok) return json(auth.body, auth.status);
   const userId = auth.userId;
+
+  // ---- GET /control-api/v1/decisions ---------------------------------------
+  // "15 more items" plan, item 15: a paginated decision-export endpoint, so
+  // a customer's own reporting/monitoring tools can automatically pull new
+  // decisions on their own schedule instead of a person manually
+  // re-downloading ControlAccountData.tsx's one-shot export. Keyset
+  // pagination (created_at, id) via an opaque cursor -- see
+  // _shared/decision-export.ts -- rather than an OFFSET, so a page can't
+  // skip or duplicate rows when new decisions land between polls.
+  if (req.method === "GET" && /\/decisions\/?$/.test(url.pathname)) {
+    const rate = await checkRateLimit(admin, userId, "control-api-export", EXPORT_RATE_LIMIT_PER_MINUTE, 60);
+    if (!rate.allowed) {
+      return json({
+        error: "rate_limited",
+        message: `Too many requests — ${rate.count} in the last minute (limit ${rate.limit}). Try again shortly.`,
+      }, 429);
+    }
+
+    const limit = clampExportLimit(url.searchParams.get("limit"));
+    const cursor = decodeExportCursor(url.searchParams.get("cursor"));
+    const since = url.searchParams.get("since");
+
+    let query = admin.from("agent_decisions").select(DECISION_EXPORT_FIELDS).eq("user_id", userId);
+    if (cursor) query = query.or(exportCursorFilter(cursor));
+    else if (since) query = query.gte("created_at", since);
+    query = query.order("created_at", { ascending: true }).order("id", { ascending: true }).limit(limit + 1);
+
+    const { data, error } = await query;
+    if (error) return json({ error: error.message }, 500);
+
+    const rows = (data ?? []) as { id: string; created_at: string }[];
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+    const last = page[page.length - 1];
+    const nextCursor = hasMore && last ? encodeExportCursor({ createdAt: last.created_at, id: last.id }) : null;
+
+    return json({ decisions: page, has_more: hasMore, next_cursor: nextCursor });
+  }
+
+  if (req.method !== "POST") return json({ error: "POST only" }, 405);
 
   const body = await req.json().catch(() => ({}));
 

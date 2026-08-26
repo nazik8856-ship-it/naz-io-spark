@@ -61,7 +61,22 @@ const verdict = await client.check({
   actionType: "send_email",
   provider: "Gmail",
   description: "Reply to a customer refund request.",
-});`;
+});
+
+// Pull new decisions on your own schedule:
+const page = await client.listDecisions({ since: "2026-08-01T00:00:00Z" });
+for (const d of page.decisions) console.log(d.actionType, d.decision);`;
+
+const EXAMPLE_EXPORT_RESPONSE = `{
+  "api_version": "v1",
+  "decisions": [
+    { "id": "...", "decision": "ALLOW send_email (Gmail)", "reasoning": "...", "confidence_score": 91,
+      "escalated": false, "source": "model", "agent_id": null, "action_type": "send_email",
+      "provider": "Gmail", "policy_version": 3, "created_at": "2026-08-27T10:00:00Z" }
+  ],
+  "has_more": true,
+  "next_cursor": "dxc1:MjAyNi0wOC0yN1QxMDowMDowMFp8YWJjLTEyMw=="
+}`;
 
 const EXAMPLE_BATCH_RESPONSE = `{
   "api_version": "v1",
@@ -255,6 +270,26 @@ export default function ControlApiDocs() {
             If a batch runs into the rate limit partway through, the remaining actions come back marked
             <span className="font-mono"> "error": "rate_limited"</span> instead of each one spending its own request
             finding that out — just retry those from where the batch stopped.
+          </p>
+        </Section>
+
+        <Section title="Exporting your decision history">
+          <p>
+            For your own reporting or monitoring tools to pull new decisions automatically — instead of a
+            person re-downloading a file — use the same key against:
+          </p>
+          <CodeBlock>{`GET ${SUPABASE_FUNCTIONS_URL}/control-api/v1/decisions?since=2026-08-01T00:00:00Z&limit=100`}</CodeBlock>
+          <p className="mt-2">
+            Response comes back as a page of up to 500 decisions plus a <span className="font-mono text-cyan-300">next_cursor</span>.
+            Keep calling with <span className="font-mono">?cursor=&lt;next_cursor&gt;</span> until{" "}
+            <span className="font-mono">has_more</span> is <span className="font-mono">false</span>, then save the last cursor
+            you got and resume from there next time — new decisions can't be skipped or double-counted between polls,
+            even if more land while you're mid-page.
+          </p>
+          <CodeBlock>{EXAMPLE_EXPORT_RESPONSE}</CodeBlock>
+          <p className="mt-2 text-xs text-zinc-500">
+            20 requests per minute per key — a separate budget from the verdict endpoint above, since export polling
+            and per-action checks are different traffic shapes.
           </p>
         </Section>
 

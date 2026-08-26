@@ -50,6 +50,36 @@ export interface ControlApiBatchResult {
   results: ControlApiBatchResultEntry[];
 }
 
+export interface ControlApiDecisionRow {
+  id: string;
+  decision: string;
+  reasoning: string | null;
+  confidenceScore: number | null;
+  escalated: boolean;
+  source: string | null;
+  agentId: string | null;
+  actionType: string;
+  provider: string;
+  policyVersion: number | null;
+  createdAt: string;
+}
+
+export interface ControlApiDecisionPage {
+  decisions: ControlApiDecisionRow[];
+  hasMore: boolean;
+  /** Pass this back as `cursor` on the next call to continue exactly where this page left off. */
+  nextCursor: string | null;
+}
+
+export interface ListDecisionsOptions {
+  /** ISO 8601 timestamp -- only decisions at or after this time. Ignored once you're paging via cursor. */
+  since?: string;
+  /** From a previous page's nextCursor -- continues from exactly that point. */
+  cursor?: string;
+  /** 1-500, defaults to 100. */
+  limit?: number;
+}
+
 export interface ControlApiClientOptions {
   /** Your nazai_sk_... API key, from the Control System's API Keys page. */
   apiKey: string;
@@ -93,6 +123,22 @@ function toRequestBody(action: ControlApiActionInput): Record<string, unknown> {
   };
 }
 
+function toDecisionRow(d: Record<string, unknown>): ControlApiDecisionRow {
+  return {
+    id: String(d.id),
+    decision: String(d.decision),
+    reasoning: (d.reasoning as string | null) ?? null,
+    confidenceScore: (d.confidence_score as number | null) ?? null,
+    escalated: Boolean(d.escalated),
+    source: (d.source as string | null) ?? null,
+    agentId: (d.agent_id as string | null) ?? null,
+    actionType: String(d.action_type),
+    provider: String(d.provider),
+    policyVersion: (d.policy_version as number | null) ?? null,
+    createdAt: String(d.created_at),
+  };
+}
+
 export class ControlApiClient {
   private readonly apiKey: string;
   private readonly baseUrl: string;
@@ -110,12 +156,7 @@ export class ControlApiClient {
     return `${this.baseUrl}/control-api/v1`;
   }
 
-  private async post(body: unknown): Promise<Record<string, unknown>> {
-    const res = await this.fetchImpl(this.endpoint(), {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.apiKey}` },
-      body: JSON.stringify(body),
-    });
+  private async handleResponse(res: Response): Promise<Record<string, unknown>> {
     const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
     if (!res.ok) {
       throw new ControlApiError(
@@ -125,6 +166,15 @@ export class ControlApiClient {
       );
     }
     return data;
+  }
+
+  private async post(body: unknown): Promise<Record<string, unknown>> {
+    const res = await this.fetchImpl(this.endpoint(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.apiKey}` },
+      body: JSON.stringify(body),
+    });
+    return this.handleResponse(res);
   }
 
   /** Check a single action and get back one verdict. */
@@ -143,5 +193,24 @@ export class ControlApiClient {
       ...(r.message ? { message: String(r.message) } : {}),
     }));
     return { batch: true, count: Number(data.count ?? results.length), results };
+  }
+
+  /** Pull one page of this account's decision history, newest-first-safe via cursor pagination -- see ListDecisionsOptions. */
+  async listDecisions(opts: ListDecisionsOptions = {}): Promise<ControlApiDecisionPage> {
+    const params = new URLSearchParams();
+    if (opts.since) params.set("since", opts.since);
+    if (opts.cursor) params.set("cursor", opts.cursor);
+    if (opts.limit) params.set("limit", String(opts.limit));
+    const qs = params.toString();
+    const res = await this.fetchImpl(`${this.endpoint()}/decisions${qs ? `?${qs}` : ""}`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${this.apiKey}` },
+    });
+    const data = await this.handleResponse(res);
+    return {
+      decisions: ((data.decisions as Record<string, unknown>[]) ?? []).map(toDecisionRow),
+      hasMore: Boolean(data.has_more),
+      nextCursor: (data.next_cursor as string | null) ?? null,
+    };
   }
 }

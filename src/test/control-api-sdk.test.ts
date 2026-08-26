@@ -93,6 +93,46 @@ describe("ControlApiClient", () => {
     expect(result.results[1]).toMatchObject({ index: 1, verdict: "block", gateSource: "hard_rule" });
   });
 
+  it("listDecisions() GETs /decisions with query params and maps rows to camelCase", async () => {
+    const fetchImpl = fakeFetch(200, {
+      decisions: [{
+        id: "d1", decision: "ALLOW send_email (Gmail)", reasoning: "clean", confidence_score: 91,
+        escalated: false, source: "model", agent_id: null, action_type: "send_email", provider: "Gmail",
+        policy_version: 3, created_at: "2026-08-27T00:00:00Z",
+      }],
+      has_more: true,
+      next_cursor: "dxc1:abc",
+    });
+    const client = new ControlApiClient({ apiKey: "nazai_sk_test", baseUrl: "https://proj.supabase.co/functions/v1", fetchImpl });
+
+    const page = await client.listDecisions({ since: "2026-08-01T00:00:00Z", limit: 50 });
+
+    const calledUrl = (fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(calledUrl.startsWith("https://proj.supabase.co/functions/v1/control-api/v1/decisions?")).toBe(true);
+    const params = new URLSearchParams(calledUrl.split("?")[1]);
+    expect(params.get("since")).toBe("2026-08-01T00:00:00Z");
+    expect(params.get("limit")).toBe("50");
+    expect(fetchImpl).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ method: "GET", headers: expect.objectContaining({ Authorization: "Bearer nazai_sk_test" }) }),
+    );
+    expect(page.hasMore).toBe(true);
+    expect(page.nextCursor).toBe("dxc1:abc");
+    expect(page.decisions).toHaveLength(1);
+    expect(page.decisions[0]).toEqual({
+      id: "d1", decision: "ALLOW send_email (Gmail)", reasoning: "clean", confidenceScore: 91,
+      escalated: false, source: "model", agentId: null, actionType: "send_email", provider: "Gmail",
+      policyVersion: 3, createdAt: "2026-08-27T00:00:00Z",
+    });
+  });
+
+  it("listDecisions() with no options omits the query string entirely", async () => {
+    const fetchImpl = fakeFetch(200, { decisions: [], has_more: false, next_cursor: null });
+    const client = new ControlApiClient({ apiKey: "nazai_sk_test", baseUrl: "https://proj.supabase.co/functions/v1", fetchImpl });
+    await client.listDecisions();
+    expect(fetchImpl).toHaveBeenCalledWith("https://proj.supabase.co/functions/v1/control-api/v1/decisions", expect.anything());
+  });
+
   it("throws ControlApiError with status and body on a non-2xx response", async () => {
     const fetchImpl = fakeFetch(429, { error: "rate_limited", message: "Too many requests" });
     const client = new ControlApiClient({ apiKey: "nazai_sk_test", baseUrl: "https://proj.supabase.co/functions/v1", fetchImpl });
