@@ -34,6 +34,7 @@ import { embedDecisionIfExternal } from "./decision-embeddings.ts";
 import { findPrecedent, loadOutcomeDirections, loadStoredEmbeddingLiteral } from "./precedent-search.ts";
 import { alignPrecedentSignals, evaluatePrecedentForAutoApprove, shouldRejectOnPrecedent, summarizePrecedentOverride } from "./precedent-advice.ts";
 import { buildPrecedentCitationRecord, recordPrecedentCitation } from "./precedent-citation.ts";
+import { isWithinQuietHours, summarizeQuietHoursEscalation, type QuietHoursConfig } from "./quiet-hours.ts";
 
 export const BREAKER_WINDOW = 10;
 export const BREAKER_MIN_ATTEMPTS = 4;
@@ -214,13 +215,21 @@ export type ApiKeyCallbackRow = {
   // callback_fallback for a 'callback' shadow value, same as the real
   // resolution path does).
   shadow_on_uncertain: string | null;
+  // "Policy autonomy" plan, item 3: quiet_hours_timezone is the "is this
+  // even configured" flag -- start/end hour alone (both nullable, no
+  // sentinel needed) default to meaningless 0 values in Postgres only if
+  // someone set one without the other, which never happens through any
+  // real write path this round adds.
+  quiet_hours_start_hour: number | null;
+  quiet_hours_end_hour: number | null;
+  quiet_hours_timezone: string | null;
 };
 
 /** "Zero human review" plan, item 4: the fuller row createPendingApproval's own "callback" branch needs -- kept separate from loadOnUncertainPolicy above since most callers only ever need the one column. */
 async function loadApiKeyCallbackConfig(admin: SupabaseClient, apiKeyId: string): Promise<ApiKeyCallbackRow | null> {
   const { data } = await admin
     .from("api_keys")
-    .select("on_uncertain, callback_url, callback_secret, callback_timeout_seconds, callback_fallback, shadow_on_uncertain")
+    .select("on_uncertain, callback_url, callback_secret, callback_timeout_seconds, callback_fallback, shadow_on_uncertain, quiet_hours_start_hour, quiet_hours_end_hour, quiet_hours_timezone")
     .eq("id", apiKeyId)
     .maybeSingle();
   return data as ApiKeyCallbackRow | null;
@@ -261,6 +270,11 @@ export async function createPendingApproval(
     // above entirely. Takes priority over apiKeyId when both are set.
     forcedResolution?: { resolution: "approved" | "rejected"; note: string } | null;
   },
+  // "Policy autonomy" plan, item 3: injectable so quiet-hours behavior is
+  // actually testable against a fixed clock, same as computePauseUntil/
+  // isCurrentlyPaused elsewhere already do -- every real caller just
+  // omits it and gets the real current time.
+  now: Date = new Date(),
 ): Promise<PendingApprovalOutcome> {
   try {
     let auto: AutoResolution = { autoResolved: false, resolution: null, status: "pending" };
@@ -337,7 +351,24 @@ export async function createPendingApproval(
         }
       }
     }
-    const resolvedAt = auto.autoResolved ? new Date().toISOString() : null;
+    // "Policy autonomy" plan, item 3: the LAST check before finalizing an
+    // automatic APPROVAL -- runs after precedent above so quiet hours
+    // never re-litigates a case precedent already pulled back to reject.
+    // Never touches a denial (already the safe choice) or the callback
+    // path (a real external system is asked in real time either way).
+    if (auto.autoResolved && auto.resolution === "approved" && keyRow?.quiet_hours_timezone != null
+      && keyRow.quiet_hours_start_hour != null && keyRow.quiet_hours_end_hour != null) {
+      const quietConfig: QuietHoursConfig = {
+        startHour: keyRow.quiet_hours_start_hour,
+        endHour: keyRow.quiet_hours_end_hour,
+        timezone: keyRow.quiet_hours_timezone,
+      };
+      if (isWithinQuietHours(now, quietConfig)) {
+        auto = { autoResolved: false, resolution: null, status: "pending" };
+        comment = summarizeQuietHoursEscalation(quietConfig);
+      }
+    }
+    const resolvedAt = auto.autoResolved ? now.toISOString() : null;
 
     const { data } = await admin.from("pending_approvals").insert({
       user_id: input.userId,

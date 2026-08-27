@@ -856,6 +856,89 @@ Deno.test("createPendingApproval: blocked precedent that measurably went well af
   assertEquals(outcome.resolution, "approved");
 });
 
+// ---- "Policy autonomy" plan, item 3: quiet hours pull an auto_allow back to escalate ----
+
+Deno.test("createPendingApproval: inside a key's own quiet hours, an auto_allow escalates for real review instead", async () => {
+  const inside = new Date("2026-08-29T23:00:00Z"); // 23:00 UTC, inside a 22-6 UTC window
+  const { client, inserts } = fakeSupabase({
+    api_keys: {
+      data: { on_uncertain: "auto_allow", quiet_hours_start_hour: 22, quiet_hours_end_hour: 6, quiet_hours_timezone: "UTC" },
+      error: null,
+    },
+    pending_approvals: { data: { id: "approval-1" }, error: null },
+  });
+  const outcome = await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" }, inside);
+  assertEquals(outcome.resolution, null);
+  assertFalse(outcome.autoResolved);
+  const inserted = (inserts.pending_approvals ?? [])[0] as { status?: string; comment?: string; resolved_at?: string | null } | undefined;
+  assertEquals(inserted?.status, "pending");
+  assertEquals(inserted?.resolved_at, null);
+  assert(inserted?.comment?.toLowerCase().includes("quiet hours"), "the pending row must explain quiet hours caused the escalation");
+});
+
+Deno.test("createPendingApproval: outside a key's own quiet hours, auto_allow resolves normally", async () => {
+  const outside = new Date("2026-08-29T12:00:00Z"); // noon UTC, outside a 22-6 UTC window
+  const { client } = fakeSupabase({
+    api_keys: {
+      data: { on_uncertain: "auto_allow", quiet_hours_start_hour: 22, quiet_hours_end_hour: 6, quiet_hours_timezone: "UTC" },
+      error: null,
+    },
+    pending_approvals: { data: { id: "approval-1" }, error: null },
+  });
+  const outcome = await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" }, outside);
+  assertEquals(outcome.resolution, "approved");
+});
+
+Deno.test("createPendingApproval: a key with no quiet hours configured is unaffected, any time of day", async () => {
+  const inside = new Date("2026-08-29T23:00:00Z");
+  const { client } = fakeSupabase({
+    api_keys: { data: { on_uncertain: "auto_allow" }, error: null },
+    pending_approvals: { data: { id: "approval-1" }, error: null },
+  });
+  const outcome = await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" }, inside);
+  assertEquals(outcome.resolution, "approved");
+});
+
+Deno.test("createPendingApproval: quiet hours never touches an auto_deny -- that's already the safe choice", async () => {
+  const inside = new Date("2026-08-29T23:00:00Z");
+  const { client } = fakeSupabase({
+    api_keys: {
+      data: { on_uncertain: "auto_deny", quiet_hours_start_hour: 22, quiet_hours_end_hour: 6, quiet_hours_timezone: "UTC" },
+      error: null,
+    },
+    pending_approvals: { data: { id: "approval-1" }, error: null },
+  });
+  const outcome = await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" }, inside);
+  assertEquals(outcome.resolution, "rejected");
+});
+
+Deno.test("createPendingApproval: quiet hours applies after precedent -- it never re-approves something precedent already rejected", async () => {
+  const inside = new Date("2026-08-29T23:00:00Z");
+  const { client } = fakeSupabase(
+    {
+      api_keys: {
+        data: { on_uncertain: "auto_allow", quiet_hours_start_hour: 22, quiet_hours_end_hour: 6, quiet_hours_timezone: "UTC" },
+        error: null,
+      },
+      pending_approvals: { data: { id: "approval-1" }, error: null },
+      decision_embeddings: { data: { embedding: "[0.1,0.2]" }, error: null },
+      agent_decisions: { data: [{ id: "d2", decision: "BLOCK x" }, { id: "d3", decision: "BLOCK x" }, { id: "d4", decision: "BLOCK x" }], error: null },
+    },
+    {
+      search_decision_precedent: {
+        data: [
+          { decision_id: "d2", action_type: "x", provider: "y", similarity: 0.9, created_at: "x" },
+          { decision_id: "d3", action_type: "x", provider: "y", similarity: 0.8, created_at: "x" },
+          { decision_id: "d4", action_type: "x", provider: "y", similarity: 0.7, created_at: "x" },
+        ],
+        error: null,
+      },
+    },
+  );
+  const outcome = await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" }, inside);
+  assertEquals(outcome.resolution, "rejected", "precedent's own rejection must stand, not get replaced by a quiet-hours escalation");
+});
+
 Deno.test("a hard rule scoped to a different provider does not match", async () => {
   const { client } = fakeSupabase({
     hard_rules: {
