@@ -22,6 +22,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sha256Hex, generateRawKey, displayPrefixFor } from "../_shared/api-key-auth.ts";
 import { resolveAccountScope } from "../_shared/account-scope.ts";
 import { isValidOnUncertainPolicy, summarizeShadowObservations, evaluateShadowPromotionReadiness, summarizeShadowPromotionReadiness, type ShadowObservationRow } from "../_shared/api-key-policy.ts";
+import { evaluateAutomationReadiness, gatherAutomationReadinessInput } from "../_shared/automation-readiness.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -260,6 +261,30 @@ Deno.serve(async (req) => {
       promotion_readiness: readiness,
       promotion_readiness_message: summarizeShadowPromotionReadiness(readiness),
     });
+  }
+
+  // ---- GET /api-keys/:id/automation-readiness --------------------------
+  // "Policy autonomy" plan, item 11: a real, evidence-based answer to
+  // "what's actually stopping me from fully automating this key" --
+  // composing item 5's per-key confidence calibration, item 6's shadow-
+  // promotion-readiness threshold, and the existing precedent-
+  // contradiction citations (item 9 of the prior round) into one report.
+  // Pure read/aggregation over data each already computes -- no new
+  // storage, nothing here changes any real policy.
+  const readinessMatch = url.pathname.match(/\/api-keys\/([0-9a-fA-F-]{36})\/automation-readiness\/?$/);
+  if (req.method === "GET" && readinessMatch) {
+    const keyId = readinessMatch[1];
+    const targetUserId = await resolveAccountScope(userClient, userId, url.searchParams.get("account_id"), "integrations");
+    if (!targetUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
+
+    const { data: keyRow, error: keyErr } = await admin
+      .from("api_keys").select("id").eq("id", keyId).eq("user_id", targetUserId).maybeSingle();
+    if (keyErr) return json({ error: keyErr.message }, 500);
+    if (!keyRow) return json({ error: "Key not found for this account." }, 404);
+
+    const input = await gatherAutomationReadinessInput(admin, keyId);
+    const report = evaluateAutomationReadiness(input);
+    return json({ ok: true, ...report });
   }
 
   // ---- /api-keys/:id/action-policies ------------------------------------
