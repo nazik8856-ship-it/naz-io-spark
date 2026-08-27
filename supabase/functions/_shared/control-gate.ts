@@ -32,9 +32,8 @@ import { resolveOnUncertain, resolveSweepFallback, type AutoResolution } from ".
 import { notifyAndAwaitCallback, type CallbackConfig } from "./callback-delegation.ts";
 import { embedDecisionIfExternal } from "./decision-embeddings.ts";
 import { findPrecedent, loadOutcomeDirections, loadStoredEmbeddingLiteral } from "./precedent-search.ts";
-import { classifyPrecedentOutcome, evaluatePrecedentForAutoApprove, type OutcomeDirection, shouldRejectOnPrecedent, summarizePrecedentOverride } from "./precedent-advice.ts";
+import { alignPrecedentSignals, evaluatePrecedentForAutoApprove, shouldRejectOnPrecedent, summarizePrecedentOverride } from "./precedent-advice.ts";
 import { buildPrecedentCitationRecord, recordPrecedentCitation } from "./precedent-citation.ts";
-import { isNonAllowDecision } from "./control-api-abuse.ts";
 
 export const BREAKER_WINDOW = 10;
 export const BREAKER_MIN_ATTEMPTS = 4;
@@ -316,15 +315,15 @@ export async function createPendingApproval(
               .from("agent_decisions")
               .select("id, decision")
               .in("id", matches.map((m) => m.decisionId));
-            const rows = (precedentRows ?? []) as { id: string; decision: string }[];
+            const decisionById = new Map(((precedentRows ?? []) as { id: string; decision: string }[]).map((r) => [r.id, r.decision]));
             // Item 6: refine the plain verdict flag with what actually
             // happened, when it's known -- falls back to verdict-only
             // when no outcome has been measured for that past decision.
-            const outcomeDirections = await loadOutcomeDirections(admin, rows.map((r) => r.id));
-            const nonAllowFlags = rows.map((r) =>
-              classifyPrecedentOutcome(isNonAllowDecision(r.decision), (outcomeDirections.get(r.id) as OutcomeDirection) ?? null)
-            );
-            const advice = evaluatePrecedentForAutoApprove(nonAllowFlags);
+            const outcomeDirections = await loadOutcomeDirections(admin, matches.map((m) => m.decisionId));
+            // Item 10: older precedent counts for less -- weights decay
+            // with each match's own age.
+            const { nonAllowFlags, weights } = alignPrecedentSignals(matches, decisionById, outcomeDirections);
+            const advice = evaluatePrecedentForAutoApprove(nonAllowFlags, weights);
             if (shouldRejectOnPrecedent(advice) && advice.available) {
               auto = { autoResolved: true, resolution: "rejected", status: "auto_rejected" };
               comment = summarizePrecedentOverride(advice);

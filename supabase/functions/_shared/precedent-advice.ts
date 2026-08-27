@@ -7,6 +7,8 @@
 // is already the safe choice and is never second-guessed by precedent --
 // same "never a blind allow" posture the auto_narrow re-check (a prior
 // round) already established for a different mechanism.
+import { isNonAllowDecision } from "./control-api-abuse.ts";
+import type { PrecedentMatch } from "./precedent-search.ts";
 
 export type PrecedentAdvice =
   | { available: false }
@@ -26,17 +28,50 @@ export const NON_ALLOW_SHARE_OVERRIDE_THRESHOLD = 0.6;
 // already overrides on its own) counts as contradictory.
 export const CONTRADICTORY_LOWER_BOUND = 0.4;
 
+// "Real precedent memory" plan, item 10: a decision from over a year ago
+// -- maybe from before the account even had its current policy --
+// shouldn't count exactly as much as one from last week. Every 90 days
+// of age halves a past decision's vote in the non-allow share below, so
+// stale precedent fades out automatically rather than needing anyone to
+// manually prune old history.
+export const RECENCY_HALF_LIFE_DAYS = 90;
+
+/**
+ * Pure -- exponential decay, 1.0 for a brand-new decision, halving every
+ * RECENCY_HALF_LIFE_DAYS. Never negative, never zero. An unparseable
+ * `createdAt` (should never happen for a real row, but a NaN silently
+ * poisoning the whole weighted average would be far worse than a wrong
+ * decay) falls back to full weight -- the same "an unreadable signal
+ * counts as neutral, not corrupting" posture as classifyPrecedentOutcome
+ * for a missing outcome.
+ */
+export function recencyWeight(createdAt: string, now: Date = new Date()): number {
+  const created = new Date(createdAt).getTime();
+  if (!Number.isFinite(created)) return 1;
+  const ageDays = Math.max(0, (now.getTime() - created) / (1000 * 60 * 60 * 24));
+  return Math.pow(0.5, ageDays / RECENCY_HALF_LIFE_DAYS);
+}
+
 /**
  * Pure -- `nonAllowFlags` is one boolean per similar past decision:
  * true when that decision's own verdict was anything other than a clean
  * "ALLOW" (a block, an escalation, a modification -- classified by the
  * caller via the same isNonAllowDecision already proven in
  * control-api-abuse.ts, not a second parallel classifier).
+ *
+ * `weights` (item 10) is one recency weight per decision, same order as
+ * `nonAllowFlags` -- pass `recencyWeight(match.createdAt)` for each.
+ * Optional and defaults to equal weight for every decision, so existing
+ * callers that haven't computed a weight yet see unchanged behavior.
+ * `sampleSize` stays a plain count (how many similar decisions were
+ * actually found) -- only `nonAllowShare` itself is recency-weighted.
  */
-export function evaluatePrecedentForAutoApprove(nonAllowFlags: boolean[]): PrecedentAdvice {
+export function evaluatePrecedentForAutoApprove(nonAllowFlags: boolean[], weights?: number[]): PrecedentAdvice {
   if (nonAllowFlags.length < MIN_PRECEDENT_SAMPLE) return { available: false };
-  const nonAllowCount = nonAllowFlags.filter(Boolean).length;
-  const nonAllowShare = Math.round((nonAllowCount / nonAllowFlags.length) * 100) / 100;
+  const w = weights ?? nonAllowFlags.map(() => 1);
+  const totalWeight = w.reduce((sum, x) => sum + x, 0);
+  const nonAllowWeight = nonAllowFlags.reduce((sum, flag, i) => sum + (flag ? (w[i] ?? 1) : 0), 0);
+  const nonAllowShare = totalWeight > 0 ? Math.round((nonAllowWeight / totalWeight) * 100) / 100 : 0;
   const overrideToReject = nonAllowShare >= NON_ALLOW_SHARE_OVERRIDE_THRESHOLD;
   return {
     available: true,
@@ -94,4 +129,32 @@ export function classifyPrecedentOutcome(wasNonAllowVerdict: boolean, outcomeDir
   if (outcomeDirection === "negative") return true;
   if (outcomeDirection === "positive") return false;
   return wasNonAllowVerdict;
+}
+
+/**
+ * Pure -- turns raw match + row lookups into the two matches-order arrays
+ * evaluatePrecedentForAutoApprove needs (item 10's `weights` included).
+ * Joined by decision id via the supplied maps, NEVER by array position:
+ * a `.in("id", ...)` query doesn't guarantee its rows come back in the
+ * same order as the id list it was given, so zipping matches[i] with a
+ * positionally-fetched row[i] would silently mismatch which verdict,
+ * outcome, and recency weight belongs to which match. A match with no
+ * matching row (the decision vanished, or the join failed) still
+ * occupies a sample slot and a real recency weight -- it just never
+ * contributes non-allow evidence, the same conservative default a
+ * missing outcome direction already has in classifyPrecedentOutcome.
+ */
+export function alignPrecedentSignals(
+  matches: PrecedentMatch[],
+  decisionById: Map<string, string>,
+  outcomeDirections: Map<string, string>,
+  now: Date = new Date(),
+): { nonAllowFlags: boolean[]; weights: number[] } {
+  const nonAllowFlags = matches.map((m) => {
+    const decisionText = decisionById.get(m.decisionId);
+    if (decisionText === undefined) return false;
+    return classifyPrecedentOutcome(isNonAllowDecision(decisionText), (outcomeDirections.get(m.decisionId) as OutcomeDirection) ?? null);
+  });
+  const weights = matches.map((m) => recencyWeight(m.createdAt, now));
+  return { nonAllowFlags, weights };
 }

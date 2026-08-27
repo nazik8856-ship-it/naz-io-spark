@@ -45,9 +45,8 @@ import { loadFitEvidence, applyFitEvidence } from "../_shared/fit-learning.ts";
 import { buildEmbeddingInput, generateEmbedding, formatEmbeddingLiteral } from "../_shared/decision-embeddings.ts";
 import { findPrecedent, loadOutcomeDirections, loadPrecedentForPrompt } from "../_shared/precedent-search.ts";
 import { buildPrecedentPromptBlock } from "../_shared/precedent-prompt.ts";
-import { classifyPrecedentOutcome, evaluatePrecedentForAutoApprove, type OutcomeDirection, shouldRejectOnPrecedent, summarizePrecedentOverride } from "../_shared/precedent-advice.ts";
+import { alignPrecedentSignals, evaluatePrecedentForAutoApprove, shouldRejectOnPrecedent, summarizePrecedentOverride } from "../_shared/precedent-advice.ts";
 import { buildPrecedentCitationRecord, recordPrecedentCitation } from "../_shared/precedent-citation.ts";
-import { isNonAllowDecision } from "../_shared/control-api-abuse.ts";
 import {
   collectUntrustedFields,
   scanForInjection,
@@ -1115,12 +1114,12 @@ serve(async (req) => {
                 if (matches.length > 0) {
                   const { data: precedentRows } = await supabase
                     .from("agent_decisions").select("id, decision").in("id", matches.map((m) => m.decisionId));
-                  const rows = (precedentRows ?? []) as { id: string; decision: string }[];
-                  const outcomeDirections = await loadOutcomeDirections(supabase, rows.map((r) => r.id));
-                  const nonAllowFlags = rows.map((r) =>
-                    classifyPrecedentOutcome(isNonAllowDecision(r.decision), (outcomeDirections.get(r.id) as OutcomeDirection) ?? null)
-                  );
-                  const advice = evaluatePrecedentForAutoApprove(nonAllowFlags);
+                  const decisionById = new Map(((precedentRows ?? []) as { id: string; decision: string }[]).map((r) => [r.id, r.decision]));
+                  const outcomeDirections = await loadOutcomeDirections(supabase, matches.map((m) => m.decisionId));
+                  // Item 10: older precedent counts for less -- weights
+                  // decay with each match's own age.
+                  const { nonAllowFlags, weights } = alignPrecedentSignals(matches, decisionById, outcomeDirections);
+                  const advice = evaluatePrecedentForAutoApprove(nonAllowFlags, weights);
                   if (shouldRejectOnPrecedent(advice) && advice.available) {
                     forcedResolution = { resolution: "rejected", note: summarizePrecedentOverride(advice) };
                     if (decisionId) {

@@ -1,7 +1,8 @@
 // Real tests for item 3's pure precedent-override classification.
 //
 // Run with: deno test --allow-none supabase/functions/_shared/precedent-advice_test.ts
-import { classifyPrecedentOutcome, CONTRADICTORY_LOWER_BOUND, evaluatePrecedentForAutoApprove, shouldRejectOnPrecedent, summarizePrecedentOverride, MIN_PRECEDENT_SAMPLE, NON_ALLOW_SHARE_OVERRIDE_THRESHOLD } from "./precedent-advice.ts";
+import { alignPrecedentSignals, classifyPrecedentOutcome, CONTRADICTORY_LOWER_BOUND, evaluatePrecedentForAutoApprove, RECENCY_HALF_LIFE_DAYS, recencyWeight, shouldRejectOnPrecedent, summarizePrecedentOverride, MIN_PRECEDENT_SAMPLE, NON_ALLOW_SHARE_OVERRIDE_THRESHOLD } from "./precedent-advice.ts";
+import type { PrecedentMatch } from "./precedent-search.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
@@ -107,6 +108,82 @@ Deno.test("summarizePrecedentOverride: a contradictory split names the mixed-bag
     assert(msg.toLowerCase().includes("mixed bag"));
     assert(msg.toLowerCase().includes("contradictory"));
   }
+});
+
+// ---- recencyWeight + weighted evaluatePrecedentForAutoApprove (item 10) ----
+
+Deno.test("recencyWeight: a brand-new decision gets full weight", () => {
+  const now = new Date("2026-08-27T00:00:00Z");
+  assertEquals(recencyWeight(now.toISOString(), now), 1);
+});
+
+Deno.test("recencyWeight: exactly one half-life old is half weight", () => {
+  const now = new Date("2026-08-27T00:00:00Z");
+  const created = new Date(now.getTime() - RECENCY_HALF_LIFE_DAYS * 24 * 60 * 60 * 1000);
+  const w = recencyWeight(created.toISOString(), now);
+  assert(Math.abs(w - 0.5) < 0.001, `expected ~0.5, got ${w}`);
+});
+
+Deno.test("recencyWeight: a future timestamp (clock skew) is never negative age, capped at full weight", () => {
+  const now = new Date("2026-08-27T00:00:00Z");
+  const future = new Date(now.getTime() + 1000 * 60 * 60 * 24 * 30);
+  assertEquals(recencyWeight(future.toISOString(), now), 1);
+});
+
+Deno.test("recencyWeight: an unparseable date falls back to full weight, never NaN", () => {
+  const w = recencyWeight("not-a-real-date");
+  assertEquals(w, 1);
+  assert(Number.isFinite(w));
+});
+
+Deno.test("evaluatePrecedentForAutoApprove: stale non-allow precedent counts for less than it would unweighted", () => {
+  // 2 of 3 non-allow (67% unweighted -- would override on its own), but
+  // the two non-allow votes are heavily decayed while the one allow vote
+  // is fresh -- weighted share should drop well below the raw 67%.
+  const flags = [true, true, false];
+  const weights = [0.1, 0.1, 1];
+  const advice = evaluatePrecedentForAutoApprove(flags, weights);
+  assert(advice.available);
+  if (advice.available) {
+    assert(advice.nonAllowShare < 0.6, `expected a decayed share below the override threshold, got ${advice.nonAllowShare}`);
+    assertEquals(advice.overrideToReject, false);
+  }
+});
+
+Deno.test("evaluatePrecedentForAutoApprove: omitting weights behaves exactly like equal weighting (backward compatible)", () => {
+  const flags = [true, true, false];
+  assertEquals(evaluatePrecedentForAutoApprove(flags), evaluatePrecedentForAutoApprove(flags, [1, 1, 1]));
+});
+
+// ---- alignPrecedentSignals (item 10) ----
+
+const m = (decisionId: string, similarity: number, createdAt: string): PrecedentMatch => ({
+  decisionId, actionType: "send_email", provider: "Gmail", similarity, createdAt,
+});
+
+Deno.test("alignPrecedentSignals: joins by decision id, not array position", () => {
+  const matches = [m("d1", 0.9, new Date().toISOString()), m("d2", 0.8, new Date().toISOString())];
+  // Deliberately reversed insertion order vs. `matches` -- a positional
+  // zip would swap which verdict belongs to which match.
+  const decisionById = new Map([["d2", "BLOCK x"], ["d1", "ALLOW x"]]);
+  const { nonAllowFlags } = alignPrecedentSignals(matches, decisionById, new Map());
+  assertEquals(nonAllowFlags, [false, true]);
+});
+
+Deno.test("alignPrecedentSignals: a match with no matching row counts as not-concerning, never crashes", () => {
+  const matches = [m("d1", 0.9, new Date().toISOString())];
+  const { nonAllowFlags, weights } = alignPrecedentSignals(matches, new Map(), new Map());
+  assertEquals(nonAllowFlags, [false]);
+  assertEquals(weights.length, 1);
+});
+
+Deno.test("alignPrecedentSignals: produces one weight per match, aligned to match order", () => {
+  const now = new Date("2026-08-27T00:00:00Z");
+  const old = new Date(now.getTime() - RECENCY_HALF_LIFE_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  const matches = [m("d1", 0.9, now.toISOString()), m("d2", 0.8, old)];
+  const { weights } = alignPrecedentSignals(matches, new Map([["d1", "ALLOW x"], ["d2", "ALLOW x"]]), new Map(), now);
+  assertEquals(weights[0], 1);
+  assert(Math.abs(weights[1] - 0.5) < 0.001);
 });
 
 // ---- classifyPrecedentOutcome (item 6) ----

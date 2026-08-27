@@ -584,9 +584,9 @@ Deno.test("createPendingApproval: real precedent overrides an auto_allow to reje
       decision_embeddings: { data: { embedding: "[0.1,0.2]" }, error: null },
       agent_decisions: {
         data: [
-          { decision: "BLOCK send_email (Gmail)" },
-          { decision: "BLOCK send_email (Gmail)" },
-          { decision: "ALLOW send_email (Gmail)" },
+          { id: "d2", decision: "BLOCK send_email (Gmail)" },
+          { id: "d3", decision: "BLOCK send_email (Gmail)" },
+          { id: "d4", decision: "ALLOW send_email (Gmail)" },
         ],
         error: null,
       },
@@ -623,9 +623,9 @@ Deno.test("createPendingApproval: precedent that's mostly clean allows does not 
       decision_embeddings: { data: { embedding: "[0.1,0.2]" }, error: null },
       agent_decisions: {
         data: [
-          { decision: "ALLOW send_email (Gmail)" },
-          { decision: "ALLOW send_email (Gmail)" },
-          { decision: "BLOCK send_email (Gmail)" },
+          { id: "d2", decision: "ALLOW send_email (Gmail)" },
+          { id: "d3", decision: "ALLOW send_email (Gmail)" },
+          { id: "d4", decision: "BLOCK send_email (Gmail)" },
         ],
         error: null,
       },
@@ -633,9 +633,9 @@ Deno.test("createPendingApproval: precedent that's mostly clean allows does not 
     {
       search_decision_precedent: {
         data: [
-          { decision_id: "d2", action_type: "send_email", provider: "Gmail", similarity: 0.9, created_at: "x" },
-          { decision_id: "d3", action_type: "send_email", provider: "Gmail", similarity: 0.8, created_at: "x" },
-          { decision_id: "d4", action_type: "send_email", provider: "Gmail", similarity: 0.7, created_at: "x" },
+          { decision_id: "d2", action_type: "send_email", provider: "Gmail", similarity: 0.9, created_at: new Date().toISOString() },
+          { decision_id: "d3", action_type: "send_email", provider: "Gmail", similarity: 0.8, created_at: new Date().toISOString() },
+          { decision_id: "d4", action_type: "send_email", provider: "Gmail", similarity: 0.7, created_at: new Date().toISOString() },
         ],
         error: null,
       },
@@ -671,7 +671,10 @@ Deno.test("createPendingApproval: precedent override also applies to a forcedRes
     {
       pending_approvals: { data: { id: "approval-1" }, error: null },
       decision_embeddings: { data: { embedding: "[0.1,0.2]" }, error: null },
-      agent_decisions: { data: [{ decision: "BLOCK x" }, { decision: "BLOCK x" }, { decision: "BLOCK x" }], error: null },
+      agent_decisions: {
+        data: [{ id: "d2", decision: "BLOCK x" }, { id: "d3", decision: "BLOCK x" }, { id: "d4", decision: "BLOCK x" }],
+        error: null,
+      },
     },
     {
       search_decision_precedent: {
