@@ -42,6 +42,9 @@ import { reversibilityFor, captureUndoState, runUndo } from "../_shared/reversib
 import { replayDraft, replayRealTraffic, evaluateAction, type PolicySnapshot } from "../_shared/policy-replay.ts";
 import { summarizePolicyWatch, type PolicyWatchObservationRow } from "../_shared/policy-watch.ts";
 import { loadFitEvidence, applyFitEvidence } from "../_shared/fit-learning.ts";
+import { buildEmbeddingInput, generateEmbedding, formatEmbeddingLiteral } from "../_shared/decision-embeddings.ts";
+import { loadPrecedentForPrompt } from "../_shared/precedent-search.ts";
+import { buildPrecedentPromptBlock } from "../_shared/precedent-prompt.ts";
 import {
   collectUntrustedFields,
   scanForInjection,
@@ -841,6 +844,28 @@ serve(async (req) => {
       actionType, provider, description,
     });
 
+    // "Real precedent memory" plan, item 4: real semantic precedent for
+    // the AI-scored judgment, scoped to trustedApiKeyId traffic ONLY --
+    // this never changes how NazAI's own internal agents are judged.
+    // Unlike item 3 (which reuses an embedding already stored moments
+    // earlier), there's no decisionId yet at this point in the flow --
+    // the decision hasn't been logged until after the model responds --
+    // so this generates its own embedding purely to search with; that
+    // embedding is never stored here (item 1's own embed-at-log-time
+    // call still runs later, once a real decisionId exists). Best-effort
+    // throughout: any failure here just means an empty prompt block, the
+    // same "precedent is optional enrichment" posture as item 3.
+    let precedentPromptBlock = "";
+    if (trustedApiKeyId) {
+      try {
+        const queryEmbedding = await generateEmbedding(buildEmbeddingInput({ actionType, provider, description, params }));
+        if (queryEmbedding) {
+          const precedentRows = await loadPrecedentForPrompt(supabase, trustedApiKeyId, formatEmbeddingLiteral(queryEmbedding));
+          precedentPromptBlock = buildPrecedentPromptBlock(precedentRows);
+        }
+      } catch { /* precedent is optional enrichment -- a lookup hiccup here must never block the real judgment */ }
+    }
+
     // ---- PROMPT-INJECTION HARDENING ----------------------------------------
     // Anything that came from an outside system is DATA, never instructions.
     // We (a) label + delimit it in the prompt and (b) scan it deterministically.
@@ -885,6 +910,7 @@ serve(async (req) => {
               `Grade risk and fit through that lens: on Strict, lean toward the higher risk tier and toward ` +
               `'unclear' fit when evidence is thin; on Loose, only flag genuine risk or a genuine mismatch.\n\n` +
               `BUSINESS PROFILE:\n${profileBlock}` + fitEvidence.promptBlock +
+              precedentPromptBlock +
               INJECTION_SYSTEM_CLAUSE,
           },
           {

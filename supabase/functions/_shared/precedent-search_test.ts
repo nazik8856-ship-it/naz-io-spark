@@ -1,7 +1,7 @@
 // Real tests for item 3's precedent-search wrapper.
 //
 // Run with: deno test --allow-none supabase/functions/_shared/precedent-search_test.ts
-import { filterPrecedentMatches, findPrecedent, loadStoredEmbeddingLiteral, MIN_SIMILARITY, type PrecedentMatch } from "./precedent-search.ts";
+import { filterPrecedentMatches, findPrecedent, loadPrecedentForPrompt, loadStoredEmbeddingLiteral, MIN_SIMILARITY, type PrecedentMatch } from "./precedent-search.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
@@ -78,6 +78,54 @@ Deno.test("findPrecedent: a malformed (non-array) response returns an empty arra
     // deno-lint-ignore no-explicit-any
   } as any;
   assertEquals(await findPrecedent(client, "key-1", "[0.1]"), []);
+});
+
+// ---- loadPrecedentForPrompt (item 4) ----
+
+Deno.test("loadPrecedentForPrompt: joins decision/reasoning text onto each match", async () => {
+  const client = {
+    rpc() {
+      return Promise.resolve({
+        data: [{ decision_id: "d1", action_type: "send_email", provider: "Gmail", similarity: 0.9, created_at: "x" }],
+        error: null,
+      });
+    },
+    from(table: string) {
+      assertEquals(table, "agent_decisions");
+      return {
+        select() { return this; },
+        in() {
+          return Promise.resolve({ data: [{ id: "d1", decision: "ALLOW send_email (Gmail)", reasoning: "fine" }], error: null });
+        },
+      };
+    },
+    // deno-lint-ignore no-explicit-any
+  } as any;
+  const rows = await loadPrecedentForPrompt(client, "key-1", "[0.1]");
+  assertEquals(rows.length, 1);
+  assertEquals(rows[0].decision, "ALLOW send_email (Gmail)");
+  assertEquals(rows[0].reasoning, "fine");
+});
+
+Deno.test("loadPrecedentForPrompt: no matches at all short-circuits without ever querying agent_decisions", async () => {
+  let calledFrom = false;
+  const client = {
+    rpc() { return Promise.resolve({ data: [], error: null }); },
+    from() { calledFrom = true; return { select() { return this; }, in() { return Promise.resolve({ data: [], error: null }); } }; },
+    // deno-lint-ignore no-explicit-any
+  } as any;
+  const rows = await loadPrecedentForPrompt(client, "key-1", "[0.1]");
+  assertEquals(rows, []);
+  assertEquals(calledFrom, false);
+});
+
+Deno.test("loadPrecedentForPrompt: a failed join lookup returns an empty array, never throws", async () => {
+  const client = {
+    rpc() { return Promise.resolve({ data: [{ decision_id: "d1", action_type: "x", provider: "y", similarity: 0.9, created_at: "x" }], error: null }); },
+    from() { throw new Error("db down"); },
+    // deno-lint-ignore no-explicit-any
+  } as any;
+  assertEquals(await loadPrecedentForPrompt(client, "key-1", "[0.1]"), []);
 });
 
 // ---- loadStoredEmbeddingLiteral ----

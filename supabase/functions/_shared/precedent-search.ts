@@ -56,6 +56,45 @@ export async function findPrecedent(
   }
 }
 
+// "Real precedent memory" plan, item 4: the AI-scored judgment prompt
+// needs the free-text decision/reasoning behind each precedent match,
+// not just its id -- a second, small select joining onto agent_decisions
+// rather than teaching search_decision_precedent's own SQL to return
+// arbitrarily-truncated free text.
+export type PrecedentPromptMatch = PrecedentMatch & { decision: string; reasoning: string };
+
+/**
+ * Same as findPrecedent, but also fetches the free-text decision +
+ * reasoning for each match, for building a real-precedent prompt block.
+ * Never throws -- an empty array means "no precedent to show," same
+ * posture as findPrecedent itself.
+ */
+export async function loadPrecedentForPrompt(
+  admin: SupabaseClient,
+  apiKeyId: string,
+  embeddingLiteral: string,
+  excludeDecisionId?: string | null,
+  limit: number = DEFAULT_LIMIT,
+): Promise<PrecedentPromptMatch[]> {
+  const matches = await findPrecedent(admin, apiKeyId, embeddingLiteral, excludeDecisionId, limit);
+  if (!matches.length) return [];
+  try {
+    const { data } = await admin
+      .from("agent_decisions")
+      .select("id, decision, reasoning")
+      .in("id", matches.map((m) => m.decisionId));
+    const byId = new Map(((data ?? []) as { id: string; decision: string; reasoning: string }[]).map((r) => [r.id, r]));
+    return matches
+      .map((m) => {
+        const row = byId.get(m.decisionId);
+        return row ? { ...m, decision: row.decision, reasoning: row.reasoning } : null;
+      })
+      .filter((m): m is PrecedentPromptMatch => m !== null);
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Looks up the embedding already stored for one decision (as a pgvector
  * literal string, ready to feed straight into findPrecedent) -- reuses
