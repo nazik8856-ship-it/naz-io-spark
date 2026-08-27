@@ -43,8 +43,10 @@ import { replayDraft, replayRealTraffic, evaluateAction, type PolicySnapshot } f
 import { summarizePolicyWatch, type PolicyWatchObservationRow } from "../_shared/policy-watch.ts";
 import { loadFitEvidence, applyFitEvidence } from "../_shared/fit-learning.ts";
 import { buildEmbeddingInput, generateEmbedding, formatEmbeddingLiteral } from "../_shared/decision-embeddings.ts";
-import { loadPrecedentForPrompt } from "../_shared/precedent-search.ts";
+import { findPrecedent, loadPrecedentForPrompt } from "../_shared/precedent-search.ts";
 import { buildPrecedentPromptBlock } from "../_shared/precedent-prompt.ts";
+import { evaluatePrecedentForAutoApprove, summarizePrecedentOverride } from "../_shared/precedent-advice.ts";
+import { isNonAllowDecision } from "../_shared/control-api-abuse.ts";
 import {
   collectUntrustedFields,
   scanForInjection,
@@ -1088,6 +1090,39 @@ serve(async (req) => {
             recheckOutcome = evalResult.gate_outcome;
           } catch { /* recheckOutcome stays "block" -- auto-denied below */ }
           forcedResolution = narrowedActionResolution(recheckOutcome);
+
+          // "Real precedent memory" plan, item 5: the deterministic
+          // re-check above only knows about hard rules/safety patterns --
+          // it has no idea whether a similarly-narrowed version of this
+          // kind of action has actually gone well before for this exact
+          // api key. Only ever consulted when the re-check ITSELF already
+          // passed cleanly -- precedent can pull a would-be approval back
+          // to reject, same one-directional posture item 3 already
+          // established, never push a real rule/safety failure through.
+          // Generates its own embedding for the NARROWED variant
+          // specifically (not the original action's), since that's a
+          // materially different thing to have precedent about.
+          if (forcedResolution.resolution === "approved" && trustedApiKeyId) {
+            try {
+              const narrowedEmbedding = await generateEmbedding(buildEmbeddingInput({
+                actionType, provider, description: `${description} (narrowed automatically)`, params: narrowedParams,
+              }));
+              if (narrowedEmbedding) {
+                const matches = await findPrecedent(
+                  supabase, trustedApiKeyId, formatEmbeddingLiteral(narrowedEmbedding), decisionId ?? null,
+                );
+                if (matches.length > 0) {
+                  const { data: precedentRows } = await supabase
+                    .from("agent_decisions").select("decision").in("id", matches.map((m) => m.decisionId));
+                  const nonAllowFlags = ((precedentRows ?? []) as { decision: string }[]).map((r) => isNonAllowDecision(r.decision));
+                  const advice = evaluatePrecedentForAutoApprove(nonAllowFlags);
+                  if (advice.available && advice.overrideToReject) {
+                    forcedResolution = { resolution: "rejected", note: summarizePrecedentOverride(advice) };
+                  }
+                }
+              }
+            } catch { /* precedent is optional enrichment -- a lookup hiccup here must never block the real re-check outcome */ }
+          }
         } else {
           // Policy says auto_narrow, but there's nothing structured to
           // retry with -- never left silently pending for a human who
