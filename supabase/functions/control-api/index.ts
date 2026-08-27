@@ -50,6 +50,7 @@ import { claimRowOnce, claimIdempotencyKey, saveIdempotencyResponse, releaseIdem
 import { classifyPlatformStatus, platformStatusMessage, DEGRADED_LOOKBACK_MINUTES } from "../_shared/platform-status.ts";
 import { classifyDecisionVerification, type RawDecisionVerification } from "../_shared/decision-verification.ts";
 import { excludeDecisionFromPrecedent, loadPrecedentForPrompt } from "../_shared/precedent-search.ts";
+import { evaluateCoarsePrecedentLookup, summarizeCoarsePrecedentLookup, type CrossAccountStat } from "../_shared/cross-account-precedent.ts";
 import { buildEmbeddingInput, formatEmbeddingLiteral, generateEmbeddingWithinBudget } from "../_shared/decision-embeddings.ts";
 
 const corsHeaders = {
@@ -600,6 +601,51 @@ Deno.serve(async (req) => {
         decision: m.decision,
         reasoning: m.reasoning,
       })),
+    });
+  }
+
+  // ---- GET /control-api/v1/precedent/cross-account -------------------------
+  // "Policy autonomy" plan, item 13: opt-in, coarse anonymized precedent
+  // sharing. A brand-new key with zero real history of its own can still
+  // ask "of similar actions across opted-in accounts, what share weren't
+  // clean allows" -- a real, coarse signal instead of a cold start with
+  // nothing. Deliberately a cheap, exact-shape lookup (no embedding, no
+  // AI spend) against the pre-aggregated cross_account_precedent_stats
+  // table (cross-account-precedent-sweep) -- never blended into or
+  // confused with this account's OWN real precedent (POST /precedent
+  // above): a distinct, coarser signal, always presented as such.
+  if (req.method === "GET" && /\/precedent\/cross-account\/?$/.test(url.pathname)) {
+    const rate = await checkRateLimit(admin, userId, "control-api-precedent", PRECEDENT_LOOKUP_RATE_LIMIT_PER_MINUTE, 60);
+    if (!rate.allowed) {
+      return json({
+        error: "rate_limited",
+        message: `Too many requests — ${rate.count} in the last minute (limit ${rate.limit}). Try again shortly.`,
+      }, 429);
+    }
+
+    const actionType = url.searchParams.get("action_type");
+    if (!actionType) return json({ error: "action_type query parameter is required" }, 400);
+    const providerParam = url.searchParams.get("provider");
+    const provider = providerParam || null;
+
+    const { data, error } = await admin
+      .from("cross_account_precedent_stats")
+      .select("total_count, non_allow_count, contributing_account_count")
+      .eq("action_type", actionType)
+      .eq("provider", provider ?? "")
+      .maybeSingle();
+    if (error) return json({ error: error.message }, 500);
+
+    const stat: CrossAccountStat | null = data
+      ? { action_type: actionType, provider, ...(data as { total_count: number; non_allow_count: number; contributing_account_count: number }) }
+      : null;
+    const lookup = evaluateCoarsePrecedentLookup(stat);
+    return json({
+      ok: true,
+      action_type: actionType,
+      provider,
+      lookup,
+      message: summarizeCoarsePrecedentLookup(lookup, actionType, provider),
     });
   }
 
