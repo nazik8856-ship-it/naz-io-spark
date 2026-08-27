@@ -1,7 +1,7 @@
 // Real tests for the audit-integrity sweep's pure classification logic.
 //
 // Run with: deno test --allow-none supabase/functions/_shared/audit-integrity_test.ts
-import { isAuditIntegrityFailure, summarizeAuditIntegrityFailure, isAutoResolutionMismatch, isPrecedentCitationMismatch, type SignatureVerifyResult, type StoredPrecedentCitation } from "./audit-integrity.ts";
+import { isAuditIntegrityFailure, summarizeAuditIntegrityFailure, isAutoResolutionMismatch, isPrecedentCitationMismatch, isDecisionConsistencyMismatch, type SignatureVerifyResult, type StoredPrecedentCitation } from "./audit-integrity.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
@@ -132,4 +132,61 @@ Deno.test("summarizeAuditIntegrityFailure: calls out a precedent-citation mismat
   const summary = summarizeAuditIntegrityFailure({ ...clean, precedent_citations_checked: 6, precedent_citations_mismatched: 1 });
   assert(summary.includes("1 of 6 real-precedent citation"));
   assert(summary.toLowerCase().includes("real-precedent memory system"));
+});
+
+// ---- "policy autonomy" item 15: isDecisionConsistencyMismatch ----
+
+const clearNonAllowMajority = [true, true, true, false]; // 75% non-allow
+const clearAllowMajority = [false, false, false, true]; // 25% non-allow
+const mixedBag = [true, true, false, false]; // 50% non-allow -- genuinely contradictory
+
+Deno.test("isDecisionConsistencyMismatch: an escalated decision is never flagged, even against a clear opposing majority", () => {
+  assertFalse(isDecisionConsistencyMismatch(true, true, "model", clearAllowMajority));
+});
+
+Deno.test("isDecisionConsistencyMismatch: a human_override is never flagged, even against a clear opposing majority", () => {
+  assertFalse(isDecisionConsistencyMismatch(true, false, "human_override", clearAllowMajority));
+});
+
+Deno.test("isDecisionConsistencyMismatch: too few similar decisions to judge is never flagged", () => {
+  assertFalse(isDecisionConsistencyMismatch(true, false, "model", [false, false]));
+});
+
+Deno.test("isDecisionConsistencyMismatch: a genuinely mixed-bag precedent cohort has no consistent answer to disagree with", () => {
+  assertFalse(isDecisionConsistencyMismatch(true, false, "model", mixedBag));
+  assertFalse(isDecisionConsistencyMismatch(false, false, "model", mixedBag));
+});
+
+Deno.test("isDecisionConsistencyMismatch: a non-allow verdict agreeing with a clear non-allow majority is not a mismatch", () => {
+  assertFalse(isDecisionConsistencyMismatch(true, false, "model", clearNonAllowMajority));
+});
+
+Deno.test("isDecisionConsistencyMismatch: an allow verdict disagreeing with a clear non-allow majority IS a mismatch", () => {
+  assert(isDecisionConsistencyMismatch(false, false, "model", clearNonAllowMajority));
+});
+
+Deno.test("isDecisionConsistencyMismatch: an allow verdict agreeing with a clear allow majority is not a mismatch", () => {
+  assertFalse(isDecisionConsistencyMismatch(false, false, "model", clearAllowMajority));
+});
+
+Deno.test("isDecisionConsistencyMismatch: a non-allow verdict disagreeing with a clear allow majority IS a mismatch", () => {
+  assert(isDecisionConsistencyMismatch(true, false, "model", clearAllowMajority));
+});
+
+Deno.test("isAuditIntegrityFailure: any decision-consistency mismatch is a failure, even with clean signatures", () => {
+  assert(isAuditIntegrityFailure({ ...clean, decision_consistency_checked: 10, decision_consistency_mismatched: 1 }));
+});
+
+Deno.test("isAuditIntegrityFailure: decision-consistency fields present but zero mismatches is still not a failure", () => {
+  assertFalse(isAuditIntegrityFailure({ ...clean, decision_consistency_checked: 10, decision_consistency_mismatched: 0 }));
+});
+
+Deno.test("isAuditIntegrityFailure: decision-consistency fields omitted entirely defaults to no failure from that dimension", () => {
+  assertFalse(isAuditIntegrityFailure({ ...clean }));
+});
+
+Deno.test("summarizeAuditIntegrityFailure: calls out a decision-consistency mismatch distinctly, with both counts", () => {
+  const summary = summarizeAuditIntegrityFailure({ ...clean, decision_consistency_checked: 12, decision_consistency_mismatched: 2 });
+  assert(summary.includes("2 of 12 decision"));
+  assert(summary.toLowerCase().includes("flip-flopping"));
 });

@@ -21,8 +21,10 @@
 // 2. A real user JWT — runs the sweep for just that one caller.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
-import { isAuditIntegrityFailure, summarizeAuditIntegrityFailure, isAutoResolutionMismatch, isPrecedentCitationMismatch, type SignatureVerifyResult, type AuditIntegrityResult, type StoredPrecedentCitation } from "../_shared/audit-integrity.ts";
+import { isAuditIntegrityFailure, summarizeAuditIntegrityFailure, isAutoResolutionMismatch, isPrecedentCitationMismatch, isDecisionConsistencyMismatch, type SignatureVerifyResult, type AuditIntegrityResult, type StoredPrecedentCitation } from "../_shared/audit-integrity.ts";
 import { evaluateAction, type PolicySnapshot } from "../_shared/policy-replay.ts";
+import { isNonAllowDecision } from "../_shared/control-api-abuse.ts";
+import { loadStoredEmbeddingLiteral, findPrecedent } from "../_shared/precedent-search.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -122,6 +124,65 @@ async function checkPrecedentCitations(
   }
 }
 
+// "Policy autonomy" plan, item 15: does the same kind of request get a
+// consistent verdict over time, or is there real, unexplained flip-
+// flopping? Reuses the exact same precedent/embedding infrastructure
+// "real precedent memory" already built (loadStoredEmbeddingLiteral +
+// findPrecedent) -- never a new similarity search, never a new model
+// call. Scoped to decisions with a stored embedding at all (external-api
+// decisions only, per decision-embeddings.ts's own documented scope);
+// pre-filters out escalated/human_override rows at the query itself --
+// isDecisionConsistencyMismatch would always return false for those
+// anyway, so skipping them here just saves the embedding lookup/
+// precedent search. Never throws -- a failure here reports zero
+// checked, never blocking the rest of this sweep.
+async function checkDecisionConsistency(
+  admin: ReturnType<typeof createClient>,
+  userId: string,
+  from: string,
+  to: string,
+): Promise<{ checked: number; mismatched: number }> {
+  try {
+    const { data: rows } = await admin
+      .from("agent_decisions")
+      .select("id, api_key_id, decision, escalated, source")
+      .eq("user_id", userId)
+      .not("api_key_id", "is", null)
+      .eq("escalated", false)
+      .neq("source", "human_override")
+      .gte("created_at", from)
+      .lte("created_at", to);
+    const candidates = (rows ?? []) as { id: string; api_key_id: string; decision: string; escalated: boolean; source: string }[];
+    if (!candidates.length) return { checked: 0, mismatched: 0 };
+
+    let checked = 0;
+    let mismatched = 0;
+    for (const candidate of candidates) {
+      const embeddingLiteral = await loadStoredEmbeddingLiteral(admin, candidate.id);
+      if (!embeddingLiteral) continue; // nothing to compare against -- not a checked case
+
+      const matches = await findPrecedent(admin, candidate.api_key_id, embeddingLiteral, candidate.id);
+      if (!matches.length) continue;
+
+      const { data: matchRows } = await admin
+        .from("agent_decisions").select("id, decision").in("id", matches.map((m) => m.decisionId));
+      const decisionById = new Map(((matchRows ?? []) as { id: string; decision: string }[]).map((r) => [r.id, r.decision]));
+      const nonAllowFlags = matches
+        .map((m) => decisionById.get(m.decisionId))
+        .filter((d): d is string => d !== undefined)
+        .map((d) => isNonAllowDecision(d));
+
+      checked++;
+      if (isDecisionConsistencyMismatch(isNonAllowDecision(candidate.decision), candidate.escalated, candidate.source, nonAllowFlags)) {
+        mismatched++;
+      }
+    }
+    return { checked, mismatched };
+  } catch {
+    return { checked: 0, mismatched: 0 };
+  }
+}
+
 async function sweepOrg(
   admin: ReturnType<typeof createClient>,
   userId: string,
@@ -136,12 +197,15 @@ async function sweepOrg(
   const signatureResult = data as SignatureVerifyResult;
   const autoResolutions = await checkAutoResolutions(admin, userId, from, to);
   const precedentCitations = await checkPrecedentCitations(admin, userId, from, to);
+  const decisionConsistency = await checkDecisionConsistency(admin, userId, from, to);
   const result: AuditIntegrityResult = {
     ...signatureResult,
     auto_resolutions_checked: autoResolutions.checked,
     auto_resolutions_mismatched: autoResolutions.mismatched,
     precedent_citations_checked: precedentCitations.checked,
     precedent_citations_mismatched: precedentCitations.mismatched,
+    decision_consistency_checked: decisionConsistency.checked,
+    decision_consistency_mismatched: decisionConsistency.mismatched,
   };
 
   await admin.from("audit_integrity_runs").insert({
@@ -155,6 +219,8 @@ async function sweepOrg(
     auto_resolutions_mismatched: result.auto_resolutions_mismatched,
     precedent_citations_checked: result.precedent_citations_checked,
     precedent_citations_mismatched: result.precedent_citations_mismatched,
+    decision_consistency_checked: result.decision_consistency_checked,
+    decision_consistency_mismatched: result.decision_consistency_mismatched,
     range_from: from,
     range_to: to,
   });

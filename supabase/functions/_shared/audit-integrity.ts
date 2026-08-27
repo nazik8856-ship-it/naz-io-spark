@@ -1,7 +1,7 @@
 // Pure classification for the weekly audit-integrity sweep — extracted out
 // of the edge function's DB-coupled orchestration so it's directly unit
 // testable, same reasoning as self-audit-diff.ts for control-self-audit.
-import { CONTRADICTORY_LOWER_BOUND, NON_ALLOW_SHARE_OVERRIDE_THRESHOLD } from "./precedent-advice.ts";
+import { CONTRADICTORY_LOWER_BOUND, NON_ALLOW_SHARE_OVERRIDE_THRESHOLD, MIN_PRECEDENT_SAMPLE } from "./precedent-advice.ts";
 
 export type SignatureVerifyResult = {
   checked: number;
@@ -39,7 +39,19 @@ export type PrecedentCitationAuditFields = {
   precedent_citations_mismatched?: number;
 };
 
-export type AuditIntegrityResult = SignatureVerifyResult & AutoResolutionAuditFields & PrecedentCitationAuditFields;
+// "Policy autonomy" plan, item 15: extends this same sweep to ALSO check
+// decision consistency -- does the same kind of request (found via the
+// existing precedent/embedding infrastructure, precedent-search.ts's
+// findPrecedent) get a consistent verdict over time, or is there real,
+// unexplained flip-flopping. Same optional-fields technique as the two
+// AuditFields types above, so every existing caller/test keeps working
+// unchanged.
+export type DecisionConsistencyAuditFields = {
+  decision_consistency_checked?: number;
+  decision_consistency_mismatched?: number;
+};
+
+export type AuditIntegrityResult = SignatureVerifyResult & AutoResolutionAuditFields & PrecedentCitationAuditFields & DecisionConsistencyAuditFields;
 
 export type StoredPrecedentCitation = {
   reason: string;
@@ -74,6 +86,44 @@ export function isAutoResolutionMismatch(gateOutcome: "block" | "require_approva
 }
 
 /**
+ * Pure -- is this decision "unexplained flip-flopping" against its own
+ * precedent cohort (found via the existing precedent/embedding search,
+ * precedent-search.ts's findPrecedent)?
+ *
+ * An escalated decision or a human_override is NEVER flagged: a real
+ * human looking at it and deciding differently is a legitimate,
+ * explainable reason for a different outcome, not an inconsistency bug
+ * -- exactly the same "a human's own judgment is never second-guessed"
+ * posture this codebase already applies elsewhere (precedent-advice.ts's
+ * own one-directional design).
+ *
+ * A precedent cohort that's itself a genuine mixed bag (no clear
+ * majority either way, the exact same CONTRADICTORY_LOWER_BOUND /
+ * NON_ALLOW_SHARE_OVERRIDE_THRESHOLD split evaluatePrecedentForAutoApprove
+ * already uses) has no single "consistent" answer to have flip-flopped
+ * away from -- correctly never flagged either. Only a decision that
+ * disagrees with a CLEAR precedent majority, with no human involved to
+ * explain the difference, counts as a real consistency concern.
+ */
+export function isDecisionConsistencyMismatch(
+  ownNonAllow: boolean,
+  escalated: boolean,
+  source: string,
+  similarNonAllowFlags: boolean[],
+): boolean {
+  if (escalated || source === "human_override") return false;
+  if (similarNonAllowFlags.length < MIN_PRECEDENT_SAMPLE) return false;
+
+  const nonAllowShare = similarNonAllowFlags.filter(Boolean).length / similarNonAllowFlags.length;
+  const clearNonAllowMajority = nonAllowShare >= NON_ALLOW_SHARE_OVERRIDE_THRESHOLD;
+  const clearAllowMajority = nonAllowShare < CONTRADICTORY_LOWER_BOUND;
+  if (!clearNonAllowMajority && !clearAllowMajority) return false;
+
+  const agreesWithMajority = (clearNonAllowMajority && ownNonAllow) || (clearAllowMajority && !ownNonAllow);
+  return !agreesWithMajority;
+}
+
+/**
  * A sweep is a failure worth alerting on if ANY signature didn't match
  * what was actually signed at creation (the audit trail may have been
  * altered), any decision in range has no signature at all (the signing
@@ -83,7 +133,7 @@ export function isAutoResolutionMismatch(gateOutcome: "block" | "require_approva
  */
 export function isAuditIntegrityFailure(r: AuditIntegrityResult): boolean {
   return r.mismatched_count > 0 || r.unsigned > 0 || (r.auto_resolutions_mismatched ?? 0) > 0 ||
-    (r.precedent_citations_mismatched ?? 0) > 0;
+    (r.precedent_citations_mismatched ?? 0) > 0 || (r.decision_consistency_mismatched ?? 0) > 0;
 }
 
 export function summarizeAuditIntegrityFailure(r: AuditIntegrityResult): string {
@@ -106,6 +156,13 @@ export function summarizeAuditIntegrityFailure(r: AuditIntegrityResult): string 
       `${r.precedent_citations_mismatched} of ${r.precedent_citations_checked ?? 0} real-precedent citation(s) don't genuinely ` +
       `support the verdict they're attached to -- either the record was altered, or there's a bug in the real-precedent ` +
       `memory system itself.`,
+    );
+  }
+  if ((r.decision_consistency_mismatched ?? 0) > 0) {
+    parts.push(
+      `${r.decision_consistency_mismatched} of ${r.decision_consistency_checked ?? 0} decision(s) disagreed with a clear ` +
+      `precedent majority for the same kind of request, with no human review to explain the difference -- real, ` +
+      `unexplained flip-flopping that's worth a human's attention.`,
     );
   }
   return parts.join(" ");
