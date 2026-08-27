@@ -700,6 +700,42 @@ Deno.test("createPendingApproval: a precedent-search failure never breaks the re
   assertEquals(outcome.resolution, "approved");
 });
 
+// ---- "Real precedent memory" plan, item 8: contradictory precedent is its own reason for caution ----
+
+Deno.test("createPendingApproval: a genuine 50/50 precedent split overrides an auto_allow even though it's not a clear non-allow majority", async () => {
+  const { client, inserts } = fakeSupabase(
+    {
+      api_keys: { data: { on_uncertain: "auto_allow" }, error: null },
+      pending_approvals: { data: { id: "approval-1" }, error: null },
+      decision_embeddings: { data: { embedding: "[0.1,0.2]" }, error: null },
+      agent_decisions: {
+        data: [
+          { id: "d2", decision: "ALLOW send_email (Gmail)" },
+          { id: "d3", decision: "ALLOW send_email (Gmail)" },
+          { id: "d4", decision: "BLOCK send_email (Gmail)" },
+          { id: "d5", decision: "BLOCK send_email (Gmail)" },
+        ],
+        error: null,
+      },
+    },
+    {
+      search_decision_precedent: {
+        data: [
+          { decision_id: "d2", action_type: "send_email", provider: "Gmail", similarity: 0.9, created_at: "x" },
+          { decision_id: "d3", action_type: "send_email", provider: "Gmail", similarity: 0.85, created_at: "x" },
+          { decision_id: "d4", action_type: "send_email", provider: "Gmail", similarity: 0.8, created_at: "x" },
+          { decision_id: "d5", action_type: "send_email", provider: "Gmail", similarity: 0.7, created_at: "x" },
+        ],
+        error: null,
+      },
+    },
+  );
+  const outcome = await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
+  assertEquals(outcome.resolution, "rejected");
+  const inserted = (inserts.pending_approvals ?? [])[0] as { comment?: string } | undefined;
+  assert(inserted?.comment?.toLowerCase().includes("mixed bag"), "the override comment must name the contradictory-precedent reason");
+});
+
 // ---- "Real precedent memory" plan, item 6: measured outcomes refine the plain verdict ----
 
 Deno.test("createPendingApproval: clean-allow precedent that measurably went badly still overrides to reject", async () => {

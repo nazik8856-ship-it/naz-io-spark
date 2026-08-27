@@ -1,7 +1,7 @@
 // Real tests for item 3's pure precedent-override classification.
 //
 // Run with: deno test --allow-none supabase/functions/_shared/precedent-advice_test.ts
-import { classifyPrecedentOutcome, evaluatePrecedentForAutoApprove, summarizePrecedentOverride, MIN_PRECEDENT_SAMPLE, NON_ALLOW_SHARE_OVERRIDE_THRESHOLD } from "./precedent-advice.ts";
+import { classifyPrecedentOutcome, CONTRADICTORY_LOWER_BOUND, evaluatePrecedentForAutoApprove, shouldRejectOnPrecedent, summarizePrecedentOverride, MIN_PRECEDENT_SAMPLE, NON_ALLOW_SHARE_OVERRIDE_THRESHOLD } from "./precedent-advice.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
@@ -50,6 +50,63 @@ Deno.test("evaluatePrecedentForAutoApprove: exactly at the threshold overrides",
   const advice = evaluatePrecedentForAutoApprove(flags);
   assert(advice.available);
   if (advice.available) assertEquals(advice.overrideToReject, true);
+});
+
+// ---- contradictory precedent (item 8) ----
+
+Deno.test("evaluatePrecedentForAutoApprove: a genuine 50/50 split is contradictory, not just 'below the override line'", () => {
+  const advice = evaluatePrecedentForAutoApprove([true, true, false, false]); // 50% non-allow
+  assert(advice.available);
+  if (advice.available) {
+    assertEquals(advice.overrideToReject, false);
+    assertEquals(advice.contradictory, true);
+  }
+});
+
+Deno.test("evaluatePrecedentForAutoApprove: exactly at the contradictory lower bound counts as contradictory", () => {
+  assertEquals(CONTRADICTORY_LOWER_BOUND, 0.4);
+  const advice = evaluatePrecedentForAutoApprove([true, true, false, false, false]); // 40% non-allow
+  assert(advice.available);
+  if (advice.available) assertEquals(advice.contradictory, true);
+});
+
+Deno.test("evaluatePrecedentForAutoApprove: a clean majority in either direction is never also contradictory", () => {
+  const clearAllow = evaluatePrecedentForAutoApprove([true, false, false, false, false]); // 20% non-allow
+  assert(clearAllow.available);
+  if (clearAllow.available) assertEquals(clearAllow.contradictory, false);
+
+  const clearReject = evaluatePrecedentForAutoApprove([true, true, true, true, false]); // 80% non-allow
+  assert(clearReject.available);
+  if (clearReject.available) {
+    assertEquals(clearReject.overrideToReject, true);
+    assertEquals(clearReject.contradictory, false, "already a clear majority -- never double-flagged as contradictory too");
+  }
+});
+
+Deno.test("shouldRejectOnPrecedent: true for a clear non-allow majority", () => {
+  assertEquals(shouldRejectOnPrecedent(evaluatePrecedentForAutoApprove([true, true, true, false])), true);
+});
+
+Deno.test("shouldRejectOnPrecedent: true for a contradictory split, even though it's not a majority override", () => {
+  assertEquals(shouldRejectOnPrecedent(evaluatePrecedentForAutoApprove([true, true, false, false])), true);
+});
+
+Deno.test("shouldRejectOnPrecedent: false for a clean-allow majority", () => {
+  assertEquals(shouldRejectOnPrecedent(evaluatePrecedentForAutoApprove([true, false, false, false, false])), false);
+});
+
+Deno.test("shouldRejectOnPrecedent: false when there's no real sample yet", () => {
+  assertEquals(shouldRejectOnPrecedent(evaluatePrecedentForAutoApprove([true, false])), false);
+});
+
+Deno.test("summarizePrecedentOverride: a contradictory split names the mixed-bag reason, not a false majority claim", () => {
+  const advice = evaluatePrecedentForAutoApprove([true, true, false, false]);
+  assert(advice.available);
+  if (advice.available) {
+    const msg = summarizePrecedentOverride(advice);
+    assert(msg.toLowerCase().includes("mixed bag"));
+    assert(msg.toLowerCase().includes("contradictory"));
+  }
 });
 
 // ---- classifyPrecedentOutcome (item 6) ----

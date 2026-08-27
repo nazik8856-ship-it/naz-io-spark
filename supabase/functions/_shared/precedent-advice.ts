@@ -10,7 +10,7 @@
 
 export type PrecedentAdvice =
   | { available: false }
-  | { available: true; sampleSize: number; nonAllowShare: number; overrideToReject: boolean };
+  | { available: true; sampleSize: number; nonAllowShare: number; overrideToReject: boolean; contradictory: boolean };
 
 // Needs a real sample before saying anything -- one or two similar past
 // cases must never flip an automatic approval on their own.
@@ -18,6 +18,13 @@ export const MIN_PRECEDENT_SAMPLE = 3;
 // A clear majority of similar past cases weren't clean allows -- not a
 // bare 51%, which could just be noise in a small sample.
 export const NON_ALLOW_SHARE_OVERRIDE_THRESHOLD = 0.6;
+// "Real precedent memory" plan, item 8: a genuine mixed bag -- neither
+// side a clear majority -- is a materially different, riskier situation
+// than "every similar case went the same way," and must never be
+// silently averaged away into "not quite enough to override." Anything
+// from here up to NON_ALLOW_SHARE_OVERRIDE_THRESHOLD itself (which
+// already overrides on its own) counts as contradictory.
+export const CONTRADICTORY_LOWER_BOUND = 0.4;
 
 /**
  * Pure -- `nonAllowFlags` is one boolean per similar past decision:
@@ -29,16 +36,37 @@ export const NON_ALLOW_SHARE_OVERRIDE_THRESHOLD = 0.6;
 export function evaluatePrecedentForAutoApprove(nonAllowFlags: boolean[]): PrecedentAdvice {
   if (nonAllowFlags.length < MIN_PRECEDENT_SAMPLE) return { available: false };
   const nonAllowCount = nonAllowFlags.filter(Boolean).length;
-  const nonAllowShare = nonAllowCount / nonAllowFlags.length;
+  const nonAllowShare = Math.round((nonAllowCount / nonAllowFlags.length) * 100) / 100;
+  const overrideToReject = nonAllowShare >= NON_ALLOW_SHARE_OVERRIDE_THRESHOLD;
   return {
     available: true,
     sampleSize: nonAllowFlags.length,
-    nonAllowShare: Math.round(nonAllowShare * 100) / 100,
-    overrideToReject: nonAllowShare >= NON_ALLOW_SHARE_OVERRIDE_THRESHOLD,
+    nonAllowShare,
+    overrideToReject,
+    // Never both at once -- a share that already clears the override
+    // threshold is a clear majority, not a contradiction.
+    contradictory: !overrideToReject && nonAllowShare >= CONTRADICTORY_LOWER_BOUND,
   };
 }
 
+/**
+ * Pure -- true when precedent should pull an about-to-auto-approve
+ * decision back to reject, for EITHER reason: a clear non-allow
+ * majority, or a genuine, no-clear-pattern split (item 8). Both are the
+ * same one-directional "extra caution" outcome from a caller's point of
+ * view; kept as a single check so nobody wires just overrideToReject and
+ * quietly drops the contradictory case.
+ */
+export function shouldRejectOnPrecedent(advice: PrecedentAdvice): boolean {
+  return advice.available && (advice.overrideToReject || advice.contradictory);
+}
+
 export function summarizePrecedentOverride(advice: Extract<PrecedentAdvice, { available: true }>): string {
+  if (advice.contradictory) {
+    return `Resolved automatically to rejected: similar past decisions for this API key were a genuine mixed bag ` +
+      `(${Math.round(advice.nonAllowShare * 100)}% non-allow out of ${advice.sampleSize}, no clear pattern either way) — ` +
+      `contradictory precedent is its own reason for caution, not just an average that cancels out. No human reviewed this.`;
+  }
   return `Resolved automatically to rejected: ${Math.round(advice.nonAllowShare * 100)}% of ${advice.sampleSize} similar ` +
     `past decisions for this API key were NOT clean allows — real precedent overrode what would otherwise have been an ` +
     `automatic approval, no human reviewed this.`;

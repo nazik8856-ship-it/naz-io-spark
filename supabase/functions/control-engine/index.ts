@@ -45,7 +45,7 @@ import { loadFitEvidence, applyFitEvidence } from "../_shared/fit-learning.ts";
 import { buildEmbeddingInput, generateEmbedding, formatEmbeddingLiteral } from "../_shared/decision-embeddings.ts";
 import { findPrecedent, loadOutcomeDirections, loadPrecedentForPrompt } from "../_shared/precedent-search.ts";
 import { buildPrecedentPromptBlock } from "../_shared/precedent-prompt.ts";
-import { classifyPrecedentOutcome, evaluatePrecedentForAutoApprove, type OutcomeDirection, summarizePrecedentOverride } from "../_shared/precedent-advice.ts";
+import { classifyPrecedentOutcome, evaluatePrecedentForAutoApprove, type OutcomeDirection, shouldRejectOnPrecedent, summarizePrecedentOverride } from "../_shared/precedent-advice.ts";
 import { isNonAllowDecision } from "../_shared/control-api-abuse.ts";
 import {
   collectUntrustedFields,
@@ -1120,7 +1120,7 @@ serve(async (req) => {
                     classifyPrecedentOutcome(isNonAllowDecision(r.decision), (outcomeDirections.get(r.id) as OutcomeDirection) ?? null)
                   );
                   const advice = evaluatePrecedentForAutoApprove(nonAllowFlags);
-                  if (advice.available && advice.overrideToReject) {
+                  if (shouldRejectOnPrecedent(advice) && advice.available) {
                     forcedResolution = { resolution: "rejected", note: summarizePrecedentOverride(advice) };
                   }
                 }

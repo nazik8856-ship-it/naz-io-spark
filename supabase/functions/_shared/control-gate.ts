@@ -32,7 +32,7 @@ import { resolveOnUncertain, resolveSweepFallback, type AutoResolution } from ".
 import { notifyAndAwaitCallback, type CallbackConfig } from "./callback-delegation.ts";
 import { embedDecisionIfExternal } from "./decision-embeddings.ts";
 import { findPrecedent, loadOutcomeDirections, loadStoredEmbeddingLiteral } from "./precedent-search.ts";
-import { classifyPrecedentOutcome, evaluatePrecedentForAutoApprove, type OutcomeDirection, summarizePrecedentOverride } from "./precedent-advice.ts";
+import { classifyPrecedentOutcome, evaluatePrecedentForAutoApprove, type OutcomeDirection, shouldRejectOnPrecedent, summarizePrecedentOverride } from "./precedent-advice.ts";
 import { isNonAllowDecision } from "./control-api-abuse.ts";
 
 export const BREAKER_WINDOW = 10;
@@ -324,7 +324,7 @@ export async function createPendingApproval(
               classifyPrecedentOutcome(isNonAllowDecision(r.decision), (outcomeDirections.get(r.id) as OutcomeDirection) ?? null)
             );
             const advice = evaluatePrecedentForAutoApprove(nonAllowFlags);
-            if (advice.available && advice.overrideToReject) {
+            if (shouldRejectOnPrecedent(advice) && advice.available) {
               auto = { autoResolved: true, resolution: "rejected", status: "auto_rejected" };
               comment = summarizePrecedentOverride(advice);
             }
