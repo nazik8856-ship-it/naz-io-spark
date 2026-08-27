@@ -49,7 +49,13 @@ export type CriticalAlertEvent =
   // "Zero human review" plan, item 14: a sharply higher-than-normal share
   // of an account's decisions are suddenly being auto-resolved with no
   // human review, compared to that same account's own recent baseline.
-  | "auto_resolution_share_spike";
+  | "auto_resolution_share_spike"
+  // "Real precedent memory" plan, item 14: an api key keeps sending real
+  // decisions, but hardly any of them are actually getting embedded --
+  // the memory pipeline has quietly stopped working (a bug, a provider
+  // change, a spend cap) and nothing about any single decision looks
+  // wrong in the moment, so nobody would otherwise notice.
+  | "precedent_pipeline_stale";
 
 const APP_BASE_URL = "https://www.nazai.net";
 
@@ -76,6 +82,7 @@ export const LABELS: Record<CriticalAlertEvent, string> = {
   integration_revoked: "🔌 A connected integration was revoked or expired",
   control_api_abuse: "🚩 Unusual activity on a public Control API key",
   auto_resolution_share_spike: "🤖 An unusually large share of decisions are being resolved automatically",
+  precedent_pipeline_stale: "🧠 An API key's real-precedent memory has gone stale",
 };
 
 export function decisionLink(decisionId?: string | null): string | null {

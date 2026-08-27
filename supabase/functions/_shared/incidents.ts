@@ -36,6 +36,11 @@ export const INCIDENT_KINDS = [
   // of an account's decisions suddenly being auto-resolved with no human
   // review, compared to that account's own recent baseline.
   "auto_resolution_share_spike",
+  // "Real precedent memory" plan, item 14: an api key's memory pipeline
+  // has quietly stopped working -- real decisions keep flowing in, but
+  // hardly any of them are getting embedded, and nothing about any one
+  // decision looked wrong in the moment.
+  "precedent_pipeline_stale",
 ] as const;
 export type IncidentKind = typeof INCIDENT_KINDS[number];
 
