@@ -47,3 +47,65 @@ export function costPerAutonomousDecision(totalSpendUsd: number, autonomousCount
   if (autonomousCount <= 0) return null;
   return Math.round((totalSpendUsd / autonomousCount) * 10000) / 10000;
 }
+
+// "Policy autonomy" plan, item 14: a real automation-value report,
+// through the Control API itself -- how much of an api key's traffic ran
+// with zero human involved, how that's trended over time, and a rough
+// estimate of the manual-review effort it saved. Composes the same
+// summarizeDecisionsForRoi/costPerAutonomousDecision this file already
+// computes for the monthly email, just scoped to one api key and bucketed
+// into weekly trend points instead of one whole-period total.
+
+/**
+ * Pure — the Monday-anchored ISO week (UTC) a timestamp falls into, as a
+ * plain YYYY-MM-DD date string. No calendar library needed: every
+ * timestamp in the same real week maps to the exact same key, which is
+ * all a trend bucket needs.
+ */
+export function weekBucketKey(iso: string): string {
+  const d = new Date(iso);
+  const day = d.getUTCDay(); // 0=Sun..6=Sat
+  const diffToMonday = (day + 6) % 7; // days since the most recent Monday
+  const monday = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - diffToMonday));
+  return monday.toISOString().slice(0, 10);
+}
+
+export type DecisionForRoiTrend = DecisionForRoi & { createdAt: string };
+export type RoiTrendPoint = { weekStart: string; counts: OutcomeCounts; spendUsd: number; costPerDecision: number | null };
+
+/**
+ * Pure — buckets decisions into weekly trend points, each with its own
+ * real outcome counts and cost-per-autonomous-decision. `spendByWeek` is
+ * a plain weekStart -> total $ map the caller builds from its own
+ * ai_spend_daily query (spend is tracked per calendar day, not per
+ * decision, so it can't be derived from the decisions array alone).
+ * Weeks are returned in chronological order; a week with decisions but no
+ * matching spend entry correctly reads as $0 for that week, not missing.
+ */
+export function buildRoiTrend(decisions: DecisionForRoiTrend[], spendByWeek: Map<string, number>): RoiTrendPoint[] {
+  const byWeek = new Map<string, DecisionForRoi[]>();
+  for (const d of decisions) {
+    const key = weekBucketKey(d.createdAt);
+    const list = byWeek.get(key) ?? [];
+    list.push(d);
+    byWeek.set(key, list);
+  }
+  return [...byWeek.keys()].sort().map((weekStart) => {
+    const counts = summarizeDecisionsForRoi(byWeek.get(weekStart)!);
+    const spendUsd = Math.round((spendByWeek.get(weekStart) ?? 0) * 100) / 100;
+    return { weekStart, counts, spendUsd, costPerDecision: costPerAutonomousDecision(spendUsd, counts.autonomous) };
+  });
+}
+
+/**
+ * Rough, clearly-labeled assumption, not a measured figure: a typical
+ * manual review/approval click for one action. Used only to give an
+ * account a tangible sense of scale ("about N hours of manual review
+ * avoided"), never presented as a precise measurement.
+ */
+export const ASSUMED_MINUTES_PER_MANUAL_REVIEW = 3;
+
+/** Pure — rough hours of manual-review effort avoided by resolving this many decisions with zero human involved. */
+export function estimateManualReviewHoursSaved(autonomousCount: number): number {
+  return Math.round(((autonomousCount * ASSUMED_MINUTES_PER_MANUAL_REVIEW) / 60) * 10) / 10;
+}

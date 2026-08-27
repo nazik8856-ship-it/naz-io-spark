@@ -51,6 +51,7 @@ import { classifyPlatformStatus, platformStatusMessage, DEGRADED_LOOKBACK_MINUTE
 import { classifyDecisionVerification, type RawDecisionVerification } from "../_shared/decision-verification.ts";
 import { excludeDecisionFromPrecedent, loadPrecedentForPrompt } from "../_shared/precedent-search.ts";
 import { evaluateCoarsePrecedentLookup, summarizeCoarsePrecedentLookup, type CrossAccountStat } from "../_shared/cross-account-precedent.ts";
+import { summarizeDecisionsForRoi, costPerAutonomousDecision, buildRoiTrend, estimateManualReviewHoursSaved, weekBucketKey, type DecisionForRoi, type DecisionForRoiTrend } from "../_shared/roi-report.ts";
 import { buildEmbeddingInput, formatEmbeddingLiteral, generateEmbeddingWithinBudget } from "../_shared/decision-embeddings.ts";
 
 const corsHeaders = {
@@ -79,6 +80,12 @@ const EXPORT_RATE_LIMIT_PER_MINUTE = 20;
 // embedding (a real, metered cost -- item 11), so it shouldn't share a
 // counter with either the export or verdict paths.
 const PRECEDENT_LOOKUP_RATE_LIMIT_PER_MINUTE = 20;
+// "Policy autonomy" plan, item 14: a report read, same lightweight
+// budget as the plain export endpoint -- a handful of DB queries, no AI
+// spend of its own.
+const AUTOMATION_VALUE_RATE_LIMIT_PER_MINUTE = 20;
+const DEFAULT_AUTOMATION_VALUE_WEEKS = 12;
+const MAX_AUTOMATION_VALUE_WEEKS = 26;
 // Same field set ControlDecisionHistory.tsx already exposes to a signed-in
 // customer in-app, plus policy_version -- nothing here that isn't already
 // something the account owner can see themselves. precedent_citations
@@ -646,6 +653,80 @@ Deno.serve(async (req) => {
       provider,
       lookup,
       message: summarizeCoarsePrecedentLookup(lookup, actionType, provider),
+    });
+  }
+
+  // ---- GET /control-api/v1/automation-value --------------------------------
+  // "Policy autonomy" plan, item 14: a real number, through the Control
+  // API itself, for how much of this key's traffic ran with zero human
+  // involved, how that's trended week over week, and a rough estimate of
+  // the manual-review effort it saved -- the actual business case for
+  // automating more, backed by this key's own real numbers. Composes
+  // roi-report.ts's existing summarizeDecisionsForRoi/
+  // costPerAutonomousDecision (already proven in the monthly report
+  // email) plus this item's own weekly-trend bucketing, scoped to THIS
+  // api key specifically rather than the whole account.
+  if (req.method === "GET" && /\/automation-value\/?$/.test(url.pathname)) {
+    if (!auth.keyId) return json({ error: "not_found" }, 404);
+
+    const rate = await checkRateLimit(admin, userId, "control-api-automation-value", AUTOMATION_VALUE_RATE_LIMIT_PER_MINUTE, 60);
+    if (!rate.allowed) {
+      return json({
+        error: "rate_limited",
+        message: `Too many requests — ${rate.count} in the last minute (limit ${rate.limit}). Try again shortly.`,
+      }, 429);
+    }
+
+    const weeksParam = Number(url.searchParams.get("weeks"));
+    const weeks = Number.isFinite(weeksParam) && weeksParam > 0
+      ? Math.min(MAX_AUTOMATION_VALUE_WEEKS, Math.floor(weeksParam))
+      : DEFAULT_AUTOMATION_VALUE_WEEKS;
+    const since = new Date(Date.now() - weeks * 7 * 86400_000);
+    const sinceIso = since.toISOString();
+
+    const [decisionsRes, spendRes] = await Promise.all([
+      admin.from("agent_decisions").select("decision, escalated, created_at").eq("api_key_id", auth.keyId).gte("created_at", sinceIso),
+      admin.from("ai_spend_daily").select("day, cost_usd").eq("api_key_id", auth.keyId).gte("day", sinceIso.slice(0, 10)),
+    ]);
+    if (decisionsRes.error) return json({ error: decisionsRes.error.message }, 500);
+    if (spendRes.error) return json({ error: spendRes.error.message }, 500);
+
+    const decisions = (decisionsRes.data ?? []) as { decision: string; escalated: boolean; created_at: string }[];
+    const trendDecisions: DecisionForRoiTrend[] = decisions.map((d) => ({ decision: d.decision, escalated: d.escalated, createdAt: d.created_at }));
+
+    const spendByWeek = new Map<string, number>();
+    for (const s of (spendRes.data ?? []) as { day: string; cost_usd: number }[]) {
+      const key = weekBucketKey(s.day);
+      spendByWeek.set(key, (spendByWeek.get(key) ?? 0) + (Number(s.cost_usd) || 0));
+    }
+
+    const totalCounts = summarizeDecisionsForRoi(decisions as DecisionForRoi[]);
+    const totalSpendUsd = Math.round([...spendByWeek.values()].reduce((sum, v) => sum + v, 0) * 100) / 100;
+
+    return json({
+      ok: true,
+      window_weeks: weeks,
+      since: sinceIso,
+      summary: {
+        total: totalCounts.total,
+        autonomous: totalCounts.autonomous,
+        needs_human: totalCounts.needsHuman,
+        blocked: totalCounts.blocked,
+        modified: totalCounts.modified,
+        allowed: totalCounts.allowed,
+        autonomous_share: totalCounts.total > 0 ? Math.round((totalCounts.autonomous / totalCounts.total) * 100) / 100 : null,
+        spend_usd: totalSpendUsd,
+        cost_per_autonomous_decision_usd: costPerAutonomousDecision(totalSpendUsd, totalCounts.autonomous),
+        estimated_manual_review_hours_saved: estimateManualReviewHoursSaved(totalCounts.autonomous),
+      },
+      weekly_trend: buildRoiTrend(trendDecisions, spendByWeek).map((p) => ({
+        week_start: p.weekStart,
+        total: p.counts.total,
+        autonomous: p.counts.autonomous,
+        needs_human: p.counts.needsHuman,
+        spend_usd: p.spendUsd,
+        cost_per_autonomous_decision_usd: p.costPerDecision,
+      })),
     });
   }
 
