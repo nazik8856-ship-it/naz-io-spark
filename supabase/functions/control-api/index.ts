@@ -49,7 +49,8 @@ import { encodeExportCursor, decodeExportCursor, clampExportLimit, exportCursorF
 import { claimRowOnce, claimIdempotencyKey, saveIdempotencyResponse, releaseIdempotencyKey } from "../_shared/idempotency.ts";
 import { classifyPlatformStatus, platformStatusMessage, DEGRADED_LOOKBACK_MINUTES } from "../_shared/platform-status.ts";
 import { classifyDecisionVerification, type RawDecisionVerification } from "../_shared/decision-verification.ts";
-import { excludeDecisionFromPrecedent } from "../_shared/precedent-search.ts";
+import { excludeDecisionFromPrecedent, loadPrecedentForPrompt } from "../_shared/precedent-search.ts";
+import { buildEmbeddingInput, formatEmbeddingLiteral, generateEmbeddingWithinBudget } from "../_shared/decision-embeddings.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -72,6 +73,11 @@ const POST_AUTH_RATE_LIMIT_PER_MINUTE = 30;
 // pages on a schedule) from per-action verdict checks, and shouldn't
 // compete with them for the same counter.
 const EXPORT_RATE_LIMIT_PER_MINUTE = 20;
+// "Real precedent memory" plan, item 13: its own separate, small budget --
+// unlike a plain export page-read, each call here generates a real
+// embedding (a real, metered cost -- item 11), so it shouldn't share a
+// counter with either the export or verdict paths.
+const PRECEDENT_LOOKUP_RATE_LIMIT_PER_MINUTE = 20;
 // Same field set ControlDecisionHistory.tsx already exposes to a signed-in
 // customer in-app, plus policy_version -- nothing here that isn't already
 // something the account owner can see themselves. precedent_citations
@@ -482,6 +488,74 @@ Deno.serve(async (req) => {
       message: outcome === "excluded"
         ? "This decision will never be used as precedent for future automatic decisions again."
         : "This decision has no real-precedent record (nothing was ever embedded for it) — nothing to exclude.",
+    });
+  }
+
+  // ---- POST /control-api/v1/precedent --------------------------------------
+  // "Real precedent memory" plan, item 13: let an external company ask,
+  // through the Control API itself, what its own decision history looks
+  // like for a kind of action -- supporting its own debugging/compliance
+  // work, without any UI built for it. Same request shape as the main
+  // verdict endpoint below (action_type/provider/description/params),
+  // reusing parseControlApiAction rather than a second parallel
+  // validator -- but this never judges anything: no rule/model/execution
+  // path runs at all, purely a read against this key's own embedded
+  // history, the same account boundary findPrecedent enforces everywhere
+  // else. A real cost, not a free lookup -- embedding generation goes
+  // through the same budget-aware path (item 11) real judgment calls do.
+  if (req.method === "POST" && /\/precedent\/?$/.test(url.pathname)) {
+    if (!auth.keyId) return json({ error: "not_found" }, 404);
+
+    const rate = await checkRateLimit(admin, userId, "control-api-precedent", PRECEDENT_LOOKUP_RATE_LIMIT_PER_MINUTE, 60);
+    if (!rate.allowed) {
+      return json({
+        error: "rate_limited",
+        message: `Too many requests — ${rate.count} in the last minute (limit ${rate.limit}). Try again shortly.`,
+      }, 429);
+    }
+
+    const body = await req.json().catch(() => ({}));
+    const parsed = parseControlApiAction(body);
+    if ("error" in parsed) return json({ error: parsed.error }, 400);
+
+    // Checked explicitly (rather than just letting generateEmbeddingWithinBudget
+    // silently return null) so a caller asking specifically FOR precedent gets
+    // an honest reason for an empty result, unlike every other call site where
+    // precedent is a silent background enrichment.
+    const spend = await getApiKeySpendStatus(admin, userId, auth.keyId);
+    if (spend.has_cap && spend.over_cap) {
+      return json({
+        error: "spend_cap_reached",
+        message: `This API key's own daily AI spend cap is used up ($${spend.spent_usd.toFixed(2)} of ` +
+          `$${spend.cap_usd.toFixed(2)}). Precedent search needs a fresh embedding, which shares this same ` +
+          `budget with judgment calls. Resumes tomorrow (UTC), or when an owner raises the cap.`,
+      }, 429);
+    }
+
+    const embedding = await generateEmbeddingWithinBudget(
+      admin, userId, auth.keyId,
+      buildEmbeddingInput({ actionType: parsed.actionType, provider: parsed.provider, description: parsed.description, params: parsed.params }),
+    );
+    if (!embedding) {
+      return json({
+        ok: true, count: 0, matches: [], degraded: true,
+        message: "Could not compute an embedding for this action right now — precedent search is temporarily unavailable, try again shortly.",
+      });
+    }
+
+    const matches = await loadPrecedentForPrompt(admin, auth.keyId, formatEmbeddingLiteral(embedding));
+    return json({
+      ok: true,
+      count: matches.length,
+      matches: matches.map((m) => ({
+        decision_id: m.decisionId,
+        action_type: m.actionType,
+        provider: m.provider,
+        similarity: m.similarity,
+        created_at: m.createdAt,
+        decision: m.decision,
+        reasoning: m.reasoning,
+      })),
     });
   }
 
