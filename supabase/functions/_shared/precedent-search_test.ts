@@ -1,7 +1,7 @@
 // Real tests for item 3's precedent-search wrapper.
 //
 // Run with: deno test --allow-none supabase/functions/_shared/precedent-search_test.ts
-import { filterPrecedentMatches, findPrecedent, loadPrecedentForPrompt, loadStoredEmbeddingLiteral, MIN_SIMILARITY, type PrecedentMatch } from "./precedent-search.ts";
+import { filterPrecedentMatches, findPrecedent, loadOutcomeDirections, loadPrecedentForPrompt, loadStoredEmbeddingLiteral, MIN_SIMILARITY, type PrecedentMatch } from "./precedent-search.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
@@ -126,6 +126,49 @@ Deno.test("loadPrecedentForPrompt: a failed join lookup returns an empty array, 
     // deno-lint-ignore no-explicit-any
   } as any;
   assertEquals(await loadPrecedentForPrompt(client, "key-1", "[0.1]"), []);
+});
+
+// ---- loadOutcomeDirections (item 6) ----
+
+Deno.test("loadOutcomeDirections: maps decision id to its measured direction", async () => {
+  const client = {
+    from(table: string) {
+      assertEquals(table, "decision_outcomes");
+      return {
+        select() { return this; },
+        in() {
+          return Promise.resolve({
+            data: [{ decision_id: "d1", direction: "negative" }, { decision_id: "d2", direction: "positive" }],
+            error: null,
+          });
+        },
+      };
+    },
+    // deno-lint-ignore no-explicit-any
+  } as any;
+  const map = await loadOutcomeDirections(client, ["d1", "d2"]);
+  assertEquals(map.get("d1"), "negative");
+  assertEquals(map.get("d2"), "positive");
+});
+
+Deno.test("loadOutcomeDirections: an empty id list short-circuits without querying", async () => {
+  let called = false;
+  const client = {
+    from() { called = true; return { select() { return this; }, in() { return Promise.resolve({ data: [], error: null }); } }; },
+    // deno-lint-ignore no-explicit-any
+  } as any;
+  const map = await loadOutcomeDirections(client, []);
+  assertEquals(map.size, 0);
+  assertEquals(called, false);
+});
+
+Deno.test("loadOutcomeDirections: a thrown exception returns an empty map, never propagates", async () => {
+  const client = {
+    from() { throw new Error("db down"); },
+    // deno-lint-ignore no-explicit-any
+  } as any;
+  const map = await loadOutcomeDirections(client, ["d1"]);
+  assertEquals(map.size, 0);
 });
 
 // ---- loadStoredEmbeddingLiteral ----

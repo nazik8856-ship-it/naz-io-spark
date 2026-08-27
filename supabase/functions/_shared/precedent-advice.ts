@@ -43,3 +43,27 @@ export function summarizePrecedentOverride(advice: Extract<PrecedentAdvice, { av
     `past decisions for this API key were NOT clean allows — real precedent overrode what would otherwise have been an ` +
     `automatic approval, no human reviewed this.`;
 }
+
+// "Real precedent memory" plan, item 6: a past decision's verdict alone
+// ("was it a clean allow?") is only half the story -- what actually
+// happened afterwards matters too. A clean ALLOW that measurably went
+// badly should count as concerning precedent; a blocked/escalated action
+// whose narrower retry measurably went well should not keep counting
+// against future similar requests forever.
+export type OutcomeDirection = "positive" | "negative" | "neutral" | "unknown";
+
+/**
+ * Pure -- refines the plain verdict-based "was this concerning?" flag
+ * with a real measured outcome, when one exists. `outcomeDirection` is
+ * null when no decision_outcomes row exists yet for that past decision
+ * (the common case today -- coverage is sparse) or when its own direction
+ * was "neutral"/"unknown" (ran, but no measured business impact yet) --
+ * in both of those cases this falls back to the verdict-only signal
+ * unchanged, exactly item 3's original behavior. Only a real "negative"
+ * or "positive" measurement can move the flag away from the verdict.
+ */
+export function classifyPrecedentOutcome(wasNonAllowVerdict: boolean, outcomeDirection: OutcomeDirection | null): boolean {
+  if (outcomeDirection === "negative") return true;
+  if (outcomeDirection === "positive") return false;
+  return wasNonAllowVerdict;
+}

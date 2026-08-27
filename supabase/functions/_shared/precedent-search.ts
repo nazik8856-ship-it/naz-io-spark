@@ -95,6 +95,28 @@ export async function loadPrecedentForPrompt(
   }
 }
 
+// "Real precedent memory" plan, item 6: real measured outcomes for a
+// batch of past (precedent-candidate) decisions, keyed by decision id --
+// used to refine the plain verdict-only classification with what
+// actually happened, when that's known. Coverage is expected to be
+// sparse in practice (decision_outcomes is populated by a separate,
+// unscheduled sweep, plus a real-execution insert path that external-api
+// decisions rarely reach today) -- callers must treat a missing entry as
+// "no measured outcome yet," never as "measured neutral."
+export async function loadOutcomeDirections(admin: SupabaseClient, decisionIds: string[]): Promise<Map<string, string>> {
+  if (!decisionIds.length) return new Map();
+  try {
+    const { data } = await admin
+      .from("decision_outcomes")
+      .select("decision_id, direction")
+      .in("decision_id", decisionIds);
+    const rows = (data ?? []) as { decision_id: string; direction: string }[];
+    return new Map(rows.map((r) => [r.decision_id, r.direction]));
+  } catch {
+    return new Map();
+  }
+}
+
 /**
  * Looks up the embedding already stored for one decision (as a pgvector
  * literal string, ready to feed straight into findPrecedent) -- reuses

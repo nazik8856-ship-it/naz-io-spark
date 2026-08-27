@@ -1,7 +1,7 @@
 // Real tests for item 3's pure precedent-override classification.
 //
 // Run with: deno test --allow-none supabase/functions/_shared/precedent-advice_test.ts
-import { evaluatePrecedentForAutoApprove, summarizePrecedentOverride, MIN_PRECEDENT_SAMPLE, NON_ALLOW_SHARE_OVERRIDE_THRESHOLD } from "./precedent-advice.ts";
+import { classifyPrecedentOutcome, evaluatePrecedentForAutoApprove, summarizePrecedentOverride, MIN_PRECEDENT_SAMPLE, NON_ALLOW_SHARE_OVERRIDE_THRESHOLD } from "./precedent-advice.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
@@ -50,6 +50,26 @@ Deno.test("evaluatePrecedentForAutoApprove: exactly at the threshold overrides",
   const advice = evaluatePrecedentForAutoApprove(flags);
   assert(advice.available);
   if (advice.available) assertEquals(advice.overrideToReject, true);
+});
+
+// ---- classifyPrecedentOutcome (item 6) ----
+
+Deno.test("classifyPrecedentOutcome: a measured negative outcome flags concerning even for a clean-allow verdict", () => {
+  assertEquals(classifyPrecedentOutcome(false, "negative"), true);
+});
+
+Deno.test("classifyPrecedentOutcome: a measured positive outcome clears a non-allow verdict", () => {
+  assertEquals(classifyPrecedentOutcome(true, "positive"), false);
+});
+
+Deno.test("classifyPrecedentOutcome: no measured outcome falls back to the verdict, unchanged", () => {
+  assertEquals(classifyPrecedentOutcome(true, null), true);
+  assertEquals(classifyPrecedentOutcome(false, null), false);
+});
+
+Deno.test("classifyPrecedentOutcome: neutral/unknown directions fall back to the verdict, same as no outcome at all", () => {
+  assertEquals(classifyPrecedentOutcome(true, "neutral"), true);
+  assertEquals(classifyPrecedentOutcome(false, "unknown"), false);
 });
 
 Deno.test("summarizePrecedentOverride: mentions the share and sample size", () => {

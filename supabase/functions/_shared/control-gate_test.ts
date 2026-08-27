@@ -700,6 +700,89 @@ Deno.test("createPendingApproval: a precedent-search failure never breaks the re
   assertEquals(outcome.resolution, "approved");
 });
 
+// ---- "Real precedent memory" plan, item 6: measured outcomes refine the plain verdict ----
+
+Deno.test("createPendingApproval: clean-allow precedent that measurably went badly still overrides to reject", async () => {
+  const { client } = fakeSupabase(
+    {
+      api_keys: { data: { on_uncertain: "auto_allow" }, error: null },
+      pending_approvals: { data: { id: "approval-1" }, error: null },
+      decision_embeddings: { data: { embedding: "[0.1,0.2]" }, error: null },
+      // All three precedent decisions were clean ALLOWs by verdict alone --
+      // without item 6 this would never override. Two of them measurably
+      // went badly afterwards, which is enough to flip the classification.
+      agent_decisions: {
+        data: [
+          { id: "d2", decision: "ALLOW send_email (Gmail)" },
+          { id: "d3", decision: "ALLOW send_email (Gmail)" },
+          { id: "d4", decision: "ALLOW send_email (Gmail)" },
+        ],
+        error: null,
+      },
+      decision_outcomes: {
+        data: [
+          { decision_id: "d2", direction: "negative" },
+          { decision_id: "d3", direction: "negative" },
+        ],
+        error: null,
+      },
+    },
+    {
+      search_decision_precedent: {
+        data: [
+          { decision_id: "d2", action_type: "send_email", provider: "Gmail", similarity: 0.9, created_at: "x" },
+          { decision_id: "d3", action_type: "send_email", provider: "Gmail", similarity: 0.8, created_at: "x" },
+          { decision_id: "d4", action_type: "send_email", provider: "Gmail", similarity: 0.7, created_at: "x" },
+        ],
+        error: null,
+      },
+    },
+  );
+  const outcome = await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
+  assertEquals(outcome.resolution, "rejected");
+});
+
+Deno.test("createPendingApproval: blocked precedent that measurably went well afterward does not override an auto_allow", async () => {
+  const { client } = fakeSupabase(
+    {
+      api_keys: { data: { on_uncertain: "auto_allow" }, error: null },
+      pending_approvals: { data: { id: "approval-1" }, error: null },
+      decision_embeddings: { data: { embedding: "[0.1,0.2]" }, error: null },
+      // All three were non-allow verdicts -- without item 6 this would
+      // override to reject. A real positive measured outcome on each
+      // clears the flag back to "not concerning."
+      agent_decisions: {
+        data: [
+          { id: "d2", decision: "BLOCK send_email (Gmail)" },
+          { id: "d3", decision: "BLOCK send_email (Gmail)" },
+          { id: "d4", decision: "BLOCK send_email (Gmail)" },
+        ],
+        error: null,
+      },
+      decision_outcomes: {
+        data: [
+          { decision_id: "d2", direction: "positive" },
+          { decision_id: "d3", direction: "positive" },
+          { decision_id: "d4", direction: "positive" },
+        ],
+        error: null,
+      },
+    },
+    {
+      search_decision_precedent: {
+        data: [
+          { decision_id: "d2", action_type: "send_email", provider: "Gmail", similarity: 0.9, created_at: "x" },
+          { decision_id: "d3", action_type: "send_email", provider: "Gmail", similarity: 0.8, created_at: "x" },
+          { decision_id: "d4", action_type: "send_email", provider: "Gmail", similarity: 0.7, created_at: "x" },
+        ],
+        error: null,
+      },
+    },
+  );
+  const outcome = await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
+  assertEquals(outcome.resolution, "approved");
+});
+
 Deno.test("a hard rule scoped to a different provider does not match", async () => {
   const { client } = fakeSupabase({
     hard_rules: {

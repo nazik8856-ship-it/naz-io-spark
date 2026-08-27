@@ -43,9 +43,9 @@ import { replayDraft, replayRealTraffic, evaluateAction, type PolicySnapshot } f
 import { summarizePolicyWatch, type PolicyWatchObservationRow } from "../_shared/policy-watch.ts";
 import { loadFitEvidence, applyFitEvidence } from "../_shared/fit-learning.ts";
 import { buildEmbeddingInput, generateEmbedding, formatEmbeddingLiteral } from "../_shared/decision-embeddings.ts";
-import { findPrecedent, loadPrecedentForPrompt } from "../_shared/precedent-search.ts";
+import { findPrecedent, loadOutcomeDirections, loadPrecedentForPrompt } from "../_shared/precedent-search.ts";
 import { buildPrecedentPromptBlock } from "../_shared/precedent-prompt.ts";
-import { evaluatePrecedentForAutoApprove, summarizePrecedentOverride } from "../_shared/precedent-advice.ts";
+import { classifyPrecedentOutcome, evaluatePrecedentForAutoApprove, type OutcomeDirection, summarizePrecedentOverride } from "../_shared/precedent-advice.ts";
 import { isNonAllowDecision } from "../_shared/control-api-abuse.ts";
 import {
   collectUntrustedFields,
@@ -1113,8 +1113,12 @@ serve(async (req) => {
                 );
                 if (matches.length > 0) {
                   const { data: precedentRows } = await supabase
-                    .from("agent_decisions").select("decision").in("id", matches.map((m) => m.decisionId));
-                  const nonAllowFlags = ((precedentRows ?? []) as { decision: string }[]).map((r) => isNonAllowDecision(r.decision));
+                    .from("agent_decisions").select("id, decision").in("id", matches.map((m) => m.decisionId));
+                  const rows = (precedentRows ?? []) as { id: string; decision: string }[];
+                  const outcomeDirections = await loadOutcomeDirections(supabase, rows.map((r) => r.id));
+                  const nonAllowFlags = rows.map((r) =>
+                    classifyPrecedentOutcome(isNonAllowDecision(r.decision), (outcomeDirections.get(r.id) as OutcomeDirection) ?? null)
+                  );
                   const advice = evaluatePrecedentForAutoApprove(nonAllowFlags);
                   if (advice.available && advice.overrideToReject) {
                     forcedResolution = { resolution: "rejected", note: summarizePrecedentOverride(advice) };
@@ -1304,7 +1308,14 @@ serve(async (req) => {
           result_value: executed ? 1 : 0,
           delta: executed ? 1 : 0,
           delta_pct: null,
-          direction: executed ? "up" : "flat",
+          // Bug fix (found while building item 6's outcome-weighting): the
+          // table's own CHECK constraint only allows 'positive' | 'negative'
+          // | 'neutral' | 'unknown' -- "up"/"flat" silently violated it, so
+          // this insert has thrown (and been swallowed by the catch below)
+          // on every single call since this path was written. "neutral" =
+          // ran without error but real business impact isn't known yet at
+          // insert time; "unknown" = didn't run, nothing to measure.
+          direction: executed ? "neutral" : "unknown",
           window_days: 0,
           evidence: {
             source: "control-engine",
