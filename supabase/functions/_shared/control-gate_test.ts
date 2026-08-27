@@ -10,7 +10,7 @@
 // safety scanner.
 //
 // Run with: deno test --allow-none supabase/functions/_shared/control-gate_test.ts
-import { runControlGate, recordBreakerAttempt, AGENT_DECISION_SOURCES, createPendingApproval } from "./control-gate.ts";
+import { runControlGate, recordBreakerAttempt, AGENT_DECISION_SOURCES, createPendingApproval, loadOnUncertainPolicy } from "./control-gate.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
@@ -1639,4 +1639,88 @@ Deno.test("an unexpected error mid-gate still returns safe no-op recordShadowHit
   await result.recordShadowHits("decision-x", "block");
   const attempt = await result.recordAttempt(true, "test");
   assertEquals(attempt, null);
+});
+
+// ---- "policy autonomy" item 10: per-action-type on_uncertain override ----
+
+Deno.test("createPendingApproval: a matching action-type override resolves using ITS policy, not the key's blanket one", async () => {
+  const { client, inserts } = fakeSupabase({
+    api_keys: { data: { on_uncertain: "human_review" }, error: null },
+    api_key_action_policies: {
+      data: [{ action_type_pattern: "send_email", on_uncertain: "auto_allow" }],
+      error: null,
+    },
+    pending_approvals: { data: { id: "approval-1" }, error: null },
+  });
+  const outcome = await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
+  assert(outcome.autoResolved);
+  assertEquals(outcome.resolution, "approved");
+  const comment = (inserts.pending_approvals ?? [])[0] as { comment?: string } | undefined;
+  assert(comment?.comment?.includes("send_email"), "the audit comment should name the action-type override that fired");
+});
+
+Deno.test("createPendingApproval: an override for a DIFFERENT action_type leaves the blanket policy governing this decision", async () => {
+  const { client } = fakeSupabase({
+    api_keys: { data: { on_uncertain: "human_review" }, error: null },
+    api_key_action_policies: {
+      data: [{ action_type_pattern: "delete_record", on_uncertain: "auto_allow" }],
+      error: null,
+    },
+    pending_approvals: { data: { id: "approval-1" }, error: null },
+  });
+  const outcome = await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
+  assertFalse(outcome.autoResolved, "no override matched send_email, so human_review (the blanket policy) must still apply");
+});
+
+Deno.test("createPendingApproval: no overrides configured at all behaves exactly like before this item, using the blanket policy", async () => {
+  const { client } = fakeSupabase({
+    api_keys: { data: { on_uncertain: "auto_deny" }, error: null },
+    api_key_action_policies: { data: [], error: null },
+    pending_approvals: { data: { id: "approval-1" }, error: null },
+  });
+  const outcome = await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
+  assert(outcome.autoResolved);
+  assertEquals(outcome.resolution, "rejected");
+});
+
+Deno.test("createPendingApproval: an action-type override can require MORE caution than the key's own permissive blanket policy", async () => {
+  const { client } = fakeSupabase({
+    api_keys: { data: { on_uncertain: "auto_allow" }, error: null },
+    api_key_action_policies: {
+      data: [{ action_type_pattern: "send_email", on_uncertain: "human_review" }],
+      error: null,
+    },
+    pending_approvals: { data: { id: "approval-1" }, error: null },
+  });
+  const outcome = await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
+  assertFalse(outcome.autoResolved, "the stricter override must win even though the blanket policy alone would have auto-allowed");
+});
+
+Deno.test("loadOnUncertainPolicy: with no actionType given, returns the plain blanket policy -- every call site that predates this item is unaffected", async () => {
+  const { client } = fakeSupabase({
+    api_keys: { data: { on_uncertain: "auto_narrow" }, error: null },
+  });
+  assertEquals(await loadOnUncertainPolicy(client, "key-1"), "auto_narrow");
+});
+
+Deno.test("loadOnUncertainPolicy: with an actionType given, a matching override wins over the blanket policy", async () => {
+  const { client } = fakeSupabase({
+    api_keys: { data: { on_uncertain: "human_review" }, error: null },
+    api_key_action_policies: {
+      data: [{ action_type_pattern: "delete_*", on_uncertain: "auto_narrow" }],
+      error: null,
+    },
+  });
+  assertEquals(await loadOnUncertainPolicy(client, "key-1", "delete_record"), "auto_narrow");
+});
+
+Deno.test("loadOnUncertainPolicy: with an actionType given but no matching override, falls back to the blanket policy", async () => {
+  const { client } = fakeSupabase({
+    api_keys: { data: { on_uncertain: "human_review" }, error: null },
+    api_key_action_policies: {
+      data: [{ action_type_pattern: "delete_*", on_uncertain: "auto_narrow" }],
+      error: null,
+    },
+  });
+  assertEquals(await loadOnUncertainPolicy(client, "key-1", "send_email"), "human_review");
 });

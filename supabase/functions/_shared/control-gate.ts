@@ -36,6 +36,7 @@ import { alignPrecedentSignals, evaluatePrecedentForAutoApprove, shouldRejectOnP
 import { buildPrecedentCitationRecord, recordPrecedentCitation } from "./precedent-citation.ts";
 import { isWithinQuietHours, summarizeQuietHoursEscalation, type QuietHoursConfig } from "./quiet-hours.ts";
 import { isCallbackFailureTrouble, summarizePolicyDowngrade } from "./policy-downgrade.ts";
+import { resolveEffectiveOnUncertain, type ActionTypeOverride } from "./action-type-policy.ts";
 
 export const BREAKER_WINDOW = 10;
 export const BREAKER_MIN_ATTEMPTS = 4;
@@ -197,10 +198,37 @@ export type PendingApprovalOutcome = {
  * createPendingApproval (control-engine's auto_narrow flow, "zero human
  * review" plan item 3) don't duplicate the same query.
  */
-export async function loadOnUncertainPolicy(admin: SupabaseClient, apiKeyId: string | null | undefined): Promise<string | null> {
+export async function loadOnUncertainPolicy(
+  admin: SupabaseClient,
+  apiKeyId: string | null | undefined,
+  // "Policy autonomy" plan, item 10: when the caller knows which
+  // action_type this decision is for, an action-type-specific override
+  // (if one matches) governs instead of the key's own blanket column --
+  // exactly the same resolution createPendingApproval's own apiKeyId
+  // branch below applies. Omitting it (every call site that predates
+  // this item) keeps returning the plain blanket policy, unchanged.
+  actionType?: string,
+): Promise<string | null> {
   if (!apiKeyId) return null;
   const { data } = await admin.from("api_keys").select("on_uncertain").eq("id", apiKeyId).maybeSingle();
-  return (data as { on_uncertain?: string } | null)?.on_uncertain ?? null;
+  const blanket = (data as { on_uncertain?: string } | null)?.on_uncertain ?? null;
+  if (!actionType) return blanket;
+  const overrides = await loadActionTypeOverrides(admin, apiKeyId);
+  return resolveEffectiveOnUncertain(blanket, actionType, overrides).policy;
+}
+
+/** "Policy autonomy" plan, item 10: every action-type override configured for one api key, oldest first -- so a tie between two matching patterns always resolves the same predictable way (the oldest one wins), matching hard_rules matching's own existing precedent. Never throws. */
+async function loadActionTypeOverrides(admin: SupabaseClient, apiKeyId: string): Promise<ActionTypeOverride[]> {
+  try {
+    const { data } = await admin
+      .from("api_key_action_policies")
+      .select("action_type_pattern, on_uncertain")
+      .eq("api_key_id", apiKeyId)
+      .order("created_at", { ascending: true });
+    return (data ?? []) as ActionTypeOverride[];
+  } catch {
+    return [];
+  }
 }
 
 export type ApiKeyCallbackRow = {
@@ -298,13 +326,22 @@ export async function createPendingApproval(
     // previewed against every escalation this key sees, not just the ones
     // that reach the plain apiKeyId branch.
     const keyRow = input.apiKeyId ? await loadApiKeyCallbackConfig(admin, input.apiKeyId) : null;
+    // "Policy autonomy" plan, item 10: an action-type-specific override
+    // (if one matches this decision's actionType) replaces the key's own
+    // blanket on_uncertain for THIS decision only -- callback config,
+    // shadow preview, and quiet hours below all stay governed by the
+    // blanket columns, unaffected.
+    const actionTypeOverrides = input.apiKeyId ? await loadActionTypeOverrides(admin, input.apiKeyId) : [];
+    const effectiveOnUncertain = keyRow
+      ? resolveEffectiveOnUncertain(keyRow.on_uncertain, input.actionType, actionTypeOverrides)
+      : { policy: null, matchedOverride: null };
     if (input.forcedResolution) {
       auto = input.forcedResolution.resolution === "approved"
         ? { autoResolved: true, resolution: "approved", status: "auto_approved" }
         : { autoResolved: true, resolution: "rejected", status: "auto_rejected" };
       comment = input.forcedResolution.note;
     } else if (keyRow) {
-      if (keyRow.on_uncertain === "callback" && keyRow.callback_url && keyRow.callback_secret) {
+      if (effectiveOnUncertain.policy === "callback" && keyRow.callback_url && keyRow.callback_secret) {
         callbackConfig = {
           url: keyRow.callback_url,
           secret: keyRow.callback_secret,
@@ -312,9 +349,11 @@ export async function createPendingApproval(
           fallback: keyRow.callback_fallback === "auto_allow" ? "auto_allow" : "auto_deny",
         };
       } else {
-        auto = resolveOnUncertain(keyRow.on_uncertain ?? null);
+        auto = resolveOnUncertain(effectiveOnUncertain.policy);
         if (auto.autoResolved) {
-          comment = `Resolved automatically to ${auto.resolution} by this API key's configured policy — no human reviewed this.`;
+          comment = effectiveOnUncertain.matchedOverride
+            ? `Resolved automatically to ${auto.resolution} by this API key's action-type-specific policy for "${effectiveOnUncertain.matchedOverride.action_type_pattern}" — no human reviewed this.`
+            : `Resolved automatically to ${auto.resolution} by this API key's configured policy — no human reviewed this.`;
         }
       }
     }

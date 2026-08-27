@@ -262,6 +262,67 @@ Deno.serve(async (req) => {
     });
   }
 
+  // ---- /api-keys/:id/action-policies ------------------------------------
+  // "Policy autonomy" plan, item 10: break down a key's auto-resolve
+  // trust by action type instead of one blanket on_uncertain policy for
+  // everything it sends. GET lists the configured overrides; POST
+  // upserts one (an existing pattern is replaced, not duplicated -- the
+  // table's own unique constraint on (api_key_id, action_type_pattern)
+  // makes that the correct semantics); DELETE removes one by its exact
+  // pattern. The blanket api_keys.on_uncertain column is completely
+  // unaffected by any of this -- it keeps governing every action_type
+  // with no matching override, exactly as before this item existed.
+  const actionPoliciesMatch = url.pathname.match(/\/api-keys\/([0-9a-fA-F-]{36})\/action-policies\/?$/);
+  if (actionPoliciesMatch && (req.method === "GET" || req.method === "POST" || req.method === "DELETE")) {
+    const keyId = actionPoliciesMatch[1];
+    const body = req.method === "GET" ? {} : await req.json().catch(() => ({}));
+    const accountId = req.method === "GET" ? url.searchParams.get("account_id") : (body?.account_id ?? null);
+    const targetUserId = await resolveAccountScope(userClient, userId, accountId, "integrations");
+    if (!targetUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
+
+    const { data: keyRow, error: keyErr } = await admin
+      .from("api_keys").select("id").eq("id", keyId).eq("user_id", targetUserId).maybeSingle();
+    if (keyErr) return json({ error: keyErr.message }, 500);
+    if (!keyRow) return json({ error: "Key not found for this account." }, 404);
+
+    if (req.method === "GET") {
+      const { data, error } = await admin
+        .from("api_key_action_policies")
+        .select("id, action_type_pattern, on_uncertain, created_at")
+        .eq("api_key_id", keyId)
+        .order("created_at", { ascending: true });
+      if (error) return json({ error: error.message }, 500);
+      return json({ ok: true, overrides: data ?? [] });
+    }
+
+    const actionTypePattern = String(body?.action_type_pattern || "").trim();
+    if (!actionTypePattern) return json({ error: "action_type_pattern is required" }, 400);
+
+    if (req.method === "DELETE") {
+      const { error } = await admin
+        .from("api_key_action_policies")
+        .delete()
+        .eq("api_key_id", keyId)
+        .eq("action_type_pattern", actionTypePattern);
+      if (error) return json({ error: error.message }, 500);
+      return json({ ok: true, removed: true });
+    }
+
+    if (!isValidOnUncertainPolicy(body?.on_uncertain)) {
+      return json({ error: "on_uncertain must be one of: human_review, auto_deny, auto_allow, auto_narrow, callback" }, 400);
+    }
+    const { data, error } = await admin
+      .from("api_key_action_policies")
+      .upsert(
+        { user_id: targetUserId, api_key_id: keyId, action_type_pattern: actionTypePattern, on_uncertain: body.on_uncertain },
+        { onConflict: "api_key_id,action_type_pattern" },
+      )
+      .select("id, action_type_pattern, on_uncertain, created_at")
+      .maybeSingle();
+    if (error) return json({ error: error.message }, 500);
+    return json({ ok: true, override: data });
+  }
+
   // ---- GET /api-keys --------------------------------------------------------
   if (req.method === "GET") {
     const targetUserId = await resolveAccountScope(userClient, userId, url.searchParams.get("account_id"), "integrations");

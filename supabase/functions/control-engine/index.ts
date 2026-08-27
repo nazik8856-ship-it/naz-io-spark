@@ -1092,7 +1092,7 @@ serve(async (req) => {
       // outcome, the same way it already does for control-gate.ts's own
       // deterministic-layer call sites.
       let forcedResolution: { resolution: "approved" | "rejected"; note: string } | null = null;
-      if (trustedApiKeyId && (await loadOnUncertainPolicy(supabase, trustedApiKeyId)) === "auto_narrow") {
+      if (trustedApiKeyId && (await loadOnUncertainPolicy(supabase, trustedApiKeyId, actionType)) === "auto_narrow") {
         const narrowedParams = extractNarrowedAction(decision, modifiedParams);
         if (narrowedParams) {
           // Fail closed: if the snapshot lookup itself throws, treat the
