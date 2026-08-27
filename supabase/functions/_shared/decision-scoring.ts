@@ -3,6 +3,7 @@
 // confidence the same way and write to the SAME agent_decisions table.
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { triggerWebhooks } from "./webhooks.ts";
+import { embedDecisionIfExternal } from "./decision-embeddings.ts";
 
 export const DEFAULT_CONFIDENCE_THRESHOLD = 60;
 
@@ -164,6 +165,9 @@ export const logDecision = async (
     provider?: string | null;
     /** Which api_keys row authenticated this request, when it came through the public control-api endpoint. Null for every other caller. */
     apiKeyId?: string | null;
+    /** "Real precedent memory" plan, item 1: the raw action, present only when the caller has it in scope (control-engine's model-scored path does) -- used solely to build this decision's embedding, never stored on the row itself, which only ever answers "what happened," not the exact payload. Omitted entirely (agent-runtime) means no embedding is attempted, same as apiKeyId being null. */
+    description?: string | null;
+    params?: unknown;
   },
 ): Promise<string | null> => {
   try {
@@ -195,6 +199,11 @@ export const logDecision = async (
           escalated: d.escalated ?? false, agent_id: scope.agentId ?? null,
         });
       } catch { /* ignore */ }
+      await embedDecisionIfExternal(supabase, {
+        decisionId, apiKeyId: d.apiKeyId, userId: scope.userId,
+        actionType: d.actionType ?? "", provider: d.provider ?? "unknown",
+        description: d.description ?? "", params: d.params,
+      });
     }
     return decisionId;
   } catch {

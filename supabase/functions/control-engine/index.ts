@@ -1020,6 +1020,8 @@ serve(async (req) => {
       actionType,
       provider,
       apiKeyId: trustedApiKeyId,
+      description,
+      params,
     });
 
     await recordShadowHits(decisionId ?? null, decision);

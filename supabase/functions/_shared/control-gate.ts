@@ -30,6 +30,7 @@ import { triggerWebhooks } from "./webhooks.ts";
 import { recordPolicyWatchObservations } from "./policy-watch.ts";
 import { resolveOnUncertain, resolveSweepFallback, type AutoResolution } from "./api-key-policy.ts";
 import { notifyAndAwaitCallback, type CallbackConfig } from "./callback-delegation.ts";
+import { embedDecisionIfExternal } from "./decision-embeddings.ts";
 
 export const BREAKER_WINDOW = 10;
 export const BREAKER_MIN_ATTEMPTS = 4;
@@ -461,6 +462,16 @@ async function runControlGateInner(
             id: decisionId, decision, source, escalated, agent_id: agentId,
           });
         } catch { /* ignore */ }
+        // "Real precedent memory" plan, item 1: embeds using ctx's OWN
+        // description/params (always in scope here, unlike this
+        // closure's own params/description args above, which only ever
+        // carry a value for the two BLOCK call sites and exist solely to
+        // populate the STORED agent_decisions columns) -- a no-op
+        // whenever apiKeyId is null, i.e. every non-external-api origin.
+        await embedDecisionIfExternal(admin, {
+          decisionId, apiKeyId, userId, actionType, provider,
+          description: ctx.description, params: ctx.params,
+        });
       }
       return decisionId;
     } catch {
@@ -1029,6 +1040,12 @@ async function runControlGateInner(
       }).select("id").maybeSingle();
       decisionId = (data as { id?: string } | null)?.id ?? null;
     } catch { /* logging must never break the fail-closed/fail-open block */ }
+    if (decisionId) {
+      await embedDecisionIfExternal(admin, {
+        decisionId, apiKeyId, userId, actionType, provider,
+        description: ctx.description, params: ctx.params,
+      });
+    }
     try {
       await sendCriticalAlert(admin, userId, {
         event: failOpen ? "gate_error_fail_open" : "gate_error",
