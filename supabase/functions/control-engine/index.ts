@@ -39,7 +39,7 @@ const RATE_LIMIT_PER_MINUTE = 120;
 
 import { PROVIDER_WRITE_KINDS, runProviderWrite } from "../_shared/provider-writes.ts";
 import { reversibilityFor, captureUndoState, runUndo } from "../_shared/reversibility.ts";
-import { replayDraft, replayRealTraffic, evaluateAction, type PolicySnapshot } from "../_shared/policy-replay.ts";
+import { replayDraft, replayRealTraffic, previewProposedHardRules, evaluateAction, type PolicySnapshot, type ProposedHardRuleInput } from "../_shared/policy-replay.ts";
 import { summarizePolicyWatch, type PolicyWatchObservationRow } from "../_shared/policy-watch.ts";
 import { loadFitEvidence, applyFitEvidence } from "../_shared/fit-learning.ts";
 import { buildEmbeddingInput, generateEmbeddingWithinBudget, formatEmbeddingLiteral } from "../_shared/decision-embeddings.ts";
@@ -595,6 +595,22 @@ serve(async (req) => {
       }
       const limit = typeof body?.limit === "number" ? body.limit : undefined;
       const report = await replayRealTraffic(supabase, scopedUserId, draftRef, limit);
+      if ("error" in report) return json({ error: report.error }, report.status);
+      return json(report);
+    }
+
+    // ---- POST /control-engine/replay-preview ---------------------------------
+    // "Policy autonomy" plan, item 7: preview one or more proposed hard
+    // rules against real recent traffic WITHOUT first saving them as a
+    // draft policy_versions row -- lets an account see what would have
+    // come out differently before committing to the change at all, not
+    // just before activating an already-drafted one.
+    if (url.pathname.replace(/\/$/, "").endsWith("/replay-preview")) {
+      const scopedUserId = await resolvePolicyScopeUserId();
+      if (!scopedUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
+      const proposedRules = Array.isArray(body?.hard_rules) ? (body.hard_rules as ProposedHardRuleInput[]) : [];
+      const limit = typeof body?.limit === "number" ? body.limit : undefined;
+      const report = await previewProposedHardRules(supabase, scopedUserId, proposedRules, limit);
       if ("error" in report) return json({ error: report.error }, report.status);
       return json(report);
     }

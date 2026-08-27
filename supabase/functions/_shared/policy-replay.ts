@@ -259,6 +259,32 @@ type DraftRow = { id: string; version: number; status: string; notes: string | n
 type ActiveRef = { id: string | null; version: number | null; snapshot: PolicySnapshot };
 
 /**
+ * Just the active-version half of resolveDraftAndActive below -- its own
+ * function so a caller with no draft to compare against at all (item 7's
+ * previewProposedHardRules, which previews an ad-hoc change that was never
+ * saved as a policy_versions row) can still get the account's real active
+ * snapshot without needing a fake draft reference to satisfy the other
+ * function's signature.
+ */
+async function resolveActiveSnapshot(admin: SupabaseClient, userId: string): Promise<ActiveRef> {
+  let activeId: string | null = null;
+  let activeVersion: number | null = null;
+  let activeSnapshot: PolicySnapshot = {};
+  try {
+    const { data: pv } = await admin.rpc("get_active_policy_version", { _user_id: userId });
+    const row = (Array.isArray(pv) ? pv[0] : pv) as
+      | { id?: string; version?: number; snapshot?: PolicySnapshot }
+      | null;
+    if (row) {
+      activeId = row.id ?? null;
+      activeVersion = typeof row.version === "number" ? row.version : null;
+      activeSnapshot = (row.snapshot ?? {}) as PolicySnapshot;
+    }
+  } catch { /* no active version yet — compared against an empty policy */ }
+  return { id: activeId, version: activeVersion, snapshot: activeSnapshot };
+}
+
+/**
  * Shared draft + active snapshot lookup -- used by both replayDraft (against
  * the 30 fixed scenarios) and replayRealTraffic (against real decisions)
  * below, so the version-resolution logic only lives once.
@@ -277,22 +303,8 @@ async function resolveDraftAndActive(
   if (!draftData) return { error: "Policy version not found for this account.", status: 404 };
   const draft = draftData as DraftRow;
 
-  let activeId: string | null = null;
-  let activeVersion: number | null = null;
-  let activeSnapshot: PolicySnapshot = {};
-  try {
-    const { data: pv } = await admin.rpc("get_active_policy_version", { _user_id: userId });
-    const row = (Array.isArray(pv) ? pv[0] : pv) as
-      | { id?: string; version?: number; snapshot?: PolicySnapshot }
-      | null;
-    if (row) {
-      activeId = row.id ?? null;
-      activeVersion = typeof row.version === "number" ? row.version : null;
-      activeSnapshot = (row.snapshot ?? {}) as PolicySnapshot;
-    }
-  } catch { /* no active version yet — draft is compared against an empty policy */ }
-
-  return { draft, active: { id: activeId, version: activeVersion, snapshot: activeSnapshot } };
+  const active = await resolveActiveSnapshot(admin, userId);
+  return { draft, active };
 }
 
 /** Load the draft + active snapshots for a user and produce the replay report. */
@@ -328,6 +340,47 @@ export type RealTrafficReplayReport = {
 };
 
 /**
+ * Shared real-decisions diff loop -- fetches get_replayable_real_decisions
+ * once and runs evaluateAction for both snapshots over the same rows.
+ * Used by replayRealTraffic (two SAVED policy_versions snapshots) and by
+ * previewProposedHardRules below (the active snapshot vs. an ad-hoc,
+ * never-saved proposed one) so this loop only lives once.
+ */
+async function runRealTrafficDiff(
+  admin: SupabaseClient,
+  userId: string,
+  activeSnapshot: PolicySnapshot,
+  proposedSnapshot: PolicySnapshot,
+  limit: number,
+): Promise<{ error: string; status: number } | { changed: RealTrafficReplayReport["changed"]; summary: RealTrafficReplaySummary }> {
+  const { data: rows, error } = await admin.rpc("get_replayable_real_decisions", { _user_id: userId, _limit: limit });
+  if (error) return { error: error.message, status: 500 };
+
+  const changed: RealTrafficReplayReport["changed"] = [];
+  const diffs: RealActionDiff[] = [];
+  for (const r of (rows ?? []) as RealDecisionRow[]) {
+    const actionInput = { action_type: r.action_type, provider: r.provider, description: r.description ?? "", params: r.params };
+    const activeResult = evaluateAction(actionInput, activeSnapshot);
+    const draftResult = evaluateAction(actionInput, proposedSnapshot);
+    const diff = diffRealAction(activeResult.gate_outcome, draftResult.gate_outcome);
+    diffs.push(diff);
+    if (diff !== "same") {
+      changed.push({
+        id: r.id,
+        action_type: r.action_type,
+        provider: r.provider,
+        description: (r.description ?? "").slice(0, 200),
+        active: activeResult,
+        draft: draftResult,
+        diff,
+      });
+    }
+  }
+
+  return { changed, summary: summarizeRealTrafficReplay(diffs) };
+}
+
+/**
  * Replays a draft policy against real historical decisions instead of the
  * 30 fixed scenarios -- "would this draft have decided any of my last N
  * real actions differently than my active policy did." Only decisions
@@ -346,35 +399,84 @@ export async function replayRealTraffic(
   if ("error" in resolved) return resolved;
   const { draft, active } = resolved;
 
-  const { data: rows, error } = await admin.rpc("get_replayable_real_decisions", { _user_id: userId, _limit: limit });
-  if (error) return { error: error.message, status: 500 };
-
-  const changed: RealTrafficReplayReport["changed"] = [];
-  const diffs: RealActionDiff[] = [];
-  for (const r of (rows ?? []) as RealDecisionRow[]) {
-    const actionInput = { action_type: r.action_type, provider: r.provider, description: r.description ?? "", params: r.params };
-    const activeResult = evaluateAction(actionInput, active.snapshot);
-    const draftResult = evaluateAction(actionInput, draft.snapshot ?? {});
-    const diff = diffRealAction(activeResult.gate_outcome, draftResult.gate_outcome);
-    diffs.push(diff);
-    if (diff !== "same") {
-      changed.push({
-        id: r.id,
-        action_type: r.action_type,
-        provider: r.provider,
-        description: (r.description ?? "").slice(0, 200),
-        active: activeResult,
-        draft: draftResult,
-        diff,
-      });
-    }
-  }
+  const result = await runRealTrafficDiff(admin, userId, active.snapshot, draft.snapshot ?? {}, limit);
+  if ("error" in result) return result;
 
   return {
     ok: true,
     active_version: { id: active.id, version: active.version },
     draft_version: { id: draft.id, version: draft.version },
-    summary: summarizeRealTrafficReplay(diffs),
-    changed,
+    summary: result.summary,
+    changed: result.changed,
+  };
+}
+
+// "Policy autonomy" plan, item 7: let an account preview a proposed hard
+// rule -- one that was never saved as a draft policy_versions row at all,
+// let alone activated -- against real recent traffic, before committing to
+// it. Composes the exact same evaluateAction/runRealTrafficDiff machinery
+// replayRealTraffic already uses; this just builds its "draft" snapshot
+// in memory (the active snapshot's own hard rules plus the proposed
+// addition) instead of loading a second saved policy_versions row.
+//
+// Deliberately scoped to hard rules only, not spend caps or on_uncertain:
+// a spend-cap preview needs a real cumulative-spend simulation over time,
+// a fundamentally different mechanism this reuse-only feature was never
+// meant to build (that would be a new evaluation engine, not a reuse of
+// this one); an on_uncertain preview is already served, continuously and
+// in real conditions, by the existing shadow-mode mechanism
+// (api_keys.shadow_on_uncertain) plus item 6's promotion-readiness
+// threshold on top of it -- a one-shot historical replay would add little
+// there that shadow mode doesn't already do better.
+export type ProposedHardRuleInput = {
+  rule_text: string;
+  action_type_pattern: string;
+  effect: "always_block" | "always_require_approval";
+  provider?: string | null;
+};
+
+export type ProposedHardRulePreview = {
+  ok: true;
+  active_version: { id: string | null; version: number | null };
+  proposed_rules: ProposedHardRuleInput[];
+  summary: RealTrafficReplaySummary;
+  changed: RealTrafficReplayReport["changed"];
+};
+
+export async function previewProposedHardRules(
+  admin: SupabaseClient,
+  userId: string,
+  proposedRules: ProposedHardRuleInput[],
+  limit = 200,
+): Promise<{ error: string; status: number } | ProposedHardRulePreview> {
+  if (!proposedRules.length) return { error: "Provide at least one proposed hard rule to preview.", status: 400 };
+
+  const active = await resolveActiveSnapshot(admin, userId);
+  const activeHardRules = Array.isArray(active.snapshot.hard_rules) ? active.snapshot.hard_rules : [];
+  const proposedSnapshot: PolicySnapshot = {
+    ...active.snapshot,
+    hard_rules: [
+      ...activeHardRules,
+      ...proposedRules.map((r, i) => ({
+        id: `preview-${i}`,
+        rule_text: r.rule_text,
+        action_type_pattern: r.action_type_pattern,
+        effect: r.effect,
+        provider: r.provider ?? null,
+        enabled: true,
+        shadow_mode: false,
+      })),
+    ],
+  };
+
+  const result = await runRealTrafficDiff(admin, userId, active.snapshot, proposedSnapshot, limit);
+  if ("error" in result) return result;
+
+  return {
+    ok: true,
+    active_version: { id: active.id, version: active.version },
+    proposed_rules: proposedRules,
+    summary: result.summary,
+    changed: result.changed,
   };
 }
