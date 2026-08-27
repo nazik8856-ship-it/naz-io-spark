@@ -72,6 +72,66 @@ export function pausedKeyMessage(pausedUntil: string): string {
   return `This API key was automatically paused after unusual activity was detected. It will resume accepting requests on its own at ${pausedUntil} — no action is needed to un-pause it.`;
 }
 
+// ---- "Policy autonomy" plan, item 2: coordinated abuse across an
+// account's multiple API keys ----
+//
+// Everything above watches exactly one key at a time. A company running
+// several keys could spread suspicious traffic across them to stay
+// under each individual key's own threshold while the account as a
+// whole looks clearly abnormal. This adds a second, account-level check
+// alongside the existing per-key one -- reusing the exact same
+// isVolumeAbuse/isBlockRateAbuse thresholds, just summed across an
+// account's keys instead of read off one key alone.
+
+export type AccountActivity = { userId: string; total: number; nonAllow: number; keyCount: number };
+
+/** Pure -- groups the SAME raw decision rows summarizeKeyActivity reads, by account instead of by key, tracking how many distinct keys contributed. */
+export function summarizeAccountActivity(rows: DecisionRow[]): AccountActivity[] {
+  const byUser = new Map<string, AccountActivity & { keys: Set<string> }>();
+  for (const r of rows) {
+    const existing = byUser.get(r.user_id) ?? { userId: r.user_id, total: 0, nonAllow: 0, keyCount: 0, keys: new Set<string>() };
+    existing.total += 1;
+    if (isNonAllowDecision(r.decision)) existing.nonAllow += 1;
+    existing.keys.add(r.api_key_id);
+    existing.keyCount = existing.keys.size;
+    byUser.set(r.user_id, existing);
+  }
+  return [...byUser.values()].map(({ keys: _keys, ...rest }) => rest);
+}
+
+/**
+ * Pure -- true when an account's traffic, summed across its keys, looks
+ * abusive by the same thresholds a single key would trip. Requires at
+ * least 2 keys: a one-key account tripping this is already exactly what
+ * the existing per-key check (isVolumeAbuse/isBlockRateAbuse on that one
+ * key) already catches -- this check exists specifically for the
+ * spread-across-keys case a per-key view can't see.
+ */
+export function isCoordinatedAccountAbuse(
+  account: AccountActivity,
+  volumeThreshold: number,
+  minSample: number,
+  rateThreshold: number,
+): boolean {
+  if (account.keyCount < 2) return false;
+  return isVolumeAbuse(account.total, volumeThreshold) || isBlockRateAbuse(account.total, account.nonAllow, minSample, rateThreshold);
+}
+
+export function summarizeCoordinatedAbuse(account: AccountActivity, volumeThreshold: number, minSample: number, rateThreshold: number): string {
+  const volume = isVolumeAbuse(account.total, volumeThreshold);
+  const blockRate = isBlockRateAbuse(account.total, account.nonAllow, minSample, rateThreshold);
+  const pct = account.total > 0 ? Math.round((account.nonAllow / account.total) * 100) : 0;
+  const signal = volume && blockRate
+    ? `${account.total} requests (${pct}% non-allow) -- both an unusually high volume and non-allow rate`
+    : volume
+      ? `${account.total} requests -- an unusually high volume`
+      : `${account.nonAllow} of ${account.total} requests (${pct}%) non-allow -- an unusually high rate`;
+  return (
+    `Across ${account.keyCount} of your Control API keys, ${signal} in the last sweep window. Each individual key ` +
+    `looks fine on its own -- this is only visible when your account's traffic is looked at as a whole. Worth a look.`
+  );
+}
+
 export function summarizeAbuseReason(activity: KeyActivity, volumeThreshold: number, minSample: number, rateThreshold: number): string {
   const volume = isVolumeAbuse(activity.total, volumeThreshold);
   const blockRate = isBlockRateAbuse(activity.total, activity.nonAllow, minSample, rateThreshold);

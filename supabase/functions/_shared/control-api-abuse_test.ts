@@ -1,7 +1,7 @@
 // Real tests for the control-api abuse-sweep pure classification logic.
 //
 // Run with: deno test --allow-none supabase/functions/_shared/control-api-abuse_test.ts
-import { isNonAllowDecision, summarizeKeyActivity, isVolumeAbuse, isBlockRateAbuse, summarizeAbuseReason, isCurrentlyPaused, computePauseUntil, pausedKeyMessage, PAUSE_COOLDOWN_MINUTES } from "./control-api-abuse.ts";
+import { isNonAllowDecision, summarizeKeyActivity, isVolumeAbuse, isBlockRateAbuse, summarizeAbuseReason, isCurrentlyPaused, computePauseUntil, pausedKeyMessage, PAUSE_COOLDOWN_MINUTES, summarizeAccountActivity, isCoordinatedAccountAbuse, summarizeCoordinatedAbuse } from "./control-api-abuse.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
@@ -115,4 +115,48 @@ Deno.test("pausedKeyMessage: names the resume time and is explicit that no human
   const msg = pausedKeyMessage("2026-08-28T12:30:00.000Z");
   assert(msg.includes("2026-08-28T12:30:00.000Z"));
   assert(msg.toLowerCase().includes("automatically") || msg.toLowerCase().includes("on its own"));
+});
+
+// ---- "Policy autonomy" plan, item 2: coordinated abuse across an account's keys ----
+
+Deno.test("summarizeAccountActivity: sums across an account's multiple keys and counts distinct keys", () => {
+  const rows = [
+    { api_key_id: "key-1", user_id: "user-1", decision: "ALLOW a" },
+    { api_key_id: "key-2", user_id: "user-1", decision: "BLOCK b" },
+    { api_key_id: "key-3", user_id: "user-2", decision: "ALLOW c" },
+  ];
+  const summary = summarizeAccountActivity(rows);
+  const user1 = summary.find((s) => s.userId === "user-1");
+  const user2 = summary.find((s) => s.userId === "user-2");
+  assertEquals(user1, { userId: "user-1", total: 2, nonAllow: 1, keyCount: 2 });
+  assertEquals(user2, { userId: "user-2", total: 1, nonAllow: 0, keyCount: 1 });
+});
+
+Deno.test("summarizeAccountActivity: the same key appearing many times counts as one key", () => {
+  const rows = [
+    { api_key_id: "key-1", user_id: "user-1", decision: "ALLOW a" },
+    { api_key_id: "key-1", user_id: "user-1", decision: "ALLOW b" },
+  ];
+  assertEquals(summarizeAccountActivity(rows)[0].keyCount, 1);
+});
+
+Deno.test("isCoordinatedAccountAbuse: a single-key account is never flagged here -- that's the existing per-key check's job", () => {
+  const account = { userId: "u", total: 900, nonAllow: 900, keyCount: 1 };
+  assertFalse(isCoordinatedAccountAbuse(account, 500, 20, 0.5));
+});
+
+Deno.test("isCoordinatedAccountAbuse: traffic spread across multiple keys, summing to an abusive total, is flagged", () => {
+  const account = { userId: "u", total: 600, nonAllow: 10, keyCount: 3 };
+  assert(isCoordinatedAccountAbuse(account, 500, 20, 0.5));
+});
+
+Deno.test("isCoordinatedAccountAbuse: multiple keys with healthy combined totals is never flagged", () => {
+  const account = { userId: "u", total: 100, nonAllow: 5, keyCount: 3 };
+  assertFalse(isCoordinatedAccountAbuse(account, 500, 20, 0.5));
+});
+
+Deno.test("summarizeCoordinatedAbuse: names how many keys and that no single key looks bad alone", () => {
+  const msg = summarizeCoordinatedAbuse({ userId: "u", total: 600, nonAllow: 10, keyCount: 3 }, 500, 20, 0.5);
+  assert(msg.includes("3 of your Control API keys"));
+  assert(msg.toLowerCase().includes("looks fine on its own"));
 });

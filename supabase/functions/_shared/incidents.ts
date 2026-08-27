@@ -41,6 +41,10 @@ export const INCIDENT_KINDS = [
   // hardly any of them are getting embedded, and nothing about any one
   // decision looked wrong in the moment.
   "precedent_pipeline_stale",
+  // "Policy autonomy" plan, item 2: an account's traffic summed across
+  // multiple keys looks abusive even though no single key looks bad
+  // alone.
+  "control_api_coordinated_abuse",
 ] as const;
 export type IncidentKind = typeof INCIDENT_KINDS[number];
 

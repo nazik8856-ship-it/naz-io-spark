@@ -14,7 +14,7 @@
 // gets its own alert (same moving-window reasoning as
 // webhooks.alerted_at / agent_integrations.revoked_alerted_at).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { summarizeKeyActivity, isVolumeAbuse, isBlockRateAbuse, summarizeAbuseReason, computePauseUntil, type DecisionRow } from "../_shared/control-api-abuse.ts";
+import { summarizeKeyActivity, isVolumeAbuse, isBlockRateAbuse, summarizeAbuseReason, computePauseUntil, summarizeAccountActivity, isCoordinatedAccountAbuse, summarizeCoordinatedAbuse, type DecisionRow } from "../_shared/control-api-abuse.ts";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
 import { openIncident } from "../_shared/incidents.ts";
 
@@ -110,6 +110,59 @@ Deno.serve(async (req) => {
     }
   }
 
+  // "Policy autonomy" plan, item 2: the SAME rows already fetched above,
+  // summed by account instead of by key -- catches traffic spread across
+  // multiple keys to stay under each key's own threshold while the
+  // account as a whole looks clearly abnormal. Alert-and-flag only,
+  // never an automatic pause: unlike the per-key case above, a key
+  // caught up in a coordinated pattern may look completely clean on its
+  // own, so there is no single key here that's safe to act on
+  // automatically -- a human decides which key(s), if any, to pause.
+  const accountActivity = summarizeAccountActivity((data ?? []) as DecisionRow[]);
+  const coordinatedAlerted: string[] = [];
+  const coordinatedCleared: string[] = [];
+  for (const acc of accountActivity) {
+    const coordinated = isCoordinatedAccountAbuse(acc, VOLUME_THRESHOLD, BLOCK_RATE_MIN_SAMPLE, BLOCK_RATE_THRESHOLD);
+    const { data: profileRow } = await admin
+      .from("profiles").select("coordinated_abuse_alerted_at").eq("id", acc.userId).maybeSingle();
+    const alreadyAlerted = !!(profileRow as { coordinated_abuse_alerted_at?: string | null } | null)?.coordinated_abuse_alerted_at;
+
+    if (coordinated && !alreadyAlerted) {
+      const summary = summarizeCoordinatedAbuse(acc, VOLUME_THRESHOLD, BLOCK_RATE_MIN_SAMPLE, BLOCK_RATE_THRESHOLD);
+      try {
+        await sendCriticalAlert(admin, acc.userId, { event: "control_api_coordinated_abuse", summary });
+        const { error: updErr } = await admin
+          .from("profiles").update({ coordinated_abuse_alerted_at: new Date().toISOString() }).eq("id", acc.userId);
+        if (updErr) console.error(`[CONTROL API ABUSE SWEEP] failed to stamp coordinated abuse for ${acc.userId}: ${updErr.message}`);
+        else {
+          coordinatedAlerted.push(acc.userId);
+          await openIncident(admin, acc.userId, { kind: "control_api_coordinated_abuse", summary });
+        }
+      } catch (e) {
+        console.error(`[CONTROL API ABUSE SWEEP] coordinated-abuse alert failed for ${acc.userId}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    } else if (!coordinated && alreadyAlerted) {
+      const { error: clearErr } = await admin
+        .from("profiles").update({ coordinated_abuse_alerted_at: null }).eq("id", acc.userId);
+      if (!clearErr) coordinatedCleared.push(acc.userId);
+    }
+  }
+  // Same "zero activity is, by definition, not abusive" reconciliation
+  // as the per-key case below -- an account that goes quiet across all
+  // its keys would otherwise stay flagged forever.
+  const { data: flaggedAccounts } = await admin
+    .from("profiles").select("id").not("coordinated_abuse_alerted_at", "is", null);
+  const activeAccountIds = new Set(accountActivity.map((a) => a.userId));
+  for (const row of (flaggedAccounts ?? []) as { id: string }[]) {
+    if (activeAccountIds.has(row.id)) continue;
+    const { error: clearErr } = await admin
+      .from("profiles").update({ coordinated_abuse_alerted_at: null }).eq("id", row.id);
+    if (!clearErr) coordinatedCleared.push(row.id);
+  }
+  if (coordinatedAlerted.length > 0) {
+    console.error(`[CONTROL API ABUSE SWEEP] flagged ${coordinatedAlerted.length} account(s) for coordinated abuse: ${coordinatedAlerted.join(", ")}`);
+  }
+
   // A paused key stops producing agent_decisions rows at all (rejected at
   // auth, before the gate ever runs) -- so once genuinely paused, it can
   // vanish from `activity` entirely and the clearing branch above would
@@ -136,5 +189,13 @@ Deno.serve(async (req) => {
     console.error(`[CONTROL API ABUSE SWEEP] alerted/paused ${alerted.length} key(s): ${alerted.join(", ")}`);
   }
 
-  return json({ ok: true, keysChecked: activity.length, alerted: alerted.length, cleared: cleared.length });
+  return json({
+    ok: true,
+    keysChecked: activity.length,
+    alerted: alerted.length,
+    cleared: cleared.length,
+    accountsChecked: accountActivity.length,
+    coordinatedAlerted: coordinatedAlerted.length,
+    coordinatedCleared: coordinatedCleared.length,
+  });
 });

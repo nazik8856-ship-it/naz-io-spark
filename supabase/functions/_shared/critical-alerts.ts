@@ -55,7 +55,12 @@ export type CriticalAlertEvent =
   // the memory pipeline has quietly stopped working (a bug, a provider
   // change, a spend cap) and nothing about any single decision looks
   // wrong in the moment, so nobody would otherwise notice.
-  | "precedent_pipeline_stale";
+  | "precedent_pipeline_stale"
+  // "Policy autonomy" plan, item 2: an account's Control API traffic,
+  // summed across MULTIPLE keys, looks abusive even though no single
+  // key crosses its own per-key threshold -- a pattern the existing
+  // per-key control_api_abuse check can't see by design.
+  | "control_api_coordinated_abuse";
 
 const APP_BASE_URL = "https://www.nazai.net";
 
@@ -83,6 +88,7 @@ export const LABELS: Record<CriticalAlertEvent, string> = {
   control_api_abuse: "🚩 Unusual activity on a public Control API key",
   auto_resolution_share_spike: "🤖 An unusually large share of decisions are being resolved automatically",
   precedent_pipeline_stale: "🧠 An API key's real-precedent memory has gone stale",
+  control_api_coordinated_abuse: "🚩 Unusual activity spread across multiple Control API keys",
 };
 
 export function decisionLink(decisionId?: string | null): string | null {
