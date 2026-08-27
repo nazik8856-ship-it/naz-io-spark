@@ -46,6 +46,7 @@ import { buildEmbeddingInput, generateEmbedding, formatEmbeddingLiteral } from "
 import { findPrecedent, loadOutcomeDirections, loadPrecedentForPrompt } from "../_shared/precedent-search.ts";
 import { buildPrecedentPromptBlock } from "../_shared/precedent-prompt.ts";
 import { classifyPrecedentOutcome, evaluatePrecedentForAutoApprove, type OutcomeDirection, shouldRejectOnPrecedent, summarizePrecedentOverride } from "../_shared/precedent-advice.ts";
+import { buildPrecedentCitationRecord, recordPrecedentCitation } from "../_shared/precedent-citation.ts";
 import { isNonAllowDecision } from "../_shared/control-api-abuse.ts";
 import {
   collectUntrustedFields,
@@ -1122,6 +1123,9 @@ serve(async (req) => {
                   const advice = evaluatePrecedentForAutoApprove(nonAllowFlags);
                   if (shouldRejectOnPrecedent(advice) && advice.available) {
                     forcedResolution = { resolution: "rejected", note: summarizePrecedentOverride(advice) };
+                    if (decisionId) {
+                      await recordPrecedentCitation(supabase, decisionId, buildPrecedentCitationRecord(advice, matches, nonAllowFlags));
+                    }
                   }
                 }
               }

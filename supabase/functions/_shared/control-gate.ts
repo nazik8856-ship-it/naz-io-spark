@@ -33,6 +33,7 @@ import { notifyAndAwaitCallback, type CallbackConfig } from "./callback-delegati
 import { embedDecisionIfExternal } from "./decision-embeddings.ts";
 import { findPrecedent, loadOutcomeDirections, loadStoredEmbeddingLiteral } from "./precedent-search.ts";
 import { classifyPrecedentOutcome, evaluatePrecedentForAutoApprove, type OutcomeDirection, shouldRejectOnPrecedent, summarizePrecedentOverride } from "./precedent-advice.ts";
+import { buildPrecedentCitationRecord, recordPrecedentCitation } from "./precedent-citation.ts";
 import { isNonAllowDecision } from "./control-api-abuse.ts";
 
 export const BREAKER_WINDOW = 10;
@@ -327,6 +328,7 @@ export async function createPendingApproval(
             if (shouldRejectOnPrecedent(advice) && advice.available) {
               auto = { autoResolved: true, resolution: "rejected", status: "auto_rejected" };
               comment = summarizePrecedentOverride(advice);
+              await recordPrecedentCitation(admin, input.decisionId, buildPrecedentCitationRecord(advice, matches, nonAllowFlags));
             }
           } catch { /* precedent is optional enrichment -- a lookup hiccup here must never block the real resolution */ }
         }

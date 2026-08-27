@@ -74,9 +74,12 @@ const POST_AUTH_RATE_LIMIT_PER_MINUTE = 30;
 const EXPORT_RATE_LIMIT_PER_MINUTE = 20;
 // Same field set ControlDecisionHistory.tsx already exposes to a signed-in
 // customer in-app, plus policy_version -- nothing here that isn't already
-// something the account owner can see themselves.
+// something the account owner can see themselves. precedent_citations
+// (item 9) is the one field with no in-app equivalent yet -- exposed here
+// directly, per this round's own "verdict-only, no UX" scope: a real API
+// field a caller's own tooling can read, without a UI built for it.
 const DECISION_EXPORT_FIELDS =
-  "id, decision, reasoning, confidence_score, escalated, source, agent_id, action_type, provider, policy_version, created_at";
+  "id, decision, reasoning, confidence_score, escalated, source, agent_id, action_type, provider, policy_version, created_at, precedent_citations";
 
 // "Zero human review" plan, item 13: a thin wrapper around the real
 // per-action logic (renamed judgeOneActionInner below) that wires in the

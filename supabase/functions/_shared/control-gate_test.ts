@@ -577,7 +577,7 @@ Deno.test("createPendingApproval: shadow-mode observation is recorded even when 
 // ---- "Real precedent memory" plan, item 3: precedent-informed auto-resolve override ----
 
 Deno.test("createPendingApproval: real precedent overrides an auto_allow to rejected when similar past decisions were mostly non-allow", async () => {
-  const { client, inserts } = fakeSupabase(
+  const { client, inserts, updates } = fakeSupabase(
     {
       api_keys: { data: { on_uncertain: "auto_allow" }, error: null },
       pending_approvals: { data: { id: "approval-1" }, error: null },
@@ -607,6 +607,12 @@ Deno.test("createPendingApproval: real precedent overrides an auto_allow to reje
   const inserted = (inserts.pending_approvals ?? [])[0] as { status?: string; comment?: string } | undefined;
   assertEquals(inserted?.status, "auto_rejected");
   assert(inserted?.comment?.toLowerCase().includes("precedent"), "the override comment must explain precedent caused it");
+
+  // Item 9: the citation trail must be recorded on the decision the
+  // override actually explains, naming every decision that was cited.
+  const citationUpdate = (updates.agent_decisions ?? [])[0] as { precedent_citations?: { reason: string; citedDecisions: unknown[] } } | undefined;
+  assertEquals(citationUpdate?.precedent_citations?.reason, "non_allow_majority");
+  assertEquals(citationUpdate?.precedent_citations?.citedDecisions.length, 3);
 });
 
 Deno.test("createPendingApproval: precedent that's mostly clean allows does not override an auto_allow", async () => {
