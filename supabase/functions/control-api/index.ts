@@ -49,6 +49,7 @@ import { encodeExportCursor, decodeExportCursor, clampExportLimit, exportCursorF
 import { claimRowOnce, claimIdempotencyKey, saveIdempotencyResponse, releaseIdempotencyKey } from "../_shared/idempotency.ts";
 import { classifyPlatformStatus, platformStatusMessage, DEGRADED_LOOKBACK_MINUTES } from "../_shared/platform-status.ts";
 import { classifyDecisionVerification, type RawDecisionVerification } from "../_shared/decision-verification.ts";
+import { excludeDecisionFromPrecedent } from "../_shared/precedent-search.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -454,6 +455,31 @@ Deno.serve(async (req) => {
     if (error) return json({ error: "verification_failed", message: error.message }, 500);
     const result = classifyDecisionVerification((raw ?? {}) as RawDecisionVerification);
     return json({ ok: true, decision_id: decisionId, ...result });
+  }
+
+  // ---- POST /control-api/v1/decisions/:id/exclude-precedent ---------------
+  // "Real precedent memory" plan, item 7: sometimes a past decision was
+  // simply a mistake -- later reversed, or based on bad information -- and
+  // without a way to say so it would keep quietly influencing future
+  // automatic decisions forever just because it superficially resembles new
+  // requests. Permanent and one-way -- there's no "un-exclude," matching
+  // this feature's own purpose (a real correction, not a togglable filter).
+  // Ownership checked the same way /resolve and /verify already do, before
+  // ever touching decision_embeddings.
+  const excludeMatch = url.pathname.match(/\/decisions\/([0-9a-fA-F-]{36})\/exclude-precedent\/?$/);
+  if (req.method === "POST" && excludeMatch) {
+    const decisionId = excludeMatch[1];
+    const { data: owned } = await admin.from("agent_decisions").select("id").eq("id", decisionId).eq("user_id", userId).maybeSingle();
+    if (!owned) return json({ error: "not_found", message: "No decision with that id exists for this account." }, 404);
+
+    const outcome = await excludeDecisionFromPrecedent(admin, userId, decisionId);
+    return json({
+      ok: true,
+      excluded: outcome === "excluded",
+      message: outcome === "excluded"
+        ? "This decision will never be used as precedent for future automatic decisions again."
+        : "This decision has no real-precedent record (nothing was ever embedded for it) — nothing to exclude.",
+    });
   }
 
   if (req.method !== "POST") return json({ error: "POST only" }, 405);

@@ -1,7 +1,7 @@
 // Real tests for item 3's precedent-search wrapper.
 //
 // Run with: deno test --allow-none supabase/functions/_shared/precedent-search_test.ts
-import { filterPrecedentMatches, findPrecedent, loadOutcomeDirections, loadPrecedentForPrompt, loadStoredEmbeddingLiteral, MIN_SIMILARITY, type PrecedentMatch } from "./precedent-search.ts";
+import { excludeDecisionFromPrecedent, filterPrecedentMatches, findPrecedent, loadOutcomeDirections, loadPrecedentForPrompt, loadStoredEmbeddingLiteral, MIN_SIMILARITY, type PrecedentMatch } from "./precedent-search.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
@@ -169,6 +169,55 @@ Deno.test("loadOutcomeDirections: a thrown exception returns an empty map, never
   } as any;
   const map = await loadOutcomeDirections(client, ["d1"]);
   assertEquals(map.size, 0);
+});
+
+// ---- excludeDecisionFromPrecedent (item 7) ----
+
+class FakeUpdateQuery implements PromiseLike<Row> {
+  filters: Record<string, unknown> = {};
+  constructor(private resolve: () => Row) {}
+  update(_row?: unknown) { return this; }
+  eq(col: string, val: unknown) { this.filters[col] = val; return this; }
+  select() { return this; }
+  maybeSingle() { return this; }
+  then<TResult1 = Row, TResult2 = never>(
+    onfulfilled?: ((value: Row) => TResult1 | PromiseLike<TResult1>) | null,
+    onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
+    // deno-lint-ignore no-explicit-any
+  ): any {
+    return Promise.resolve(this.resolve()).then(onfulfilled ?? undefined, onrejected ?? undefined);
+  }
+}
+
+Deno.test("excludeDecisionFromPrecedent: returns 'excluded' when a matching embedding row exists", async () => {
+  let q: FakeUpdateQuery | null = null;
+  const client = {
+    from(table: string) {
+      assertEquals(table, "decision_embeddings");
+      q = new FakeUpdateQuery(() => ({ data: { id: "row-1" }, error: null }));
+      return q;
+    },
+    // deno-lint-ignore no-explicit-any
+  } as any;
+  const outcome = await excludeDecisionFromPrecedent(client, "user-1", "d1");
+  assertEquals(outcome, "excluded");
+  assertEquals(q!.filters, { decision_id: "d1", user_id: "user-1" });
+});
+
+Deno.test("excludeDecisionFromPrecedent: returns 'no_precedent_record' when nothing was embedded for that decision", async () => {
+  const client = {
+    from() { return new FakeUpdateQuery(() => ({ data: null, error: null })); },
+    // deno-lint-ignore no-explicit-any
+  } as any;
+  assertEquals(await excludeDecisionFromPrecedent(client, "user-1", "d1"), "no_precedent_record");
+});
+
+Deno.test("excludeDecisionFromPrecedent: a thrown exception returns 'no_precedent_record', never propagates", async () => {
+  const client = {
+    from() { throw new Error("db down"); },
+    // deno-lint-ignore no-explicit-any
+  } as any;
+  assertEquals(await excludeDecisionFromPrecedent(client, "user-1", "d1"), "no_precedent_record");
 });
 
 // ---- loadStoredEmbeddingLiteral ----

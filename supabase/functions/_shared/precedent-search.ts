@@ -117,6 +117,45 @@ export async function loadOutcomeDirections(admin: SupabaseClient, decisionIds: 
   }
 }
 
+// "Real precedent memory" plan, item 7: sometimes a past decision was
+// simply a mistake -- later reversed, or based on bad information --
+// and without a way to say so, it would keep quietly influencing future
+// automatic decisions forever just because it superficially resembles
+// new requests. Lets an account permanently exclude one specific past
+// decision from ever being returned by search_decision_precedent again
+// (the SQL function itself filters on excluded_from_precedent -- this
+// just flips that flag on the one row that matches).
+export type ExcludeOutcome = "excluded" | "no_precedent_record";
+
+/**
+ * Marks one decision's embedding row (if it has one) as excluded from
+ * precedent, scoped to the given account. Returns "no_precedent_record"
+ * -- not an error -- when the decision was never embedded in the first
+ * place (nothing to exclude), same as it already being effectively
+ * excluded. Ownership must be checked by the caller BEFORE calling this
+ * (same split as control-api's existing /resolve and /verify routes):
+ * this alone can't distinguish "doesn't exist" from "isn't yours" since
+ * it only ever touches decision_embeddings, not agent_decisions.
+ */
+export async function excludeDecisionFromPrecedent(
+  admin: SupabaseClient,
+  userId: string,
+  decisionId: string,
+): Promise<ExcludeOutcome> {
+  try {
+    const { data } = await admin
+      .from("decision_embeddings")
+      .update({ excluded_from_precedent: true })
+      .eq("decision_id", decisionId)
+      .eq("user_id", userId)
+      .select("id")
+      .maybeSingle();
+    return data ? "excluded" : "no_precedent_record";
+  } catch {
+    return "no_precedent_record";
+  }
+}
+
 /**
  * Looks up the embedding already stored for one decision (as a pgvector
  * literal string, ready to feed straight into findPrecedent) -- reuses
