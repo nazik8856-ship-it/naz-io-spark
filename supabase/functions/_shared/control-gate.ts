@@ -31,6 +31,9 @@ import { recordPolicyWatchObservations } from "./policy-watch.ts";
 import { resolveOnUncertain, resolveSweepFallback, type AutoResolution } from "./api-key-policy.ts";
 import { notifyAndAwaitCallback, type CallbackConfig } from "./callback-delegation.ts";
 import { embedDecisionIfExternal } from "./decision-embeddings.ts";
+import { findPrecedent, loadStoredEmbeddingLiteral } from "./precedent-search.ts";
+import { evaluatePrecedentForAutoApprove, summarizePrecedentOverride } from "./precedent-advice.ts";
+import { isNonAllowDecision } from "./control-api-abuse.ts";
 
 export const BREAKER_WINDOW = 10;
 export const BREAKER_MIN_ATTEMPTS = 4;
@@ -289,6 +292,36 @@ export async function createPendingApproval(
         auto = resolveOnUncertain(keyRow.on_uncertain ?? null);
         if (auto.autoResolved) {
           comment = `Resolved automatically to ${auto.resolution} by this API key's configured policy — no human reviewed this.`;
+        }
+      }
+    }
+    // "Real precedent memory" plan, item 3: before finalizing an
+    // automatic APPROVAL specifically -- never a denial, which is
+    // already the safe choice and is never second-guessed -- check
+    // whether real precedent for this exact api key disagrees. Reuses
+    // whatever embedding item 1 already computed for THIS decision
+    // moments ago (via input.decisionId) rather than generating a
+    // second one for the same action. A missing embedding (the live
+    // attempt failed, or there's no apiKeyId at all) is a silent no-op,
+    // the same "precedent is optional enrichment, never required"
+    // posture embedding generation itself already has.
+    if (auto.autoResolved && auto.resolution === "approved" && input.apiKeyId && input.decisionId) {
+      const embeddingLiteral = await loadStoredEmbeddingLiteral(admin, input.decisionId);
+      if (embeddingLiteral) {
+        const matches = await findPrecedent(admin, input.apiKeyId, embeddingLiteral, input.decisionId);
+        if (matches.length > 0) {
+          try {
+            const { data: precedentRows } = await admin
+              .from("agent_decisions")
+              .select("decision")
+              .in("id", matches.map((m) => m.decisionId));
+            const nonAllowFlags = ((precedentRows ?? []) as { decision: string }[]).map((r) => isNonAllowDecision(r.decision));
+            const advice = evaluatePrecedentForAutoApprove(nonAllowFlags);
+            if (advice.available && advice.overrideToReject) {
+              auto = { autoResolved: true, resolution: "rejected", status: "auto_rejected" };
+              comment = summarizePrecedentOverride(advice);
+            }
+          } catch { /* precedent is optional enrichment -- a lookup hiccup here must never block the real resolution */ }
         }
       }
     }

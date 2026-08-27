@@ -574,6 +574,132 @@ Deno.test("createPendingApproval: shadow-mode observation is recorded even when 
   assertEquals(shadowInsert?.shadow_resolution, "approved", "the shadow guess reflects the SHADOW policy, independent of forcedResolution's real answer");
 });
 
+// ---- "Real precedent memory" plan, item 3: precedent-informed auto-resolve override ----
+
+Deno.test("createPendingApproval: real precedent overrides an auto_allow to rejected when similar past decisions were mostly non-allow", async () => {
+  const { client, inserts } = fakeSupabase(
+    {
+      api_keys: { data: { on_uncertain: "auto_allow" }, error: null },
+      pending_approvals: { data: { id: "approval-1" }, error: null },
+      decision_embeddings: { data: { embedding: "[0.1,0.2]" }, error: null },
+      agent_decisions: {
+        data: [
+          { decision: "BLOCK send_email (Gmail)" },
+          { decision: "BLOCK send_email (Gmail)" },
+          { decision: "ALLOW send_email (Gmail)" },
+        ],
+        error: null,
+      },
+    },
+    {
+      search_decision_precedent: {
+        data: [
+          { decision_id: "d2", action_type: "send_email", provider: "Gmail", similarity: 0.9, created_at: "2026-08-27T00:00:00Z" },
+          { decision_id: "d3", action_type: "send_email", provider: "Gmail", similarity: 0.8, created_at: "2026-08-26T00:00:00Z" },
+          { decision_id: "d4", action_type: "send_email", provider: "Gmail", similarity: 0.7, created_at: "2026-08-25T00:00:00Z" },
+        ],
+        error: null,
+      },
+    },
+  );
+  const outcome = await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
+  assertEquals(outcome.resolution, "rejected");
+  const inserted = (inserts.pending_approvals ?? [])[0] as { status?: string; comment?: string } | undefined;
+  assertEquals(inserted?.status, "auto_rejected");
+  assert(inserted?.comment?.toLowerCase().includes("precedent"), "the override comment must explain precedent caused it");
+});
+
+Deno.test("createPendingApproval: precedent that's mostly clean allows does not override an auto_allow", async () => {
+  const { client } = fakeSupabase(
+    {
+      api_keys: { data: { on_uncertain: "auto_allow" }, error: null },
+      pending_approvals: { data: { id: "approval-1" }, error: null },
+      decision_embeddings: { data: { embedding: "[0.1,0.2]" }, error: null },
+      agent_decisions: {
+        data: [
+          { decision: "ALLOW send_email (Gmail)" },
+          { decision: "ALLOW send_email (Gmail)" },
+          { decision: "BLOCK send_email (Gmail)" },
+        ],
+        error: null,
+      },
+    },
+    {
+      search_decision_precedent: {
+        data: [
+          { decision_id: "d2", action_type: "send_email", provider: "Gmail", similarity: 0.9, created_at: "x" },
+          { decision_id: "d3", action_type: "send_email", provider: "Gmail", similarity: 0.8, created_at: "x" },
+          { decision_id: "d4", action_type: "send_email", provider: "Gmail", similarity: 0.7, created_at: "x" },
+        ],
+        error: null,
+      },
+    },
+  );
+  const outcome = await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
+  assertEquals(outcome.resolution, "approved");
+});
+
+Deno.test("createPendingApproval: no stored embedding for the current decision means no precedent search is even attempted", async () => {
+  const { client, calls } = fakeSupabase({
+    api_keys: { data: { on_uncertain: "auto_allow" }, error: null },
+    pending_approvals: { data: { id: "approval-1" }, error: null },
+    decision_embeddings: { data: null, error: null },
+  });
+  const outcome = await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
+  assertEquals(outcome.resolution, "approved");
+  assert(!calls.some((c) => c.rpc === "search_decision_precedent"), "must never attempt a precedent search without a stored embedding");
+});
+
+Deno.test("createPendingApproval: precedent is never consulted for an auto_deny resolution -- that's already the safe choice", async () => {
+  const { client, calls } = fakeSupabase({
+    api_keys: { data: { on_uncertain: "auto_deny" }, error: null },
+    pending_approvals: { data: { id: "approval-1" }, error: null },
+  });
+  const outcome = await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
+  assertEquals(outcome.resolution, "rejected");
+  assert(!calls.some((c) => c.table === "decision_embeddings"), "must never even look up an embedding for a denial");
+});
+
+Deno.test("createPendingApproval: precedent override also applies to a forcedResolution 'approved' outcome (auto_narrow)", async () => {
+  const { client } = fakeSupabase(
+    {
+      pending_approvals: { data: { id: "approval-1" }, error: null },
+      decision_embeddings: { data: { embedding: "[0.1,0.2]" }, error: null },
+      agent_decisions: { data: [{ decision: "BLOCK x" }, { decision: "BLOCK x" }, { decision: "BLOCK x" }], error: null },
+    },
+    {
+      search_decision_precedent: {
+        data: [
+          { decision_id: "d2", action_type: "x", provider: "y", similarity: 0.9, created_at: "x" },
+          { decision_id: "d3", action_type: "x", provider: "y", similarity: 0.8, created_at: "x" },
+          { decision_id: "d4", action_type: "x", provider: "y", similarity: 0.7, created_at: "x" },
+        ],
+        error: null,
+      },
+    },
+  );
+  const outcome = await createPendingApproval(client, {
+    ...pendingApprovalBaseInput, apiKeyId: "key-1",
+    forcedResolution: { resolution: "approved", note: "narrowed version passed cleanly" },
+  });
+  assertEquals(outcome.resolution, "rejected");
+});
+
+Deno.test("createPendingApproval: a precedent-search failure never breaks the real auto_allow outcome", async () => {
+  const { client } = fakeSupabase(
+    {
+      api_keys: { data: { on_uncertain: "auto_allow" }, error: null },
+      pending_approvals: { data: { id: "approval-1" }, error: null },
+      decision_embeddings: { data: { embedding: "[0.1,0.2]" }, error: null },
+    },
+    {
+      search_decision_precedent: { data: null, error: { message: "boom" } },
+    },
+  );
+  const outcome = await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
+  assertEquals(outcome.resolution, "approved");
+});
+
 Deno.test("a hard rule scoped to a different provider does not match", async () => {
   const { client } = fakeSupabase({
     hard_rules: {
