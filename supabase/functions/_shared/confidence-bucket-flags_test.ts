@@ -121,3 +121,18 @@ Deno.test("flagBucketIfNew: does NOT insert a duplicate when this bucket already
   assertFalse(created);
   assertEquals(inserted.length, 0);
 });
+
+// ---- item 5: per-api-key flags ----
+
+Deno.test("flagBucketIfNew: omitting apiKeyId flags the account-wide bucket, api_key_id null", async () => {
+  const { client, inserted } = fakeSupabase({ confidence_bucket_flags: { data: null, error: null } });
+  await flagBucketIfNew(client, "user-1", 40, 60, "incident-1");
+  assertEquals(inserted[0].api_key_id, null);
+});
+
+Deno.test("flagBucketIfNew: a real apiKeyId flags that key specifically, not the account-wide bucket", async () => {
+  const { client, inserted } = fakeSupabase({ confidence_bucket_flags: { data: null, error: null } });
+  const created = await flagBucketIfNew(client, "user-1", 40, 60, "incident-1", "key-1");
+  assert(created);
+  assertEquals(inserted[0].api_key_id, "key-1");
+});
