@@ -167,6 +167,10 @@ type HardRule = {
   provider: string | null;
   shadow_mode?: boolean;
   agent_id?: string | null;
+  // "Policy autonomy" plan, item 1: why this rule exists, not just what
+  // it matches -- shown in the decision reasoning when it actually
+  // fires. Optional: an existing rule with none set yet just omits it.
+  rationale?: string | null;
 };
 
 /** Shape of a policy_versions.snapshot row (built by build_policy_snapshot). */
@@ -602,7 +606,7 @@ async function runControlGateInner(
   if (!snapshotRules) {
     const { data: hardRules } = await admin
       .from("hard_rules")
-      .select("id, rule_text, action_type_pattern, effect, provider, enabled, shadow_mode, agent_id")
+      .select("id, rule_text, action_type_pattern, effect, provider, enabled, shadow_mode, agent_id, rationale")
       .eq("user_id", userId)
       // Deterministic match order: oldest rule wins a tie between two
       // enabled, overlapping rules. Without this, Postgres's return order
@@ -777,9 +781,13 @@ async function runControlGateInner(
   });
   if (matched) {
     const blocking = matched.effect === "always_block";
+    // "Policy autonomy" plan, item 1: name the rule AND why it exists,
+    // when a rationale is set -- a rule with none yet reads exactly as
+    // it always has.
+    const why = matched.rationale ? ` Why this rule exists: ${matched.rationale}` : "";
     const reason = blocking
-      ? `Blocked by your hard rule: "${matched.rule_text}". This was enforced by your rule, not judged by the model.`
-      : `Your hard rule requires approval first: "${matched.rule_text}". Nothing ran — approve it explicitly to proceed.`;
+      ? `Blocked by your hard rule: "${matched.rule_text}".${why} This was enforced by your rule, not judged by the model.`
+      : `Your hard rule requires approval first: "${matched.rule_text}".${why} Nothing ran — approve it explicitly to proceed.`;
     const decisionId = await logStop(
       `${blocking ? "BLOCK" : "APPROVAL_REQUIRED"} ${actionType} (${provider})`, reason, "hard_rule", !blocking, matched.id,
       // Only a real BLOCK needs its params/description captured for a

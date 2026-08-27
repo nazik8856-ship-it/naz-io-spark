@@ -21,6 +21,11 @@ export type SafetyRule = {
   agent_id?: string | null;
   /** Matched and recorded, but never affects the scan's actual verdict — same meaning as hard_rules.shadow_mode. */
   shadow_mode?: boolean;
+  // "Policy autonomy" plan, item 1: why this rule exists, not just what
+  // it matches -- shown in the decision reasoning when it actually
+  // fires. Optional: an existing rule with no rationale set yet simply
+  // omits this from the reasoning text, never a placeholder like "null".
+  rationale?: string | null;
 };
 
 export type SafetyMatch = {
@@ -31,6 +36,7 @@ export type SafetyMatch = {
   pattern: string;
   matched_on: string;
   sample: string;
+  rationale?: string | null;
 };
 
 export type SafetyScan = {
@@ -52,6 +58,7 @@ export const BUILTIN_SAFETY_RULES: SafetyRule[] = [
     severity: "block",
     enabled: true,
     builtin: true,
+    rationale: "A real credential in an outgoing action is almost always a mistake, and leaking one can't be undone by a human catching it after the fact.",
   },
   {
     id: "builtin:card_number",
@@ -61,6 +68,7 @@ export const BUILTIN_SAFETY_RULES: SafetyRule[] = [
     severity: "block",
     enabled: true,
     builtin: true,
+    rationale: "A raw card number in an action payload is a compliance and fraud liability regardless of how routine the rest of the action looks.",
   },
   {
     id: "builtin:national_id",
@@ -70,6 +78,7 @@ export const BUILTIN_SAFETY_RULES: SafetyRule[] = [
     severity: "block",
     enabled: true,
     builtin: true,
+    rationale: "A national ID number is sensitive personal data that shouldn't move through an automated action without a human deciding that's appropriate.",
   },
   {
     id: "builtin:destructive",
@@ -79,6 +88,7 @@ export const BUILTIN_SAFETY_RULES: SafetyRule[] = [
     severity: "block",
     enabled: true,
     builtin: true,
+    rationale: "Wording this broad and irreversible is exactly the kind of action a model's own confidence score can't be trusted to gate alone.",
   },
   {
     id: "builtin:refund_no_id",
@@ -88,6 +98,7 @@ export const BUILTIN_SAFETY_RULES: SafetyRule[] = [
     severity: "require_approval",
     enabled: true,
     builtin: true,
+    rationale: "Money movement with no concrete order/invoice/subscription reference is a common sign of a vague or misdirected request, not a routine one.",
   },
   {
     id: "builtin:mass_audience",
@@ -97,6 +108,7 @@ export const BUILTIN_SAFETY_RULES: SafetyRule[] = [
     severity: "require_approval",
     enabled: true,
     builtin: true,
+    rationale: "A mistake sent to one recipient is a small problem; the same mistake sent to an entire list is a much bigger one, so the reach itself raises the bar.",
   },
   {
     id: "builtin:disposable_recipient",
@@ -106,6 +118,7 @@ export const BUILTIN_SAFETY_RULES: SafetyRule[] = [
     severity: "block",
     enabled: true,
     builtin: true,
+    rationale: "A disposable-email recipient is a common signal of abuse testing or a throwaway account, not a real customer relationship.",
   },
 ];
 
@@ -140,7 +153,7 @@ export async function loadSafetyRules(
   try {
     const { data } = await admin
       .from("safety_rules")
-      .select("id, name, category, pattern, severity, enabled, agent_id, shadow_mode")
+      .select("id, name, category, pattern, severity, enabled, agent_id, shadow_mode, rationale")
       .eq("user_id", userId)
       .eq("enabled", true);
     custom = ((data ?? []) as Record<string, unknown>[]).map((r) => ({
@@ -153,6 +166,7 @@ export async function loadSafetyRules(
       builtin: false,
       agent_id: (r.agent_id as string | null | undefined) ?? null,
       shadow_mode: Boolean(r.shadow_mode),
+      rationale: (r.rationale as string | null | undefined) ?? null,
     }));
   } catch { /* custom rules are optional */ }
   // Builtins are always account-wide (agent_id undefined -> treated as
@@ -191,15 +205,20 @@ export function scanWithRules(
       sample: rule.category === "secrets" || rule.category === "pii"
         ? `${sample.slice(0, 4)}…redacted`
         : sample,
+      rationale: rule.rationale ?? null,
     });
   }
 
   if (!matches.length) return { matched: false, severity: null, matches: [], summary: null, shadowMatches: [] };
   const severity: SafetySeverity = matches.some((m) => m.severity === "block") ? "block" : "require_approval";
   const worst = matches.filter((m) => m.severity === severity);
+  // "Policy autonomy" plan, item 1: name the rule AND why it exists, when
+  // a rationale is set -- an existing rule with none yet just shows its
+  // name, same as before this field existed.
+  const withReason = worst.map((m) => (m.rationale ? `${m.name} (${m.rationale})` : m.name));
   const summary = severity === "block"
-    ? `Blocked by the safety scanner: ${worst.map((m) => m.name).join("; ")}. This is a pattern check, not a model judgement.`
-    : `Needs your approval — the safety scanner flagged: ${worst.map((m) => m.name).join("; ")}.`;
+    ? `Blocked by the safety scanner: ${withReason.join("; ")}. This is a pattern check, not a model judgement.`
+    : `Needs your approval — the safety scanner flagged: ${withReason.join("; ")}.`;
   return { matched: true, severity, matches, summary, shadowMatches: [] };
 }
 

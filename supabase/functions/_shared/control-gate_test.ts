@@ -448,6 +448,34 @@ Deno.test("SAFETY BOUNDARY: an outright BLOCKING hard rule is never auto-overrid
   assertFalse(result.autoResolved, "createPendingApproval (and therefore any policy) is never even consulted on the blocking path");
 });
 
+// ---- "Policy autonomy" plan, item 1: rule rationale surfaced in the decision reasoning ----
+
+Deno.test("a hard rule block names the rule's rationale when one is set", async () => {
+  const { client } = fakeSupabase({
+    hard_rules: {
+      data: [{
+        id: "r1", rule_text: "never send this", action_type_pattern: "*", effect: "always_block",
+        provider: null, enabled: true, rationale: "This provider has repeatedly caused chargebacks.",
+      }],
+      error: null,
+    },
+  });
+  const result = await runControlGate(client, baseCtx);
+  assertEquals(result.verdict, "block");
+  assert(result.reason?.includes("never send this"));
+  assert(result.reason?.includes("This provider has repeatedly caused chargebacks."));
+});
+
+Deno.test("a hard rule block with no rationale set reads exactly as before -- no placeholder text", async () => {
+  const { client } = fakeSupabase({
+    hard_rules: { data: [{ id: "r1", rule_text: "never send this", action_type_pattern: "*", effect: "always_block", provider: null, enabled: true }], error: null },
+  });
+  const result = await runControlGate(client, baseCtx);
+  assertEquals(result.verdict, "block");
+  assertFalse(result.reason?.includes("Why this rule exists"), "must never show the rationale prefix when there's no rationale to show");
+  assertFalse(result.reason?.includes("null"));
+});
+
 // ---- item 3: createPendingApproval's forcedResolution (control-engine's auto_narrow flow) ----
 
 const pendingApprovalBaseInput = {
