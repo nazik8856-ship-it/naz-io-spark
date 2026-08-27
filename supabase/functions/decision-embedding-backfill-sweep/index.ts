@@ -62,15 +62,21 @@ Deno.serve(async (req) => {
       const text = buildBackfillEmbeddingInput(row);
       const embedding = await generateEmbeddingWithinBudget(admin, row.user_id, row.api_key_id, text);
       if (embedding) {
-        const { error: insErr } = await admin.from("decision_embeddings").insert({
-          user_id: row.user_id,
-          decision_id: row.id,
-          api_key_id: row.api_key_id,
-          action_type: row.action_type ?? "unknown",
-          provider: row.provider ?? "unknown",
-          embedding: formatEmbeddingLiteral(embedding),
-        });
-        if (!insErr) embedded++;
+        // "Real precedent memory" plan, item 12: one row's insert throwing
+        // (a transient DB hiccup, a malformed row) must never abort the
+        // rest of this batch -- without this, every row AFTER the bad one
+        // would silently never get processed or stamped this run.
+        try {
+          const { error: insErr } = await admin.from("decision_embeddings").insert({
+            user_id: row.user_id,
+            decision_id: row.id,
+            api_key_id: row.api_key_id,
+            action_type: row.action_type ?? "unknown",
+            provider: row.provider ?? "unknown",
+            embedding: formatEmbeddingLiteral(embedding),
+          });
+          if (!insErr) embedded++;
+        } catch { /* this row's cursor still gets stamped below -- reconsidered next run at worst */ }
       }
     }
     // Stamped regardless of outcome -- advances the cursor either way,

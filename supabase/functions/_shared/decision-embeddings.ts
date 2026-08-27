@@ -90,21 +90,38 @@ export function buildBackfillEmbeddingInput(row: BackfillableDecisionRow): strin
   return buildEmbeddingInput({ actionType, provider, description: `${row.decision} — ${row.reasoning}`, params: {} });
 }
 
+// "Real precedent memory" plan, item 12: never let a memory-lookup
+// hiccup SLOW DOWN a real decision, not just never let it break one --
+// a hung embeddings call, with no timeout at all, could otherwise stall
+// a real judgment indefinitely. Same AbortController pattern already
+// established for exactly this reason elsewhere (agent-runtime's own
+// http_post tool fetch), same 5s budget -- an embedding call is a small,
+// fast request, nothing like a full model completion.
+const EMBEDDING_FETCH_TIMEOUT_MS = 5_000;
+
 /**
  * Calls the embeddings endpoint. Never throws -- returns null on any
  * failure at all (missing key, network error, non-2xx, malformed body,
- * wrong dimension) so a caller can always treat "no embedding" as a
- * normal, expected outcome rather than an exception to catch.
+ * wrong dimension, timeout) so a caller can always treat "no embedding"
+ * as a normal, expected outcome rather than an exception to catch.
  */
 export async function generateEmbedding(text: string): Promise<number[] | null> {
   try {
     const apiKey = Deno.env.get("LOVABLE_API_KEY");
     if (!apiKey || !text) return null;
-    const res = await fetch(EMBEDDINGS_URL, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: EMBEDDING_MODEL, input: text }),
-    });
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), EMBEDDING_FETCH_TIMEOUT_MS);
+    let res: Response;
+    try {
+      res = await fetch(EMBEDDINGS_URL, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model: EMBEDDING_MODEL, input: text }),
+        signal: ctrl.signal,
+      });
+    } finally {
+      clearTimeout(to);
+    }
     if (!res.ok) return null;
     const data = await res.json();
     const vector = data?.data?.[0]?.embedding;

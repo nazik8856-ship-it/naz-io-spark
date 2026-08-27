@@ -151,6 +151,34 @@ Deno.test("generateEmbedding: a correctly-shaped response returns the real vecto
   }
 });
 
+Deno.test("generateEmbedding: passes a real abort signal so a hung call can be cut off (item 12), not left to hang forever", async () => {
+  Deno.env.set("LOVABLE_API_KEY", "test-key");
+  const originalFetch = globalThis.fetch;
+  let sawSignal: AbortSignal | undefined;
+  globalThis.fetch = ((_url: string, init?: RequestInit) => {
+    sawSignal = init?.signal ?? undefined;
+    return Promise.resolve(new Response(JSON.stringify({ data: [{ embedding: Array(EMBEDDING_DIMENSIONS).fill(0.1) }] }), { status: 200 }));
+  }) as typeof fetch;
+  try {
+    await generateEmbedding("some text");
+    assert(sawSignal instanceof AbortSignal, "must pass a real AbortSignal so a hung fetch can be cut off");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("generateEmbedding: an aborted (timed-out) call is a normal failure, not a thrown exception", async () => {
+  Deno.env.set("LOVABLE_API_KEY", "test-key");
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (() => Promise.reject(new DOMException("The operation was aborted.", "AbortError"))) as typeof fetch;
+  try {
+    const result = await generateEmbedding("some text");
+    assertEquals(result, null);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 Deno.test("generateEmbedding: a network error never throws, resolves to null", async () => {
   Deno.env.set("LOVABLE_API_KEY", "test-key");
   const originalFetch = globalThis.fetch;
