@@ -3,7 +3,8 @@
 // Run with: deno test --allow-none supabase/functions/_shared/decision-export_test.ts
 import {
   encodeExportCursor, decodeExportCursor, clampExportLimit, exportCursorFilter,
-  DEFAULT_EXPORT_LIMIT, MAX_EXPORT_LIMIT,
+  DEFAULT_EXPORT_LIMIT, MAX_EXPORT_LIMIT, buildExportPage, groupOutcomesByDecision,
+  type ExportableOutcome,
 } from "./decision-export.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
@@ -66,4 +67,59 @@ Deno.test("exportCursorFilter: builds the expected PostgREST .or() expression", 
     filter,
     "created_at.gt.2026-08-27T12:00:00.000Z,and(created_at.eq.2026-08-27T12:00:00.000Z,id.gt.abc-123)",
   );
+});
+
+// ---- "policy autonomy" item 12: buildExportPage / groupOutcomesByDecision ----
+
+type Row = { id: string; created_at: string };
+const row = (id: string, createdAt: string): Row => ({ id, created_at: createdAt });
+
+Deno.test("buildExportPage: exactly limit rows (no extra) means no more pages, no next cursor", () => {
+  const rows = [row("a", "2026-08-27T00:00:00Z"), row("b", "2026-08-27T00:00:01Z")];
+  const result = buildExportPage(rows, 2);
+  assertEquals(result.page, rows);
+  assertEquals(result.hasMore, false);
+  assertEquals(result.nextCursor, null);
+});
+
+Deno.test("buildExportPage: one extra row beyond the limit means there's more, and trims it off the returned page", () => {
+  const rows = [row("a", "2026-08-27T00:00:00Z"), row("b", "2026-08-27T00:00:01Z"), row("c", "2026-08-27T00:00:02Z")];
+  const result = buildExportPage(rows, 2);
+  assertEquals(result.page, [rows[0], rows[1]]);
+  assertEquals(result.hasMore, true);
+  assertEquals(decodeExportCursor(result.nextCursor), { createdAt: "2026-08-27T00:00:01Z", id: "b" });
+});
+
+Deno.test("buildExportPage: an empty result has no more pages and no cursor", () => {
+  const result = buildExportPage([], 50);
+  assertEquals(result, { page: [], hasMore: false, nextCursor: null });
+});
+
+const outcome = (over: Partial<ExportableOutcome> = {}): ExportableOutcome => ({
+  linked_metric: "reply_rate",
+  baseline_value: 10,
+  result_value: 12,
+  delta: 2,
+  delta_pct: 20,
+  direction: "positive",
+  window_days: 7,
+  measured_at: "2026-08-27T00:00:00Z",
+  ...over,
+});
+
+Deno.test("groupOutcomesByDecision: groups multiple outcome rows for the same decision into one array", () => {
+  const grouped = groupOutcomesByDecision([
+    { decision_id: "d1", ...outcome({ linked_metric: "reply_rate" }) },
+    { decision_id: "d1", ...outcome({ linked_metric: "conversion", window_days: 30 }) },
+    { decision_id: "d2", ...outcome({ linked_metric: "reply_rate" }) },
+  ]);
+  assertEquals(grouped.get("d1")?.length, 2);
+  assertEquals(grouped.get("d2")?.length, 1);
+  assert(!("decision_id" in (grouped.get("d1")?.[0] ?? {})), "the grouping key itself should not leak into each outcome object");
+});
+
+Deno.test("groupOutcomesByDecision: a decision with no outcome rows simply has no entry -- caller must default to an empty array", () => {
+  const grouped = groupOutcomesByDecision([]);
+  assertEquals(grouped.get("d1"), undefined);
+  assertEquals(grouped.get("d1") ?? [], []);
 });

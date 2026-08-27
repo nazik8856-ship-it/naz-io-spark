@@ -45,7 +45,7 @@ import { checkIpRateLimit, checkRateLimit, resolveConfiguredRateLimit } from "..
 import { getApiKeySpendStatus } from "../_shared/spend-guard.ts";
 import { checkApiVersion, CONTROL_API_VERSION } from "../_shared/api-versioning.ts";
 import { parseControlApiAction, MAX_BATCH_ACTIONS, type ParsedControlApiAction } from "../_shared/control-api-action.ts";
-import { encodeExportCursor, decodeExportCursor, clampExportLimit, exportCursorFilter } from "../_shared/decision-export.ts";
+import { decodeExportCursor, clampExportLimit, exportCursorFilter, buildExportPage, groupOutcomesByDecision, type ExportableOutcome } from "../_shared/decision-export.ts";
 import { claimRowOnce, claimIdempotencyKey, saveIdempotencyResponse, releaseIdempotencyKey } from "../_shared/idempotency.ts";
 import { classifyPlatformStatus, platformStatusMessage, DEGRADED_LOOKBACK_MINUTES } from "../_shared/platform-status.ts";
 import { classifyDecisionVerification, type RawDecisionVerification } from "../_shared/decision-verification.ts";
@@ -398,13 +398,57 @@ Deno.serve(async (req) => {
     const { data, error } = await query;
     if (error) return json({ error: error.message }, 500);
 
-    const rows = (data ?? []) as { id: string; created_at: string }[];
-    const hasMore = rows.length > limit;
-    const page = hasMore ? rows.slice(0, limit) : rows;
-    const last = page[page.length - 1];
-    const nextCursor = hasMore && last ? encodeExportCursor({ createdAt: last.created_at, id: last.id }) : null;
-
+    const { page, hasMore, nextCursor } = buildExportPage((data ?? []) as { id: string; created_at: string }[], limit);
     return json({ decisions: page, has_more: hasMore, next_cursor: nextCursor });
+  }
+
+  // ---- GET /control-api/v1/decisions/export-outcomes -----------------------
+  // "Policy autonomy" plan, item 12: the plain decision export above hands
+  // back verdicts (plus precedent_citations). This ALSO joins in the real
+  // measured OUTCOMES (decision_outcomes) behind those verdicts, as one
+  // structured dataset a caller's own team can analyze or train on --
+  // not just NazAI's. Confirmed: decision_outcomes carries no internal
+  // reviewer identity and no cross-account data -- org_insight_id and
+  // agent_id are internal NazAI concepts with no meaning to an external
+  // caller, deliberately excluded here. Same keyset cursor/limit
+  // pagination as the plain export above, same rate-limit bucket (this
+  // is a heavier query per page, not a separate allowance to exploit).
+  if (req.method === "GET" && /\/decisions\/export-outcomes\/?$/.test(url.pathname)) {
+    const rate = await checkRateLimit(admin, userId, "control-api-export", EXPORT_RATE_LIMIT_PER_MINUTE, 60);
+    if (!rate.allowed) {
+      return json({
+        error: "rate_limited",
+        message: `Too many requests — ${rate.count} in the last minute (limit ${rate.limit}). Try again shortly.`,
+      }, 429);
+    }
+
+    const limit = clampExportLimit(url.searchParams.get("limit"));
+    const cursor = decodeExportCursor(url.searchParams.get("cursor"));
+    const since = url.searchParams.get("since");
+
+    let query = admin.from("agent_decisions").select(DECISION_EXPORT_FIELDS).eq("user_id", userId);
+    if (cursor) query = query.or(exportCursorFilter(cursor));
+    else if (since) query = query.gte("created_at", since);
+    query = query.order("created_at", { ascending: true }).order("id", { ascending: true }).limit(limit + 1);
+
+    const { data, error } = await query;
+    if (error) return json({ error: error.message }, 500);
+
+    const { page, hasMore, nextCursor } = buildExportPage((data ?? []) as { id: string; created_at: string }[], limit);
+
+    const decisionIds = page.map((d) => (d as { id: string }).id);
+    let outcomesByDecision = new Map<string, ExportableOutcome[]>();
+    if (decisionIds.length) {
+      const { data: outcomeRows, error: outcomeErr } = await admin
+        .from("decision_outcomes")
+        .select("decision_id, linked_metric, baseline_value, result_value, delta, delta_pct, direction, window_days, measured_at")
+        .in("decision_id", decisionIds);
+      if (outcomeErr) return json({ error: outcomeErr.message }, 500);
+      outcomesByDecision = groupOutcomesByDecision((outcomeRows ?? []) as (ExportableOutcome & { decision_id: string })[]);
+    }
+    const decisions = page.map((d) => ({ ...d, outcomes: outcomesByDecision.get((d as { id: string }).id) ?? [] }));
+
+    return json({ decisions, has_more: hasMore, next_cursor: nextCursor });
   }
 
   // ---- POST /control-api/v1/decisions/:id/resolve --------------------------
