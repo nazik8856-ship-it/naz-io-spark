@@ -61,6 +61,34 @@ export function formatEmbeddingLiteral(embedding: number[]): string {
   return `[${embedding.join(",")}]`;
 }
 
+// "Real precedent memory" plan, item 2: backfilling historical rows.
+export type BackfillableDecisionRow = {
+  action_type: string | null;
+  provider: string | null;
+  description: string | null;
+  params: unknown;
+  decision: string;
+  reasoning: string;
+};
+
+/**
+ * Pure -- builds embedding input for a HISTORICAL agent_decisions row,
+ * which may predate structured description/params capture (only ever
+ * populated for the two deterministic BLOCK call sites -- see
+ * control-gate.ts's logStop, whose own comment documents this as
+ * deliberate scope, not an oversight). Falls back to the row's own
+ * free-text decision/reasoning, which every row always has, when the
+ * structured fields are missing.
+ */
+export function buildBackfillEmbeddingInput(row: BackfillableDecisionRow): string {
+  const actionType = row.action_type ?? "unknown";
+  const provider = row.provider ?? "unknown";
+  if (row.description) {
+    return buildEmbeddingInput({ actionType, provider, description: row.description, params: row.params });
+  }
+  return buildEmbeddingInput({ actionType, provider, description: `${row.decision} — ${row.reasoning}`, params: {} });
+}
+
 /**
  * Calls the embeddings endpoint. Never throws -- returns null on any
  * failure at all (missing key, network error, non-2xx, malformed body,

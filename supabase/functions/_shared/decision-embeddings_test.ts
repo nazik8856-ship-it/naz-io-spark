@@ -1,7 +1,7 @@
 // Real tests for item 1's embedding pipeline pure logic + guard behavior.
 //
 // Run with: deno test --allow-none supabase/functions/_shared/decision-embeddings_test.ts
-import { buildEmbeddingInput, formatEmbeddingLiteral, generateEmbedding, embedDecisionIfExternal, EMBEDDING_DIMENSIONS } from "./decision-embeddings.ts";
+import { buildEmbeddingInput, formatEmbeddingLiteral, generateEmbedding, embedDecisionIfExternal, buildBackfillEmbeddingInput, EMBEDDING_DIMENSIONS } from "./decision-embeddings.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
@@ -56,6 +56,35 @@ Deno.test("formatEmbeddingLiteral: formats a vector as a pgvector literal string
 
 Deno.test("formatEmbeddingLiteral: an empty vector formats as an empty literal", () => {
   assertEquals(formatEmbeddingLiteral([]), "[]");
+});
+
+// ---- buildBackfillEmbeddingInput (item 2) ----
+
+Deno.test("buildBackfillEmbeddingInput: uses the structured description/params when present", () => {
+  const text = buildBackfillEmbeddingInput({
+    action_type: "send_email", provider: "Gmail", description: "Reply to a customer.", params: { to: "a@b.com" },
+    decision: "ALLOW send_email (Gmail)", reasoning: "looked fine",
+  });
+  assert(text.includes("Reply to a customer."));
+  assert(text.includes('"to":"a@b.com"'));
+});
+
+Deno.test("buildBackfillEmbeddingInput: falls back to decision + reasoning when description is missing (pre-structured-capture rows)", () => {
+  const text = buildBackfillEmbeddingInput({
+    action_type: "send_email", provider: "Gmail", description: null, params: null,
+    decision: "ALLOW send_email (Gmail)", reasoning: "looked fine",
+  });
+  assert(text.includes("ALLOW send_email (Gmail)"));
+  assert(text.includes("looked fine"));
+});
+
+Deno.test("buildBackfillEmbeddingInput: missing action_type/provider fall back to 'unknown', never null/undefined text", () => {
+  const text = buildBackfillEmbeddingInput({
+    action_type: null, provider: null, description: null, params: null,
+    decision: "ALLOW something", reasoning: "fine",
+  });
+  assert(text.includes("unknown"));
+  assert(!text.includes("null"));
 });
 
 // ---- generateEmbedding ----
