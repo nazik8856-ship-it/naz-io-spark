@@ -24,7 +24,15 @@ export type CallbackConfig = {
   fallback: "auto_allow" | "auto_deny";
 };
 
-export type CallbackOutcome = { resolution: "approved" | "rejected" };
+export type CallbackOutcome = {
+  resolution: "approved" | "rejected";
+  // "Policy autonomy" plan, item 4: true only when nothing ever arrived
+  // and the configured fallback had to be used -- false for a real
+  // answer, whether it arrived during the poll or won the final-instant
+  // claim race. Lets a caller track "this callback attempt failed to
+  // get a real answer" separately from what the eventual resolution was.
+  usedFallback: boolean;
+};
 
 const POLL_INTERVAL_MS = 1000;
 const NOTIFY_TIMEOUT_MS = 5000;
@@ -84,7 +92,7 @@ export async function notifyAndAwaitCallback(
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
     const { data } = await admin.from("pending_approvals").select("status").eq("id", approvalId).maybeSingle();
     const disposition = classifyPendingApprovalStatus((data as { status?: string } | null)?.status);
-    if (disposition !== "pending") return { resolution: disposition };
+    if (disposition !== "pending") return { resolution: disposition, usedFallback: false };
   }
 
   const won = await claimRowOnce(admin, "pending_approvals", approvalId, "resolved_at");
@@ -92,7 +100,7 @@ export async function notifyAndAwaitCallback(
     // A /resolve call won the race in the last instant -- use its answer.
     const { data } = await admin.from("pending_approvals").select("status").eq("id", approvalId).maybeSingle();
     const disposition = classifyPendingApprovalStatus((data as { status?: string } | null)?.status);
-    return { resolution: disposition === "pending" ? "rejected" : disposition };
+    return { resolution: disposition === "pending" ? "rejected" : disposition, usedFallback: false };
   }
 
   const resolution = config.fallback === "auto_allow" ? "approved" : "rejected";
@@ -102,5 +110,5 @@ export async function notifyAndAwaitCallback(
       comment: `Resolved automatically to ${resolution}: no answer arrived from the configured callback URL within ${config.timeoutSeconds}s, falling back to this key's configured callback_fallback — no human reviewed this.`,
     }).eq("id", approvalId);
   } catch { /* the claim above already won -- outcome stands even if this decoration write fails */ }
-  return { resolution };
+  return { resolution, usedFallback: true };
 }

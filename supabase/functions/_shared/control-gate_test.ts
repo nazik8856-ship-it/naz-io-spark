@@ -550,6 +550,79 @@ Deno.test("createPendingApproval: on_uncertain='callback' delegates to notifyAnd
   }
 });
 
+// ---- "Policy autonomy" plan, item 4: a broken callback pulls its key back toward caution ----
+
+Deno.test("createPendingApproval: a callback timeout increments the key's failure streak", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (() => Promise.resolve(new Response("{}", { status: 200 }))) as typeof fetch;
+  try {
+    const { client, updates } = fakeSupabase({
+      api_keys: {
+        data: {
+          on_uncertain: "callback", callback_url: "https://caller.example/callback",
+          callback_secret: "s3cr3t", callback_timeout_seconds: 1, callback_fallback: "auto_deny",
+          callback_failure_streak: 1,
+        },
+        error: null,
+      },
+      pending_approvals: { data: { id: "approval-1", status: "pending" }, error: null },
+    });
+    await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
+    const keyUpdate = (updates.api_keys ?? []).find((u) => "callback_failure_streak" in (u as object)) as { callback_failure_streak?: number; on_uncertain?: string } | undefined;
+    assertEquals(keyUpdate?.callback_failure_streak, 2);
+    assertEquals(keyUpdate?.on_uncertain, undefined, "below the threshold, on_uncertain itself must stay untouched");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("createPendingApproval: a callback failure streak crossing the threshold downgrades on_uncertain to human_review", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (() => Promise.resolve(new Response("{}", { status: 200 }))) as typeof fetch;
+  try {
+    const { client, updates, inserts } = fakeSupabase({
+      api_keys: {
+        data: {
+          on_uncertain: "callback", callback_url: "https://caller.example/callback",
+          callback_secret: "s3cr3t", callback_timeout_seconds: 1, callback_fallback: "auto_deny",
+          callback_failure_streak: 2,
+        },
+        error: null,
+      },
+      pending_approvals: { data: { id: "approval-1", status: "pending" }, error: null },
+    });
+    await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
+    const keyUpdate = (updates.api_keys ?? []).find((u) => "callback_failure_streak" in (u as object)) as {
+      callback_failure_streak?: number; on_uncertain?: string; on_uncertain_downgraded_at?: string | null; on_uncertain_downgrade_reason?: string | null;
+    } | undefined;
+    assertEquals(keyUpdate?.callback_failure_streak, 3);
+    assertEquals(keyUpdate?.on_uncertain, "human_review");
+    assert(keyUpdate?.on_uncertain_downgraded_at, "must stamp when the system-initiated downgrade happened");
+    assert(keyUpdate?.on_uncertain_downgrade_reason?.toLowerCase().includes("callback"), "the reason must explain the callback caused it");
+    const alertInsert = (inserts.critical_alerts ?? []).find((a) => (a as { event?: string }).event === "on_uncertain_auto_downgraded");
+    assert(alertInsert, "a real alert must fire for a system-initiated policy downgrade");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("createPendingApproval: a real callback answer resets an existing failure streak back to zero", async () => {
+  const { client, updates } = fakeSupabase({
+    api_keys: {
+      data: {
+        on_uncertain: "callback", callback_url: "https://caller.example/callback",
+        callback_secret: "s3cr3t", callback_timeout_seconds: 30, callback_fallback: "auto_deny",
+        callback_failure_streak: 2,
+      },
+      error: null,
+    },
+    pending_approvals: { data: { id: "approval-1", status: "approved" }, error: null },
+  });
+  await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
+  const keyUpdate = (updates.api_keys ?? []).find((u) => "callback_failure_streak" in (u as object)) as { callback_failure_streak?: number } | undefined;
+  assertEquals(keyUpdate?.callback_failure_streak, 0);
+});
+
 // ---- item 6: shadow-mode preview of a candidate on_uncertain policy ----
 
 Deno.test("createPendingApproval: a configured shadow_on_uncertain records what it WOULD have decided, without affecting the real outcome", async () => {

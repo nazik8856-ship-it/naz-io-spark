@@ -60,7 +60,13 @@ export type CriticalAlertEvent =
   // summed across MULTIPLE keys, looks abusive even though no single
   // key crosses its own per-key threshold -- a pattern the existing
   // per-key control_api_abuse check can't see by design.
-  | "control_api_coordinated_abuse";
+  | "control_api_coordinated_abuse"
+  // "Policy autonomy" plan, item 4: a key's own on_uncertain policy was
+  // automatically pulled back toward more caution -- repeated abuse-
+  // pauses in a short window, or a callback URL that's stopped
+  // answering. A genuine, explicit exception to "only a human changes
+  // on_uncertain," always tagged unmistakably as system-initiated.
+  | "on_uncertain_auto_downgraded";
 
 const APP_BASE_URL = "https://www.nazai.net";
 
@@ -89,6 +95,7 @@ export const LABELS: Record<CriticalAlertEvent, string> = {
   auto_resolution_share_spike: "🤖 An unusually large share of decisions are being resolved automatically",
   precedent_pipeline_stale: "🧠 An API key's real-precedent memory has gone stale",
   control_api_coordinated_abuse: "🚩 Unusual activity spread across multiple Control API keys",
+  on_uncertain_auto_downgraded: "🛑 An API key's auto-resolve policy was automatically pulled back to human review",
 };
 
 export function decisionLink(decisionId?: string | null): string | null {

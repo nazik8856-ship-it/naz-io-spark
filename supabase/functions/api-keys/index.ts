@@ -87,7 +87,18 @@ Deno.serve(async (req) => {
     // Item 4: "callback" needs somewhere to notify and something to sign
     // with -- reject it outright rather than silently accepting a policy
     // that could never actually notify anyone.
-    const update: Record<string, unknown> = { on_uncertain: body.on_uncertain };
+    // "Policy autonomy" plan, item 4: a human explicitly setting
+    // on_uncertain here is exactly "clearing it back the normal way" --
+    // a system-initiated downgrade (repeated abuse-pauses, a broken
+    // callback) must never keep showing as active once a human has
+    // actually acted on it. Also gives the callback-failure streak a
+    // fresh start, since a human just made a real, deliberate choice.
+    const update: Record<string, unknown> = {
+      on_uncertain: body.on_uncertain,
+      on_uncertain_downgraded_at: null,
+      on_uncertain_downgrade_reason: null,
+      callback_failure_streak: 0,
+    };
     // Item 6: a SEPARATE, optional shadow-mode policy -- lets an account
     // preview a candidate on_uncertain value against real traffic without
     // it ever governing a real escalation. `null` explicitly clears it
@@ -166,7 +177,7 @@ Deno.serve(async (req) => {
       .update(update)
       .eq("id", keyId)
       .eq("user_id", targetUserId)
-      .select("id, on_uncertain, callback_url, callback_timeout_seconds, callback_fallback, shadow_on_uncertain, on_gate_error, rate_limit_per_minute")
+      .select("id, on_uncertain, callback_url, callback_timeout_seconds, callback_fallback, shadow_on_uncertain, on_gate_error, rate_limit_per_minute, on_uncertain_downgraded_at, on_uncertain_downgrade_reason")
       .maybeSingle();
     if (error) return json({ error: error.message }, 500);
     if (!data) return json({ error: "Key not found for this account." }, 404);
@@ -247,7 +258,7 @@ Deno.serve(async (req) => {
 
     const { data, error } = await admin
       .from("api_keys")
-      .select("id, name, key_prefix, scopes, on_uncertain, shadow_on_uncertain, on_gate_error, rate_limit_per_minute, last_used_at, revoked_at, expires_at, created_at")
+      .select("id, name, key_prefix, scopes, on_uncertain, shadow_on_uncertain, on_gate_error, rate_limit_per_minute, last_used_at, revoked_at, expires_at, created_at, on_uncertain_downgraded_at, on_uncertain_downgrade_reason")
       .eq("user_id", targetUserId)
       .order("created_at", { ascending: false });
     if (error) return json({ error: error.message }, 500);

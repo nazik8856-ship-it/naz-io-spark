@@ -35,6 +35,7 @@ import { findPrecedent, loadOutcomeDirections, loadStoredEmbeddingLiteral } from
 import { alignPrecedentSignals, evaluatePrecedentForAutoApprove, shouldRejectOnPrecedent, summarizePrecedentOverride } from "./precedent-advice.ts";
 import { buildPrecedentCitationRecord, recordPrecedentCitation } from "./precedent-citation.ts";
 import { isWithinQuietHours, summarizeQuietHoursEscalation, type QuietHoursConfig } from "./quiet-hours.ts";
+import { isCallbackFailureTrouble, summarizePolicyDowngrade } from "./policy-downgrade.ts";
 
 export const BREAKER_WINDOW = 10;
 export const BREAKER_MIN_ATTEMPTS = 4;
@@ -223,13 +224,17 @@ export type ApiKeyCallbackRow = {
   quiet_hours_start_hour: number | null;
   quiet_hours_end_hour: number | null;
   quiet_hours_timezone: string | null;
+  // "Policy autonomy" plan, item 4: how many callback attempts in a row
+  // have failed to get a real answer back -- reset to 0 the moment a
+  // real answer arrives again.
+  callback_failure_streak: number | null;
 };
 
 /** "Zero human review" plan, item 4: the fuller row createPendingApproval's own "callback" branch needs -- kept separate from loadOnUncertainPolicy above since most callers only ever need the one column. */
 async function loadApiKeyCallbackConfig(admin: SupabaseClient, apiKeyId: string): Promise<ApiKeyCallbackRow | null> {
   const { data } = await admin
     .from("api_keys")
-    .select("on_uncertain, callback_url, callback_secret, callback_timeout_seconds, callback_fallback, shadow_on_uncertain, quiet_hours_start_hour, quiet_hours_end_hour, quiet_hours_timezone")
+    .select("on_uncertain, callback_url, callback_secret, callback_timeout_seconds, callback_fallback, shadow_on_uncertain, quiet_hours_start_hour, quiet_hours_end_hour, quiet_hours_timezone, callback_failure_streak")
     .eq("id", apiKeyId)
     .maybeSingle();
   return data as ApiKeyCallbackRow | null;
@@ -428,6 +433,33 @@ export async function createPendingApproval(
         params: input.params ?? {},
         reason: input.reason,
       });
+      // "Policy autonomy" plan, item 4: a broken callback URL should
+      // eventually pull this key back to human_review, not silently lean
+      // on its fallback forever. Tracking (and the downgrade itself) is
+      // best-effort -- a hiccup here must never affect the real
+      // resolution the caller already got back above.
+      if (input.apiKeyId) {
+        try {
+          if (delegated.usedFallback) {
+            const streak = (keyRow?.callback_failure_streak ?? 0) + 1;
+            const updates: Record<string, unknown> = { callback_failure_streak: streak };
+            const troubled = isCallbackFailureTrouble(streak);
+            if (troubled) {
+              updates.on_uncertain = "human_review";
+              updates.on_uncertain_downgraded_at = now.toISOString();
+              updates.on_uncertain_downgrade_reason = summarizePolicyDowngrade("callback_failures", String(streak));
+            }
+            await admin.from("api_keys").update(updates).eq("id", input.apiKeyId);
+            if (troubled) {
+              const summary = summarizePolicyDowngrade("callback_failures", String(streak));
+              await sendCriticalAlert(admin, input.userId, { event: "on_uncertain_auto_downgraded", summary });
+              await openIncident(admin, input.userId, { kind: "on_uncertain_auto_downgraded", summary });
+            }
+          } else if ((keyRow?.callback_failure_streak ?? 0) > 0) {
+            await admin.from("api_keys").update({ callback_failure_streak: 0 }).eq("id", input.apiKeyId);
+          }
+        } catch { /* tracking must never affect the real callback resolution already decided above */ }
+      }
       return { approvalId: id, autoResolved: true, resolution: delegated.resolution };
     }
     // A resolution nobody needs to act on shouldn't page anyone -- only a

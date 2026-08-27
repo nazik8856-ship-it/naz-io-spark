@@ -46,7 +46,7 @@ Deno.test("notifyAndAwaitCallback: a status that's already resolved by the next 
       // deno-lint-ignore no-explicit-any
     } as any;
     const outcome = await notifyAndAwaitCallback(client, "approval-1", config, { action_type: "send_email" });
-    assertEquals(outcome, { resolution: "approved" });
+    assertEquals(outcome, { resolution: "approved", usedFallback: false });
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -70,7 +70,7 @@ Deno.test("notifyAndAwaitCallback: no answer within the window falls back to cal
       // deno-lint-ignore no-explicit-any
     } as any;
     const outcome = await notifyAndAwaitCallback(client, "approval-1", config, { action_type: "send_email" });
-    assertEquals(outcome, { resolution: "rejected" });
+    assertEquals(outcome, { resolution: "rejected", usedFallback: true });
     // updates[0] is claimRowOnce's own resolved_at claim -- the decorate
     // call (setting status/comment) is the one after it.
     assertEquals(updates[1]?.status, "auto_rejected");
@@ -93,7 +93,7 @@ Deno.test("notifyAndAwaitCallback: callback_fallback auto_allow resolves to appr
       // deno-lint-ignore no-explicit-any
     } as any;
     const outcome = await notifyAndAwaitCallback(client, "approval-1", { ...config, fallback: "auto_allow" }, {});
-    assertEquals(outcome, { resolution: "approved" });
+    assertEquals(outcome, { resolution: "approved", usedFallback: true });
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -113,7 +113,7 @@ Deno.test("notifyAndAwaitCallback: never throws even if the notification fetch i
       // deno-lint-ignore no-explicit-any
     } as any;
     const outcome = await notifyAndAwaitCallback(client, "approval-1", config, {});
-    assertEquals(outcome, { resolution: "rejected" });
+    assertEquals(outcome, { resolution: "rejected", usedFallback: true });
   } finally {
     globalThis.fetch = originalFetch;
   }

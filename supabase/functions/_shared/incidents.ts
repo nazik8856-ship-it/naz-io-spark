@@ -45,6 +45,10 @@ export const INCIDENT_KINDS = [
   // multiple keys looks abusive even though no single key looks bad
   // alone.
   "control_api_coordinated_abuse",
+  // "Policy autonomy" plan, item 4: a key's own on_uncertain policy was
+  // automatically pulled back toward caution after repeated real
+  // trouble -- a real, auditable system intervention, not just a notice.
+  "on_uncertain_auto_downgraded",
 ] as const;
 export type IncidentKind = typeof INCIDENT_KINDS[number];
 

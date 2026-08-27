@@ -15,6 +15,7 @@
 // webhooks.alerted_at / agent_integrations.revoked_alerted_at).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { summarizeKeyActivity, isVolumeAbuse, isBlockRateAbuse, summarizeAbuseReason, computePauseUntil, summarizeAccountActivity, isCoordinatedAccountAbuse, summarizeCoordinatedAbuse, type DecisionRow } from "../_shared/control-api-abuse.ts";
+import { isRepeatedPauseTrouble, summarizePolicyDowngrade } from "../_shared/policy-downgrade.ts";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
 import { openIncident } from "../_shared/incidents.ts";
 
@@ -63,10 +64,13 @@ Deno.serve(async (req) => {
 
     const { data: keyRow } = await admin
       .from("api_keys")
-      .select("abuse_alerted_at, key_prefix, pause_count")
+      .select("abuse_alerted_at, key_prefix, pause_count, last_pause_at, on_uncertain_downgraded_at")
       .eq("id", a.apiKeyId)
       .maybeSingle();
-    const key = keyRow as { abuse_alerted_at?: string | null; key_prefix?: string; pause_count?: number } | null;
+    const key = keyRow as {
+      abuse_alerted_at?: string | null; key_prefix?: string; pause_count?: number;
+      last_pause_at?: string | null; on_uncertain_downgraded_at?: string | null;
+    } | null;
     const alreadyAlerted = !!key?.abuse_alerted_at;
 
     if (abusive && !alreadyAlerted) {
@@ -76,18 +80,34 @@ Deno.serve(async (req) => {
       // key itself for a bounded cooldown at the same moment it's
       // alerted, so a leaked/misbehaving key stops actually running the
       // instant this sweep notices it, not whenever a person gets to it.
-      const pausedUntil = computePauseUntil();
+      const now = new Date();
+      const pausedUntil = computePauseUntil(now);
       const reason = summarizeAbuseReason(a, VOLUME_THRESHOLD, BLOCK_RATE_MIN_SAMPLE, BLOCK_RATE_THRESHOLD);
       const summary = `Your Control API key ${key?.key_prefix ?? "(unknown)"} shows ${reason} It has been automatically paused and will resume accepting requests on its own at ${pausedUntil}.`;
+      // "Policy autonomy" plan, item 4: a key needing this safety net more
+      // than once in a short window is real repeated trouble, not an
+      // isolated incident -- pulls its own on_uncertain policy back to
+      // human_review too, not just another pause. Checked against the
+      // PREVIOUS last_pause_at, before it gets overwritten below.
+      const repeatedTrouble = isRepeatedPauseTrouble(key?.last_pause_at, now) && !key?.on_uncertain_downgraded_at;
       try {
         await sendCriticalAlert(admin, a.userId, { event: "control_api_abuse", summary });
+        const updates: Record<string, unknown> = {
+          abuse_alerted_at: now.toISOString(),
+          paused_until: pausedUntil,
+          pause_count: (key?.pause_count ?? 0) + 1,
+          last_pause_at: now.toISOString(),
+        };
+        let downgradeSummary: string | null = null;
+        if (repeatedTrouble) {
+          downgradeSummary = summarizePolicyDowngrade("repeated_pause", "");
+          updates.on_uncertain = "human_review";
+          updates.on_uncertain_downgraded_at = now.toISOString();
+          updates.on_uncertain_downgrade_reason = downgradeSummary;
+        }
         const { error: updErr } = await admin
           .from("api_keys")
-          .update({
-            abuse_alerted_at: new Date().toISOString(),
-            paused_until: pausedUntil,
-            pause_count: (key?.pause_count ?? 0) + 1,
-          })
+          .update(updates)
           .eq("id", a.apiKeyId);
         if (updErr) console.error(`[CONTROL API ABUSE SWEEP] failed to stamp/pause ${a.apiKeyId}: ${updErr.message}`);
         else {
@@ -97,6 +117,10 @@ Deno.serve(async (req) => {
           // which also open an incident the moment the SYSTEM itself takes
           // an action, not only when it merely notices something.
           await openIncident(admin, a.userId, { kind: "control_api_abuse", summary });
+          if (downgradeSummary) {
+            await sendCriticalAlert(admin, a.userId, { event: "on_uncertain_auto_downgraded", summary: downgradeSummary });
+            await openIncident(admin, a.userId, { kind: "on_uncertain_auto_downgraded", summary: downgradeSummary });
+          }
         }
       } catch (e) {
         console.error(`[CONTROL API ABUSE SWEEP] alert/pause failed for ${a.apiKeyId}: ${e instanceof Error ? e.message : String(e)}`);
