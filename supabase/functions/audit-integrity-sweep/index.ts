@@ -21,7 +21,7 @@
 // 2. A real user JWT — runs the sweep for just that one caller.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
-import { isAuditIntegrityFailure, summarizeAuditIntegrityFailure, isAutoResolutionMismatch, type SignatureVerifyResult, type AuditIntegrityResult } from "../_shared/audit-integrity.ts";
+import { isAuditIntegrityFailure, summarizeAuditIntegrityFailure, isAutoResolutionMismatch, isPrecedentCitationMismatch, type SignatureVerifyResult, type AuditIntegrityResult, type StoredPrecedentCitation } from "../_shared/audit-integrity.ts";
 import { evaluateAction, type PolicySnapshot } from "../_shared/policy-replay.ts";
 
 const corsHeaders = {
@@ -80,6 +80,48 @@ async function checkAutoResolutions(
   }
 }
 
+// "Real precedent memory" plan, item 15: re-checks every real precedent
+// citation (item 9's own agent_decisions.precedent_citations) recorded in
+// range against its OWN stored stats -- does its claimed sample size
+// match what it actually lists, do the decisions it cites still exist,
+// and does its stated reason genuinely follow from its own numbers.
+// Never re-runs the embedding/search that originally produced the
+// citation (that could legitimately return different neighbors by audit
+// time, as more precedent accumulates) -- purely an internal-consistency
+// and existence check, the same "did this record's own claim actually
+// hold up" spirit as the signature check above. Never throws -- a
+// failure here reports zero checked, never blocking the rest of this
+// sweep.
+async function checkPrecedentCitations(
+  admin: ReturnType<typeof createClient>,
+  userId: string,
+  from: string,
+  to: string,
+): Promise<{ checked: number; mismatched: number }> {
+  try {
+    const { data: rows } = await admin
+      .from("agent_decisions")
+      .select("precedent_citations")
+      .eq("user_id", userId)
+      .not("precedent_citations", "is", null)
+      .gte("created_at", from)
+      .lte("created_at", to);
+    const records = ((rows ?? []) as { precedent_citations: unknown }[])
+      .map((r) => r.precedent_citations)
+      .filter((r): r is StoredPrecedentCitation => !!r && typeof r === "object" && Array.isArray((r as StoredPrecedentCitation).citedDecisions));
+    if (!records.length) return { checked: 0, mismatched: 0 };
+
+    const allCitedIds = [...new Set(records.flatMap((r) => r.citedDecisions.map((c) => c.decisionId)))];
+    const { data: existingRows } = await admin.from("agent_decisions").select("id").in("id", allCitedIds);
+    const existingIds = new Set(((existingRows ?? []) as { id: string }[]).map((r) => r.id));
+
+    const mismatched = records.filter((r) => isPrecedentCitationMismatch(r, existingIds)).length;
+    return { checked: records.length, mismatched };
+  } catch {
+    return { checked: 0, mismatched: 0 };
+  }
+}
+
 async function sweepOrg(
   admin: ReturnType<typeof createClient>,
   userId: string,
@@ -93,10 +135,13 @@ async function sweepOrg(
   if (error) return { userId, ok: false, error: error.message };
   const signatureResult = data as SignatureVerifyResult;
   const autoResolutions = await checkAutoResolutions(admin, userId, from, to);
+  const precedentCitations = await checkPrecedentCitations(admin, userId, from, to);
   const result: AuditIntegrityResult = {
     ...signatureResult,
     auto_resolutions_checked: autoResolutions.checked,
     auto_resolutions_mismatched: autoResolutions.mismatched,
+    precedent_citations_checked: precedentCitations.checked,
+    precedent_citations_mismatched: precedentCitations.mismatched,
   };
 
   await admin.from("audit_integrity_runs").insert({
@@ -108,6 +153,8 @@ async function sweepOrg(
     mismatched_count: result.mismatched_count,
     auto_resolutions_checked: result.auto_resolutions_checked,
     auto_resolutions_mismatched: result.auto_resolutions_mismatched,
+    precedent_citations_checked: result.precedent_citations_checked,
+    precedent_citations_mismatched: result.precedent_citations_mismatched,
     range_from: from,
     range_to: to,
   });

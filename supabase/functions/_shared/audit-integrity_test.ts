@@ -1,7 +1,7 @@
 // Real tests for the audit-integrity sweep's pure classification logic.
 //
 // Run with: deno test --allow-none supabase/functions/_shared/audit-integrity_test.ts
-import { isAuditIntegrityFailure, summarizeAuditIntegrityFailure, isAutoResolutionMismatch, type SignatureVerifyResult } from "./audit-integrity.ts";
+import { isAuditIntegrityFailure, summarizeAuditIntegrityFailure, isAutoResolutionMismatch, isPrecedentCitationMismatch, type SignatureVerifyResult, type StoredPrecedentCitation } from "./audit-integrity.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
@@ -78,4 +78,58 @@ Deno.test("summarizeAuditIntegrityFailure: calls out an auto-resolution mismatch
   const summary = summarizeAuditIntegrityFailure({ ...clean, auto_resolutions_checked: 8, auto_resolutions_mismatched: 2 });
   assert(summary.includes("2 of 8 auto-resolved"));
   assert(summary.toLowerCase().includes("current policy"));
+});
+
+// ---- item 15: precedent-citation re-check ----
+
+const validCitation = (overrides: Partial<StoredPrecedentCitation> = {}): StoredPrecedentCitation => ({
+  reason: "non_allow_majority",
+  sampleSize: 3,
+  nonAllowShare: 0.67,
+  citedDecisions: [{ decisionId: "d1" }, { decisionId: "d2" }, { decisionId: "d3" }],
+  ...overrides,
+});
+const allExist = new Set(["d1", "d2", "d3"]);
+
+Deno.test("isPrecedentCitationMismatch: a genuinely consistent, real citation is not a mismatch", () => {
+  assertFalse(isPrecedentCitationMismatch(validCitation(), allExist));
+});
+
+Deno.test("isPrecedentCitationMismatch: a contradictory-reasoned citation whose share genuinely sits in that range is not a mismatch", () => {
+  assertFalse(isPrecedentCitationMismatch(validCitation({ reason: "contradictory", nonAllowShare: 0.5 }), allExist));
+});
+
+Deno.test("isPrecedentCitationMismatch: claimed sample size that doesn't match the listed decisions is a mismatch", () => {
+  assert(isPrecedentCitationMismatch(validCitation({ sampleSize: 5 }), allExist));
+});
+
+Deno.test("isPrecedentCitationMismatch: citing a decision that no longer exists is a mismatch", () => {
+  const missingOne = new Set(["d1", "d2"]); // d3 is gone
+  assert(isPrecedentCitationMismatch(validCitation(), missingOne));
+});
+
+Deno.test("isPrecedentCitationMismatch: a share too low to justify ANY override is a mismatch -- a citation should never exist for it", () => {
+  assert(isPrecedentCitationMismatch(validCitation({ nonAllowShare: 0.2 }), allExist));
+});
+
+Deno.test("isPrecedentCitationMismatch: reason says 'non_allow_majority' but the share only clears the contradictory band -- a mismatch", () => {
+  assert(isPrecedentCitationMismatch(validCitation({ reason: "non_allow_majority", nonAllowShare: 0.5 }), allExist));
+});
+
+Deno.test("isPrecedentCitationMismatch: reason says 'contradictory' but the share is a clear majority -- a mismatch", () => {
+  assert(isPrecedentCitationMismatch(validCitation({ reason: "contradictory", nonAllowShare: 0.9 }), allExist));
+});
+
+Deno.test("isAuditIntegrityFailure: any precedent-citation mismatch is a failure, even with clean signatures", () => {
+  assert(isAuditIntegrityFailure({ ...clean, precedent_citations_checked: 4, precedent_citations_mismatched: 1 }));
+});
+
+Deno.test("isAuditIntegrityFailure: precedent-citation fields present but zero mismatches is still not a failure", () => {
+  assertFalse(isAuditIntegrityFailure({ ...clean, precedent_citations_checked: 4, precedent_citations_mismatched: 0 }));
+});
+
+Deno.test("summarizeAuditIntegrityFailure: calls out a precedent-citation mismatch distinctly, with both counts", () => {
+  const summary = summarizeAuditIntegrityFailure({ ...clean, precedent_citations_checked: 6, precedent_citations_mismatched: 1 });
+  assert(summary.includes("1 of 6 real-precedent citation"));
+  assert(summary.toLowerCase().includes("real-precedent memory system"));
 });
