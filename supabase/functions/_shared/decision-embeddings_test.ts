@@ -1,7 +1,7 @@
 // Real tests for item 1's embedding pipeline pure logic + guard behavior.
 //
 // Run with: deno test --allow-none supabase/functions/_shared/decision-embeddings_test.ts
-import { buildEmbeddingInput, formatEmbeddingLiteral, generateEmbedding, embedDecisionIfExternal, buildBackfillEmbeddingInput, EMBEDDING_DIMENSIONS } from "./decision-embeddings.ts";
+import { buildEmbeddingInput, formatEmbeddingLiteral, generateEmbedding, generateEmbeddingWithinBudget, estimateEmbeddingTokens, embedDecisionIfExternal, buildBackfillEmbeddingInput, EMBEDDING_DIMENSIONS } from "./decision-embeddings.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
@@ -163,6 +163,103 @@ Deno.test("generateEmbedding: a network error never throws, resolves to null", a
   }
 });
 
+// ---- estimateEmbeddingTokens (item 11) ----
+
+Deno.test("estimateEmbeddingTokens: roughly 4 chars per token", () => {
+  assertEquals(estimateEmbeddingTokens("x".repeat(400)), 100);
+});
+
+Deno.test("estimateEmbeddingTokens: rounds up, never zero for non-empty text", () => {
+  assertEquals(estimateEmbeddingTokens("x"), 1);
+});
+
+Deno.test("estimateEmbeddingTokens: empty text is zero tokens", () => {
+  assertEquals(estimateEmbeddingTokens(""), 0);
+});
+
+// ---- generateEmbeddingWithinBudget (item 11) ----
+
+function fakeSpendClient(capRow: unknown, usageRow: unknown = null) {
+  const rpcCalls: { name: string; args: unknown }[] = [];
+  const client = {
+    from(table: string) {
+      return {
+        select() { return this; },
+        eq() { return this; },
+        is() { return this; },
+        maybeSingle: () => Promise.resolve(
+          table === "ai_spend_caps" ? { data: capRow, error: null } : { data: usageRow, error: null },
+        ),
+      };
+    },
+    rpc(name: string, args: unknown) { rpcCalls.push({ name, args }); return Promise.resolve({ data: null, error: null }); },
+  };
+  // deno-lint-ignore no-explicit-any
+  return { client: client as any, rpcCalls };
+}
+
+Deno.test("generateEmbeddingWithinBudget: skips the call entirely once this api key's own cap is used up", async () => {
+  Deno.env.set("LOVABLE_API_KEY", "test-key");
+  const originalFetch = globalThis.fetch;
+  let fetchCalled = false;
+  globalThis.fetch = (() => { fetchCalled = true; return Promise.resolve(new Response("{}")); }) as typeof fetch;
+  const { client } = fakeSpendClient({ daily_cap_usd: 1, enabled: true }, { cost_usd: 1, calls: 5 });
+  try {
+    const result = await generateEmbeddingWithinBudget(client, "u1", "key-1", "some text");
+    assertEquals(result, null);
+    assertEquals(fetchCalled, false, "must never spend a real network call once the key's cap is already used up");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("generateEmbeddingWithinBudget: a key with no cap of its own is unaffected, same as judgment spend today", async () => {
+  Deno.env.set("LOVABLE_API_KEY", "test-key");
+  const originalFetch = globalThis.fetch;
+  const vector = Array(EMBEDDING_DIMENSIONS).fill(0.5);
+  globalThis.fetch = (() => Promise.resolve(new Response(JSON.stringify({ data: [{ embedding: vector }] }), { status: 200 }))) as typeof fetch;
+  const { client, rpcCalls } = fakeSpendClient(null); // no cap row -> has_cap: false
+  try {
+    const result = await generateEmbeddingWithinBudget(client, "u1", "key-1", "some text");
+    assertEquals(result, vector);
+    assert(rpcCalls.some((c) => c.name === "record_ai_spend"), "a successful embedding must still meter its cost, even with no cap configured");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("generateEmbeddingWithinBudget: under the cap, generates normally and meters the cost", async () => {
+  Deno.env.set("LOVABLE_API_KEY", "test-key");
+  const originalFetch = globalThis.fetch;
+  const vector = Array(EMBEDDING_DIMENSIONS).fill(0.5);
+  globalThis.fetch = (() => Promise.resolve(new Response(JSON.stringify({ data: [{ embedding: vector }] }), { status: 200 }))) as typeof fetch;
+  const { client, rpcCalls } = fakeSpendClient({ daily_cap_usd: 5, enabled: true }, { cost_usd: 0.1, calls: 2 });
+  try {
+    const result = await generateEmbeddingWithinBudget(client, "u1", "key-1", "some text");
+    assertEquals(result, vector);
+    const recorded = rpcCalls.find((c) => c.name === "record_ai_spend");
+    assert(recorded, "must meter the embedding call's cost");
+    assertEquals((recorded!.args as { _api_key_id?: string })._api_key_id, "key-1");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("generateEmbeddingWithinBudget: a spend-status lookup failure never blocks a real embedding", async () => {
+  Deno.env.set("LOVABLE_API_KEY", "test-key");
+  const originalFetch = globalThis.fetch;
+  const vector = Array(EMBEDDING_DIMENSIONS).fill(0.5);
+  globalThis.fetch = (() => Promise.resolve(new Response(JSON.stringify({ data: [{ embedding: vector }] }), { status: 200 }))) as typeof fetch;
+  const client = { from() { throw new Error("db down"); }, rpc() { throw new Error("db down"); } };
+  try {
+    // deno-lint-ignore no-explicit-any
+    const result = await generateEmbeddingWithinBudget(client as any, "u1", "key-1", "some text");
+    assertEquals(result, vector, "a metering/status hiccup must never throw away a real embedding");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 // ---- embedDecisionIfExternal ----
 
 type Row = { data?: unknown; error?: unknown };
@@ -206,13 +303,22 @@ Deno.test("embedDecisionIfExternal: does nothing when decisionId is missing", as
 
 Deno.test("embedDecisionIfExternal: a failed embedding generation never inserts a row", async () => {
   Deno.env.delete("LOVABLE_API_KEY"); // forces generateEmbedding to return null
-  let calledFrom = false;
+  // Item 11's own budget check reads the api key's spend status before
+  // ever attempting generation -- .from() legitimately gets touched now
+  // (e.g. ai_spend_caps), what must never happen is an actual INSERT
+  // into decision_embeddings.
+  let insertedIntoDecisionEmbeddings = false;
   const client = {
-    from(_table: string) { calledFrom = true; return new FakeQuery(() => ({ data: null, error: null })); },
+    from(table: string) {
+      const q = new FakeQuery(() => ({ data: null, error: null }));
+      // deno-lint-ignore no-explicit-any
+      (q as any).insert = (_row?: unknown) => { if (table === "decision_embeddings") insertedIntoDecisionEmbeddings = true; return q; };
+      return q;
+    },
     // deno-lint-ignore no-explicit-any
   } as any;
   await embedDecisionIfExternal(client, { decisionId: "d1", apiKeyId: "key-1", userId: "u1", actionType: "x", provider: "y", description: "z", params: {} });
-  assertEquals(calledFrom, false);
+  assertEquals(insertedIntoDecisionEmbeddings, false);
 });
 
 Deno.test("embedDecisionIfExternal: a successful embedding inserts a decision_embeddings row with the pgvector literal", async () => {

@@ -7,7 +7,7 @@
 // account's entire history (or exhausts an embedding-provider rate
 // limit) at once.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { buildBackfillEmbeddingInput, generateEmbedding, formatEmbeddingLiteral, type BackfillableDecisionRow } from "../_shared/decision-embeddings.ts";
+import { buildBackfillEmbeddingInput, generateEmbeddingWithinBudget, formatEmbeddingLiteral, type BackfillableDecisionRow } from "../_shared/decision-embeddings.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -60,7 +60,7 @@ Deno.serve(async (req) => {
       alreadyEmbeddedCount++;
     } else {
       const text = buildBackfillEmbeddingInput(row);
-      const embedding = await generateEmbedding(text);
+      const embedding = await generateEmbeddingWithinBudget(admin, row.user_id, row.api_key_id, text);
       if (embedding) {
         const { error: insErr } = await admin.from("decision_embeddings").insert({
           user_id: row.user_id,

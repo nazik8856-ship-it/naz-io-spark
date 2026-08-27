@@ -23,6 +23,15 @@ const PRICES: Record<string, [number, number]> = {
   "google/gemini-2.5-pro": [1.25, 10],
   "google/gemini-3.1-pro-preview": [1.25, 10],
   "openai/gpt-5-mini": [0.25, 2],
+  // "Real precedent memory" plan, item 11 -- a real, distinct entry so an
+  // embedding call is never priced as if it were a full chat-completion
+  // call (the `default` row above, ~15-25x more expensive per token).
+  // Output price is 0: an embedding call has no generated tokens to
+  // price. Rough estimate, same "unverified assumption" caveat as
+  // EMBEDDING_MODEL/EMBEDDING_DIMENSIONS in decision-embeddings.ts --
+  // verify against the gateway's real embeddings pricing before this
+  // runs against a live account.
+  "google/text-embedding-004": [0.15, 0],
   default: [0.3, 2.5],
 };
 

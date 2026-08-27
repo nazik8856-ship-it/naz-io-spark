@@ -16,6 +16,7 @@
 // model name or response shape differs, `generateEmbedding` fails
 // closed (returns null) rather than silently storing garbage.
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { getApiKeySpendStatus, recordAiSpend } from "./spend-guard.ts";
 
 const EMBEDDINGS_URL = "https://ai.gateway.lovable.dev/v1/embeddings";
 
@@ -115,6 +116,51 @@ export async function generateEmbedding(text: string): Promise<number[] | null> 
   }
 }
 
+// "Real precedent memory" plan, item 11: a very high-volume external
+// integration shouldn't be able to run up an open-ended new cost just by
+// sending lots of traffic that each generate an embedding. Capped the
+// exact same way AI-judgment spend already is -- this api key's own
+// daily ai_spend_caps/ai_spend_daily row (spend-guard.ts), not a second,
+// separate embedding-specific budget. A key with no cap of its own is
+// unaffected, same as judgment spend today.
+
+/** Pure -- ~4 chars/token, the standard estimate when a provider's exact tokenizer isn't available. An embedding call has no output tokens to price, only input. */
+export function estimateEmbeddingTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
+/**
+ * generateEmbedding, but budget-aware: skips the call entirely once this
+ * api key's own daily spend cap is already used up (never wastes a real
+ * API call just to throw its result away), and meters a successful
+ * call's estimated cost into that same running total afterwards -- so
+ * embedding costs and AI-judgment costs share one real budget per key,
+ * exactly like the plan asks. Never throws; returns null on a skip the
+ * same way generateEmbedding itself already returns null on failure, so
+ * every existing caller's "no embedding" fallback already handles this
+ * without any change.
+ */
+export async function generateEmbeddingWithinBudget(
+  admin: SupabaseClient,
+  userId: string,
+  apiKeyId: string,
+  text: string,
+): Promise<number[] | null> {
+  try {
+    const status = await getApiKeySpendStatus(admin, userId, apiKeyId);
+    if (status.has_cap && status.over_cap) return null;
+  } catch { /* a status-check hiccup must never block a real embedding -- fall through and try it */ }
+
+  const embedding = await generateEmbedding(text);
+  if (!embedding) return null;
+
+  try {
+    await recordAiSpend(admin, userId, EMBEDDING_MODEL, { prompt_tokens: estimateEmbeddingTokens(text) }, "embedding", null, apiKeyId);
+  } catch { /* a metering hiccup must never throw away a real embedding that already succeeded */ }
+
+  return embedding;
+}
+
 /**
  * Best-effort: embeds and stores ONE external-api decision. Only ever
  * does anything when BOTH a real decisionId (already inserted into
@@ -132,7 +178,7 @@ export async function embedDecisionIfExternal(
   if (!input.decisionId || !input.apiKeyId) return;
   try {
     const text = buildEmbeddingInput(input);
-    const embedding = await generateEmbedding(text);
+    const embedding = await generateEmbeddingWithinBudget(admin, input.userId, input.apiKeyId, text);
     if (!embedding) return;
     await admin.from("decision_embeddings").insert({
       user_id: input.userId,

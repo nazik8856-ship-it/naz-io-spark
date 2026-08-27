@@ -42,7 +42,7 @@ import { reversibilityFor, captureUndoState, runUndo } from "../_shared/reversib
 import { replayDraft, replayRealTraffic, evaluateAction, type PolicySnapshot } from "../_shared/policy-replay.ts";
 import { summarizePolicyWatch, type PolicyWatchObservationRow } from "../_shared/policy-watch.ts";
 import { loadFitEvidence, applyFitEvidence } from "../_shared/fit-learning.ts";
-import { buildEmbeddingInput, generateEmbedding, formatEmbeddingLiteral } from "../_shared/decision-embeddings.ts";
+import { buildEmbeddingInput, generateEmbeddingWithinBudget, formatEmbeddingLiteral } from "../_shared/decision-embeddings.ts";
 import { findPrecedent, loadOutcomeDirections, loadPrecedentForPrompt } from "../_shared/precedent-search.ts";
 import { buildPrecedentPromptBlock } from "../_shared/precedent-prompt.ts";
 import { alignPrecedentSignals, evaluatePrecedentForAutoApprove, shouldRejectOnPrecedent, summarizePrecedentOverride } from "../_shared/precedent-advice.ts";
@@ -860,7 +860,7 @@ serve(async (req) => {
     let precedentPromptBlock = "";
     if (trustedApiKeyId) {
       try {
-        const queryEmbedding = await generateEmbedding(buildEmbeddingInput({ actionType, provider, description, params }));
+        const queryEmbedding = await generateEmbeddingWithinBudget(supabase, userId, trustedApiKeyId, buildEmbeddingInput({ actionType, provider, description, params }));
         if (queryEmbedding) {
           const precedentRows = await loadPrecedentForPrompt(supabase, trustedApiKeyId, formatEmbeddingLiteral(queryEmbedding));
           precedentPromptBlock = buildPrecedentPromptBlock(precedentRows);
@@ -1104,7 +1104,7 @@ serve(async (req) => {
           // materially different thing to have precedent about.
           if (forcedResolution.resolution === "approved" && trustedApiKeyId) {
             try {
-              const narrowedEmbedding = await generateEmbedding(buildEmbeddingInput({
+              const narrowedEmbedding = await generateEmbeddingWithinBudget(supabase, userId, trustedApiKeyId, buildEmbeddingInput({
                 actionType, provider, description: `${description} (narrowed automatically)`, params: narrowedParams,
               }));
               if (narrowedEmbedding) {
