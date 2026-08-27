@@ -39,7 +39,9 @@ const RATE_LIMIT_PER_MINUTE = 120;
 
 import { PROVIDER_WRITE_KINDS, runProviderWrite } from "../_shared/provider-writes.ts";
 import { reversibilityFor, captureUndoState, runUndo } from "../_shared/reversibility.ts";
-import { replayDraft, replayRealTraffic, previewProposedHardRules, evaluateAction, type PolicySnapshot, type ProposedHardRuleInput } from "../_shared/policy-replay.ts";
+import { replayDraft, replayRealTraffic, previewProposedHardRules, evaluateAction, asSafetyRules, type PolicySnapshot, type ProposedHardRuleInput, type GateOutcome } from "../_shared/policy-replay.ts";
+import { scanWithRules } from "../_shared/safety-scanner.ts";
+import { buildSecondNarrowingAttempt, secondNarrowingResolution, type NarrowingFailureReason } from "../_shared/auto-narrow-retry.ts";
 import { summarizePolicyWatch, type PolicyWatchObservationRow } from "../_shared/policy-watch.ts";
 import { loadFitEvidence, applyFitEvidence } from "../_shared/fit-learning.ts";
 import { buildEmbeddingInput, generateEmbeddingWithinBudget, formatEmbeddingLiteral } from "../_shared/decision-embeddings.ts";
@@ -1095,17 +1097,53 @@ serve(async (req) => {
         if (narrowedParams) {
           // Fail closed: if the snapshot lookup itself throws, treat the
           // re-check as failed (never a blind auto-allow on an error).
-          let recheckOutcome: "pass_through" | "require_approval" | "block" = "block";
+          let activeSnapshot: PolicySnapshot = {};
+          let recheckOutcome: GateOutcome = "block";
+          let recheckSource: "hard_rule" | "safety_scanner" | null = null;
           try {
             const { data: pv } = await supabase.rpc("get_active_policy_version", { _user_id: userId });
             const row = (Array.isArray(pv) ? pv[0] : pv) as { snapshot?: PolicySnapshot } | null;
+            activeSnapshot = (row?.snapshot ?? {}) as PolicySnapshot;
             const evalResult = evaluateAction(
               { action_type: actionType, provider, description: `${description} (narrowed automatically)`, params: narrowedParams },
-              (row?.snapshot ?? {}) as PolicySnapshot,
+              activeSnapshot,
             );
             recheckOutcome = evalResult.gate_outcome;
+            recheckSource = evalResult.gate_source;
           } catch { /* recheckOutcome stays "block" -- auto-denied below */ }
           forcedResolution = narrowedActionResolution(recheckOutcome);
+
+          // The params/description actually being judged from here on --
+          // the original narrowed suggestion unless a second attempt below
+          // replaces it with its own, stricter candidate.
+          let effectiveParams: Record<string, unknown> = narrowedParams;
+          let effectiveDescription = `${description} (narrowed automatically)`;
+
+          // "Policy autonomy" plan, item 8: the first narrowed attempt
+          // failed its OWN gate re-check (not merely a later precedent
+          // override, handled separately below) -- see auto-narrow-
+          // retry.ts for why only a safety-scanner failure on a real
+          // params field gives this anything concrete to act on.
+          if (forcedResolution.resolution === "rejected" && recheckOutcome !== "pass_through") {
+            const reason: NarrowingFailureReason = recheckSource === "safety_scanner"
+              ? { kind: "safety_scanner", matches: scanWithRules(asSafetyRules(activeSnapshot), narrowedParams, effectiveDescription).matches }
+              : { kind: "hard_rule" };
+            const secondAttemptParams = buildSecondNarrowingAttempt(narrowedParams, reason);
+            if (secondAttemptParams) {
+              const secondDescription = `${description} (narrowed automatically, second attempt)`;
+              let secondOutcome: GateOutcome = "block";
+              try {
+                secondOutcome = evaluateAction(
+                  { action_type: actionType, provider, description: secondDescription, params: secondAttemptParams },
+                  activeSnapshot,
+                ).gate_outcome;
+              } catch { /* secondOutcome stays "block" -- auto-denied below */ }
+              const removedFields = Object.keys(narrowedParams).filter((k) => !(k in secondAttemptParams));
+              forcedResolution = secondNarrowingResolution(secondOutcome, removedFields);
+              effectiveParams = secondAttemptParams;
+              effectiveDescription = secondDescription;
+            }
+          }
 
           // "Real precedent memory" plan, item 5: the deterministic
           // re-check above only knows about hard rules/safety patterns --
@@ -1115,13 +1153,14 @@ serve(async (req) => {
           // passed cleanly -- precedent can pull a would-be approval back
           // to reject, same one-directional posture item 3 already
           // established, never push a real rule/safety failure through.
-          // Generates its own embedding for the NARROWED variant
-          // specifically (not the original action's), since that's a
-          // materially different thing to have precedent about.
+          // Generates its own embedding for the effective (possibly
+          // second-attempt) narrowed variant specifically, since that's a
+          // materially different thing to have precedent about than the
+          // original action.
           if (forcedResolution.resolution === "approved" && trustedApiKeyId) {
             try {
               const narrowedEmbedding = await generateEmbeddingWithinBudget(supabase, userId, trustedApiKeyId, buildEmbeddingInput({
-                actionType, provider, description: `${description} (narrowed automatically)`, params: narrowedParams,
+                actionType, provider, description: effectiveDescription, params: effectiveParams,
               }));
               if (narrowedEmbedding) {
                 const matches = await findPrecedent(

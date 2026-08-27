@@ -62,7 +62,12 @@ const asHardRules = (snapshot: PolicySnapshot): HardRule[] =>
   (Array.isArray(snapshot.hard_rules) ? (snapshot.hard_rules as HardRule[]) : [])
     .filter((r) => r && r.enabled !== false && !r.shadow_mode);
 
-const asSafetyRules = (snapshot: PolicySnapshot): SafetyRule[] => [
+// Exported for control-engine's own auto_narrow "smarter second attempt"
+// logic (policy autonomy item 8), which needs the same snapshot-scoped
+// safety-rule set evaluateAction itself uses internally, to get the
+// structured per-field SafetyMatch info evaluateAction's own flat
+// gate_outcome/gate_detail doesn't expose.
+export const asSafetyRules = (snapshot: PolicySnapshot): SafetyRule[] => [
   ...BUILTIN_SAFETY_RULES,
   ...(Array.isArray(snapshot.safety_rules) ? (snapshot.safety_rules as SafetyRule[]) : [])
     // Same exclusion asHardRules already applies to shadow_mode hard rules
