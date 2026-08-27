@@ -1,7 +1,7 @@
 // Real tests for the API key auto-resolve policy's pure resolution logic.
 //
 // Run with: deno test --allow-none supabase/functions/_shared/api-key-policy_test.ts
-import { resolveOnUncertain, isValidOnUncertainPolicy, ON_UNCERTAIN_POLICIES, extractNarrowedAction, narrowedActionResolution, classifyPendingApprovalStatus, isStuckPastMaxWait, resolveSweepFallback, STUCK_APPROVAL_MAX_WAIT_MINUTES, summarizeShadowObservations, type ShadowObservationRow } from "./api-key-policy.ts";
+import { resolveOnUncertain, isValidOnUncertainPolicy, ON_UNCERTAIN_POLICIES, extractNarrowedAction, narrowedActionResolution, classifyPendingApprovalStatus, isStuckPastMaxWait, resolveSweepFallback, STUCK_APPROVAL_MAX_WAIT_MINUTES, summarizeShadowObservations, evaluateShadowPromotionReadiness, summarizeShadowPromotionReadiness, MIN_DECIDED_SAMPLE_FOR_PROMOTION, MIN_AGREEMENT_RATE_FOR_PROMOTION, type ShadowObservationRow, type ShadowPolicySummary } from "./api-key-policy.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
@@ -182,4 +182,68 @@ Deno.test("summarizeShadowObservations: a shadow guess that differs from the rea
   assertEquals(summary.disagreement_samples.length, 1);
   assertEquals(summary.disagreement_samples[0].action_type, "delete_record");
   assertEquals(summary.disagreement_samples[0].actual, "rejected");
+});
+
+// ---- "policy autonomy" item 6: shadow-promotion readiness ----
+
+function summaryWith(decided: number, agreed: number): ShadowPolicySummary {
+  return { total: decided, decided, agreed, disagreed: decided - agreed, disagreement_samples: [] };
+}
+
+Deno.test("evaluateShadowPromotionReadiness: too few decided outcomes is never ready, regardless of agreement rate", () => {
+  const readiness = evaluateShadowPromotionReadiness(summaryWith(MIN_DECIDED_SAMPLE_FOR_PROMOTION - 1, MIN_DECIDED_SAMPLE_FOR_PROMOTION - 1));
+  assertEquals(readiness, {
+    ready: false,
+    reason: "insufficient_sample",
+    decided: MIN_DECIDED_SAMPLE_FOR_PROMOTION - 1,
+    required: MIN_DECIDED_SAMPLE_FOR_PROMOTION,
+  });
+});
+
+Deno.test("evaluateShadowPromotionReadiness: enough sample but agreement rate below the threshold is not ready", () => {
+  // 20 decided, 17 agreed = 85% -- below the 90% bar.
+  const readiness = evaluateShadowPromotionReadiness(summaryWith(20, 17));
+  assertEquals(readiness, {
+    ready: false,
+    reason: "too_many_disagreements",
+    agreementRate: 0.85,
+    decided: 20,
+    required: MIN_AGREEMENT_RATE_FOR_PROMOTION,
+  });
+});
+
+Deno.test("evaluateShadowPromotionReadiness: enough sample and agreement rate at or above the threshold is ready", () => {
+  // 20 decided, 18 agreed = 90% -- exactly at the bar.
+  const readiness = evaluateShadowPromotionReadiness(summaryWith(20, 18));
+  assertEquals(readiness, { ready: true, agreementRate: 0.9, decided: 20 });
+});
+
+Deno.test("evaluateShadowPromotionReadiness: a perfect agreement rate on a larger sample is ready", () => {
+  const readiness = evaluateShadowPromotionReadiness(summaryWith(50, 50));
+  assertEquals(readiness, { ready: true, agreementRate: 1, decided: 50 });
+});
+
+Deno.test("evaluateShadowPromotionReadiness: zero decided outcomes is insufficient sample, not a division-by-zero crash", () => {
+  const readiness = evaluateShadowPromotionReadiness(summaryWith(0, 0));
+  assertEquals(readiness, { ready: false, reason: "insufficient_sample", decided: 0, required: MIN_DECIDED_SAMPLE_FOR_PROMOTION });
+});
+
+Deno.test("summarizeShadowPromotionReadiness: a ready result mentions the real percentage and sample size", () => {
+  const text = summarizeShadowPromotionReadiness({ ready: true, agreementRate: 0.95, decided: 40 });
+  assert(text.includes("95%"));
+  assert(text.includes("40"));
+  assert(text.toLowerCase().includes("ready"));
+});
+
+Deno.test("summarizeShadowPromotionReadiness: an insufficient-sample result names how many more decided outcomes are needed", () => {
+  const text = summarizeShadowPromotionReadiness({ ready: false, reason: "insufficient_sample", decided: 5, required: 20 });
+  assert(text.includes("5"));
+  assert(text.includes("20"));
+});
+
+Deno.test("summarizeShadowPromotionReadiness: a too-many-disagreements result names the real rate and the bar it missed", () => {
+  const text = summarizeShadowPromotionReadiness({ ready: false, reason: "too_many_disagreements", agreementRate: 0.8, decided: 25, required: 0.9 });
+  assert(text.includes("80%"));
+  assert(text.includes("25"));
+  assert(text.includes("90%"));
 });

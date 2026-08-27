@@ -195,3 +195,47 @@ export function summarizeShadowObservations(rows: ShadowObservationRow[]): Shado
     disagreement_samples,
   };
 }
+
+// "Policy autonomy" plan, item 6: shadow mode already lets an account
+// preview what a different on_uncertain policy would have done. Today a
+// human has to manually eyeball summarizeShadowObservations' numbers and
+// guess whether there's "enough" agreement to trust it. This computes
+// that threshold for real -- a genuine sample size AND a genuine
+// agreement rate -- so the account gets a clear, evidence-based answer
+// instead of a guess. Never flips the switch itself: the account still
+// confirms via the existing POST /api-keys/:id/policy endpoint.
+export const MIN_DECIDED_SAMPLE_FOR_PROMOTION = 20;
+export const MIN_AGREEMENT_RATE_FOR_PROMOTION = 0.9;
+
+export type ShadowPromotionReadiness =
+  | { ready: false; reason: "insufficient_sample"; decided: number; required: number }
+  | { ready: false; reason: "too_many_disagreements"; agreementRate: number; decided: number; required: number }
+  | { ready: true; agreementRate: number; decided: number };
+
+/** Pure -- has this shadow policy earned promotion to live, based on real, decided observations? */
+export function evaluateShadowPromotionReadiness(summary: ShadowPolicySummary): ShadowPromotionReadiness {
+  if (summary.decided < MIN_DECIDED_SAMPLE_FOR_PROMOTION) {
+    return { ready: false, reason: "insufficient_sample", decided: summary.decided, required: MIN_DECIDED_SAMPLE_FOR_PROMOTION };
+  }
+  const agreementRate = Math.round((summary.agreed / summary.decided) * 100) / 100;
+  if (agreementRate < MIN_AGREEMENT_RATE_FOR_PROMOTION) {
+    return { ready: false, reason: "too_many_disagreements", agreementRate, decided: summary.decided, required: MIN_AGREEMENT_RATE_FOR_PROMOTION };
+  }
+  return { ready: true, agreementRate, decided: summary.decided };
+}
+
+export function summarizeShadowPromotionReadiness(readiness: ShadowPromotionReadiness): string {
+  if (readiness.ready) {
+    return (
+      `This shadow policy has agreed with what actually happened on ${Math.round(readiness.agreementRate * 100)}% of ` +
+      `${readiness.decided} real decided outcomes -- ready to consider promoting to your live on_uncertain policy.`
+    );
+  }
+  if (readiness.reason === "insufficient_sample") {
+    return `Not enough real, decided outcomes yet to judge this shadow policy -- ${readiness.decided} of ${readiness.required} needed.`;
+  }
+  return (
+    `This shadow policy still disagrees with what actually happened too often (${Math.round(readiness.agreementRate * 100)}% ` +
+    `agreement across ${readiness.decided} decided outcomes, needs ${Math.round(readiness.required * 100)}%) -- not ready to promote yet.`
+  );
+}

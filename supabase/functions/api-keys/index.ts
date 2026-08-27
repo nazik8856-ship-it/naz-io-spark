@@ -21,7 +21,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sha256Hex, generateRawKey, displayPrefixFor } from "../_shared/api-key-auth.ts";
 import { resolveAccountScope } from "../_shared/account-scope.ts";
-import { isValidOnUncertainPolicy, summarizeShadowObservations, type ShadowObservationRow } from "../_shared/api-key-policy.ts";
+import { isValidOnUncertainPolicy, summarizeShadowObservations, evaluateShadowPromotionReadiness, summarizeShadowPromotionReadiness, type ShadowObservationRow } from "../_shared/api-key-policy.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -248,7 +248,18 @@ Deno.serve(async (req) => {
       provider: r.provider,
       created_at: r.created_at,
     }));
-    return json({ ok: true, shadow_on_uncertain: shadowPolicy, summary: summarizeShadowObservations(rows) });
+    const summary = summarizeShadowObservations(rows);
+    // "Policy autonomy" plan, item 6: a real, evidence-based answer to
+    // "has this shadow policy earned promotion" alongside the raw
+    // numbers, instead of leaving a human to eyeball them.
+    const readiness = evaluateShadowPromotionReadiness(summary);
+    return json({
+      ok: true,
+      shadow_on_uncertain: shadowPolicy,
+      summary,
+      promotion_readiness: readiness,
+      promotion_readiness_message: summarizeShadowPromotionReadiness(readiness),
+    });
   }
 
   // ---- GET /api-keys --------------------------------------------------------
