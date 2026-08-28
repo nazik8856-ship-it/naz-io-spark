@@ -22,8 +22,10 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sha256Hex, generateRawKey, displayPrefixFor } from "../_shared/api-key-auth.ts";
 import { resolveAccountScope } from "../_shared/account-scope.ts";
 import { isValidOnUncertainPolicy, summarizeShadowObservations, evaluateShadowPromotionReadiness, summarizeShadowPromotionReadiness, type ShadowObservationRow } from "../_shared/api-key-policy.ts";
-import { evaluateAutomationReadiness, gatherAutomationReadinessInput } from "../_shared/automation-readiness.ts";
+import { evaluateAutomationReadiness, gatherAutomationReadinessInput, READINESS_LOOKBACK_DAYS } from "../_shared/automation-readiness.ts";
 import { keyLatencyStats, keyUptimeStats } from "../_shared/key-performance.ts";
+import { buildPolicyRecommendation, type ActionTypeEscalations, type EscalatedDecisionOutcome } from "../_shared/policy-recommendation.ts";
+import { DEFAULT_CONFIDENCE_THRESHOLD } from "../_shared/decision-scoring.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -292,6 +294,75 @@ Deno.serve(async (req) => {
     const input = await gatherAutomationReadinessInput(admin, keyId);
     const report = evaluateAutomationReadiness(input);
     return json({ ok: true, ...report });
+  }
+
+  // ---- GET /api-keys/:id/policy-recommendation --------------------------
+  // "Knowledge & autonomy" plan, item 15: combines the automation-
+  // readiness report above (what's blocking) with a real, historically-
+  // sized answer to "what specific change would actually help" -- never
+  // applies anything itself; a human still confirms any resulting change
+  // through POST /api-keys/:id/action-policies (item 9).
+  const recommendationMatch = url.pathname.match(/\/api-keys\/([0-9a-fA-F-]{36})\/policy-recommendation\/?$/);
+  if (req.method === "GET" && recommendationMatch) {
+    const keyId = recommendationMatch[1];
+    const targetUserId = await resolveAccountScope(userClient, userId, url.searchParams.get("account_id"), "integrations");
+    if (!targetUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
+
+    const { data: keyRow, error: keyErr } = await admin
+      .from("api_keys").select("id").eq("id", keyId).eq("user_id", targetUserId).maybeSingle();
+    if (keyErr) return json({ error: keyErr.message }, 500);
+    if (!keyRow) return json({ error: "Key not found for this account." }, 404);
+
+    const readinessInput = await gatherAutomationReadinessInput(admin, keyId);
+    const readiness = evaluateAutomationReadiness(readinessInput);
+
+    const since = new Date(Date.now() - READINESS_LOOKBACK_DAYS * 86400_000).toISOString();
+    const { data: escalatedRows, error: escErr } = await admin
+      .from("agent_decisions")
+      .select("id, action_type, confidence_score")
+      .eq("api_key_id", keyId)
+      .eq("escalated", true)
+      .eq("is_test", false)
+      .gte("created_at", since)
+      .limit(5000);
+    if (escErr) return json({ error: escErr.message }, 500);
+
+    type EscRow = { id: string; action_type: string | null; confidence_score: number | null };
+    const escalated = ((escalatedRows ?? []) as EscRow[]).filter((r) => r.action_type != null && r.confidence_score != null);
+
+    const badOutcomeByDecision = new Map<string, boolean>();
+    if (escalated.length) {
+      const { data: outcomeRows } = await admin
+        .from("decision_outcomes")
+        .select("decision_id, direction")
+        .in("decision_id", escalated.map((r) => r.id));
+      for (const o of (outcomeRows ?? []) as { decision_id: string; direction: string | null }[]) {
+        const dir = String(o.direction || "").toLowerCase();
+        if (dir === "negative") badOutcomeByDecision.set(o.decision_id, true);
+        else if (!badOutcomeByDecision.has(o.decision_id)) badOutcomeByDecision.set(o.decision_id, false);
+      }
+    }
+
+    const byActionType = new Map<string, EscalatedDecisionOutcome[]>();
+    for (const r of escalated) {
+      const list = byActionType.get(r.action_type!) ?? [];
+      list.push({
+        confidenceScore: r.confidence_score!,
+        badOutcome: badOutcomeByDecision.has(r.id) ? (badOutcomeByDecision.get(r.id) as boolean) : null,
+      });
+      byActionType.set(r.action_type!, list);
+    }
+    const perActionType: ActionTypeEscalations[] = [...byActionType.entries()].map(([actionType, escalations]) => ({ actionType, escalations }));
+
+    const recommendation = buildPolicyRecommendation(
+      readiness.ready,
+      readiness.blockers[0] ?? null,
+      DEFAULT_CONFIDENCE_THRESHOLD,
+      escalated.length,
+      perActionType,
+    );
+
+    return json({ ok: true, window_days: READINESS_LOOKBACK_DAYS, automation_readiness: readiness, recommendation });
   }
 
   // ---- GET /api-keys/:id/performance ------------------------------------
