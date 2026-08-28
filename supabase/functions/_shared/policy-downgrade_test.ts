@@ -2,8 +2,8 @@
 //
 // Run with: deno test --allow-none supabase/functions/_shared/policy-downgrade_test.ts
 import {
-  isRepeatedPauseTrouble, isCallbackFailureTrouble, summarizePolicyDowngrade,
-  REPEATED_PAUSE_WINDOW_MS, CALLBACK_FAILURE_STREAK_THRESHOLD,
+  isRepeatedPauseTrouble, isCallbackFailureTrouble, isBadOutcomeTrouble, summarizePolicyDowngrade,
+  REPEATED_PAUSE_WINDOW_MS, CALLBACK_FAILURE_STREAK_THRESHOLD, BAD_OUTCOME_MIN_SAMPLE, BAD_OUTCOME_NEGATIVE_RATE_THRESHOLD,
 } from "./policy-downgrade.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
@@ -70,4 +70,34 @@ Deno.test("summarizePolicyDowngrade: names repeated pauses as the reason, and th
 Deno.test("summarizePolicyDowngrade: names the callback failure streak with its real count", () => {
   const msg = summarizePolicyDowngrade("callback_failures", "3");
   assert(msg.includes("3 times in a row"));
+});
+
+// ---- isBadOutcomeTrouble ----
+
+Deno.test("isBadOutcomeTrouble: below the minimum sample is never trouble, even at a 100% negative rate", () => {
+  assertEquals(BAD_OUTCOME_MIN_SAMPLE, 5);
+  assertFalse(isBadOutcomeTrouble(3, 3));
+});
+
+Deno.test("isBadOutcomeTrouble: enough sample but below the negative-rate threshold is not trouble", () => {
+  assertEquals(BAD_OUTCOME_NEGATIVE_RATE_THRESHOLD, 0.4);
+  assertFalse(isBadOutcomeTrouble(1, 10));
+});
+
+Deno.test("isBadOutcomeTrouble: enough sample and at or above the negative-rate threshold IS trouble", () => {
+  assert(isBadOutcomeTrouble(4, 10));
+  assert(isBadOutcomeTrouble(5, 5));
+});
+
+Deno.test("isBadOutcomeTrouble: zero measured outcomes is never trouble, not a division-by-zero crash", () => {
+  assertFalse(isBadOutcomeTrouble(0, 0));
+});
+
+// ---- summarizePolicyDowngrade: bad_outcomes ----
+
+Deno.test("summarizePolicyDowngrade: names the real negative-outcome rate as the reason", () => {
+  const msg = summarizePolicyDowngrade("bad_outcomes", "60%");
+  assert(msg.includes("60%"));
+  assert(msg.toLowerCase().includes("real-world negative outcomes"));
+  assert(msg.includes("human_review"));
 });

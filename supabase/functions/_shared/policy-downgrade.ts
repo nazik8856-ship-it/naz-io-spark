@@ -29,12 +29,36 @@ export function isCallbackFailureTrouble(failureStreak: number): boolean {
   return failureStreak >= CALLBACK_FAILURE_STREAK_THRESHOLD;
 }
 
-export type DowngradeReason = "repeated_pause" | "callback_failures";
+// "Knowledge & autonomy" plan, item 5: today a key only gets pulled back
+// toward caution for BEHAVING badly (abuse volume, callback failures) --
+// never for its auto-resolved decisions actually GOING badly in the real
+// world. decision_outcomes.direction is real, already-measured data no
+// pause/downgrade mechanism reads. Deliberately requires a real sample
+// (measured-outcome coverage is sparse in practice, same caveat
+// precedent-search.ts's own loadOutcomeDirections already documents) --
+// one or two unlucky negative outcomes must never trip this on their own.
+export const BAD_OUTCOME_MIN_SAMPLE = 5;
+export const BAD_OUTCOME_NEGATIVE_RATE_THRESHOLD = 0.4;
+
+/** Pure -- is this key's own auto-resolved (never-escalated) decision history measurably going badly in the real world, with enough sample to trust the signal? */
+export function isBadOutcomeTrouble(
+  negativeCount: number,
+  totalMeasured: number,
+  minSample: number = BAD_OUTCOME_MIN_SAMPLE,
+  threshold: number = BAD_OUTCOME_NEGATIVE_RATE_THRESHOLD,
+): boolean {
+  return totalMeasured >= minSample && negativeCount / totalMeasured >= threshold;
+}
+
+export type DowngradeReason = "repeated_pause" | "callback_failures" | "bad_outcomes";
 
 export function summarizePolicyDowngrade(reason: DowngradeReason, detail: string): string {
   const why = reason === "repeated_pause"
     ? "this key has been automatically paused for unusual activity more than once within a short window"
-    : `this key's configured callback URL has failed to answer in time ${detail} times in a row`;
+    : reason === "callback_failures"
+      ? `this key's configured callback URL has failed to answer in time ${detail} times in a row`
+      : `this key's own auto-resolved decisions have measured, real-world negative outcomes ${detail} of the time recently -- ` +
+        `more often than automation this account never reviews should`;
   return (
     `This API key's on_uncertain policy has been automatically set to "human_review" because ${why} -- ` +
     `automation for uncertain cases is paused until a human reviews and resets the policy. This is a system-initiated ` +
