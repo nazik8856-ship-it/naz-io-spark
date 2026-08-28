@@ -36,6 +36,7 @@ import { alignPrecedentSignals, evaluatePrecedentForAutoApprove, shouldRejectOnP
 import { buildPrecedentCitationRecord, recordPrecedentCitation } from "./precedent-citation.ts";
 import { isWithinQuietHours, summarizeQuietHoursEscalation, type QuietHoursConfig } from "./quiet-hours.ts";
 import { isCallbackFailureTrouble, summarizePolicyDowngrade } from "./policy-downgrade.ts";
+import { triggerWebhooks } from "./webhooks.ts";
 import { resolveEffectiveOnUncertain, type ActionTypeOverride } from "./action-type-policy.ts";
 
 export const BREAKER_WINDOW = 10;
@@ -493,6 +494,12 @@ export async function createPendingApproval(
               const summary = summarizePolicyDowngrade("callback_failures", String(streak));
               await sendCriticalAlert(admin, input.userId, { event: "on_uncertain_auto_downgraded", summary });
               await openIncident(admin, input.userId, { kind: "on_uncertain_auto_downgraded", summary });
+              // "Knowledge & autonomy" plan, item 6: tell the account's
+              // own systems the moment this happens, instead of making
+              // them keep polling for it.
+              await triggerWebhooks(admin, input.userId, "api_key_on_uncertain_downgraded", {
+                api_key_id: input.apiKeyId, reason: summary,
+              });
             }
           } else if ((keyRow?.callback_failure_streak ?? 0) > 0) {
             await admin.from("api_keys").update({ callback_failure_streak: 0 }).eq("id", input.apiKeyId);

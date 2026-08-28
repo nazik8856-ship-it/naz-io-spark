@@ -16,8 +16,12 @@ Deno.test("buildSignaturePayload: joins timestamp and body with a dot, determini
   assertEquals(buildSignaturePayload("123", '{"a":1}'), '123.{"a":1}');
 });
 
-Deno.test("WEBHOOK_EVENTS has the 6 documented event kinds", () => {
-  assertEquals([...WEBHOOK_EVENTS].sort(), ["approval_auto_resolved", "approval_created", "approval_escalated", "decision_logged", "incident_opened", "incident_resolved"]);
+Deno.test("WEBHOOK_EVENTS has the 11 documented event kinds", () => {
+  assertEquals([...WEBHOOK_EVENTS].sort(), [
+    "api_key_auto_paused", "api_key_on_uncertain_downgraded", "approval_auto_resolved", "approval_created",
+    "approval_escalated", "automation_readiness_ready", "decision_logged", "hard_rule_auto_drafted",
+    "incident_opened", "incident_resolved", "shadow_policy_promotion_ready",
+  ]);
 });
 
 type Row = { data?: unknown; error?: unknown };

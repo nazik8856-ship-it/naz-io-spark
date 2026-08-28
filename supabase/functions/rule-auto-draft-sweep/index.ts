@@ -17,6 +17,7 @@
 // free, no extra column needed.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { detectRecurringBlockPatterns, draftRuleFromPattern, type DecisionRow } from "../_shared/rule-auto-draft.ts";
+import { triggerWebhooks } from "../_shared/webhooks.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -90,6 +91,12 @@ Deno.serve(async (req) => {
       if (!insertErr) {
         draftedThisRun.add(dedupeKey);
         drafted.push({ user_id: userId, action_type: pattern.action_type, provider: pattern.provider, sample_size: pattern.sample_size });
+        // "Knowledge & autonomy" plan, item 6: tell the account's own
+        // systems the moment a new shadow rule is drafted, instead of
+        // making them keep polling HardRulesPanel to notice it.
+        await triggerWebhooks(admin, userId, "hard_rule_auto_drafted", {
+          action_type: pattern.action_type, provider: pattern.provider, sample_size: pattern.sample_size, rule_text: draft.rule_text,
+        });
       }
     }
   }

@@ -18,6 +18,7 @@ import { summarizeKeyActivity, isVolumeAbuse, isBlockRateAbuse, summarizeAbuseRe
 import { isRepeatedPauseTrouble, summarizePolicyDowngrade } from "../_shared/policy-downgrade.ts";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
 import { openIncident } from "../_shared/incidents.ts";
+import { triggerWebhooks } from "../_shared/webhooks.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -117,9 +118,18 @@ Deno.serve(async (req) => {
           // which also open an incident the moment the SYSTEM itself takes
           // an action, not only when it merely notices something.
           await openIncident(admin, a.userId, { kind: "control_api_abuse", summary });
+          // "Knowledge & autonomy" plan, item 6: tell the account's own
+          // systems the moment this happens, instead of making them
+          // keep polling for it.
+          await triggerWebhooks(admin, a.userId, "api_key_auto_paused", {
+            api_key_id: a.apiKeyId, key_prefix: key?.key_prefix ?? null, paused_until: pausedUntil, reason: summary,
+          });
           if (downgradeSummary) {
             await sendCriticalAlert(admin, a.userId, { event: "on_uncertain_auto_downgraded", summary: downgradeSummary });
             await openIncident(admin, a.userId, { kind: "on_uncertain_auto_downgraded", summary: downgradeSummary });
+            await triggerWebhooks(admin, a.userId, "api_key_on_uncertain_downgraded", {
+              api_key_id: a.apiKeyId, key_prefix: key?.key_prefix ?? null, reason: downgradeSummary,
+            });
           }
         }
       } catch (e) {
