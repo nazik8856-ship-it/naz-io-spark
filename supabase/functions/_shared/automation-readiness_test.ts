@@ -33,6 +33,7 @@ const cleanInput = (over: Partial<AutomationReadinessInput> = {}): AutomationRea
   shadowSummary: null,
   totalPrecedentCitations: 0,
   contradictoryPrecedentCitations: 0,
+  daysSinceLastDecision: 1,
   ...over,
 });
 
@@ -40,7 +41,7 @@ Deno.test("evaluateAutomationReadiness: every signal clean (or not-applicable) i
   const report = evaluateAutomationReadiness(cleanInput());
   assertEquals(report.ready, true);
   assertEquals(report.blockers, []);
-  assertEquals(report.signals.length, 4);
+  assertEquals(report.signals.length, 5);
 });
 
 Deno.test("evaluateAutomationReadiness: below the sample-size floor is not ready and names it as a blocker", () => {
@@ -111,6 +112,38 @@ Deno.test("evaluateAutomationReadiness: multiple simultaneous blockers are all r
   assertEquals(report.blockers.length, 3);
 });
 
+// ---- evidence_recency ("knowledge & autonomy" item 10) ----
+
+Deno.test("evaluateAutomationReadiness: no real decision ever is informational only, never a blocker (sample_size already covers it)", () => {
+  const report = evaluateAutomationReadiness(cleanInput({ decidedSampleSize: 0, daysSinceLastDecision: null }));
+  const signal = report.signals.find((s) => s.name === "evidence_recency");
+  assertEquals(signal?.status, "no_data");
+  // Only sample_size's own blocker should fire here, not a second one for the same root cause.
+  assertEquals(report.blockers.length, 1);
+});
+
+Deno.test("evaluateAutomationReadiness: a key with plenty of sample size but stale recent evidence IS its own blocker", () => {
+  const report = evaluateAutomationReadiness(cleanInput({ daysSinceLastDecision: 30 }));
+  const signal = report.signals.find((s) => s.name === "evidence_recency");
+  assertEquals(signal?.status, "stale");
+  assertEquals(report.ready, false);
+  assertEquals(report.blockers.length, 1);
+});
+
+Deno.test("evaluateAutomationReadiness: evidence right at the staleness boundary is still ok, not stale", () => {
+  const report = evaluateAutomationReadiness(cleanInput({ daysSinceLastDecision: 14 }));
+  const signal = report.signals.find((s) => s.name === "evidence_recency");
+  assertEquals(signal?.status, "ok");
+  assertEquals(report.ready, true);
+});
+
+Deno.test("evaluateAutomationReadiness: recent evidence is ok, never a blocker", () => {
+  const report = evaluateAutomationReadiness(cleanInput({ daysSinceLastDecision: 0 }));
+  const signal = report.signals.find((s) => s.name === "evidence_recency");
+  assertEquals(signal?.status, "ok");
+  assertEquals(report.ready, true);
+});
+
 // ---- gatherAutomationReadinessInput (DB-backed) ----
 
 type QueryConfig = {
@@ -119,6 +152,7 @@ type QueryConfig = {
   apiKeyRow?: { shadow_on_uncertain: string | null } | null;
   shadowObservationRows?: unknown[];
   precedentCitationRows?: { precedent_citations: { reason?: string } | null }[];
+  lastDecisionRow?: { created_at: string } | null;
 };
 
 function chain(resolve: () => unknown) {
@@ -147,6 +181,9 @@ function fakeAdmin(cfg: QueryConfig) {
           if (table === "agent_decisions" && cols === "precedent_citations") {
             return chain(() => ({ data: cfg.precedentCitationRows ?? [], error: null }));
           }
+          if (table === "agent_decisions" && cols === "created_at") {
+            return chain(() => ({ data: cfg.lastDecisionRow ?? null, error: null }));
+          }
           if (table === "confidence_bucket_flags") {
             return chain(() => ({ data: cfg.confidenceFlagRows ?? [], error: null }));
           }
@@ -165,12 +202,13 @@ function fakeAdmin(cfg: QueryConfig) {
   return client as any;
 }
 
-Deno.test("gatherAutomationReadinessInput: assembles all four signals from their real tables", async () => {
+Deno.test("gatherAutomationReadinessInput: assembles all five signals from their real tables", async () => {
   const admin = fakeAdmin({
     agentDecisionsCount: 42,
     confidenceFlagRows: [],
     apiKeyRow: { shadow_on_uncertain: null },
     precedentCitationRows: [{ precedent_citations: { reason: "non_allow_majority" } }, { precedent_citations: { reason: "contradictory" } }],
+    lastDecisionRow: { created_at: new Date(Date.now() - 3 * 86400_000).toISOString() },
   });
   const input = await gatherAutomationReadinessInput(admin, "key-1");
   assertEquals(input.decidedSampleSize, 42);
@@ -178,6 +216,13 @@ Deno.test("gatherAutomationReadinessInput: assembles all four signals from their
   assertEquals(input.shadowSummary, null);
   assertEquals(input.totalPrecedentCitations, 2);
   assertEquals(input.contradictoryPrecedentCitations, 1);
+  assertEquals(input.daysSinceLastDecision, 3);
+});
+
+Deno.test("gatherAutomationReadinessInput: no last-decision row at all reports null, not zero", async () => {
+  const admin = fakeAdmin({ lastDecisionRow: null });
+  const input = await gatherAutomationReadinessInput(admin, "key-1");
+  assertEquals(input.daysSinceLastDecision, null);
 });
 
 Deno.test("gatherAutomationReadinessInput: an active confidence flag row is detected", async () => {
@@ -215,5 +260,6 @@ Deno.test("gatherAutomationReadinessInput: a lookup failure anywhere degrades th
     shadowSummary: null,
     totalPrecedentCitations: 0,
     contradictoryPrecedentCitations: 0,
+    daysSinceLastDecision: null,
   });
 });

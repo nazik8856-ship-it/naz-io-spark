@@ -19,12 +19,15 @@ export const MIN_SAMPLE_FOR_READINESS = 20;
 export const MIN_CITATIONS_FOR_PRECEDENT_SIGNAL = 5;
 /** Reuses precedent-advice.ts's own CONTRADICTORY_LOWER_BOUND value, but as its own named constant: that one judges a SINGLE decision's own non-allow share, this judges the RATE of this key's own recorded citations that were specifically "contradictory" rather than a clean non-allow majority. */
 export const CONTRADICTORY_CITATION_RATE_BLOCKER = 0.4;
+/** "Knowledge & autonomy" plan, item 10: once a key's most recent REAL decision (any window, not just the 90-day lookback the other signals use) is older than this, the evidence backing its current trust is going stale -- worth a flag even when the sample-size signal itself still reads "ok" (e.g. 20 decisions, but all of them weeks ago). */
+export const STALE_EVIDENCE_DAYS = 14;
 
 export type AutomationReadinessSignal =
   | { name: "sample_size"; status: "insufficient" | "ok"; detail: string }
   | { name: "confidence_calibration"; status: "flagged" | "ok"; detail: string }
   | { name: "shadow_policy"; status: "not_configured" | "not_ready" | "ready"; detail: string }
-  | { name: "precedent_consistency"; status: "not_enough_data" | "contradictory" | "ok"; detail: string };
+  | { name: "precedent_consistency"; status: "not_enough_data" | "contradictory" | "ok"; detail: string }
+  | { name: "evidence_recency"; status: "no_data" | "stale" | "ok"; detail: string };
 
 export type AutomationReadinessReport = {
   ready: boolean;
@@ -42,6 +45,8 @@ export type AutomationReadinessInput = {
   /** How many of this key's real decisions recorded a precedent citation (item 9's precedent_citations column) in the lookback window, and how many of those were specifically "contradictory" (a genuine mixed bag) rather than a clean non-allow majority. */
   totalPrecedentCitations: number;
   contradictoryPrecedentCitations: number;
+  /** Days since this key's single most recent real decision, EVER (not bounded to the 90-day lookback the other signals use) -- null means this key has never logged a real decision at all. */
+  daysSinceLastDecision: number | null;
 };
 
 /**
@@ -114,6 +119,35 @@ export function evaluateAutomationReadiness(input: AutomationReadinessInput): Au
         detail: `${input.totalPrecedentCitations} recorded precedent citation(s) for this key, only ${Math.round(rate * 100)}% genuinely contradictory.`,
       });
     }
+  }
+
+  // "Knowledge & autonomy" plan, item 10: a genuinely SEPARATE dimension
+  // from sample_size above -- a key can clear the sample-size bar (enough
+  // decisions in the 90-day window) while every one of them happened
+  // weeks ago, which is exactly the "trust assumed to hold forever" gap
+  // this item closes. "no_data" (never logged a real decision at all) is
+  // deliberately never pushed as its own blocker -- sample_size already
+  // covers that root cause; adding a second blocker for the same reason
+  // would just be noise.
+  if (input.daysSinceLastDecision === null) {
+    signals.push({
+      name: "evidence_recency",
+      status: "no_data",
+      detail: "This key has never logged a real decision, so there's no evidence to judge the freshness of.",
+    });
+  } else if (input.daysSinceLastDecision > STALE_EVIDENCE_DAYS) {
+    const detail =
+      `This key's most recent real decision was ${input.daysSinceLastDecision} day(s) ago -- past the ` +
+      `${STALE_EVIDENCE_DAYS}-day mark, so the evidence behind its current trust is going stale. Worth ` +
+      `confirming this key's automation still behaves the way it used to before relying on it further.`;
+    signals.push({ name: "evidence_recency", status: "stale", detail });
+    blockers.push(detail);
+  } else {
+    signals.push({
+      name: "evidence_recency",
+      status: "ok",
+      detail: `This key's most recent real decision was ${input.daysSinceLastDecision} day(s) ago -- recent enough to trust.`,
+    });
   }
 
   return { ready: blockers.length === 0, signals, blockers };
@@ -202,5 +236,30 @@ export async function gatherAutomationReadinessInput(
     contradictoryPrecedentCitations = rows.filter((r) => r.precedent_citations?.reason === "contradictory").length;
   } catch { /* falls back to 0/0 -- correctly reads as "not enough data" rather than crashing the whole report */ }
 
-  return { decidedSampleSize, hasActiveCalibrationFlag, shadowSummary, totalPrecedentCitations, contradictoryPrecedentCitations };
+  // "Knowledge & autonomy" plan, item 10: deliberately NOT bounded by
+  // `since` (the 90-day lookback every other signal above uses) -- a key
+  // whose last real decision was 91+ days ago is exactly the "gone
+  // stale" case this signal exists to catch, and a lookback-bounded query
+  // would silently miss it (an empty result reading identically to "never
+  // had one at all").
+  let daysSinceLastDecision: number | null = null;
+  try {
+    const { data: lastRow } = await admin
+      .from("agent_decisions")
+      .select("created_at")
+      .eq("api_key_id", apiKeyId)
+      .eq("is_test", false)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const lastCreatedAt = (lastRow as { created_at?: string } | null)?.created_at ?? null;
+    if (lastCreatedAt) {
+      daysSinceLastDecision = Math.floor((Date.now() - new Date(lastCreatedAt).getTime()) / 86400_000);
+    }
+  } catch { /* falls back to null -- reads as "no data," never blocks unfairly on a lookup hiccup */ }
+
+  return {
+    decidedSampleSize, hasActiveCalibrationFlag, shadowSummary,
+    totalPrecedentCitations, contradictoryPrecedentCitations, daysSinceLastDecision,
+  };
 }
