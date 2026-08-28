@@ -56,6 +56,7 @@ import { buildEmbeddingInput, formatEmbeddingLiteral, generateEmbeddingWithinBud
 import { countsTowardRealUsage, testModeVerdictNote } from "../_shared/sandbox-mode.ts";
 import { summarizeAttestationCounts, distinctPolicyVersions, buildAttestationCanonicalPayload } from "../_shared/compliance-attestation.ts";
 import { buildDecisionExplanation } from "../_shared/decision-explanation.ts";
+import { hasOpenReview, buildDisputeReasonText } from "../_shared/decision-dispute.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -109,6 +110,11 @@ const MAX_ATTESTATION_PERIOD_DAYS = 366;
 // budget as the plain export endpoint -- a support agent looking up one
 // decision at a time, not a bulk operation.
 const DECISION_EXPLAIN_RATE_LIMIT_PER_MINUTE = 30;
+// "Knowledge & autonomy" plan, item 14: a real write (creates a genuine
+// pending_approvals row) but a rare, deliberate one -- a company's own
+// support team disputing a specific decision, not routine traffic. Kept
+// low and separate from the verdict endpoint's own budget.
+const DECISION_DISPUTE_RATE_LIMIT_PER_MINUTE = 10;
 
 // "Zero human review" plan, item 13: a thin wrapper around the real
 // per-action logic (renamed judgeOneActionInner below) that wires in the
@@ -904,6 +910,90 @@ Deno.serve(async (req) => {
       decision_id: decisionId,
       explanation,
     });
+  }
+
+  // ---- POST /control-api/v1/decisions/:id/dispute ---------------------------
+  // "Knowledge & autonomy" plan, item 14: let an external company request
+  // a genuine fresh human look at a decision NazAI already resolved --
+  // e.g. its own end customer disputes an auto-resolved block. Reuses
+  // pending_approvals' own existing queue/notification machinery (same
+  // table, same approval_created webhook, same structured-reason capture
+  // item 2 already gives record_approval_signoff) -- just a new way to
+  // create a row scoped to a decision that already has a real verdict.
+  // Always creates a genuine PENDING row (never auto-resolved by this
+  // key's on_uncertain policy) -- the entire point is a human looks again,
+  // so silently auto-resolving it a second time would defeat the request.
+  const disputeMatch = url.pathname.match(/\/decisions\/([0-9a-fA-F-]{36})\/dispute\/?$/);
+  if (req.method === "POST" && disputeMatch) {
+    const decisionId = disputeMatch[1];
+    const rate = await checkRateLimit(admin, userId, "control-api-dispute", DECISION_DISPUTE_RATE_LIMIT_PER_MINUTE, 60);
+    if (!rate.allowed) {
+      return json({
+        error: "rate_limited",
+        message: `Too many requests — ${rate.count} in the last minute (limit ${rate.limit}). Try again shortly.`,
+      }, 429);
+    }
+
+    const { data: row, error } = await admin
+      .from("agent_decisions")
+      .select("id, decision, agent_id, agent_run_id, action_type, provider, plan_id")
+      .eq("id", decisionId)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (error) return json({ error: error.message }, 500);
+    if (!row) return json({ error: "not_found", message: "No decision with this id exists for your account." }, 404);
+
+    type DecisionRow = {
+      id: string; decision: string; agent_id: string | null; agent_run_id: string | null;
+      action_type: string | null; provider: string | null; plan_id: string | null;
+    };
+    const decisionRow = row as DecisionRow;
+
+    const { data: existingRow } = await admin
+      .from("pending_approvals")
+      .select("id, status")
+      .eq("decision_id", decisionId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const existing = existingRow as { id: string; status: string } | null;
+    if (hasOpenReview(existing)) {
+      return json({ ok: true, already_open: true, approval_id: existing!.id, status: existing!.status });
+    }
+
+    const body = await req.json().catch(() => ({} as Record<string, unknown>));
+    const callerReason = typeof body?.reason === "string" ? body.reason.slice(0, 800) : null;
+    const reasonText = buildDisputeReasonText(callerReason, decisionRow.decision);
+
+    const { data: inserted, error: insertErr } = await admin.from("pending_approvals").insert({
+      user_id: userId,
+      decision_id: decisionId,
+      requester_id: userId,
+      agent_id: decisionRow.agent_id,
+      run_id: decisionRow.agent_run_id,
+      action_type: decisionRow.action_type ?? "unknown",
+      provider: decisionRow.provider ?? "unknown",
+      description: `Re-review requested for decision ${decisionId}.`,
+      reason: reasonText,
+      risk_tier: "medium",
+      origin: "external-api",
+      status: "pending",
+      plan_id: decisionRow.plan_id,
+    }).select("id").maybeSingle();
+    if (insertErr) return json({ error: insertErr.message }, 500);
+    const approvalId = (inserted as { id?: string } | null)?.id ?? null;
+
+    if (approvalId) {
+      await triggerWebhooks(admin, userId, "approval_created", {
+        approval_id: approvalId,
+        action_type: decisionRow.action_type ?? "unknown",
+        provider: decisionRow.provider ?? "unknown",
+        risk_tier: "medium",
+        reason: reasonText,
+      });
+    }
+
+    return json({ ok: true, already_open: false, approval_id: approvalId, status: "pending" });
   }
 
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
