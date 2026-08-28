@@ -23,7 +23,8 @@ import { CAPABILITY_REGISTRY, canOfferTool } from "../_shared/capability-registr
 import { recordAiSpend } from "../_shared/spend-guard.ts";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
 import { openIncident } from "../_shared/incidents.ts";
-import { runControlGate, createPendingApproval, loadOnUncertainPolicy } from "../_shared/control-gate.ts";
+import { runControlGate, createPendingApproval, loadOnUncertainPolicy, loadActionTypeOverrides } from "../_shared/control-gate.ts";
+import { resolveEffectiveConfidenceThreshold } from "../_shared/action-type-policy.ts";
 import { extractNarrowedAction, narrowedActionResolution } from "../_shared/api-key-policy.ts";
 import { checkApprovalQuorum } from "../_shared/quorum.ts";
 import { claimIdempotencyKey, saveIdempotencyResponse, releaseIdempotencyKey, claimRowOnce, releaseRowClaim, type ClaimResult } from "../_shared/idempotency.ts";
@@ -1015,8 +1016,23 @@ serve(async (req) => {
     // for any decision scored inside that exact range, until a human
     // clears the flag -- fail toward more review, never less.
     const activeConfidenceFlags = await loadActiveConfidenceBucketFlags(supabase, userId);
-    const threshold = widenThresholdForFlags(
+    // "Knowledge & autonomy" plan, item 9: the SAME per-action-type
+    // override list item 10 (last round) already uses for on_uncertain,
+    // applied here to the confidence threshold -- a REPLACEMENT of the
+    // risk/strictness-based base threshold for this one action_type, when
+    // this key has one configured. widenThresholdForFlags still runs on
+    // top of whichever base wins, so an active miscalibration flag can
+    // only ever pull the effective threshold higher, never lower than
+    // what this resolves to -- the account's own explicit per-action-type
+    // choice never weakens that caution mechanism.
+    const actionTypeThresholdOverrides = trustedApiKeyId ? await loadActionTypeOverrides(supabase, trustedApiKeyId) : [];
+    const baseRiskThreshold = resolveEffectiveConfidenceThreshold(
       thresholdForRisk(riskTier, baseThreshold, strictness),
+      actionType,
+      actionTypeThresholdOverrides,
+    ).threshold;
+    const threshold = widenThresholdForFlags(
+      baseRiskThreshold,
       conf.score,
       activeConfidenceFlags,
     );

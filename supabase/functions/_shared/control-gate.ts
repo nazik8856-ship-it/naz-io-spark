@@ -227,12 +227,12 @@ export async function loadOnUncertainPolicy(
   return resolveEffectiveOnUncertain(blanket, actionType, overrides).policy;
 }
 
-/** "Policy autonomy" plan, item 10: every action-type override configured for one api key, oldest first -- so a tie between two matching patterns always resolves the same predictable way (the oldest one wins), matching hard_rules matching's own existing precedent. Never throws. */
-async function loadActionTypeOverrides(admin: SupabaseClient, apiKeyId: string): Promise<ActionTypeOverride[]> {
+/** "Policy autonomy" plan, item 10: every action-type override configured for one api key, oldest first -- so a tie between two matching patterns always resolves the same predictable way (the oldest one wins), matching hard_rules matching's own existing precedent. Never throws. Exported so control-engine's own threshold resolution ("knowledge & autonomy" plan, item 9) can reuse the exact same query instead of a second one. */
+export async function loadActionTypeOverrides(admin: SupabaseClient, apiKeyId: string): Promise<ActionTypeOverride[]> {
   try {
     const { data } = await admin
       .from("api_key_action_policies")
-      .select("action_type_pattern, on_uncertain")
+      .select("action_type_pattern, on_uncertain, confidence_threshold")
       .eq("api_key_id", apiKeyId)
       .order("created_at", { ascending: true });
     return (data ?? []) as ActionTypeOverride[];

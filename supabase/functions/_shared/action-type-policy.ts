@@ -14,7 +14,17 @@
 // plain policy string, just possibly a different one than the key's own
 // blanket column depending on which action_type this particular decision
 // was for.
-export type ActionTypeOverride = { action_type_pattern: string; on_uncertain: string };
+export type ActionTypeOverride = {
+  action_type_pattern: string;
+  on_uncertain: string;
+  // "Knowledge & autonomy" plan, item 9: a SEPARATE, optional override on
+  // the same row -- a row can set an on_uncertain override, a confidence-
+  // threshold override, or both. null/undefined means this row carries no
+  // threshold override at all (every row that predates this item), so
+  // resolveEffectiveConfidenceThreshold below correctly skips it rather
+  // than treating "unset" as "threshold zero."
+  confidence_threshold?: number | null;
+};
 
 // Same "*"-wildcard, case-insensitive glob convention hard_rules'
 // action_type_pattern already uses (policy-replay.ts's globToRe) -- an
@@ -52,4 +62,34 @@ export function resolveEffectiveOnUncertain(
 ): EffectiveOnUncertain {
   const matched = overrides.find((o) => matchesActionTypePattern(o.action_type_pattern, actionType));
   return matched ? { policy: matched.on_uncertain, matchedOverride: matched } : { policy: blanketPolicy, matchedOverride: null };
+}
+
+export type EffectiveConfidenceThreshold = { threshold: number; matchedOverride: ActionTypeOverride | null };
+
+/**
+ * "Knowledge & autonomy" plan, item 9: the SAME override-list shape and
+ * matching order item 10 (last round) already established for
+ * on_uncertain, applied here to the confidence threshold instead -- the
+ * first configured override whose pattern matches AND actually carries a
+ * confidence_threshold (a row that only overrides on_uncertain is
+ * correctly skipped here, never treated as "threshold zero"), or the
+ * key's own blanket/risk-based threshold when none matches. This is a
+ * REPLACEMENT of the base threshold for this one decision, not a floor or
+ * ceiling on it -- any further caution-only widening (e.g.
+ * widenThresholdForFlags for an active miscalibration flag) is still the
+ * caller's job to apply on top, same one-directional "never a blind
+ * allow" posture every automatic caution mechanism in this system
+ * already has.
+ */
+export function resolveEffectiveConfidenceThreshold(
+  blanketThreshold: number,
+  actionType: string,
+  overrides: ActionTypeOverride[],
+): EffectiveConfidenceThreshold {
+  const matched = overrides.find(
+    (o) => o.confidence_threshold != null && matchesActionTypePattern(o.action_type_pattern, actionType),
+  );
+  return matched
+    ? { threshold: matched.confidence_threshold as number, matchedOverride: matched }
+    : { threshold: blanketThreshold, matchedOverride: null };
 }

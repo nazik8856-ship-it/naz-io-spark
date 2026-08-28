@@ -1,7 +1,7 @@
 // Real tests for the per-action-type on_uncertain override resolver.
 //
 // Run with: deno test --allow-none supabase/functions/_shared/action-type-policy_test.ts
-import { matchesActionTypePattern, resolveEffectiveOnUncertain, type ActionTypeOverride } from "./action-type-policy.ts";
+import { matchesActionTypePattern, resolveEffectiveOnUncertain, resolveEffectiveConfidenceThreshold, type ActionTypeOverride } from "./action-type-policy.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
@@ -83,4 +83,48 @@ Deno.test("resolveEffectiveOnUncertain: an exact-action-type override applies on
   const overrides = [override({ action_type_pattern: "delete_record", on_uncertain: "human_review" })];
   assertEquals(resolveEffectiveOnUncertain("auto_allow", "delete_record", overrides).policy, "human_review");
   assertEquals(resolveEffectiveOnUncertain("auto_allow", "delete_user", overrides).policy, "auto_allow");
+});
+
+// ---- resolveEffectiveConfidenceThreshold ("knowledge & autonomy" item 9) ----
+
+Deno.test("resolveEffectiveConfidenceThreshold: no overrides at all falls back to the blanket threshold", () => {
+  const result = resolveEffectiveConfidenceThreshold(60, "send_email", []);
+  assertEquals(result, { threshold: 60, matchedOverride: null });
+});
+
+Deno.test("resolveEffectiveConfidenceThreshold: a matching override with a threshold replaces the blanket threshold", () => {
+  const overrides = [override({ action_type_pattern: "delete_*", confidence_threshold: 85 })];
+  const result = resolveEffectiveConfidenceThreshold(60, "delete_record", overrides);
+  assertEquals(result.threshold, 85);
+  assertEquals(result.matchedOverride, overrides[0]);
+});
+
+Deno.test("resolveEffectiveConfidenceThreshold: an override matching this action_type but with no threshold set is skipped, not treated as zero", () => {
+  const overrides = [override({ action_type_pattern: "delete_*", on_uncertain: "human_review", confidence_threshold: null })];
+  const result = resolveEffectiveConfidenceThreshold(60, "delete_record", overrides);
+  assertEquals(result, { threshold: 60, matchedOverride: null });
+});
+
+Deno.test("resolveEffectiveConfidenceThreshold: an override that doesn't match this action_type leaves the blanket threshold untouched", () => {
+  const overrides = [override({ action_type_pattern: "delete_*", confidence_threshold: 85 })];
+  const result = resolveEffectiveConfidenceThreshold(60, "send_email", overrides);
+  assertEquals(result, { threshold: 60, matchedOverride: null });
+});
+
+Deno.test("resolveEffectiveConfidenceThreshold: when two overrides could both match, the first one with a real threshold set wins", () => {
+  const overrides = [
+    override({ action_type_pattern: "delete_*", confidence_threshold: null }),
+    override({ action_type_pattern: "*", confidence_threshold: 40 }),
+  ];
+  // The first row matches the pattern but carries no threshold override of
+  // its own -- resolution must skip past it to the next real match, not
+  // stop at the first PATTERN match regardless of whether it set one.
+  const result = resolveEffectiveConfidenceThreshold(60, "delete_record", overrides);
+  assertEquals(result.threshold, 40);
+});
+
+Deno.test("resolveEffectiveConfidenceThreshold: a threshold of exactly 0 is honored, not treated as unset", () => {
+  const overrides = [override({ action_type_pattern: "delete_*", confidence_threshold: 0 })];
+  const result = resolveEffectiveConfidenceThreshold(60, "delete_record", overrides);
+  assertEquals(result.threshold, 0);
 });

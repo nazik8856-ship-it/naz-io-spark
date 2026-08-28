@@ -369,7 +369,7 @@ Deno.serve(async (req) => {
     if (req.method === "GET") {
       const { data, error } = await admin
         .from("api_key_action_policies")
-        .select("id, action_type_pattern, on_uncertain, created_at")
+        .select("id, action_type_pattern, on_uncertain, confidence_threshold, created_at")
         .eq("api_key_id", keyId)
         .order("created_at", { ascending: true });
       if (error) return json({ error: error.message }, 500);
@@ -392,13 +392,35 @@ Deno.serve(async (req) => {
     if (!isValidOnUncertainPolicy(body?.on_uncertain)) {
       return json({ error: "on_uncertain must be one of: human_review, auto_deny, auto_allow, auto_narrow, callback" }, 400);
     }
+    // "Knowledge & autonomy" plan, item 9: a SEPARATE, optional override on
+    // the same row -- lets an action vary its confidence threshold
+    // (how certain the model must be before this action_type is treated
+    // as "certain enough to not even ask") independently of its
+    // on_uncertain policy. Omitted entirely keeps whatever was set before
+    // untouched; explicit null clears it back to this key's plain
+    // risk/strictness-based threshold.
+    let confidenceThreshold: number | null | undefined;
+    if (body?.confidence_threshold !== undefined) {
+      if (body.confidence_threshold === null) {
+        confidenceThreshold = null;
+      } else {
+        const t = Number(body.confidence_threshold);
+        if (!Number.isInteger(t) || t < 0 || t > 100) {
+          return json({ error: "confidence_threshold must be an integer between 0 and 100, or null to clear it" }, 400);
+        }
+        confidenceThreshold = t;
+      }
+    }
     const { data, error } = await admin
       .from("api_key_action_policies")
       .upsert(
-        { user_id: targetUserId, api_key_id: keyId, action_type_pattern: actionTypePattern, on_uncertain: body.on_uncertain },
+        {
+          user_id: targetUserId, api_key_id: keyId, action_type_pattern: actionTypePattern, on_uncertain: body.on_uncertain,
+          ...(confidenceThreshold !== undefined ? { confidence_threshold: confidenceThreshold } : {}),
+        },
         { onConflict: "api_key_id,action_type_pattern" },
       )
-      .select("id, action_type_pattern, on_uncertain, created_at")
+      .select("id, action_type_pattern, on_uncertain, confidence_threshold, created_at")
       .maybeSingle();
     if (error) return json({ error: error.message }, 500);
     return json({ ok: true, override: data });
