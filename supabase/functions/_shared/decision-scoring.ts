@@ -168,6 +168,8 @@ export const logDecision = async (
     apiKeyId?: string | null;
     /** "Knowledge & autonomy" plan, item 7: true only when apiKeyId names a sandbox/test-mode key. Stamped onto the row and used to skip embedding storage (see sandbox-mode.ts) -- a test key's decisions must never become real, searchable precedent. */
     isTest?: boolean;
+    /** "Knowledge & autonomy" plan, item 12: this decision's own plan_id (opaque, caller-chosen), when the caller sent one -- stamped onto the row so a LATER decision in the same plan can look up whether this one came back BLOCK (plan-escalation.ts, consulted by createPendingApproval). */
+    planId?: string | null;
     /** "Real precedent memory" plan, item 1: the raw action, present only when the caller has it in scope (control-engine's model-scored path does) -- used solely to build this decision's embedding, never stored on the row itself, which only ever answers "what happened," not the exact payload. Omitted entirely (agent-runtime) means no embedding is attempted, same as apiKeyId being null. */
     description?: string | null;
     params?: unknown;
@@ -191,6 +193,7 @@ export const logDecision = async (
       provider: d.provider ?? null,
       api_key_id: d.apiKeyId ?? null,
       is_test: d.isTest === true,
+      plan_id: d.planId ?? null,
     }).select("id").single();
     const decisionId = (data as { id?: string } | null)?.id ?? null;
     if (decisionId) {

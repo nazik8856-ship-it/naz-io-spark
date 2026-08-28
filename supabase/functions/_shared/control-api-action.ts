@@ -15,6 +15,13 @@ export type ParsedControlApiAction = {
   // step (_shared/idempotency.ts), just scoped here to the whole judged
   // verdict rather than one provider write.
   idempotencyKey: string | null;
+  // "Knowledge & autonomy" plan, item 12: an optional caller-supplied tag
+  // linking this action to other actions (across one or more requests) as
+  // steps in the same real-world sequence. Purely a caller-chosen opaque
+  // string, same shape as idempotencyKey -- NazAI never invents or
+  // interprets it, it only ever looks up "what else in this plan has
+  // already happened."
+  planId: string | null;
 };
 
 export type ParseActionResult = ParsedControlApiAction | { error: string };
@@ -34,5 +41,6 @@ export function parseControlApiAction(raw: unknown): ParseActionResult {
     params: b?.params ?? {},
     mode: b?.mode === "full" ? "full" : "fast",
     idempotencyKey: b?.idempotency_key ? String(b.idempotency_key).slice(0, 200) : null,
+    planId: b?.plan_id ? String(b.plan_id).slice(0, 200) : null,
   };
 }

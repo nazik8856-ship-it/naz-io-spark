@@ -191,7 +191,7 @@ async function judgeOneActionInner(
     };
   }
 
-  const { actionType, provider, description, params, mode } = action;
+  const { actionType, provider, description, params, mode, planId } = action;
 
   // ---- mode="fast" (default): deterministic layer only, no LLM call --------
   // Hard rules, safety scanner, spend cap, kill switch, circuit breaker --
@@ -205,6 +205,7 @@ async function judgeOneActionInner(
       origin: "external-api",
       apiKeyId: keyId,
       isTest,
+      planId,
     });
     // "Knowledge & autonomy" plan, item 7: a sandbox key's verdict carries
     // one extra `test_mode`/`note` field so a caller can confirm, from the
@@ -289,6 +290,7 @@ async function judgeOneActionInner(
           provider,
           api_key_id: keyId,
           is_test: isTest,
+          plan_id: planId,
         }).select("id").maybeSingle();
         decisionId = (logged as { id?: string } | null)?.id ?? null;
       } catch { /* logging must never break the cap enforcement itself */ }
@@ -325,7 +327,7 @@ async function judgeOneActionInner(
       "x-api-key-id": keyId ?? "",
       "x-is-test": isTest ? "1" : "",
     },
-    body: JSON.stringify({ action_type: actionType, provider, description, params, assess_only: true }),
+    body: JSON.stringify({ action_type: actionType, provider, description, params, assess_only: true, plan_id: planId }),
   });
   const data = await resp.json().catch(() => ({} as Record<string, unknown>));
   if (!resp.ok) {

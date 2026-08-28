@@ -32,6 +32,7 @@ import { resolveOnUncertain, resolveSweepFallback, type AutoResolution } from ".
 import { notifyAndAwaitCallback, type CallbackConfig } from "./callback-delegation.ts";
 import { embedDecisionIfExternal } from "./decision-embeddings.ts";
 import { countsTowardRealUsage } from "./sandbox-mode.ts";
+import { planHasEarlierBlock } from "./plan-escalation.ts";
 import { findPrecedent, loadOutcomeDirections, loadStoredEmbeddingLiteral } from "./precedent-search.ts";
 import { alignPrecedentSignals, evaluatePrecedentForAutoApprove, shouldRejectOnPrecedent, summarizePrecedentOverride } from "./precedent-advice.ts";
 import { buildPrecedentCitationRecord, recordPrecedentCitation } from "./precedent-citation.ts";
@@ -116,6 +117,13 @@ export type GateContext = {
   // something real" call site this gate owns). Always false/undefined
   // for every non-external-api origin.
   isTest?: boolean;
+  // "Knowledge & autonomy" plan, item 12: an opaque, caller-chosen tag
+  // linking this action to other actions as steps in the same real-world
+  // sequence -- stamped onto any agent_decisions row this call logs, and
+  // consulted by createPendingApproval's own plan-escalation check
+  // (plan-escalation.ts) before finalizing an automatic APPROVAL. NazAI
+  // never invents or interprets its value.
+  planId?: string | null;
 };
 
 export type ShadowHit = {
@@ -312,6 +320,14 @@ export async function createPendingApproval(
     // deterministic gate -- bypassing the simple apiKeyId policy lookup
     // above entirely. Takes priority over apiKeyId when both are set.
     forcedResolution?: { resolution: "approved" | "rejected"; note: string } | null;
+    // "Knowledge & autonomy" plan, item 12: this decision's own plan_id,
+    // when the caller sent one -- consulted below (after every other
+    // caution-only check) to see whether an EARLIER decision in the same
+    // plan already came back BLOCK, in which case an automatic APPROVAL
+    // is pulled back to a genuine human escalation instead of going
+    // through, same one-directional posture the precedent and
+    // quiet-hours checks above already have.
+    planId?: string | null;
   },
   // "Policy autonomy" plan, item 3: injectable so quiet-hours behavior is
   // actually testable against a fixed clock, same as computePauseUntil/
@@ -422,6 +438,33 @@ export async function createPendingApproval(
         comment = summarizeQuietHoursEscalation(quietConfig);
       }
     }
+    // "Knowledge & autonomy" plan, item 12: the LAST check before
+    // finalizing an automatic APPROVAL -- runs after quiet hours so a
+    // plan-linked escalation is never silently dropped by a check that
+    // already decided to escalate for its own reason. Only ever pulls an
+    // approval back to a genuine PENDING human review (never an outright
+    // reject -- this system has no real basis to guess the later step is
+    // actually wrong, only that it deserves a closer look), and only
+    // when the caller actually named a plan_id for this decision.
+    if (auto.autoResolved && auto.resolution === "approved" && input.planId) {
+      try {
+        let priorQuery = admin
+          .from("agent_decisions")
+          .select("decision")
+          .eq("user_id", input.userId)
+          .eq("plan_id", input.planId)
+          .limit(500);
+        if (input.decisionId) priorQuery = priorQuery.neq("id", input.decisionId);
+        const { data: priorRows } = await priorQuery;
+        const priorDecisionTexts = ((priorRows ?? []) as { decision: string }[]).map((r) => r.decision);
+        if (planHasEarlierBlock(priorDecisionTexts)) {
+          auto = { autoResolved: false, resolution: null, status: "pending" };
+          comment =
+            `Escalated for human review — an earlier step in this same plan ("${input.planId}") was blocked, ` +
+            `so this step is treated more carefully instead of auto-resolving as if nothing happened.`;
+        }
+      } catch { /* plan lookup is a caution-only enrichment -- a hiccup here must never block the real resolution already decided above */ }
+    }
     const resolvedAt = auto.autoResolved ? now.toISOString() : null;
 
     const { data } = await admin.from("pending_approvals").insert({
@@ -435,6 +478,7 @@ export async function createPendingApproval(
       description: input.description.slice(0, 800),
       params: (input.params ?? {}) as Record<string, unknown>,
       reason: input.reason.slice(0, 800),
+      plan_id: input.planId ?? null,
       risk_tier: input.riskTier ?? "medium",
       origin: input.origin,
       approver_role: input.approverRole ?? "owner",
@@ -552,6 +596,7 @@ async function runControlGateInner(
   const stepIndex = typeof ctx.stepIndex === "number" ? ctx.stepIndex : null;
   const apiKeyId = ctx.apiKeyId ?? null;
   const isTest = ctx.isTest === true;
+  const planId = ctx.planId ?? null;
 
   // ---- 0: pin the policy version that judges this action --------------------
   // The gate reads the ACTIVE policy version's snapshot, not the live tables, so
@@ -613,6 +658,7 @@ async function runControlGateInner(
         description: description ?? null,
         api_key_id: apiKeyId,
         is_test: isTest,
+        plan_id: planId,
         // The trace array is closed over and already has every entry pushed
         // up to this call site — finalizeTrace fills the rest as not_reached.
         gate_trace: finalizeTrace(trace),
@@ -942,7 +988,7 @@ async function runControlGateInner(
       const outcome = await createPendingApproval(admin, {
         userId, decisionId, agentId, runId, actionType, provider,
         description: ctx.description, params: ctx.params, reason, riskTier: "high", origin: ctx.origin,
-        apiKeyId,
+        apiKeyId, planId,
       });
       approvalId = outcome.approvalId;
       if (outcome.autoResolved) {
@@ -1074,7 +1120,7 @@ async function runControlGateInner(
       const outcome = await createPendingApproval(admin, {
         userId, decisionId, agentId, runId, actionType, provider,
         description: ctx.description, params: ctx.params, reason, riskTier: "high", origin: ctx.origin,
-        apiKeyId,
+        apiKeyId, planId,
       });
       approvalId = outcome.approvalId;
       if (outcome.autoResolved) {
@@ -1135,7 +1181,7 @@ async function runControlGateInner(
       const outcome = await createPendingApproval(admin, {
         userId, decisionId, agentId, runId, actionType, provider,
         description: ctx.description, params: ctx.params, reason, riskTier: "high", origin: ctx.origin,
-        apiKeyId,
+        apiKeyId, planId,
       });
       const autoResolved = outcome.autoResolved;
       const ok = autoResolved && outcome.resolution === "approved";
@@ -1213,6 +1259,7 @@ async function runControlGateInner(
         provider,
         api_key_id: apiKeyId,
         is_test: isTest,
+        plan_id: planId,
       }).select("id").maybeSingle();
       decisionId = (data as { id?: string } | null)?.id ?? null;
     } catch { /* logging must never break the fail-closed/fail-open block */ }

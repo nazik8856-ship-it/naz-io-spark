@@ -752,6 +752,12 @@ serve(async (req) => {
     // Optional — only protects the real provider-write step below. Callers
     // that don't send one behave exactly as before.
     const idempotencyKey: string | null = body?.idempotency_key ? String(body.idempotency_key).slice(0, 200) : null;
+    // "Knowledge & autonomy" plan, item 12: an opaque, caller-chosen tag
+    // linking this action to others as steps in the same real-world
+    // sequence -- not a trust-boundary value like x-api-key-id/x-is-test
+    // above, since it only ever affects THIS account's own escalation
+    // behavior, never lets a caller impersonate another key or account.
+    const planId: string | null = body?.plan_id ? String(body.plan_id).slice(0, 200) : null;
 
 
     if (!actionType) return json({ error: "action_type required" }, 400);
@@ -774,6 +780,7 @@ serve(async (req) => {
       origin: decisionOrigin,
       apiKeyId: trustedApiKeyId,
       isTest: trustedIsTest,
+      planId,
     });
     const spendStatus = gate.spend;
     void spendStatus;
@@ -1116,6 +1123,7 @@ serve(async (req) => {
       provider,
       apiKeyId: trustedApiKeyId,
       isTest: trustedIsTest,
+      planId,
       description,
       params,
     });
@@ -1259,6 +1267,7 @@ serve(async (req) => {
         origin: decisionOrigin,
         apiKeyId: trustedApiKeyId,
         forcedResolution,
+        planId,
       });
       approvalId = outcome.approvalId;
       if (outcome.autoResolved) {
