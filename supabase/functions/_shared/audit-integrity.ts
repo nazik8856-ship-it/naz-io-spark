@@ -2,6 +2,7 @@
 // of the edge function's DB-coupled orchestration so it's directly unit
 // testable, same reasoning as self-audit-diff.ts for control-self-audit.
 import { CONTRADICTORY_LOWER_BOUND, NON_ALLOW_SHARE_OVERRIDE_THRESHOLD, MIN_PRECEDENT_SAMPLE } from "./precedent-advice.ts";
+import { matchesActionTypePattern } from "./action-type-policy.ts";
 
 export type SignatureVerifyResult = {
   checked: number;
@@ -51,7 +52,17 @@ export type DecisionConsistencyAuditFields = {
   decision_consistency_mismatched?: number;
 };
 
-export type AuditIntegrityResult = SignatureVerifyResult & AutoResolutionAuditFields & PrecedentCitationAuditFields & DecisionConsistencyAuditFields;
+// "Knowledge & autonomy" plan, item 4: extends this same sweep to ALSO
+// check knowledge-base (item 1) health -- an entry that's gone stale
+// (no matching real decision in a long time) or unreachable (an
+// always_block hard rule already shadows its exact scope). Same
+// optional-fields technique as every other dimension above.
+export type KnowledgeBaseHealthAuditFields = {
+  knowledge_base_checked?: number;
+  knowledge_base_mismatched?: number;
+};
+
+export type AuditIntegrityResult = SignatureVerifyResult & AutoResolutionAuditFields & PrecedentCitationAuditFields & DecisionConsistencyAuditFields & KnowledgeBaseHealthAuditFields;
 
 export type StoredPrecedentCitation = {
   reason: string;
@@ -123,6 +134,60 @@ export function isDecisionConsistencyMismatch(
   return !agreesWithMajority;
 }
 
+// "Knowledge & autonomy" plan, item 4: a knowledge base (item 1) that
+// just grows forever gets stale and can start contradicting the rest of
+// the account's own policy. Two real, deterministic checks --
+// deliberately NOT a semantic "does this contradict that" judgment
+// (which would need an LLM call, breaking this file's existing all-
+// pure, no-AI-call discipline across every other dimension):
+export type KnowledgeBaseHealthEntry = { id: string; action_type_pattern: string | null; provider: string | null };
+export type RecentActionShape = { action_type: string; provider: string | null };
+export type HardRuleBlockShape = { action_type_pattern: string; provider: string | null; effect: string };
+
+const normalizePattern = (p: string | null): string => p ?? "*";
+const normalizeProvider = (p: string | null): string | null => p ? p.toLowerCase() : null;
+
+/**
+ * Pure -- STALE: an unscoped entry (applies to everything) is never
+ * stale by this measure, since it matches every real decision by
+ * definition. A scoped entry is stale when NONE of the given recent
+ * real decision shapes match it -- its guidance hasn't been relevant to
+ * anything NazAI has actually judged in a long time.
+ */
+export function isStaleKnowledgeBaseEntry(entry: KnowledgeBaseHealthEntry, recentShapes: RecentActionShape[]): boolean {
+  if (!entry.action_type_pattern) return false;
+  return !recentShapes.some((s) =>
+    matchesActionTypePattern(entry.action_type_pattern!, s.action_type) &&
+    (!entry.provider || normalizeProvider(entry.provider) === normalizeProvider(s.provider)),
+  );
+}
+
+/**
+ * Pure -- UNREACHABLE: an always_block hard rule already declares the
+ * EXACT same scope (same pattern, same provider) as this entry. Hard
+ * rules short-circuit control-gate.ts's judgment prompt before it's
+ * ever built (a match means "model_judged: false"), so the model can
+ * never actually see this entry's guidance for anything matching it.
+ * Exact-scope match only, not glob subsumption -- a narrower, always-
+ * correct check beats a broader one that might guess wrong.
+ */
+export function isUnreachableKnowledgeBaseEntry(entry: KnowledgeBaseHealthEntry, hardRules: HardRuleBlockShape[]): boolean {
+  return hardRules.some((r) =>
+    r.effect === "always_block" &&
+    normalizePattern(r.action_type_pattern) === normalizePattern(entry.action_type_pattern) &&
+    normalizeProvider(r.provider) === normalizeProvider(entry.provider),
+  );
+}
+
+/** Pure -- a real knowledge-base health concern for either reason above. */
+export function isKnowledgeBaseHealthMismatch(
+  entry: KnowledgeBaseHealthEntry,
+  recentShapes: RecentActionShape[],
+  hardRules: HardRuleBlockShape[],
+): boolean {
+  return isStaleKnowledgeBaseEntry(entry, recentShapes) || isUnreachableKnowledgeBaseEntry(entry, hardRules);
+}
+
 /**
  * A sweep is a failure worth alerting on if ANY signature didn't match
  * what was actually signed at creation (the audit trail may have been
@@ -133,7 +198,8 @@ export function isDecisionConsistencyMismatch(
  */
 export function isAuditIntegrityFailure(r: AuditIntegrityResult): boolean {
   return r.mismatched_count > 0 || r.unsigned > 0 || (r.auto_resolutions_mismatched ?? 0) > 0 ||
-    (r.precedent_citations_mismatched ?? 0) > 0 || (r.decision_consistency_mismatched ?? 0) > 0;
+    (r.precedent_citations_mismatched ?? 0) > 0 || (r.decision_consistency_mismatched ?? 0) > 0 ||
+    (r.knowledge_base_mismatched ?? 0) > 0;
 }
 
 export function summarizeAuditIntegrityFailure(r: AuditIntegrityResult): string {
@@ -163,6 +229,13 @@ export function summarizeAuditIntegrityFailure(r: AuditIntegrityResult): string 
       `${r.decision_consistency_mismatched} of ${r.decision_consistency_checked ?? 0} decision(s) disagreed with a clear ` +
       `precedent majority for the same kind of request, with no human review to explain the difference -- real, ` +
       `unexplained flip-flopping that's worth a human's attention.`,
+    );
+  }
+  if ((r.knowledge_base_mismatched ?? 0) > 0) {
+    parts.push(
+      `${r.knowledge_base_mismatched} of ${r.knowledge_base_checked ?? 0} knowledge-base entr(y/ies) are stale (no matching ` +
+      `real decision in a long time) or unreachable (an always_block hard rule already shadows their exact scope) -- worth ` +
+      `reviewing and cleaning up.`,
     );
   }
   return parts.join(" ");

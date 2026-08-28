@@ -21,7 +21,7 @@
 // 2. A real user JWT — runs the sweep for just that one caller.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
-import { isAuditIntegrityFailure, summarizeAuditIntegrityFailure, isAutoResolutionMismatch, isPrecedentCitationMismatch, isDecisionConsistencyMismatch, type SignatureVerifyResult, type AuditIntegrityResult, type StoredPrecedentCitation } from "../_shared/audit-integrity.ts";
+import { isAuditIntegrityFailure, summarizeAuditIntegrityFailure, isAutoResolutionMismatch, isPrecedentCitationMismatch, isDecisionConsistencyMismatch, isKnowledgeBaseHealthMismatch, type SignatureVerifyResult, type AuditIntegrityResult, type StoredPrecedentCitation, type KnowledgeBaseHealthEntry, type RecentActionShape, type HardRuleBlockShape } from "../_shared/audit-integrity.ts";
 import { evaluateAction, type PolicySnapshot } from "../_shared/policy-replay.ts";
 import { isNonAllowDecision } from "../_shared/control-api-abuse.ts";
 import { loadStoredEmbeddingLiteral, findPrecedent } from "../_shared/precedent-search.ts";
@@ -183,6 +183,53 @@ async function checkDecisionConsistency(
   }
 }
 
+// "Knowledge & autonomy" plan, item 4: checks every ENABLED (live)
+// knowledge-base entry (item 1) for staleness (no matching real decision
+// in a long time) or unreachability (an always_block hard rule already
+// shadows its exact scope). Deliberately a much longer lookback than
+// this sweep's own `from`/`to` window -- staleness is fundamentally a
+// long-term-inactivity signal, not a "did anything change since the last
+// audit" one. Never throws -- a failure here reports zero checked, never
+// blocking the rest of this sweep.
+const KNOWLEDGE_BASE_STALENESS_LOOKBACK_DAYS = 180;
+
+async function checkKnowledgeBaseHealth(
+  admin: ReturnType<typeof createClient>,
+  userId: string,
+): Promise<{ checked: number; mismatched: number }> {
+  try {
+    const { data: entryRows } = await admin
+      .from("knowledge_base_entries")
+      .select("id, action_type_pattern, provider")
+      .eq("user_id", userId)
+      .eq("enabled", true);
+    const entries = (entryRows ?? []) as KnowledgeBaseHealthEntry[];
+    if (!entries.length) return { checked: 0, mismatched: 0 };
+
+    const since = new Date(Date.now() - KNOWLEDGE_BASE_STALENESS_LOOKBACK_DAYS * 86400_000).toISOString();
+    const { data: recentRows } = await admin
+      .from("agent_decisions")
+      .select("action_type, provider")
+      .eq("user_id", userId)
+      .gte("created_at", since)
+      .limit(5000);
+    const recentShapes = (recentRows ?? []) as RecentActionShape[];
+
+    const { data: hardRuleRows } = await admin
+      .from("hard_rules")
+      .select("action_type_pattern, provider, effect")
+      .eq("user_id", userId)
+      .eq("enabled", true)
+      .eq("shadow_mode", false);
+    const hardRules = (hardRuleRows ?? []) as HardRuleBlockShape[];
+
+    const mismatched = entries.filter((e) => isKnowledgeBaseHealthMismatch(e, recentShapes, hardRules)).length;
+    return { checked: entries.length, mismatched };
+  } catch {
+    return { checked: 0, mismatched: 0 };
+  }
+}
+
 async function sweepOrg(
   admin: ReturnType<typeof createClient>,
   userId: string,
@@ -198,6 +245,7 @@ async function sweepOrg(
   const autoResolutions = await checkAutoResolutions(admin, userId, from, to);
   const precedentCitations = await checkPrecedentCitations(admin, userId, from, to);
   const decisionConsistency = await checkDecisionConsistency(admin, userId, from, to);
+  const knowledgeBaseHealth = await checkKnowledgeBaseHealth(admin, userId);
   const result: AuditIntegrityResult = {
     ...signatureResult,
     auto_resolutions_checked: autoResolutions.checked,
@@ -206,6 +254,8 @@ async function sweepOrg(
     precedent_citations_mismatched: precedentCitations.mismatched,
     decision_consistency_checked: decisionConsistency.checked,
     decision_consistency_mismatched: decisionConsistency.mismatched,
+    knowledge_base_checked: knowledgeBaseHealth.checked,
+    knowledge_base_mismatched: knowledgeBaseHealth.mismatched,
   };
 
   await admin.from("audit_integrity_runs").insert({
@@ -221,6 +271,8 @@ async function sweepOrg(
     precedent_citations_mismatched: result.precedent_citations_mismatched,
     decision_consistency_checked: result.decision_consistency_checked,
     decision_consistency_mismatched: result.decision_consistency_mismatched,
+    knowledge_base_checked: result.knowledge_base_checked,
+    knowledge_base_mismatched: result.knowledge_base_mismatched,
     range_from: from,
     range_to: to,
   });

@@ -1,7 +1,11 @@
 // Real tests for the audit-integrity sweep's pure classification logic.
 //
 // Run with: deno test --allow-none supabase/functions/_shared/audit-integrity_test.ts
-import { isAuditIntegrityFailure, summarizeAuditIntegrityFailure, isAutoResolutionMismatch, isPrecedentCitationMismatch, isDecisionConsistencyMismatch, type SignatureVerifyResult, type StoredPrecedentCitation } from "./audit-integrity.ts";
+import {
+  isAuditIntegrityFailure, summarizeAuditIntegrityFailure, isAutoResolutionMismatch, isPrecedentCitationMismatch, isDecisionConsistencyMismatch,
+  isStaleKnowledgeBaseEntry, isUnreachableKnowledgeBaseEntry, isKnowledgeBaseHealthMismatch,
+  type SignatureVerifyResult, type StoredPrecedentCitation, type KnowledgeBaseHealthEntry, type RecentActionShape, type HardRuleBlockShape,
+} from "./audit-integrity.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
@@ -189,4 +193,87 @@ Deno.test("summarizeAuditIntegrityFailure: calls out a decision-consistency mism
   const summary = summarizeAuditIntegrityFailure({ ...clean, decision_consistency_checked: 12, decision_consistency_mismatched: 2 });
   assert(summary.includes("2 of 12 decision"));
   assert(summary.toLowerCase().includes("flip-flopping"));
+});
+
+// ---- "knowledge & autonomy" item 4: knowledge-base health ----
+
+const kbEntry = (over: Partial<KnowledgeBaseHealthEntry> = {}): KnowledgeBaseHealthEntry => ({
+  id: "kb-1",
+  action_type_pattern: "send_email",
+  provider: "Gmail",
+  ...over,
+});
+
+Deno.test("isStaleKnowledgeBaseEntry: an unscoped entry (null pattern) is never stale", () => {
+  assertFalse(isStaleKnowledgeBaseEntry(kbEntry({ action_type_pattern: null }), []));
+});
+
+Deno.test("isStaleKnowledgeBaseEntry: no matching recent decisions at all is stale", () => {
+  const recent: RecentActionShape[] = [{ action_type: "delete_record", provider: "Notion" }];
+  assert(isStaleKnowledgeBaseEntry(kbEntry(), recent));
+});
+
+Deno.test("isStaleKnowledgeBaseEntry: a matching recent decision means it's not stale", () => {
+  const recent: RecentActionShape[] = [{ action_type: "send_email", provider: "Gmail" }];
+  assertFalse(isStaleKnowledgeBaseEntry(kbEntry(), recent));
+});
+
+Deno.test("isStaleKnowledgeBaseEntry: a matching action_type but different provider still counts as stale when provider is scoped", () => {
+  const recent: RecentActionShape[] = [{ action_type: "send_email", provider: "Slack" }];
+  assert(isStaleKnowledgeBaseEntry(kbEntry({ provider: "Gmail" }), recent));
+});
+
+Deno.test("isStaleKnowledgeBaseEntry: no provider scope means any provider counts as a match", () => {
+  const recent: RecentActionShape[] = [{ action_type: "send_email", provider: "Slack" }];
+  assertFalse(isStaleKnowledgeBaseEntry(kbEntry({ provider: null }), recent));
+});
+
+const hardRule = (over: Partial<HardRuleBlockShape> = {}): HardRuleBlockShape => ({
+  action_type_pattern: "send_email",
+  provider: "Gmail",
+  effect: "always_block",
+  ...over,
+});
+
+Deno.test("isUnreachableKnowledgeBaseEntry: an always_block rule with the exact same scope makes it unreachable", () => {
+  assert(isUnreachableKnowledgeBaseEntry(kbEntry(), [hardRule()]));
+});
+
+Deno.test("isUnreachableKnowledgeBaseEntry: an always_require_approval rule with the same scope does NOT make it unreachable", () => {
+  assertFalse(isUnreachableKnowledgeBaseEntry(kbEntry(), [hardRule({ effect: "always_require_approval" })]));
+});
+
+Deno.test("isUnreachableKnowledgeBaseEntry: a rule with a different scope does not make it unreachable", () => {
+  assertFalse(isUnreachableKnowledgeBaseEntry(kbEntry(), [hardRule({ action_type_pattern: "delete_record" })]));
+});
+
+Deno.test("isUnreachableKnowledgeBaseEntry: null provider and '*' pattern are treated as the same 'applies to everything' scope on both sides", () => {
+  assert(isUnreachableKnowledgeBaseEntry(kbEntry({ action_type_pattern: null, provider: null }), [hardRule({ action_type_pattern: "*", provider: null })]));
+});
+
+Deno.test("isKnowledgeBaseHealthMismatch: true when either sub-check is true", () => {
+  assert(isKnowledgeBaseHealthMismatch(kbEntry(), [], []));
+  assert(isKnowledgeBaseHealthMismatch(kbEntry(), [{ action_type: "send_email", provider: "Gmail" }], [hardRule()]));
+});
+
+Deno.test("isKnowledgeBaseHealthMismatch: false when the entry is fresh and not shadowed", () => {
+  assertFalse(isKnowledgeBaseHealthMismatch(kbEntry(), [{ action_type: "send_email", provider: "Gmail" }], []));
+});
+
+Deno.test("isAuditIntegrityFailure: any knowledge-base mismatch is a failure, even with clean signatures", () => {
+  assert(isAuditIntegrityFailure({ ...clean, knowledge_base_checked: 3, knowledge_base_mismatched: 1 }));
+});
+
+Deno.test("isAuditIntegrityFailure: knowledge-base fields present but zero mismatches is still not a failure", () => {
+  assertFalse(isAuditIntegrityFailure({ ...clean, knowledge_base_checked: 3, knowledge_base_mismatched: 0 }));
+});
+
+Deno.test("isAuditIntegrityFailure: knowledge-base fields omitted entirely defaults to no failure from that dimension", () => {
+  assertFalse(isAuditIntegrityFailure({ ...clean }));
+});
+
+Deno.test("summarizeAuditIntegrityFailure: calls out a knowledge-base mismatch distinctly, with both counts", () => {
+  const summary = summarizeAuditIntegrityFailure({ ...clean, knowledge_base_checked: 5, knowledge_base_mismatched: 2 });
+  assert(summary.includes("2 of 5 knowledge-base"));
+  assert(summary.toLowerCase().includes("stale"));
 });
