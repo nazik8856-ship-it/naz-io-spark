@@ -55,6 +55,7 @@ import { summarizeDecisionsForRoi, costPerAutonomousDecision, buildRoiTrend, est
 import { buildEmbeddingInput, formatEmbeddingLiteral, generateEmbeddingWithinBudget } from "../_shared/decision-embeddings.ts";
 import { countsTowardRealUsage, testModeVerdictNote } from "../_shared/sandbox-mode.ts";
 import { summarizeAttestationCounts, distinctPolicyVersions, buildAttestationCanonicalPayload } from "../_shared/compliance-attestation.ts";
+import { buildDecisionExplanation } from "../_shared/decision-explanation.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -104,6 +105,10 @@ const DECISION_EXPORT_FIELDS =
 const COMPLIANCE_ATTESTATION_RATE_LIMIT_PER_MINUTE = 10;
 const DEFAULT_ATTESTATION_PERIOD_DAYS = 90;
 const MAX_ATTESTATION_PERIOD_DAYS = 366;
+// "Knowledge & autonomy" plan, item 13: a single-row read, same lightweight
+// budget as the plain export endpoint -- a support agent looking up one
+// decision at a time, not a bulk operation.
+const DECISION_EXPLAIN_RATE_LIMIT_PER_MINUTE = 30;
 
 // "Zero human review" plan, item 13: a thin wrapper around the real
 // per-action logic (renamed judgeOneActionInner below) that wires in the
@@ -843,6 +848,61 @@ Deno.serve(async (req) => {
       canonical_payload: canonicalPayload,
       signature,
       note: "Signed with NazAI's own server-side signing key (the same one used for every individual decision's signature) over canonical_payload -- the exact pipe-joined string derived from every field above, in the fixed order this response documents. Altering any field after export changes what canonical_payload should be, so it would no longer match this signature.",
+    });
+  }
+
+  // ---- GET /control-api/v1/decisions/:id/explain ---------------------------
+  // "Knowledge & autonomy" plan, item 13: composes ONE real, readable
+  // plain-English narrative for a single decision out of pieces that
+  // already exist scattered across several columns (gate_trace,
+  // precedent_citations, confidence/reasoning) -- read-only, no new
+  // signal. Valuable for an external company's own support team handling
+  // a question from their end customer without ever looping in a NazAI
+  // human.
+  const explainMatch = url.pathname.match(/\/decisions\/([0-9a-fA-F-]{36})\/explain\/?$/);
+  if (req.method === "GET" && explainMatch) {
+    const decisionId = explainMatch[1];
+    const rate = await checkRateLimit(admin, userId, "control-api-explain", DECISION_EXPLAIN_RATE_LIMIT_PER_MINUTE, 60);
+    if (!rate.allowed) {
+      return json({
+        error: "rate_limited",
+        message: `Too many requests — ${rate.count} in the last minute (limit ${rate.limit}). Try again shortly.`,
+      }, 429);
+    }
+
+    const { data: row, error } = await admin
+      .from("agent_decisions")
+      .select("decision, reasoning, confidence_score, source, escalated, human_response, action_type, provider, created_at, gate_trace, precedent_citations")
+      .eq("id", decisionId)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (error) return json({ error: error.message }, 500);
+    if (!row) return json({ error: "not_found", message: "No decision with this id exists for your account." }, 404);
+
+    type Row = {
+      decision: string; reasoning: string | null; confidence_score: number | null; source: string | null;
+      escalated: boolean; human_response: string | null; action_type: string | null; provider: string | null;
+      created_at: string; gate_trace: unknown; precedent_citations: unknown;
+    };
+    const d = row as Row;
+    const explanation = buildDecisionExplanation({
+      decisionText: d.decision,
+      reasoning: d.reasoning,
+      confidenceScore: d.confidence_score,
+      source: d.source,
+      escalated: d.escalated,
+      humanResponse: d.human_response,
+      actionType: d.action_type,
+      provider: d.provider,
+      createdAt: d.created_at,
+      gateTrace: (d.gate_trace as Parameters<typeof buildDecisionExplanation>[0]["gateTrace"]) ?? null,
+      precedentCitations: (d.precedent_citations as Parameters<typeof buildDecisionExplanation>[0]["precedentCitations"]) ?? null,
+    });
+
+    return json({
+      ok: true,
+      decision_id: decisionId,
+      explanation,
     });
   }
 

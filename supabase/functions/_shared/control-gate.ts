@@ -38,7 +38,6 @@ import { alignPrecedentSignals, evaluatePrecedentForAutoApprove, shouldRejectOnP
 import { buildPrecedentCitationRecord, recordPrecedentCitation } from "./precedent-citation.ts";
 import { isWithinQuietHours, summarizeQuietHoursEscalation, type QuietHoursConfig } from "./quiet-hours.ts";
 import { isCallbackFailureTrouble, summarizePolicyDowngrade } from "./policy-downgrade.ts";
-import { triggerWebhooks } from "./webhooks.ts";
 import { resolveEffectiveOnUncertain, type ActionTypeOverride } from "./action-type-policy.ts";
 
 export const BREAKER_WINDOW = 10;
