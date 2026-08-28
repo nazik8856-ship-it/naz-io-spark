@@ -7,7 +7,7 @@
 //
 // Exits 1 if any scenario fails or errors, so it slots into CI as-is.
 
-const SUPABASE_URL = process.env.SUPABASE_URL || "https://qaeduinfirtljnbecyzq.supabase.co";
+const SUPABASE_URL = process.env.SUPABASE_URL || "https://ekuodpaaiugzywfcmjeo.supabase.co";
 const ANON_KEY =
   process.env.SUPABASE_ANON_KEY ||
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFhZWR1aW5maXJ0bGpuYmVjeXpxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE2MjMwMTcsImV4cCI6MjA4NzE5OTAxN30.d9LUMaj0_2C0802M2oRHYny6coTPQuHJ3DmF-crthU4";
