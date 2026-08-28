@@ -23,6 +23,7 @@ import { sha256Hex, generateRawKey, displayPrefixFor } from "../_shared/api-key-
 import { resolveAccountScope } from "../_shared/account-scope.ts";
 import { isValidOnUncertainPolicy, summarizeShadowObservations, evaluateShadowPromotionReadiness, summarizeShadowPromotionReadiness, type ShadowObservationRow } from "../_shared/api-key-policy.ts";
 import { evaluateAutomationReadiness, gatherAutomationReadinessInput } from "../_shared/automation-readiness.ts";
+import { keyLatencyStats, keyUptimeStats } from "../_shared/key-performance.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -31,6 +32,12 @@ const corsHeaders = {
 
 const json = (b: unknown, status = 200) =>
   new Response(JSON.stringify(b), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+// "Knowledge & autonomy" plan, item 8: a recent operational window for the
+// per-key speed/uptime report -- long enough for a real sample, short
+// enough to answer "how is this doing right now" rather than a slow-moving
+// historical average.
+const PERFORMANCE_LOOKBACK_DAYS = 7;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -285,6 +292,55 @@ Deno.serve(async (req) => {
     const input = await gatherAutomationReadinessInput(admin, keyId);
     const report = evaluateAutomationReadiness(input);
     return json({ ok: true, ...report });
+  }
+
+  // ---- GET /api-keys/:id/performance ------------------------------------
+  // "Knowledge & autonomy" plan, item 8: a real answer to "how fast is
+  // this, and how reliable has it been for me specifically" -- scoped to
+  // one key, the same status transparency any serious API dependency
+  // offers. gate_duration_ms is already recorded on every gated decision
+  // (control-gate.ts's own existing observability); this is a pure
+  // read/aggregation over it, never a new capture mechanism.
+  const performanceMatch = url.pathname.match(/\/api-keys\/([0-9a-fA-F-]{36})\/performance\/?$/);
+  if (req.method === "GET" && performanceMatch) {
+    const keyId = performanceMatch[1];
+    const targetUserId = await resolveAccountScope(userClient, userId, url.searchParams.get("account_id"), "integrations");
+    if (!targetUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
+
+    const { data: keyRow, error: keyErr } = await admin
+      .from("api_keys").select("id").eq("id", keyId).eq("user_id", targetUserId).maybeSingle();
+    if (keyErr) return json({ error: keyErr.message }, 500);
+    if (!keyRow) return json({ error: "Key not found for this account." }, 404);
+
+    // A recent operational window -- "how is this doing right now," not a
+    // slow-moving historical average. Not filtered by is_test: a sandbox
+    // key's own report is exactly as real and useful to its own caller as
+    // a live key's, it's simply scoped to that one key's own traffic
+    // either way (see sandbox-mode.ts's module comment on this item).
+    const since = new Date(Date.now() - PERFORMANCE_LOOKBACK_DAYS * 86400_000).toISOString();
+    const { data: rows, error } = await admin
+      .from("agent_decisions")
+      .select("gate_duration_ms, source")
+      .eq("api_key_id", keyId)
+      .gte("created_at", since)
+      .limit(20000);
+    if (error) return json({ error: error.message }, 500);
+
+    type Row = { gate_duration_ms: number | null; source: string | null };
+    const typedRows = (rows ?? []) as Row[];
+    const durations = typedRows
+      .map((r) => r.gate_duration_ms)
+      .filter((d): d is number => typeof d === "number" && Number.isFinite(d));
+    const latency = keyLatencyStats(durations);
+    const uptime = keyUptimeStats(typedRows.map((r) => r.source));
+
+    return json({
+      ok: true,
+      window_days: PERFORMANCE_LOOKBACK_DAYS,
+      decisions_in_window: typedRows.length,
+      latency,
+      uptime,
+    });
   }
 
   // ---- /api-keys/:id/action-policies ------------------------------------
