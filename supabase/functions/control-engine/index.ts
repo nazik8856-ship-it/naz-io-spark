@@ -47,6 +47,7 @@ import { loadFitEvidence, applyFitEvidence } from "../_shared/fit-learning.ts";
 import { buildEmbeddingInput, generateEmbeddingWithinBudget, formatEmbeddingLiteral } from "../_shared/decision-embeddings.ts";
 import { findPrecedent, loadOutcomeDirections, loadPrecedentForPrompt } from "../_shared/precedent-search.ts";
 import { buildPrecedentPromptBlock } from "../_shared/precedent-prompt.ts";
+import { selectRelevantKnowledgeBaseEntries, buildKnowledgeBasePromptBlock, type KnowledgeBaseEntry } from "../_shared/knowledge-base.ts";
 import { alignPrecedentSignals, evaluatePrecedentForAutoApprove, shouldRejectOnPrecedent, summarizePrecedentOverride } from "../_shared/precedent-advice.ts";
 import { buildPrecedentCitationRecord, recordPrecedentCitation } from "../_shared/precedent-citation.ts";
 import {
@@ -858,6 +859,22 @@ serve(async (req) => {
         ].join("\n")
       : "(no business profile on file — treat fit as 'unclear' unless the action is obviously generic and harmless)";
 
+    // "Knowledge & autonomy" plan, item 1: real, authored account
+    // knowledge (facts/standing instructions), scoped the same way hard
+    // rules are (action_type_pattern/provider, both optional). Best-
+    // effort -- a lookup hiccup here just means an empty block, the same
+    // posture every other optional prompt-enrichment block already has.
+    let knowledgeBaseBlock = "";
+    try {
+      const { data: kbRows } = await supabase
+        .from("knowledge_base_entries")
+        .select("id, entry_text, action_type_pattern, provider")
+        .eq("user_id", userId)
+        .eq("enabled", true);
+      const relevant = selectRelevantKnowledgeBaseEntries((kbRows ?? []) as KnowledgeBaseEntry[], actionType, provider);
+      knowledgeBaseBlock = buildKnowledgeBasePromptBlock(relevant);
+    } catch { /* the knowledge base is optional enrichment -- a lookup hiccup here must never block the real judgment */ }
+
     // Fit/value learning: what actually happened the last times a human
     // overrode a "not a fit" verdict on a similar action.
     const fitEvidence = await loadFitEvidence(supabase, userId, {
@@ -929,7 +946,9 @@ serve(async (req) => {
               `ORG STRICTNESS: ${STRICTNESS_PRESETS[strictness].label} — ${STRICTNESS_PRESETS[strictness].blurb} ` +
               `Grade risk and fit through that lens: on Strict, lean toward the higher risk tier and toward ` +
               `'unclear' fit when evidence is thin; on Loose, only flag genuine risk or a genuine mismatch.\n\n` +
-              `BUSINESS PROFILE:\n${profileBlock}` + fitEvidence.promptBlock +
+              `BUSINESS PROFILE:\n${profileBlock}` +
+              knowledgeBaseBlock +
+              fitEvidence.promptBlock +
               precedentPromptBlock +
               INJECTION_SYSTEM_CLAUSE,
           },
