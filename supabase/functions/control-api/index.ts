@@ -54,6 +54,7 @@ import { evaluateCoarsePrecedentLookup, summarizeCoarsePrecedentLookup, type Cro
 import { summarizeDecisionsForRoi, costPerAutonomousDecision, buildRoiTrend, estimateManualReviewHoursSaved, weekBucketKey, type DecisionForRoi, type DecisionForRoiTrend } from "../_shared/roi-report.ts";
 import { buildEmbeddingInput, formatEmbeddingLiteral, generateEmbeddingWithinBudget } from "../_shared/decision-embeddings.ts";
 import { countsTowardRealUsage, testModeVerdictNote } from "../_shared/sandbox-mode.ts";
+import { summarizeAttestationCounts, distinctPolicyVersions, buildAttestationCanonicalPayload } from "../_shared/compliance-attestation.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -95,6 +96,14 @@ const MAX_AUTOMATION_VALUE_WEEKS = 26;
 // field a caller's own tooling can read, without a UI built for it.
 const DECISION_EXPORT_FIELDS =
   "id, decision, reasoning, confidence_score, escalated, source, agent_id, action_type, provider, policy_version, created_at, precedent_citations";
+// "Knowledge & autonomy" plan, item 11: a heavier, occasional read (a
+// company generating a real attestation document, not polling) --
+// deliberately its own small budget rather than sharing the plain
+// export's, so a routine export poll can never starve out the ability to
+// generate an attestation.
+const COMPLIANCE_ATTESTATION_RATE_LIMIT_PER_MINUTE = 10;
+const DEFAULT_ATTESTATION_PERIOD_DAYS = 90;
+const MAX_ATTESTATION_PERIOD_DAYS = 366;
 
 // "Zero human review" plan, item 13: a thin wrapper around the real
 // per-action logic (renamed judgeOneActionInner below) that wires in the
@@ -755,6 +764,83 @@ Deno.serve(async (req) => {
         spend_usd: p.spendUsd,
         cost_per_autonomous_decision_usd: p.costPerDecision,
       })),
+    });
+  }
+
+  // ---- GET /control-api/v1/compliance-attestation --------------------------
+  // "Knowledge & autonomy" plan, item 11: a real, SIGNED summary an
+  // external company can hand to its own customers or auditors as proof
+  // its automated decisions ran under real governance for a given period --
+  // account-wide (every key this account has, not one key's own traffic),
+  // matching how the monthly ROI email itself is account-wide. Composes
+  // roi-report.ts's existing counts/cost-per-decision math with this
+  // account's own real policy-version history and decision-signature
+  // coverage -- no new metric computation, the one new piece is signing
+  // the resulting summary itself (sign_compliance_attestation, reusing the
+  // exact same secret/algorithm every individual decision is already
+  // signed with).
+  if (req.method === "GET" && /\/compliance-attestation\/?$/.test(url.pathname)) {
+    const rate = await checkRateLimit(admin, userId, "control-api-attestation", COMPLIANCE_ATTESTATION_RATE_LIMIT_PER_MINUTE, 60);
+    if (!rate.allowed) {
+      return json({
+        error: "rate_limited",
+        message: `Too many requests — ${rate.count} in the last minute (limit ${rate.limit}). Try again shortly.`,
+      }, 429);
+    }
+
+    const daysParam = Number(url.searchParams.get("days"));
+    const days = Number.isFinite(daysParam) && daysParam > 0
+      ? Math.min(MAX_ATTESTATION_PERIOD_DAYS, Math.floor(daysParam))
+      : DEFAULT_ATTESTATION_PERIOD_DAYS;
+    const periodEnd = new Date();
+    const periodStart = new Date(periodEnd.getTime() - days * 86400_000);
+    const periodStartIso = periodStart.toISOString();
+    const periodEndIso = periodEnd.toISOString();
+
+    const [decisionsRes, spendRes] = await Promise.all([
+      admin.from("agent_decisions").select("decision, escalated, signature, policy_version")
+        .eq("user_id", userId).gte("created_at", periodStartIso).limit(50000),
+      admin.from("ai_spend_daily").select("cost_usd").eq("user_id", userId).gte("day", periodStartIso.slice(0, 10)),
+    ]);
+    if (decisionsRes.error) return json({ error: decisionsRes.error.message }, 500);
+    if (spendRes.error) return json({ error: spendRes.error.message }, 500);
+
+    type Row = { decision: string; escalated: boolean; signature: string | null; policy_version: number | null };
+    const rows = (decisionsRes.data ?? []) as Row[];
+    const counts = summarizeAttestationCounts(rows);
+    const policyVersions = distinctPolicyVersions(rows);
+    const spendUsd = Math.round(((spendRes.data ?? []) as { cost_usd: number }[])
+      .reduce((sum, r) => sum + (Number(r.cost_usd) || 0), 0) * 100) / 100;
+    const costPerAutonomousDecisionUsd = costPerAutonomousDecision(spendUsd, counts.autonomous);
+    const estimatedManualReviewHoursSaved = estimateManualReviewHoursSaved(counts.autonomous);
+
+    const fields = {
+      userId, periodStart: periodStartIso, periodEnd: periodEndIso,
+      counts, policyVersions, spendUsd, costPerAutonomousDecisionUsd, estimatedManualReviewHoursSaved,
+    };
+    const generatedAt = new Date().toISOString();
+    const canonicalPayload = buildAttestationCanonicalPayload(fields, generatedAt);
+    const { data: signature, error: signErr } = await admin.rpc("sign_compliance_attestation", { _payload: canonicalPayload });
+    if (signErr) return json({ error: "signing_failed", message: signErr.message }, 500);
+
+    return json({
+      ok: true,
+      period_start: periodStartIso,
+      period_end: periodEndIso,
+      generated_at: generatedAt,
+      decisions: {
+        total: counts.total,
+        autonomous: counts.autonomous,
+        escalated: counts.escalated,
+        signed: counts.signed,
+      },
+      policy_versions: policyVersions,
+      spend_usd: spendUsd,
+      cost_per_autonomous_decision_usd: costPerAutonomousDecisionUsd,
+      estimated_manual_review_hours_saved: estimatedManualReviewHoursSaved,
+      canonical_payload: canonicalPayload,
+      signature,
+      note: "Signed with NazAI's own server-side signing key (the same one used for every individual decision's signature) over canonical_payload -- the exact pipe-joined string derived from every field above, in the fixed order this response documents. Altering any field after export changes what canonical_payload should be, so it would no longer match this signature.",
     });
   }
 
