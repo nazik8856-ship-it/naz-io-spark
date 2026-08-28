@@ -53,6 +53,7 @@ import { excludeDecisionFromPrecedent, loadPrecedentForPrompt } from "../_shared
 import { evaluateCoarsePrecedentLookup, summarizeCoarsePrecedentLookup, type CrossAccountStat } from "../_shared/cross-account-precedent.ts";
 import { summarizeDecisionsForRoi, costPerAutonomousDecision, buildRoiTrend, estimateManualReviewHoursSaved, weekBucketKey, type DecisionForRoi, type DecisionForRoiTrend } from "../_shared/roi-report.ts";
 import { buildEmbeddingInput, formatEmbeddingLiteral, generateEmbeddingWithinBudget } from "../_shared/decision-embeddings.ts";
+import { countsTowardRealUsage, testModeVerdictNote } from "../_shared/sandbox-mode.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -115,12 +116,13 @@ async function judgeOneAction(
   serviceKey: string,
   userId: string,
   keyId: string | null,
+  isTest: boolean,
   action: ParsedControlApiAction,
   rateLimitPerMinute: number,
 ): Promise<Record<string, unknown>> {
   const { idempotencyKey } = action;
   if (!idempotencyKey) {
-    return judgeOneActionInner(admin, supabaseUrl, serviceKey, userId, keyId, action, rateLimitPerMinute);
+    return judgeOneActionInner(admin, supabaseUrl, serviceKey, userId, keyId, isTest, action, rateLimitPerMinute);
   }
 
   const claim = await claimIdempotencyKey(admin, userId, idempotencyKey);
@@ -133,7 +135,7 @@ async function judgeOneAction(
   }
 
   try {
-    const result = await judgeOneActionInner(admin, supabaseUrl, serviceKey, userId, keyId, action, rateLimitPerMinute);
+    const result = await judgeOneActionInner(admin, supabaseUrl, serviceKey, userId, keyId, isTest, action, rateLimitPerMinute);
     if (result.rateLimited || result.error === "assessment_failed") {
       await releaseIdempotencyKey(admin, userId, idempotencyKey);
     } else {
@@ -158,6 +160,11 @@ async function judgeOneActionInner(
   serviceKey: string,
   userId: string,
   keyId: string | null,
+  // "Knowledge & autonomy" plan, item 7: true only for a sandbox/test-mode
+  // key -- judged through the exact same gate/prompt/verdict logic below,
+  // but never counted toward real spend, precedent, calibration, or
+  // automation-readiness (see sandbox-mode.ts).
+  isTest: boolean,
   action: ParsedControlApiAction,
   // "Zero human review" plan, item 11: the caller resolves this ONCE per
   // request (a single DB read even for a whole batch of actions), not
@@ -188,7 +195,13 @@ async function judgeOneActionInner(
       agentId: null, runId: null, stepIndex: null,
       origin: "external-api",
       apiKeyId: keyId,
+      isTest,
     });
+    // "Knowledge & autonomy" plan, item 7: a sandbox key's verdict carries
+    // one extra `test_mode`/`note` field so a caller can confirm, from the
+    // response itself, that this ran in test mode -- never added for a
+    // real key, so a real key's response shape is completely unchanged.
+    const testModeFields = isTest ? { test_mode: true, note: testModeVerdictNote(isTest) } : {};
     // "Zero human review" plan, item 1: a "needs a second look" outcome
     // (non-blocking hard rule / safety match) resolved automatically by
     // this key's on_uncertain policy instead of creating a pending_approvals
@@ -204,6 +217,7 @@ async function judgeOneActionInner(
         mode: "fast",
         resolved_automatically: true,
         resolution_reason: gate.autoResolutionReason,
+        ...testModeFields,
       };
     }
     if (!gate.ok) {
@@ -214,6 +228,7 @@ async function judgeOneActionInner(
         gate_source: gate.source,
         mode: "fast",
         resolved_automatically: false,
+        ...testModeFields,
       };
     }
     return {
@@ -223,6 +238,7 @@ async function judgeOneActionInner(
       gate_source: null,
       mode: "fast",
       resolved_automatically: false,
+      ...testModeFields,
     };
   }
 
@@ -235,7 +251,11 @@ async function judgeOneActionInner(
   // with no cap of its own (has_cap: false) is completely unaffected --
   // only the account-wide cap (enforced inside control-engine itself,
   // unchanged) ever applies to it.
-  if (keyId) {
+  // "Knowledge & autonomy" plan, item 7: a sandbox key never accrues real
+  // spend (recordAiSpend is skipped for it in control-engine below), so
+  // its own cap can never legitimately trip -- skip the check outright
+  // rather than reading a real number that will always read zero anyway.
+  if (keyId && countsTowardRealUsage(isTest)) {
     const keySpend = await getApiKeySpendStatus(admin, userId, keyId);
     if (keySpend.has_cap && keySpend.over_cap) {
       const reason =
@@ -259,6 +279,7 @@ async function judgeOneActionInner(
           action_type: actionType,
           provider,
           api_key_id: keyId,
+          is_test: isTest,
         }).select("id").maybeSingle();
         decisionId = (logged as { id?: string } | null)?.id ?? null;
       } catch { /* logging must never break the cap enforcement itself */ }
@@ -276,6 +297,11 @@ async function judgeOneActionInner(
     }
   }
 
+  // "Knowledge & autonomy" plan, item 7: same test_mode/note field the
+  // fast-mode path above adds -- computed once here so both the forward
+  // call below and its response can share it.
+  const testModeFields = isTest ? { test_mode: true, note: testModeVerdictNote(isTest) } : {};
+
   // Forwards into control-engine using its existing internal service-role
   // bypass (the same path agent-runtime already uses) with assess_only so
   // control-engine judges the action but never tries to carry it out --
@@ -288,6 +314,7 @@ async function judgeOneActionInner(
       "x-internal-user-id": userId,
       "x-decision-source": "external_api",
       "x-api-key-id": keyId ?? "",
+      "x-is-test": isTest ? "1" : "",
     },
     body: JSON.stringify({ action_type: actionType, provider, description, params, assess_only: true }),
   });
@@ -311,6 +338,7 @@ async function judgeOneActionInner(
     // review was actually queued.
     resolved_automatically: data?.resolved_automatically === true,
     resolution_reason: data?.resolution_reason ?? null,
+    ...testModeFields,
   };
 }
 
@@ -771,7 +799,7 @@ Deno.serve(async (req) => {
         results.push({ index: i, error: parsed.error });
         continue;
       }
-      const verdict = await judgeOneAction(admin, supabaseUrl, serviceKey, userId, auth.keyId, parsed, rateLimitPerMinute);
+      const verdict = await judgeOneAction(admin, supabaseUrl, serviceKey, userId, auth.keyId, auth.isTest, parsed, rateLimitPerMinute);
       if (verdict.rateLimited) stopped = true;
       const { rateLimited: _drop, ...rest } = verdict;
       results.push({ index: i, ...rest });
@@ -783,7 +811,7 @@ Deno.serve(async (req) => {
   const parsed = parseControlApiAction(body);
   if ("error" in parsed) return json({ error: parsed.error }, 400);
 
-  const verdict = await judgeOneAction(admin, supabaseUrl, serviceKey, userId, auth.keyId, parsed, rateLimitPerMinute);
+  const verdict = await judgeOneAction(admin, supabaseUrl, serviceKey, userId, auth.keyId, auth.isTest, parsed, rateLimitPerMinute);
   if (verdict.rateLimited) {
     const { rateLimited: _drop, ...rest } = verdict;
     return json(rest, 429);

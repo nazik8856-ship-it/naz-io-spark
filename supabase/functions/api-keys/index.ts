@@ -355,7 +355,7 @@ Deno.serve(async (req) => {
 
     const { data, error } = await admin
       .from("api_keys")
-      .select("id, name, key_prefix, scopes, on_uncertain, shadow_on_uncertain, on_gate_error, rate_limit_per_minute, last_used_at, revoked_at, expires_at, created_at, on_uncertain_downgraded_at, on_uncertain_downgrade_reason")
+      .select("id, name, key_prefix, scopes, on_uncertain, shadow_on_uncertain, on_gate_error, rate_limit_per_minute, last_used_at, revoked_at, expires_at, created_at, on_uncertain_downgraded_at, on_uncertain_downgrade_reason, is_test")
       .eq("user_id", targetUserId)
       .order("created_at", { ascending: false });
     if (error) return json({ error: error.message }, 500);
@@ -377,14 +377,21 @@ Deno.serve(async (req) => {
     const rawKey = generateRawKey();
     const keyHash = await sha256Hex(rawKey);
     const displayPrefix = displayPrefixFor(rawKey);
+    // "Knowledge & autonomy" plan, item 7: an account opts a key into
+    // sandbox/test mode at creation time -- judged exactly like a real
+    // key from here on (see sandbox-mode.ts's countsTowardRealUsage, and
+    // every call site that checks it), never toggled after the fact, the
+    // same way a real key's identity doesn't change mid-life either.
+    const isTest = body?.is_test === true;
 
     const { data, error } = await admin
       .from("api_keys")
       .insert({
         user_id: targetUserId, name, key_prefix: displayPrefix, key_hash: keyHash,
+        is_test: isTest,
         ...(body.on_uncertain ? { on_uncertain: body.on_uncertain } : {}),
       })
-      .select("id, name, key_prefix, scopes, on_uncertain, created_at")
+      .select("id, name, key_prefix, scopes, on_uncertain, created_at, is_test")
       .maybeSingle();
     if (error) return json({ error: error.message }, 500);
     if (!data) return json({ error: "Couldn't create the key" }, 500);

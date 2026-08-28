@@ -143,6 +143,11 @@ export async function gatherAutomationReadinessInput(
       .from("agent_decisions")
       .select("id", { count: "exact", head: true })
       .eq("api_key_id", apiKeyId)
+      // "Knowledge & autonomy" plan, item 7: defensive -- a sandbox key is
+      // always a distinct row from any real key, so this filter is a
+      // no-op in practice, but it keeps this signal explicitly scoped to
+      // real evidence rather than relying on that isolation implicitly.
+      .eq("is_test", false)
       .gte("created_at", since);
     decidedSampleSize = count ?? 0;
   } catch { /* falls back to 0 -- correctly reads as "insufficient sample" rather than crashing the whole report */ }
@@ -188,6 +193,7 @@ export async function gatherAutomationReadinessInput(
       .from("agent_decisions")
       .select("precedent_citations")
       .eq("api_key_id", apiKeyId)
+      .eq("is_test", false)
       .not("precedent_citations", "is", null)
       .gte("created_at", since)
       .limit(5000);

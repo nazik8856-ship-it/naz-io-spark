@@ -48,6 +48,7 @@ import { buildEmbeddingInput, generateEmbeddingWithinBudget, formatEmbeddingLite
 import { findPrecedent, loadOutcomeDirections, loadPrecedentForPrompt } from "../_shared/precedent-search.ts";
 import { buildPrecedentPromptBlock } from "../_shared/precedent-prompt.ts";
 import { selectRelevantKnowledgeBaseEntries, buildKnowledgeBasePromptBlock, type KnowledgeBaseEntry } from "../_shared/knowledge-base.ts";
+import { countsTowardRealUsage } from "../_shared/sandbox-mode.ts";
 import { alignPrecedentSignals, evaluatePrecedentForAutoApprove, shouldRejectOnPrecedent, summarizePrecedentOverride } from "../_shared/precedent-advice.ts";
 import { buildPrecedentCitationRecord, recordPrecedentCitation } from "../_shared/precedent-citation.ts";
 import {
@@ -185,6 +186,12 @@ serve(async (req) => {
     // honored when isInternal, so a normal user can never attribute a
     // decision to an api_keys row that isn't theirs.
     const trustedApiKeyId = isInternal ? (req.headers.get("x-api-key-id") || null) : null;
+    // "Knowledge & autonomy" plan, item 7: same trust boundary as the two
+    // headers above -- only honored when isInternal, so a normal user JWT
+    // holder can never mark their own decisions as "test" to dodge real
+    // spend/precedent/calibration accounting. Set by control-api/index.ts
+    // when it forwards a sandbox key's request in here.
+    const trustedIsTest = isInternal && req.headers.get("x-is-test") === "1";
     // "Zero human review" plan, item 2: pending_approvals.origin was
     // hardcoded to "control-engine" everywhere in this file, even for a
     // request genuinely forwarded from control-api's mode="full" path --
@@ -765,6 +772,7 @@ serve(async (req) => {
       dryRun,
       origin: decisionOrigin,
       apiKeyId: trustedApiKeyId,
+      isTest: trustedIsTest,
     });
     const spendStatus = gate.spend;
     void spendStatus;
@@ -977,7 +985,13 @@ serve(async (req) => {
     const data = await res.json();
     // Meter this gateway call against the org's daily spend cap (warns at 90%,
     // auto-trips the kill switch at 100%).
-    const spendAfter = await recordAiSpend(supabase, userId, MODEL, data?.usage, "control-engine", agentId, trustedApiKeyId);
+    // "Knowledge & autonomy" plan, item 7: a sandbox key's real model call
+    // still happens (same judgment as a real key), but its cost must never
+    // count toward the account's real daily spend ledger/cap -- skip the
+    // write entirely rather than recording and immediately reversing it.
+    const spendAfter = countsTowardRealUsage(trustedIsTest)
+      ? await recordAiSpend(supabase, userId, MODEL, data?.usage, "control-engine", agentId, trustedApiKeyId)
+      : { enabled: false, cap_usd: 0, spent_usd: 0, calls: 0, pct: 0, over_cap: false, day: new Date().toISOString().slice(0, 10) };
 
     const call = data?.choices?.[0]?.message?.tool_calls?.[0];
     let parsed: Record<string, unknown> = {};
@@ -1085,6 +1099,7 @@ serve(async (req) => {
       actionType,
       provider,
       apiKeyId: trustedApiKeyId,
+      isTest: trustedIsTest,
       description,
       params,
     });

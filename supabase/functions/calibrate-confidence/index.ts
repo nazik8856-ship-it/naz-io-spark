@@ -61,7 +61,12 @@ Deno.serve(async (req) => {
     let q = supabase
       .from("decision_outcomes")
       .select("decision_id, direction, user_id, agent_decisions!inner(confidence_score, created_at, user_id, api_key_id)")
-      .gte("agent_decisions.created_at", periodStart.toISOString());
+      .gte("agent_decisions.created_at", periodStart.toISOString())
+      // "Knowledge & autonomy" plan, item 7: a sandbox key's decisions must
+      // never feed a real calibration bucket, even one scoped to its own
+      // api_key_id -- calibration flags widen a key's real confidence
+      // threshold, and a test key earning one would be nonsensical.
+      .eq("agent_decisions.is_test", false);
     if (scopedUserId) q = q.eq("user_id", scopedUserId);
 
     const { data: rows, error } = await q.limit(5000);

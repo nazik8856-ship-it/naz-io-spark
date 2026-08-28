@@ -146,6 +146,27 @@ Deno.test("resolveApiKeyAuth: a key with no paused_until at all authenticates no
   assert(result.ok);
 });
 
+// ---- "knowledge & autonomy" item 7: sandbox/test-mode keys ----
+
+Deno.test("resolveApiKeyAuth: a real key resolves with isTest false", async () => {
+  const raw = generateRawKey();
+  const admin = fakeAdminWithRpcQueue([activeRow]);
+  const result = await resolveApiKeyAuth(admin, `Bearer ${raw}`);
+  assert(result.ok);
+  if (result.ok) assertEquals(result.isTest, false);
+});
+
+Deno.test("resolveApiKeyAuth: a sandbox key resolves with isTest true", async () => {
+  const raw = generateRawKey();
+  const admin = fakeAdminWithRpcQueue([{
+    data: [{ user_id: "user-1", key_id: "key-1", scopes: [], is_test: true }],
+    error: null,
+  }]);
+  const result = await resolveApiKeyAuth(admin, `Bearer ${raw}`);
+  assert(result.ok);
+  if (result.ok) assertEquals(result.isTest, true);
+});
+
 Deno.test("resolveApiKeyAuth: the RPC erroring out is treated as unauthorized, not a crash or a pass-through", async () => {
   const raw = generateRawKey();
   const admin = fakeAdminWithRpcQueue([{ data: null, error: { message: "db unavailable" } }]);

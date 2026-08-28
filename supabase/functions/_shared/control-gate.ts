@@ -31,6 +31,7 @@ import { recordPolicyWatchObservations } from "./policy-watch.ts";
 import { resolveOnUncertain, resolveSweepFallback, type AutoResolution } from "./api-key-policy.ts";
 import { notifyAndAwaitCallback, type CallbackConfig } from "./callback-delegation.ts";
 import { embedDecisionIfExternal } from "./decision-embeddings.ts";
+import { countsTowardRealUsage } from "./sandbox-mode.ts";
 import { findPrecedent, loadOutcomeDirections, loadStoredEmbeddingLiteral } from "./precedent-search.ts";
 import { alignPrecedentSignals, evaluatePrecedentForAutoApprove, shouldRejectOnPrecedent, summarizePrecedentOverride } from "./precedent-advice.ts";
 import { buildPrecedentCitationRecord, recordPrecedentCitation } from "./precedent-citation.ts";
@@ -107,6 +108,14 @@ export type GateContext = {
   // exposing the key's raw secret or hash anywhere in the audit log.
   // Always null for every other origin.
   apiKeyId?: string | null;
+  // "Knowledge & autonomy" plan, item 7: true only for a sandbox/test-mode
+  // api_keys row. Judged exactly the same as a real key (every layer
+  // above runs unchanged) -- this only stamps the resulting decision row
+  // and skips embedding/precedent storage (see sandbox-mode.ts's
+  // countsTowardRealUsage, used at every "does this count toward
+  // something real" call site this gate owns). Always false/undefined
+  // for every non-external-api origin.
+  isTest?: boolean;
 };
 
 export type ShadowHit = {
@@ -542,6 +551,7 @@ async function runControlGateInner(
   const runId = ctx.runId ?? null;
   const stepIndex = typeof ctx.stepIndex === "number" ? ctx.stepIndex : null;
   const apiKeyId = ctx.apiKeyId ?? null;
+  const isTest = ctx.isTest === true;
 
   // ---- 0: pin the policy version that judges this action --------------------
   // The gate reads the ACTIVE policy version's snapshot, not the live tables, so
@@ -602,6 +612,7 @@ async function runControlGateInner(
         params: params ?? null,
         description: description ?? null,
         api_key_id: apiKeyId,
+        is_test: isTest,
         // The trace array is closed over and already has every entry pushed
         // up to this call site — finalizeTrace fills the rest as not_reached.
         gate_trace: finalizeTrace(trace),
@@ -622,10 +633,16 @@ async function runControlGateInner(
         // carry a value for the two BLOCK call sites and exist solely to
         // populate the STORED agent_decisions columns) -- a no-op
         // whenever apiKeyId is null, i.e. every non-external-api origin.
-        await embedDecisionIfExternal(admin, {
-          decisionId, apiKeyId, userId, actionType, provider,
-          description: ctx.description, params: ctx.params,
-        });
+        // "Knowledge & autonomy" plan, item 7: also a no-op for a sandbox
+        // key's own decisions -- a test key's traffic must never become
+        // real, searchable precedent for anyone, including its own
+        // account's real keys.
+        if (countsTowardRealUsage(isTest)) {
+          await embedDecisionIfExternal(admin, {
+            decisionId, apiKeyId, userId, actionType, provider,
+            description: ctx.description, params: ctx.params,
+          });
+        }
       }
       return decisionId;
     } catch {
@@ -1195,10 +1212,11 @@ async function runControlGateInner(
         action_type: actionType,
         provider,
         api_key_id: apiKeyId,
+        is_test: isTest,
       }).select("id").maybeSingle();
       decisionId = (data as { id?: string } | null)?.id ?? null;
     } catch { /* logging must never break the fail-closed/fail-open block */ }
-    if (decisionId) {
+    if (decisionId && countsTowardRealUsage(isTest)) {
       await embedDecisionIfExternal(admin, {
         decisionId, apiKeyId, userId, actionType, provider,
         description: ctx.description, params: ctx.params,

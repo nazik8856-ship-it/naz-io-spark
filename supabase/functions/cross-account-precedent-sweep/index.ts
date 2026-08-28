@@ -57,6 +57,12 @@ Deno.serve(async (req) => {
     .from("agent_decisions")
     .select("user_id, action_type, provider, decision")
     .in("user_id", optedInIds)
+    // "Knowledge & autonomy" plan, item 7: unlike the per-api-key signals
+    // above, this aggregates by user_id ACROSS every key an account has --
+    // a real key and a sandbox key share the same user_id, so without this
+    // filter a test key's traffic would immediately blend into this
+    // account's contribution to the shared cross-account aggregate.
+    .eq("is_test", false)
     .gte("created_at", since)
     .limit(50000);
   if (error) return json({ error: error.message }, 500);
