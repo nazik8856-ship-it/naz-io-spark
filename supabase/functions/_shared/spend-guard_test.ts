@@ -4,7 +4,7 @@
 // re-implementation of their logic.
 //
 // Run with: deno test --allow-none supabase/functions/_shared/spend-guard_test.ts
-import { estimateCostUsd, getAgentSpendStatus, getSpendStatus, shouldClearAutoSpendTrip, recordAiSpend } from "./spend-guard.ts";
+import { estimateCostUsd, getAgentSpendStatus, getApiKeySpendStatus, getSpendStatus, shouldClearAutoSpendTrip, recordAiSpend } from "./spend-guard.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
@@ -170,6 +170,46 @@ Deno.test("getAgentSpendStatus: an agent with its own cap but under spend is not
   assertFalse(status.over_cap);
 });
 
+// ---- getApiKeySpendStatus (per-api-key, item 12) ---------------------------
+
+Deno.test("getApiKeySpendStatus: a key with no cap row of its own has has_cap=false and is never over_cap", async () => {
+  const client = fakeSupabase({
+    ai_spend_caps: { data: null, error: null },
+  });
+  const status = await getApiKeySpendStatus(client, "user-1", "key-1");
+  assertFalse(status.has_cap);
+  assertFalse(status.over_cap);
+});
+
+Deno.test("getApiKeySpendStatus: a key with its own cap configured and spend over it is over_cap", async () => {
+  const client = fakeSupabase({
+    ai_spend_caps: { data: { daily_cap_usd: 2, enabled: true }, error: null },
+    ai_spend_daily: { data: { cost_usd: 2.5, calls: 10 }, error: null },
+  });
+  const status = await getApiKeySpendStatus(client, "user-1", "key-1");
+  assert(status.has_cap);
+  assert(status.over_cap);
+});
+
+Deno.test("getApiKeySpendStatus: a key with its own cap but under spend is not over_cap", async () => {
+  const client = fakeSupabase({
+    ai_spend_caps: { data: { daily_cap_usd: 2, enabled: true }, error: null },
+    ai_spend_daily: { data: { cost_usd: 0.5, calls: 3 }, error: null },
+  });
+  const status = await getApiKeySpendStatus(client, "user-1", "key-1");
+  assert(status.has_cap);
+  assertFalse(status.over_cap);
+});
+
+Deno.test("getApiKeySpendStatus: a disabled key-level cap is never over_cap regardless of spend", async () => {
+  const client = fakeSupabase({
+    ai_spend_caps: { data: { daily_cap_usd: 2, enabled: false }, error: null },
+    ai_spend_daily: { data: { cost_usd: 999, calls: 500 }, error: null },
+  });
+  const status = await getApiKeySpendStatus(client, "user-1", "key-1");
+  assertFalse(status.over_cap);
+});
+
 // ---- recordAiSpend's kill-switch-trip logging (regression: this insert
 // bypassed logStop/logDecision entirely and never checked for a
 // decision_logged webhook subscriber, unlike every other decision-logging
@@ -199,17 +239,19 @@ class RichFakeQuery implements PromiseLike<Row> {
 
 function fakeSupabaseWithCalls(tables: Record<string, Row> = {}) {
   const calls: { table: string }[] = [];
+  const rpcCalls: { name: string; args: unknown }[] = [];
   const client = {
     from(table: string) {
       calls.push({ table });
       return new RichFakeQuery(() => tables[table] ?? { data: null, error: null });
     },
-    rpc(_name: string) {
+    rpc(name: string, args?: unknown) {
+      rpcCalls.push({ name, args });
       return new RichFakeQuery(() => ({ data: null, error: null }));
     },
   };
   // deno-lint-ignore no-explicit-any
-  return { client: client as any, calls };
+  return { client: client as any, calls, rpcCalls };
 }
 
 Deno.test("recordAiSpend: tripping the account-wide kill switch checks for a decision_logged webhook subscriber", async () => {
@@ -220,4 +262,19 @@ Deno.test("recordAiSpend: tripping the account-wide kill switch checks for a dec
   });
   await recordAiSpend(client, "user-1", "openai/gpt-5-mini", { prompt_tokens: 100, completion_tokens: 100 }, "test", null);
   assert(calls.some((c) => c.table === "webhooks"), "expected the kill-switch trip to check for a decision_logged webhook subscriber");
+});
+
+Deno.test("recordAiSpend: threads apiKeyId through to record_ai_spend as _api_key_id", async () => {
+  const { client, rpcCalls } = fakeSupabaseWithCalls({});
+  await recordAiSpend(client, "user-1", "openai/gpt-5-mini", { prompt_tokens: 10, completion_tokens: 10 }, "control-engine", null, "key-1");
+  const call = rpcCalls.find((c) => c.name === "record_ai_spend");
+  assert(call, "expected a record_ai_spend RPC call");
+  assertEquals((call!.args as { _api_key_id?: string })._api_key_id, "key-1");
+});
+
+Deno.test("recordAiSpend: apiKeyId omitted sends _api_key_id: null, never undefined", async () => {
+  const { client, rpcCalls } = fakeSupabaseWithCalls({});
+  await recordAiSpend(client, "user-1", "openai/gpt-5-mini", { prompt_tokens: 10, completion_tokens: 10 }, "control-engine", null);
+  const call = rpcCalls.find((c) => c.name === "record_ai_spend");
+  assertEquals((call!.args as { _api_key_id?: string | null })._api_key_id, null);
 });

@@ -1,0 +1,32 @@
+-- "Knowledge & autonomy" plan, item 5: schedules the outcome-quality-
+-- sweep edge function. No schema change here -- it reuses the existing
+-- on_uncertain_downgraded_at/_reason columns and the existing
+-- "on_uncertain_auto_downgraded" alert/incident kind (both from the
+-- prior round's item 4), and reads the existing decision_outcomes/
+-- agent_decisions tables. Kept as its own migration file purely to
+-- document the cron registration alongside the feature it schedules,
+-- same convention as every other scheduled sweep in this codebase.
+--
+-- ============================================================
+-- POST-MIGRATION STEP (same convention as every other scheduled sweep in
+-- this codebase -- applied directly, not committed as static SQL, since
+-- it needs a project-specific service_role key and function URL):
+--
+-- CRON JOB (pg_cron): schedule 'outcome-quality-sweep-daily' once a day,
+-- reusing the existing 'email_queue_service_role_key' vault secret as
+-- the Authorization bearer token:
+--
+--    SELECT cron.schedule(
+--      'outcome-quality-sweep-daily',
+--      '0 9 * * *',
+--      $$
+--      SELECT net.http_post(
+--        url := '<SUPABASE_URL>/functions/v1/outcome-quality-sweep',
+--        headers := jsonb_build_object(
+--          'Content-Type', 'application/json',
+--          'Authorization', 'Bearer ' || (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'email_queue_service_role_key')
+--        ),
+--        body := '{}'::jsonb
+--      );
+--      $$
+--    );

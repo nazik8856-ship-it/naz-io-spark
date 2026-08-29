@@ -10,7 +10,7 @@
 // safety scanner.
 //
 // Run with: deno test --allow-none supabase/functions/_shared/control-gate_test.ts
-import { runControlGate, recordBreakerAttempt, AGENT_DECISION_SOURCES } from "./control-gate.ts";
+import { runControlGate, recordBreakerAttempt, AGENT_DECISION_SOURCES, createPendingApproval, loadOnUncertainPolicy } from "./control-gate.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
@@ -225,6 +225,7 @@ const CURRENT_MIGRATION_ALLOWS = new Set([
   "safety_scanner", "anomaly_detector", "gate_error",
   "external_api", "platform_kill_switch",
   "kill_switch_flip", "platform_kill_switch_flip",
+  "gate_error_fail_open",
 ]);
 
 Deno.test("an agent's own kill switch blocks only that agent, source is a constraint-valid value, and a real decisionId is produced", async () => {
@@ -385,6 +386,630 @@ Deno.test("a matching always_require_approval hard rule queues an approval inste
   assertFalse(result.ok);
   assertEquals(result.verdict, "require_approval");
   assertEquals(result.approvalId, "approval-1");
+});
+
+// ---- "zero human review" plan, item 1: per-API-key auto-resolve policy ----
+
+const requireApprovalHardRuleTables = {
+  hard_rules: {
+    data: [{ id: "r2", rule_text: "High-value orders need a human", action_type_pattern: "shopify_create_draft_order", effect: "always_require_approval", provider: null, enabled: true }],
+    error: null,
+  },
+  pending_approvals: { data: { id: "approval-1" }, error: null },
+};
+
+Deno.test("no apiKeyId (an internal, non-external-api call) never consults api_keys at all -- unchanged behavior", async () => {
+  const { client, calls } = fakeSupabase(requireApprovalHardRuleTables);
+  const result = await runControlGate(client, { ...baseCtx, actionType: "shopify_create_draft_order", provider: "Shopify" });
+  assertEquals(result.verdict, "require_approval");
+  assertFalse(result.autoResolved);
+  assert(!calls.some((c) => c.table === "api_keys"), "no apiKeyId means no reason to ever look up a policy");
+});
+
+Deno.test("apiKeyId set but the key's policy is 'human_review' (or the row is missing) behaves exactly like today -- still queued, not resolved", async () => {
+  const { client } = fakeSupabase({ ...requireApprovalHardRuleTables, api_keys: { data: { on_uncertain: "human_review" }, error: null } });
+  const result = await runControlGate(client, { ...baseCtx, origin: "external-api", apiKeyId: "key-1", actionType: "shopify_create_draft_order", provider: "Shopify" });
+  assertFalse(result.ok);
+  assertEquals(result.verdict, "require_approval");
+  assertFalse(result.autoResolved);
+  assertEquals(result.autoResolutionReason, null);
+});
+
+Deno.test("apiKeyId with on_uncertain='auto_allow' resolves a non-blocking hard-rule match to an outright allow, automatically", async () => {
+  const { client, inserts } = fakeSupabase({ ...requireApprovalHardRuleTables, api_keys: { data: { on_uncertain: "auto_allow" }, error: null } });
+  const result = await runControlGate(client, { ...baseCtx, origin: "external-api", apiKeyId: "key-1", actionType: "shopify_create_draft_order", provider: "Shopify" });
+  assert(result.ok, "auto_allow must flip a non-blocking match to ok:true");
+  assertEquals(result.verdict, "allow");
+  assert(result.autoResolved);
+  assert(result.autoResolutionReason?.includes("approved"));
+  const inserted = (inserts.pending_approvals ?? [])[0] as { status?: string; resolved_at?: string | null } | undefined;
+  assertEquals(inserted?.status, "auto_approved");
+  assert(inserted?.resolved_at, "an auto-resolved row must carry a real resolved_at, not sit as 'pending' forever");
+});
+
+Deno.test("apiKeyId with on_uncertain='auto_deny' resolves a non-blocking hard-rule match to a block, automatically", async () => {
+  const { client, inserts } = fakeSupabase({ ...requireApprovalHardRuleTables, api_keys: { data: { on_uncertain: "auto_deny" }, error: null } });
+  const result = await runControlGate(client, { ...baseCtx, origin: "external-api", apiKeyId: "key-1", actionType: "shopify_create_draft_order", provider: "Shopify" });
+  assertFalse(result.ok);
+  assertEquals(result.verdict, "block");
+  assert(result.autoResolved);
+  const inserted = (inserts.pending_approvals ?? [])[0] as { status?: string } | undefined;
+  assertEquals(inserted?.status, "auto_rejected");
+});
+
+Deno.test("SAFETY BOUNDARY: an outright BLOCKING hard rule is never auto-overridden by any policy, even auto_allow", async () => {
+  const { client } = fakeSupabase({
+    hard_rules: { data: [{ id: "r1", rule_text: "never send this", action_type_pattern: "*", effect: "always_block", provider: null, enabled: true }], error: null },
+    api_keys: { data: { on_uncertain: "auto_allow" }, error: null },
+  });
+  const result = await runControlGate(client, { ...baseCtx, origin: "external-api", apiKeyId: "key-1" });
+  assertFalse(result.ok, "a real block must never be overridden by an auto-resolve policy meant only for 'needs a second look' outcomes");
+  assertEquals(result.verdict, "block");
+  assertFalse(result.autoResolved, "createPendingApproval (and therefore any policy) is never even consulted on the blocking path");
+});
+
+// ---- "Policy autonomy" plan, item 1: rule rationale surfaced in the decision reasoning ----
+
+Deno.test("a hard rule block names the rule's rationale when one is set", async () => {
+  const { client } = fakeSupabase({
+    hard_rules: {
+      data: [{
+        id: "r1", rule_text: "never send this", action_type_pattern: "*", effect: "always_block",
+        provider: null, enabled: true, rationale: "This provider has repeatedly caused chargebacks.",
+      }],
+      error: null,
+    },
+  });
+  const result = await runControlGate(client, baseCtx);
+  assertEquals(result.verdict, "block");
+  assert(result.reason?.includes("never send this"));
+  assert(result.reason?.includes("This provider has repeatedly caused chargebacks."));
+});
+
+Deno.test("a hard rule block with no rationale set reads exactly as before -- no placeholder text", async () => {
+  const { client } = fakeSupabase({
+    hard_rules: { data: [{ id: "r1", rule_text: "never send this", action_type_pattern: "*", effect: "always_block", provider: null, enabled: true }], error: null },
+  });
+  const result = await runControlGate(client, baseCtx);
+  assertEquals(result.verdict, "block");
+  assertFalse(result.reason?.includes("Why this rule exists"), "must never show the rationale prefix when there's no rationale to show");
+  assertFalse(result.reason?.includes("null"));
+});
+
+// ---- item 3: createPendingApproval's forcedResolution (control-engine's auto_narrow flow) ----
+
+const pendingApprovalBaseInput = {
+  userId: "user-1",
+  decisionId: "decision-1",
+  actionType: "send_email",
+  provider: "Gmail",
+  description: "Reply to a customer.",
+  params: { to: "a@b.com" },
+  reason: "Needs a second look.",
+  riskTier: "high",
+  origin: "external-api",
+};
+
+Deno.test("createPendingApproval: forcedResolution's outcome is never affected by the real api key policy, even though the key row is still loaded (for item 6's shadow-mode preview)", async () => {
+  const { client, calls, inserts } = fakeSupabase({
+    // If forcedResolution didn't take priority, this policy would resolve
+    // to auto_allow instead of the forced "rejected" -- proves precedence.
+    // The key row IS still fetched (item 6 needs shadow_on_uncertain
+    // regardless of which path decided the real outcome), but its
+    // on_uncertain value has zero effect on the result below.
+    api_keys: { data: { on_uncertain: "auto_allow" }, error: null },
+    pending_approvals: { data: { id: "approval-1" }, error: null },
+  });
+  const outcome = await createPendingApproval(client, {
+    ...pendingApprovalBaseInput,
+    apiKeyId: "key-1",
+    forcedResolution: { resolution: "rejected", note: "narrowed version still failed" },
+  });
+  assert(outcome.autoResolved);
+  assertEquals(outcome.resolution, "rejected");
+  assert(calls.some((c) => c.table === "api_keys"), "the key row is now loaded regardless of forcedResolution, for shadow-mode's sake");
+  const inserted = (inserts.pending_approvals ?? [])[0] as { status?: string; comment?: string } | undefined;
+  assertEquals(inserted?.status, "auto_rejected");
+  assertEquals(inserted?.comment, "narrowed version still failed");
+});
+
+Deno.test("createPendingApproval: forcedResolution 'approved' inserts an already-resolved, auto_approved row", async () => {
+  const { client, inserts } = fakeSupabase({ pending_approvals: { data: { id: "approval-1" }, error: null } });
+  const outcome = await createPendingApproval(client, {
+    ...pendingApprovalBaseInput,
+    forcedResolution: { resolution: "approved", note: "narrowed version passed cleanly" },
+  });
+  assert(outcome.autoResolved);
+  assertEquals(outcome.resolution, "approved");
+  const inserted = (inserts.pending_approvals ?? [])[0] as { status?: string; resolved_at?: string | null } | undefined;
+  assertEquals(inserted?.status, "auto_approved");
+  assert(inserted?.resolved_at);
+});
+
+Deno.test("createPendingApproval: on_uncertain='callback' delegates to notifyAndAwaitCallback and falls back on timeout, end to end", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (() => Promise.resolve(new Response("{}", { status: 200 }))) as typeof fetch;
+  try {
+    const { client, inserts, updates } = fakeSupabase({
+      api_keys: {
+        data: {
+          on_uncertain: "callback", callback_url: "https://caller.example/callback",
+          callback_secret: "s3cr3t", callback_timeout_seconds: 1, callback_fallback: "auto_deny",
+        },
+        error: null,
+      },
+      pending_approvals: { data: { id: "approval-1", status: "pending" }, error: null },
+    });
+    const outcome = await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
+    assert(outcome.autoResolved);
+    assertEquals(outcome.resolution, "rejected");
+    assertEquals((inserts.pending_approvals ?? [])[0]?.status, "pending", "the row must be inserted as genuinely pending -- the callback flow needs a real row to notify about and poll");
+    assert((updates.pending_approvals ?? []).some((u) => (u as { status?: string }).status === "auto_rejected"), "the timeout fallback must decorate the row with the final auto_rejected status");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+// ---- "Policy autonomy" plan, item 4: a broken callback pulls its key back toward caution ----
+
+Deno.test("createPendingApproval: a callback timeout increments the key's failure streak", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (() => Promise.resolve(new Response("{}", { status: 200 }))) as typeof fetch;
+  try {
+    const { client, updates } = fakeSupabase({
+      api_keys: {
+        data: {
+          on_uncertain: "callback", callback_url: "https://caller.example/callback",
+          callback_secret: "s3cr3t", callback_timeout_seconds: 1, callback_fallback: "auto_deny",
+          callback_failure_streak: 1,
+        },
+        error: null,
+      },
+      pending_approvals: { data: { id: "approval-1", status: "pending" }, error: null },
+    });
+    await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
+    const keyUpdate = (updates.api_keys ?? []).find((u) => "callback_failure_streak" in (u as object)) as { callback_failure_streak?: number; on_uncertain?: string } | undefined;
+    assertEquals(keyUpdate?.callback_failure_streak, 2);
+    assertEquals(keyUpdate?.on_uncertain, undefined, "below the threshold, on_uncertain itself must stay untouched");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("createPendingApproval: a callback failure streak crossing the threshold downgrades on_uncertain to human_review", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (() => Promise.resolve(new Response("{}", { status: 200 }))) as typeof fetch;
+  try {
+    const { client, updates, inserts } = fakeSupabase({
+      api_keys: {
+        data: {
+          on_uncertain: "callback", callback_url: "https://caller.example/callback",
+          callback_secret: "s3cr3t", callback_timeout_seconds: 1, callback_fallback: "auto_deny",
+          callback_failure_streak: 2,
+        },
+        error: null,
+      },
+      pending_approvals: { data: { id: "approval-1", status: "pending" }, error: null },
+    });
+    await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
+    const keyUpdate = (updates.api_keys ?? []).find((u) => "callback_failure_streak" in (u as object)) as {
+      callback_failure_streak?: number; on_uncertain?: string; on_uncertain_downgraded_at?: string | null; on_uncertain_downgrade_reason?: string | null;
+    } | undefined;
+    assertEquals(keyUpdate?.callback_failure_streak, 3);
+    assertEquals(keyUpdate?.on_uncertain, "human_review");
+    assert(keyUpdate?.on_uncertain_downgraded_at, "must stamp when the system-initiated downgrade happened");
+    assert(keyUpdate?.on_uncertain_downgrade_reason?.toLowerCase().includes("callback"), "the reason must explain the callback caused it");
+    const alertInsert = (inserts.critical_alerts ?? []).find((a) => (a as { event?: string }).event === "on_uncertain_auto_downgraded");
+    assert(alertInsert, "a real alert must fire for a system-initiated policy downgrade");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("createPendingApproval: a real callback answer resets an existing failure streak back to zero", async () => {
+  const { client, updates } = fakeSupabase({
+    api_keys: {
+      data: {
+        on_uncertain: "callback", callback_url: "https://caller.example/callback",
+        callback_secret: "s3cr3t", callback_timeout_seconds: 30, callback_fallback: "auto_deny",
+        callback_failure_streak: 2,
+      },
+      error: null,
+    },
+    pending_approvals: { data: { id: "approval-1", status: "approved" }, error: null },
+  });
+  await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
+  const keyUpdate = (updates.api_keys ?? []).find((u) => "callback_failure_streak" in (u as object)) as { callback_failure_streak?: number } | undefined;
+  assertEquals(keyUpdate?.callback_failure_streak, 0);
+});
+
+// ---- item 6: shadow-mode preview of a candidate on_uncertain policy ----
+
+Deno.test("createPendingApproval: a configured shadow_on_uncertain records what it WOULD have decided, without affecting the real outcome", async () => {
+  const { client, inserts } = fakeSupabase({
+    // Real policy is human_review (the default) -- account is previewing
+    // auto_deny in shadow before ever turning it on for real.
+    api_keys: { data: { on_uncertain: "human_review", shadow_on_uncertain: "auto_deny" }, error: null },
+    pending_approvals: { data: { id: "approval-1" }, error: null },
+  });
+  const outcome = await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
+  // The real outcome is untouched -- still a genuine pending row for a human.
+  assertFalse(outcome.autoResolved);
+  assertEquals((inserts.pending_approvals ?? [])[0]?.status, "pending");
+  const shadowInsert = (inserts.api_key_shadow_observations ?? [])[0] as { shadow_resolution?: string; api_key_id?: string; approval_id?: string } | undefined;
+  assertEquals(shadowInsert?.shadow_resolution, "rejected");
+  assertEquals(shadowInsert?.api_key_id, "key-1");
+  assertEquals(shadowInsert?.approval_id, "approval-1");
+});
+
+Deno.test("createPendingApproval: no shadow_on_uncertain configured means no shadow observation is recorded", async () => {
+  const { client, inserts } = fakeSupabase({
+    api_keys: { data: { on_uncertain: "human_review" }, error: null },
+    pending_approvals: { data: { id: "approval-1" }, error: null },
+  });
+  await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
+  assertEquals(inserts.api_key_shadow_observations, undefined);
+});
+
+Deno.test("createPendingApproval: shadow_on_uncertain='human_review' has nothing meaningful to preview, so nothing is recorded", async () => {
+  const { client, inserts } = fakeSupabase({
+    api_keys: { data: { on_uncertain: "auto_allow", shadow_on_uncertain: "human_review" }, error: null },
+    pending_approvals: { data: { id: "approval-1" }, error: null },
+  });
+  await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
+  assertEquals(inserts.api_key_shadow_observations, undefined);
+});
+
+Deno.test("createPendingApproval: shadow-mode observation is recorded even when the real outcome came from forcedResolution", async () => {
+  const { client, inserts } = fakeSupabase({
+    api_keys: { data: { on_uncertain: "human_review", shadow_on_uncertain: "auto_allow" }, error: null },
+    pending_approvals: { data: { id: "approval-1" }, error: null },
+  });
+  const outcome = await createPendingApproval(client, {
+    ...pendingApprovalBaseInput,
+    apiKeyId: "key-1",
+    forcedResolution: { resolution: "rejected", note: "narrowed version still failed" },
+  });
+  assertEquals(outcome.resolution, "rejected");
+  const shadowInsert = (inserts.api_key_shadow_observations ?? [])[0] as { shadow_resolution?: string } | undefined;
+  assertEquals(shadowInsert?.shadow_resolution, "approved", "the shadow guess reflects the SHADOW policy, independent of forcedResolution's real answer");
+});
+
+// ---- "Real precedent memory" plan, item 3: precedent-informed auto-resolve override ----
+
+Deno.test("createPendingApproval: real precedent overrides an auto_allow to rejected when similar past decisions were mostly non-allow", async () => {
+  const { client, inserts, updates } = fakeSupabase(
+    {
+      api_keys: { data: { on_uncertain: "auto_allow" }, error: null },
+      pending_approvals: { data: { id: "approval-1" }, error: null },
+      decision_embeddings: { data: { embedding: "[0.1,0.2]" }, error: null },
+      agent_decisions: {
+        data: [
+          { id: "d2", decision: "BLOCK send_email (Gmail)" },
+          { id: "d3", decision: "BLOCK send_email (Gmail)" },
+          { id: "d4", decision: "ALLOW send_email (Gmail)" },
+        ],
+        error: null,
+      },
+    },
+    {
+      search_decision_precedent: {
+        data: [
+          { decision_id: "d2", action_type: "send_email", provider: "Gmail", similarity: 0.9, created_at: "2026-08-27T00:00:00Z" },
+          { decision_id: "d3", action_type: "send_email", provider: "Gmail", similarity: 0.8, created_at: "2026-08-26T00:00:00Z" },
+          { decision_id: "d4", action_type: "send_email", provider: "Gmail", similarity: 0.7, created_at: "2026-08-25T00:00:00Z" },
+        ],
+        error: null,
+      },
+    },
+  );
+  const outcome = await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
+  assertEquals(outcome.resolution, "rejected");
+  const inserted = (inserts.pending_approvals ?? [])[0] as { status?: string; comment?: string } | undefined;
+  assertEquals(inserted?.status, "auto_rejected");
+  assert(inserted?.comment?.toLowerCase().includes("precedent"), "the override comment must explain precedent caused it");
+
+  // Item 9: the citation trail must be recorded on the decision the
+  // override actually explains, naming every decision that was cited.
+  const citationUpdate = (updates.agent_decisions ?? [])[0] as { precedent_citations?: { reason: string; citedDecisions: unknown[] } } | undefined;
+  assertEquals(citationUpdate?.precedent_citations?.reason, "non_allow_majority");
+  assertEquals(citationUpdate?.precedent_citations?.citedDecisions.length, 3);
+});
+
+Deno.test("createPendingApproval: precedent that's mostly clean allows does not override an auto_allow", async () => {
+  const { client } = fakeSupabase(
+    {
+      api_keys: { data: { on_uncertain: "auto_allow" }, error: null },
+      pending_approvals: { data: { id: "approval-1" }, error: null },
+      decision_embeddings: { data: { embedding: "[0.1,0.2]" }, error: null },
+      agent_decisions: {
+        data: [
+          { id: "d2", decision: "ALLOW send_email (Gmail)" },
+          { id: "d3", decision: "ALLOW send_email (Gmail)" },
+          { id: "d4", decision: "BLOCK send_email (Gmail)" },
+        ],
+        error: null,
+      },
+    },
+    {
+      search_decision_precedent: {
+        data: [
+          { decision_id: "d2", action_type: "send_email", provider: "Gmail", similarity: 0.9, created_at: new Date().toISOString() },
+          { decision_id: "d3", action_type: "send_email", provider: "Gmail", similarity: 0.8, created_at: new Date().toISOString() },
+          { decision_id: "d4", action_type: "send_email", provider: "Gmail", similarity: 0.7, created_at: new Date().toISOString() },
+        ],
+        error: null,
+      },
+    },
+  );
+  const outcome = await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
+  assertEquals(outcome.resolution, "approved");
+});
+
+Deno.test("createPendingApproval: no stored embedding for the current decision means no precedent search is even attempted", async () => {
+  const { client, calls } = fakeSupabase({
+    api_keys: { data: { on_uncertain: "auto_allow" }, error: null },
+    pending_approvals: { data: { id: "approval-1" }, error: null },
+    decision_embeddings: { data: null, error: null },
+  });
+  const outcome = await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
+  assertEquals(outcome.resolution, "approved");
+  assert(!calls.some((c) => c.rpc === "search_decision_precedent"), "must never attempt a precedent search without a stored embedding");
+});
+
+Deno.test("createPendingApproval: precedent is never consulted for an auto_deny resolution -- that's already the safe choice", async () => {
+  const { client, calls } = fakeSupabase({
+    api_keys: { data: { on_uncertain: "auto_deny" }, error: null },
+    pending_approvals: { data: { id: "approval-1" }, error: null },
+  });
+  const outcome = await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
+  assertEquals(outcome.resolution, "rejected");
+  assert(!calls.some((c) => c.table === "decision_embeddings"), "must never even look up an embedding for a denial");
+});
+
+Deno.test("createPendingApproval: precedent override also applies to a forcedResolution 'approved' outcome (auto_narrow)", async () => {
+  const { client } = fakeSupabase(
+    {
+      pending_approvals: { data: { id: "approval-1" }, error: null },
+      decision_embeddings: { data: { embedding: "[0.1,0.2]" }, error: null },
+      agent_decisions: {
+        data: [{ id: "d2", decision: "BLOCK x" }, { id: "d3", decision: "BLOCK x" }, { id: "d4", decision: "BLOCK x" }],
+        error: null,
+      },
+    },
+    {
+      search_decision_precedent: {
+        data: [
+          { decision_id: "d2", action_type: "x", provider: "y", similarity: 0.9, created_at: "x" },
+          { decision_id: "d3", action_type: "x", provider: "y", similarity: 0.8, created_at: "x" },
+          { decision_id: "d4", action_type: "x", provider: "y", similarity: 0.7, created_at: "x" },
+        ],
+        error: null,
+      },
+    },
+  );
+  const outcome = await createPendingApproval(client, {
+    ...pendingApprovalBaseInput, apiKeyId: "key-1",
+    forcedResolution: { resolution: "approved", note: "narrowed version passed cleanly" },
+  });
+  assertEquals(outcome.resolution, "rejected");
+});
+
+Deno.test("createPendingApproval: a precedent-search failure never breaks the real auto_allow outcome", async () => {
+  const { client } = fakeSupabase(
+    {
+      api_keys: { data: { on_uncertain: "auto_allow" }, error: null },
+      pending_approvals: { data: { id: "approval-1" }, error: null },
+      decision_embeddings: { data: { embedding: "[0.1,0.2]" }, error: null },
+    },
+    {
+      search_decision_precedent: { data: null, error: { message: "boom" } },
+    },
+  );
+  const outcome = await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
+  assertEquals(outcome.resolution, "approved");
+});
+
+// ---- "Real precedent memory" plan, item 8: contradictory precedent is its own reason for caution ----
+
+Deno.test("createPendingApproval: a genuine 50/50 precedent split overrides an auto_allow even though it's not a clear non-allow majority", async () => {
+  const { client, inserts } = fakeSupabase(
+    {
+      api_keys: { data: { on_uncertain: "auto_allow" }, error: null },
+      pending_approvals: { data: { id: "approval-1" }, error: null },
+      decision_embeddings: { data: { embedding: "[0.1,0.2]" }, error: null },
+      agent_decisions: {
+        data: [
+          { id: "d2", decision: "ALLOW send_email (Gmail)" },
+          { id: "d3", decision: "ALLOW send_email (Gmail)" },
+          { id: "d4", decision: "BLOCK send_email (Gmail)" },
+          { id: "d5", decision: "BLOCK send_email (Gmail)" },
+        ],
+        error: null,
+      },
+    },
+    {
+      search_decision_precedent: {
+        data: [
+          { decision_id: "d2", action_type: "send_email", provider: "Gmail", similarity: 0.9, created_at: "x" },
+          { decision_id: "d3", action_type: "send_email", provider: "Gmail", similarity: 0.85, created_at: "x" },
+          { decision_id: "d4", action_type: "send_email", provider: "Gmail", similarity: 0.8, created_at: "x" },
+          { decision_id: "d5", action_type: "send_email", provider: "Gmail", similarity: 0.7, created_at: "x" },
+        ],
+        error: null,
+      },
+    },
+  );
+  const outcome = await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
+  assertEquals(outcome.resolution, "rejected");
+  const inserted = (inserts.pending_approvals ?? [])[0] as { comment?: string } | undefined;
+  assert(inserted?.comment?.toLowerCase().includes("mixed bag"), "the override comment must name the contradictory-precedent reason");
+});
+
+// ---- "Real precedent memory" plan, item 6: measured outcomes refine the plain verdict ----
+
+Deno.test("createPendingApproval: clean-allow precedent that measurably went badly still overrides to reject", async () => {
+  const { client } = fakeSupabase(
+    {
+      api_keys: { data: { on_uncertain: "auto_allow" }, error: null },
+      pending_approvals: { data: { id: "approval-1" }, error: null },
+      decision_embeddings: { data: { embedding: "[0.1,0.2]" }, error: null },
+      // All three precedent decisions were clean ALLOWs by verdict alone --
+      // without item 6 this would never override. Two of them measurably
+      // went badly afterwards, which is enough to flip the classification.
+      agent_decisions: {
+        data: [
+          { id: "d2", decision: "ALLOW send_email (Gmail)" },
+          { id: "d3", decision: "ALLOW send_email (Gmail)" },
+          { id: "d4", decision: "ALLOW send_email (Gmail)" },
+        ],
+        error: null,
+      },
+      decision_outcomes: {
+        data: [
+          { decision_id: "d2", direction: "negative" },
+          { decision_id: "d3", direction: "negative" },
+        ],
+        error: null,
+      },
+    },
+    {
+      search_decision_precedent: {
+        data: [
+          { decision_id: "d2", action_type: "send_email", provider: "Gmail", similarity: 0.9, created_at: "x" },
+          { decision_id: "d3", action_type: "send_email", provider: "Gmail", similarity: 0.8, created_at: "x" },
+          { decision_id: "d4", action_type: "send_email", provider: "Gmail", similarity: 0.7, created_at: "x" },
+        ],
+        error: null,
+      },
+    },
+  );
+  const outcome = await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
+  assertEquals(outcome.resolution, "rejected");
+});
+
+Deno.test("createPendingApproval: blocked precedent that measurably went well afterward does not override an auto_allow", async () => {
+  const { client } = fakeSupabase(
+    {
+      api_keys: { data: { on_uncertain: "auto_allow" }, error: null },
+      pending_approvals: { data: { id: "approval-1" }, error: null },
+      decision_embeddings: { data: { embedding: "[0.1,0.2]" }, error: null },
+      // All three were non-allow verdicts -- without item 6 this would
+      // override to reject. A real positive measured outcome on each
+      // clears the flag back to "not concerning."
+      agent_decisions: {
+        data: [
+          { id: "d2", decision: "BLOCK send_email (Gmail)" },
+          { id: "d3", decision: "BLOCK send_email (Gmail)" },
+          { id: "d4", decision: "BLOCK send_email (Gmail)" },
+        ],
+        error: null,
+      },
+      decision_outcomes: {
+        data: [
+          { decision_id: "d2", direction: "positive" },
+          { decision_id: "d3", direction: "positive" },
+          { decision_id: "d4", direction: "positive" },
+        ],
+        error: null,
+      },
+    },
+    {
+      search_decision_precedent: {
+        data: [
+          { decision_id: "d2", action_type: "send_email", provider: "Gmail", similarity: 0.9, created_at: "x" },
+          { decision_id: "d3", action_type: "send_email", provider: "Gmail", similarity: 0.8, created_at: "x" },
+          { decision_id: "d4", action_type: "send_email", provider: "Gmail", similarity: 0.7, created_at: "x" },
+        ],
+        error: null,
+      },
+    },
+  );
+  const outcome = await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
+  assertEquals(outcome.resolution, "approved");
+});
+
+// ---- "Policy autonomy" plan, item 3: quiet hours pull an auto_allow back to escalate ----
+
+Deno.test("createPendingApproval: inside a key's own quiet hours, an auto_allow escalates for real review instead", async () => {
+  const inside = new Date("2026-08-29T23:00:00Z"); // 23:00 UTC, inside a 22-6 UTC window
+  const { client, inserts } = fakeSupabase({
+    api_keys: {
+      data: { on_uncertain: "auto_allow", quiet_hours_start_hour: 22, quiet_hours_end_hour: 6, quiet_hours_timezone: "UTC" },
+      error: null,
+    },
+    pending_approvals: { data: { id: "approval-1" }, error: null },
+  });
+  const outcome = await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" }, inside);
+  assertEquals(outcome.resolution, null);
+  assertFalse(outcome.autoResolved);
+  const inserted = (inserts.pending_approvals ?? [])[0] as { status?: string; comment?: string; resolved_at?: string | null } | undefined;
+  assertEquals(inserted?.status, "pending");
+  assertEquals(inserted?.resolved_at, null);
+  assert(inserted?.comment?.toLowerCase().includes("quiet hours"), "the pending row must explain quiet hours caused the escalation");
+});
+
+Deno.test("createPendingApproval: outside a key's own quiet hours, auto_allow resolves normally", async () => {
+  const outside = new Date("2026-08-29T12:00:00Z"); // noon UTC, outside a 22-6 UTC window
+  const { client } = fakeSupabase({
+    api_keys: {
+      data: { on_uncertain: "auto_allow", quiet_hours_start_hour: 22, quiet_hours_end_hour: 6, quiet_hours_timezone: "UTC" },
+      error: null,
+    },
+    pending_approvals: { data: { id: "approval-1" }, error: null },
+  });
+  const outcome = await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" }, outside);
+  assertEquals(outcome.resolution, "approved");
+});
+
+Deno.test("createPendingApproval: a key with no quiet hours configured is unaffected, any time of day", async () => {
+  const inside = new Date("2026-08-29T23:00:00Z");
+  const { client } = fakeSupabase({
+    api_keys: { data: { on_uncertain: "auto_allow" }, error: null },
+    pending_approvals: { data: { id: "approval-1" }, error: null },
+  });
+  const outcome = await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" }, inside);
+  assertEquals(outcome.resolution, "approved");
+});
+
+Deno.test("createPendingApproval: quiet hours never touches an auto_deny -- that's already the safe choice", async () => {
+  const inside = new Date("2026-08-29T23:00:00Z");
+  const { client } = fakeSupabase({
+    api_keys: {
+      data: { on_uncertain: "auto_deny", quiet_hours_start_hour: 22, quiet_hours_end_hour: 6, quiet_hours_timezone: "UTC" },
+      error: null,
+    },
+    pending_approvals: { data: { id: "approval-1" }, error: null },
+  });
+  const outcome = await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" }, inside);
+  assertEquals(outcome.resolution, "rejected");
+});
+
+Deno.test("createPendingApproval: quiet hours applies after precedent -- it never re-approves something precedent already rejected", async () => {
+  const inside = new Date("2026-08-29T23:00:00Z");
+  const { client } = fakeSupabase(
+    {
+      api_keys: {
+        data: { on_uncertain: "auto_allow", quiet_hours_start_hour: 22, quiet_hours_end_hour: 6, quiet_hours_timezone: "UTC" },
+        error: null,
+      },
+      pending_approvals: { data: { id: "approval-1" }, error: null },
+      decision_embeddings: { data: { embedding: "[0.1,0.2]" }, error: null },
+      agent_decisions: { data: [{ id: "d2", decision: "BLOCK x" }, { id: "d3", decision: "BLOCK x" }, { id: "d4", decision: "BLOCK x" }], error: null },
+    },
+    {
+      search_decision_precedent: {
+        data: [
+          { decision_id: "d2", action_type: "x", provider: "y", similarity: 0.9, created_at: "x" },
+          { decision_id: "d3", action_type: "x", provider: "y", similarity: 0.8, created_at: "x" },
+          { decision_id: "d4", action_type: "x", provider: "y", similarity: 0.7, created_at: "x" },
+        ],
+        error: null,
+      },
+    },
+  );
+  const outcome = await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" }, inside);
+  assertEquals(outcome.resolution, "rejected", "precedent's own rejection must stand, not get replaced by a quiet-hours escalation");
 });
 
 Deno.test("a hard rule scoped to a different provider does not match", async () => {
@@ -607,6 +1232,20 @@ Deno.test("a safety-scanner require_approval-severity match queues approval, doe
   assertFalse(result.ok);
   assertEquals(result.verdict, "require_approval");
   assertEquals(result.approvalId, "approval-2");
+});
+
+Deno.test("item 1: an auto_allow policy also resolves a safety-scanner require_approval match automatically", async () => {
+  const { client } = fakeSupabase({
+    pending_approvals: { data: { id: "approval-2" }, error: null },
+    api_keys: { data: { on_uncertain: "auto_allow" }, error: null },
+  });
+  const result = await runControlGate(client, {
+    ...baseCtx, origin: "external-api", apiKeyId: "key-1",
+    description: "send this update to all customers on the list",
+  });
+  assert(result.ok);
+  assertEquals(result.verdict, "allow");
+  assert(result.autoResolved);
 });
 
 // ---- safety rule shadow-mode parity (2026-08-22) ---------------------------
@@ -929,6 +1568,57 @@ Deno.test("an unexpected DB error mid-gate opens a real incident, not just a dec
   assert(insertedTables.includes("incidents"), `expected an incidents insert, got tables: ${insertedTables.join(", ")}`);
 });
 
+// ---- item 8: per-key fail-open/fail-closed on an unexpected gate error ----
+
+Deno.test("item 8: an api key configured on_gate_error='allow' fails OPEN on an unexpected gate error, with its own distinct source", async () => {
+  const client = {
+    from(table: string) {
+      if (table === "profiles") return new FakeQuery(() => { throw new Error("simulated connection reset"); });
+      if (table === "api_keys") return new FakeQuery(() => ({ data: { on_gate_error: "allow" }, error: null }));
+      return new FakeQuery(() => ({ data: null, error: null }));
+    },
+    rpc() { return new FakeQuery(() => ({ data: null, error: null })); },
+    // deno-lint-ignore no-explicit-any
+  } as any;
+  const result = await runControlGate(client, { ...baseCtx, origin: "external-api", apiKeyId: "key-1" });
+  assert(result.ok, "a key configured to fail open must be let through on an unexpected gate error");
+  assertEquals(result.verdict, "allow");
+  assertEquals(result.source, "gate_error_fail_open", "must be a DIFFERENT source than plain gate_error, never blended together");
+  assert(result.reason?.toLowerCase().includes("fail open") || result.reason?.toLowerCase().includes("allowed"));
+});
+
+Deno.test("item 8: the default (on_gate_error='block', or no policy at all) still fails closed even with a real apiKeyId", async () => {
+  const client = {
+    from(table: string) {
+      if (table === "profiles") return new FakeQuery(() => { throw new Error("simulated connection reset"); });
+      if (table === "api_keys") return new FakeQuery(() => ({ data: { on_gate_error: "block" }, error: null }));
+      return new FakeQuery(() => ({ data: null, error: null }));
+    },
+    rpc() { return new FakeQuery(() => ({ data: null, error: null })); },
+    // deno-lint-ignore no-explicit-any
+  } as any;
+  const result = await runControlGate(client, { ...baseCtx, origin: "external-api", apiKeyId: "key-1" });
+  assertFalse(result.ok);
+  assertEquals(result.verdict, "block");
+  assertEquals(result.source, "gate_error");
+});
+
+Deno.test("item 8: a failure to even READ the on_gate_error policy still fails closed, never accidentally open", async () => {
+  const client = {
+    from(table: string) {
+      if (table === "profiles") return new FakeQuery(() => { throw new Error("simulated connection reset"); });
+      if (table === "api_keys") return new FakeQuery(() => { throw new Error("api_keys lookup also down"); });
+      return new FakeQuery(() => ({ data: null, error: null }));
+    },
+    rpc() { return new FakeQuery(() => ({ data: null, error: null })); },
+    // deno-lint-ignore no-explicit-any
+  } as any;
+  const result = await runControlGate(client, { ...baseCtx, origin: "external-api", apiKeyId: "key-1" });
+  assertFalse(result.ok, "an unreadable policy must never accidentally default to fail-open");
+  assertEquals(result.verdict, "block");
+  assertEquals(result.source, "gate_error");
+});
+
 Deno.test("an unexpected error mid-gate still returns safe no-op recordShadowHits/recordAttempt closures", async () => {
   // Callers unconditionally call gate.recordShadowHits(...) / gate.recordAttempt(...)
   // after checking gate.ok — the fail-closed branch must hand back real,
@@ -949,4 +1639,88 @@ Deno.test("an unexpected error mid-gate still returns safe no-op recordShadowHit
   await result.recordShadowHits("decision-x", "block");
   const attempt = await result.recordAttempt(true, "test");
   assertEquals(attempt, null);
+});
+
+// ---- "policy autonomy" item 10: per-action-type on_uncertain override ----
+
+Deno.test("createPendingApproval: a matching action-type override resolves using ITS policy, not the key's blanket one", async () => {
+  const { client, inserts } = fakeSupabase({
+    api_keys: { data: { on_uncertain: "human_review" }, error: null },
+    api_key_action_policies: {
+      data: [{ action_type_pattern: "send_email", on_uncertain: "auto_allow" }],
+      error: null,
+    },
+    pending_approvals: { data: { id: "approval-1" }, error: null },
+  });
+  const outcome = await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
+  assert(outcome.autoResolved);
+  assertEquals(outcome.resolution, "approved");
+  const comment = (inserts.pending_approvals ?? [])[0] as { comment?: string } | undefined;
+  assert(comment?.comment?.includes("send_email"), "the audit comment should name the action-type override that fired");
+});
+
+Deno.test("createPendingApproval: an override for a DIFFERENT action_type leaves the blanket policy governing this decision", async () => {
+  const { client } = fakeSupabase({
+    api_keys: { data: { on_uncertain: "human_review" }, error: null },
+    api_key_action_policies: {
+      data: [{ action_type_pattern: "delete_record", on_uncertain: "auto_allow" }],
+      error: null,
+    },
+    pending_approvals: { data: { id: "approval-1" }, error: null },
+  });
+  const outcome = await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
+  assertFalse(outcome.autoResolved, "no override matched send_email, so human_review (the blanket policy) must still apply");
+});
+
+Deno.test("createPendingApproval: no overrides configured at all behaves exactly like before this item, using the blanket policy", async () => {
+  const { client } = fakeSupabase({
+    api_keys: { data: { on_uncertain: "auto_deny" }, error: null },
+    api_key_action_policies: { data: [], error: null },
+    pending_approvals: { data: { id: "approval-1" }, error: null },
+  });
+  const outcome = await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
+  assert(outcome.autoResolved);
+  assertEquals(outcome.resolution, "rejected");
+});
+
+Deno.test("createPendingApproval: an action-type override can require MORE caution than the key's own permissive blanket policy", async () => {
+  const { client } = fakeSupabase({
+    api_keys: { data: { on_uncertain: "auto_allow" }, error: null },
+    api_key_action_policies: {
+      data: [{ action_type_pattern: "send_email", on_uncertain: "human_review" }],
+      error: null,
+    },
+    pending_approvals: { data: { id: "approval-1" }, error: null },
+  });
+  const outcome = await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
+  assertFalse(outcome.autoResolved, "the stricter override must win even though the blanket policy alone would have auto-allowed");
+});
+
+Deno.test("loadOnUncertainPolicy: with no actionType given, returns the plain blanket policy -- every call site that predates this item is unaffected", async () => {
+  const { client } = fakeSupabase({
+    api_keys: { data: { on_uncertain: "auto_narrow" }, error: null },
+  });
+  assertEquals(await loadOnUncertainPolicy(client, "key-1"), "auto_narrow");
+});
+
+Deno.test("loadOnUncertainPolicy: with an actionType given, a matching override wins over the blanket policy", async () => {
+  const { client } = fakeSupabase({
+    api_keys: { data: { on_uncertain: "human_review" }, error: null },
+    api_key_action_policies: {
+      data: [{ action_type_pattern: "delete_*", on_uncertain: "auto_narrow" }],
+      error: null,
+    },
+  });
+  assertEquals(await loadOnUncertainPolicy(client, "key-1", "delete_record"), "auto_narrow");
+});
+
+Deno.test("loadOnUncertainPolicy: with an actionType given but no matching override, falls back to the blanket policy", async () => {
+  const { client } = fakeSupabase({
+    api_keys: { data: { on_uncertain: "human_review" }, error: null },
+    api_key_action_policies: {
+      data: [{ action_type_pattern: "delete_*", on_uncertain: "auto_narrow" }],
+      error: null,
+    },
+  });
+  assertEquals(await loadOnUncertainPolicy(client, "key-1", "send_email"), "human_review");
 });

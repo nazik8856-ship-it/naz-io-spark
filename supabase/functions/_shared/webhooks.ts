@@ -26,6 +26,27 @@ export const WEBHOOK_EVENTS = [
   // control-gate.ts's gate_error and circuit_breaker_trip event inserts
   // still bypass this -- a real, separate, out-of-scope gap, not silent.
   "decision_logged",
+  // "Zero human review" plan, item 5: fired by the safety-net sweep when it
+  // resolves a pending_approvals row that had been stuck too long on an
+  // api key with an automatic policy configured -- distinct from
+  // "approval_created" (a human-facing queue entry) since nothing here was
+  // ever queued for a person; this is telling the calling company their
+  // own automation's backstop just fired.
+  "approval_auto_resolved",
+  // "Knowledge & autonomy" plan, item 6: five new events so an external
+  // company's own systems can react to an automation-state change the
+  // moment it happens, instead of having to keep polling for it. Three
+  // fire straight from an existing scheduled sweep at the exact moment
+  // their condition already happens today (no new detection, just a
+  // triggerWebhooks call added at that point); the other two are
+  // computed by a small new daily sweep since their own underlying
+  // reports are pull-only with no natural "this just changed" moment
+  // (see readiness-webhook-sweep.ts).
+  "hard_rule_auto_drafted",
+  "api_key_auto_paused",
+  "api_key_on_uncertain_downgraded",
+  "automation_readiness_ready",
+  "shadow_policy_promotion_ready",
 ] as const;
 export type WebhookEvent = typeof WEBHOOK_EVENTS[number];
 
@@ -34,7 +55,10 @@ export function buildSignaturePayload(timestamp: string, body: string): string {
   return `${timestamp}.${body}`;
 }
 
-async function hmacHex(secret: string, message: string): Promise<string> {
+// Exported so callback-delegation.ts ("zero human review" plan, item 4)
+// can sign its own ad-hoc outbound POST the exact same way, rather than
+// reimplementing HMAC-SHA256 signing a second time.
+export async function hmacHex(secret: string, message: string): Promise<string> {
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   const sig = await crypto.subtle.sign("HMAC", key, enc.encode(message));

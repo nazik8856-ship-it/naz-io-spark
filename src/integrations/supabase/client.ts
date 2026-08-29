@@ -4,9 +4,9 @@ import type { Database } from "./types";
 
 // Hardcoded to guarantee production always targets the correct backend,
 // regardless of hosting-provider environment variables.
-export const SUPABASE_URL = "https://qaeduinfirtljnbecyzq.supabase.co";
+export const SUPABASE_URL = "https://ekuodpaaiugzywfcmjeo.supabase.co";
 const SUPABASE_ANON_KEY =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFhZWR1aW5maXJ0bGpuYmVjeXpxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE2MjMwMTcsImV4cCI6MjA4NzE5OTAxN30.d9LUMaj0_2C0802M2oRHYny6coTPQuHJ3DmF-crthU4";
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVrdW9kcGFhaXVnenl3ZmNtamVvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc4NjIzNzgsImV4cCI6MjEwMzQzODM3OH0.o1nkPj83mwsRMU2Z_gomeLKHzYwNWxVtRZEysV6PTN4";
 
 export const SUPABASE_FUNCTIONS_URL = `${SUPABASE_URL}/functions/v1`;
 export const SUPABASE_ANON = SUPABASE_ANON_KEY;

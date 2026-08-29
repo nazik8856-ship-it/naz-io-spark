@@ -65,6 +65,18 @@ describe("ControlApiClient", () => {
     expect(result.policyVersion).toBe("v3");
   });
 
+  it("check() sends planId as plan_id in the request body", async () => {
+    const fetchImpl = fakeFetch(200, {
+      verdict: "allow", reason: "clean", decision_id: null, gate_source: null, mode: "fast",
+    });
+    const client = new ControlApiClient({ apiKey: "nazai_sk_test", baseUrl: "https://proj.supabase.co/functions/v1", fetchImpl });
+
+    await client.check({ actionType: "send_email", description: "Reply to a customer.", planId: "checkout-flow-42" });
+
+    const body = JSON.parse((fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0][1].body as string);
+    expect(body.plan_id).toBe("checkout-flow-42");
+  });
+
   it("checkBatch() sends an actions array and maps indexed results", async () => {
     const fetchImpl = fakeFetch(200, {
       batch: true,

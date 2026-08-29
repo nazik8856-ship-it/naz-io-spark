@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { lovable } from "@/integrations/lovable/index";
 
 type AuthDetails = {
   redirect_url?: string;
@@ -35,8 +34,9 @@ export default function OAuthConsent() {
         const next = window.location.pathname + window.location.search;
         sessionStorage.setItem("nazai:post-auth-redirect", next);
         try {
-          await lovable.auth.signInWithOAuth("google", {
-            redirect_uri: window.location.origin + next,
+          await supabase.auth.signInWithOAuth({
+            provider: "google",
+            options: { redirectTo: window.location.origin + next },
           });
         } catch {
           window.location.href = "/login";

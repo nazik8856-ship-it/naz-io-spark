@@ -215,3 +215,37 @@ Deno.test("scanAction: with no shadow rules configured, shadowMatches is empty",
   const r = await scanAction({} as never, "user-1", { body: "totally benign text" }, "", [liveRule]);
   assertEquals(r.shadowMatches, []);
 });
+
+// ---- item 1: rule rationale ("why") surfaced in matches and summary -------
+
+Deno.test("every built-in rule has a real, non-empty rationale", () => {
+  for (const rule of BUILTIN_SAFETY_RULES) {
+    assert(typeof rule.rationale === "string" && rule.rationale.length > 0, `missing rationale for ${rule.id}`);
+  }
+});
+
+Deno.test("a match carries its rule's rationale through", () => {
+  const r = scan({}, "delete all customer records from the CRM");
+  const hit = r.matches.find((m) => m.rule_id === "builtin:destructive")!;
+  assertEquals(hit.rationale, BUILTIN_SAFETY_RULES.find((x) => x.id === "builtin:destructive")!.rationale);
+});
+
+Deno.test("the block summary names the rule AND its rationale", () => {
+  const r = scan({}, "delete all customer records from the CRM");
+  const expectedRationale = BUILTIN_SAFETY_RULES.find((x) => x.id === "builtin:destructive")!.rationale!;
+  assert(r.summary!.includes("Destructive wording"));
+  assert(r.summary!.includes(expectedRationale));
+});
+
+Deno.test("a custom rule with no rationale set yet shows just its name, never a placeholder", () => {
+  const noRationale: SafetyRule = {
+    id: "custom:no-rationale", name: "No rationale rule", category: "custom",
+    pattern: "flag-word-xyz", severity: "block", enabled: true, builtin: false,
+  };
+  const r = scanWithRules([noRationale], { body: "contains flag-word-xyz" }, "");
+  assert(r.matched);
+  assertEquals(r.matches[0].rationale, null);
+  assert(r.summary!.includes("No rationale rule"));
+  assertFalse(r.summary!.includes("null"));
+  assertFalse(r.summary!.includes("undefined"));
+});

@@ -21,7 +21,10 @@
 // 2. A real user JWT — runs the sweep for just that one caller.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
-import { isAuditIntegrityFailure, summarizeAuditIntegrityFailure, type SignatureVerifyResult } from "../_shared/audit-integrity.ts";
+import { isAuditIntegrityFailure, summarizeAuditIntegrityFailure, isAutoResolutionMismatch, isPrecedentCitationMismatch, isDecisionConsistencyMismatch, isKnowledgeBaseHealthMismatch, type SignatureVerifyResult, type AuditIntegrityResult, type StoredPrecedentCitation, type KnowledgeBaseHealthEntry, type RecentActionShape, type HardRuleBlockShape } from "../_shared/audit-integrity.ts";
+import { evaluateAction, type PolicySnapshot } from "../_shared/policy-replay.ts";
+import { isNonAllowDecision } from "../_shared/control-api-abuse.ts";
+import { loadStoredEmbeddingLiteral, findPrecedent } from "../_shared/precedent-search.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -35,18 +38,225 @@ const json = (b: unknown, status = 200) =>
 // between what this sweep last covered and what it covers now.
 const LOOKBACK_DAYS = 8;
 
+// "Zero human review" plan, item 15: re-evaluates every auto-approved
+// pending_approvals row in range against the account's CURRENT policy
+// snapshot, reusing the exact same deterministic hard-rule + safety-
+// scanner re-check control-engine's auto_narrow flow and policy-watch.ts
+// already use elsewhere (policy-replay.ts's evaluateAction) -- never a
+// new evaluation mechanism. Only auto_approved is checked: an
+// auto_rejected row was never going to run anything, so there's nothing
+// meaningful to re-check it against. Never throws -- a failure here
+// (e.g. no active policy version yet) reports zero checked, never
+// blocking the signature half of this sweep.
+async function checkAutoResolutions(
+  admin: ReturnType<typeof createClient>,
+  userId: string,
+  from: string,
+  to: string,
+): Promise<{ checked: number; mismatched: number }> {
+  try {
+    const [{ data: pv }, { data: rows }] = await Promise.all([
+      admin.rpc("get_active_policy_version", { _user_id: userId }),
+      admin.from("pending_approvals")
+        .select("action_type, provider, description, params")
+        .eq("user_id", userId)
+        .eq("status", "auto_approved")
+        .gte("created_at", from)
+        .lte("created_at", to),
+    ]);
+    const row = (Array.isArray(pv) ? pv[0] : pv) as { snapshot?: PolicySnapshot } | null;
+    const snapshot: PolicySnapshot = row?.snapshot ?? {};
+    const actions = (rows ?? []) as { action_type: string; provider: string; description: string; params: unknown }[];
+
+    let mismatched = 0;
+    for (const a of actions) {
+      const { gate_outcome } = evaluateAction(
+        { action_type: a.action_type, provider: a.provider, description: a.description, params: a.params },
+        snapshot,
+      );
+      if (isAutoResolutionMismatch(gate_outcome)) mismatched++;
+    }
+    return { checked: actions.length, mismatched };
+  } catch {
+    return { checked: 0, mismatched: 0 };
+  }
+}
+
+// "Real precedent memory" plan, item 15: re-checks every real precedent
+// citation (item 9's own agent_decisions.precedent_citations) recorded in
+// range against its OWN stored stats -- does its claimed sample size
+// match what it actually lists, do the decisions it cites still exist,
+// and does its stated reason genuinely follow from its own numbers.
+// Never re-runs the embedding/search that originally produced the
+// citation (that could legitimately return different neighbors by audit
+// time, as more precedent accumulates) -- purely an internal-consistency
+// and existence check, the same "did this record's own claim actually
+// hold up" spirit as the signature check above. Never throws -- a
+// failure here reports zero checked, never blocking the rest of this
+// sweep.
+async function checkPrecedentCitations(
+  admin: ReturnType<typeof createClient>,
+  userId: string,
+  from: string,
+  to: string,
+): Promise<{ checked: number; mismatched: number }> {
+  try {
+    const { data: rows } = await admin
+      .from("agent_decisions")
+      .select("precedent_citations")
+      .eq("user_id", userId)
+      .not("precedent_citations", "is", null)
+      .gte("created_at", from)
+      .lte("created_at", to);
+    const records = ((rows ?? []) as { precedent_citations: unknown }[])
+      .map((r) => r.precedent_citations)
+      .filter((r): r is StoredPrecedentCitation => !!r && typeof r === "object" && Array.isArray((r as StoredPrecedentCitation).citedDecisions));
+    if (!records.length) return { checked: 0, mismatched: 0 };
+
+    const allCitedIds = [...new Set(records.flatMap((r) => r.citedDecisions.map((c) => c.decisionId)))];
+    const { data: existingRows } = await admin.from("agent_decisions").select("id").in("id", allCitedIds);
+    const existingIds = new Set(((existingRows ?? []) as { id: string }[]).map((r) => r.id));
+
+    const mismatched = records.filter((r) => isPrecedentCitationMismatch(r, existingIds)).length;
+    return { checked: records.length, mismatched };
+  } catch {
+    return { checked: 0, mismatched: 0 };
+  }
+}
+
+// "Policy autonomy" plan, item 15: does the same kind of request get a
+// consistent verdict over time, or is there real, unexplained flip-
+// flopping? Reuses the exact same precedent/embedding infrastructure
+// "real precedent memory" already built (loadStoredEmbeddingLiteral +
+// findPrecedent) -- never a new similarity search, never a new model
+// call. Scoped to decisions with a stored embedding at all (external-api
+// decisions only, per decision-embeddings.ts's own documented scope);
+// pre-filters out escalated/human_override rows at the query itself --
+// isDecisionConsistencyMismatch would always return false for those
+// anyway, so skipping them here just saves the embedding lookup/
+// precedent search. Never throws -- a failure here reports zero
+// checked, never blocking the rest of this sweep.
+async function checkDecisionConsistency(
+  admin: ReturnType<typeof createClient>,
+  userId: string,
+  from: string,
+  to: string,
+): Promise<{ checked: number; mismatched: number }> {
+  try {
+    const { data: rows } = await admin
+      .from("agent_decisions")
+      .select("id, api_key_id, decision, escalated, source")
+      .eq("user_id", userId)
+      .not("api_key_id", "is", null)
+      .eq("escalated", false)
+      .neq("source", "human_override")
+      .gte("created_at", from)
+      .lte("created_at", to);
+    const candidates = (rows ?? []) as { id: string; api_key_id: string; decision: string; escalated: boolean; source: string }[];
+    if (!candidates.length) return { checked: 0, mismatched: 0 };
+
+    let checked = 0;
+    let mismatched = 0;
+    for (const candidate of candidates) {
+      const embeddingLiteral = await loadStoredEmbeddingLiteral(admin, candidate.id);
+      if (!embeddingLiteral) continue; // nothing to compare against -- not a checked case
+
+      const matches = await findPrecedent(admin, candidate.api_key_id, embeddingLiteral, candidate.id);
+      if (!matches.length) continue;
+
+      const { data: matchRows } = await admin
+        .from("agent_decisions").select("id, decision").in("id", matches.map((m) => m.decisionId));
+      const decisionById = new Map(((matchRows ?? []) as { id: string; decision: string }[]).map((r) => [r.id, r.decision]));
+      const nonAllowFlags = matches
+        .map((m) => decisionById.get(m.decisionId))
+        .filter((d): d is string => d !== undefined)
+        .map((d) => isNonAllowDecision(d));
+
+      checked++;
+      if (isDecisionConsistencyMismatch(isNonAllowDecision(candidate.decision), candidate.escalated, candidate.source, nonAllowFlags)) {
+        mismatched++;
+      }
+    }
+    return { checked, mismatched };
+  } catch {
+    return { checked: 0, mismatched: 0 };
+  }
+}
+
+// "Knowledge & autonomy" plan, item 4: checks every ENABLED (live)
+// knowledge-base entry (item 1) for staleness (no matching real decision
+// in a long time) or unreachability (an always_block hard rule already
+// shadows its exact scope). Deliberately a much longer lookback than
+// this sweep's own `from`/`to` window -- staleness is fundamentally a
+// long-term-inactivity signal, not a "did anything change since the last
+// audit" one. Never throws -- a failure here reports zero checked, never
+// blocking the rest of this sweep.
+const KNOWLEDGE_BASE_STALENESS_LOOKBACK_DAYS = 180;
+
+async function checkKnowledgeBaseHealth(
+  admin: ReturnType<typeof createClient>,
+  userId: string,
+): Promise<{ checked: number; mismatched: number }> {
+  try {
+    const { data: entryRows } = await admin
+      .from("knowledge_base_entries")
+      .select("id, action_type_pattern, provider")
+      .eq("user_id", userId)
+      .eq("enabled", true);
+    const entries = (entryRows ?? []) as KnowledgeBaseHealthEntry[];
+    if (!entries.length) return { checked: 0, mismatched: 0 };
+
+    const since = new Date(Date.now() - KNOWLEDGE_BASE_STALENESS_LOOKBACK_DAYS * 86400_000).toISOString();
+    const { data: recentRows } = await admin
+      .from("agent_decisions")
+      .select("action_type, provider")
+      .eq("user_id", userId)
+      .gte("created_at", since)
+      .limit(5000);
+    const recentShapes = (recentRows ?? []) as RecentActionShape[];
+
+    const { data: hardRuleRows } = await admin
+      .from("hard_rules")
+      .select("action_type_pattern, provider, effect")
+      .eq("user_id", userId)
+      .eq("enabled", true)
+      .eq("shadow_mode", false);
+    const hardRules = (hardRuleRows ?? []) as HardRuleBlockShape[];
+
+    const mismatched = entries.filter((e) => isKnowledgeBaseHealthMismatch(e, recentShapes, hardRules)).length;
+    return { checked: entries.length, mismatched };
+  } catch {
+    return { checked: 0, mismatched: 0 };
+  }
+}
+
 async function sweepOrg(
   admin: ReturnType<typeof createClient>,
   userId: string,
   from: string,
   to: string,
   triggeredBy: "manual" | "scheduled",
-): Promise<{ userId: string; ok: boolean; error: string | null } & Partial<SignatureVerifyResult>> {
+): Promise<{ userId: string; ok: boolean; error: string | null } & Partial<AuditIntegrityResult>> {
   const { data, error } = await admin.rpc("verify_decision_signatures_batch_for", {
     _user_id: userId, _from: from, _to: to, _limit: 20000,
   });
   if (error) return { userId, ok: false, error: error.message };
-  const result = data as SignatureVerifyResult;
+  const signatureResult = data as SignatureVerifyResult;
+  const autoResolutions = await checkAutoResolutions(admin, userId, from, to);
+  const precedentCitations = await checkPrecedentCitations(admin, userId, from, to);
+  const decisionConsistency = await checkDecisionConsistency(admin, userId, from, to);
+  const knowledgeBaseHealth = await checkKnowledgeBaseHealth(admin, userId);
+  const result: AuditIntegrityResult = {
+    ...signatureResult,
+    auto_resolutions_checked: autoResolutions.checked,
+    auto_resolutions_mismatched: autoResolutions.mismatched,
+    precedent_citations_checked: precedentCitations.checked,
+    precedent_citations_mismatched: precedentCitations.mismatched,
+    decision_consistency_checked: decisionConsistency.checked,
+    decision_consistency_mismatched: decisionConsistency.mismatched,
+    knowledge_base_checked: knowledgeBaseHealth.checked,
+    knowledge_base_mismatched: knowledgeBaseHealth.mismatched,
+  };
 
   await admin.from("audit_integrity_runs").insert({
     user_id: userId,
@@ -55,6 +265,14 @@ async function sweepOrg(
     verified: result.verified,
     unsigned: result.unsigned,
     mismatched_count: result.mismatched_count,
+    auto_resolutions_checked: result.auto_resolutions_checked,
+    auto_resolutions_mismatched: result.auto_resolutions_mismatched,
+    precedent_citations_checked: result.precedent_citations_checked,
+    precedent_citations_mismatched: result.precedent_citations_mismatched,
+    decision_consistency_checked: result.decision_consistency_checked,
+    decision_consistency_mismatched: result.decision_consistency_mismatched,
+    knowledge_base_checked: result.knowledge_base_checked,
+    knowledge_base_mismatched: result.knowledge_base_mismatched,
     range_from: from,
     range_to: to,
   });

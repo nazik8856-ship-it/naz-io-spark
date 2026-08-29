@@ -257,15 +257,61 @@ Deno.test("logDecision: action_type/provider are null when not supplied, not und
 });
 
 Deno.test("logDecision: writes api_key_id when supplied, for tracing an external-api-sourced decision back to its key ('Outer NazAI' plan item 8)", async () => {
+  // A real apiKeyId now also triggers item 1's embedding attempt inside
+  // logDecision -- mock fetch so this stays a fast, network-free test
+  // regardless of whether LOVABLE_API_KEY happens to be set in this
+  // environment; the embedding attempt failing (no mocked success here)
+  // must never affect logDecision's own primary return value.
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (() => Promise.resolve(new Response("{}", { status: 500 }))) as typeof fetch;
+  try {
+    const client = fakeSupabase({
+      agent_decisions: { data: { id: "decision-4" }, error: null },
+    });
+    const decisionId = await logDecision(client, { userId: "user-1" }, {
+      decision: "ALLOW send_email (Gmail)", reasoning: "fine", alternatives: [], score: 80,
+      source: "external_api", apiKeyId: "key-1",
+    });
+    assertEquals(decisionId, "decision-4");
+    const logged = (client.inserts as Record<string, unknown[]>).agent_decisions?.[0] as { api_key_id?: string | null } | undefined;
+    assertEquals(logged?.api_key_id, "key-1");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+// ---- item 1: logDecision's embedding hook ----
+
+Deno.test("logDecision: a real apiKeyId with a successful embedding inserts into decision_embeddings too", async () => {
+  Deno.env.set("LOVABLE_API_KEY", "test-key");
+  const originalFetch = globalThis.fetch;
+  const vector = Array(768).fill(0.4);
+  globalThis.fetch = (() => Promise.resolve(new Response(JSON.stringify({ data: [{ embedding: vector }] }), { status: 200 }))) as typeof fetch;
+  try {
+    const client = fakeSupabase({
+      agent_decisions: { data: { id: "decision-6" }, error: null },
+    });
+    await logDecision(client, { userId: "user-1" }, {
+      decision: "ALLOW send_email (Gmail)", reasoning: "fine", alternatives: [], score: 80,
+      apiKeyId: "key-1", actionType: "send_email", provider: "Gmail", description: "Reply to a customer.", params: { to: "a@b.com" },
+    });
+    const embedded = (client.inserts as Record<string, unknown[]>).decision_embeddings?.[0] as { decision_id?: string; api_key_id?: string } | undefined;
+    assertEquals(embedded?.decision_id, "decision-6");
+    assertEquals(embedded?.api_key_id, "key-1");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("logDecision: no apiKeyId means no embedding attempt at all, even with actionType/provider/description present", async () => {
   const client = fakeSupabase({
-    agent_decisions: { data: { id: "decision-4" }, error: null },
+    agent_decisions: { data: { id: "decision-7" }, error: null },
   });
   await logDecision(client, { userId: "user-1" }, {
     decision: "ALLOW send_email (Gmail)", reasoning: "fine", alternatives: [], score: 80,
-    source: "external_api", apiKeyId: "key-1",
+    actionType: "send_email", provider: "Gmail", description: "Reply to a customer.",
   });
-  const logged = (client.inserts as Record<string, unknown[]>).agent_decisions?.[0] as { api_key_id?: string | null } | undefined;
-  assertEquals(logged?.api_key_id, "key-1");
+  assertEquals((client.inserts as Record<string, unknown[]>).decision_embeddings, undefined);
 });
 
 Deno.test("logDecision: api_key_id is null when not supplied, not undefined/omitted", async () => {

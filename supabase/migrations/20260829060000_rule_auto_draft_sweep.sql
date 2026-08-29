@@ -1,0 +1,33 @@
+-- "Policy autonomy" plan, item 9: schedules the rule-auto-draft-sweep
+-- edge function. No schema change here -- rule_auto_draft_sweep only
+-- inserts into the existing hard_rules table (via a plain shadow_mode
+-- insert, the same shape a human's own "add rule" action already writes)
+-- and reads the existing agent_decisions table. Kept as its own
+-- migration file purely to document the cron registration alongside the
+-- feature it schedules, same convention as every other scheduled sweep
+-- in this codebase.
+--
+-- ============================================================
+-- POST-MIGRATION STEP (same convention as control-api-abuse-sweep in
+-- 20260826060000_control_api_abuse_alert.sql -- applied directly, not
+-- committed as static SQL, since it needs a project-specific service_role
+-- key and function URL):
+--
+-- CRON JOB (pg_cron): schedule 'rule-auto-draft-sweep-daily' once a day,
+-- reusing the existing 'email_queue_service_role_key' vault secret as the
+-- Authorization bearer token:
+--
+--    SELECT cron.schedule(
+--      'rule-auto-draft-sweep-daily',
+--      '0 6 * * *',
+--      $$
+--      SELECT net.http_post(
+--        url := '<SUPABASE_URL>/functions/v1/rule-auto-draft-sweep',
+--        headers := jsonb_build_object(
+--          'Content-Type', 'application/json',
+--          'Authorization', 'Bearer ' || (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'email_queue_service_role_key')
+--        ),
+--        body := '{}'::jsonb
+--      );
+--      $$
+--    );

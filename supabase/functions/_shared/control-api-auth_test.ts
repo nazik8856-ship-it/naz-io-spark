@@ -109,6 +109,64 @@ Deno.test("resolveApiKeyAuth: a malformed bearer token is rejected without ever 
   assertEquals(admin.calls.length, 0);
 });
 
+// ---- item 7: an auto-paused key gets a specific, actionable rejection ----
+
+Deno.test("resolveApiKeyAuth: a paused key (paused_until in the future) is rejected with a specific, non-generic message", async () => {
+  const raw = generateRawKey();
+  const pausedUntil = new Date(Date.now() + 10 * 60_000).toISOString();
+  const admin = fakeAdminWithRpcQueue([{
+    data: [{ user_id: "user-1", key_id: "key-1", scopes: [], paused_until: pausedUntil }],
+    error: null,
+  }]);
+  const result = await resolveApiKeyAuth(admin, `Bearer ${raw}`);
+  assert(!result.ok);
+  if (!result.ok) {
+    assertEquals(result.status, 429);
+    assertEquals(result.body.error, "key_paused");
+    assertEquals(result.body.paused_until, pausedUntil);
+    assert(result.body.message !== "Invalid, expired, or revoked API key.", "must not read like a plain revoked/invalid key");
+  }
+});
+
+Deno.test("resolveApiKeyAuth: a key whose pause has already elapsed authenticates normally", async () => {
+  const raw = generateRawKey();
+  const pausedUntil = new Date(Date.now() - 60_000).toISOString(); // in the past
+  const admin = fakeAdminWithRpcQueue([{
+    data: [{ user_id: "user-1", key_id: "key-1", scopes: [], paused_until: pausedUntil }],
+    error: null,
+  }]);
+  const result = await resolveApiKeyAuth(admin, `Bearer ${raw}`);
+  assert(result.ok, "an elapsed pause must not keep blocking the key -- it recovers on its own");
+});
+
+Deno.test("resolveApiKeyAuth: a key with no paused_until at all authenticates normally", async () => {
+  const raw = generateRawKey();
+  const admin = fakeAdminWithRpcQueue([{ data: [{ user_id: "user-1", key_id: "key-1", scopes: [], paused_until: null }], error: null }]);
+  const result = await resolveApiKeyAuth(admin, `Bearer ${raw}`);
+  assert(result.ok);
+});
+
+// ---- "knowledge & autonomy" item 7: sandbox/test-mode keys ----
+
+Deno.test("resolveApiKeyAuth: a real key resolves with isTest false", async () => {
+  const raw = generateRawKey();
+  const admin = fakeAdminWithRpcQueue([activeRow]);
+  const result = await resolveApiKeyAuth(admin, `Bearer ${raw}`);
+  assert(result.ok);
+  if (result.ok) assertEquals(result.isTest, false);
+});
+
+Deno.test("resolveApiKeyAuth: a sandbox key resolves with isTest true", async () => {
+  const raw = generateRawKey();
+  const admin = fakeAdminWithRpcQueue([{
+    data: [{ user_id: "user-1", key_id: "key-1", scopes: [], is_test: true }],
+    error: null,
+  }]);
+  const result = await resolveApiKeyAuth(admin, `Bearer ${raw}`);
+  assert(result.ok);
+  if (result.ok) assertEquals(result.isTest, true);
+});
+
 Deno.test("resolveApiKeyAuth: the RPC erroring out is treated as unauthorized, not a crash or a pass-through", async () => {
   const raw = generateRawKey();
   const admin = fakeAdminWithRpcQueue([{ data: null, error: { message: "db unavailable" } }]);

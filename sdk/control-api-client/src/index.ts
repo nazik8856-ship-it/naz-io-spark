@@ -25,6 +25,8 @@ export interface ControlApiActionInput {
   params?: Record<string, unknown>;
   /** "fast" (default): deterministic checks only. "full": adds the LLM-scored assessment. */
   mode?: ControlApiMode;
+  /** Optional, opaque, caller-chosen tag linking this action to other actions (across one or more calls) as steps in the same real-world sequence. If an earlier step in the same plan came back "block", a later step that would have auto-resolved is escalated for human review instead. */
+  planId?: string;
 }
 
 export interface ControlApiVerdictResult {
@@ -120,6 +122,7 @@ function toRequestBody(action: ControlApiActionInput): Record<string, unknown> {
     description: action.description,
     params: action.params,
     mode: action.mode,
+    plan_id: action.planId,
   };
 }
 

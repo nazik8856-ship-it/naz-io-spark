@@ -3,6 +3,8 @@
 // confidence the same way and write to the SAME agent_decisions table.
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { triggerWebhooks } from "./webhooks.ts";
+import { embedDecisionIfExternal } from "./decision-embeddings.ts";
+import { countsTowardRealUsage } from "./sandbox-mode.ts";
 
 export const DEFAULT_CONFIDENCE_THRESHOLD = 60;
 
@@ -164,6 +166,13 @@ export const logDecision = async (
     provider?: string | null;
     /** Which api_keys row authenticated this request, when it came through the public control-api endpoint. Null for every other caller. */
     apiKeyId?: string | null;
+    /** "Knowledge & autonomy" plan, item 7: true only when apiKeyId names a sandbox/test-mode key. Stamped onto the row and used to skip embedding storage (see sandbox-mode.ts) -- a test key's decisions must never become real, searchable precedent. */
+    isTest?: boolean;
+    /** "Knowledge & autonomy" plan, item 12: this decision's own plan_id (opaque, caller-chosen), when the caller sent one -- stamped onto the row so a LATER decision in the same plan can look up whether this one came back BLOCK (plan-escalation.ts, consulted by createPendingApproval). */
+    planId?: string | null;
+    /** "Real precedent memory" plan, item 1: the raw action, present only when the caller has it in scope (control-engine's model-scored path does) -- used solely to build this decision's embedding, never stored on the row itself, which only ever answers "what happened," not the exact payload. Omitted entirely (agent-runtime) means no embedding is attempted, same as apiKeyId being null. */
+    description?: string | null;
+    params?: unknown;
   },
 ): Promise<string | null> => {
   try {
@@ -183,6 +192,8 @@ export const logDecision = async (
       action_type: d.actionType ?? null,
       provider: d.provider ?? null,
       api_key_id: d.apiKeyId ?? null,
+      is_test: d.isTest === true,
+      plan_id: d.planId ?? null,
     }).select("id").single();
     const decisionId = (data as { id?: string } | null)?.id ?? null;
     if (decisionId) {
@@ -195,6 +206,16 @@ export const logDecision = async (
           escalated: d.escalated ?? false, agent_id: scope.agentId ?? null,
         });
       } catch { /* ignore */ }
+      // "Knowledge & autonomy" plan, item 7: a sandbox key's decision is
+      // still logged (so its own caller can see its own test traffic) but
+      // never embedded -- must never become real, searchable precedent.
+      if (countsTowardRealUsage(d.isTest)) {
+        await embedDecisionIfExternal(supabase, {
+          decisionId, apiKeyId: d.apiKeyId, userId: scope.userId,
+          actionType: d.actionType ?? "", provider: d.provider ?? "unknown",
+          description: d.description ?? "", params: d.params,
+        });
+      }
     }
     return decisionId;
   } catch {

@@ -23,7 +23,9 @@ import { CAPABILITY_REGISTRY, canOfferTool } from "../_shared/capability-registr
 import { recordAiSpend } from "../_shared/spend-guard.ts";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
 import { openIncident } from "../_shared/incidents.ts";
-import { runControlGate, createPendingApproval } from "../_shared/control-gate.ts";
+import { runControlGate, createPendingApproval, loadOnUncertainPolicy, loadActionTypeOverrides } from "../_shared/control-gate.ts";
+import { resolveEffectiveConfidenceThreshold } from "../_shared/action-type-policy.ts";
+import { extractNarrowedAction, narrowedActionResolution } from "../_shared/api-key-policy.ts";
 import { checkApprovalQuorum } from "../_shared/quorum.ts";
 import { claimIdempotencyKey, saveIdempotencyResponse, releaseIdempotencyKey, claimRowOnce, releaseRowClaim, type ClaimResult } from "../_shared/idempotency.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
@@ -38,9 +40,18 @@ const RATE_LIMIT_PER_MINUTE = 120;
 
 import { PROVIDER_WRITE_KINDS, runProviderWrite } from "../_shared/provider-writes.ts";
 import { reversibilityFor, captureUndoState, runUndo } from "../_shared/reversibility.ts";
-import { replayDraft, replayRealTraffic } from "../_shared/policy-replay.ts";
+import { replayDraft, replayRealTraffic, previewProposedHardRules, evaluateAction, asSafetyRules, type PolicySnapshot, type ProposedHardRuleInput, type GateOutcome } from "../_shared/policy-replay.ts";
+import { scanWithRules } from "../_shared/safety-scanner.ts";
+import { buildSecondNarrowingAttempt, secondNarrowingResolution, type NarrowingFailureReason } from "../_shared/auto-narrow-retry.ts";
 import { summarizePolicyWatch, type PolicyWatchObservationRow } from "../_shared/policy-watch.ts";
 import { loadFitEvidence, applyFitEvidence } from "../_shared/fit-learning.ts";
+import { buildEmbeddingInput, generateEmbeddingWithinBudget, formatEmbeddingLiteral } from "../_shared/decision-embeddings.ts";
+import { findPrecedent, loadOutcomeDirections, loadPrecedentForPrompt } from "../_shared/precedent-search.ts";
+import { buildPrecedentPromptBlock } from "../_shared/precedent-prompt.ts";
+import { selectRelevantKnowledgeBaseEntries, buildKnowledgeBasePromptBlock, type KnowledgeBaseEntry } from "../_shared/knowledge-base.ts";
+import { countsTowardRealUsage } from "../_shared/sandbox-mode.ts";
+import { alignPrecedentSignals, evaluatePrecedentForAutoApprove, shouldRejectOnPrecedent, summarizePrecedentOverride } from "../_shared/precedent-advice.ts";
+import { buildPrecedentCitationRecord, recordPrecedentCitation } from "../_shared/precedent-citation.ts";
 import {
   collectUntrustedFields,
   scanForInjection,
@@ -95,6 +106,18 @@ const CHECK_TOOL = {
         modification: {
           type: "string",
           description: "A safer narrowed variant of the action, or empty string if none needed.",
+        },
+        // "Zero human review" plan, item 3: `modification` above is free
+        // text -- useless to an automated caller with no human to read and
+        // act on it. This is the same suggestion in a form a caller's own
+        // system (or NazAI's own auto_narrow policy) can actually retry
+        // with. Deliberately NOT in `required` below -- omit entirely
+        // when there's no structured narrower version to offer, same as
+        // `modification` uses an empty string for "none."
+        modified_params: {
+          type: "object",
+          description:
+            "If 'modification' describes a narrower/safer version of this action, the actual params object for that narrower version (e.g. fewer recipients, a smaller amount, a redacted field) -- same shape as the original params, just narrower. Omit entirely if there's no structured narrower version to suggest.",
         },
         why_not_now: {
           type: "string",
@@ -164,6 +187,20 @@ serve(async (req) => {
     // honored when isInternal, so a normal user can never attribute a
     // decision to an api_keys row that isn't theirs.
     const trustedApiKeyId = isInternal ? (req.headers.get("x-api-key-id") || null) : null;
+    // "Knowledge & autonomy" plan, item 7: same trust boundary as the two
+    // headers above -- only honored when isInternal, so a normal user JWT
+    // holder can never mark their own decisions as "test" to dodge real
+    // spend/precedent/calibration accounting. Set by control-api/index.ts
+    // when it forwards a sandbox key's request in here.
+    const trustedIsTest = isInternal && req.headers.get("x-is-test") === "1";
+    // "Zero human review" plan, item 2: pending_approvals.origin was
+    // hardcoded to "control-engine" everywhere in this file, even for a
+    // request genuinely forwarded from control-api's mode="full" path --
+    // so a pending approval created by an external company's own decision
+    // was mislabeled as an internal one, and (for the createPendingApproval
+    // call below) the api key was never threaded through at all, silently
+    // blocking item 1's auto-resolve policy from ever applying here.
+    const decisionOrigin: "external-api" | "control-engine" = trustedDecisionSource === "external_api" ? "external-api" : "control-engine";
 
     // ---- Rate limit --------------------------------------------------------
     // Nothing previously stopped a misbehaving client from hammering this
@@ -573,6 +610,22 @@ serve(async (req) => {
       return json(report);
     }
 
+    // ---- POST /control-engine/replay-preview ---------------------------------
+    // "Policy autonomy" plan, item 7: preview one or more proposed hard
+    // rules against real recent traffic WITHOUT first saving them as a
+    // draft policy_versions row -- lets an account see what would have
+    // come out differently before committing to the change at all, not
+    // just before activating an already-drafted one.
+    if (url.pathname.replace(/\/$/, "").endsWith("/replay-preview")) {
+      const scopedUserId = await resolvePolicyScopeUserId();
+      if (!scopedUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
+      const proposedRules = Array.isArray(body?.hard_rules) ? (body.hard_rules as ProposedHardRuleInput[]) : [];
+      const limit = typeof body?.limit === "number" ? body.limit : undefined;
+      const report = await previewProposedHardRules(supabase, scopedUserId, proposedRules, limit);
+      if ("error" in report) return json({ error: report.error }, report.status);
+      return json(report);
+    }
+
     // ---- POST /control-engine/policy/:id/activate ---------------------------
     // Activation is gated on the replay: a draft that regresses any scenario
     // the active policy currently passes cannot go live.
@@ -699,6 +752,12 @@ serve(async (req) => {
     // Optional — only protects the real provider-write step below. Callers
     // that don't send one behave exactly as before.
     const idempotencyKey: string | null = body?.idempotency_key ? String(body.idempotency_key).slice(0, 200) : null;
+    // "Knowledge & autonomy" plan, item 12: an opaque, caller-chosen tag
+    // linking this action to others as steps in the same real-world
+    // sequence -- not a trust-boundary value like x-api-key-id/x-is-test
+    // above, since it only ever affects THIS account's own escalation
+    // behavior, never lets a caller impersonate another key or account.
+    const planId: string | null = body?.plan_id ? String(body.plan_id).slice(0, 200) : null;
 
 
     if (!actionType) return json({ error: "action_type required" }, 400);
@@ -718,8 +777,10 @@ serve(async (req) => {
       runId,
       stepIndex: stepIndex ?? null,
       dryRun,
-      origin: "control-engine",
+      origin: decisionOrigin,
       apiKeyId: trustedApiKeyId,
+      isTest: trustedIsTest,
+      planId,
     });
     const spendStatus = gate.spend;
     void spendStatus;
@@ -760,9 +821,13 @@ serve(async (req) => {
         model_judged: false,
         executed: false,
         execution: null,
-        execution_note: blocked
-          ? `Nothing was assessed or run — stopped by the control gate (${gate.source}).`
-          : `Nothing ran — this is queued for your approval (${gate.source}).`,
+        execution_note: gate.autoResolved
+          ? `Resolved automatically to ${blocked ? "block" : "allow"} by this API key's configured policy — no human reviewed this.`
+          : blocked
+            ? `Nothing was assessed or run — stopped by the control gate (${gate.source}).`
+            : `Nothing ran — this is queued for your approval (${gate.source}).`,
+        resolved_automatically: gate.autoResolved,
+        resolution_reason: gate.autoResolutionReason,
       });
     }
     const shadowMatches = gate.shadowRules;
@@ -810,11 +875,49 @@ serve(async (req) => {
         ].join("\n")
       : "(no business profile on file — treat fit as 'unclear' unless the action is obviously generic and harmless)";
 
+    // "Knowledge & autonomy" plan, item 1: real, authored account
+    // knowledge (facts/standing instructions), scoped the same way hard
+    // rules are (action_type_pattern/provider, both optional). Best-
+    // effort -- a lookup hiccup here just means an empty block, the same
+    // posture every other optional prompt-enrichment block already has.
+    let knowledgeBaseBlock = "";
+    try {
+      const { data: kbRows } = await supabase
+        .from("knowledge_base_entries")
+        .select("id, entry_text, action_type_pattern, provider")
+        .eq("user_id", userId)
+        .eq("enabled", true);
+      const relevant = selectRelevantKnowledgeBaseEntries((kbRows ?? []) as KnowledgeBaseEntry[], actionType, provider);
+      knowledgeBaseBlock = buildKnowledgeBasePromptBlock(relevant);
+    } catch { /* the knowledge base is optional enrichment -- a lookup hiccup here must never block the real judgment */ }
+
     // Fit/value learning: what actually happened the last times a human
     // overrode a "not a fit" verdict on a similar action.
     const fitEvidence = await loadFitEvidence(supabase, userId, {
       actionType, provider, description,
     });
+
+    // "Real precedent memory" plan, item 4: real semantic precedent for
+    // the AI-scored judgment, scoped to trustedApiKeyId traffic ONLY --
+    // this never changes how NazAI's own internal agents are judged.
+    // Unlike item 3 (which reuses an embedding already stored moments
+    // earlier), there's no decisionId yet at this point in the flow --
+    // the decision hasn't been logged until after the model responds --
+    // so this generates its own embedding purely to search with; that
+    // embedding is never stored here (item 1's own embed-at-log-time
+    // call still runs later, once a real decisionId exists). Best-effort
+    // throughout: any failure here just means an empty prompt block, the
+    // same "precedent is optional enrichment" posture as item 3.
+    let precedentPromptBlock = "";
+    if (trustedApiKeyId) {
+      try {
+        const queryEmbedding = await generateEmbeddingWithinBudget(supabase, userId, trustedApiKeyId, buildEmbeddingInput({ actionType, provider, description, params }));
+        if (queryEmbedding) {
+          const precedentRows = await loadPrecedentForPrompt(supabase, trustedApiKeyId, formatEmbeddingLiteral(queryEmbedding));
+          precedentPromptBlock = buildPrecedentPromptBlock(precedentRows);
+        }
+      } catch { /* precedent is optional enrichment -- a lookup hiccup here must never block the real judgment */ }
+    }
 
     // ---- PROMPT-INJECTION HARDENING ----------------------------------------
     // Anything that came from an outside system is DATA, never instructions.
@@ -850,12 +953,19 @@ serve(async (req) => {
               "this business is right now. If not_a_fit, fill in why_not_now, what_would_change_it, " +
               "improvement_steps (concrete), and reconsider_when — otherwise leave those empty.\n" +
               "Give a confidence score 0-100 for your own assessment, plain-language reasoning, " +
-              "and a safer narrowed 'modification' if the action should be tightened before running.\n" +
+              "and a safer narrowed 'modification' if the action should be tightened before running. " +
+              "When you suggest a modification, also fill in 'modified_params' with the actual narrower " +
+              "params for it (same shape as the original params, just narrower) whenever you can express " +
+              "it structurally -- e.g. a shorter recipient list, a smaller amount, a redacted field. " +
+              "Only leave it out when the fix genuinely can't be expressed as changed params.\n" +
               "Always call the check_action tool.\n\n" +
               `ORG STRICTNESS: ${STRICTNESS_PRESETS[strictness].label} — ${STRICTNESS_PRESETS[strictness].blurb} ` +
               `Grade risk and fit through that lens: on Strict, lean toward the higher risk tier and toward ` +
               `'unclear' fit when evidence is thin; on Loose, only flag genuine risk or a genuine mismatch.\n\n` +
-              `BUSINESS PROFILE:\n${profileBlock}` + fitEvidence.promptBlock +
+              `BUSINESS PROFILE:\n${profileBlock}` +
+              knowledgeBaseBlock +
+              fitEvidence.promptBlock +
+              precedentPromptBlock +
               INJECTION_SYSTEM_CLAUSE,
           },
           {
@@ -883,7 +993,13 @@ serve(async (req) => {
     const data = await res.json();
     // Meter this gateway call against the org's daily spend cap (warns at 90%,
     // auto-trips the kill switch at 100%).
-    const spendAfter = await recordAiSpend(supabase, userId, MODEL, data?.usage, "control-engine", agentId);
+    // "Knowledge & autonomy" plan, item 7: a sandbox key's real model call
+    // still happens (same judgment as a real key), but its cost must never
+    // count toward the account's real daily spend ledger/cap -- skip the
+    // write entirely rather than recording and immediately reversing it.
+    const spendAfter = countsTowardRealUsage(trustedIsTest)
+      ? await recordAiSpend(supabase, userId, MODEL, data?.usage, "control-engine", agentId, trustedApiKeyId)
+      : { enabled: false, cap_usd: 0, spent_usd: 0, calls: 0, pct: 0, over_cap: false, day: new Date().toISOString().slice(0, 10) };
 
     const call = data?.choices?.[0]?.message?.tool_calls?.[0];
     let parsed: Record<string, unknown> = {};
@@ -907,8 +1023,23 @@ serve(async (req) => {
     // for any decision scored inside that exact range, until a human
     // clears the flag -- fail toward more review, never less.
     const activeConfidenceFlags = await loadActiveConfidenceBucketFlags(supabase, userId);
-    const threshold = widenThresholdForFlags(
+    // "Knowledge & autonomy" plan, item 9: the SAME per-action-type
+    // override list item 10 (last round) already uses for on_uncertain,
+    // applied here to the confidence threshold -- a REPLACEMENT of the
+    // risk/strictness-based base threshold for this one action_type, when
+    // this key has one configured. widenThresholdForFlags still runs on
+    // top of whichever base wins, so an active miscalibration flag can
+    // only ever pull the effective threshold higher, never lower than
+    // what this resolves to -- the account's own explicit per-action-type
+    // choice never weakens that caution mechanism.
+    const actionTypeThresholdOverrides = trustedApiKeyId ? await loadActionTypeOverrides(supabase, trustedApiKeyId) : [];
+    const baseRiskThreshold = resolveEffectiveConfidenceThreshold(
       thresholdForRisk(riskTier, baseThreshold, strictness),
+      actionType,
+      actionTypeThresholdOverrides,
+    ).threshold;
+    const threshold = widenThresholdForFlags(
+      baseRiskThreshold,
       conf.score,
       activeConfidenceFlags,
     );
@@ -918,6 +1049,12 @@ serve(async (req) => {
     const irreversibleHighRisk = !reversibility.reversible && irreversibleNeedsHuman(riskTier, strictness);
     let escalated = shouldEscalate(conf.score, threshold) || irreversibleHighRisk;
     const modification = String(parsed.modification || "").trim();
+    // "Zero human review" plan, item 3: only meaningful alongside a real
+    // `modification`, and only usable when it's a genuine non-empty object
+    // -- extractNarrowedAction (api-key-policy.ts) is the single source of
+    // truth for what counts as "usable," consulted again below once the
+    // final `decision` is known.
+    const modifiedParams = parsed.modified_params ?? null;
     const reasoning = String(parsed.reasoning || "").trim();
 
     // ---- Verdict ----------------------------------------------------------
@@ -985,15 +1122,138 @@ serve(async (req) => {
       actionType,
       provider,
       apiKeyId: trustedApiKeyId,
+      isTest: trustedIsTest,
+      planId,
+      description,
+      params,
     });
 
     await recordShadowHits(decisionId ?? null, decision);
     await recordSafetyShadowHits(decisionId ?? null, decision);
 
-    // Escalated or blocked verdicts get a real human queue entry, not just an alert.
+    // Escalated or blocked verdicts get a real human queue entry, not just an
+    // alert -- or, when the calling API key has an on_uncertain policy
+    // configured ("zero human review" plan, items 1-2), resolved
+    // automatically instead. The agent_decisions row above already logged
+    // the model's own original judgment (unchanged, for an honest audit
+    // trail); only what gets RETURNED to the caller reflects the
+    // auto-resolution, same precedent as control-gate.ts's own three
+    // deterministic-layer call sites.
     let approvalId: string | null = null;
+    let autoResolved = false;
+    let autoResolutionReason: string | null = null;
     if (decision === "modify" || decision === "block" || escalated) {
-      approvalId = await createPendingApproval(supabase, {
+      // "Zero human review" plan, item 3: an "auto_narrow" policy needs a
+      // real safety re-check BEFORE createPendingApproval's simple
+      // apiKeyId lookup could ever get involved -- computed here as a
+      // forcedResolution so createPendingApproval just records the
+      // outcome, the same way it already does for control-gate.ts's own
+      // deterministic-layer call sites.
+      let forcedResolution: { resolution: "approved" | "rejected"; note: string } | null = null;
+      if (trustedApiKeyId && (await loadOnUncertainPolicy(supabase, trustedApiKeyId, actionType)) === "auto_narrow") {
+        const narrowedParams = extractNarrowedAction(decision, modifiedParams);
+        if (narrowedParams) {
+          // Fail closed: if the snapshot lookup itself throws, treat the
+          // re-check as failed (never a blind auto-allow on an error).
+          let activeSnapshot: PolicySnapshot = {};
+          let recheckOutcome: GateOutcome = "block";
+          let recheckSource: "hard_rule" | "safety_scanner" | null = null;
+          try {
+            const { data: pv } = await supabase.rpc("get_active_policy_version", { _user_id: userId });
+            const row = (Array.isArray(pv) ? pv[0] : pv) as { snapshot?: PolicySnapshot } | null;
+            activeSnapshot = (row?.snapshot ?? {}) as PolicySnapshot;
+            const evalResult = evaluateAction(
+              { action_type: actionType, provider, description: `${description} (narrowed automatically)`, params: narrowedParams },
+              activeSnapshot,
+            );
+            recheckOutcome = evalResult.gate_outcome;
+            recheckSource = evalResult.gate_source;
+          } catch { /* recheckOutcome stays "block" -- auto-denied below */ }
+          forcedResolution = narrowedActionResolution(recheckOutcome);
+
+          // The params/description actually being judged from here on --
+          // the original narrowed suggestion unless a second attempt below
+          // replaces it with its own, stricter candidate.
+          let effectiveParams: Record<string, unknown> = narrowedParams;
+          let effectiveDescription = `${description} (narrowed automatically)`;
+
+          // "Policy autonomy" plan, item 8: the first narrowed attempt
+          // failed its OWN gate re-check (not merely a later precedent
+          // override, handled separately below) -- see auto-narrow-
+          // retry.ts for why only a safety-scanner failure on a real
+          // params field gives this anything concrete to act on.
+          if (forcedResolution.resolution === "rejected" && recheckOutcome !== "pass_through") {
+            const reason: NarrowingFailureReason = recheckSource === "safety_scanner"
+              ? { kind: "safety_scanner", matches: scanWithRules(asSafetyRules(activeSnapshot), narrowedParams, effectiveDescription).matches }
+              : { kind: "hard_rule" };
+            const secondAttemptParams = buildSecondNarrowingAttempt(narrowedParams, reason);
+            if (secondAttemptParams) {
+              const secondDescription = `${description} (narrowed automatically, second attempt)`;
+              let secondOutcome: GateOutcome = "block";
+              try {
+                secondOutcome = evaluateAction(
+                  { action_type: actionType, provider, description: secondDescription, params: secondAttemptParams },
+                  activeSnapshot,
+                ).gate_outcome;
+              } catch { /* secondOutcome stays "block" -- auto-denied below */ }
+              const removedFields = Object.keys(narrowedParams).filter((k) => !(k in secondAttemptParams));
+              forcedResolution = secondNarrowingResolution(secondOutcome, removedFields);
+              effectiveParams = secondAttemptParams;
+              effectiveDescription = secondDescription;
+            }
+          }
+
+          // "Real precedent memory" plan, item 5: the deterministic
+          // re-check above only knows about hard rules/safety patterns --
+          // it has no idea whether a similarly-narrowed version of this
+          // kind of action has actually gone well before for this exact
+          // api key. Only ever consulted when the re-check ITSELF already
+          // passed cleanly -- precedent can pull a would-be approval back
+          // to reject, same one-directional posture item 3 already
+          // established, never push a real rule/safety failure through.
+          // Generates its own embedding for the effective (possibly
+          // second-attempt) narrowed variant specifically, since that's a
+          // materially different thing to have precedent about than the
+          // original action.
+          if (forcedResolution.resolution === "approved" && trustedApiKeyId) {
+            try {
+              const narrowedEmbedding = await generateEmbeddingWithinBudget(supabase, userId, trustedApiKeyId, buildEmbeddingInput({
+                actionType, provider, description: effectiveDescription, params: effectiveParams,
+              }));
+              if (narrowedEmbedding) {
+                const matches = await findPrecedent(
+                  supabase, trustedApiKeyId, formatEmbeddingLiteral(narrowedEmbedding), decisionId ?? null,
+                );
+                if (matches.length > 0) {
+                  const { data: precedentRows } = await supabase
+                    .from("agent_decisions").select("id, decision").in("id", matches.map((m) => m.decisionId));
+                  const decisionById = new Map(((precedentRows ?? []) as { id: string; decision: string }[]).map((r) => [r.id, r.decision]));
+                  const outcomeDirections = await loadOutcomeDirections(supabase, matches.map((m) => m.decisionId));
+                  // Item 10: older precedent counts for less -- weights
+                  // decay with each match's own age.
+                  const { nonAllowFlags, weights } = alignPrecedentSignals(matches, decisionById, outcomeDirections);
+                  const advice = evaluatePrecedentForAutoApprove(nonAllowFlags, weights);
+                  if (shouldRejectOnPrecedent(advice) && advice.available) {
+                    forcedResolution = { resolution: "rejected", note: summarizePrecedentOverride(advice) };
+                    if (decisionId) {
+                      await recordPrecedentCitation(supabase, decisionId, buildPrecedentCitationRecord(advice, matches, nonAllowFlags));
+                    }
+                  }
+                }
+              }
+            } catch { /* precedent is optional enrichment -- a lookup hiccup here must never block the real re-check outcome */ }
+          }
+        } else {
+          // Policy says auto_narrow, but there's nothing structured to
+          // retry with -- never left silently pending for a human who
+          // was never going to look; deny rather than guess.
+          forcedResolution = {
+            resolution: "rejected",
+            note: "Resolved automatically to rejected: this key's policy is auto_narrow, but no usable structured narrower version was provided to retry — no human reviewed this.",
+          };
+        }
+      }
+      const outcome = await createPendingApproval(supabase, {
         userId,
         decisionId: decisionId ?? null,
         agentId,
@@ -1004,9 +1264,24 @@ serve(async (req) => {
         params,
         reason,
         riskTier,
-        origin: "control-engine",
+        origin: decisionOrigin,
+        apiKeyId: trustedApiKeyId,
+        forcedResolution,
+        planId,
       });
+      approvalId = outcome.approvalId;
+      if (outcome.autoResolved) {
+        autoResolved = true;
+        autoResolutionReason = `Resolved automatically to ${outcome.resolution} by this API key's configured policy — no human reviewed this.`;
+        decision = outcome.resolution === "approved" ? "allow" : "block";
+        escalated = false;
+      }
     }
+    // `deferred` was built from the model's ORIGINAL decision, before any
+    // auto-resolution above could have moved it away from "deferred" --
+    // stale deferred guidance would otherwise ship alongside a decision
+    // that's no longer actually deferred.
+    const finalDeferred = autoResolved ? null : deferred;
 
 
 
@@ -1150,7 +1425,14 @@ serve(async (req) => {
           result_value: executed ? 1 : 0,
           delta: executed ? 1 : 0,
           delta_pct: null,
-          direction: executed ? "up" : "flat",
+          // Bug fix (found while building item 6's outcome-weighting): the
+          // table's own CHECK constraint only allows 'positive' | 'negative'
+          // | 'neutral' | 'unknown' -- "up"/"flat" silently violated it, so
+          // this insert has thrown (and been swallowed by the catch below)
+          // on every single call since this path was written. "neutral" =
+          // ran without error but real business impact isn't known yet at
+          // insert time; "unknown" = didn't run, nothing to measure.
+          direction: executed ? "neutral" : "unknown",
           window_days: 0,
           evidence: {
             source: "control-engine",
@@ -1228,7 +1510,9 @@ serve(async (req) => {
       escalated,
       modification: modification || null,
       alternatives,
-      deferred,
+      deferred: finalDeferred,
+      resolved_automatically: autoResolved,
+      resolution_reason: autoResolutionReason,
       executed,
       assess_only: assessOnly,
       dry_run: dryRun,

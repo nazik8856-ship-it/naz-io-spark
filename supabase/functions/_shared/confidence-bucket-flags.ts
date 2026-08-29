@@ -35,6 +35,12 @@ export async function loadActiveConfidenceBucketFlags(
  * concurrent runs; this check-then-insert just avoids a needless insert
  * attempt in the common case). Returns whether a new flag was created.
  * Never throws.
+ *
+ * "Policy autonomy" plan, item 5: `apiKeyId` (optional, defaults to
+ * null -- today's exact account-wide behavior, unchanged for internal-
+ * agent decisions) scopes the flag to one external api key's own
+ * miscalibration specifically, so it's never confused with an
+ * account-wide flag or another key's.
  */
 export async function flagBucketIfNew(
   admin: SupabaseClient,
@@ -42,21 +48,24 @@ export async function flagBucketIfNew(
   bucketMin: number,
   bucketMax: number,
   incidentId: string | null,
+  apiKeyId: string | null = null,
 ): Promise<boolean> {
   try {
-    const { data: existing } = await admin
+    let existingQuery = admin
       .from("confidence_bucket_flags")
       .select("id")
       .eq("user_id", userId)
       .eq("bucket_min", bucketMin)
-      .is("cleared_at", null)
-      .maybeSingle();
+      .is("cleared_at", null);
+    existingQuery = apiKeyId ? existingQuery.eq("api_key_id", apiKeyId) : existingQuery.is("api_key_id", null);
+    const { data: existing } = await existingQuery.maybeSingle();
     if (existing) return false;
     const { error } = await admin.from("confidence_bucket_flags").insert({
       user_id: userId,
       bucket_min: bucketMin,
       bucket_max: bucketMax,
       incident_id: incidentId,
+      api_key_id: apiKeyId,
     });
     return !error;
   } catch {

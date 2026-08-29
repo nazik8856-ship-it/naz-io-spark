@@ -28,6 +28,17 @@ import { finalizeTrace, type TraceEntry } from "./gate-trace.ts";
 import { ruleMatchesAction, selectRulesForAgent } from "./rule-matching.ts";
 import { triggerWebhooks } from "./webhooks.ts";
 import { recordPolicyWatchObservations } from "./policy-watch.ts";
+import { resolveOnUncertain, resolveSweepFallback, type AutoResolution } from "./api-key-policy.ts";
+import { notifyAndAwaitCallback, type CallbackConfig } from "./callback-delegation.ts";
+import { embedDecisionIfExternal } from "./decision-embeddings.ts";
+import { countsTowardRealUsage } from "./sandbox-mode.ts";
+import { planHasEarlierBlock } from "./plan-escalation.ts";
+import { findPrecedent, loadOutcomeDirections, loadStoredEmbeddingLiteral } from "./precedent-search.ts";
+import { alignPrecedentSignals, evaluatePrecedentForAutoApprove, shouldRejectOnPrecedent, summarizePrecedentOverride } from "./precedent-advice.ts";
+import { buildPrecedentCitationRecord, recordPrecedentCitation } from "./precedent-citation.ts";
+import { isWithinQuietHours, summarizeQuietHoursEscalation, type QuietHoursConfig } from "./quiet-hours.ts";
+import { isCallbackFailureTrouble, summarizePolicyDowngrade } from "./policy-downgrade.ts";
+import { resolveEffectiveOnUncertain, type ActionTypeOverride } from "./action-type-policy.ts";
 
 export const BREAKER_WINDOW = 10;
 export const BREAKER_MIN_ATTEMPTS = 4;
@@ -69,6 +80,14 @@ export const AGENT_DECISION_SOURCES = [
   // undiscovered instance of this exact "used in code, missing from this
   // constraint" bug -- every flip has silently failed to log until now.
   "kill_switch_flip", "platform_kill_switch_flip",
+  // "Zero human review" plan, item 8: distinct from plain "gate_error" --
+  // that value always means the gate failed CLOSED (the platform
+  // default); this one means a specific api key's own on_gate_error
+  // policy chose to fail OPEN instead. Deliberately a different value,
+  // not a boolean flag next to "gate_error", so the two are never
+  // silently blended together in a report or audit query grouped by
+  // source.
+  "gate_error_fail_open",
 ] as const;
 export type AgentDecisionSource = typeof AGENT_DECISION_SOURCES[number];
 
@@ -89,6 +108,21 @@ export type GateContext = {
   // exposing the key's raw secret or hash anywhere in the audit log.
   // Always null for every other origin.
   apiKeyId?: string | null;
+  // "Knowledge & autonomy" plan, item 7: true only for a sandbox/test-mode
+  // api_keys row. Judged exactly the same as a real key (every layer
+  // above runs unchanged) -- this only stamps the resulting decision row
+  // and skips embedding/precedent storage (see sandbox-mode.ts's
+  // countsTowardRealUsage, used at every "does this count toward
+  // something real" call site this gate owns). Always false/undefined
+  // for every non-external-api origin.
+  isTest?: boolean;
+  // "Knowledge & autonomy" plan, item 12: an opaque, caller-chosen tag
+  // linking this action to other actions as steps in the same real-world
+  // sequence -- stamped onto any agent_decisions row this call logs, and
+  // consulted by createPendingApproval's own plan-escalation check
+  // (plan-escalation.ts) before finalizing an automatic APPROVAL. NazAI
+  // never invents or interprets its value.
+  planId?: string | null;
 };
 
 export type ShadowHit = {
@@ -134,6 +168,14 @@ export type GateResult = {
   recordSafetyShadowHits: (decisionId: string | null, actualDecision: string) => Promise<void>;
   /** Feeds an attempt into the rolling circuit-breaker window. */
   recordAttempt: (failed: boolean, why: string) => Promise<Record<string, unknown> | null>;
+  /** "Zero human review" plan, item 1: true when a "needs a second look"
+   * outcome (a non-blocking hard rule or safety-scanner match) was resolved
+   * automatically by the calling API key's on_uncertain policy instead of
+   * creating a pending_approvals row for a human -- never true for an
+   * outright block, which no policy can override. */
+  autoResolved: boolean;
+  /** Set only when autoResolved is true -- explains what the policy did and why, distinct from `reason` (which stays the original trigger explanation). */
+  autoResolutionReason: string | null;
 };
 
 
@@ -145,6 +187,10 @@ type HardRule = {
   provider: string | null;
   shadow_mode?: boolean;
   agent_id?: string | null;
+  // "Policy autonomy" plan, item 1: why this rule exists, not just what
+  // it matches -- shown in the decision reasoning when it actually
+  // fires. Optional: an existing rule with none set yet just omits it.
+  rationale?: string | null;
 };
 
 /** Shape of a policy_versions.snapshot row (built by build_policy_snapshot). */
@@ -157,7 +203,94 @@ type PolicySnapshot = {
 };
 
 
-/** Queue a human approval for an escalated action. Never throws. */
+export type PendingApprovalOutcome = {
+  approvalId: string | null;
+  autoResolved: boolean;
+  resolution: "approved" | "rejected" | null;
+};
+
+/**
+ * Shared lookup so this file's own apiKeyId-based branch below and a
+ * caller that needs to know the policy value BEFORE deciding how to call
+ * createPendingApproval (control-engine's auto_narrow flow, "zero human
+ * review" plan item 3) don't duplicate the same query.
+ */
+export async function loadOnUncertainPolicy(
+  admin: SupabaseClient,
+  apiKeyId: string | null | undefined,
+  // "Policy autonomy" plan, item 10: when the caller knows which
+  // action_type this decision is for, an action-type-specific override
+  // (if one matches) governs instead of the key's own blanket column --
+  // exactly the same resolution createPendingApproval's own apiKeyId
+  // branch below applies. Omitting it (every call site that predates
+  // this item) keeps returning the plain blanket policy, unchanged.
+  actionType?: string,
+): Promise<string | null> {
+  if (!apiKeyId) return null;
+  const { data } = await admin.from("api_keys").select("on_uncertain").eq("id", apiKeyId).maybeSingle();
+  const blanket = (data as { on_uncertain?: string } | null)?.on_uncertain ?? null;
+  if (!actionType) return blanket;
+  const overrides = await loadActionTypeOverrides(admin, apiKeyId);
+  return resolveEffectiveOnUncertain(blanket, actionType, overrides).policy;
+}
+
+/** "Policy autonomy" plan, item 10: every action-type override configured for one api key, oldest first -- so a tie between two matching patterns always resolves the same predictable way (the oldest one wins), matching hard_rules matching's own existing precedent. Never throws. Exported so control-engine's own threshold resolution ("knowledge & autonomy" plan, item 9) can reuse the exact same query instead of a second one. */
+export async function loadActionTypeOverrides(admin: SupabaseClient, apiKeyId: string): Promise<ActionTypeOverride[]> {
+  try {
+    const { data } = await admin
+      .from("api_key_action_policies")
+      .select("action_type_pattern, on_uncertain, confidence_threshold")
+      .eq("api_key_id", apiKeyId)
+      .order("created_at", { ascending: true });
+    return (data ?? []) as ActionTypeOverride[];
+  } catch {
+    return [];
+  }
+}
+
+export type ApiKeyCallbackRow = {
+  on_uncertain: string | null;
+  callback_url: string | null;
+  callback_secret: string | null;
+  callback_timeout_seconds: number | null;
+  callback_fallback: string | null;
+  // "Zero human review" plan, item 6: a separate, optional shadow-mode
+  // policy value an account can preview without it actually governing any
+  // real escalation -- read alongside the real columns above since both
+  // are always needed together (the shadow guess below reuses
+  // callback_fallback for a 'callback' shadow value, same as the real
+  // resolution path does).
+  shadow_on_uncertain: string | null;
+  // "Policy autonomy" plan, item 3: quiet_hours_timezone is the "is this
+  // even configured" flag -- start/end hour alone (both nullable, no
+  // sentinel needed) default to meaningless 0 values in Postgres only if
+  // someone set one without the other, which never happens through any
+  // real write path this round adds.
+  quiet_hours_start_hour: number | null;
+  quiet_hours_end_hour: number | null;
+  quiet_hours_timezone: string | null;
+  // "Policy autonomy" plan, item 4: how many callback attempts in a row
+  // have failed to get a real answer back -- reset to 0 the moment a
+  // real answer arrives again.
+  callback_failure_streak: number | null;
+};
+
+/** "Zero human review" plan, item 4: the fuller row createPendingApproval's own "callback" branch needs -- kept separate from loadOnUncertainPolicy above since most callers only ever need the one column. */
+async function loadApiKeyCallbackConfig(admin: SupabaseClient, apiKeyId: string): Promise<ApiKeyCallbackRow | null> {
+  const { data } = await admin
+    .from("api_keys")
+    .select("on_uncertain, callback_url, callback_secret, callback_timeout_seconds, callback_fallback, shadow_on_uncertain, quiet_hours_start_hour, quiet_hours_end_hour, quiet_hours_timezone, callback_failure_streak")
+    .eq("id", apiKeyId)
+    .maybeSingle();
+  return data as ApiKeyCallbackRow | null;
+}
+
+/**
+ * Queue a human approval for an escalated action -- or, when the calling
+ * API key has an auto-resolve policy configured (its `on_uncertain`
+ * column), resolve it automatically instead and record that it happened
+ * that way, no pending_approvals row left for a human. Never throws.
+ */
 export async function createPendingApproval(
   admin: SupabaseClient,
   input: {
@@ -174,9 +307,165 @@ export async function createPendingApproval(
     origin: string;
     approverRole?: string;
     requiredApprovals?: number;
+    // "Zero human review" plan, item 1: only ever non-null for an
+    // external-api-origin call (GateContext's own documented invariant --
+    // null for every other origin). When present (and forcedResolution
+    // isn't), this outcome is governed by that key's on_uncertain policy
+    // instead of always creating a human-only queue entry.
+    apiKeyId?: string | null;
+    // "Zero human review" plan, item 3: set by a caller (control-engine's
+    // auto_narrow flow) that has ALREADY computed the outcome itself --
+    // e.g. by re-checking a model-suggested narrower action against the
+    // deterministic gate -- bypassing the simple apiKeyId policy lookup
+    // above entirely. Takes priority over apiKeyId when both are set.
+    forcedResolution?: { resolution: "approved" | "rejected"; note: string } | null;
+    // "Knowledge & autonomy" plan, item 12: this decision's own plan_id,
+    // when the caller sent one -- consulted below (after every other
+    // caution-only check) to see whether an EARLIER decision in the same
+    // plan already came back BLOCK, in which case an automatic APPROVAL
+    // is pulled back to a genuine human escalation instead of going
+    // through, same one-directional posture the precedent and
+    // quiet-hours checks above already have.
+    planId?: string | null;
   },
-): Promise<string | null> {
+  // "Policy autonomy" plan, item 3: injectable so quiet-hours behavior is
+  // actually testable against a fixed clock, same as computePauseUntil/
+  // isCurrentlyPaused elsewhere already do -- every real caller just
+  // omits it and gets the real current time.
+  now: Date = new Date(),
+): Promise<PendingApprovalOutcome> {
   try {
+    let auto: AutoResolution = { autoResolved: false, resolution: null, status: "pending" };
+    let comment: string | null = null;
+    // "Zero human review" plan, item 4: set only when this key's policy is
+    // "callback" with a real callback_url configured -- the row is still
+    // inserted as a genuine pending row below (the callback flow needs a
+    // real id to notify about and poll), then delegated to
+    // notifyAndAwaitCallback right after the insert.
+    let callbackConfig: CallbackConfig | null = null;
+    // "Zero human review" plan, item 6: loaded whenever an api key is
+    // known, EVEN when forcedResolution also short-circuits the real
+    // resolution below -- shadow-mode observation (right after the insert
+    // further down) needs this key's shadow_on_uncertain regardless of
+    // which path decided the real outcome, so a shadow policy can be
+    // previewed against every escalation this key sees, not just the ones
+    // that reach the plain apiKeyId branch.
+    const keyRow = input.apiKeyId ? await loadApiKeyCallbackConfig(admin, input.apiKeyId) : null;
+    // "Policy autonomy" plan, item 10: an action-type-specific override
+    // (if one matches this decision's actionType) replaces the key's own
+    // blanket on_uncertain for THIS decision only -- callback config,
+    // shadow preview, and quiet hours below all stay governed by the
+    // blanket columns, unaffected.
+    const actionTypeOverrides = input.apiKeyId ? await loadActionTypeOverrides(admin, input.apiKeyId) : [];
+    const effectiveOnUncertain = keyRow
+      ? resolveEffectiveOnUncertain(keyRow.on_uncertain, input.actionType, actionTypeOverrides)
+      : { policy: null, matchedOverride: null };
+    if (input.forcedResolution) {
+      auto = input.forcedResolution.resolution === "approved"
+        ? { autoResolved: true, resolution: "approved", status: "auto_approved" }
+        : { autoResolved: true, resolution: "rejected", status: "auto_rejected" };
+      comment = input.forcedResolution.note;
+    } else if (keyRow) {
+      if (effectiveOnUncertain.policy === "callback" && keyRow.callback_url && keyRow.callback_secret) {
+        callbackConfig = {
+          url: keyRow.callback_url,
+          secret: keyRow.callback_secret,
+          timeoutSeconds: keyRow.callback_timeout_seconds ?? 20,
+          fallback: keyRow.callback_fallback === "auto_allow" ? "auto_allow" : "auto_deny",
+        };
+      } else {
+        auto = resolveOnUncertain(effectiveOnUncertain.policy);
+        if (auto.autoResolved) {
+          comment = effectiveOnUncertain.matchedOverride
+            ? `Resolved automatically to ${auto.resolution} by this API key's action-type-specific policy for "${effectiveOnUncertain.matchedOverride.action_type_pattern}" — no human reviewed this.`
+            : `Resolved automatically to ${auto.resolution} by this API key's configured policy — no human reviewed this.`;
+        }
+      }
+    }
+    // "Real precedent memory" plan, item 3: before finalizing an
+    // automatic APPROVAL specifically -- never a denial, which is
+    // already the safe choice and is never second-guessed -- check
+    // whether real precedent for this exact api key disagrees. Reuses
+    // whatever embedding item 1 already computed for THIS decision
+    // moments ago (via input.decisionId) rather than generating a
+    // second one for the same action. A missing embedding (the live
+    // attempt failed, or there's no apiKeyId at all) is a silent no-op,
+    // the same "precedent is optional enrichment, never required"
+    // posture embedding generation itself already has.
+    if (auto.autoResolved && auto.resolution === "approved" && input.apiKeyId && input.decisionId) {
+      const embeddingLiteral = await loadStoredEmbeddingLiteral(admin, input.decisionId);
+      if (embeddingLiteral) {
+        const matches = await findPrecedent(admin, input.apiKeyId, embeddingLiteral, input.decisionId);
+        if (matches.length > 0) {
+          try {
+            const { data: precedentRows } = await admin
+              .from("agent_decisions")
+              .select("id, decision")
+              .in("id", matches.map((m) => m.decisionId));
+            const decisionById = new Map(((precedentRows ?? []) as { id: string; decision: string }[]).map((r) => [r.id, r.decision]));
+            // Item 6: refine the plain verdict flag with what actually
+            // happened, when it's known -- falls back to verdict-only
+            // when no outcome has been measured for that past decision.
+            const outcomeDirections = await loadOutcomeDirections(admin, matches.map((m) => m.decisionId));
+            // Item 10: older precedent counts for less -- weights decay
+            // with each match's own age.
+            const { nonAllowFlags, weights } = alignPrecedentSignals(matches, decisionById, outcomeDirections);
+            const advice = evaluatePrecedentForAutoApprove(nonAllowFlags, weights);
+            if (shouldRejectOnPrecedent(advice) && advice.available) {
+              auto = { autoResolved: true, resolution: "rejected", status: "auto_rejected" };
+              comment = summarizePrecedentOverride(advice);
+              await recordPrecedentCitation(admin, input.decisionId, buildPrecedentCitationRecord(advice, matches, nonAllowFlags));
+            }
+          } catch { /* precedent is optional enrichment -- a lookup hiccup here must never block the real resolution */ }
+        }
+      }
+    }
+    // "Policy autonomy" plan, item 3: the LAST check before finalizing an
+    // automatic APPROVAL -- runs after precedent above so quiet hours
+    // never re-litigates a case precedent already pulled back to reject.
+    // Never touches a denial (already the safe choice) or the callback
+    // path (a real external system is asked in real time either way).
+    if (auto.autoResolved && auto.resolution === "approved" && keyRow?.quiet_hours_timezone != null
+      && keyRow.quiet_hours_start_hour != null && keyRow.quiet_hours_end_hour != null) {
+      const quietConfig: QuietHoursConfig = {
+        startHour: keyRow.quiet_hours_start_hour,
+        endHour: keyRow.quiet_hours_end_hour,
+        timezone: keyRow.quiet_hours_timezone,
+      };
+      if (isWithinQuietHours(now, quietConfig)) {
+        auto = { autoResolved: false, resolution: null, status: "pending" };
+        comment = summarizeQuietHoursEscalation(quietConfig);
+      }
+    }
+    // "Knowledge & autonomy" plan, item 12: the LAST check before
+    // finalizing an automatic APPROVAL -- runs after quiet hours so a
+    // plan-linked escalation is never silently dropped by a check that
+    // already decided to escalate for its own reason. Only ever pulls an
+    // approval back to a genuine PENDING human review (never an outright
+    // reject -- this system has no real basis to guess the later step is
+    // actually wrong, only that it deserves a closer look), and only
+    // when the caller actually named a plan_id for this decision.
+    if (auto.autoResolved && auto.resolution === "approved" && input.planId) {
+      try {
+        let priorQuery = admin
+          .from("agent_decisions")
+          .select("decision")
+          .eq("user_id", input.userId)
+          .eq("plan_id", input.planId)
+          .limit(500);
+        if (input.decisionId) priorQuery = priorQuery.neq("id", input.decisionId);
+        const { data: priorRows } = await priorQuery;
+        const priorDecisionTexts = ((priorRows ?? []) as { decision: string }[]).map((r) => r.decision);
+        if (planHasEarlierBlock(priorDecisionTexts)) {
+          auto = { autoResolved: false, resolution: null, status: "pending" };
+          comment =
+            `Escalated for human review — an earlier step in this same plan ("${input.planId}") was blocked, ` +
+            `so this step is treated more carefully instead of auto-resolving as if nothing happened.`;
+        }
+      } catch { /* plan lookup is a caution-only enrichment -- a hiccup here must never block the real resolution already decided above */ }
+    }
+    const resolvedAt = auto.autoResolved ? now.toISOString() : null;
+
     const { data } = await admin.from("pending_approvals").insert({
       user_id: input.userId,
       decision_id: input.decisionId,
@@ -188,14 +477,92 @@ export async function createPendingApproval(
       description: input.description.slice(0, 800),
       params: (input.params ?? {}) as Record<string, unknown>,
       reason: input.reason.slice(0, 800),
+      plan_id: input.planId ?? null,
       risk_tier: input.riskTier ?? "medium",
       origin: input.origin,
       approver_role: input.approverRole ?? "owner",
       required_approvals: Math.max(1, Math.min(5, input.requiredApprovals ?? (input.riskTier === "high" ? 2 : 1))),
-      status: "pending",
+      status: auto.status,
+      resolved_at: resolvedAt,
+      comment,
     }).select("id").maybeSingle();
     const id = (data as { id?: string } | null)?.id ?? null;
-    if (id) {
+    // "Zero human review" plan, item 6: a shadow policy is previewed
+    // independently of whatever actually resolved this escalation (a real
+    // policy, a human, or forcedResolution above) -- reuses
+    // resolveSweepFallback, the exact same "what would this policy value
+    // decide with no live model output or caller system left to consult"
+    // logic item 5's safety-net sweep already needed for the identical
+    // shape of problem. Only recorded when the shadow value would
+    // genuinely auto-resolve something (never for 'human_review' or an
+    // unrecognized value, which have nothing meaningful to preview) --
+    // never lets a bad shadow config affect the real outcome above.
+    if (id && keyRow?.shadow_on_uncertain) {
+      const shadowGuess = resolveSweepFallback(keyRow.shadow_on_uncertain, keyRow.callback_fallback);
+      if (shadowGuess.autoResolved && shadowGuess.resolution) {
+        try {
+          await admin.from("api_key_shadow_observations").insert({
+            user_id: input.userId,
+            api_key_id: input.apiKeyId,
+            approval_id: id,
+            action_type: input.actionType,
+            provider: input.provider,
+            shadow_resolution: shadowGuess.resolution,
+          });
+        } catch { /* shadow-mode observation must never affect the real outcome */ }
+      }
+    }
+    // "Zero human review" plan, item 4: delegate to the caller's own
+    // system instead of the generic human-facing webhook below -- a real
+    // row was needed first (notifyAndAwaitCallback both notifies about
+    // and polls THIS id), so this only happens once the insert above has
+    // actually produced one.
+    if (id && callbackConfig) {
+      const delegated = await notifyAndAwaitCallback(admin, id, callbackConfig, {
+        action_type: input.actionType,
+        provider: input.provider,
+        description: input.description,
+        params: input.params ?? {},
+        reason: input.reason,
+      });
+      // "Policy autonomy" plan, item 4: a broken callback URL should
+      // eventually pull this key back to human_review, not silently lean
+      // on its fallback forever. Tracking (and the downgrade itself) is
+      // best-effort -- a hiccup here must never affect the real
+      // resolution the caller already got back above.
+      if (input.apiKeyId) {
+        try {
+          if (delegated.usedFallback) {
+            const streak = (keyRow?.callback_failure_streak ?? 0) + 1;
+            const updates: Record<string, unknown> = { callback_failure_streak: streak };
+            const troubled = isCallbackFailureTrouble(streak);
+            if (troubled) {
+              updates.on_uncertain = "human_review";
+              updates.on_uncertain_downgraded_at = now.toISOString();
+              updates.on_uncertain_downgrade_reason = summarizePolicyDowngrade("callback_failures", String(streak));
+            }
+            await admin.from("api_keys").update(updates).eq("id", input.apiKeyId);
+            if (troubled) {
+              const summary = summarizePolicyDowngrade("callback_failures", String(streak));
+              await sendCriticalAlert(admin, input.userId, { event: "on_uncertain_auto_downgraded", summary });
+              await openIncident(admin, input.userId, { kind: "on_uncertain_auto_downgraded", summary });
+              // "Knowledge & autonomy" plan, item 6: tell the account's
+              // own systems the moment this happens, instead of making
+              // them keep polling for it.
+              await triggerWebhooks(admin, input.userId, "api_key_on_uncertain_downgraded", {
+                api_key_id: input.apiKeyId, reason: summary,
+              });
+            }
+          } else if ((keyRow?.callback_failure_streak ?? 0) > 0) {
+            await admin.from("api_keys").update({ callback_failure_streak: 0 }).eq("id", input.apiKeyId);
+          }
+        } catch { /* tracking must never affect the real callback resolution already decided above */ }
+      }
+      return { approvalId: id, autoResolved: true, resolution: delegated.resolution };
+    }
+    // A resolution nobody needs to act on shouldn't page anyone -- only a
+    // real, still-pending queue entry fires the human-facing webhook.
+    if (id && !auto.autoResolved) {
       await triggerWebhooks(admin, input.userId, "approval_created", {
         approval_id: id,
         action_type: input.actionType,
@@ -204,9 +571,9 @@ export async function createPendingApproval(
         reason: input.reason,
       });
     }
-    return id;
+    return { approvalId: id, autoResolved: auto.autoResolved, resolution: auto.resolution };
   } catch {
-    return null;
+    return { approvalId: null, autoResolved: false, resolution: null };
   }
 }
 
@@ -227,6 +594,8 @@ async function runControlGateInner(
   const runId = ctx.runId ?? null;
   const stepIndex = typeof ctx.stepIndex === "number" ? ctx.stepIndex : null;
   const apiKeyId = ctx.apiKeyId ?? null;
+  const isTest = ctx.isTest === true;
+  const planId = ctx.planId ?? null;
 
   // ---- 0: pin the policy version that judges this action --------------------
   // The gate reads the ACTIVE policy version's snapshot, not the live tables, so
@@ -287,6 +656,8 @@ async function runControlGateInner(
         params: params ?? null,
         description: description ?? null,
         api_key_id: apiKeyId,
+        is_test: isTest,
+        plan_id: planId,
         // The trace array is closed over and already has every entry pushed
         // up to this call site — finalizeTrace fills the rest as not_reached.
         gate_trace: finalizeTrace(trace),
@@ -301,6 +672,22 @@ async function runControlGateInner(
             id: decisionId, decision, source, escalated, agent_id: agentId,
           });
         } catch { /* ignore */ }
+        // "Real precedent memory" plan, item 1: embeds using ctx's OWN
+        // description/params (always in scope here, unlike this
+        // closure's own params/description args above, which only ever
+        // carry a value for the two BLOCK call sites and exist solely to
+        // populate the STORED agent_decisions columns) -- a no-op
+        // whenever apiKeyId is null, i.e. every non-external-api origin.
+        // "Knowledge & autonomy" plan, item 7: also a no-op for a sandbox
+        // key's own decisions -- a test key's traffic must never become
+        // real, searchable precedent for anyone, including its own
+        // account's real keys.
+        if (countsTowardRealUsage(isTest)) {
+          await embedDecisionIfExternal(admin, {
+            decisionId, apiKeyId, userId, actionType, provider,
+            description: ctx.description, params: ctx.params,
+          });
+        }
       }
       return decisionId;
     } catch {
@@ -357,6 +744,8 @@ async function runControlGateInner(
       recordShadowHits: async () => {},
       recordSafetyShadowHits: async () => {},
       recordAttempt: async () => null,
+      autoResolved: false,
+      autoResolutionReason: null,
     };
   }
 
@@ -388,7 +777,7 @@ async function runControlGateInner(
   if (!snapshotRules) {
     const { data: hardRules } = await admin
       .from("hard_rules")
-      .select("id, rule_text, action_type_pattern, effect, provider, enabled, shadow_mode, agent_id")
+      .select("id, rule_text, action_type_pattern, effect, provider, enabled, shadow_mode, agent_id, rationale")
       .eq("user_id", userId)
       // Deterministic match order: oldest rule wins a tie between two
       // enabled, overlapping rules. Without this, Postgres's return order
@@ -495,6 +884,8 @@ async function runControlGateInner(
     approvalId: null as string | null,
     safety: emptyScan,
     trace: [] as TraceEntry[],
+    autoResolved: false,
+    autoResolutionReason: null as string | null,
   };
 
   trace.push({
@@ -561,9 +952,13 @@ async function runControlGateInner(
   });
   if (matched) {
     const blocking = matched.effect === "always_block";
+    // "Policy autonomy" plan, item 1: name the rule AND why it exists,
+    // when a rationale is set -- a rule with none yet reads exactly as
+    // it always has.
+    const why = matched.rationale ? ` Why this rule exists: ${matched.rationale}` : "";
     const reason = blocking
-      ? `Blocked by your hard rule: "${matched.rule_text}". This was enforced by your rule, not judged by the model.`
-      : `Your hard rule requires approval first: "${matched.rule_text}". Nothing ran — approve it explicitly to proceed.`;
+      ? `Blocked by your hard rule: "${matched.rule_text}".${why} This was enforced by your rule, not judged by the model.`
+      : `Your hard rule requires approval first: "${matched.rule_text}".${why} Nothing ran — approve it explicitly to proceed.`;
     const decisionId = await logStop(
       `${blocking ? "BLOCK" : "APPROVAL_REQUIRED"} ${actionType} (${provider})`, reason, "hard_rule", !blocking, matched.id,
       // Only a real BLOCK needs its params/description captured for a
@@ -575,6 +970,11 @@ async function runControlGateInner(
     );
     await recordShadowHits(decisionId, blocking ? "block" : "modify");
     let approvalId: string | null = null;
+    let verdict: GateResult["verdict"] = blocking ? "block" : "require_approval";
+    let ok = false;
+    let finalReason = reason;
+    let autoResolved = false;
+    let autoResolutionReason: string | null = null;
     if (blocking) {
       await sendCriticalAlert(admin, userId, {
         event: "hard_rule_block",
@@ -584,21 +984,31 @@ async function runControlGateInner(
         provider,
       });
     } else {
-      approvalId = await createPendingApproval(admin, {
+      const outcome = await createPendingApproval(admin, {
         userId, decisionId, agentId, runId, actionType, provider,
         description: ctx.description, params: ctx.params, reason, riskTier: "high", origin: ctx.origin,
+        apiKeyId, planId,
       });
+      approvalId = outcome.approvalId;
+      if (outcome.autoResolved) {
+        autoResolved = true;
+        ok = outcome.resolution === "approved";
+        verdict = ok ? "allow" : "block";
+        autoResolutionReason = `Resolved automatically to ${outcome.resolution} by this API key's configured policy — no human reviewed this.`;
+      }
     }
     return {
       ...base,
-      ok: false,
-      verdict: blocking ? "block" : "require_approval",
-      reason,
+      ok,
+      verdict,
+      reason: finalReason,
       decisionId,
       approvalId,
       source: "hard_rule",
       hardRule: { id: matched.id, rule_text: matched.rule_text, effect: matched.effect },
       trace: finalizeTrace(trace),
+      autoResolved,
+      autoResolutionReason,
     };
   }
 
@@ -701,16 +1111,28 @@ async function runControlGateInner(
       } catch { /* trial logging must never break a decision */ }
     }
     let approvalId: string | null = null;
+    let verdict: GateResult["verdict"] = blocking ? "block" : "require_approval";
+    let ok = false;
+    let autoResolved = false;
+    let autoResolutionReason: string | null = null;
     if (!blocking) {
-      approvalId = await createPendingApproval(admin, {
+      const outcome = await createPendingApproval(admin, {
         userId, decisionId, agentId, runId, actionType, provider,
         description: ctx.description, params: ctx.params, reason, riskTier: "high", origin: ctx.origin,
+        apiKeyId, planId,
       });
+      approvalId = outcome.approvalId;
+      if (outcome.autoResolved) {
+        autoResolved = true;
+        ok = outcome.resolution === "approved";
+        verdict = ok ? "allow" : "block";
+        autoResolutionReason = `Resolved automatically to ${outcome.resolution} by this API key's configured policy — no human reviewed this.`;
+      }
     }
     return {
       ...base,
-      ok: false,
-      verdict: blocking ? "block" : "require_approval",
+      ok,
+      verdict,
       reason,
       decisionId,
       approvalId,
@@ -718,6 +1140,8 @@ async function runControlGateInner(
       safety,
       recordSafetyShadowHits,
       trace: finalizeTrace(trace),
+      autoResolved,
+      autoResolutionReason,
     };
   }
 
@@ -748,22 +1172,35 @@ async function runControlGateInner(
       );
       await recordShadowHits(decisionId, "modify");
       await recordSafetyShadowHits(decisionId, "modify");
-      const approvalId = await createPendingApproval(admin, {
+      // In practice unreachable for origin: "external-api" today -- control-api
+      // always passes agentId: null, and this whole branch is gated on agentId
+      // above -- but wired identically to the other two call sites anyway so a
+      // future external-api caller that DOES thread an agentId isn't left with
+      // an inconsistent third path.
+      const outcome = await createPendingApproval(admin, {
         userId, decisionId, agentId, runId, actionType, provider,
         description: ctx.description, params: ctx.params, reason, riskTier: "high", origin: ctx.origin,
+        apiKeyId, planId,
       });
+      const autoResolved = outcome.autoResolved;
+      const ok = autoResolved && outcome.resolution === "approved";
+      const verdict: GateResult["verdict"] = autoResolved ? (ok ? "allow" : "block") : "require_approval";
       return {
         ...base,
-        ok: false,
-        verdict: "require_approval",
+        ok,
+        verdict,
         reason,
         decisionId,
-        approvalId,
+        approvalId: outcome.approvalId,
         source: "anomaly_detector",
         anomaly,
         safety,
         recordSafetyShadowHits,
         trace: finalizeTrace(trace),
+        autoResolved,
+        autoResolutionReason: autoResolved
+          ? `Resolved automatically to ${outcome.resolution} by this API key's configured policy — no human reviewed this.`
+          : null,
       };
     }
   } else {
@@ -781,7 +1218,26 @@ async function runControlGateInner(
     // effort to log and alert, but the block itself never depends on either
     // succeeding.
     const message = err instanceof Error ? err.message : String(err);
-    const reason = "Blocked — the control gate hit an unexpected error and failed closed. Nothing was assessed or run.";
+    // "Zero human review" plan, item 8: an api key can explicitly choose,
+    // in advance, to fail OPEN instead of the platform's own default
+    // fail-closed stance for exactly this case -- NazAI's own gate
+    // throwing an unexpected error, never a deliberate kill switch (those
+    // are separate, earlier return points in this same function, not
+    // reachable from this catch block at all). Looked up in its own
+    // try/catch: if reading the policy itself fails, this stays fail
+    // CLOSED -- this is the one place in the whole gate where "I don't
+    // know what to do" must never default to letting something through.
+    let failOpen = false;
+    if (apiKeyId) {
+      try {
+        const { data: keyRow } = await admin.from("api_keys").select("on_gate_error").eq("id", apiKeyId).maybeSingle();
+        failOpen = (keyRow as { on_gate_error?: string } | null)?.on_gate_error === "allow";
+      } catch { /* a failed policy lookup here must still fail closed, never open */ }
+    }
+    const reason = failOpen
+      ? "Allowed — the control gate hit an unexpected error, but this API key is configured to fail OPEN during a NazAI outage rather than block. This action was NOT judged by any rule, safety scanner, or model."
+      : "Blocked — the control gate hit an unexpected error and failed closed. Nothing was assessed or run.";
+    const source: AgentDecisionSource = failOpen ? "gate_error_fail_open" : "gate_error";
     const emptyScan: SafetyScan = { matched: false, severity: null, matches: [], summary: null, shadowMatches: [] };
     let decisionId: string | null = null;
     try {
@@ -790,50 +1246,62 @@ async function runControlGateInner(
         agent_id: agentId,
         agent_run_id: runId,
         step_index: stepIndex,
-        decision: `BLOCK ${actionType} (${provider})`.slice(0, 400),
+        decision: `${failOpen ? "ALLOW" : "BLOCK"} ${actionType} (${provider})`.slice(0, 400),
         reasoning: `${reason}\n${message}`.slice(0, 800),
         alternatives_considered: [],
         confidence_score: 100,
-        source: "gate_error" satisfies AgentDecisionSource,
+        source,
         escalated: true,
         policy_version: policyVersion,
         gate_trace: finalizeTrace(trace),
         action_type: actionType,
         provider,
         api_key_id: apiKeyId,
+        is_test: isTest,
+        plan_id: planId,
       }).select("id").maybeSingle();
       decisionId = (data as { id?: string } | null)?.id ?? null;
-    } catch { /* logging must never break the fail-closed block */ }
+    } catch { /* logging must never break the fail-closed/fail-open block */ }
+    if (decisionId && countsTowardRealUsage(isTest)) {
+      await embedDecisionIfExternal(admin, {
+        decisionId, apiKeyId, userId, actionType, provider,
+        description: ctx.description, params: ctx.params,
+      });
+    }
     try {
       await sendCriticalAlert(admin, userId, {
-        event: "gate_error",
+        event: failOpen ? "gate_error_fail_open" : "gate_error",
         summary: `${reason} (${message})`,
         decisionId,
         actionType,
         provider,
       });
-    } catch { /* alerting must never break the fail-closed block */ }
+    } catch { /* alerting must never break the fail-closed/fail-open block */ }
     // "15 more items" plan, item 4: gate_error is a real, listed
     // IncidentKind (incidents.ts explicitly calls out "the gate itself
     // failing closed" as incident-worthy) but this fail-closed block never
     // actually opened one -- only recorded the decision and alerted.
     // Fixed alongside control-engine/index.ts's own outer catch getting
-    // the same three-part treatment for the first time.
+    // the same three-part treatment for the first time. Still opened for
+    // a fail-OPEN outcome too -- "every time that setting actually kicks
+    // in, it's logged clearly as its own distinct, auditable event" (item
+    // 8's own scope) applies just as much to an incident as to the
+    // decision row above.
     try {
       await openIncident(admin, userId, {
-        kind: "gate_error",
+        kind: failOpen ? "gate_error_fail_open" : "gate_error",
         summary: `${reason} (${message})`,
         actionType,
         provider,
         decisionId,
       });
-    } catch { /* incident tracking must never break the fail-closed block */ }
+    } catch { /* incident tracking must never break the fail-closed/fail-open block */ }
     return {
-      ok: false,
-      verdict: "block",
+      ok: failOpen,
+      verdict: failOpen ? "allow" : "block",
       reason,
       decisionId,
-      source: "gate_error",
+      source,
       approvalId: null,
       spend: { enabled: true, cap_usd: 0, spent_usd: 0, calls: 0, pct: 0, over_cap: false, day: new Date().toISOString().slice(0, 10) },
       safety: emptyScan,
@@ -849,6 +1317,8 @@ async function runControlGateInner(
       recordShadowHits: async () => {},
       recordSafetyShadowHits: async () => {},
       recordAttempt: async () => null,
+      autoResolved: false,
+      autoResolutionReason: null,
     };
   }
 }

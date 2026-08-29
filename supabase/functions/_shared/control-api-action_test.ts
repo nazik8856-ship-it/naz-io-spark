@@ -19,7 +19,63 @@ Deno.test("parseControlApiAction: a full valid action parses with all fields, mo
     description: "Reply to a customer.",
     params: { to: "a@b.com" },
     mode: "fast",
+    idempotencyKey: null,
+    planId: null,
   });
+});
+
+// ---- item 12: plan_id parsing ----
+
+Deno.test("parseControlApiAction: plan_id is carried through when present", () => {
+  const result = parseControlApiAction({ action_type: "x", description: "y", plan_id: "checkout-flow-42" });
+  assert(!("error" in result));
+  assertEquals((result as { planId: string | null }).planId, "checkout-flow-42");
+});
+
+Deno.test("parseControlApiAction: plan_id absent parses as null, never an empty string", () => {
+  const result = parseControlApiAction({ action_type: "x", description: "y" });
+  assert(!("error" in result));
+  assertEquals((result as { planId: string | null }).planId, null);
+});
+
+Deno.test("parseControlApiAction: an empty-string plan_id is treated as absent (null), not a real plan", () => {
+  const result = parseControlApiAction({ action_type: "x", description: "y", plan_id: "" });
+  assert(!("error" in result));
+  assertEquals((result as { planId: string | null }).planId, null);
+});
+
+Deno.test("parseControlApiAction: an overlong plan_id is truncated to 200 chars, same cap as idempotency_key", () => {
+  const long = "x".repeat(500);
+  const result = parseControlApiAction({ action_type: "x", description: "y", plan_id: long });
+  assert(!("error" in result));
+  assertEquals((result as { planId: string | null }).planId?.length, 200);
+});
+
+// ---- item 13: idempotency_key parsing ----
+
+Deno.test("parseControlApiAction: idempotency_key is carried through when present", () => {
+  const result = parseControlApiAction({ action_type: "x", description: "y", idempotency_key: "retry-attempt-1" });
+  assert(!("error" in result));
+  assertEquals((result as { idempotencyKey: string | null }).idempotencyKey, "retry-attempt-1");
+});
+
+Deno.test("parseControlApiAction: idempotency_key absent parses as null, never an empty string", () => {
+  const result = parseControlApiAction({ action_type: "x", description: "y" });
+  assert(!("error" in result));
+  assertEquals((result as { idempotencyKey: string | null }).idempotencyKey, null);
+});
+
+Deno.test("parseControlApiAction: an empty-string idempotency_key is treated as absent (null), not a real key", () => {
+  const result = parseControlApiAction({ action_type: "x", description: "y", idempotency_key: "" });
+  assert(!("error" in result));
+  assertEquals((result as { idempotencyKey: string | null }).idempotencyKey, null);
+});
+
+Deno.test("parseControlApiAction: an overlong idempotency_key is truncated to 200 chars, same cap control-engine already uses", () => {
+  const long = "x".repeat(500);
+  const result = parseControlApiAction({ action_type: "x", description: "y", idempotency_key: long });
+  assert(!("error" in result));
+  assertEquals((result as { idempotencyKey: string | null }).idempotencyKey?.length, 200);
 });
 
 Deno.test("parseControlApiAction: mode='full' is honored, anything else falls back to fast", () => {

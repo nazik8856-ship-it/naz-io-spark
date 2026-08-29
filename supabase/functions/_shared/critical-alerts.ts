@@ -31,6 +31,13 @@ export type CriticalAlertEvent =
   | "circuit_breaker_trip"
   | "self_audit_regression"
   | "gate_error"
+  // "Zero human review" plan, item 8: a DIFFERENT event from plain
+  // "gate_error" -- that one always means the gate failed CLOSED, so its
+  // fixed label text below ("...and failed closed") would be actively
+  // WRONG for a key that chose to fail open instead. Never reuse
+  // "gate_error" for this outcome, even though both originate from the
+  // exact same catch block in control-gate.ts.
+  | "gate_error_fail_open"
   | "approval_escalated"
   | "confidence_miscalibrated"
   | "break_glass_override"
@@ -38,7 +45,28 @@ export type CriticalAlertEvent =
   | "audit_integrity_failure"
   | "webhook_delivery_exhausted"
   | "integration_revoked"
-  | "control_api_abuse";
+  | "control_api_abuse"
+  // "Zero human review" plan, item 14: a sharply higher-than-normal share
+  // of an account's decisions are suddenly being auto-resolved with no
+  // human review, compared to that same account's own recent baseline.
+  | "auto_resolution_share_spike"
+  // "Real precedent memory" plan, item 14: an api key keeps sending real
+  // decisions, but hardly any of them are actually getting embedded --
+  // the memory pipeline has quietly stopped working (a bug, a provider
+  // change, a spend cap) and nothing about any single decision looks
+  // wrong in the moment, so nobody would otherwise notice.
+  | "precedent_pipeline_stale"
+  // "Policy autonomy" plan, item 2: an account's Control API traffic,
+  // summed across MULTIPLE keys, looks abusive even though no single
+  // key crosses its own per-key threshold -- a pattern the existing
+  // per-key control_api_abuse check can't see by design.
+  | "control_api_coordinated_abuse"
+  // "Policy autonomy" plan, item 4: a key's own on_uncertain policy was
+  // automatically pulled back toward more caution -- repeated abuse-
+  // pauses in a short window, or a callback URL that's stopped
+  // answering. A genuine, explicit exception to "only a human changes
+  // on_uncertain," always tagged unmistakably as system-initiated.
+  | "on_uncertain_auto_downgraded";
 
 const APP_BASE_URL = "https://www.nazai.net";
 
@@ -55,6 +83,7 @@ export const LABELS: Record<CriticalAlertEvent, string> = {
   circuit_breaker_trip: "⚡ Circuit breaker tripped",
   self_audit_regression: "🧪 Weekly control-system self-audit found a regression",
   gate_error: "🚨 Control gate hit an unexpected error and failed closed",
+  gate_error_fail_open: "⚠️ Control gate hit an unexpected error and failed OPEN (per API key policy)",
   approval_escalated: "⏰ A pending approval has been waiting too long",
   confidence_miscalibrated: "📉 The model is overconfident in a real confidence range",
   break_glass_override: "🔓 A blocked action was overridden by a human",
@@ -63,6 +92,10 @@ export const LABELS: Record<CriticalAlertEvent, string> = {
   webhook_delivery_exhausted: "📡 A webhook endpoint stopped receiving deliveries",
   integration_revoked: "🔌 A connected integration was revoked or expired",
   control_api_abuse: "🚩 Unusual activity on a public Control API key",
+  auto_resolution_share_spike: "🤖 An unusually large share of decisions are being resolved automatically",
+  precedent_pipeline_stale: "🧠 An API key's real-precedent memory has gone stale",
+  control_api_coordinated_abuse: "🚩 Unusual activity spread across multiple Control API keys",
+  on_uncertain_auto_downgraded: "🛑 An API key's auto-resolve policy was automatically pulled back to human review",
 };
 
 export function decisionLink(decisionId?: string | null): string | null {

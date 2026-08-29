@@ -23,6 +23,15 @@ const PRICES: Record<string, [number, number]> = {
   "google/gemini-2.5-pro": [1.25, 10],
   "google/gemini-3.1-pro-preview": [1.25, 10],
   "openai/gpt-5-mini": [0.25, 2],
+  // "Real precedent memory" plan, item 11 -- a real, distinct entry so an
+  // embedding call is never priced as if it were a full chat-completion
+  // call (the `default` row above, ~15-25x more expensive per token).
+  // Output price is 0: an embedding call has no generated tokens to
+  // price. Rough estimate, same "unverified assumption" caveat as
+  // EMBEDDING_MODEL/EMBEDDING_DIMENSIONS in decision-embeddings.ts --
+  // verify against the gateway's real embeddings pricing before this
+  // runs against a live account.
+  "google/text-embedding-004": [0.15, 0],
   default: [0.3, 2.5],
 };
 
@@ -105,6 +114,41 @@ export async function getAgentSpendStatus(admin: SupabaseClient, userId: string,
     return { enabled, cap_usd: cap, spent_usd: spent, calls, pct, over_cap: enabled && cap > 0 && spent >= cap, day, has_cap: true };
   } catch (_) {
     return { ...NO_AGENT_CAP, day };
+  }
+}
+
+// "Zero human review" plan, item 12: a per-api-key cap, parallel to the
+// per-agent one above and structurally identical -- kept as its own type
+// alias (rather than reusing AgentSpendStatus) purely for readability at
+// call sites, even though the shape is the same.
+export type ApiKeySpendStatus = SpendStatus & { has_cap: boolean };
+
+const NO_KEY_CAP: ApiKeySpendStatus = {
+  enabled: false, cap_usd: 0, spent_usd: 0, calls: 0, pct: 0, over_cap: false, day: "", has_cap: false,
+};
+
+/**
+ * Current day's spend vs. this ONE api key's own configured cap. Returns
+ * has_cap: false (and everything else zeroed) when the key has no cap of
+ * its own -- the caller should apply no key-level enforcement in that
+ * case, only the account-wide cap. Never throws.
+ */
+export async function getApiKeySpendStatus(admin: SupabaseClient, userId: string, apiKeyId: string): Promise<ApiKeySpendStatus> {
+  const day = today();
+  try {
+    const { data: capRow } = await admin
+      .from("ai_spend_caps").select("daily_cap_usd, enabled").eq("user_id", userId).eq("api_key_id", apiKeyId).maybeSingle();
+    if (!capRow) return { ...NO_KEY_CAP, day };
+    const cap = Number((capRow as { daily_cap_usd?: number }).daily_cap_usd ?? 0);
+    const enabled = (capRow as { enabled?: boolean }).enabled ?? true;
+    const { data: usageRow } = await admin
+      .from("ai_spend_daily").select("cost_usd, calls").eq("user_id", userId).eq("api_key_id", apiKeyId).eq("day", day).maybeSingle();
+    const spent = Number((usageRow as { cost_usd?: number } | null)?.cost_usd ?? 0);
+    const calls = Number((usageRow as { calls?: number } | null)?.calls ?? 0);
+    const pct = cap > 0 ? (spent / cap) * 100 : 0;
+    return { enabled, cap_usd: cap, spent_usd: spent, calls, pct, over_cap: enabled && cap > 0 && spent >= cap, day, has_cap: true };
+  } catch (_) {
+    return { ...NO_KEY_CAP, day };
   }
 }
 
@@ -194,6 +238,12 @@ export async function recordAiSpend(
   usage: Usage | undefined | null,
   context = "ai-gateway",
   agentId?: string | null,
+  // "Zero human review" plan, item 12: threaded through so control-engine
+  // can attribute a control-api mode="full" call's cost to the specific
+  // key that made it, alongside the account-wide total -- record_ai_spend
+  // upserts a per-key ai_spend_daily row only when the key ALSO has its
+  // own cap configured, same as the agent_id parameter above.
+  apiKeyId?: string | null,
 ): Promise<SpendStatus & { warned?: boolean; tripped?: boolean }> {
   const cost = estimateCostUsd(model, usage);
   try {
@@ -203,6 +253,7 @@ export async function recordAiSpend(
       _prompt_tokens: Number(usage?.prompt_tokens ?? 0) || 0,
       _completion_tokens: Number(usage?.completion_tokens ?? 0) || 0,
       _agent_id: agentId ?? null,
+      _api_key_id: apiKeyId ?? null,
     });
   } catch (err) {
     console.error("[SPEND CAP] failed to record spend:", String((err as Error)?.message || err));

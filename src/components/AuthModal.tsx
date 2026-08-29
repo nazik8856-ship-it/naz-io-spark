@@ -3,7 +3,6 @@ import { Eye, EyeOff } from "lucide-react";
 import { X, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
-import { lovable } from "@/integrations/lovable/index";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
@@ -138,43 +137,25 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
     setSocialLoading(provider);
 
     try {
-      // Always use Lovable-managed OAuth (works on lovable.app, custom domains, and preview).
-      // Do NOT fall back to supabase.auth.signInWithOAuth — the native Supabase provider
-      // has no client_id/secret configured and returns "missing OAuth secret".
-      // Use window.location.origin (not /auth/callback) — the Lovable-managed
-      // Google OAuth client only allowlists the app origin, so passing a deeper
-      // path causes the provider to silently reject the redirect and bounce the
-      // user back to "/" with no session and no error. Supabase's
-      // detectSessionInUrl (default true) picks up the tokens from the URL hash
-      // on origin automatically.
-      const result = await lovable.auth.signInWithOAuth(provider, {
-        redirect_uri: window.location.origin,
+      // Native Supabase OAuth against this project's own configured provider.
+      // signInWithOAuth triggers a full-page redirect to the provider itself
+      // (no popup) — control returns here only on error; on success the
+      // browser navigates away and back to redirectTo, where Supabase's
+      // detectSessionInUrl (default true) picks up the session automatically.
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider,
+        options: { redirectTo: window.location.origin },
       });
 
-      const errMsg =
-        (result as { error?: unknown })?.error
-          ? String((result as { error?: unknown }).error)
-          : null;
-
-      if (errMsg) {
-        console.error("[auth-modal] OAuth sign-in failed:", errMsg);
+      if (error) {
+        console.error("[auth-modal] OAuth sign-in failed:", error.message);
         toast({
           title: `${provider === "google" ? "Google" : "Apple"} sign-in failed`,
-          description: errMsg,
+          description: error.message,
           variant: "destructive",
         });
         setSocialLoading(null);
         return;
-      }
-
-      // If the SDK didn't redirect and didn't error, the popup flow completed
-      // and the session was set by the lovable wrapper. Trigger success.
-      const redirected = (result as { redirected?: boolean })?.redirected;
-      if (!redirected) {
-        await refreshSession();
-        clearStaleDashboardCache();
-        onSuccess();
-        setSocialLoading(null);
       }
       // else: browser is navigating away; loading state stays until return.
     } catch (err) {

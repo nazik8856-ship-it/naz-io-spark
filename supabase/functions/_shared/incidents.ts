@@ -26,6 +26,29 @@ export const INCIDENT_KINDS = [
   "webhook_delivery_exhausted",
   "integration_revoked",
   "control_api_abuse",
+  // "Zero human review" plan, item 8: a distinct kind from plain
+  // "gate_error" -- a fail-OPEN outcome is operationally far more
+  // significant than a normal fail-closed one (something ran UNJUDGED
+  // during an outage, not merely blocked), so it must never be
+  // indistinguishable from an ordinary gate_error incident in a report.
+  "gate_error_fail_open",
+  // "Zero human review" plan, item 14: a sharply higher-than-normal share
+  // of an account's decisions suddenly being auto-resolved with no human
+  // review, compared to that account's own recent baseline.
+  "auto_resolution_share_spike",
+  // "Real precedent memory" plan, item 14: an api key's memory pipeline
+  // has quietly stopped working -- real decisions keep flowing in, but
+  // hardly any of them are getting embedded, and nothing about any one
+  // decision looked wrong in the moment.
+  "precedent_pipeline_stale",
+  // "Policy autonomy" plan, item 2: an account's traffic summed across
+  // multiple keys looks abusive even though no single key looks bad
+  // alone.
+  "control_api_coordinated_abuse",
+  // "Policy autonomy" plan, item 4: a key's own on_uncertain policy was
+  // automatically pulled back toward caution after repeated real
+  // trouble -- a real, auditable system intervention, not just a notice.
+  "on_uncertain_auto_downgraded",
 ] as const;
 export type IncidentKind = typeof INCIDENT_KINDS[number];
 
