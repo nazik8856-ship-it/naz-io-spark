@@ -33,7 +33,7 @@ export function resolveCanvaScopes(groups: string[]): string[] {
   return Array.from(set);
 }
 
-export const CANVA_REDIRECT_URI = `${Deno.env.get("SUPABASE_URL")}/functions/v1/canva-oauth-callback`;
+export const CANVA_REDIRECT_URI = "https://nazai.net/api/auth/canva/callback";
 
 const enc = new TextEncoder();
 export const b64urlEncode = (bytes: Uint8Array) =>
