@@ -8,6 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
 import { sendWelcomeEmail } from "@/lib/send-welcome-email";
 import { sendSignInNotification } from "@/lib/send-auth-notification-email";
+import { validatePassword, PASSWORD_REQUIREMENTS_HINT } from "@/lib/password-policy";
 
 const clearStaleDashboardCache = () => {
   try {
@@ -35,8 +36,16 @@ const getAuthErrorMessage = (message: string) => {
     return { title: "Email not confirmed", description: "Check your inbox and confirm your email first." };
   if (normalized.includes("already registered") || normalized.includes("already exists"))
     return { title: "Wrong password", description: "An account with this email already exists — that password didn't match it. Try again or reset your password." };
+  // Safety net: validatePassword() below already catches this before the
+  // request goes out, but a raw GoTrue "password should contain..." message
+  // is unreadable if it ever surfaces anyway (e.g. a policy change on the
+  // server we haven't mirrored yet).
+  if (normalized.includes("password should contain") || normalized.includes("password is too weak"))
+    return { title: "Password too weak", description: PASSWORD_REQUIREMENTS_HINT };
   return { title: "Authentication failed", description: message };
 };
+
+const OAUTH_PROVIDER_LABELS: Record<string, string> = { google: "Google", apple: "Apple" };
 
 const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
   const { toast } = useToast();
@@ -120,6 +129,43 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
             description: `We sent a new confirmation link to ${formData.email}. Click it, then come back and sign in.`,
           });
         }
+        return;
+      }
+
+      // Distinguish "wrong password" from "this email only has a Google/Apple
+      // identity, there's no password to check against" — signInWithPassword
+      // itself can't tell us which, it just fails invalid_credentials either
+      // way. Falling through to signUp for an OAuth-only email would also
+      // just fail (the email is already registered), with no explanation of
+      // *why* a password never worked. This RPC only ever returns the linked
+      // provider names, never account existence beyond that (see the
+      // migration's own comment for the disclosure-scope reasoning).
+      const { data: providers } = await supabase.rpc("get_identity_providers_for_email", {
+        _email: formData.email,
+      });
+
+      if (providers && providers.length > 0 && !providers.includes("email")) {
+        const label = providers.map((p: string) => OAUTH_PROVIDER_LABELS[p] ?? p).join(" or ");
+        toast({
+          title: `Signed up with ${label}`,
+          description: `This email is linked to ${label} — use the "Continue with ${label}" button above. You can add a password from Settings once you're signed in.`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (providers && providers.length > 0 && providers.includes("email")) {
+        toast({ title: "Invalid credentials", description: "That email or password didn't match.", variant: "destructive" });
+        return;
+      }
+
+      // No existing identity of any kind for this email — genuinely a new
+      // account. Validate the password locally first: the server's own
+      // policy (lowercase + uppercase + digit + symbol, min 6) would reject
+      // a weak one anyway, and catching it here skips a wasted round trip.
+      const passwordError = validatePassword(formData.password);
+      if (passwordError) {
+        toast({ title: "Password too weak", description: passwordError, variant: "destructive" });
         return;
       }
 

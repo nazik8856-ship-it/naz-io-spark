@@ -9,6 +9,7 @@ import PaymentWindow from "@/components/payments/PaymentWindow";
 import OutOfCreditsModal from "@/components/payments/OutOfCreditsModal";
 import OAuthReturnHandler from "@/components/OAuthReturnHandler";
 import IntegrationOAuthMessageBridge from "@/components/integrations/IntegrationOAuthMessageBridge";
+import { AuthGuard } from "@/components/AuthGuard";
 
 // ─── Route Components ─────────────────────────────────────────────────────────
 // Retry lazy imports once after a hard reload when the browser is holding a
@@ -37,6 +38,7 @@ const Signup = lazyWithReload(() => import("./pages/Signup"));
 const AuthCallback = lazyWithReload(() => import("./pages/AuthCallback"));
 const ResetPassword = lazyWithReload(() => import("./pages/ResetPassword"));
 const Dashboard = lazyWithReload(() => import("./pages/Dashboard"));
+const AccountSettings = lazyWithReload(() => import("./pages/AccountSettings"));
 const Generator = lazyWithReload(() => import("./pages/Generator"));
 const GeneratorHome = lazyWithReload(() => import("./pages/GeneratorHome"));
 const GenerationWorkspace = lazyWithReload(() => import("./pages/GenerationWorkspace"));
@@ -165,6 +167,9 @@ const App = () => (
 
                 {/* Nested Dashboard Routes */}
                 <Route path="/dashboard/*" element={<Dashboard />} />
+                <Route element={<AuthGuard />}>
+                  <Route path="/account" element={<AccountSettings />} />
+                </Route>
 
                 {/* Catch-all Redirect */}
                 <Route path="*" element={<Navigate to="/" replace />} />

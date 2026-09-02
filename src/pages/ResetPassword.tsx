@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { sendPasswordChangedNotification } from "@/lib/send-auth-notification-email";
+import { validatePassword, PASSWORD_REQUIREMENTS_HINT } from "@/lib/password-policy";
 
 // Landed on from the "reset password" email link. Supabase's client already
 // auto-processes the recovery link on its own (detectSessionInUrl defaults to
@@ -72,8 +73,9 @@ const ResetPassword = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (password.length < 6) {
-      toast.error("Password too short", { description: "Use at least 6 characters." });
+    const passwordError = validatePassword(password);
+    if (passwordError) {
+      toast.error("Password too weak", { description: passwordError });
       return;
     }
     if (password !== confirmPassword) {
@@ -144,6 +146,7 @@ const ResetPassword = () => {
                 {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
               </button>
             </div>
+            <p className="text-xs text-white/30 -mt-2">{PASSWORD_REQUIREMENTS_HINT}</p>
             <Input
               type={showPassword ? "text" : "password"}
               placeholder="Confirm new password"
