@@ -137,15 +137,29 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
       // itself can't tell us which, it just fails invalid_credentials either
       // way. Falling through to signUp for an OAuth-only email would also
       // just fail (the email is already registered), with no explanation of
-      // *why* a password never worked. This RPC only ever returns the linked
-      // provider names, never account existence beyond that (see the
-      // migration's own comment for the disclosure-scope reasoning).
-      const { data: providers } = await supabase.rpc("get_identity_providers_for_email", {
-        _email: formData.email,
-      });
+      // *why* a password never worked. Routed through an edge function
+      // (rather than calling the underlying RPC directly) so the lookup is
+      // IP rate-limited — a bare RPC call isn't covered by GoTrue's own
+      // signIn/signUp throttling and would otherwise be an unthrottled
+      // email-enumeration oracle. It only ever returns linked provider
+      // names, never account existence beyond that (see the migration's own
+      // comment for the disclosure-scope reasoning).
+      let providers: string[] = [];
+      try {
+        const { data: lookupData, error: lookupError } = await supabase.functions.invoke("identity-providers-lookup", {
+          body: { email: formData.email },
+        });
+        if (lookupError) {
+          console.error("[auth-modal] identity-providers-lookup failed:", lookupError.message);
+        } else {
+          providers = lookupData?.providers ?? [];
+        }
+      } catch (err) {
+        console.error("[auth-modal] identity-providers-lookup threw:", err);
+      }
 
-      if (providers && providers.length > 0 && !providers.includes("email")) {
-        const label = providers.map((p: string) => OAUTH_PROVIDER_LABELS[p] ?? p).join(" or ");
+      if (providers.length > 0 && !providers.includes("email")) {
+        const label = providers.map((p) => OAUTH_PROVIDER_LABELS[p] ?? p).join(" or ");
         toast({
           title: `Signed up with ${label}`,
           description: `This email is linked to ${label} — use the "Continue with ${label}" button above. You can add a password from Settings once you're signed in.`,
@@ -154,7 +168,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
         return;
       }
 
-      if (providers && providers.length > 0 && providers.includes("email")) {
+      if (providers.includes("email")) {
         toast({ title: "Invalid credentials", description: "That email or password didn't match.", variant: "destructive" });
         return;
       }
