@@ -1,18 +1,22 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 
-// Landed on from the "reset password" email link. Supabase redirects here with
-// the recovery access_token/refresh_token in the URL hash (type=recovery) —
-// this page exchanges those for a session, then lets the user pick a new
-// password via updateUser, rather than treating the recovery link as a normal
-// sign-in the way AuthCallback does for OAuth/signup confirmation links.
+// Landed on from the "reset password" email link. Supabase's client already
+// auto-processes the recovery link on its own (detectSessionInUrl defaults to
+// true) as part of its async init — which starts at module load, before this
+// component even mounts, and strips the tokens out of the URL hash once it's
+// done. So parsing window.location.hash here directly is a race we can lose:
+// by the time this effect runs, the hash may already be gone even though the
+// SDK successfully established the recovery session. Instead we listen for
+// the documented PASSWORD_RECOVERY event, and separately check getSession()
+// right away in case that event already fired (and was missed) before this
+// listener attached.
 const ResetPassword = () => {
   const navigate = useNavigate();
-  const hasProcessedRef = useRef(false);
   const [ready, setReady] = useState(false);
   const [tokenError, setTokenError] = useState<string | null>(null);
   const [password, setPassword] = useState("");
@@ -21,31 +25,48 @@ const ResetPassword = () => {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    if (hasProcessedRef.current) return;
-    hasProcessedRef.current = true;
+    let settled = false;
+    const succeed = () => {
+      if (settled) return;
+      settled = true;
+      setTokenError(null);
+      setReady(true);
+    };
+    const fail = (message?: string) => {
+      if (settled) return;
+      settled = true;
+      setTokenError(message || "This reset link is missing or has already been used. Request a new one and try again.");
+      setReady(true);
+    };
 
     const hashParams = new URLSearchParams(window.location.hash.substring(1));
     const providerError = hashParams.get("error_description") || hashParams.get("error");
     if (providerError) {
-      setTokenError(decodeURIComponent(providerError));
-      setReady(true);
+      fail(decodeURIComponent(providerError));
       return;
     }
 
-    const accessToken = hashParams.get("access_token");
-    const refreshToken = hashParams.get("refresh_token");
-    if (!accessToken || !refreshToken) {
-      setTokenError("This reset link is missing or has already been used. Request a new one and try again.");
-      setReady(true);
-      return;
-    }
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "PASSWORD_RECOVERY") succeed();
+    });
 
-    supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken })
-      .then(({ error }) => {
-        if (error) setTokenError(error.message);
-      })
-      .catch((err) => setTokenError(err instanceof Error ? err.message : String(err)))
-      .finally(() => setReady(true));
+    // Covers the case where PASSWORD_RECOVERY already fired (and was missed)
+    // before the listener above attached — _saveSession already persisted
+    // the session by then, so getSession() reflects it either way.
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) succeed();
+    });
+
+    // Neither path resolved in a reasonable window — the link genuinely had
+    // no usable token (expired, already used, or opened with no hash at all).
+    const timeout = setTimeout(() => fail(), 5000);
+
+    return () => {
+      subscription.unsubscribe();
+      clearTimeout(timeout);
+    };
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
