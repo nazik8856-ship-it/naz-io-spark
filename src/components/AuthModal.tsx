@@ -33,6 +33,8 @@ const getAuthErrorMessage = (message: string) => {
     return { title: "Invalid credentials", description: "That email or password didn't match." };
   if (normalized.includes("email not confirmed"))
     return { title: "Email not confirmed", description: "Check your inbox and confirm your email first." };
+  if (normalized.includes("already registered") || normalized.includes("already exists"))
+    return { title: "Wrong password", description: "An account with this email already exists — that password didn't match it. Try again or reset your password." };
   return { title: "Authentication failed", description: message };
 };
 
@@ -43,6 +45,27 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
   const [socialLoading, setSocialLoading] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [formData, setFormData] = useState({ name: "", email: "", password: "" });
+  const [resetLoading, setResetLoading] = useState(false);
+
+  const handleForgotPassword = async () => {
+    if (!formData.email) {
+      toast({ title: "Enter your email first", description: "Type your email above, then tap \"Forgot password?\" again." });
+      return;
+    }
+    setResetLoading(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(formData.email, {
+        redirectTo: `${window.location.origin}/auth/reset-password`,
+      });
+      if (error) {
+        toast({ title: "Couldn't send reset link", description: error.message, variant: "destructive" });
+        return;
+      }
+      toast({ title: "Check your email", description: `We sent a password reset link to ${formData.email}.` });
+    } finally {
+      setResetLoading(false);
+    }
+  };
 
   const handleEmailSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -72,9 +95,33 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
         message: signInError.message,
       });
 
-      if (signInError.message.toLowerCase().includes("email rate limit")) {
+      const signInErrorLower = signInError.message.toLowerCase();
+
+      if (signInErrorLower.includes("email rate limit")) {
         const err = getAuthErrorMessage(signInError.message);
         toast({ title: err.title, description: err.description, variant: "destructive" });
+        return;
+      }
+
+      // The account exists and the password matched at signup time, but the
+      // confirmation link was never clicked (or never arrived). Falling
+      // through to signUp here would just bounce off "already registered"
+      // with no way forward — resend the confirmation instead, which is the
+      // actual unblock this account needs.
+      if (signInErrorLower.includes("email not confirmed")) {
+        const { error: resendError } = await supabase.auth.resend({
+          type: "signup",
+          email: formData.email,
+          options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
+        });
+        if (resendError) {
+          toast({ title: "Couldn't resend confirmation", description: resendError.message, variant: "destructive" });
+        } else {
+          toast({
+            title: "Confirm your email",
+            description: `We sent a new confirmation link to ${formData.email}. Click it, then come back and sign in.`,
+          });
+        }
         return;
       }
 
@@ -316,6 +363,16 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
                 aria-label={showPassword ? "Hide password" : "Show password"}
               >
                 {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
+            <div className="text-right -mt-2">
+              <button
+                type="button"
+                onClick={handleForgotPassword}
+                disabled={resetLoading}
+                className="text-xs text-white/30 hover:text-white/60 transition-colors disabled:opacity-40"
+              >
+                {resetLoading ? "Sending…" : "Forgot password?"}
               </button>
             </div>
             <button
