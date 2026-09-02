@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { validatePassword, PASSWORD_REQUIREMENTS_HINT } from "@/lib/password-policy";
 import { sendPasswordChangedNotification } from "@/lib/send-auth-notification-email";
+import { sanitizeAuthErrorMessage } from "@/lib/auth-error-message";
 
 const PROVIDER_LABELS: Record<string, string> = { google: "Google", apple: "Apple", email: "Email & password" };
 
@@ -48,7 +49,7 @@ const AccountSettings = () => {
     try {
       const { data, error } = await supabase.auth.updateUser({ password });
       if (error) {
-        toast.error("Couldn't update password", { description: error.message });
+        toast.error("Couldn't update password", { description: sanitizeAuthErrorMessage(error.message) });
         return;
       }
       void sendPasswordChangedNotification(data.user?.email);
