@@ -3,7 +3,21 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { forceSendWelcomeEmailAfterAuth } from "@/lib/welcome-email-auth-debug";
+import { sendSignInNotification } from "@/lib/send-auth-notification-email";
 import { toast } from "sonner";
+import type { User } from "@supabase/supabase-js";
+
+// A user's very first sign-in sets last_sign_in_at equal to created_at.
+// Landing here can mean completing a brand-new signup's email confirmation
+// OR a brand-new OAuth signup (send the welcome email) — or a RETURNING
+// user's OAuth/confirmed sign-in (send the sign-in security notice instead).
+// A few seconds of tolerance covers normal request latency between the two
+// timestamps being set.
+const isFirstSignIn = (user: User): boolean => {
+  const created = new Date(user.created_at).getTime();
+  const lastSignIn = user.last_sign_in_at ? new Date(user.last_sign_in_at).getTime() : created;
+  return Math.abs(lastSignIn - created) < 10_000;
+};
 
 const clearStaleDashboardCache = () => {
   try {
@@ -85,12 +99,20 @@ const AuthCallback = () => {
         return;
       }
 
-      await forceSendWelcomeEmailAfterAuth({
-        data: { user: authedUser },
-        fallbackEmail: authedUser.email || String(authedUser.user_metadata?.email ?? ""),
-        fallbackName: String(authedUser.user_metadata?.full_name ?? authedUser.user_metadata?.name ?? ""),
-        source: "auth-callback:oauth-session",
-      });
+      if (isFirstSignIn(authedUser)) {
+        await forceSendWelcomeEmailAfterAuth({
+          data: { user: authedUser },
+          fallbackEmail: authedUser.email || String(authedUser.user_metadata?.email ?? ""),
+          fallbackName: String(authedUser.user_metadata?.full_name ?? authedUser.user_metadata?.name ?? ""),
+          source: "auth-callback:oauth-session",
+        });
+      } else {
+        const provider = authedUser.app_metadata?.provider;
+        void sendSignInNotification(
+          authedUser.email,
+          provider === "google" || provider === "apple" ? provider : "password",
+        );
+      }
       clearStaleDashboardCache();
       navigate("/dashboard", { replace: true });
     };

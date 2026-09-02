@@ -16,6 +16,8 @@ import { template as controlWeeklyTrend } from './control-weekly-trend.tsx'
 import { template as accountInvite } from './account-invite.tsx'
 import { template as controlMonthlyReport } from './control-monthly-report.tsx'
 import { template as criticalAlert } from './critical-alert.tsx'
+import { template as signInNotification } from './sign-in-notification.tsx'
+import { template as passwordChanged } from './password-changed.tsx'
 
 export const TEMPLATES: Record<string, TemplateEntry> = {
   'welcome-nazai': welcomeNazai,
@@ -25,4 +27,6 @@ export const TEMPLATES: Record<string, TemplateEntry> = {
   'account-invite': accountInvite,
   'control-monthly-report': controlMonthlyReport,
   'critical-alert': criticalAlert,
+  'sign-in-notification': signInNotification,
+  'password-changed': passwordChanged,
 }

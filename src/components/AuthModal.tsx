@@ -6,8 +6,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
-import { forceSendWelcomeEmailAfterAuth } from "@/lib/welcome-email-auth-debug";
 import { sendWelcomeEmail } from "@/lib/send-welcome-email";
+import { sendSignInNotification } from "@/lib/send-auth-notification-email";
 
 const clearStaleDashboardCache = () => {
   try {
@@ -79,12 +79,10 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
       });
 
       if (!signInError) {
-        await forceSendWelcomeEmailAfterAuth({
-          data: signInData,
-          fallbackEmail: formData.email,
-          fallbackName: formData.name,
-          source: "auth-modal:existing-user-signin",
-        });
+        // Fire-and-forget — a returning user signing in gets a security
+        // notice, not the "Welcome to NazAI" first-time email (that one
+        // stays scoped to actual signups, below).
+        void sendSignInNotification(signInData.user?.email ?? formData.email, "password");
         await refreshSession();
         clearStaleDashboardCache();
         onSuccess();
