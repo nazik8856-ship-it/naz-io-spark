@@ -55,6 +55,37 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [formData, setFormData] = useState({ name: "", email: "", password: "" });
   const [resetLoading, setResetLoading] = useState(false);
+  // Set once a confirmation email has actually been sent (fresh signup, or a
+  // resend for an unconfirmed account) so the modal shows a persistent,
+  // unmissable "check your email" screen instead of just a toast — a toast
+  // auto-dismisses and can easily be missed by someone unfamiliar with the
+  // flow (an app reviewer testing it cold, not just a returning user).
+  const [pendingConfirmationEmail, setPendingConfirmationEmail] = useState<string | null>(null);
+  const [resendLoading, setResendLoading] = useState(false);
+
+  const handleClose = () => {
+    setPendingConfirmationEmail(null);
+    onClose();
+  };
+
+  const handleResendConfirmation = async () => {
+    if (!pendingConfirmationEmail) return;
+    setResendLoading(true);
+    try {
+      const { error } = await supabase.auth.resend({
+        type: "signup",
+        email: pendingConfirmationEmail,
+        options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
+      });
+      if (error) {
+        toast({ title: "Couldn't resend confirmation", description: error.message, variant: "destructive" });
+      } else {
+        toast({ title: "Confirmation email resent", description: `Check ${pendingConfirmationEmail} again.` });
+      }
+    } finally {
+      setResendLoading(false);
+    }
+  };
 
   const handleForgotPassword = async () => {
     if (!formData.email) {
@@ -124,10 +155,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
         if (resendError) {
           toast({ title: "Couldn't resend confirmation", description: resendError.message, variant: "destructive" });
         } else {
-          toast({
-            title: "Confirm your email",
-            description: `We sent a new confirmation link to ${formData.email}. Click it, then come back and sign in.`,
-          });
+          setPendingConfirmationEmail(formData.email);
         }
         return;
       }
@@ -232,7 +260,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
         return;
       }
 
-      toast({ title: "Check your email", description: "Confirm your email, then sign in." });
+      setPendingConfirmationEmail(formData.email);
     } finally {
       setLoading(false);
     }
@@ -287,7 +315,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
         style={{ backdropFilter: "blur(40px)", WebkitBackdropFilter: "blur(40px)" }}
       >
         {/* Overlay click-to-close */}
-        <div className="absolute inset-0 bg-black/70" onClick={onClose} />
+        <div className="absolute inset-0 bg-black/70" onClick={handleClose} />
 
         <motion.div
           initial={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -299,7 +327,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
         >
           {/* Close */}
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="absolute top-4 right-4 w-8 h-8 rounded-lg flex items-center justify-center text-white/30 hover:text-white/60 hover:bg-white/5 transition-all"
           >
             <X size={16} />
@@ -311,6 +339,40 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
               Naz<span style={{ color: "#00A3FF" }}>AI</span>
             </h2>
           </div>
+
+          {pendingConfirmationEmail ? (
+            <>
+              <h3 className="text-lg font-semibold text-white mb-1">Confirm your email</h3>
+              <p className="text-sm text-white/40 mb-6">
+                We sent a confirmation link to{" "}
+                <span className="text-white/70 font-medium">{pendingConfirmationEmail}</span>. Open it in your inbox
+                to finish creating your account — you'll be brought straight back into NazAI once you do.
+              </p>
+              <div className="p-4 rounded-xl border border-white/10 bg-white/[0.03] mb-6">
+                <p className="text-xs text-white/40 leading-relaxed">
+                  Don't see it? Check spam/junk, or resend it below.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleResendConfirmation}
+                disabled={resendLoading}
+                className="w-full h-11 rounded-xl text-white text-sm font-semibold transition-all disabled:opacity-40 flex items-center justify-center gap-2 mb-3"
+                style={{ background: "#00A3FF" }}
+              >
+                {resendLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                {resendLoading ? "Resending…" : "Resend confirmation email"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setPendingConfirmationEmail(null)}
+                className="w-full text-center text-xs text-white/30 hover:text-white/60 transition-colors"
+              >
+                Wrong email? Go back
+              </button>
+            </>
+          ) : (
+            <>
           <h3 className="text-lg font-semibold text-white mb-1">Authenticate to continue</h3>
           <p className="text-sm text-white/40 mb-8">Sign in to initialize your mission.</p>
 
@@ -445,6 +507,8 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
           </form>
 
           <p className="text-center text-xs text-white/15 mt-6">Sign in or create a new account to continue.</p>
+            </>
+          )}
         </motion.div>
       </motion.div>
     </AnimatePresence>
