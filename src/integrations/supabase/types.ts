@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.1"
+    PostgrestVersion: "14.5"
   }
   public: {
     Tables: {
@@ -25,6 +25,9 @@ export type Database = {
           invited_at: string
           invited_by: string
           member_id: string | null
+          ooo_fallback_member_id: string | null
+          ooo_until: string | null
+          permissions: string[] | null
           role: string
           status: string
         }
@@ -38,6 +41,9 @@ export type Database = {
           invited_at?: string
           invited_by: string
           member_id?: string | null
+          ooo_fallback_member_id?: string | null
+          ooo_until?: string | null
+          permissions?: string[] | null
           role: string
           status?: string
         }
@@ -51,6 +57,9 @@ export type Database = {
           invited_at?: string
           invited_by?: string
           member_id?: string | null
+          ooo_fallback_member_id?: string | null
+          ooo_until?: string | null
+          permissions?: string[] | null
           role?: string
           status?: string
         }
@@ -259,61 +268,100 @@ export type Database = {
       }
       agent_decisions: {
         Row: {
+          action_type: string | null
           agent_id: string | null
           agent_run_id: string | null
           alternatives_considered: Json
+          api_key_id: string | null
           confidence_score: number
           created_at: string
           decision: string
+          description: string | null
+          embedding_backfill_checked_at: string | null
           escalated: boolean
+          gate_duration_ms: number | null
           gate_trace: Json | null
+          hard_rule_id: string | null
           human_response: string | null
           id: string
+          is_test: boolean
           org_id: string | null
+          overridden_at: string | null
           override_of: string | null
+          params: Json | null
+          plan_id: string | null
           policy_version: number | null
+          precedent_citations: Json | null
+          provider: string | null
           reasoning: string
           signature: string | null
+          signing_key_id: string | null
           source: string
           step_index: number | null
           user_id: string
         }
         Insert: {
+          action_type?: string | null
           agent_id?: string | null
           agent_run_id?: string | null
           alternatives_considered?: Json
+          api_key_id?: string | null
           confidence_score?: number
           created_at?: string
           decision: string
+          description?: string | null
+          embedding_backfill_checked_at?: string | null
           escalated?: boolean
+          gate_duration_ms?: number | null
           gate_trace?: Json | null
+          hard_rule_id?: string | null
           human_response?: string | null
           id?: string
+          is_test?: boolean
           org_id?: string | null
+          overridden_at?: string | null
           override_of?: string | null
+          params?: Json | null
+          plan_id?: string | null
           policy_version?: number | null
+          precedent_citations?: Json | null
+          provider?: string | null
           reasoning?: string
           signature?: string | null
+          signing_key_id?: string | null
           source?: string
           step_index?: number | null
           user_id: string
         }
         Update: {
+          action_type?: string | null
           agent_id?: string | null
           agent_run_id?: string | null
           alternatives_considered?: Json
+          api_key_id?: string | null
           confidence_score?: number
           created_at?: string
           decision?: string
+          description?: string | null
+          embedding_backfill_checked_at?: string | null
           escalated?: boolean
+          gate_duration_ms?: number | null
           gate_trace?: Json | null
+          hard_rule_id?: string | null
           human_response?: string | null
           id?: string
+          is_test?: boolean
           org_id?: string | null
+          overridden_at?: string | null
           override_of?: string | null
+          params?: Json | null
+          plan_id?: string | null
           policy_version?: number | null
+          precedent_citations?: Json | null
+          provider?: string | null
           reasoning?: string
           signature?: string | null
+          signing_key_id?: string | null
           source?: string
           step_index?: number | null
           user_id?: string
@@ -334,6 +382,20 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "agent_decisions_api_key_id_fkey"
+            columns: ["api_key_id"]
+            isOneToOne: false
+            referencedRelation: "api_keys"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_decisions_hard_rule_id_fkey"
+            columns: ["hard_rule_id"]
+            isOneToOne: false
+            referencedRelation: "hard_rules"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "agent_decisions_override_of_fkey"
             columns: ["override_of"]
             isOneToOne: false
@@ -351,6 +413,7 @@ export type Database = {
           kind: string
           payload: Json
           reasoning: string | null
+          resolved_at: string | null
           run_id: string
           user_id: string
         }
@@ -362,6 +425,7 @@ export type Database = {
           kind: string
           payload?: Json
           reasoning?: string | null
+          resolved_at?: string | null
           run_id: string
           user_id: string
         }
@@ -373,6 +437,7 @@ export type Database = {
           kind?: string
           payload?: Json
           reasoning?: string | null
+          resolved_at?: string | null
           run_id?: string
           user_id?: string
         }
@@ -397,12 +462,14 @@ export type Database = {
         Row: {
           agent_id: string | null
           created_at: string
+          credentials: Json
           credentials_secret_id: string | null
           id: string
           last_error: string | null
           last_verified_at: string | null
           metadata: Json
           provider: string
+          revoked_alerted_at: string | null
           status: string
           updated_at: string
           user_id: string
@@ -410,12 +477,14 @@ export type Database = {
         Insert: {
           agent_id?: string | null
           created_at?: string
+          credentials?: Json
           credentials_secret_id?: string | null
           id?: string
           last_error?: string | null
           last_verified_at?: string | null
           metadata?: Json
           provider: string
+          revoked_alerted_at?: string | null
           status?: string
           updated_at?: string
           user_id: string
@@ -423,12 +492,14 @@ export type Database = {
         Update: {
           agent_id?: string | null
           created_at?: string
+          credentials?: Json
           credentials_secret_id?: string | null
           id?: string
           last_error?: string | null
           last_verified_at?: string | null
           metadata?: Json
           provider?: string
+          revoked_alerted_at?: string | null
           status?: string
           updated_at?: string
           user_id?: string
@@ -571,6 +642,38 @@ export type Database = {
           },
         ]
       }
+      agent_strictness_overrides: {
+        Row: {
+          agent_id: string
+          created_at: string
+          strictness: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          agent_id: string
+          created_at?: string
+          strictness: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          agent_id?: string
+          created_at?: string
+          strictness?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_strictness_overrides_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: true
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       agents: {
         Row: {
           auto_approve_low_risk: boolean
@@ -583,6 +686,10 @@ export type Database = {
           daily_run_cap: number
           goal: string | null
           id: string
+          kill_switch: boolean
+          kill_switch_at: string | null
+          kill_switch_auto: boolean
+          kill_switch_source: string | null
           manifest: Json
           name: string
           next_run_at: string | null
@@ -607,6 +714,10 @@ export type Database = {
           daily_run_cap?: number
           goal?: string | null
           id?: string
+          kill_switch?: boolean
+          kill_switch_at?: string | null
+          kill_switch_auto?: boolean
+          kill_switch_source?: string | null
           manifest: Json
           name: string
           next_run_at?: string | null
@@ -631,6 +742,10 @@ export type Database = {
           daily_run_cap?: number
           goal?: string | null
           id?: string
+          kill_switch?: boolean
+          kill_switch_at?: string | null
+          kill_switch_auto?: boolean
+          kill_switch_source?: string | null
           manifest?: Json
           name?: string
           next_run_at?: string | null
@@ -656,30 +771,56 @@ export type Database = {
       }
       ai_spend_caps: {
         Row: {
+          agent_id: string | null
+          api_key_id: string | null
           created_at: string
           daily_cap_usd: number
           enabled: boolean
+          id: string
           updated_at: string
           user_id: string
         }
         Insert: {
+          agent_id?: string | null
+          api_key_id?: string | null
           created_at?: string
           daily_cap_usd?: number
           enabled?: boolean
+          id?: string
           updated_at?: string
           user_id: string
         }
         Update: {
+          agent_id?: string | null
+          api_key_id?: string | null
           created_at?: string
           daily_cap_usd?: number
           enabled?: boolean
+          id?: string
           updated_at?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "ai_spend_caps_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_spend_caps_api_key_id_fkey"
+            columns: ["api_key_id"]
+            isOneToOne: false
+            referencedRelation: "api_keys"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       ai_spend_daily: {
         Row: {
+          agent_id: string | null
+          api_key_id: string | null
           calls: number
           capped_at: string | null
           completion_tokens: number
@@ -693,6 +834,8 @@ export type Database = {
           warned_at: string | null
         }
         Insert: {
+          agent_id?: string | null
+          api_key_id?: string | null
           calls?: number
           capped_at?: string | null
           completion_tokens?: number
@@ -706,6 +849,8 @@ export type Database = {
           warned_at?: string | null
         }
         Update: {
+          agent_id?: string | null
+          api_key_id?: string | null
           calls?: number
           capped_at?: string | null
           completion_tokens?: number
@@ -718,7 +863,305 @@ export type Database = {
           user_id?: string
           warned_at?: string | null
         }
+        Relationships: [
+          {
+            foreignKeyName: "ai_spend_daily_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_spend_daily_api_key_id_fkey"
+            columns: ["api_key_id"]
+            isOneToOne: false
+            referencedRelation: "api_keys"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      api_key_action_policies: {
+        Row: {
+          action_type_pattern: string
+          api_key_id: string
+          confidence_threshold: number | null
+          created_at: string
+          id: string
+          on_uncertain: string
+          user_id: string
+        }
+        Insert: {
+          action_type_pattern: string
+          api_key_id: string
+          confidence_threshold?: number | null
+          created_at?: string
+          id?: string
+          on_uncertain: string
+          user_id: string
+        }
+        Update: {
+          action_type_pattern?: string
+          api_key_id?: string
+          confidence_threshold?: number | null
+          created_at?: string
+          id?: string
+          on_uncertain?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "api_key_action_policies_api_key_id_fkey"
+            columns: ["api_key_id"]
+            isOneToOne: false
+            referencedRelation: "api_keys"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      api_key_shadow_observations: {
+        Row: {
+          action_type: string
+          api_key_id: string
+          approval_id: string
+          created_at: string
+          id: string
+          provider: string | null
+          shadow_resolution: string
+          user_id: string
+        }
+        Insert: {
+          action_type: string
+          api_key_id: string
+          approval_id: string
+          created_at?: string
+          id?: string
+          provider?: string | null
+          shadow_resolution: string
+          user_id: string
+        }
+        Update: {
+          action_type?: string
+          api_key_id?: string
+          approval_id?: string
+          created_at?: string
+          id?: string
+          provider?: string | null
+          shadow_resolution?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "api_key_shadow_observations_api_key_id_fkey"
+            columns: ["api_key_id"]
+            isOneToOne: false
+            referencedRelation: "api_keys"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "api_key_shadow_observations_approval_id_fkey"
+            columns: ["approval_id"]
+            isOneToOne: false
+            referencedRelation: "pending_approvals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      api_keys: {
+        Row: {
+          abuse_alerted_at: string | null
+          callback_failure_streak: number
+          callback_fallback: string
+          callback_secret: string | null
+          callback_timeout_seconds: number
+          callback_url: string | null
+          created_at: string
+          embedding_pipeline_alerted_at: string | null
+          expires_at: string | null
+          id: string
+          is_test: boolean
+          key_hash: string
+          key_prefix: string
+          last_pause_at: string | null
+          last_used_at: string | null
+          name: string
+          on_gate_error: string
+          on_uncertain: string
+          on_uncertain_downgrade_reason: string | null
+          on_uncertain_downgraded_at: string | null
+          pause_count: number
+          paused_until: string | null
+          quiet_hours_end_hour: number | null
+          quiet_hours_start_hour: number | null
+          quiet_hours_timezone: string | null
+          rate_limit_per_minute: number | null
+          revoked_at: string | null
+          scopes: string[]
+          shadow_on_uncertain: string | null
+          user_id: string
+        }
+        Insert: {
+          abuse_alerted_at?: string | null
+          callback_failure_streak?: number
+          callback_fallback?: string
+          callback_secret?: string | null
+          callback_timeout_seconds?: number
+          callback_url?: string | null
+          created_at?: string
+          embedding_pipeline_alerted_at?: string | null
+          expires_at?: string | null
+          id?: string
+          is_test?: boolean
+          key_hash: string
+          key_prefix: string
+          last_pause_at?: string | null
+          last_used_at?: string | null
+          name: string
+          on_gate_error?: string
+          on_uncertain?: string
+          on_uncertain_downgrade_reason?: string | null
+          on_uncertain_downgraded_at?: string | null
+          pause_count?: number
+          paused_until?: string | null
+          quiet_hours_end_hour?: number | null
+          quiet_hours_start_hour?: number | null
+          quiet_hours_timezone?: string | null
+          rate_limit_per_minute?: number | null
+          revoked_at?: string | null
+          scopes?: string[]
+          shadow_on_uncertain?: string | null
+          user_id: string
+        }
+        Update: {
+          abuse_alerted_at?: string | null
+          callback_failure_streak?: number
+          callback_fallback?: string
+          callback_secret?: string | null
+          callback_timeout_seconds?: number
+          callback_url?: string | null
+          created_at?: string
+          embedding_pipeline_alerted_at?: string | null
+          expires_at?: string | null
+          id?: string
+          is_test?: boolean
+          key_hash?: string
+          key_prefix?: string
+          last_pause_at?: string | null
+          last_used_at?: string | null
+          name?: string
+          on_gate_error?: string
+          on_uncertain?: string
+          on_uncertain_downgrade_reason?: string | null
+          on_uncertain_downgraded_at?: string | null
+          pause_count?: number
+          paused_until?: string | null
+          quiet_hours_end_hour?: number | null
+          quiet_hours_start_hour?: number | null
+          quiet_hours_timezone?: string | null
+          rate_limit_per_minute?: number | null
+          revoked_at?: string | null
+          scopes?: string[]
+          shadow_on_uncertain?: string | null
+          user_id?: string
+        }
         Relationships: []
+      }
+      audit_integrity_runs: {
+        Row: {
+          auto_resolutions_checked: number
+          auto_resolutions_mismatched: number
+          checked: number
+          created_at: string
+          decision_consistency_checked: number
+          decision_consistency_mismatched: number
+          id: string
+          knowledge_base_checked: number
+          knowledge_base_mismatched: number
+          mismatched_count: number
+          precedent_citations_checked: number
+          precedent_citations_mismatched: number
+          range_from: string
+          range_to: string
+          triggered_by: string
+          unsigned: number
+          user_id: string
+          verified: number
+        }
+        Insert: {
+          auto_resolutions_checked?: number
+          auto_resolutions_mismatched?: number
+          checked: number
+          created_at?: string
+          decision_consistency_checked?: number
+          decision_consistency_mismatched?: number
+          id?: string
+          knowledge_base_checked?: number
+          knowledge_base_mismatched?: number
+          mismatched_count: number
+          precedent_citations_checked?: number
+          precedent_citations_mismatched?: number
+          range_from: string
+          range_to: string
+          triggered_by: string
+          unsigned: number
+          user_id: string
+          verified: number
+        }
+        Update: {
+          auto_resolutions_checked?: number
+          auto_resolutions_mismatched?: number
+          checked?: number
+          created_at?: string
+          decision_consistency_checked?: number
+          decision_consistency_mismatched?: number
+          id?: string
+          knowledge_base_checked?: number
+          knowledge_base_mismatched?: number
+          mismatched_count?: number
+          precedent_citations_checked?: number
+          precedent_citations_mismatched?: number
+          range_from?: string
+          range_to?: string
+          triggered_by?: string
+          unsigned?: number
+          user_id?: string
+          verified?: number
+        }
+        Relationships: []
+      }
+      automation_readiness_signal_state: {
+        Row: {
+          api_key_id: string
+          id: string
+          ready: boolean
+          signal: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          api_key_id: string
+          id?: string
+          ready?: boolean
+          signal: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          api_key_id?: string
+          id?: string
+          ready?: boolean
+          signal?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "automation_readiness_signal_state_api_key_id_fkey"
+            columns: ["api_key_id"]
+            isOneToOne: false
+            referencedRelation: "api_keys"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       business_profiles: {
         Row: {
@@ -807,6 +1250,7 @@ export type Database = {
       circuit_breakers: {
         Row: {
           action_type: string
+          agent_id: string | null
           attempts: number
           created_at: string
           failure_rate: number
@@ -823,6 +1267,7 @@ export type Database = {
         }
         Insert: {
           action_type: string
+          agent_id?: string | null
           attempts?: number
           created_at?: string
           failure_rate?: number
@@ -839,6 +1284,7 @@ export type Database = {
         }
         Update: {
           action_type?: string
+          agent_id?: string | null
           attempts?: number
           created_at?: string
           failure_rate?: number
@@ -853,10 +1299,66 @@ export type Database = {
           updated_at?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "circuit_breakers_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      confidence_bucket_flags: {
+        Row: {
+          api_key_id: string | null
+          bucket_max: number
+          bucket_min: number
+          cleared_at: string | null
+          cleared_by: string | null
+          created_at: string
+          flagged_at: string
+          id: string
+          incident_id: string | null
+          user_id: string
+        }
+        Insert: {
+          api_key_id?: string | null
+          bucket_max: number
+          bucket_min: number
+          cleared_at?: string | null
+          cleared_by?: string | null
+          created_at?: string
+          flagged_at?: string
+          id?: string
+          incident_id?: string | null
+          user_id: string
+        }
+        Update: {
+          api_key_id?: string | null
+          bucket_max?: number
+          bucket_min?: number
+          cleared_at?: string | null
+          cleared_by?: string | null
+          created_at?: string
+          flagged_at?: string
+          id?: string
+          incident_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "confidence_bucket_flags_incident_id_fkey"
+            columns: ["incident_id"]
+            isOneToOne: false
+            referencedRelation: "incidents"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       confidence_calibration: {
         Row: {
+          api_key_id: string | null
           bucket_label: string
           bucket_max: number
           bucket_min: number
@@ -878,6 +1380,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          api_key_id?: string | null
           bucket_label: string
           bucket_max: number
           bucket_min: number
@@ -899,6 +1402,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          api_key_id?: string | null
           bucket_label?: string
           bucket_max?: number
           bucket_min?: number
@@ -1071,6 +1575,120 @@ export type Database = {
         }
         Relationships: []
       }
+      cross_account_precedent_stats: {
+        Row: {
+          action_type: string
+          contributing_account_count: number
+          id: string
+          non_allow_count: number
+          provider: string
+          total_count: number
+          updated_at: string
+        }
+        Insert: {
+          action_type: string
+          contributing_account_count?: number
+          id?: string
+          non_allow_count?: number
+          provider?: string
+          total_count?: number
+          updated_at?: string
+        }
+        Update: {
+          action_type?: string
+          contributing_account_count?: number
+          id?: string
+          non_allow_count?: number
+          provider?: string
+          total_count?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      data_deletion_requests: {
+        Row: {
+          cancelled_at: string | null
+          completed_at: string | null
+          execute_at: string
+          id: string
+          requested_at: string
+          requested_by: string
+          status: string
+          user_id: string
+        }
+        Insert: {
+          cancelled_at?: string | null
+          completed_at?: string | null
+          execute_at: string
+          id?: string
+          requested_at?: string
+          requested_by: string
+          status?: string
+          user_id: string
+        }
+        Update: {
+          cancelled_at?: string | null
+          completed_at?: string | null
+          execute_at?: string
+          id?: string
+          requested_at?: string
+          requested_by?: string
+          status?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      decision_embeddings: {
+        Row: {
+          action_type: string
+          api_key_id: string
+          created_at: string
+          decision_id: string
+          embedding: string
+          excluded_from_precedent: boolean
+          id: string
+          provider: string
+          user_id: string
+        }
+        Insert: {
+          action_type: string
+          api_key_id: string
+          created_at?: string
+          decision_id: string
+          embedding: string
+          excluded_from_precedent?: boolean
+          id?: string
+          provider: string
+          user_id: string
+        }
+        Update: {
+          action_type?: string
+          api_key_id?: string
+          created_at?: string
+          decision_id?: string
+          embedding?: string
+          excluded_from_precedent?: boolean
+          id?: string
+          provider?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "decision_embeddings_api_key_id_fkey"
+            columns: ["api_key_id"]
+            isOneToOne: false
+            referencedRelation: "api_keys"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "decision_embeddings_decision_id_fkey"
+            columns: ["decision_id"]
+            isOneToOne: true
+            referencedRelation: "agent_decisions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       decision_outcomes: {
         Row: {
           agent_id: string | null
@@ -1240,6 +1858,48 @@ export type Database = {
         }
         Relationships: []
       }
+      figma_oauth_transactions: {
+        Row: {
+          created_at: string
+          expires_at: string
+          state: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          expires_at?: string
+          state: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string
+          state?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      gmail_oauth_transactions: {
+        Row: {
+          created_at: string
+          expires_at: string
+          state: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          expires_at?: string
+          state: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string
+          state?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       hard_rule_shadow_hits: {
         Row: {
           action_type: string
@@ -1294,12 +1954,14 @@ export type Database = {
       hard_rules: {
         Row: {
           action_type_pattern: string
+          agent_id: string | null
           created_at: string
           effect: string
           enabled: boolean
           id: string
           promoted_at: string | null
           provider: string | null
+          rationale: string | null
           rule_text: string
           shadow_mode: boolean
           updated_at: string
@@ -1307,12 +1969,14 @@ export type Database = {
         }
         Insert: {
           action_type_pattern?: string
+          agent_id?: string | null
           created_at?: string
           effect?: string
           enabled?: boolean
           id?: string
           promoted_at?: string | null
           provider?: string | null
+          rationale?: string | null
           rule_text: string
           shadow_mode?: boolean
           updated_at?: string
@@ -1320,18 +1984,28 @@ export type Database = {
         }
         Update: {
           action_type_pattern?: string
+          agent_id?: string | null
           created_at?: string
           effect?: string
           enabled?: boolean
           id?: string
           promoted_at?: string | null
           provider?: string | null
+          rationale?: string | null
           rule_text?: string
           shadow_mode?: boolean
           updated_at?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "hard_rules_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       idempotency_keys: {
         Row: {
@@ -1526,6 +2200,63 @@ export type Database = {
           },
         ]
       }
+      ip_rate_limit_windows: {
+        Row: {
+          count: number
+          endpoint: string
+          ip: string
+          window_start: string
+        }
+        Insert: {
+          count?: number
+          endpoint: string
+          ip: string
+          window_start: string
+        }
+        Update: {
+          count?: number
+          endpoint?: string
+          ip?: string
+          window_start?: string
+        }
+        Relationships: []
+      }
+      knowledge_base_entries: {
+        Row: {
+          action_type_pattern: string | null
+          auto_drafted: boolean
+          created_at: string
+          enabled: boolean
+          entry_text: string
+          id: string
+          pending_review: boolean
+          provider: string | null
+          user_id: string
+        }
+        Insert: {
+          action_type_pattern?: string | null
+          auto_drafted?: boolean
+          created_at?: string
+          enabled?: boolean
+          entry_text: string
+          id?: string
+          pending_review?: boolean
+          provider?: string | null
+          user_id: string
+        }
+        Update: {
+          action_type_pattern?: string | null
+          auto_drafted?: boolean
+          created_at?: string
+          enabled?: boolean
+          entry_text?: string
+          id?: string
+          pending_review?: boolean
+          provider?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       missions: {
         Row: {
           attachment_urls: string[] | null
@@ -1553,6 +2284,39 @@ export type Database = {
           status?: string
           updated_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      notification_preferences: {
+        Row: {
+          account_owner_id: string
+          created_at: string
+          critical_alert_email_enabled: boolean
+          digest_enabled: boolean
+          id: string
+          recipient_id: string
+          updated_at: string
+          weekly_trend_enabled: boolean
+        }
+        Insert: {
+          account_owner_id: string
+          created_at?: string
+          critical_alert_email_enabled?: boolean
+          digest_enabled?: boolean
+          id?: string
+          recipient_id: string
+          updated_at?: string
+          weekly_trend_enabled?: boolean
+        }
+        Update: {
+          account_owner_id?: string
+          created_at?: string
+          critical_alert_email_enabled?: boolean
+          digest_enabled?: boolean
+          id?: string
+          recipient_id?: string
+          updated_at?: string
+          weekly_trend_enabled?: boolean
         }
         Relationships: []
       }
@@ -1622,12 +2386,54 @@ export type Database = {
         }
         Relationships: []
       }
+      pending_approval_events: {
+        Row: {
+          actor_id: string | null
+          approval_id: string
+          created_at: string
+          event_type: string
+          id: string
+          note: string | null
+          target_id: string | null
+          user_id: string
+        }
+        Insert: {
+          actor_id?: string | null
+          approval_id: string
+          created_at?: string
+          event_type: string
+          id?: string
+          note?: string | null
+          target_id?: string | null
+          user_id: string
+        }
+        Update: {
+          actor_id?: string | null
+          approval_id?: string
+          created_at?: string
+          event_type?: string
+          id?: string
+          note?: string | null
+          target_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pending_approval_events_approval_id_fkey"
+            columns: ["approval_id"]
+            isOneToOne: false
+            referencedRelation: "pending_approvals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       pending_approvals: {
         Row: {
           action_type: string
           agent_id: string | null
           approvals: Json
           approver_role: string
+          assigned_to: string | null
           comment: string | null
           created_at: string
           decision_id: string | null
@@ -1637,8 +2443,10 @@ export type Database = {
           id: string
           origin: string
           params: Json
+          plan_id: string | null
           provider: string
           reason: string
+          reason_code: string | null
           requester_id: string | null
           required_approvals: number
           resolved_at: string | null
@@ -1653,6 +2461,7 @@ export type Database = {
           agent_id?: string | null
           approvals?: Json
           approver_role?: string
+          assigned_to?: string | null
           comment?: string | null
           created_at?: string
           decision_id?: string | null
@@ -1662,8 +2471,10 @@ export type Database = {
           id?: string
           origin?: string
           params?: Json
+          plan_id?: string | null
           provider?: string
           reason?: string
+          reason_code?: string | null
           requester_id?: string | null
           required_approvals?: number
           resolved_at?: string | null
@@ -1678,6 +2489,7 @@ export type Database = {
           agent_id?: string | null
           approvals?: Json
           approver_role?: string
+          assigned_to?: string | null
           comment?: string | null
           created_at?: string
           decision_id?: string | null
@@ -1687,8 +2499,10 @@ export type Database = {
           id?: string
           origin?: string
           params?: Json
+          plan_id?: string | null
           provider?: string
           reason?: string
+          reason_code?: string | null
           requester_id?: string | null
           required_approvals?: number
           resolved_at?: string | null
@@ -1722,6 +2536,116 @@ export type Database = {
           },
         ]
       }
+      platform_incidents: {
+        Row: {
+          created_at: string
+          detail: Json | null
+          id: string
+          kind: string
+          resolution_note: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          summary: string
+        }
+        Insert: {
+          created_at?: string
+          detail?: Json | null
+          id?: string
+          kind: string
+          resolution_note?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          summary: string
+        }
+        Update: {
+          created_at?: string
+          detail?: Json | null
+          id?: string
+          kind?: string
+          resolution_note?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          summary?: string
+        }
+        Relationships: []
+      }
+      platform_settings: {
+        Row: {
+          id: number
+          kill_switch: boolean
+          kill_switch_reason: string | null
+          kill_switch_updated_at: string | null
+          kill_switch_updated_by: string | null
+        }
+        Insert: {
+          id?: number
+          kill_switch?: boolean
+          kill_switch_reason?: string | null
+          kill_switch_updated_at?: string | null
+          kill_switch_updated_by?: string | null
+        }
+        Update: {
+          id?: number
+          kill_switch?: boolean
+          kill_switch_reason?: string | null
+          kill_switch_updated_at?: string | null
+          kill_switch_updated_by?: string | null
+        }
+        Relationships: []
+      }
+      policy_change_requests: {
+        Row: {
+          agent_id: string | null
+          approved_at: string | null
+          approved_by: string | null
+          change_type: string
+          created_at: string
+          description: string
+          id: string
+          new_value: Json | null
+          requested_by: string
+          row_id: string | null
+          status: string
+          user_id: string
+        }
+        Insert: {
+          agent_id?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
+          change_type: string
+          created_at?: string
+          description?: string
+          id?: string
+          new_value?: Json | null
+          requested_by: string
+          row_id?: string | null
+          status?: string
+          user_id: string
+        }
+        Update: {
+          agent_id?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
+          change_type?: string
+          created_at?: string
+          description?: string
+          id?: string
+          new_value?: Json | null
+          requested_by?: string
+          row_id?: string | null
+          status?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "policy_change_requests_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       policy_versions: {
         Row: {
           activated_at: string | null
@@ -1733,6 +2657,8 @@ export type Database = {
           updated_at: string
           user_id: string
           version: number
+          watching: boolean
+          watching_since: string | null
         }
         Insert: {
           activated_at?: string | null
@@ -1744,6 +2670,8 @@ export type Database = {
           updated_at?: string
           user_id: string
           version: number
+          watching?: boolean
+          watching_since?: string | null
         }
         Update: {
           activated_at?: string | null
@@ -1755,12 +2683,71 @@ export type Database = {
           updated_at?: string
           user_id?: string
           version?: number
+          watching?: boolean
+          watching_since?: string | null
         }
         Relationships: []
       }
+      policy_watch_observations: {
+        Row: {
+          action_type: string
+          active_outcome: string
+          changed: boolean
+          created_at: string
+          decision_id: string | null
+          draft_outcome: string
+          id: string
+          policy_version_id: string
+          provider: string | null
+          user_id: string
+        }
+        Insert: {
+          action_type: string
+          active_outcome: string
+          changed: boolean
+          created_at?: string
+          decision_id?: string | null
+          draft_outcome: string
+          id?: string
+          policy_version_id: string
+          provider?: string | null
+          user_id: string
+        }
+        Update: {
+          action_type?: string
+          active_outcome?: string
+          changed?: boolean
+          created_at?: string
+          decision_id?: string | null
+          draft_outcome?: string
+          id?: string
+          policy_version_id?: string
+          provider?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "policy_watch_observations_decision_id_fkey"
+            columns: ["decision_id"]
+            isOneToOne: false
+            referencedRelation: "agent_decisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "policy_watch_observations_policy_version_id_fkey"
+            columns: ["policy_version_id"]
+            isOneToOne: false
+            referencedRelation: "policy_versions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
+          auto_resolution_share_alerted_at: string | null
+          compliance_report_monthly_enabled: boolean
           control_strictness: string
+          coordinated_abuse_alerted_at: string | null
           created_at: string
           credits: number
           display_name: string | null
@@ -1769,12 +2756,18 @@ export type Database = {
           kill_switch_at: string | null
           kill_switch_auto: boolean
           kill_switch_source: string | null
+          require_dual_control_for_policy: boolean
           retention_days: number
+          roi_report_monthly_enabled: boolean
+          share_anonymized_precedent_stats: boolean
           updated_at: string
           user_context: Json
         }
         Insert: {
+          auto_resolution_share_alerted_at?: string | null
+          compliance_report_monthly_enabled?: boolean
           control_strictness?: string
+          coordinated_abuse_alerted_at?: string | null
           created_at?: string
           credits?: number
           display_name?: string | null
@@ -1783,12 +2776,18 @@ export type Database = {
           kill_switch_at?: string | null
           kill_switch_auto?: boolean
           kill_switch_source?: string | null
+          require_dual_control_for_policy?: boolean
           retention_days?: number
+          roi_report_monthly_enabled?: boolean
+          share_anonymized_precedent_stats?: boolean
           updated_at?: string
           user_context?: Json
         }
         Update: {
+          auto_resolution_share_alerted_at?: string | null
+          compliance_report_monthly_enabled?: boolean
           control_strictness?: string
+          coordinated_abuse_alerted_at?: string | null
           created_at?: string
           credits?: number
           display_name?: string | null
@@ -1797,7 +2796,10 @@ export type Database = {
           kill_switch_at?: string | null
           kill_switch_auto?: boolean
           kill_switch_source?: string | null
+          require_dual_control_for_policy?: boolean
           retention_days?: number
+          roi_report_monthly_enabled?: boolean
+          share_anonymized_precedent_stats?: boolean
           updated_at?: string
           user_context?: Json
         }
@@ -1857,41 +2859,157 @@ export type Database = {
         }
         Relationships: []
       }
+      safety_rule_matches: {
+        Row: {
+          action_type: string
+          created_at: string
+          decision_id: string | null
+          id: string
+          provider: string | null
+          rule_id: string
+          user_id: string
+        }
+        Insert: {
+          action_type: string
+          created_at?: string
+          decision_id?: string | null
+          id?: string
+          provider?: string | null
+          rule_id: string
+          user_id: string
+        }
+        Update: {
+          action_type?: string
+          created_at?: string
+          decision_id?: string | null
+          id?: string
+          provider?: string | null
+          rule_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "safety_rule_matches_decision_id_fkey"
+            columns: ["decision_id"]
+            isOneToOne: false
+            referencedRelation: "agent_decisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "safety_rule_matches_rule_id_fkey"
+            columns: ["rule_id"]
+            isOneToOne: false
+            referencedRelation: "safety_rules"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      safety_rule_shadow_hits: {
+        Row: {
+          action_type: string
+          actual_decision: string | null
+          created_at: string
+          decision_id: string | null
+          id: string
+          provider: string | null
+          rule_id: string
+          user_id: string
+          would_have: string
+        }
+        Insert: {
+          action_type: string
+          actual_decision?: string | null
+          created_at?: string
+          decision_id?: string | null
+          id?: string
+          provider?: string | null
+          rule_id: string
+          user_id: string
+          would_have: string
+        }
+        Update: {
+          action_type?: string
+          actual_decision?: string | null
+          created_at?: string
+          decision_id?: string | null
+          id?: string
+          provider?: string | null
+          rule_id?: string
+          user_id?: string
+          would_have?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "safety_rule_shadow_hits_decision_id_fkey"
+            columns: ["decision_id"]
+            isOneToOne: false
+            referencedRelation: "agent_decisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "safety_rule_shadow_hits_rule_id_fkey"
+            columns: ["rule_id"]
+            isOneToOne: false
+            referencedRelation: "safety_rules"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       safety_rules: {
         Row: {
+          agent_id: string | null
           category: string
           created_at: string
           enabled: boolean
           id: string
           name: string
           pattern: string
+          promoted_at: string | null
+          rationale: string | null
           severity: string
+          shadow_mode: boolean
           updated_at: string
           user_id: string
         }
         Insert: {
+          agent_id?: string | null
           category?: string
           created_at?: string
           enabled?: boolean
           id?: string
           name: string
           pattern: string
+          promoted_at?: string | null
+          rationale?: string | null
           severity?: string
+          shadow_mode?: boolean
           updated_at?: string
           user_id: string
         }
         Update: {
+          agent_id?: string | null
           category?: string
           created_at?: string
           enabled?: boolean
           id?: string
           name?: string
           pattern?: string
+          promoted_at?: string | null
+          rationale?: string | null
           severity?: string
+          shadow_mode?: boolean
           updated_at?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "safety_rules_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       scenario_simulations: {
         Row: {
@@ -1914,6 +3032,27 @@ export type Database = {
           question?: string
           response?: Json
           user_id?: string
+        }
+        Relationships: []
+      }
+      scheduled_job_requests: {
+        Row: {
+          created_at: string
+          id: number
+          job_name: string
+          request_id: number
+        }
+        Insert: {
+          created_at?: string
+          id?: never
+          job_name: string
+          request_id: number
+        }
+        Update: {
+          created_at?: string
+          id?: never
+          job_name?: string
+          request_id?: number
         }
         Relationships: []
       }
@@ -2042,36 +3181,55 @@ export type Database = {
       }
       webhook_deliveries: {
         Row: {
+          attempt: number
           created_at: string
           error: string | null
           event: string
           id: string
+          next_retry_at: string | null
           ok: boolean
+          original_delivery_id: string | null
+          payload: Json | null
           status_code: number | null
           user_id: string
           webhook_id: string
         }
         Insert: {
+          attempt?: number
           created_at?: string
           error?: string | null
           event: string
           id?: string
+          next_retry_at?: string | null
           ok: boolean
+          original_delivery_id?: string | null
+          payload?: Json | null
           status_code?: number | null
           user_id: string
           webhook_id: string
         }
         Update: {
+          attempt?: number
           created_at?: string
           error?: string | null
           event?: string
           id?: string
+          next_retry_at?: string | null
           ok?: boolean
+          original_delivery_id?: string | null
+          payload?: Json | null
           status_code?: number | null
           user_id?: string
           webhook_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "webhook_deliveries_original_delivery_id_fkey"
+            columns: ["original_delivery_id"]
+            isOneToOne: false
+            referencedRelation: "webhook_deliveries"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "webhook_deliveries_webhook_id_fkey"
             columns: ["webhook_id"]
@@ -2083,30 +3241,39 @@ export type Database = {
       }
       webhooks: {
         Row: {
+          alerted_at: string | null
           created_at: string
           enabled: boolean
           events: string[]
           id: string
+          previous_secret: string | null
+          previous_secret_expires_at: string | null
           secret: string
           updated_at: string
           url: string
           user_id: string
         }
         Insert: {
+          alerted_at?: string | null
           created_at?: string
           enabled?: boolean
           events?: string[]
           id?: string
+          previous_secret?: string | null
+          previous_secret_expires_at?: string | null
           secret: string
           updated_at?: string
           url: string
           user_id: string
         }
         Update: {
+          alerted_at?: string | null
           created_at?: string
           enabled?: boolean
           events?: string[]
           id?: string
+          previous_secret?: string | null
+          previous_secret_expires_at?: string | null
           secret?: string
           updated_at?: string
           url?: string
@@ -2205,14 +3372,58 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      _decision_signing_secret_for_key: {
+        Args: { _key_id: string }
+        Returns: string
+      }
+      _verify_decision_signatures_impl: {
+        Args: { _from: string; _limit: number; _to: string; _user_id: string }
+        Returns: Json
+      }
       add_credits: { Args: { amount: number }; Returns: number }
+      approve_policy_change: {
+        Args: { _request_id: string }
+        Returns: {
+          agent_id: string | null
+          approved_at: string | null
+          approved_by: string | null
+          change_type: string
+          created_at: string
+          description: string
+          id: string
+          new_value: Json | null
+          requested_by: string
+          row_id: string | null
+          status: string
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "policy_change_requests"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       build_policy_snapshot: { Args: { _user_id: string }; Returns: Json }
+      cancel_data_deletion: { Args: { _request_id: string }; Returns: boolean }
       consume_canva_oauth_transaction: {
         Args: { _state: string }
         Returns: {
           code_verifier: string
           request_origin: string
           scope_groups: string[]
+          user_id: string
+        }[]
+      }
+      consume_figma_oauth_transaction: {
+        Args: { _state: string }
+        Returns: {
+          user_id: string
+        }[]
+      }
+      consume_gmail_oauth_transaction: {
+        Args: { _state: string }
+        Returns: {
           user_id: string
         }[]
       }
@@ -2262,7 +3473,6 @@ export type Database = {
         Returns: boolean
       }
       delete_integration_secret: { Args: { sid: string }; Returns: undefined }
-      email_queue_dispatch: { Args: never; Returns: undefined }
       enqueue_email: {
         Args: { payload: Json; queue_name: string }
         Returns: number
@@ -2276,6 +3486,48 @@ export type Database = {
         }[]
       }
       get_business_context: { Args: { _user_id: string }; Returns: Json }
+      get_identity_providers_for_email: {
+        Args: { _email: string }
+        Returns: string[]
+      }
+      get_job_health_outcomes: {
+        Args: { _since: string }
+        Returns: {
+          job_name: string
+          request_id: number
+          status_code: number
+          timed_out: boolean
+        }[]
+      }
+      get_recent_breaker_trips: {
+        Args: { _since: string }
+        Returns: {
+          action_type: string
+          agent_id: string
+          decision_id: string
+          opened_at: string
+          provider: string
+          user_id: string
+        }[]
+      }
+      get_recent_decision_user_ids: {
+        Args: { _since: string }
+        Returns: {
+          user_id: string
+        }[]
+      }
+      get_replayable_real_decisions: {
+        Args: { _limit?: number; _user_id: string }
+        Returns: {
+          action_type: string
+          created_at: string
+          description: string
+          id: string
+          params: Json
+          provider: string
+          real_source: string
+        }[]
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -2283,12 +3535,20 @@ export type Database = {
         }
         Returns: boolean
       }
+      increment_ip_rate_limit: {
+        Args: { _endpoint: string; _ip: string; _window_start: string }
+        Returns: number
+      }
       increment_rate_limit: {
         Args: { _endpoint: string; _user_id: string; _window_start: string }
         Returns: number
       }
       is_account_member: {
-        Args: { _account_owner_id: string; _min_role?: string }
+        Args: {
+          _account_owner_id: string
+          _min_role?: string
+          _permission?: string
+        }
         Returns: boolean
       }
       move_to_dlq: {
@@ -2310,33 +3570,201 @@ export type Database = {
       }
       read_integration_secret: { Args: { sid: string }; Returns: Json }
       read_webhook_secret: { Args: { _agent_id: string }; Returns: string }
+      reassign_pending_approval: {
+        Args: { _approval_id: string; _assigned_to: string }
+        Returns: Json
+      }
       record_ai_spend: {
         Args: {
+          _agent_id?: string
+          _api_key_id?: string
           _completion_tokens?: number
           _cost_usd: number
           _prompt_tokens?: number
           _user_id: string
         }
         Returns: {
-          calls: number
-          cap_usd: number
-          capped_at: string
-          cost_usd: number
+          account_calls: number
+          account_cap_usd: number
+          account_capped_at: string
+          account_cost_usd: number
+          account_pct: number
+          account_warned_at: string
+          agent_calls: number
+          agent_cap_usd: number
+          agent_capped_at: string
+          agent_cost_usd: number
+          agent_has_cap: boolean
+          agent_pct: number
+          agent_warned_at: string
           day: string
-          pct: number
-          warned_at: string
+          key_calls: number
+          key_cap_usd: number
+          key_capped_at: string
+          key_cost_usd: number
+          key_has_cap: boolean
+          key_pct: number
+          key_warned_at: string
         }[]
       }
       record_approval_signoff: {
-        Args: { _approval_id: string; _comment?: string; _vote: string }
+        Args: {
+          _approval_id: string
+          _comment?: string
+          _reason_code?: string
+          _vote: string
+        }
         Returns: Json
       }
-      rotate_webhook_secret: { Args: { _agent_id: string }; Returns: string }
+      reject_policy_change: {
+        Args: { _request_id: string }
+        Returns: {
+          agent_id: string | null
+          approved_at: string | null
+          approved_by: string | null
+          change_type: string
+          created_at: string
+          description: string
+          id: string
+          new_value: Json | null
+          requested_by: string
+          row_id: string | null
+          status: string
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "policy_change_requests"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      request_data_deletion: {
+        Args: never
+        Returns: {
+          cancelled_at: string | null
+          completed_at: string | null
+          execute_at: string
+          id: string
+          requested_at: string
+          requested_by: string
+          status: string
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "data_deletion_requests"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      request_policy_change: {
+        Args: {
+          _agent_id?: string
+          _change_type: string
+          _description?: string
+          _new_value?: Json
+          _row_id?: string
+          _target_user_id?: string
+        }
+        Returns: {
+          agent_id: string | null
+          approved_at: string | null
+          approved_by: string | null
+          change_type: string
+          created_at: string
+          description: string
+          id: string
+          new_value: Json | null
+          requested_by: string
+          row_id: string | null
+          status: string
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "policy_change_requests"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      resolve_api_key: {
+        Args: { _key_hash: string }
+        Returns: {
+          is_test: boolean
+          key_id: string
+          paused_until: string
+          scopes: string[]
+          user_id: string
+        }[]
+      }
+      rollback_config_change: {
+        Args: { _change_id: string }
+        Returns: {
+          action: string
+          actor_id: string | null
+          after: Json | null
+          before: Json | null
+          created_at: string
+          id: string
+          row_id: string | null
+          table_name: string
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "config_changes"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      rotate_webhook_secret:
+        | { Args: { _agent_id: string }; Returns: string }
+        | {
+            Args: {
+              _grace_hours?: number
+              _new_secret: string
+              _webhook_id: string
+            }
+            Returns: {
+              id: string
+              previous_secret: string
+              previous_secret_expires_at: string
+              secret: string
+            }[]
+          }
+      search_decision_precedent: {
+        Args: {
+          _api_key_id: string
+          _embedding: string
+          _exclude_decision_id?: string
+          _limit?: number
+        }
+        Returns: {
+          action_type: string
+          created_at: string
+          decision_id: string
+          provider: string
+          similarity: number
+        }[]
+      }
+      sign_compliance_attestation: {
+        Args: { _payload: string }
+        Returns: string
+      }
       update_integration_secret: {
         Args: { payload: Json; sid: string }
         Returns: undefined
       }
       verify_decision_signature: { Args: { _id: string }; Returns: Json }
+      verify_decision_signatures_batch: {
+        Args: { _from: string; _limit?: number; _to: string }
+        Returns: Json
+      }
+      verify_decision_signatures_batch_for: {
+        Args: { _from: string; _limit?: number; _to: string; _user_id: string }
+        Returns: Json
+      }
     }
     Enums: {
       app_role: "owner" | "admin" | "user"
