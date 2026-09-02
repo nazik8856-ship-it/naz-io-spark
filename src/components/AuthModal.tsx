@@ -466,6 +466,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
               onChange={(e) => setFormData({ ...formData, email: e.target.value })}
               className="h-11 bg-white/[0.03] border-white/10 rounded-xl text-white placeholder:text-white/15 focus-visible:ring-[#00A3FF]/40 focus-visible:border-[#00A3FF]/30"
             />
+            <p className="text-xs text-white/30 -mb-1">{PASSWORD_REQUIREMENTS_HINT}</p>
             <div className="relative">
               <Input
                 type={showPassword ? "text" : "password"}
@@ -482,7 +483,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
                 className="absolute right-3 top-1/2 -translate-y-1/2 p-1 touch-manipulation text-cyan-500/50 hover:text-cyan-400 transition-colors"
                 aria-label={showPassword ? "Hide password" : "Show password"}
               >
-                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                {showPassword ? <Eye size={18} /> : <EyeOff size={18} />}
               </button>
             </div>
             <div className="text-right -mt-2">
