@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { sendPasswordChangedNotification } from "@/lib/send-auth-notification-email";
 import { validatePassword, PASSWORD_REQUIREMENTS_HINT } from "@/lib/password-policy";
+import { sanitizeAuthErrorMessage } from "@/lib/auth-error-message";
 
 // Landed on from the "reset password" email link. Supabase's client already
 // auto-processes the recovery link on its own (detectSessionInUrl defaults to
@@ -87,7 +88,7 @@ const ResetPassword = () => {
     try {
       const { data, error } = await supabase.auth.updateUser({ password });
       if (error) {
-        toast.error("Couldn't update password", { description: error.message });
+        toast.error("Couldn't update password", { description: sanitizeAuthErrorMessage(error.message) });
         return;
       }
       void sendPasswordChangedNotification(data.user?.email);

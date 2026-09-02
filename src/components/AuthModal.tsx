@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { sendWelcomeEmail } from "@/lib/send-welcome-email";
 import { sendSignInNotification } from "@/lib/send-auth-notification-email";
 import { validatePassword, PASSWORD_REQUIREMENTS_HINT } from "@/lib/password-policy";
+import { sanitizeAuthErrorMessage } from "@/lib/auth-error-message";
 
 const clearStaleDashboardCache = () => {
   try {
@@ -42,7 +43,7 @@ const getAuthErrorMessage = (message: string) => {
   // server we haven't mirrored yet).
   if (normalized.includes("password should contain") || normalized.includes("password is too weak"))
     return { title: "Password too weak", description: PASSWORD_REQUIREMENTS_HINT };
-  return { title: "Authentication failed", description: message };
+  return { title: "Authentication failed", description: sanitizeAuthErrorMessage(message) };
 };
 
 const OAUTH_PROVIDER_LABELS: Record<string, string> = { google: "Google", apple: "Apple" };
@@ -78,7 +79,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
         options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
       });
       if (error) {
-        toast({ title: "Couldn't resend confirmation", description: error.message, variant: "destructive" });
+        toast({ title: "Couldn't resend confirmation", description: sanitizeAuthErrorMessage(error.message), variant: "destructive" });
       } else {
         toast({ title: "Confirmation email resent", description: `Check ${pendingConfirmationEmail} again.` });
       }
@@ -98,7 +99,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
         redirectTo: `${window.location.origin}/auth/reset-password`,
       });
       if (error) {
-        toast({ title: "Couldn't send reset link", description: error.message, variant: "destructive" });
+        toast({ title: "Couldn't send reset link", description: sanitizeAuthErrorMessage(error.message), variant: "destructive" });
         return;
       }
       toast({ title: "Check your email", description: `We sent a password reset link to ${formData.email}.` });
@@ -153,7 +154,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
           options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
         });
         if (resendError) {
-          toast({ title: "Couldn't resend confirmation", description: resendError.message, variant: "destructive" });
+          toast({ title: "Couldn't resend confirmation", description: sanitizeAuthErrorMessage(resendError.message), variant: "destructive" });
         } else {
           setPendingConfirmationEmail(formData.email);
         }
@@ -284,7 +285,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
         console.error("[auth-modal] OAuth sign-in failed:", error.message);
         toast({
           title: `${provider === "google" ? "Google" : "Apple"} sign-in failed`,
-          description: error.message,
+          description: sanitizeAuthErrorMessage(error.message),
           variant: "destructive",
         });
         setSocialLoading(null);
@@ -295,7 +296,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
       console.error("[auth-modal] OAuth sign-in threw:", err);
       toast({
         title: `${provider === "google" ? "Google" : "Apple"} sign-in failed`,
-        description: err instanceof Error ? err.message : String(err),
+        description: sanitizeAuthErrorMessage(err instanceof Error ? err.message : String(err)),
         variant: "destructive",
       });
       setSocialLoading(null);

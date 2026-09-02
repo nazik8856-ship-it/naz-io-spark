@@ -22,8 +22,11 @@ const json = (b: Record<string, unknown>, status = 200) =>
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 
-const RATE_LIMIT_PER_WINDOW = 10;
-const RATE_LIMIT_WINDOW_SECONDS = 300;
+// Wide enough for a burst of concurrent legitimate sign-in attempts (e.g.
+// many testers behind one shared/corporate IP) while still bounding a
+// scripted enumeration run against this specific endpoint.
+const RATE_LIMIT_PER_WINDOW = 100;
+const RATE_LIMIT_WINDOW_SECONDS = 60;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
