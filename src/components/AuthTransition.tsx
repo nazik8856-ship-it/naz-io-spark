@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ShieldCheck, Cpu, Sparkles } from "lucide-react";
 
@@ -35,6 +35,15 @@ const SLIDE_MS = 900;
 
 const AuthTransition: React.FC<AuthTransitionProps> = ({ active, onComplete }) => {
   const [idx, setIdx] = useState(0);
+  // Callers (Workflower) pass an inline onComplete, so its reference changes
+  // on every parent re-render -- and the parent re-renders constantly while
+  // this is showing (its typewriter effect updates state every 28ms). Reading
+  // the latest onComplete through a ref, rather than depending on it directly,
+  // keeps this effect from restarting the whole slideshow on every one of
+  // those renders -- which previously reset idx to 0 and cleared the pending
+  // timers before any of them could ever fire, permanently stuck on slide 1.
+  const onCompleteRef = useRef(onComplete);
+  onCompleteRef.current = onComplete;
 
   useEffect(() => {
     if (!active) return;
@@ -43,9 +52,9 @@ const AuthTransition: React.FC<AuthTransitionProps> = ({ active, onComplete }) =
     SLIDES.forEach((_, i) => {
       timers.push(window.setTimeout(() => setIdx(i), i * SLIDE_MS));
     });
-    timers.push(window.setTimeout(onComplete, SLIDES.length * SLIDE_MS));
+    timers.push(window.setTimeout(() => onCompleteRef.current(), SLIDES.length * SLIDE_MS));
     return () => timers.forEach(clearTimeout);
-  }, [active, onComplete]);
+  }, [active]);
 
   if (!active) return null;
 

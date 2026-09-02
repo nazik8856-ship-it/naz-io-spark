@@ -4,6 +4,7 @@ import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
+import { sendPasswordChangedNotification } from "@/lib/send-auth-notification-email";
 
 // Landed on from the "reset password" email link. Supabase's client already
 // auto-processes the recovery link on its own (detectSessionInUrl defaults to
@@ -82,11 +83,12 @@ const ResetPassword = () => {
 
     setSubmitting(true);
     try {
-      const { error } = await supabase.auth.updateUser({ password });
+      const { data, error } = await supabase.auth.updateUser({ password });
       if (error) {
         toast.error("Couldn't update password", { description: error.message });
         return;
       }
+      void sendPasswordChangedNotification(data.user?.email);
       toast.success("Password updated", { description: "You're signed in." });
       navigate("/dashboard", { replace: true });
     } finally {
