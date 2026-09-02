@@ -35,6 +35,7 @@ const Workflower = lazyWithReload(() => import("./pages/Workflower"));
 const Workspace = lazyWithReload(() => import("./pages/Workspace"));
 const Signup = lazyWithReload(() => import("./pages/Signup"));
 const AuthCallback = lazyWithReload(() => import("./pages/AuthCallback"));
+const ResetPassword = lazyWithReload(() => import("./pages/ResetPassword"));
 const Dashboard = lazyWithReload(() => import("./pages/Dashboard"));
 const Generator = lazyWithReload(() => import("./pages/Generator"));
 const GeneratorHome = lazyWithReload(() => import("./pages/GeneratorHome"));
@@ -112,6 +113,7 @@ const App = () => (
                 <Route path="/signup" element={<Signup />} />
                 <Route path="/login" element={<Signup />} />
                 <Route path="/auth/callback" element={<AuthCallback />} />
+                <Route path="/auth/reset-password" element={<ResetPassword />} />
 
                 {/* Mission Generator & Dashboard */}
                 <Route path="/generate" element={<Generator />} />
