@@ -57,6 +57,10 @@ import { countsTowardRealUsage, testModeVerdictNote } from "../_shared/sandbox-m
 import { summarizeAttestationCounts, distinctPolicyVersions, buildAttestationCanonicalPayload } from "../_shared/compliance-attestation.ts";
 import { buildDecisionExplanation } from "../_shared/decision-explanation.ts";
 import { hasOpenReview, buildDisputeReasonText } from "../_shared/decision-dispute.ts";
+import { triggerWebhooks } from "../_shared/webhooks.ts";
+import { parseRespondRequest, buildContextPromptBlock, type ResponseContextEntry } from "../_shared/response-context.ts";
+import { buildSystemPrompt, generateGroundedAnswer, checkGrounding } from "../_shared/response-generation.ts";
+import { sanitizeResponse } from "../_shared/response-sanitizer.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -115,6 +119,11 @@ const DECISION_EXPLAIN_RATE_LIMIT_PER_MINUTE = 30;
 // support team disputing a specific decision, not routine traffic. Kept
 // low and separate from the verdict endpoint's own budget.
 const DECISION_DISPUTE_RATE_LIMIT_PER_MINUTE = 10;
+// "White-labeled 'brain' endpoint" plan, item 1: sized like /precedent's
+// own budget, not the read-only report endpoints' higher limits -- this
+// does two real LLM calls per request (generation + a grounding-check
+// second pass), never a cheap read.
+const RESPOND_RATE_LIMIT_PER_MINUTE = 20;
 
 // "Zero human review" plan, item 13: a thin wrapper around the real
 // per-action logic (renamed judgeOneActionInner below) that wires in the
@@ -994,6 +1003,91 @@ Deno.serve(async (req) => {
     }
 
     return json({ ok: true, already_open: false, approval_id: approvalId, status: "pending" });
+  }
+
+  // ---- POST /control-api/v1/respond ----------------------------------------
+  // "White-labeled 'brain' endpoint" plan, item 1: lets an integrating
+  // company hand NazAI one of ITS OWN end user's messages, plus whatever
+  // grounding context and tone it configured for this key (see
+  // POST /api-keys/:id/context and .../policy's response_persona), and get
+  // back a grounded, non-hallucinating, fully white-labeled text answer to
+  // relay straight back to that end user as if it were their own AI
+  // speaking. Deliberately key-scoped like every other route on this API --
+  // there is no unauthenticated/anonymous path here; the integrating
+  // company's own backend calls this and relays the answer onward itself.
+  if (req.method === "POST" && /\/respond\/?$/.test(url.pathname)) {
+    if (!auth.keyId) return json({ error: "not_found" }, 404);
+
+    const rate = await checkRateLimit(admin, userId, "control-api-respond", RESPOND_RATE_LIMIT_PER_MINUTE, 60);
+    if (!rate.allowed) {
+      return json({
+        error: "rate_limited",
+        message: `Too many requests — ${rate.count} in the last minute (limit ${rate.limit}). Try again shortly.`,
+      }, 429);
+    }
+
+    const body = await req.json().catch(() => ({}));
+    const parsed = parseRespondRequest(body);
+    if ("error" in parsed) return json({ error: parsed.error }, 400);
+
+    const startedAt = Date.now();
+    // "Knowledge & autonomy" plan, item 7's own established gate -- a
+    // sandbox/test key runs through this exact pipeline (context, tone,
+    // generation, grounding check, sanitizer) but never spends real
+    // budget or writes the audit row below.
+    const meterSpend = countsTowardRealUsage(auth.isTest);
+
+    const [{ data: keyRow }, { data: contextRows }] = await Promise.all([
+      admin.from("api_keys").select("response_persona").eq("id", auth.keyId).maybeSingle(),
+      admin.from("api_key_context_entries").select("id, entry_text").eq("api_key_id", auth.keyId).eq("enabled", true),
+    ]);
+    const persona = (keyRow as { response_persona?: string | null } | null)?.response_persona ?? null;
+    const contextEntries = (contextRows ?? []) as ResponseContextEntry[];
+    const contextBlock = buildContextPromptBlock(contextEntries);
+
+    const systemPrompt = buildSystemPrompt(contextBlock, persona);
+    const generation = await generateGroundedAnswer(
+      admin, userId, auth.keyId, meterSpend, systemPrompt, parsed.message, parsed.conversationHistory,
+    );
+    if (!generation.ok) {
+      if (generation.error === "spend_cap_reached") {
+        const spend = generation.spend;
+        return json({
+          error: "spend_cap_reached",
+          message: `This API key's own daily AI spend cap is used up ($${spend.spent_usd.toFixed(2)} of ` +
+            `$${spend.cap_usd.toFixed(2)}). Generating a response shares this same budget with judgment ` +
+            `calls. Resumes tomorrow (UTC), or when an owner raises the cap.`,
+        }, 429);
+      }
+      return json({ error: "generation_failed", message: generation.message }, 502);
+    }
+
+    // Item 5: a second, independent pass -- never trusts the system
+    // prompt's own "don't hallucinate" instruction alone.
+    const grounded = await checkGrounding(admin, userId, auth.keyId, meterSpend, contextBlock, persona, generation.text);
+    // Item 6: the last step before this ever leaves the endpoint.
+    const sanitized = sanitizeResponse(grounded.text);
+
+    const testModeFields = auth.isTest ? { test_mode: true, note: testModeVerdictNote(auth.isTest) } : {};
+
+    if (meterSpend) {
+      try {
+        await admin.from("api_response_generations").insert({
+          user_id: userId,
+          api_key_id: auth.keyId,
+          is_test: auth.isTest,
+          // Truncated, not stored raw in full -- this is an operational
+          // audit trail (what shape of question came in, did a guardrail
+          // fire), not a transcript archive.
+          message: parsed.message.slice(0, 500),
+          grounding_check_intervened: grounded.intervened,
+          sanitizer_intervened: sanitized.intervened,
+          latency_ms: Date.now() - startedAt,
+        });
+      } catch { /* audit logging must never break a real answer that already succeeded */ }
+    }
+
+    return json({ ok: true, answer: sanitized.text, ...testModeFields });
   }
 
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
