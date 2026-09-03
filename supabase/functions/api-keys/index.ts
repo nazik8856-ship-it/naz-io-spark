@@ -26,6 +26,7 @@ import { evaluateAutomationReadiness, gatherAutomationReadinessInput, READINESS_
 import { keyLatencyStats, keyUptimeStats } from "../_shared/key-performance.ts";
 import { buildPolicyRecommendation, type ActionTypeEscalations, type EscalatedDecisionOutcome } from "../_shared/policy-recommendation.ts";
 import { DEFAULT_CONFIDENCE_THRESHOLD } from "../_shared/decision-scoring.ts";
+import { isValidPersona } from "../_shared/response-context.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -144,6 +145,18 @@ Deno.serve(async (req) => {
         update.rate_limit_per_minute = null;
       }
     }
+    // "White-labeled 'brain' endpoint" plan, item 3: lets a company tell
+    // NazAI once how their AI should sound on POST /control-api/v1/respond,
+    // applied to every call instead of repeating it every time. `null`
+    // explicitly clears it; omitting the field leaves whatever was set
+    // before untouched -- same convention as every other optional setting
+    // on this endpoint.
+    if (body?.response_persona !== undefined) {
+      if (!isValidPersona(body.response_persona)) {
+        return json({ error: "response_persona must be a non-empty string of at most 500 characters, or null to clear it" }, 400);
+      }
+      update.response_persona = body.response_persona === null ? null : String(body.response_persona).trim();
+    }
     // Item 12: a SEPARATE daily AI-spend ceiling just for this key's own
     // mode="full" (AI-scored) usage -- stored in ai_spend_caps (the same
     // table the account-wide and per-agent caps already use), not a
@@ -187,7 +200,7 @@ Deno.serve(async (req) => {
       .update(update)
       .eq("id", keyId)
       .eq("user_id", targetUserId)
-      .select("id, on_uncertain, callback_url, callback_timeout_seconds, callback_fallback, shadow_on_uncertain, on_gate_error, rate_limit_per_minute, on_uncertain_downgraded_at, on_uncertain_downgrade_reason")
+      .select("id, on_uncertain, callback_url, callback_timeout_seconds, callback_fallback, shadow_on_uncertain, on_gate_error, rate_limit_per_minute, response_persona, on_uncertain_downgraded_at, on_uncertain_downgrade_reason")
       .maybeSingle();
     if (error) return json({ error: error.message }, 500);
     if (!data) return json({ error: "Key not found for this account." }, 404);
@@ -495,6 +508,63 @@ Deno.serve(async (req) => {
       .maybeSingle();
     if (error) return json({ error: error.message }, 500);
     return json({ ok: true, override: data });
+  }
+
+  // ---- /api-keys/:id/context ---------------------------------------------
+  // "White-labeled 'brain' endpoint" plan, item 2: where an integrating
+  // company's own grounding facts live for its POST /control-api/v1/respond
+  // calls -- scoped strictly per api_key_id (never account-wide like
+  // knowledge_base_entries), so one company's context can never leak into
+  // another key's answers. GET lists this key's entries; POST adds one;
+  // DELETE removes one by id. Not exposed in any UI, matching the
+  // established API-only convention for every prior per-key setting.
+  const contextMatch = url.pathname.match(/\/api-keys\/([0-9a-fA-F-]{36})\/context\/?$/);
+  if (contextMatch && (req.method === "GET" || req.method === "POST" || req.method === "DELETE")) {
+    const keyId = contextMatch[1];
+    const body = req.method === "GET" ? {} : await req.json().catch(() => ({}));
+    const accountId = req.method === "GET" ? url.searchParams.get("account_id") : (body?.account_id ?? null);
+    const targetUserId = await resolveAccountScope(userClient, userId, accountId, "integrations");
+    if (!targetUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
+
+    const { data: keyRow, error: keyErr } = await admin
+      .from("api_keys").select("id").eq("id", keyId).eq("user_id", targetUserId).maybeSingle();
+    if (keyErr) return json({ error: keyErr.message }, 500);
+    if (!keyRow) return json({ error: "Key not found for this account." }, 404);
+
+    if (req.method === "GET") {
+      const { data, error } = await admin
+        .from("api_key_context_entries")
+        .select("id, entry_text, enabled, created_at")
+        .eq("api_key_id", keyId)
+        .order("created_at", { ascending: true });
+      if (error) return json({ error: error.message }, 500);
+      return json({ ok: true, entries: data ?? [] });
+    }
+
+    if (req.method === "DELETE") {
+      const entryId = String(body?.entry_id || "");
+      if (!entryId) return json({ error: "entry_id is required" }, 400);
+      const { error } = await admin
+        .from("api_key_context_entries")
+        .delete()
+        .eq("api_key_id", keyId)
+        .eq("id", entryId);
+      if (error) return json({ error: error.message }, 500);
+      return json({ ok: true, removed: true });
+    }
+
+    const entryText = String(body?.entry_text || "").trim();
+    if (!entryText) return json({ error: "entry_text is required" }, 400);
+    if (entryText.length > 2000) return json({ error: "entry_text must be at most 2000 characters" }, 400);
+    const enabled = body?.enabled !== false;
+
+    const { data, error } = await admin
+      .from("api_key_context_entries")
+      .insert({ user_id: targetUserId, api_key_id: keyId, entry_text: entryText, enabled })
+      .select("id, entry_text, enabled, created_at")
+      .maybeSingle();
+    if (error) return json({ error: error.message }, 500);
+    return json({ ok: true, entry: data });
   }
 
   // ---- GET /api-keys --------------------------------------------------------

@@ -88,6 +88,33 @@ const EXAMPLE_BATCH_RESPONSE = `{
   ]
 }`;
 
+const EXAMPLE_CONTEXT_CURL = `curl -X POST "${SUPABASE_FUNCTIONS_URL}/api-keys/<key id>/context" \\
+  -H "Authorization: Bearer <your NazAI login session>" \\
+  -H "Content-Type: application/json" \\
+  -d '{ "entry_text": "Refunds are processed within 5-7 business days. Support hours are 9am-5pm ET, Mon-Fri." }'`;
+
+const EXAMPLE_PERSONA_CURL = `curl -X POST "${SUPABASE_FUNCTIONS_URL}/api-keys/<key id>/policy" \\
+  -H "Authorization: Bearer <your NazAI login session>" \\
+  -H "Content-Type: application/json" \\
+  -d '{ "response_persona": "Warm, concise, first names, no corporate jargon." }'`;
+
+const EXAMPLE_RESPOND_CURL = `curl -X POST "${SUPABASE_FUNCTIONS_URL}/control-api/v1/respond" \\
+  -H "Authorization: Bearer nazai_sk_<your key>" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "message": "How long do refunds take?",
+    "conversation_history": [
+      { "role": "user", "content": "Hi, I returned an item last week." },
+      { "role": "assistant", "content": "Thanks for letting me know — happy to help with that." }
+    ]
+  }'`;
+
+const EXAMPLE_RESPOND_RESPONSE = `{
+  "api_version": "v1",
+  "ok": true,
+  "answer": "Refunds are processed within 5-7 business days once we receive the return."
+}`;
+
 /**
  * The "Outer NazAI" Control API's developer reference — how an external
  * platform submits one of its own proposed actions to NazAI's
@@ -290,6 +317,40 @@ export default function ControlApiDocs() {
           <p className="mt-2 text-xs text-zinc-500">
             20 requests per minute per key — a separate budget from the verdict endpoint above, since export polling
             and per-action checks are different traffic shapes.
+          </p>
+        </Section>
+
+        <Section title="Respond: a white-labeled answer for your own end users">
+          <p>
+            Everything above is for judging YOUR OWN proposed actions. This endpoint is different: hand it one
+            of your end user's messages and NazAI drafts a grounded, on-tone answer for you to relay straight
+            back to them — as if it were your own AI speaking. The response never mentions NazAI, an AI model,
+            or any underlying vendor in any way — it's built to sit invisibly behind your own product.
+          </p>
+          <CodeBlock>{`POST ${SUPABASE_FUNCTIONS_URL}/control-api/v1/respond`}</CodeBlock>
+
+          <p className="mt-4 font-semibold text-zinc-200">1. Give it the facts it should answer from</p>
+          <p className="mt-1">
+            NazAI never invents facts about your business — it only answers from context you provide, scoped to
+            this one key so it can never leak into a different key's answers. Add as many entries as you need:
+          </p>
+          <CodeBlock>{EXAMPLE_CONTEXT_CURL}</CodeBlock>
+
+          <p className="mt-4 font-semibold text-zinc-200">2. (Optional) Set a tone</p>
+          <p className="mt-1">Tell it once how your assistant should sound — applied to every answer this key generates:</p>
+          <CodeBlock>{EXAMPLE_PERSONA_CURL}</CodeBlock>
+
+          <p className="mt-4 font-semibold text-zinc-200">3. Send the message</p>
+          <CodeBlock>{EXAMPLE_RESPOND_CURL}</CodeBlock>
+          <p className="mt-3">Response:</p>
+          <CodeBlock>{EXAMPLE_RESPOND_RESPONSE}</CodeBlock>
+
+          <p className="mt-3 text-xs text-zinc-500">
+            If the context you've given doesn't cover the question, you get an honest{" "}
+            <span className="font-mono">"I don't have enough information to answer that."</span> instead of a
+            guess — every drafted answer is checked against your context in a second pass before it's ever
+            returned. 20 requests per minute per key (this does real generation work, not a cheap read), and
+            counts against your key's own daily AI spend cap, same budget as everything else on this API.
           </p>
         </Section>
 
