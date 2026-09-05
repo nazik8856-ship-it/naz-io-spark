@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, KeyRound, Plus, Copy, Ban, Check, Send } from "lucide-react";
+import { ArrowLeft, KeyRound, Plus, Copy, Ban, Check, Send, Settings, ChevronDown, ChevronUp, Trash2, MessageSquareText } from "lucide-react";
 import { supabase, SUPABASE_FUNCTIONS_URL } from "@/integrations/supabase/client";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { hasPermission } from "@/lib/account-switcher";
@@ -21,7 +21,12 @@ type ApiKeyRow = {
   revoked_at: string | null;
   expires_at: string | null;
   created_at: string;
+  on_uncertain: string;
+  rate_limit_per_minute: number | null;
+  response_persona: string | null;
 };
+
+type ContextEntry = { id: string; entry_text: string; enabled: boolean; created_at: string };
 
 type KeyActivity = { callsToday: number; lastDecision: string | null; lastDecisionAt: string | null };
 
@@ -53,6 +58,10 @@ export default function ControlApiKeys() {
   const [busy, setBusy] = useState(false);
   const [justCreated, setJustCreated] = useState<{ key: string; name: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  // Item 166: which key's settings panel (persona, context, rate limit)
+  // is expanded -- one at a time, same "click to expand a card" pattern
+  // as every other settings surface in this app.
+  const [expandedKeyId, setExpandedKeyId] = useState<string | null>(null);
 
   // In-app API tester -- fires a REAL request at the public control-api
   // endpoint, exactly as an external caller would, so a key can be
@@ -73,7 +82,7 @@ export default function ControlApiKeys() {
     setLoading(true);
     const { data, error } = await anyDb
       .from("api_keys")
-      .select("id, name, key_prefix, scopes, last_used_at, revoked_at, expires_at, created_at")
+      .select("id, name, key_prefix, scopes, last_used_at, revoked_at, expires_at, created_at, on_uncertain, rate_limit_per_minute, response_persona")
       .eq("user_id", accountId)
       .order("created_at", { ascending: false });
     if (error) toast({ title: "Couldn't load API keys", description: error.message, variant: "destructive" });
@@ -315,6 +324,14 @@ export default function ControlApiKeys() {
                         <span className="rounded border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-[10px] font-mono uppercase text-emerald-300">
                           Active
                         </span>
+                        <button
+                          onClick={() => setExpandedKeyId(expandedKeyId === k.id ? null : k.id)}
+                          className="flex items-center gap-1 rounded border border-white/15 px-2 py-1.5 text-[10px] font-mono uppercase text-zinc-300 hover:bg-white/5"
+                        >
+                          <Settings className="h-3.5 w-3.5" />
+                          Settings
+                          {expandedKeyId === k.id ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                        </button>
                         {canWrite && (
                           <button
                             onClick={() => revoke(k)}
@@ -327,6 +344,18 @@ export default function ControlApiKeys() {
                     )}
                   </div>
                 </div>
+
+                {expandedKeyId === k.id && !k.revoked_at && (
+                  <ApiKeySettingsPanel
+                    keyId={k.id}
+                    accountId={accountId}
+                    onUncertain={k.on_uncertain}
+                    initialPersona={k.response_persona}
+                    initialRateLimit={k.rate_limit_per_minute}
+                    canWrite={canWrite}
+                    onSaved={load}
+                  />
+                )}
               </li>
             ))}
           </ul>
@@ -433,6 +462,227 @@ export default function ControlApiKeys() {
           )}
         </div>
       </main>
+    </div>
+  );
+}
+
+/**
+ * "/respond" MVP backlog, item 166: a real settings panel for the three
+ * per-key things that previously shipped API-only (response_persona,
+ * api_key_context_entries, rate_limit_per_minute) -- deliberately NOT a
+ * new endpoint: persona/rate-limit write through the existing
+ * POST /api-keys/:id/policy (on_uncertain is a required field on every
+ * call to that route, so it's always sent back unchanged), and context
+ * entries through the existing GET/POST/DELETE /api-keys/:id/context.
+ * There's no update-entry endpoint on the backend, so this only supports
+ * add/delete for entries, matching exactly what's actually there.
+ */
+function ApiKeySettingsPanel({
+  keyId,
+  accountId,
+  onUncertain,
+  initialPersona,
+  initialRateLimit,
+  canWrite,
+  onSaved,
+}: {
+  keyId: string;
+  accountId: string | null;
+  onUncertain: string;
+  initialPersona: string | null;
+  initialRateLimit: number | null;
+  canWrite: boolean;
+  onSaved: () => void;
+}) {
+  const [persona, setPersona] = useState(initialPersona ?? "");
+  const [rateLimit, setRateLimit] = useState(initialRateLimit != null ? String(initialRateLimit) : "");
+  const [savingSettings, setSavingSettings] = useState(false);
+
+  const [entries, setEntries] = useState<ContextEntry[]>([]);
+  const [entriesLoading, setEntriesLoading] = useState(true);
+  const [newEntryText, setNewEntryText] = useState("");
+  const [addingEntry, setAddingEntry] = useState(false);
+  const [deletingEntryId, setDeletingEntryId] = useState<string | null>(null);
+
+  const loadEntries = useCallback(async () => {
+    setEntriesLoading(true);
+    const qs = accountId ? `?account_id=${encodeURIComponent(accountId)}` : "";
+    const { data, error } = await supabase.functions.invoke(`api-keys/${keyId}/context${qs}`, { method: "GET" });
+    const res = (data ?? {}) as { ok?: boolean; entries?: ContextEntry[]; error?: string };
+    if (error || !res.ok) {
+      toast({ title: "Couldn't load context entries", description: res.error || error?.message, variant: "destructive" });
+    } else {
+      setEntries(res.entries ?? []);
+    }
+    setEntriesLoading(false);
+  }, [keyId, accountId]);
+
+  useEffect(() => { loadEntries(); }, [loadEntries]);
+
+  const saveSettings = async () => {
+    const trimmedPersona = persona.trim();
+    if (trimmedPersona.length > 500) {
+      toast({ title: "Persona too long", description: "Keep it to 500 characters or fewer.", variant: "destructive" });
+      return;
+    }
+    let rateLimitValue: number | null = null;
+    if (rateLimit.trim()) {
+      const parsed = Number(rateLimit.trim());
+      if (!Number.isInteger(parsed) || parsed < 1 || parsed > 6000) {
+        toast({ title: "Invalid rate limit", description: "Must be a whole number between 1 and 6000, or blank for the default.", variant: "destructive" });
+        return;
+      }
+      rateLimitValue = parsed;
+    }
+    setSavingSettings(true);
+    const { data, error } = await supabase.functions.invoke(`api-keys/${keyId}/policy`, {
+      body: {
+        account_id: accountId,
+        on_uncertain: onUncertain,
+        response_persona: trimmedPersona || null,
+        rate_limit_per_minute: rateLimitValue,
+      },
+    });
+    setSavingSettings(false);
+    const res = (data ?? {}) as { ok?: boolean; error?: string };
+    if (error || !res.ok) {
+      toast({ title: "Couldn't save settings", description: res.error || error?.message, variant: "destructive" });
+      return;
+    }
+    toast({ title: "Settings saved" });
+    onSaved();
+  };
+
+  const addEntry = async () => {
+    const trimmed = newEntryText.trim();
+    if (!trimmed) return;
+    if (trimmed.length > 2000) {
+      toast({ title: "Entry too long", description: "Keep each entry to 2000 characters or fewer.", variant: "destructive" });
+      return;
+    }
+    setAddingEntry(true);
+    const { data, error } = await supabase.functions.invoke(`api-keys/${keyId}/context`, {
+      body: { account_id: accountId, entry_text: trimmed },
+    });
+    setAddingEntry(false);
+    const res = (data ?? {}) as { ok?: boolean; error?: string };
+    if (error || !res.ok) {
+      toast({ title: "Couldn't add that entry", description: res.error || error?.message, variant: "destructive" });
+      return;
+    }
+    setNewEntryText("");
+    loadEntries();
+  };
+
+  const deleteEntry = async (entryId: string) => {
+    setDeletingEntryId(entryId);
+    const { data, error } = await supabase.functions.invoke(`api-keys/${keyId}/context`, {
+      method: "DELETE",
+      body: { account_id: accountId, entry_id: entryId },
+    });
+    setDeletingEntryId(null);
+    const res = (data ?? {}) as { ok?: boolean; error?: string };
+    if (error || !res.ok) {
+      toast({ title: "Couldn't remove that entry", description: res.error || error?.message, variant: "destructive" });
+      return;
+    }
+    setEntries((prev) => prev.filter((e) => e.id !== entryId));
+  };
+
+  return (
+    <div className="mt-3 space-y-4 rounded border border-white/10 bg-black/20 p-3">
+      <div>
+        <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+          Tone (for POST /respond)
+          <textarea
+            value={persona}
+            onChange={(e) => setPersona(e.target.value)}
+            disabled={!canWrite}
+            placeholder="e.g. Warm, concise, first names, no corporate jargon."
+            rows={2}
+            maxLength={500}
+            className="rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200 disabled:opacity-50"
+          />
+        </label>
+        <p className="mt-0.5 text-right text-[10px] font-mono text-zinc-600">{persona.length}/500</p>
+      </div>
+
+      <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+        Rate limit (requests/minute — blank for platform default)
+        <input
+          type="number"
+          min={1}
+          max={6000}
+          value={rateLimit}
+          onChange={(e) => setRateLimit(e.target.value)}
+          disabled={!canWrite}
+          placeholder="platform default"
+          className="w-40 rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200 disabled:opacity-50"
+        />
+      </label>
+
+      {canWrite && (
+        <button
+          onClick={saveSettings}
+          disabled={savingSettings}
+          className="flex w-fit items-center gap-1.5 rounded border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 font-mono text-[11px] uppercase text-cyan-300 hover:bg-cyan-500/20 disabled:opacity-50"
+        >
+          {savingSettings ? "Saving…" : "Save settings"}
+        </button>
+      )}
+
+      <div className="border-t border-white/5 pt-3">
+        <h3 className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+          <MessageSquareText className="h-3.5 w-3.5" /> Context for /respond
+        </h3>
+        <p className="mt-1 text-[11px] text-zinc-500">
+          Facts this key's <span className="font-mono">POST /respond</span> answers from — never leaks into any other key.
+        </p>
+
+        {entriesLoading ? (
+          <p className="mt-2 font-mono text-[10px] uppercase text-zinc-600">Loading…</p>
+        ) : entries.length === 0 ? (
+          <p className="mt-2 text-[11px] text-zinc-600">No context entries yet.</p>
+        ) : (
+          <ul className="mt-2 space-y-1.5">
+            {entries.map((e) => (
+              <li key={e.id} className="flex items-start justify-between gap-2 rounded border border-white/5 bg-white/[0.02] px-2 py-1.5">
+                <span className="flex-1 text-[11px] text-zinc-300">{e.entry_text}</span>
+                {canWrite && (
+                  <button
+                    onClick={() => deleteEntry(e.id)}
+                    disabled={deletingEntryId === e.id}
+                    className="shrink-0 text-zinc-500 hover:text-rose-400 disabled:opacity-50"
+                    aria-label="Remove entry"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {canWrite && (
+          <div className="mt-2 flex items-start gap-2">
+            <textarea
+              value={newEntryText}
+              onChange={(e) => setNewEntryText(e.target.value)}
+              placeholder="e.g. Refunds are processed within 5-7 business days."
+              rows={2}
+              maxLength={2000}
+              className="flex-1 rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200"
+            />
+            <button
+              onClick={addEntry}
+              disabled={addingEntry || !newEntryText.trim()}
+              className="flex shrink-0 items-center gap-1 rounded border border-cyan-500/40 bg-cyan-500/10 px-2 py-1.5 font-mono text-[10px] uppercase text-cyan-300 hover:bg-cyan-500/20 disabled:opacity-50"
+            >
+              <Plus className="h-3.5 w-3.5" /> Add
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
