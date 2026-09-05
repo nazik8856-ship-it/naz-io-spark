@@ -448,6 +448,19 @@ export default function ControlApiDocs() {
           </p>
         </Section>
 
+        <Section title="Response caching">
+          <p>
+            A genuinely grounded answer is cached for 24 hours, scoped to this one key. Ask the exact same
+            question again (or a near-verbatim rephrasing) within that window and you get the cached answer
+            back instantly — no model call, no cost, and <span className="font-mono">cost_usd</span> reports{" "}
+            <span className="font-mono">0</span>. The response includes{" "}
+            <span className="font-mono text-cyan-300">"cached": true</span> so you can tell the difference.
+            An honest "I don't have enough information" fallback is never cached — every real occurrence of an
+            unanswered question still shows up in content gaps and fires the escalation webhook above, exactly
+            as if caching didn't exist.
+          </p>
+        </Section>
+
         <Section title="TypeScript SDK">
           <p>
             Prefer not to hand-write the HTTP request? A small, hand-crafted{" "}

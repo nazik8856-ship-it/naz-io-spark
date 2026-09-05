@@ -58,7 +58,8 @@ import { summarizeAttestationCounts, distinctPolicyVersions, buildAttestationCan
 import { buildDecisionExplanation } from "../_shared/decision-explanation.ts";
 import { hasOpenReview, buildDisputeReasonText } from "../_shared/decision-dispute.ts";
 import { triggerWebhooks } from "../_shared/webhooks.ts";
-import { parseRespondRequest, buildContextPromptBlock, findRelevantContext, summarizeSourcesUsed, type ResponseContextEntry } from "../_shared/response-context.ts";
+import { parseRespondRequest, buildContextPromptBlock, findRelevantContext, summarizeSourcesUsed, type ResponseContextEntry, type ResponseSource } from "../_shared/response-context.ts";
+import { cacheKeyFor, findExactCachedResponse, findNearDuplicateCachedResponse, storeCachedResponse } from "../_shared/response-cache.ts";
 import { buildSystemPrompt, generateGroundedAnswer, checkGrounding, RESPONSE_MODEL } from "../_shared/response-generation.ts";
 import { sanitizeResponse } from "../_shared/response-sanitizer.ts";
 import { detectContextLeak, LEAK_FALLBACK_ANSWER } from "../_shared/response-injection-guard.ts";
@@ -1070,6 +1071,27 @@ Deno.serve(async (req) => {
     // budget or writes the audit row below.
     const meterSpend = countsTowardRealUsage(auth.isTest);
 
+    // Item 174: response caching, exact-match fast path. Costs nothing
+    // beyond a hash + a keyed index lookup (no embedding call), and skips
+    // literally everything else below on a hit -- the persona/context
+    // lookup, both model calls, every guardrail. Sandbox keys never check
+    // or populate the cache (meterSpend gate): a test key wants realistic
+    // end-to-end behavior on every call, not a canned replay.
+    const messageHash = meterSpend ? await cacheKeyFor(parsed.message) : null;
+    if (messageHash) {
+      const exactHit = await findExactCachedResponse(admin, auth.keyId, messageHash);
+      if (exactHit) {
+        const cacheFields = {
+          cost_usd: 0,
+          confidence: exactHit.confidence ?? "high",
+          cached: true,
+          ...(exactHit.sources ? { sources: exactHit.sources } : {}),
+        };
+        if (parsed.stream) return streamAnswer(exactHit.answer, cacheFields);
+        return json({ ok: true, answer: exactHit.answer, ...cacheFields });
+      }
+    }
+
     const [{ data: keyRow }, { data: anyEntry }] = await Promise.all([
       admin.from("api_keys").select("response_persona").eq("id", auth.keyId).maybeSingle(),
       admin.from("api_key_context_entries").select("id").eq("api_key_id", auth.keyId).eq("enabled", true).limit(1).maybeSingle(),
@@ -1084,12 +1106,28 @@ Deno.serve(async (req) => {
     // never spends real embedding budget, same as every other real-usage
     // gate this endpoint already has) never loses its configured context.
     let contextEntries: ResponseContextEntry[] = [];
+    // Item 174: the embedding literal computed below (when present) is
+    // reused for the near-duplicate cache check AND for context
+    // retrieval -- never generated twice for the same message.
+    let cacheEmbeddingLiteral: string | null = null;
     if (anyEntry) {
       const queryEmbedding = meterSpend
         ? await generateEmbeddingWithinBudget(admin, userId, auth.keyId, parsed.message)
         : null;
       if (queryEmbedding) {
-        contextEntries = await findRelevantContext(admin, auth.keyId, formatEmbeddingLiteral(queryEmbedding));
+        cacheEmbeddingLiteral = formatEmbeddingLiteral(queryEmbedding);
+        const nearDupHit = await findNearDuplicateCachedResponse(admin, auth.keyId, cacheEmbeddingLiteral);
+        if (nearDupHit) {
+          const cacheFields = {
+            cost_usd: 0,
+            confidence: nearDupHit.confidence ?? "high",
+            cached: true,
+            ...(nearDupHit.sources ? { sources: nearDupHit.sources } : {}),
+          };
+          if (parsed.stream) return streamAnswer(nearDupHit.answer, cacheFields);
+          return json({ ok: true, answer: nearDupHit.answer, ...cacheFields });
+        }
+        contextEntries = await findRelevantContext(admin, auth.keyId, cacheEmbeddingLiteral);
       }
       if (!contextEntries.length) {
         const { data: allEntries } = await admin
@@ -1177,6 +1215,18 @@ Deno.serve(async (req) => {
           latency_ms: Date.now() - startedAt,
         });
       } catch { /* audit logging must never break a real answer that already succeeded */ }
+
+      // Item 174: only a genuinely grounded answer is ever cached -- an
+      // "I don't know" fallback isn't a reusable answer, and caching it
+      // would silently blunt item 169's content-gap feed and item 170's
+      // escalation webhook, which both depend on seeing every real
+      // occurrence of an unanswered question.
+      if (!grounded.intervened && messageHash) {
+        await storeCachedResponse(
+          admin, userId, auth.keyId, parsed.message, messageHash, cacheEmbeddingLiteral,
+          sanitized.text, (sourceFields as { sources?: ResponseSource[] }).sources, String(costFields.confidence),
+        );
+      }
 
       // Item 170: escalation-to-human webhook. Only for a REAL call whose
       // final answer is the generic fallback -- a sandbox key never fires
