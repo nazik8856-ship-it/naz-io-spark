@@ -48,6 +48,17 @@ export function scrubSelfDisclosure(text: string): SanitizeResult {
 }
 
 /**
+ * Pure, JSON-safe -- unlike scrubSelfDisclosure (which edits text
+ * sentence-by-sentence, splitting on ".!?", which would silently corrupt
+ * a structured JSON answer's syntax), this only ever reports true/false
+ * so item 175's structured JSON response mode can discard the WHOLE
+ * answer atomically rather than surgically editing a JSON string.
+ */
+export function containsSelfDisclosure(text: string): boolean {
+  return SELF_DISCLOSURE_PATTERNS.some((re) => re.test(text));
+}
+
+/**
  * Pure -- balances Markdown code fences and brackets a model can leave
  * unbalanced (e.g. a truncated response), so the integrating company's own
  * UI never renders broken formatting. Never rewrites well-formed Markdown

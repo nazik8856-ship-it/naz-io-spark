@@ -60,8 +60,8 @@ import { hasOpenReview, buildDisputeReasonText } from "../_shared/decision-dispu
 import { triggerWebhooks } from "../_shared/webhooks.ts";
 import { parseRespondRequest, buildContextPromptBlock, findRelevantContext, summarizeSourcesUsed, type ResponseContextEntry, type ResponseSource } from "../_shared/response-context.ts";
 import { cacheKeyFor, findExactCachedResponse, findNearDuplicateCachedResponse, storeCachedResponse } from "../_shared/response-cache.ts";
-import { buildSystemPrompt, generateGroundedAnswer, checkGrounding, RESPONSE_MODEL } from "../_shared/response-generation.ts";
-import { sanitizeResponse } from "../_shared/response-sanitizer.ts";
+import { buildSystemPrompt, generateGroundedAnswer, checkGrounding, RESPONSE_MODEL, GROUNDING_FALLBACK_ANSWER } from "../_shared/response-generation.ts";
+import { sanitizeResponse, containsSelfDisclosure } from "../_shared/response-sanitizer.ts";
 import { detectContextLeak, LEAK_FALLBACK_ANSWER } from "../_shared/response-injection-guard.ts";
 
 const corsHeaders = {
@@ -1076,8 +1076,13 @@ Deno.serve(async (req) => {
     // literally everything else below on a hit -- the persona/context
     // lookup, both model calls, every guardrail. Sandbox keys never check
     // or populate the cache (meterSpend gate): a test key wants realistic
-    // end-to-end behavior on every call, not a canned replay.
-    const messageHash = meterSpend ? await cacheKeyFor(parsed.message) : null;
+    // end-to-end behavior on every call, not a canned replay. Item 175:
+    // also never caches a response_schema request -- the cache key is
+    // message-only, with no awareness of which schema (or none) a given
+    // call asked for, so the SAME question with and without a schema (or
+    // with two different schemas) would otherwise risk replaying an
+    // answer shaped for a different request.
+    const messageHash = (meterSpend && !parsed.responseSchema) ? await cacheKeyFor(parsed.message) : null;
     if (messageHash) {
       const exactHit = await findExactCachedResponse(admin, auth.keyId, messageHash);
       if (exactHit) {
@@ -1093,10 +1098,16 @@ Deno.serve(async (req) => {
     }
 
     const [{ data: keyRow }, { data: anyEntry }] = await Promise.all([
-      admin.from("api_keys").select("response_persona").eq("id", auth.keyId).maybeSingle(),
+      admin.from("api_keys").select("response_persona, fallback_message").eq("id", auth.keyId).maybeSingle(),
       admin.from("api_key_context_entries").select("id").eq("api_key_id", auth.keyId).eq("enabled", true).limit(1).maybeSingle(),
     ]);
     const persona = (keyRow as { response_persona?: string | null } | null)?.response_persona ?? null;
+    // Item 175: a per-key override for the generic "I don't have enough
+    // information" wording, applied everywhere that wording would
+    // otherwise appear (the leak guard below, and checkGrounding's own
+    // fallback) -- undefined (not null) when unset, so checkGrounding's
+    // `fallbackMessage ?? GROUNDING_FALLBACK_ANSWER` default applies.
+    const customFallback = (keyRow as { fallback_message?: string | null } | null)?.fallback_message ?? undefined;
 
     // Item 163: retrieve only the context entries relevant to THIS
     // message once retrieval actually has something to search -- falls
@@ -1116,7 +1127,12 @@ Deno.serve(async (req) => {
         : null;
       if (queryEmbedding) {
         cacheEmbeddingLiteral = formatEmbeddingLiteral(queryEmbedding);
-        const nearDupHit = await findNearDuplicateCachedResponse(admin, auth.keyId, cacheEmbeddingLiteral);
+        // Item 175: same reasoning as the exact-hash check above -- never
+        // serve (or below, populate) the cache for a response_schema
+        // request.
+        const nearDupHit = parsed.responseSchema
+          ? null
+          : await findNearDuplicateCachedResponse(admin, auth.keyId, cacheEmbeddingLiteral);
         if (nearDupHit) {
           const cacheFields = {
             cost_usd: 0,
@@ -1144,6 +1160,7 @@ Deno.serve(async (req) => {
     const systemPrompt = buildSystemPrompt(contextBlock, persona);
     const generation = await generateGroundedAnswer(
       admin, userId, auth.keyId, meterSpend, systemPrompt, parsed.message, parsed.conversationHistory,
+      parsed.responseSchema,
     );
     if (!generation.ok) {
       if (generation.error === "spend_cap_reached") {
@@ -1170,10 +1187,49 @@ Deno.serve(async (req) => {
     // Item 5: a second, independent pass -- never trusts the system
     // prompt's own "don't hallucinate" instruction alone.
     const grounded = leaked
-      ? { text: LEAK_FALLBACK_ANSWER, intervened: true, usage: undefined }
-      : await checkGrounding(admin, userId, auth.keyId, meterSpend, contextBlock, persona, generation.text);
-    // Item 6: the last step before this ever leaves the endpoint.
-    const sanitized = sanitizeResponse(grounded.text);
+      ? { text: customFallback ?? LEAK_FALLBACK_ANSWER, intervened: true, usage: undefined }
+      : await checkGrounding(admin, userId, auth.keyId, meterSpend, contextBlock, persona, generation.text, customFallback);
+
+    // Item 6 / item 175: the last step before this ever leaves the
+    // endpoint. Structured JSON mode takes a DIFFERENT path here on
+    // purpose: scrubSelfDisclosure edits text sentence-by-sentence
+    // (splitting on ".!?"), which would silently corrupt a JSON answer's
+    // syntax -- so a genuinely grounded structured answer instead gets
+    // containsSelfDisclosure's atomic whole-answer check (discard
+    // entirely on a hit, never surgically edited) and is otherwise left
+    // byte-for-byte as the model returned it. Falls through to the
+    // normal text sanitizer whenever there's no schema, the answer is
+    // already the fallback (nothing structured to preserve), or the
+    // model didn't actually return valid JSON despite being asked.
+    let sanitized: { text: string; intervened: boolean };
+    let structuredValue: unknown;
+    // Distinct from sanitized.intervened: in text mode that flag can mean
+    // a light, surgical edit (one self-disclosing sentence dropped) that
+    // still leaves a genuinely grounded answer behind -- sources/caching
+    // downstream correctly still treat that as "a real answer." A JSON-
+    // mode self-disclosure hit is different: the WHOLE structured answer
+    // gets replaced (never surgically edited, see containsSelfDisclosure's
+    // own docs), the same wholesale-substitution class as grounded.intervened.
+    let selfDisclosureReplaced = false;
+    if (parsed.responseSchema && !grounded.intervened) {
+      if (containsSelfDisclosure(grounded.text)) {
+        sanitized = { text: customFallback ?? GROUNDING_FALLBACK_ANSWER, intervened: true };
+        selfDisclosureReplaced = true;
+      } else {
+        try {
+          structuredValue = JSON.parse(grounded.text);
+          sanitized = { text: grounded.text, intervened: false };
+        } catch {
+          sanitized = sanitizeResponse(grounded.text);
+        }
+      }
+    } else {
+      sanitized = sanitizeResponse(grounded.text);
+    }
+    const structuredFields = structuredValue !== undefined ? { structured: structuredValue } : {};
+    // Used below wherever "was the served answer a wholesale fallback
+    // substitution" is the actual question -- sourceFields and caching.
+    const answerIsFallback = grounded.intervened || selfDisclosureReplaced;
 
     // Item 171: per-call cost + confidence metadata. Cost is the real,
     // measured $ for both model calls this request actually made
@@ -1186,7 +1242,7 @@ Deno.serve(async (req) => {
     // scored one, and inventing false precision on top of it would
     // misrepresent what was actually checked.
     const costUsd = estimateCostUsd(RESPONSE_MODEL, generation.usage) + estimateCostUsd(RESPONSE_MODEL, grounded.usage);
-    const costFields = { cost_usd: Number(costUsd.toFixed(6)), confidence: grounded.intervened ? "low" : "high" };
+    const costFields = { cost_usd: Number(costUsd.toFixed(6)), confidence: answerIsFallback ? "low" : "high" };
 
     const testModeFields = auth.isTest ? { test_mode: true, note: testModeVerdictNote(auth.isTest) } : {};
     // Item 168: "sources used" metadata. Only meaningful when the final
@@ -1195,7 +1251,7 @@ Deno.serve(async (req) => {
     // (grounded.intervened / leaked), nothing was actually "used" to
     // produce that fallback text, so the field is omitted entirely rather
     // than sent as a misleading empty (or worse, stale-looking) array.
-    const sourceFields = (!leaked && !grounded.intervened && contextEntries.length)
+    const sourceFields = (!leaked && !answerIsFallback && contextEntries.length)
       ? { sources: summarizeSourcesUsed(contextEntries) }
       : {};
 
@@ -1221,7 +1277,7 @@ Deno.serve(async (req) => {
       // would silently blunt item 169's content-gap feed and item 170's
       // escalation webhook, which both depend on seeing every real
       // occurrence of an unanswered question.
-      if (!grounded.intervened && messageHash) {
+      if (!answerIsFallback && messageHash) {
         await storeCachedResponse(
           admin, userId, auth.keyId, parsed.message, messageHash, cacheEmbeddingLiteral,
           sanitized.text, (sourceFields as { sources?: ResponseSource[] }).sources, String(costFields.confidence),
@@ -1243,7 +1299,7 @@ Deno.serve(async (req) => {
     }
 
     if (parsed.stream) return streamAnswer(sanitized.text, { ...testModeFields, ...sourceFields, ...costFields });
-    return json({ ok: true, answer: sanitized.text, ...sourceFields, ...costFields, ...testModeFields });
+    return json({ ok: true, answer: sanitized.text, ...structuredFields, ...sourceFields, ...costFields, ...testModeFields });
   }
 
   // ---- GET /control-api/v1/content-gaps -------------------------------------

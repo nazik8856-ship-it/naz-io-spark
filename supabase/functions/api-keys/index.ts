@@ -26,7 +26,7 @@ import { evaluateAutomationReadiness, gatherAutomationReadinessInput, READINESS_
 import { keyLatencyStats, keyUptimeStats } from "../_shared/key-performance.ts";
 import { buildPolicyRecommendation, type ActionTypeEscalations, type EscalatedDecisionOutcome } from "../_shared/policy-recommendation.ts";
 import { DEFAULT_CONFIDENCE_THRESHOLD } from "../_shared/decision-scoring.ts";
-import { isValidPersona } from "../_shared/response-context.ts";
+import { isValidPersona, isValidFallbackMessage } from "../_shared/response-context.ts";
 import { generateEmbeddingWithinBudget, formatEmbeddingLiteral } from "../_shared/decision-embeddings.ts";
 
 const corsHeaders = {
@@ -158,6 +158,17 @@ Deno.serve(async (req) => {
       }
       update.response_persona = body.response_persona === null ? null : String(body.response_persona).trim();
     }
+    // "/respond" MVP backlog, item 175: a per-key override for the
+    // generic "I don't have enough information to answer that." wording
+    // (both the leak guard's and the grounding check's own fallback) --
+    // same null-clears/omit-leaves-untouched convention as
+    // response_persona above.
+    if (body?.fallback_message !== undefined) {
+      if (!isValidFallbackMessage(body.fallback_message)) {
+        return json({ error: "fallback_message must be a non-empty string of at most 500 characters, or null to clear it" }, 400);
+      }
+      update.fallback_message = body.fallback_message === null ? null : String(body.fallback_message).trim();
+    }
     // Item 12: a SEPARATE daily AI-spend ceiling just for this key's own
     // mode="full" (AI-scored) usage -- stored in ai_spend_caps (the same
     // table the account-wide and per-agent caps already use), not a
@@ -201,7 +212,7 @@ Deno.serve(async (req) => {
       .update(update)
       .eq("id", keyId)
       .eq("user_id", targetUserId)
-      .select("id, on_uncertain, callback_url, callback_timeout_seconds, callback_fallback, shadow_on_uncertain, on_gate_error, rate_limit_per_minute, response_persona, on_uncertain_downgraded_at, on_uncertain_downgrade_reason")
+      .select("id, on_uncertain, callback_url, callback_timeout_seconds, callback_fallback, shadow_on_uncertain, on_gate_error, rate_limit_per_minute, response_persona, fallback_message, on_uncertain_downgraded_at, on_uncertain_downgrade_reason")
       .maybeSingle();
     if (error) return json({ error: error.message }, 500);
     if (!data) return json({ error: "Key not found for this account." }, 404);

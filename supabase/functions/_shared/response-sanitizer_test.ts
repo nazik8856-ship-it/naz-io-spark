@@ -2,7 +2,7 @@
 // and Markdown repair.
 //
 // Run with: deno test --allow-none supabase/functions/_shared/response-sanitizer_test.ts
-import { scrubSelfDisclosure, repairMarkdown, sanitizeResponse } from "./response-sanitizer.ts";
+import { scrubSelfDisclosure, repairMarkdown, sanitizeResponse, containsSelfDisclosure } from "./response-sanitizer.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
@@ -49,6 +49,25 @@ Deno.test("scrubSelfDisclosure: falls back to an honest message when every sente
 Deno.test("scrubSelfDisclosure: never false-positives on an unrelated word containing the pattern as a substring", () => {
   const r = scrubSelfDisclosure("Please contact us via chat if you need help.");
   assertFalse(r.intervened);
+});
+
+// ---- containsSelfDisclosure ----
+// "/respond" MVP backlog, item 175: structured JSON mode's JSON-safe
+// alternative to scrubSelfDisclosure (which would corrupt JSON syntax).
+
+Deno.test("containsSelfDisclosure: false for a clean answer, even inside JSON", () => {
+  assertFalse(containsSelfDisclosure('{"answer":"Our support hours are 9-5 ET."}'));
+});
+
+Deno.test("containsSelfDisclosure: true when a self-disclosure phrase appears anywhere in the text, including inside a JSON string value", () => {
+  assert(containsSelfDisclosure('{"answer":"As an AI, I can help with that."}'));
+  assert(containsSelfDisclosure("I'm NazAI, here to help."));
+});
+
+Deno.test("containsSelfDisclosure: never mutates or truncates -- it only ever reports true/false", () => {
+  const text = '{"answer":"As an AI, I can help.","other":"field"}';
+  containsSelfDisclosure(text);
+  assert(text === '{"answer":"As an AI, I can help.","other":"field"}');
 });
 
 // ---- repairMarkdown ----

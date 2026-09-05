@@ -342,6 +342,17 @@ export default function ControlApiDocs() {
           <p className="mt-1">Tell it once how your assistant should sound — applied to every answer this key generates:</p>
           <CodeBlock>{EXAMPLE_PERSONA_CURL}</CodeBlock>
 
+          <p className="mt-4 font-semibold text-zinc-200">2b. (Optional) Customize the "I don't know" message</p>
+          <p className="mt-1">
+            By default, a question your context doesn't cover gets back{" "}
+            <span className="font-mono">"I don't have enough information to answer that."</span> Override it with
+            your own wording — e.g. pointing to a support inbox — using the same endpoint:
+          </p>
+          <CodeBlock>{`curl -X POST "${SUPABASE_FUNCTIONS_URL}/api-keys/<key id>/policy" \\
+  -H "Authorization: Bearer <your NazAI login session>" \\
+  -H "Content-Type: application/json" \\
+  -d '{ "fallback_message": "Sorry, I cant help with that -- please email support@acme.com." }'`}</CodeBlock>
+
           <p className="mt-4 font-semibold text-zinc-200">3. Send the message</p>
           <CodeBlock>{EXAMPLE_RESPOND_CURL}</CodeBlock>
           <p className="mt-3">Response:</p>
@@ -398,6 +409,46 @@ export default function ControlApiDocs() {
             <span className="font-mono">"low"</span> (it didn't, and you got the honest fallback instead). Both
             are reported even on a sandbox key, as an estimate of what a real call would have cost — a sandbox
             key never actually bills it against your spend cap.
+          </p>
+
+          <p className="mt-4 font-semibold text-zinc-200">7. (Optional) Get structured JSON instead of prose</p>
+          <p className="mt-1">
+            Building something programmatic rather than a chat UI? Pass{" "}
+            <span className="font-mono text-cyan-300">response_schema</span> — a JSON Schema object describing
+            the shape you want — and the answer comes back matching it, in a{" "}
+            <span className="font-mono">structured</span> field alongside the usual{" "}
+            <span className="font-mono">answer</span> (a string, for anything that still just wants text). Can't
+            be combined with <span className="font-mono">"stream": true</span>.
+          </p>
+          <CodeBlock>{`curl -X POST "${SUPABASE_FUNCTIONS_URL}/control-api/v1/respond" \\
+  -H "Authorization: Bearer nazai_sk_<your key>" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "message": "How long do refunds take?",
+    "response_schema": {
+      "type": "object",
+      "properties": {
+        "answer": { "type": "string" },
+        "days_min": { "type": "number" },
+        "days_max": { "type": "number" }
+      },
+      "required": ["answer", "days_min", "days_max"]
+    }
+  }'`}</CodeBlock>
+          <CodeBlock>{`{
+  "api_version": "v1",
+  "ok": true,
+  "answer": "{\\"answer\\":\\"Refunds take 5-7 business days.\\",\\"days_min\\":5,\\"days_max\\":7}",
+  "structured": { "answer": "Refunds take 5-7 business days.", "days_min": 5, "days_max": 7 },
+  "cost_usd": 0.000913,
+  "confidence": "high"
+}`}</CodeBlock>
+          <p className="mt-2 text-xs text-zinc-500">
+            <span className="font-mono">structured</span> is only present when the answer is genuinely grounded
+            AND actually matches your schema — the same "I don't have enough information" fallback (or your own
+            custom one, see step 2b) still applies when it isn't, as plain text with no{" "}
+            <span className="font-mono">structured</span> field. This mode is never cached (see below) — the
+            cache has no awareness of which schema, if any, a given call asked for.
           </p>
         </Section>
 
