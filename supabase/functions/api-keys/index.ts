@@ -27,6 +27,7 @@ import { keyLatencyStats, keyUptimeStats } from "../_shared/key-performance.ts";
 import { buildPolicyRecommendation, type ActionTypeEscalations, type EscalatedDecisionOutcome } from "../_shared/policy-recommendation.ts";
 import { DEFAULT_CONFIDENCE_THRESHOLD } from "../_shared/decision-scoring.ts";
 import { isValidPersona } from "../_shared/response-context.ts";
+import { generateEmbeddingWithinBudget, formatEmbeddingLiteral } from "../_shared/decision-embeddings.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -564,6 +565,21 @@ Deno.serve(async (req) => {
       .select("id, entry_text, enabled, created_at")
       .maybeSingle();
     if (error) return json({ error: error.message }, 500);
+    // "/respond" MVP backlog, item 163: embed the entry right away so
+    // retrieval (_shared/response-context.ts's findRelevantContext) can
+    // find it -- best-effort, budget-capped the same as every other
+    // embedding call this key's own spend cap already governs. A failure
+    // here (missing gateway key, over cap, network hiccup) never blocks
+    // creating the entry itself; it just stays retrievable only via the
+    // "no embedded entries yet" fallback until a later retry succeeds.
+    if (data?.id) {
+      try {
+        const embedding = await generateEmbeddingWithinBudget(admin, targetUserId, keyId, entryText);
+        if (embedding) {
+          await admin.from("api_key_context_entries").update({ embedding: formatEmbeddingLiteral(embedding) }).eq("id", data.id);
+        }
+      } catch { /* embedding is a best-effort enrichment, never a required step */ }
+    }
     return json({ ok: true, entry: data });
   }
 

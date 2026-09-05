@@ -7,6 +7,8 @@
 // it doesn't for the judgment-vocabulary knowledge base (that's a single
 // account judging its own actions; this is a multi-tenant "brain" feature
 // serving many unrelated end customers through the same account).
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+
 export type ResponseContextEntry = {
   id: string;
   entry_text: string;
@@ -14,6 +16,49 @@ export type ResponseContextEntry = {
 
 const MAX_PROMPT_ENTRIES = 20;
 const MAX_ENTRY_CHARS = 1000;
+
+// "/respond" MVP backlog, item 163: retrieval-based context. A cosine
+// similarity below this is "not actually relevant" -- pgvector's
+// nearest-neighbor search always returns something up to the limit, even
+// when nothing in this key's context looks anything like the incoming
+// message. Same threshold precedent-search.ts's own MIN_SIMILARITY uses --
+// no reason for the two to drift apart, they're the same kind of judgment
+// ("is this genuinely similar, or just the closest of a bad lot").
+export const MIN_CONTEXT_SIMILARITY = 0.55;
+const DEFAULT_CONTEXT_LIMIT = 8;
+
+/**
+ * Finds this api key's context entries most relevant to the given
+ * (already-embedded) message. Never throws -- returns an empty array on
+ * any failure at all (missing RPC, network error, malformed rows), the
+ * same "no match is a normal, expected outcome" posture
+ * precedent-search.ts's findPrecedent already established. An empty
+ * result here is NOT the same as "no context configured" -- callers
+ * should fall back to loading every enabled entry directly when this
+ * comes back empty, so a key whose entries predate embeddings (or whose
+ * embedding calls failed) still gets its context included rather than
+ * silently losing it.
+ */
+export async function findRelevantContext(
+  admin: SupabaseClient,
+  apiKeyId: string,
+  embeddingLiteral: string,
+  limit: number = DEFAULT_CONTEXT_LIMIT,
+): Promise<ResponseContextEntry[]> {
+  try {
+    const { data, error } = await admin.rpc("search_response_context", {
+      _api_key_id: apiKeyId,
+      _embedding: embeddingLiteral,
+      _limit: limit,
+    });
+    if (error || !Array.isArray(data)) return [];
+    return (data as { id: string; entry_text: string; similarity: number }[])
+      .filter((r) => Number(r.similarity) >= MIN_CONTEXT_SIMILARITY)
+      .map((r) => ({ id: r.id, entry_text: r.entry_text }));
+  } catch {
+    return [];
+  }
+}
 
 /**
  * Pure -- builds the prompt block, or "" when nothing is configured
