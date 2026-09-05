@@ -42,7 +42,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { resolveApiKeyAuth } from "../_shared/control-api-auth.ts";
 import { runControlGate } from "../_shared/control-gate.ts";
 import { checkIpRateLimit, checkRateLimit, resolveConfiguredRateLimit } from "../_shared/rate-limit.ts";
-import { getApiKeySpendStatus } from "../_shared/spend-guard.ts";
+import { getApiKeySpendStatus, estimateCostUsd } from "../_shared/spend-guard.ts";
 import { checkApiVersion, CONTROL_API_VERSION } from "../_shared/api-versioning.ts";
 import { parseControlApiAction, MAX_BATCH_ACTIONS, type ParsedControlApiAction } from "../_shared/control-api-action.ts";
 import { decodeExportCursor, clampExportLimit, exportCursorFilter, buildExportPage, groupOutcomesByDecision, type ExportableOutcome } from "../_shared/decision-export.ts";
@@ -59,7 +59,7 @@ import { buildDecisionExplanation } from "../_shared/decision-explanation.ts";
 import { hasOpenReview, buildDisputeReasonText } from "../_shared/decision-dispute.ts";
 import { triggerWebhooks } from "../_shared/webhooks.ts";
 import { parseRespondRequest, buildContextPromptBlock, findRelevantContext, summarizeSourcesUsed, type ResponseContextEntry } from "../_shared/response-context.ts";
-import { buildSystemPrompt, generateGroundedAnswer, checkGrounding } from "../_shared/response-generation.ts";
+import { buildSystemPrompt, generateGroundedAnswer, checkGrounding, RESPONSE_MODEL } from "../_shared/response-generation.ts";
 import { sanitizeResponse } from "../_shared/response-sanitizer.ts";
 import { detectContextLeak, LEAK_FALLBACK_ANSWER } from "../_shared/response-injection-guard.ts";
 
@@ -1132,10 +1132,23 @@ Deno.serve(async (req) => {
     // Item 5: a second, independent pass -- never trusts the system
     // prompt's own "don't hallucinate" instruction alone.
     const grounded = leaked
-      ? { text: LEAK_FALLBACK_ANSWER, intervened: true }
+      ? { text: LEAK_FALLBACK_ANSWER, intervened: true, usage: undefined }
       : await checkGrounding(admin, userId, auth.keyId, meterSpend, contextBlock, persona, generation.text);
     // Item 6: the last step before this ever leaves the endpoint.
     const sanitized = sanitizeResponse(grounded.text);
+
+    // Item 171: per-call cost + confidence metadata. Cost is the real,
+    // measured $ for both model calls this request actually made
+    // (generation, plus the grounding check when it ran) -- reported even
+    // on a sandbox key (which never bills it against a real cap, per
+    // meterSpend/countsTowardRealUsage) since it's still an honest
+    // estimate of what a real call like this one would cost. Confidence
+    // is deliberately a plain high/low rather than a fabricated numeric
+    // score: checkGrounding's own verdict is a boolean pass/fail, not a
+    // scored one, and inventing false precision on top of it would
+    // misrepresent what was actually checked.
+    const costUsd = estimateCostUsd(RESPONSE_MODEL, generation.usage) + estimateCostUsd(RESPONSE_MODEL, grounded.usage);
+    const costFields = { cost_usd: Number(costUsd.toFixed(6)), confidence: grounded.intervened ? "low" : "high" };
 
     const testModeFields = auth.isTest ? { test_mode: true, note: testModeVerdictNote(auth.isTest) } : {};
     // Item 168: "sources used" metadata. Only meaningful when the final
@@ -1179,8 +1192,8 @@ Deno.serve(async (req) => {
       }
     }
 
-    if (parsed.stream) return streamAnswer(sanitized.text, { ...testModeFields, ...sourceFields });
-    return json({ ok: true, answer: sanitized.text, ...sourceFields, ...testModeFields });
+    if (parsed.stream) return streamAnswer(sanitized.text, { ...testModeFields, ...sourceFields, ...costFields });
+    return json({ ok: true, answer: sanitized.text, ...sourceFields, ...costFields, ...testModeFields });
   }
 
   // ---- GET /control-api/v1/content-gaps -------------------------------------
