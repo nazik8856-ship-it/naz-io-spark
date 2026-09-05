@@ -101,6 +101,32 @@ Deno.test("parseRespondRequest: rejects an oversized conversation_history", () =
   assert("error" in r);
 });
 
+// ---- parseRespondRequest: item 165 (stream) ----
+
+Deno.test("parseRespondRequest: defaults stream to false when omitted", () => {
+  const r = parseRespondRequest({ message: "hi" });
+  if ("error" in r) throw new Error("expected success, got error: " + r.error);
+  assertFalse(r.stream);
+});
+
+Deno.test("parseRespondRequest: stream: true is honored", () => {
+  const r = parseRespondRequest({ message: "hi", stream: true });
+  if ("error" in r) throw new Error("expected success, got error: " + r.error);
+  assert(r.stream);
+});
+
+Deno.test("parseRespondRequest: a loosely-typed \"true\" string is also honored", () => {
+  const r = parseRespondRequest({ message: "hi", stream: "true" });
+  if ("error" in r) throw new Error("expected success, got error: " + r.error);
+  assert(r.stream);
+});
+
+Deno.test("parseRespondRequest: any other stream value is treated as false", () => {
+  const r = parseRespondRequest({ message: "hi", stream: "yes" });
+  if ("error" in r) throw new Error("expected success, got error: " + r.error);
+  assertFalse(r.stream);
+});
+
 // ---- isValidPersona ----
 
 Deno.test("isValidPersona: null clears it, a reasonable string is valid", () => {

@@ -83,7 +83,7 @@ const MAX_HISTORY_MESSAGES = 20;
 export type RespondChatMessage = { role: "user" | "assistant"; content: string };
 
 export type ParsedRespondRequest =
-  | { message: string; conversationHistory: RespondChatMessage[] }
+  | { message: string; conversationHistory: RespondChatMessage[]; stream: boolean }
   | { error: string };
 
 /**
@@ -115,7 +115,20 @@ export function parseRespondRequest(raw: unknown): ParsedRespondRequest {
     conversationHistory.push({ role, content: content.slice(0, MAX_MESSAGE_CHARS) });
   }
 
-  return { message, conversationHistory };
+  // Item 165: opt-in SSE streaming. The full pipeline (generation ->
+  // grounding check -> leak guard -> sanitizer) still runs unchanged and
+  // in full before anything is sent -- the grounding/leak checks need the
+  // COMPLETE drafted answer to verify, so this can't stream raw model
+  // tokens as they're generated without bypassing those checks entirely.
+  // What streams is the final, already safety-checked answer, delivered
+  // in chunks for a typing-effect UI. Any truthy-looking value is treated
+  // as `true` rather than requiring the literal boolean, matching how
+  // `enabled` is read elsewhere in this codebase (e.g. api-keys' context
+  // entries) -- a caller sending `"stream": "true"` from a loosely-typed
+  // client shouldn't silently fall back to non-streaming.
+  const stream = b?.stream === true || b?.stream === "true";
+
+  return { message, conversationHistory, stream };
 }
 
 /** Pure -- a valid api_keys.response_persona value: null (clear it), or a non-empty string within the column's own CHECK-constraint length. */
