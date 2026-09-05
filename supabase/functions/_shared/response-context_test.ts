@@ -6,6 +6,7 @@ import {
   buildContextPromptBlock,
   parseRespondRequest,
   isValidPersona,
+  isValidFallbackMessage,
   findRelevantContext,
   summarizeSourcesUsed,
   MIN_CONTEXT_SIMILARITY,
@@ -144,6 +145,52 @@ Deno.test("isValidPersona: rejects an empty string and an oversized one", () => 
 Deno.test("isValidPersona: rejects non-string, non-null values", () => {
   assertFalse(isValidPersona(42));
   assertFalse(isValidPersona(undefined));
+});
+
+// ---- isValidFallbackMessage ----
+// "/respond" MVP backlog, item 175.
+
+Deno.test("isValidFallbackMessage: null clears it, a reasonable string is valid", () => {
+  assert(isValidFallbackMessage(null));
+  assert(isValidFallbackMessage("Sorry, I can't help with that -- please contact support@acme.com."));
+});
+
+Deno.test("isValidFallbackMessage: rejects an empty string and an oversized one", () => {
+  assertFalse(isValidFallbackMessage(""));
+  assertFalse(isValidFallbackMessage("   "));
+  assertFalse(isValidFallbackMessage("x".repeat(501)));
+});
+
+Deno.test("isValidFallbackMessage: rejects non-string, non-null values", () => {
+  assertFalse(isValidFallbackMessage(42));
+  assertFalse(isValidFallbackMessage(undefined));
+});
+
+// ---- parseRespondRequest: item 175 (response_schema) ----
+
+Deno.test("parseRespondRequest: no response_schema at all is fine, field omitted", () => {
+  const r = parseRespondRequest({ message: "hi" });
+  if ("error" in r) throw new Error("expected success, got error: " + r.error);
+  assert(r.responseSchema === undefined);
+});
+
+Deno.test("parseRespondRequest: accepts a plain-object response_schema", () => {
+  const schema = { type: "object", properties: { answer: { type: "string" } } };
+  const r = parseRespondRequest({ message: "hi", response_schema: schema });
+  if ("error" in r) throw new Error("expected success, got error: " + r.error);
+  assertEquals(r.responseSchema, schema);
+});
+
+Deno.test("parseRespondRequest: rejects a non-object response_schema", () => {
+  const r1 = parseRespondRequest({ message: "hi", response_schema: "not an object" });
+  assert("error" in r1);
+  const r2 = parseRespondRequest({ message: "hi", response_schema: ["also", "not", "an", "object"] });
+  assert("error" in r2);
+});
+
+Deno.test("parseRespondRequest: rejects response_schema combined with stream", () => {
+  const r = parseRespondRequest({ message: "hi", response_schema: { type: "object" }, stream: true });
+  assert("error" in r);
 });
 
 // ---- findRelevantContext ----

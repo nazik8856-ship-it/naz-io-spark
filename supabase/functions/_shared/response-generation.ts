@@ -73,6 +73,12 @@ export async function generateGroundedAnswer(
   systemPrompt: string,
   message: string,
   history: RespondChatMessage[],
+  // Item 175: structured JSON response mode. A caller-supplied JSON
+  // Schema, forwarded to the gateway as an OpenAI-compatible
+  // response_format request. Omitted entirely (not even an empty
+  // object) when not requested, so a plain-text call's request body is
+  // byte-for-byte unchanged from before this item existed.
+  responseSchema?: Record<string, unknown>,
 ): Promise<GenerationOutcome> {
   if (meterSpend) {
     const spend = await getApiKeySpendStatus(admin, userId, apiKeyId);
@@ -92,6 +98,9 @@ export async function generateGroundedAnswer(
       body: JSON.stringify({
         model: RESPONSE_MODEL,
         temperature: 0.3,
+        ...(responseSchema
+          ? { response_format: { type: "json_schema", json_schema: { name: "structured_response", schema: responseSchema, strict: true } } }
+          : {}),
         messages: [
           { role: "system", content: systemPrompt },
           ...history.map((h) => ({ role: h.role, content: h.content })),
@@ -144,7 +153,10 @@ const GROUNDING_CHECK_TOOL = {
   },
 };
 
-const GROUNDING_FALLBACK_ANSWER = "I don't have enough information to answer that.";
+// Exported so item 175's structured-JSON-mode branch in control-api/index.ts
+// can fall back to this exact wording when no per-key fallback_message is
+// configured, without duplicating the string.
+export const GROUNDING_FALLBACK_ANSWER = "I don't have enough information to answer that.";
 
 export type GroundingCheckOutcome = { text: string; intervened: boolean; usage: Usage | undefined };
 
@@ -166,7 +178,12 @@ export async function checkGrounding(
   contextBlock: string,
   persona: string | null,
   draftedAnswer: string,
+  // Item 175: a per-key override for GROUNDING_FALLBACK_ANSWER, e.g.
+  // "Sorry, I can't help with that -- please contact support@acme.com."
+  // Falls back to the default wording when not configured.
+  fallbackMessage?: string,
 ): Promise<GroundingCheckOutcome> {
+  const fallback = fallbackMessage ?? GROUNDING_FALLBACK_ANSWER;
   const apiKey = Deno.env.get("LOVABLE_API_KEY");
   try {
     const res = await fetch(LOVABLE_URL, {
@@ -195,20 +212,20 @@ export async function checkGrounding(
         ],
       }),
     });
-    if (!res.ok) return { text: GROUNDING_FALLBACK_ANSWER, intervened: true, usage: undefined };
+    if (!res.ok) return { text: fallback, intervened: true, usage: undefined };
 
     const data = await res.json().catch(() => ({} as Record<string, unknown>));
     type ToolCallResponse = { choices?: { message?: { tool_calls?: { function?: { arguments?: string } }[] } }[]; usage?: Usage };
     const typed = data as ToolCallResponse;
     const usage = typed?.usage;
     const call = typed?.choices?.[0]?.message?.tool_calls?.[0];
-    if (!call?.function?.arguments) return { text: GROUNDING_FALLBACK_ANSWER, intervened: true, usage };
+    if (!call?.function?.arguments) return { text: fallback, intervened: true, usage };
 
     let args: { grounded?: boolean };
     try {
       args = JSON.parse(call.function.arguments);
     } catch {
-      return { text: GROUNDING_FALLBACK_ANSWER, intervened: true, usage };
+      return { text: fallback, intervened: true, usage };
     }
 
     if (meterSpend) {
@@ -218,8 +235,8 @@ export async function checkGrounding(
     }
 
     if (args?.grounded === true) return { text: draftedAnswer, intervened: false, usage };
-    return { text: GROUNDING_FALLBACK_ANSWER, intervened: true, usage };
+    return { text: fallback, intervened: true, usage };
   } catch {
-    return { text: GROUNDING_FALLBACK_ANSWER, intervened: true, usage: undefined };
+    return { text: fallback, intervened: true, usage: undefined };
   }
 }

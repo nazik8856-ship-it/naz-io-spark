@@ -107,7 +107,7 @@ const MAX_HISTORY_MESSAGES = 20;
 export type RespondChatMessage = { role: "user" | "assistant"; content: string };
 
 export type ParsedRespondRequest =
-  | { message: string; conversationHistory: RespondChatMessage[]; stream: boolean }
+  | { message: string; conversationHistory: RespondChatMessage[]; stream: boolean; responseSchema?: Record<string, unknown> }
   | { error: string };
 
 /**
@@ -152,11 +152,41 @@ export function parseRespondRequest(raw: unknown): ParsedRespondRequest {
   // client shouldn't silently fall back to non-streaming.
   const stream = b?.stream === true || b?.stream === "true";
 
-  return { message, conversationHistory, stream };
+  // Item 175: structured JSON response mode. `response_schema` is a
+  // caller-supplied JSON Schema object describing the shape they want
+  // the answer in, instead of freeform prose -- forwarded to the model
+  // as an OpenAI-compatible response_format request (see
+  // response-generation.ts). Rejected outright when combined with
+  // streaming: a partial JSON object streamed in text chunks isn't
+  // valid JSON until the very last chunk arrives, which would make
+  // "stream": true actively misleading for this mode rather than just
+  // unsupported.
+  let responseSchema: Record<string, unknown> | undefined;
+  if (b?.response_schema !== undefined && b?.response_schema !== null) {
+    if (typeof b.response_schema !== "object" || Array.isArray(b.response_schema)) {
+      return { error: "response_schema must be a JSON object (a JSON Schema describing the desired shape)" };
+    }
+    responseSchema = b.response_schema as Record<string, unknown>;
+  }
+  if (responseSchema && stream) {
+    return { error: "response_schema and stream cannot be combined" };
+  }
+
+  return { message, conversationHistory, stream, ...(responseSchema ? { responseSchema } : {}) };
 }
 
 /** Pure -- a valid api_keys.response_persona value: null (clear it), or a non-empty string within the column's own CHECK-constraint length. */
 export function isValidPersona(persona: unknown): persona is string | null {
   if (persona === null) return true;
   return typeof persona === "string" && persona.trim().length > 0 && persona.length <= MAX_PERSONA_CHARS;
+}
+
+// "/respond" MVP backlog, item 175: a per-key override for the generic
+// "I don't have enough information to answer that." fallback wording.
+export const MAX_FALLBACK_MESSAGE_CHARS = 500;
+
+/** Pure -- a valid api_keys.fallback_message value: null (clear it), or a non-empty string within the column's own CHECK-constraint length. Same shape as isValidPersona, kept separate since the two settings are independent and could reasonably diverge later. */
+export function isValidFallbackMessage(message: unknown): message is string | null {
+  if (message === null) return true;
+  return typeof message === "string" && message.trim().length > 0 && message.length <= MAX_FALLBACK_MESSAGE_CHARS;
 }
