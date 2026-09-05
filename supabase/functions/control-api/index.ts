@@ -1170,6 +1170,48 @@ Deno.serve(async (req) => {
     return json({ ok: true, answer: sanitized.text, ...sourceFields, ...testModeFields });
   }
 
+  // ---- GET /control-api/v1/content-gaps -------------------------------------
+  // "/respond" MVP backlog, item 169: content-gap analytics. Every real
+  // /respond call where the fact-check declined to answer
+  // (grounding_check_intervened -- see api_response_generations, item 8)
+  // is, by definition, a question this key's configured context didn't
+  // cover. Surfacing that raw feed lets the integrating company see
+  // exactly what to add via POST /api-keys/:id/context, instead of
+  // guessing. Scoped to this one key, same as its context entries --
+  // one company's unanswered questions are never mixed into another
+  // key's feed. Reuses the decision-export endpoints' own keyset
+  // cursor/limit pagination directly rather than reinventing it -- the
+  // shape (id + created_at, ascending order, opaque cursor) is identical.
+  if (req.method === "GET" && /\/content-gaps\/?$/.test(url.pathname)) {
+    if (!auth.keyId) return json({ error: "not_found" }, 404);
+
+    const rate = await checkRateLimit(admin, userId, "control-api-content-gaps", EXPORT_RATE_LIMIT_PER_MINUTE, 60);
+    if (!rate.allowed) {
+      return json({
+        error: "rate_limited",
+        message: `Too many requests — ${rate.count} in the last minute (limit ${rate.limit}). Try again shortly.`,
+      }, 429);
+    }
+
+    const limit = clampExportLimit(url.searchParams.get("limit"));
+    const cursor = decodeExportCursor(url.searchParams.get("cursor"));
+
+    let query = admin
+      .from("api_response_generations")
+      .select("id, message, created_at")
+      .eq("api_key_id", auth.keyId)
+      .eq("is_test", false)
+      .eq("grounding_check_intervened", true);
+    if (cursor) query = query.or(exportCursorFilter(cursor));
+    query = query.order("created_at", { ascending: true }).order("id", { ascending: true }).limit(limit + 1);
+
+    const { data, error } = await query;
+    if (error) return json({ error: error.message }, 500);
+
+    const { page, hasMore, nextCursor } = buildExportPage((data ?? []) as { id: string; created_at: string }[], limit);
+    return json({ gaps: page, has_more: hasMore, next_cursor: nextCursor });
+  }
+
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
 
   // "Zero human review" plan, item 11: read once per request (not once

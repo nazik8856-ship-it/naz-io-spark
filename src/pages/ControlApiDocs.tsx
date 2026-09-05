@@ -386,6 +386,32 @@ export default function ControlApiDocs() {
 }`}</CodeBlock>
         </Section>
 
+        <Section title="Content gaps: see what your context doesn't cover yet">
+          <p>
+            Every real <span className="font-mono">/respond</span> call where the fact-check declined to answer
+            (an honest "I don't have enough information" rather than a guess) is, by definition, a question your
+            configured context doesn't cover. This endpoint lists those questions so you know exactly what to add
+            via <span className="font-mono">POST /api-keys/:id/context</span> — no guessing.
+          </p>
+          <CodeBlock>{`GET ${SUPABASE_FUNCTIONS_URL}/control-api/v1/content-gaps`}</CodeBlock>
+          <CodeBlock>{`curl "${SUPABASE_FUNCTIONS_URL}/control-api/v1/content-gaps" \\
+  -H "Authorization: Bearer nazai_sk_<your key>"`}</CodeBlock>
+          <CodeBlock>{`{
+  "api_version": "v1",
+  "gaps": [
+    { "id": "8a1c...", "message": "Do you ship to Canada?", "created_at": "2026-09-05T10:00:00Z" }
+  ],
+  "has_more": false,
+  "next_cursor": null
+}`}</CodeBlock>
+          <p className="mt-2 text-xs text-zinc-500">
+            Keyset-paginated with <span className="font-mono">limit</span> (default 100, max 500) and{" "}
+            <span className="font-mono">cursor</span> query params — pass the previous page's{" "}
+            <span className="font-mono">next_cursor</span> to fetch the next one. Sandbox (test-mode) traffic is
+            never included, since it isn't a real gap in your live product.
+          </p>
+        </Section>
+
         <Section title="TypeScript SDK">
           <p>
             Prefer not to hand-write the HTTP request? A small, hand-crafted{" "}
