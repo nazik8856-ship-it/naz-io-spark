@@ -58,7 +58,7 @@ import { summarizeAttestationCounts, distinctPolicyVersions, buildAttestationCan
 import { buildDecisionExplanation } from "../_shared/decision-explanation.ts";
 import { hasOpenReview, buildDisputeReasonText } from "../_shared/decision-dispute.ts";
 import { triggerWebhooks } from "../_shared/webhooks.ts";
-import { parseRespondRequest, buildContextPromptBlock, type ResponseContextEntry } from "../_shared/response-context.ts";
+import { parseRespondRequest, buildContextPromptBlock, findRelevantContext, type ResponseContextEntry } from "../_shared/response-context.ts";
 import { buildSystemPrompt, generateGroundedAnswer, checkGrounding } from "../_shared/response-generation.ts";
 import { sanitizeResponse } from "../_shared/response-sanitizer.ts";
 
@@ -1037,12 +1037,37 @@ Deno.serve(async (req) => {
     // budget or writes the audit row below.
     const meterSpend = countsTowardRealUsage(auth.isTest);
 
-    const [{ data: keyRow }, { data: contextRows }] = await Promise.all([
+    const [{ data: keyRow }, { data: anyEntry }] = await Promise.all([
       admin.from("api_keys").select("response_persona").eq("id", auth.keyId).maybeSingle(),
-      admin.from("api_key_context_entries").select("id, entry_text").eq("api_key_id", auth.keyId).eq("enabled", true),
+      admin.from("api_key_context_entries").select("id").eq("api_key_id", auth.keyId).eq("enabled", true).limit(1).maybeSingle(),
     ]);
     const persona = (keyRow as { response_persona?: string | null } | null)?.response_persona ?? null;
-    const contextEntries = (contextRows ?? []) as ResponseContextEntry[];
+
+    // Item 163: retrieve only the context entries relevant to THIS
+    // message once retrieval actually has something to search -- falls
+    // back to every enabled entry (the original behavior) whenever
+    // retrieval comes back empty, so a key whose entries predate
+    // embeddings, or whose embedding call fails, or a sandbox key (which
+    // never spends real embedding budget, same as every other real-usage
+    // gate this endpoint already has) never loses its configured context.
+    let contextEntries: ResponseContextEntry[] = [];
+    if (anyEntry) {
+      const queryEmbedding = meterSpend
+        ? await generateEmbeddingWithinBudget(admin, userId, auth.keyId, parsed.message)
+        : null;
+      if (queryEmbedding) {
+        contextEntries = await findRelevantContext(admin, auth.keyId, formatEmbeddingLiteral(queryEmbedding));
+      }
+      if (!contextEntries.length) {
+        const { data: allEntries } = await admin
+          .from("api_key_context_entries")
+          .select("id, entry_text")
+          .eq("api_key_id", auth.keyId)
+          .eq("enabled", true)
+          .order("created_at", { ascending: true });
+        contextEntries = (allEntries ?? []) as ResponseContextEntry[];
+      }
+    }
     const contextBlock = buildContextPromptBlock(contextEntries);
 
     const systemPrompt = buildSystemPrompt(contextBlock, persona);

@@ -6,6 +6,8 @@ import {
   buildContextPromptBlock,
   parseRespondRequest,
   isValidPersona,
+  findRelevantContext,
+  MIN_CONTEXT_SIMILARITY,
   type ResponseContextEntry,
 } from "./response-context.ts";
 
@@ -14,6 +16,10 @@ function assert(cond: boolean, msg = "assertion failed"): asserts cond {
 }
 function assertFalse(cond: boolean, msg = "expected false"): void {
   assert(!cond, msg);
+}
+function assertEquals<T>(actual: T, expected: T, msg?: string): void {
+  const ok = JSON.stringify(actual) === JSON.stringify(expected);
+  assert(ok, msg ?? `expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
 }
 
 // ---- buildContextPromptBlock ----
@@ -111,4 +117,50 @@ Deno.test("isValidPersona: rejects an empty string and an oversized one", () => 
 Deno.test("isValidPersona: rejects non-string, non-null values", () => {
   assertFalse(isValidPersona(42));
   assertFalse(isValidPersona(undefined));
+});
+
+// ---- findRelevantContext ----
+// "/respond" MVP backlog, item 163: retrieval-based context.
+
+// deno-lint-ignore no-explicit-any
+type FakeAdmin = { rpc(name: string, args: Record<string, unknown>): Promise<{ data: unknown; error: unknown }> } & any;
+
+Deno.test("findRelevantContext: maps RPC rows into ResponseContextEntry and applies the similarity floor", async () => {
+  const client: FakeAdmin = {
+    rpc(name: string, args: Record<string, unknown>) {
+      assertEquals(name, "search_response_context");
+      assertEquals(args._api_key_id, "key-1");
+      return Promise.resolve({
+        data: [
+          { id: "e1", entry_text: "Relevant fact", similarity: 0.9 },
+          { id: "e2", entry_text: "Unrelated fact", similarity: MIN_CONTEXT_SIMILARITY - 0.01 },
+        ],
+        error: null,
+      });
+    },
+  };
+  const entries = await findRelevantContext(client, "key-1", "[0.1,0.2]");
+  assertEquals(entries.length, 1, "the below-floor row must be filtered out");
+  assertEquals(entries[0].id, "e1");
+  assertEquals(entries[0].entry_text, "Relevant fact");
+});
+
+Deno.test("findRelevantContext: an RPC error returns an empty array, never throws", async () => {
+  const client: FakeAdmin = { rpc() { return Promise.resolve({ data: null, error: { message: "boom" } }); } };
+  assertEquals(await findRelevantContext(client, "key-1", "[0.1]"), []);
+});
+
+Deno.test("findRelevantContext: a thrown exception returns an empty array, never propagates", async () => {
+  const client: FakeAdmin = { rpc() { throw new Error("network down"); } };
+  assertEquals(await findRelevantContext(client, "key-1", "[0.1]"), []);
+});
+
+Deno.test("findRelevantContext: a malformed (non-array) response returns an empty array", async () => {
+  const client: FakeAdmin = { rpc() { return Promise.resolve({ data: "not an array", error: null }); } };
+  assertEquals(await findRelevantContext(client, "key-1", "[0.1]"), []);
+});
+
+Deno.test("findRelevantContext: no matches at all returns an empty array, never throws", async () => {
+  const client: FakeAdmin = { rpc() { return Promise.resolve({ data: [], error: null }); } };
+  assertEquals(await findRelevantContext(client, "key-1", "[0.1]"), []);
 });
