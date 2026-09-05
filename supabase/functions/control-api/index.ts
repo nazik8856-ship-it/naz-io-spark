@@ -1164,6 +1164,19 @@ Deno.serve(async (req) => {
           latency_ms: Date.now() - startedAt,
         });
       } catch { /* audit logging must never break a real answer that already succeeded */ }
+
+      // Item 170: escalation-to-human webhook. Only for a REAL call whose
+      // final answer is the generic fallback -- a sandbox key never fires
+      // this (nothing "escalates" from test traffic), matching the same
+      // meterSpend gate the audit row above already uses.
+      if (grounded.intervened) {
+        await triggerWebhooks(admin, userId, "response_grounding_failed", {
+          api_key_id: auth.keyId,
+          reason: leaked ? "context_leak" : "insufficient_context",
+          message: parsed.message.slice(0, 500),
+          answer: sanitized.text,
+        });
+      }
     }
 
     if (parsed.stream) return streamAnswer(sanitized.text, { ...testModeFields, ...sourceFields });

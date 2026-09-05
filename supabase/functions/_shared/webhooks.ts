@@ -47,6 +47,15 @@ export const WEBHOOK_EVENTS = [
   "api_key_on_uncertain_downgraded",
   "automation_readiness_ready",
   "shadow_policy_promotion_ready",
+  // "/respond" MVP backlog, item 170: fires the moment a REAL
+  // control-api/v1/respond call gets the generic fallback answer instead
+  // of a genuine one -- either the leak guard caught a verbatim context
+  // dump (item 164) or the grounding check itself declined to answer
+  // (item 5). Complements item 169's pull-based /content-gaps feed with a
+  // push: the integrating company's own system can route that end user to
+  // a human right when it happens, instead of only discovering the gap
+  // later by polling.
+  "response_grounding_failed",
 ] as const;
 export type WebhookEvent = typeof WEBHOOK_EVENTS[number];
 
