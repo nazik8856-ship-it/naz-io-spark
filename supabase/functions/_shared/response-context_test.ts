@@ -7,6 +7,7 @@ import {
   parseRespondRequest,
   isValidPersona,
   findRelevantContext,
+  summarizeSourcesUsed,
   MIN_CONTEXT_SIMILARITY,
   type ResponseContextEntry,
 } from "./response-context.ts";
@@ -189,4 +190,30 @@ Deno.test("findRelevantContext: a malformed (non-array) response returns an empt
 Deno.test("findRelevantContext: no matches at all returns an empty array, never throws", async () => {
   const client: FakeAdmin = { rpc() { return Promise.resolve({ data: [], error: null }); } };
   assertEquals(await findRelevantContext(client, "key-1", "[0.1]"), []);
+});
+
+// ---- summarizeSourcesUsed ----
+// "/respond" MVP backlog, item 168: "sources used" metadata.
+
+Deno.test("summarizeSourcesUsed: no entries produces no sources", () => {
+  assertEquals(summarizeSourcesUsed([]), []);
+});
+
+Deno.test("summarizeSourcesUsed: maps id + entry_text into id + excerpt, unmodified when short", () => {
+  const sources = summarizeSourcesUsed([{ id: "e1", entry_text: "Our support hours are 9-5 ET." }]);
+  assertEquals(sources, [{ id: "e1", excerpt: "Our support hours are 9-5 ET." }]);
+});
+
+Deno.test("summarizeSourcesUsed: truncates a long entry_text with an ellipsis rather than returning it whole", () => {
+  const longText = "x".repeat(500);
+  const [source] = summarizeSourcesUsed([{ id: "e1", entry_text: longText }]);
+  assert(source.excerpt.length < longText.length);
+  assert(source.excerpt.endsWith("…"));
+});
+
+Deno.test("summarizeSourcesUsed: caps the number of sources the same way the prompt block itself is capped", () => {
+  const entries: ResponseContextEntry[] = Array.from({ length: 50 }, (_, i) => ({ id: String(i), entry_text: `fact ${i}` }));
+  const sources = summarizeSourcesUsed(entries);
+  assert(sources.length < 50);
+  assertFalse(sources.some((s) => s.id === "49"));
 });

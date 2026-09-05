@@ -58,7 +58,7 @@ import { summarizeAttestationCounts, distinctPolicyVersions, buildAttestationCan
 import { buildDecisionExplanation } from "../_shared/decision-explanation.ts";
 import { hasOpenReview, buildDisputeReasonText } from "../_shared/decision-dispute.ts";
 import { triggerWebhooks } from "../_shared/webhooks.ts";
-import { parseRespondRequest, buildContextPromptBlock, findRelevantContext, type ResponseContextEntry } from "../_shared/response-context.ts";
+import { parseRespondRequest, buildContextPromptBlock, findRelevantContext, summarizeSourcesUsed, type ResponseContextEntry } from "../_shared/response-context.ts";
 import { buildSystemPrompt, generateGroundedAnswer, checkGrounding } from "../_shared/response-generation.ts";
 import { sanitizeResponse } from "../_shared/response-sanitizer.ts";
 import { detectContextLeak, LEAK_FALLBACK_ANSWER } from "../_shared/response-injection-guard.ts";
@@ -1138,6 +1138,15 @@ Deno.serve(async (req) => {
     const sanitized = sanitizeResponse(grounded.text);
 
     const testModeFields = auth.isTest ? { test_mode: true, note: testModeVerdictNote(auth.isTest) } : {};
+    // Item 168: "sources used" metadata. Only meaningful when the final
+    // answer is genuinely the model's context-grounded draft -- when the
+    // leak guard or grounding check replaced it with the generic fallback
+    // (grounded.intervened / leaked), nothing was actually "used" to
+    // produce that fallback text, so the field is omitted entirely rather
+    // than sent as a misleading empty (or worse, stale-looking) array.
+    const sourceFields = (!leaked && !grounded.intervened && contextEntries.length)
+      ? { sources: summarizeSourcesUsed(contextEntries) }
+      : {};
 
     if (meterSpend) {
       try {
@@ -1157,8 +1166,8 @@ Deno.serve(async (req) => {
       } catch { /* audit logging must never break a real answer that already succeeded */ }
     }
 
-    if (parsed.stream) return streamAnswer(sanitized.text, testModeFields);
-    return json({ ok: true, answer: sanitized.text, ...testModeFields });
+    if (parsed.stream) return streamAnswer(sanitized.text, { ...testModeFields, ...sourceFields });
+    return json({ ok: true, answer: sanitized.text, ...sourceFields, ...testModeFields });
   }
 
   if (req.method !== "POST") return json({ error: "POST only" }, 405);

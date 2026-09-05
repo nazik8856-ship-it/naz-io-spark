@@ -76,6 +76,30 @@ export function buildContextPromptBlock(entries: ResponseContextEntry[]): string
   );
 }
 
+const MAX_SOURCE_EXCERPT_CHARS = 200;
+
+export type ResponseSource = { id: string; excerpt: string };
+
+/**
+ * "/respond" MVP backlog, item 168: "sources used" metadata. Pure --
+ * turns the context entries that were actually placed in the prompt into
+ * a caller-facing citation list (id + a short excerpt, not the full
+ * entry_text -- this is a "here's roughly what backed this answer"
+ * pointer for the integrating company's own audit/debugging UI, not a
+ * second copy of their whole knowledge base). Callers should omit this
+ * field entirely rather than pass an empty array when the final answer
+ * wasn't actually grounded in these entries (the leak guard or grounding
+ * check replaced it with a generic fallback) -- see control-api/index.ts.
+ */
+export function summarizeSourcesUsed(entries: ResponseContextEntry[]): ResponseSource[] {
+  return entries.slice(0, MAX_PROMPT_ENTRIES).map((e) => ({
+    id: e.id,
+    excerpt: e.entry_text.length > MAX_SOURCE_EXCERPT_CHARS
+      ? `${e.entry_text.slice(0, MAX_SOURCE_EXCERPT_CHARS)}…`
+      : e.entry_text,
+  }));
+}
+
 const MAX_MESSAGE_CHARS = 4000;
 export const MAX_PERSONA_CHARS = 500;
 const MAX_HISTORY_MESSAGES = 20;
