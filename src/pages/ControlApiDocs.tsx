@@ -367,6 +367,23 @@ export default function ControlApiDocs() {
   -d '{ "message": "How long do refunds take?", "stream": true }'`}</CodeBlock>
           <p className="mt-2">Each event is a small JSON payload; the last one carries <span className="font-mono">done: true</span>:</p>
           <CodeBlock>{`data: {"delta":"Refunds are "}\n\ndata: {"delta":"processed within"}\n\n...\n\ndata: {"api_version":"v1","done":true}`}</CodeBlock>
+
+          <p className="mt-4 font-semibold text-zinc-200">5. See which context entries backed the answer</p>
+          <p className="mt-1">
+            Whenever the answer is genuinely grounded in the context you provided, the response includes a{" "}
+            <span className="font-mono text-cyan-300">sources</span> array — the id and a short excerpt of each
+            context entry that was used. It's omitted (not sent as an empty array) whenever the fact-check
+            replaced the draft with the honest "I don't have enough information" fallback, since nothing was
+            actually used to produce that text.
+          </p>
+          <CodeBlock>{`{
+  "api_version": "v1",
+  "ok": true,
+  "answer": "Refunds are processed within 5-7 business days once we receive the return.",
+  "sources": [
+    { "id": "3f9b...", "excerpt": "Refunds take 5-7 business days once the item is received." }
+  ]
+}`}</CodeBlock>
         </Section>
 
         <Section title="TypeScript SDK">
