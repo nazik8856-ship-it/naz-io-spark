@@ -352,6 +352,21 @@ export default function ControlApiDocs() {
             returned. 20 requests per minute per key (this does real generation work, not a cheap read), and
             counts against your key's own daily AI spend cap, same budget as everything else on this API.
           </p>
+
+          <p className="mt-4 font-semibold text-zinc-200">4. (Optional) Stream the answer</p>
+          <p className="mt-1">
+            Add <span className="font-mono text-cyan-300">"stream": true</span> to get the answer back as{" "}
+            <span className="font-mono">text/event-stream</span> instead of one JSON object — useful for a chat
+            UI that types the answer out. Note this streams the final, already fact-checked answer in small
+            chunks for a typing effect; it doesn't reduce how long the full answer takes to compute, since the
+            fact-check still needs the complete drafted answer before any of it is safe to send.
+          </p>
+          <CodeBlock>{`curl -N -X POST "${SUPABASE_FUNCTIONS_URL}/control-api/v1/respond" \\
+  -H "Authorization: Bearer nazai_sk_<your key>" \\
+  -H "Content-Type: application/json" \\
+  -d '{ "message": "How long do refunds take?", "stream": true }'`}</CodeBlock>
+          <p className="mt-2">Each event is a small JSON payload; the last one carries <span className="font-mono">done: true</span>:</p>
+          <CodeBlock>{`data: {"delta":"Refunds are "}\n\ndata: {"delta":"processed within"}\n\n...\n\ndata: {"api_version":"v1","done":true}`}</CodeBlock>
         </Section>
 
         <Section title="TypeScript SDK">

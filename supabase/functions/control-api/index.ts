@@ -77,6 +77,38 @@ const json = (b: Record<string, unknown>, status = 200) =>
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 
+// "/respond" MVP backlog, item 165: SSE streaming. Streams the FINAL,
+// already safety-checked answer (generation -> grounding check -> leak
+// guard -> sanitizer all run to completion first, unchanged) in chunks
+// for a typing-effect UI -- this deliberately does NOT stream raw
+// token-by-token model output, since the grounding/leak checks need the
+// complete drafted answer to verify before anything is safe to send.
+// Total latency is the same as (or marginally worse than) the plain JSON
+// response; the only benefit is presentational.
+const SSE_CHUNK_CHARS = 12;
+const SSE_CHUNK_DELAY_MS = 20;
+
+function streamAnswer(text: string, meta: Record<string, unknown>): Response {
+  const encoder = new TextEncoder();
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  const send = (controller: ReadableStreamDefaultController<Uint8Array>, payload: Record<string, unknown>) => {
+    controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+  };
+  const body = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      for (let i = 0; i < text.length; i += SSE_CHUNK_CHARS) {
+        send(controller, { delta: text.slice(i, i + SSE_CHUNK_CHARS) });
+        if (i + SSE_CHUNK_CHARS < text.length) await sleep(SSE_CHUNK_DELAY_MS);
+      }
+      send(controller, { api_version: CONTROL_API_VERSION, done: true, ...meta });
+      controller.close();
+    },
+  });
+  return new Response(body, {
+    headers: { ...corsHeaders, "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" },
+  });
+}
+
 const PRE_AUTH_RATE_LIMIT_PER_MINUTE = 60;
 const POST_AUTH_RATE_LIMIT_PER_MINUTE = 30;
 // A separate, smaller budget from the verdict endpoint's -- export polling
@@ -1125,6 +1157,7 @@ Deno.serve(async (req) => {
       } catch { /* audit logging must never break a real answer that already succeeded */ }
     }
 
+    if (parsed.stream) return streamAnswer(sanitized.text, testModeFields);
     return json({ ok: true, answer: sanitized.text, ...testModeFields });
   }
 
