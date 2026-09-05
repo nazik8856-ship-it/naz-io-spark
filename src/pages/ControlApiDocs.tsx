@@ -112,7 +112,9 @@ const EXAMPLE_RESPOND_CURL = `curl -X POST "${SUPABASE_FUNCTIONS_URL}/control-ap
 const EXAMPLE_RESPOND_RESPONSE = `{
   "api_version": "v1",
   "ok": true,
-  "answer": "Refunds are processed within 5-7 business days once we receive the return."
+  "answer": "Refunds are processed within 5-7 business days once we receive the return.",
+  "cost_usd": 0.000842,
+  "confidence": "high"
 }`;
 
 /**
@@ -382,8 +384,21 @@ export default function ControlApiDocs() {
   "answer": "Refunds are processed within 5-7 business days once we receive the return.",
   "sources": [
     { "id": "3f9b...", "excerpt": "Refunds take 5-7 business days once the item is received." }
-  ]
+  ],
+  "cost_usd": 0.000842,
+  "confidence": "high"
 }`}</CodeBlock>
+
+          <p className="mt-4 font-semibold text-zinc-200">6. Cost and confidence, per call</p>
+          <p className="mt-1">
+            Every response also carries <span className="font-mono text-cyan-300">cost_usd</span> — the real,
+            measured cost of the model calls this one request made (generation plus the fact-check pass) — and{" "}
+            <span className="font-mono text-cyan-300">confidence</span>, either{" "}
+            <span className="font-mono">"high"</span> (the fact-check passed) or{" "}
+            <span className="font-mono">"low"</span> (it didn't, and you got the honest fallback instead). Both
+            are reported even on a sandbox key, as an estimate of what a real call would have cost — a sandbox
+            key never actually bills it against your spend cap.
+          </p>
         </Section>
 
         <Section title="Content gaps: see what your context doesn't cover yet">

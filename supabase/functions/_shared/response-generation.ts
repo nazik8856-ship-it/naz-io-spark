@@ -9,7 +9,7 @@
 // prompt is not a reliable enough guardrail on its own for a feature
 // explicitly sold on "no hallucination."
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { getApiKeySpendStatus, recordAiSpend, type ApiKeySpendStatus } from "./spend-guard.ts";
+import { getApiKeySpendStatus, recordAiSpend, type ApiKeySpendStatus, type Usage } from "./spend-guard.ts";
 import type { RespondChatMessage } from "./response-context.ts";
 
 const LOVABLE_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
@@ -54,7 +54,7 @@ export function buildSystemPrompt(contextBlock: string, persona: string | null):
 }
 
 export type GenerationOutcome =
-  | { ok: true; text: string }
+  | { ok: true; text: string; usage: Usage | undefined }
   | { ok: false; error: "spend_cap_reached"; spend: ApiKeySpendStatus }
   | { ok: false; error: "generation_failed"; message: string };
 
@@ -113,14 +113,15 @@ export async function generateGroundedAnswer(
   if (typeof text !== "string" || !text.trim()) {
     return { ok: false, error: "generation_failed", message: "Model returned an empty response" };
   }
+  const usage = (data as { usage?: Usage })?.usage;
 
   if (meterSpend) {
     try {
-      await recordAiSpend(admin, userId, RESPONSE_MODEL, (data as { usage?: unknown })?.usage as never, "response_generation", null, apiKeyId);
+      await recordAiSpend(admin, userId, RESPONSE_MODEL, usage as never, "response_generation", null, apiKeyId);
     } catch { /* metering must never throw away a real answer that already succeeded */ }
   }
 
-  return { ok: true, text };
+  return { ok: true, text, usage };
 }
 
 const GROUNDING_CHECK_TOOL = {
@@ -145,7 +146,7 @@ const GROUNDING_CHECK_TOOL = {
 
 const GROUNDING_FALLBACK_ANSWER = "I don't have enough information to answer that.";
 
-export type GroundingCheckOutcome = { text: string; intervened: boolean };
+export type GroundingCheckOutcome = { text: string; intervened: boolean; usage: Usage | undefined };
 
 /**
  * A cheap, second model pass -- separate from the generation call above --
@@ -194,30 +195,31 @@ export async function checkGrounding(
         ],
       }),
     });
-    if (!res.ok) return { text: GROUNDING_FALLBACK_ANSWER, intervened: true };
+    if (!res.ok) return { text: GROUNDING_FALLBACK_ANSWER, intervened: true, usage: undefined };
 
     const data = await res.json().catch(() => ({} as Record<string, unknown>));
-    type ToolCallResponse = { choices?: { message?: { tool_calls?: { function?: { arguments?: string } }[] } }[]; usage?: unknown };
+    type ToolCallResponse = { choices?: { message?: { tool_calls?: { function?: { arguments?: string } }[] } }[]; usage?: Usage };
     const typed = data as ToolCallResponse;
+    const usage = typed?.usage;
     const call = typed?.choices?.[0]?.message?.tool_calls?.[0];
-    if (!call?.function?.arguments) return { text: GROUNDING_FALLBACK_ANSWER, intervened: true };
+    if (!call?.function?.arguments) return { text: GROUNDING_FALLBACK_ANSWER, intervened: true, usage };
 
     let args: { grounded?: boolean };
     try {
       args = JSON.parse(call.function.arguments);
     } catch {
-      return { text: GROUNDING_FALLBACK_ANSWER, intervened: true };
+      return { text: GROUNDING_FALLBACK_ANSWER, intervened: true, usage };
     }
 
     if (meterSpend) {
       try {
-        await recordAiSpend(admin, userId, RESPONSE_MODEL, typed?.usage as never, "response_grounding_check", null, apiKeyId);
+        await recordAiSpend(admin, userId, RESPONSE_MODEL, usage as never, "response_grounding_check", null, apiKeyId);
       } catch { /* metering must never throw away a real check that already succeeded */ }
     }
 
-    if (args?.grounded === true) return { text: draftedAnswer, intervened: false };
-    return { text: GROUNDING_FALLBACK_ANSWER, intervened: true };
+    if (args?.grounded === true) return { text: draftedAnswer, intervened: false, usage };
+    return { text: GROUNDING_FALLBACK_ANSWER, intervened: true, usage };
   } catch {
-    return { text: GROUNDING_FALLBACK_ANSWER, intervened: true };
+    return { text: GROUNDING_FALLBACK_ANSWER, intervened: true, usage: undefined };
   }
 }
