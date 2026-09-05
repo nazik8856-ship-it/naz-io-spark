@@ -82,6 +82,36 @@ export interface ListDecisionsOptions {
   limit?: number;
 }
 
+export interface ControlApiRespondMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface ControlApiRespondInput {
+  /** The end user's message to answer. */
+  message: string;
+  /** Prior turns, oldest first -- up to 20. */
+  conversationHistory?: ControlApiRespondMessage[];
+}
+
+export interface ControlApiRespondSource {
+  id: string;
+  excerpt: string;
+}
+
+export interface ControlApiRespondResult {
+  answer: string;
+  /** The context entries that actually backed this answer, when it was genuinely grounded -- absent when the fact-check fell back to the honest "I don't know" answer. */
+  sources: ControlApiRespondSource[] | null;
+  /** Real measured cost of this call's model usage. */
+  costUsd: number | null;
+  /** "high" when the fact-check passed, "low" when it fell back. */
+  confidence: "high" | "low" | null;
+  /** True on a sandbox (test-mode) key -- judged identically, but never billed. */
+  testMode: boolean;
+  testModeNote: string | null;
+}
+
 export interface ControlApiClientOptions {
   /** Your nazai_sk_... API key, from the Control System's API Keys page. */
   apiKey: string;
@@ -142,6 +172,19 @@ function toDecisionRow(d: Record<string, unknown>): ControlApiDecisionRow {
   };
 }
 
+function toRespondResult(data: Record<string, unknown>): ControlApiRespondResult {
+  return {
+    answer: String(data.answer ?? ""),
+    sources: Array.isArray(data.sources)
+      ? (data.sources as Record<string, unknown>[]).map((s) => ({ id: String(s.id), excerpt: String(s.excerpt) }))
+      : null,
+    costUsd: typeof data.cost_usd === "number" ? data.cost_usd : null,
+    confidence: data.confidence === "high" || data.confidence === "low" ? data.confidence : null,
+    testMode: Boolean(data.test_mode),
+    testModeNote: (data.note as string | null) ?? null,
+  };
+}
+
 export class ControlApiClient {
   private readonly apiKey: string;
   private readonly baseUrl: string;
@@ -173,6 +216,15 @@ export class ControlApiClient {
 
   private async post(body: unknown): Promise<Record<string, unknown>> {
     const res = await this.fetchImpl(this.endpoint(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.apiKey}` },
+      body: JSON.stringify(body),
+    });
+    return this.handleResponse(res);
+  }
+
+  private async postTo(path: string, body: unknown): Promise<Record<string, unknown>> {
+    const res = await this.fetchImpl(`${this.endpoint()}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.apiKey}` },
       body: JSON.stringify(body),
@@ -215,5 +267,20 @@ export class ControlApiClient {
       hasMore: Boolean(data.has_more),
       nextCursor: (data.next_cursor as string | null) ?? null,
     };
+  }
+
+  /**
+   * Hand it one of your own end user's messages and get back a grounded,
+   * on-tone, fully white-labeled answer to relay straight back to them --
+   * see the "Respond" section of the Control API docs. Non-streaming only;
+   * for the typing-effect SSE mode, POST directly with `stream: true`
+   * (this client doesn't wrap that, to stay small).
+   */
+  async respond(input: ControlApiRespondInput): Promise<ControlApiRespondResult> {
+    const data = await this.postTo("/respond", {
+      message: input.message,
+      conversation_history: input.conversationHistory?.map((m) => ({ role: m.role, content: m.content })),
+    });
+    return toRespondResult(data);
   }
 }

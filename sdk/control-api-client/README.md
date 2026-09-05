@@ -61,6 +61,18 @@ const { results } = await client.checkBatch([
 for (const r of results) console.log(r.index, r.verdict);
 ```
 
+### Respond -- a white-labeled answer for your own end users
+
+```ts
+const { answer, sources, confidence } = await client.respond({
+  message: "How long do refunds take?",
+});
+console.log(answer, confidence); // "Refunds are processed within..." "high"
+```
+
+Non-streaming only -- for the typing-effect SSE mode, POST directly with `stream: true`
+(see the "Respond" section of the Control API docs); this client keeps that out to stay small.
+
 ### Errors
 
 A non-2xx response (invalid key, rate limited, bad request) throws a

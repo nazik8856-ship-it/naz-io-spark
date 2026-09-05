@@ -401,6 +401,27 @@ export default function ControlApiDocs() {
           </p>
         </Section>
 
+        <Section title="Drop-in chat widget">
+          <p>
+            Don't want to build a chat UI yourself? Add one script tag and you get a floating chat bubble that
+            talks to your own key's configured context and persona — zero dependencies, no build step, and it
+            never mentions NazAI or any underlying model in anything it renders.
+          </p>
+          <CodeBlock>{`<script src="${window.location.origin}/respond-widget.js"
+  data-api-key="nazai_sk_<your key>"
+  data-base-url="${SUPABASE_FUNCTIONS_URL}"
+  data-title="Chat with us"
+  data-greeting="Hi! How can I help?"
+  async></script>`}</CodeBlock>
+          <p className="mt-2 text-xs text-zinc-500">
+            Optional attributes: <span className="font-mono">data-position</span> ("right", default, or "left"),{" "}
+            <span className="font-mono">data-accent-color</span> (any CSS color). It streams the answer (item 4
+            above) into the bubble for a typing effect. Treat your API key the same way you would in any other
+            client-side script — anyone who can view your page source can read it, so use a key scoped to this
+            one integration and keep its rate limit and spend cap sized for public traffic.
+          </p>
+        </Section>
+
         <Section title="Content gaps: see what your context doesn't cover yet">
           <p>
             Every real <span className="font-mono">/respond</span> call where the fact-check declined to answer

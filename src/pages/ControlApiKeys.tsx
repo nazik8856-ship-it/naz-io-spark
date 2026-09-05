@@ -69,11 +69,16 @@ export default function ControlApiKeys() {
   // the pasted key as the Bearer token, not supabase.functions.invoke
   // (which would attach this browser session's own NazAI login instead).
   const [testKey, setTestKey] = useState("");
+  // Item 173: the tester now covers two very different endpoints -- the
+  // verdict endpoint (below, unchanged) and POST /respond -- so a target
+  // toggle picks which fields render and which request runTest sends.
+  const [testTarget, setTestTarget] = useState<"verdict" | "respond">("verdict");
   const [testActionType, setTestActionType] = useState("send_email");
   const [testProvider, setTestProvider] = useState("Gmail");
   const [testDescription, setTestDescription] = useState("Reply to a customer inquiry.");
   const [testParams, setTestParams] = useState("{}");
   const [testMode, setTestMode] = useState<"fast" | "full">("fast");
+  const [testMessage, setTestMessage] = useState("How long do refunds take?");
   const [testBusy, setTestBusy] = useState(false);
   const [testResult, setTestResult] = useState<{ status: number; body: Record<string, unknown> } | null>(null);
 
@@ -177,6 +182,30 @@ export default function ControlApiKeys() {
       toast({ title: "Paste a key first", variant: "destructive" });
       return;
     }
+
+    if (testTarget === "respond") {
+      if (!testMessage.trim()) {
+        toast({ title: "message is required", variant: "destructive" });
+        return;
+      }
+      setTestBusy(true);
+      setTestResult(null);
+      try {
+        const resp = await fetch(`${SUPABASE_FUNCTIONS_URL}/control-api/v1/respond`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${testKey.trim()}` },
+          body: JSON.stringify({ message: testMessage.trim() }),
+        });
+        const body = await resp.json().catch(() => ({}));
+        setTestResult({ status: resp.status, body });
+      } catch (e) {
+        setTestResult({ status: 0, body: { error: e instanceof Error ? e.message : "Network error" } });
+      } finally {
+        setTestBusy(false);
+      }
+      return;
+    }
+
     if (!testActionType.trim() || !testDescription.trim()) {
       toast({ title: "action_type and description are required", variant: "destructive" });
       return;
@@ -367,8 +396,21 @@ export default function ControlApiKeys() {
           </h2>
           <p className="mt-1 text-xs text-zinc-400">
             Sends a real request to the public Control API using the key below — exactly what an external
-            caller would do. Nothing here ever gets carried out; it only returns a verdict.
+            caller would do. Nothing here ever gets carried out; the verdict endpoint only returns a verdict,
+            and a real answer from /respond never counts toward your usage unless the key is a real (non-test) one.
           </p>
+
+          <div className="mt-4 flex items-center gap-4 text-xs text-zinc-300">
+            <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Endpoint</span>
+            <label className="flex items-center gap-1.5">
+              <input type="radio" name="test-target" checked={testTarget === "verdict"} onChange={() => { setTestTarget("verdict"); setTestResult(null); }} className="accent-cyan-500" />
+              Verdict (POST /)
+            </label>
+            <label className="flex items-center gap-1.5">
+              <input type="radio" name="test-target" checked={testTarget === "respond"} onChange={() => { setTestTarget("respond"); setTestResult(null); }} className="accent-cyan-500" />
+              Respond (POST /respond)
+            </label>
+          </div>
 
           <div className="mt-4 grid gap-3">
             <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
@@ -380,6 +422,18 @@ export default function ControlApiKeys() {
                 className="rounded border border-white/10 bg-black/40 px-2 py-1.5 font-mono text-xs text-zinc-200"
               />
             </label>
+            {testTarget === "respond" ? (
+              <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+                message
+                <textarea
+                  value={testMessage}
+                  onChange={(e) => setTestMessage(e.target.value)}
+                  rows={3}
+                  className="rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200"
+                />
+              </label>
+            ) : (
+            <>
             <div className="grid grid-cols-2 gap-3">
               <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
                 action_type
@@ -426,6 +480,8 @@ export default function ControlApiKeys() {
                 full (LLM-scored)
               </label>
             </div>
+            </>
+            )}
             <button
               disabled={testBusy}
               onClick={runTest}
@@ -452,6 +508,11 @@ export default function ControlApiKeys() {
                     }
                   >
                     verdict: {String(testResult.body.verdict)}
+                  </span>
+                )}
+                {typeof testResult.body.confidence === "string" && (
+                  <span className={testResult.body.confidence === "high" ? "text-emerald-400" : "text-amber-400"}>
+                    confidence: {String(testResult.body.confidence)}
                   </span>
                 )}
               </div>
