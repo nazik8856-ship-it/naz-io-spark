@@ -105,7 +105,7 @@ SELECT cron.schedule(
   $$
   INSERT INTO public.scheduled_job_requests (job_name, request_id)
   SELECT 'data-deletion-sweep-daily', net.http_post(
-    url := 'https://qaeduinfirtljnbecyzq.supabase.co/functions/v1/data-deletion-sweep',
+    url := 'https://ekuodpaaiugzywfcmjeo.supabase.co/functions/v1/data-deletion-sweep',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
       'Authorization', 'Bearer ' || (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'email_queue_service_role_key')

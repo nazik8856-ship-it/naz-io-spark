@@ -85,7 +85,7 @@ SELECT cron.alter_job(
   command := $$
   INSERT INTO public.scheduled_job_requests (job_name, request_id)
   SELECT 'retention-sweep-daily', net.http_post(
-    url := 'https://qaeduinfirtljnbecyzq.supabase.co/functions/v1/retention-sweep',
+    url := 'https://ekuodpaaiugzywfcmjeo.supabase.co/functions/v1/retention-sweep',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
       'Authorization', 'Bearer ' || (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'email_queue_service_role_key')
@@ -100,7 +100,7 @@ SELECT cron.alter_job(
   command := $$
   INSERT INTO public.scheduled_job_requests (job_name, request_id)
   SELECT 'control-digest-email-daily', net.http_post(
-    url := 'https://qaeduinfirtljnbecyzq.supabase.co/functions/v1/control-digest-email',
+    url := 'https://ekuodpaaiugzywfcmjeo.supabase.co/functions/v1/control-digest-email',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
       'Authorization', 'Bearer ' || (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'email_queue_service_role_key')
@@ -115,7 +115,7 @@ SELECT cron.alter_job(
   command := $$
   INSERT INTO public.scheduled_job_requests (job_name, request_id)
   SELECT 'control-self-audit-weekly', net.http_post(
-    url := 'https://qaeduinfirtljnbecyzq.supabase.co/functions/v1/control-self-audit',
+    url := 'https://ekuodpaaiugzywfcmjeo.supabase.co/functions/v1/control-self-audit',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
       'Authorization', 'Bearer ' || (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'email_queue_service_role_key')
@@ -130,7 +130,7 @@ SELECT cron.alter_job(
   command := $$
   INSERT INTO public.scheduled_job_requests (job_name, request_id)
   SELECT 'control-weekly-trend-email-mondays', net.http_post(
-    url := 'https://qaeduinfirtljnbecyzq.supabase.co/functions/v1/control-weekly-trend-email',
+    url := 'https://ekuodpaaiugzywfcmjeo.supabase.co/functions/v1/control-weekly-trend-email',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
       'Authorization', 'Bearer ' || (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'email_queue_service_role_key')
@@ -145,7 +145,7 @@ SELECT cron.alter_job(
   command := $$
   INSERT INTO public.scheduled_job_requests (job_name, request_id)
   SELECT 'approval-escalation-sweep-30min', net.http_post(
-    url := 'https://qaeduinfirtljnbecyzq.supabase.co/functions/v1/approval-escalation-sweep',
+    url := 'https://ekuodpaaiugzywfcmjeo.supabase.co/functions/v1/approval-escalation-sweep',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
       'Authorization', 'Bearer ' || (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'email_queue_service_role_key')
@@ -160,7 +160,7 @@ SELECT cron.alter_job(
   command := $$
   INSERT INTO public.scheduled_job_requests (job_name, request_id)
   SELECT 'governance-backup-export-daily', net.http_post(
-    url := 'https://qaeduinfirtljnbecyzq.supabase.co/functions/v1/governance-backup-export',
+    url := 'https://ekuodpaaiugzywfcmjeo.supabase.co/functions/v1/governance-backup-export',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
       'Authorization', 'Bearer ' || (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'email_queue_service_role_key')
@@ -179,7 +179,7 @@ SELECT cron.schedule(
   '*/30 * * * *',
   $$
   SELECT net.http_post(
-    url := 'https://qaeduinfirtljnbecyzq.supabase.co/functions/v1/cron-health-check',
+    url := 'https://ekuodpaaiugzywfcmjeo.supabase.co/functions/v1/cron-health-check',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
       'Authorization', 'Bearer ' || (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'email_queue_service_role_key')
