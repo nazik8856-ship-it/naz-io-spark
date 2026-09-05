@@ -61,6 +61,7 @@ import { triggerWebhooks } from "../_shared/webhooks.ts";
 import { parseRespondRequest, buildContextPromptBlock, findRelevantContext, type ResponseContextEntry } from "../_shared/response-context.ts";
 import { buildSystemPrompt, generateGroundedAnswer, checkGrounding } from "../_shared/response-generation.ts";
 import { sanitizeResponse } from "../_shared/response-sanitizer.ts";
+import { detectContextLeak, LEAK_FALLBACK_ANSWER } from "../_shared/response-injection-guard.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -1087,9 +1088,20 @@ Deno.serve(async (req) => {
       return json({ error: "generation_failed", message: generation.message }, 502);
     }
 
+    // Item 164: a deterministic, free check for the drafted answer being a
+    // verbatim (or near-verbatim) dump of the context block -- a
+    // different failure mode from item 5's grounding check below, which
+    // would trivially PASS a verbatim copy (every "claim" in it is, by
+    // definition, supported by the context it was lifted from). Runs
+    // first and skips the paid grounding call entirely when it fires --
+    // there's no reason to spend a model call verifying an answer that's
+    // already being discarded.
+    const leaked = detectContextLeak(contextBlock, generation.text);
     // Item 5: a second, independent pass -- never trusts the system
     // prompt's own "don't hallucinate" instruction alone.
-    const grounded = await checkGrounding(admin, userId, auth.keyId, meterSpend, contextBlock, persona, generation.text);
+    const grounded = leaked
+      ? { text: LEAK_FALLBACK_ANSWER, intervened: true }
+      : await checkGrounding(admin, userId, auth.keyId, meterSpend, contextBlock, persona, generation.text);
     // Item 6: the last step before this ever leaves the endpoint.
     const sanitized = sanitizeResponse(grounded.text);
 
@@ -1105,6 +1117,7 @@ Deno.serve(async (req) => {
           // audit trail (what shape of question came in, did a guardrail
           // fire), not a transcript archive.
           message: parsed.message.slice(0, 500),
+          injection_guard_intervened: leaked,
           grounding_check_intervened: grounded.intervened,
           sanitizer_intervened: sanitized.intervened,
           latency_ms: Date.now() - startedAt,
