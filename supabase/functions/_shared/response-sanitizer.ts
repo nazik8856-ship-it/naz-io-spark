@@ -2,11 +2,12 @@
 // requirement of this feature, stated explicitly by the account that asked
 // for it -- the generated answer must never reveal it came from NazAI,
 // mention being an AI, or otherwise break the white-label illusion for the
-// integrating company's own end user. Paired with the system prompt itself
-// instructing the model never to self-disclose in the first place
-// (response-generation.ts) -- defense in depth, the same "prompt it
-// correctly AND verify the output" pattern this codebase already uses for
-// decision-signing + signature verification.
+// integrating company's own end user. Under the "own decision-making
+// machine" rewrite (item 176) there's no generative model left to
+// instruct against self-disclosure, so this deterministic scrub is now
+// the ONLY line of defense -- still run as the last step before an
+// answer leaves the endpoint, since a matched context entry an account
+// owner wrote themselves could still happen to mention NazAI by name.
 const SELF_DISCLOSURE_PATTERNS: RegExp[] = [
   /\bnaz[\s-]?ai\b/i,
   /\bas an ai\b/i,

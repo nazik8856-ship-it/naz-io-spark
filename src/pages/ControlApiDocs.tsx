@@ -93,11 +93,6 @@ const EXAMPLE_CONTEXT_CURL = `curl -X POST "${SUPABASE_FUNCTIONS_URL}/api-keys/<
   -H "Content-Type: application/json" \\
   -d '{ "entry_text": "Refunds are processed within 5-7 business days. Support hours are 9am-5pm ET, Mon-Fri." }'`;
 
-const EXAMPLE_PERSONA_CURL = `curl -X POST "${SUPABASE_FUNCTIONS_URL}/api-keys/<key id>/policy" \\
-  -H "Authorization: Bearer <your NazAI login session>" \\
-  -H "Content-Type: application/json" \\
-  -d '{ "response_persona": "Warm, concise, first names, no corporate jargon." }'`;
-
 const EXAMPLE_RESPOND_CURL = `curl -X POST "${SUPABASE_FUNCTIONS_URL}/control-api/v1/respond" \\
   -H "Authorization: Bearer nazai_sk_<your key>" \\
   -H "Content-Type: application/json" \\
@@ -113,7 +108,7 @@ const EXAMPLE_RESPOND_RESPONSE = `{
   "api_version": "v1",
   "ok": true,
   "answer": "Refunds are processed within 5-7 business days once we receive the return.",
-  "cost_usd": 0.000842,
+  "cost_usd": 0,
   "confidence": "high"
 }`;
 
@@ -325,24 +320,24 @@ export default function ControlApiDocs() {
         <Section title="Respond: a white-labeled answer for your own end users">
           <p>
             Everything above is for judging YOUR OWN proposed actions. This endpoint is different: hand it one
-            of your end user's messages and NazAI drafts a grounded, on-tone answer for you to relay straight
-            back to them — as if it were your own AI speaking. The response never mentions NazAI, an AI model,
-            or any underlying vendor in any way — it's built to sit invisibly behind your own product.
+            of your end user's messages and NazAI answers it from the facts you've configured, for you to relay
+            straight back to them — as if it were your own AI speaking. There's no generative model in this
+            path at all: the answer is assembled directly from the context entries you wrote yourself, so it's
+            structurally incapable of inventing a fact, and it never mentions NazAI, an AI model, or any
+            underlying vendor in any way — it's built to sit invisibly behind your own product.
           </p>
           <CodeBlock>{`POST ${SUPABASE_FUNCTIONS_URL}/control-api/v1/respond`}</CodeBlock>
 
           <p className="mt-4 font-semibold text-zinc-200">1. Give it the facts it should answer from</p>
           <p className="mt-1">
             NazAI never invents facts about your business — it only answers from context you provide, scoped to
-            this one key so it can never leak into a different key's answers. Add as many entries as you need:
+            this one key so it can never leak into a different key's answers. Add as many entries as you need.
+            Each answer is built directly from the entry (or entries) that best match the incoming question, so
+            write them the way you'd want the answer to actually read:
           </p>
           <CodeBlock>{EXAMPLE_CONTEXT_CURL}</CodeBlock>
 
-          <p className="mt-4 font-semibold text-zinc-200">2. (Optional) Set a tone</p>
-          <p className="mt-1">Tell it once how your assistant should sound — applied to every answer this key generates:</p>
-          <CodeBlock>{EXAMPLE_PERSONA_CURL}</CodeBlock>
-
-          <p className="mt-4 font-semibold text-zinc-200">2b. (Optional) Customize the "I don't know" message</p>
+          <p className="mt-4 font-semibold text-zinc-200">2. (Optional) Customize the "I don't know" message</p>
           <p className="mt-1">
             By default, a question your context doesn't cover gets back{" "}
             <span className="font-mono">"I don't have enough information to answer that."</span> Override it with
@@ -359,20 +354,20 @@ export default function ControlApiDocs() {
           <CodeBlock>{EXAMPLE_RESPOND_RESPONSE}</CodeBlock>
 
           <p className="mt-3 text-xs text-zinc-500">
-            If the context you've given doesn't cover the question, you get an honest{" "}
+            If none of your context entries actually match the question, you get an honest{" "}
             <span className="font-mono">"I don't have enough information to answer that."</span> instead of a
-            guess — every drafted answer is checked against your context in a second pass before it's ever
-            returned. 20 requests per minute per key (this does real generation work, not a cheap read), and
-            counts against your key's own daily AI spend cap, same budget as everything else on this API.
+            guess — with no generative model in the path, there's nothing left that could produce a plausible-
+            sounding wrong answer. 20 requests per minute per key. There's no model call to meter, so this never
+            counts against your key's AI spend cap — <span className="font-mono">cost_usd</span> is always{" "}
+            <span className="font-mono">0</span>.
           </p>
 
           <p className="mt-4 font-semibold text-zinc-200">4. (Optional) Stream the answer</p>
           <p className="mt-1">
             Add <span className="font-mono text-cyan-300">"stream": true</span> to get the answer back as{" "}
             <span className="font-mono">text/event-stream</span> instead of one JSON object — useful for a chat
-            UI that types the answer out. Note this streams the final, already fact-checked answer in small
-            chunks for a typing effect; it doesn't reduce how long the full answer takes to compute, since the
-            fact-check still needs the complete drafted answer before any of it is safe to send.
+            UI that types the answer out. This streams the final assembled answer in small chunks purely for a
+            typing effect; the underlying lookup is fast enough already that streaming buys presentation, not speed.
           </p>
           <CodeBlock>{`curl -N -X POST "${SUPABASE_FUNCTIONS_URL}/control-api/v1/respond" \\
   -H "Authorization: Bearer nazai_sk_<your key>" \\
@@ -383,10 +378,10 @@ export default function ControlApiDocs() {
 
           <p className="mt-4 font-semibold text-zinc-200">5. See which context entries backed the answer</p>
           <p className="mt-1">
-            Whenever the answer is genuinely grounded in the context you provided, the response includes a{" "}
+            Whenever the answer is genuinely built from context you provided, the response includes a{" "}
             <span className="font-mono text-cyan-300">sources</span> array — the id and a short excerpt of each
-            context entry that was used. It's omitted (not sent as an empty array) whenever the fact-check
-            replaced the draft with the honest "I don't have enough information" fallback, since nothing was
+            context entry that was actually used. It's omitted (not sent as an empty array) whenever no entry
+            matched and you got the honest "I don't have enough information" fallback instead, since nothing was
             actually used to produce that text.
           </p>
           <CodeBlock>{`{
@@ -396,67 +391,25 @@ export default function ControlApiDocs() {
   "sources": [
     { "id": "3f9b...", "excerpt": "Refunds take 5-7 business days once the item is received." }
   ],
-  "cost_usd": 0.000842,
+  "cost_usd": 0,
   "confidence": "high"
 }`}</CodeBlock>
 
           <p className="mt-4 font-semibold text-zinc-200">6. Cost and confidence, per call</p>
           <p className="mt-1">
-            Every response also carries <span className="font-mono text-cyan-300">cost_usd</span> — the real,
-            measured cost of the model calls this one request made (generation plus the fact-check pass) — and{" "}
+            Every response also carries <span className="font-mono text-cyan-300">cost_usd</span> — always{" "}
+            <span className="font-mono">0</span>, since there's no model call left to meter — and{" "}
             <span className="font-mono text-cyan-300">confidence</span>, either{" "}
-            <span className="font-mono">"high"</span> (the fact-check passed) or{" "}
-            <span className="font-mono">"low"</span> (it didn't, and you got the honest fallback instead). Both
-            are reported even on a sandbox key, as an estimate of what a real call would have cost — a sandbox
-            key never actually bills it against your spend cap.
-          </p>
-
-          <p className="mt-4 font-semibold text-zinc-200">7. (Optional) Get structured JSON instead of prose</p>
-          <p className="mt-1">
-            Building something programmatic rather than a chat UI? Pass{" "}
-            <span className="font-mono text-cyan-300">response_schema</span> — a JSON Schema object describing
-            the shape you want — and the answer comes back matching it, in a{" "}
-            <span className="font-mono">structured</span> field alongside the usual{" "}
-            <span className="font-mono">answer</span> (a string, for anything that still just wants text). Can't
-            be combined with <span className="font-mono">"stream": true</span>.
-          </p>
-          <CodeBlock>{`curl -X POST "${SUPABASE_FUNCTIONS_URL}/control-api/v1/respond" \\
-  -H "Authorization: Bearer nazai_sk_<your key>" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "message": "How long do refunds take?",
-    "response_schema": {
-      "type": "object",
-      "properties": {
-        "answer": { "type": "string" },
-        "days_min": { "type": "number" },
-        "days_max": { "type": "number" }
-      },
-      "required": ["answer", "days_min", "days_max"]
-    }
-  }'`}</CodeBlock>
-          <CodeBlock>{`{
-  "api_version": "v1",
-  "ok": true,
-  "answer": "{\\"answer\\":\\"Refunds take 5-7 business days.\\",\\"days_min\\":5,\\"days_max\\":7}",
-  "structured": { "answer": "Refunds take 5-7 business days.", "days_min": 5, "days_max": 7 },
-  "cost_usd": 0.000913,
-  "confidence": "high"
-}`}</CodeBlock>
-          <p className="mt-2 text-xs text-zinc-500">
-            <span className="font-mono">structured</span> is only present when the answer is genuinely grounded
-            AND actually matches your schema — the same "I don't have enough information" fallback (or your own
-            custom one, see step 2b) still applies when it isn't, as plain text with no{" "}
-            <span className="font-mono">structured</span> field. This mode is never cached (see below) — the
-            cache has no awareness of which schema, if any, a given call asked for.
+            <span className="font-mono">"high"</span> (a context entry matched the question) or{" "}
+            <span className="font-mono">"low"</span> (nothing did, and you got the honest fallback instead).
           </p>
         </Section>
 
         <Section title="Drop-in chat widget">
           <p>
             Don't want to build a chat UI yourself? Add one script tag and you get a floating chat bubble that
-            talks to your own key's configured context and persona — zero dependencies, no build step, and it
-            never mentions NazAI or any underlying model in anything it renders.
+            talks to your own key's configured context — zero dependencies, no build step, and it never
+            mentions NazAI or any underlying model in anything it renders.
           </p>
           <CodeBlock>{`<script src="${window.location.origin}/respond-widget.js"
   data-api-key="nazai_sk_<your key>"
@@ -475,10 +428,10 @@ export default function ControlApiDocs() {
 
         <Section title="Content gaps: see what your context doesn't cover yet">
           <p>
-            Every real <span className="font-mono">/respond</span> call where the fact-check declined to answer
-            (an honest "I don't have enough information" rather than a guess) is, by definition, a question your
-            configured context doesn't cover. This endpoint lists those questions so you know exactly what to add
-            via <span className="font-mono">POST /api-keys/:id/context</span> — no guessing.
+            Every real <span className="font-mono">/respond</span> call where no context entry matched the
+            question (an honest "I don't have enough information" rather than a guess) is, by definition, a
+            question your configured context doesn't cover. This endpoint lists those questions so you know
+            exactly what to add via <span className="font-mono">POST /api-keys/:id/context</span> — no guessing.
           </p>
           <CodeBlock>{`GET ${SUPABASE_FUNCTIONS_URL}/control-api/v1/content-gaps`}</CodeBlock>
           <CodeBlock>{`curl "${SUPABASE_FUNCTIONS_URL}/control-api/v1/content-gaps" \\

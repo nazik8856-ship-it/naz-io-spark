@@ -15,7 +15,6 @@ export type ResponseContextEntry = {
 };
 
 const MAX_PROMPT_ENTRIES = 20;
-const MAX_ENTRY_CHARS = 1000;
 
 // "/respond" MVP backlog, item 163: retrieval-based context. A cosine
 // similarity below this is "not actually relevant" -- pgvector's
@@ -60,22 +59,6 @@ export async function findRelevantContext(
   }
 }
 
-/**
- * Pure -- builds the prompt block, or "" when nothing is configured
- * (never injects an empty/misleading section header). Framed as strict
- * grounding material for a generated ANSWER, not judgment vocabulary for
- * a verdict -- this endpoint responds to a message, it doesn't gate an
- * action.
- */
-export function buildContextPromptBlock(entries: ResponseContextEntry[]): string {
-  if (!entries.length) return "";
-  const lines = entries.slice(0, MAX_PROMPT_ENTRIES).map((e) => `- ${e.entry_text.slice(0, MAX_ENTRY_CHARS)}`);
-  return (
-    `\n# CONTEXT PROVIDED BY THIS INTEGRATION -- use only this to answer; never invent facts beyond it.\n` +
-    `${lines.join("\n")}\n`
-  );
-}
-
 const MAX_SOURCE_EXCERPT_CHARS = 200;
 
 export type ResponseSource = { id: string; excerpt: string };
@@ -107,7 +90,7 @@ const MAX_HISTORY_MESSAGES = 20;
 export type RespondChatMessage = { role: "user" | "assistant"; content: string };
 
 export type ParsedRespondRequest =
-  | { message: string; conversationHistory: RespondChatMessage[]; stream: boolean; responseSchema?: Record<string, unknown> }
+  | { message: string; conversationHistory: RespondChatMessage[]; stream: boolean }
   | { error: string };
 
 /**
@@ -152,27 +135,22 @@ export function parseRespondRequest(raw: unknown): ParsedRespondRequest {
   // client shouldn't silently fall back to non-streaming.
   const stream = b?.stream === true || b?.stream === "true";
 
-  // Item 175: structured JSON response mode. `response_schema` is a
-  // caller-supplied JSON Schema object describing the shape they want
-  // the answer in, instead of freeform prose -- forwarded to the model
-  // as an OpenAI-compatible response_format request (see
-  // response-generation.ts). Rejected outright when combined with
-  // streaming: a partial JSON object streamed in text chunks isn't
-  // valid JSON until the very last chunk arrives, which would make
-  // "stream": true actively misleading for this mode rather than just
-  // unsupported.
-  let responseSchema: Record<string, unknown> | undefined;
+  // "Own decision-making machine" plan, item 176: /respond no longer
+  // calls a generative model at all -- it answers deterministically from
+  // this key's own configured context (see response-synthesis.ts). Item
+  // 175's response_schema (asking a model to fill a caller-supplied JSON
+  // Schema) has no model left to target, so it's rejected outright with
+  // an explicit error rather than silently ignored -- an integrator
+  // still sending it deserves to know why their schema stopped applying,
+  // not a silently-reshaped response.
   if (b?.response_schema !== undefined && b?.response_schema !== null) {
-    if (typeof b.response_schema !== "object" || Array.isArray(b.response_schema)) {
-      return { error: "response_schema must be a JSON object (a JSON Schema describing the desired shape)" };
-    }
-    responseSchema = b.response_schema as Record<string, unknown>;
-  }
-  if (responseSchema && stream) {
-    return { error: "response_schema and stream cannot be combined" };
+    return {
+      error: "response_schema is no longer supported -- /respond answers deterministically from your own " +
+        "configured context, with no generative model left to target a schema at",
+    };
   }
 
-  return { message, conversationHistory, stream, ...(responseSchema ? { responseSchema } : {}) };
+  return { message, conversationHistory, stream };
 }
 
 /** Pure -- a valid api_keys.response_persona value: null (clear it), or a non-empty string within the column's own CHECK-constraint length. */
