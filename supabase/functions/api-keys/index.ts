@@ -27,7 +27,8 @@ import { keyLatencyStats, keyUptimeStats } from "../_shared/key-performance.ts";
 import { buildPolicyRecommendation, type ActionTypeEscalations, type EscalatedDecisionOutcome } from "../_shared/policy-recommendation.ts";
 import { DEFAULT_CONFIDENCE_THRESHOLD } from "../_shared/decision-scoring.ts";
 import { isValidPersona, isValidFallbackMessage } from "../_shared/response-context.ts";
-import { generateEmbeddingWithinBudget, formatEmbeddingLiteral } from "../_shared/decision-embeddings.ts";
+import { formatEmbeddingLiteral } from "../_shared/decision-embeddings.ts";
+import { generateLocalEmbedding } from "../_shared/local-embeddings.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -576,16 +577,17 @@ Deno.serve(async (req) => {
       .select("id, entry_text, enabled, created_at")
       .maybeSingle();
     if (error) return json({ error: error.message }, 500);
-    // "/respond" MVP backlog, item 163: embed the entry right away so
-    // retrieval (_shared/response-context.ts's findRelevantContext) can
-    // find it -- best-effort, budget-capped the same as every other
-    // embedding call this key's own spend cap already governs. A failure
-    // here (missing gateway key, over cap, network hiccup) never blocks
-    // creating the entry itself; it just stays retrievable only via the
-    // "no embedded entries yet" fallback until a later retry succeeds.
+    // "/respond" MVP backlog, item 163 (embed on write), updated by item
+    // 176/178: embed the entry right away so retrieval
+    // (_shared/response-context.ts's findRelevantContext) can find it --
+    // via Supabase's own built-in local inference (local-embeddings.ts),
+    // not the Lovable gateway this used to call, so there's no spend cap
+    // to check anymore. Still best-effort: a failure here (malformed
+    // input, an inference hiccup) never blocks creating the entry itself;
+    // it just stays unretrievable until a later retry succeeds.
     if (data?.id) {
       try {
-        const embedding = await generateEmbeddingWithinBudget(admin, targetUserId, keyId, entryText);
+        const embedding = await generateLocalEmbedding(entryText);
         if (embedding) {
           await admin.from("api_key_context_entries").update({ embedding: formatEmbeddingLiteral(embedding) }).eq("id", data.id);
         }
