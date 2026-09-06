@@ -3,7 +3,7 @@
  * endpoint (see src/pages/ControlApiDocs.tsx). Zero dependencies, no
  * build step -- an integrating company includes this one script on
  * their own page and gets a floating chat bubble that talks to their
- * own key's configured context/persona.
+ * own key's configured context.
  *
  * Usage:
  *   <script src="https://<this-app>/respond-widget.js"
