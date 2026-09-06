@@ -101,11 +101,11 @@ export interface ControlApiRespondSource {
 
 export interface ControlApiRespondResult {
   answer: string;
-  /** The context entries that actually backed this answer, when it was genuinely grounded -- absent when the fact-check fell back to the honest "I don't know" answer. */
+  /** The context entries that actually matched and backed this answer -- absent when no entry cleared the similarity floor and the honest "I don't know" fallback was used instead. */
   sources: ControlApiRespondSource[] | null;
-  /** Real measured cost of this call's model usage. */
+  /** Always 0 -- /respond answers deterministically from your own configured context, with no generative model call left to meter. */
   costUsd: number | null;
-  /** "high" when the fact-check passed, "low" when it fell back. */
+  /** "high" when a context entry matched the question, "low" when none did and the fallback was used. */
   confidence: "high" | "low" | null;
   /** True on a sandbox (test-mode) key -- judged identically, but never billed. */
   testMode: boolean;

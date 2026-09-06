@@ -47,12 +47,19 @@ const DEFAULT_CONTEXT_LIMIT = 8;
  * (already-embedded) message. Never throws -- returns an empty array on
  * any failure at all (missing RPC, network error, malformed rows), the
  * same "no match is a normal, expected outcome" posture
- * precedent-search.ts's findPrecedent already established. An empty
- * result here is NOT the same as "no context configured" -- callers
- * should fall back to loading every enabled entry directly when this
- * comes back empty, so a key whose entries predate embeddings (or whose
- * embedding calls failed) still gets its context included rather than
- * silently losing it.
+ * precedent-search.ts's findPrecedent already established.
+ *
+ * Item 176: an empty result here is deliberately NOT backfilled by
+ * loading every enabled entry instead. That fallback existed pre-176,
+ * when a downstream LLM grounding check could still catch and reject an
+ * answer built from an irrelevant entry; with control-api/index.ts's
+ * /respond now synthesizing the answer directly from whatever this
+ * returns (response-synthesis.ts), loading unrelated entries would mean
+ * confidently answering with the wrong fact instead of an honest "I
+ * don't know." A key whose entries predate embeddings (or whose
+ * embedding call failed) is therefore unretrievable until re-embedded,
+ * not silently included -- see api-keys/index.ts's own embed-on-write
+ * call site.
  */
 export async function findRelevantContext(
   admin: SupabaseClient,
