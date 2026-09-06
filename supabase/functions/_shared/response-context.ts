@@ -20,10 +20,26 @@ const MAX_PROMPT_ENTRIES = 20;
 // similarity below this is "not actually relevant" -- pgvector's
 // nearest-neighbor search always returns something up to the limit, even
 // when nothing in this key's context looks anything like the incoming
-// message. Same threshold precedent-search.ts's own MIN_SIMILARITY uses --
-// no reason for the two to drift apart, they're the same kind of judgment
-// ("is this genuinely similar, or just the closest of a bad lot").
-export const MIN_CONTEXT_SIMILARITY = 0.55;
+// message.
+//
+// Item 176/178: this used to intentionally match precedent-search.ts's
+// own MIN_SIMILARITY (0.55) since both ran on the same 768-dim
+// google/text-embedding-004 model. /respond now embeds via gte-small
+// (local-embeddings.ts) instead, and empirical testing against this
+// project's own live deployment showed 0.55 is unsafe for that model:
+// genuinely UNRELATED questions ("What is your CEO's favorite pizza
+// topping?" against a refund-policy entry) scored 0.71-0.78 cosine
+// similarity, while genuine paraphrase matches scored 0.88-0.96 -- a
+// real, confidently-wrong match, not a hallucinated one, but just as
+// misleading to the end user. 0.83 sits in the empirical gap between
+// those two clusters with roughly equal margin on each side. This is a
+// small, one-account sample, not a rigorously tuned threshold -- expect
+// to revisit it once real usage data (and/or a lexical-overlap secondary
+// check, a natural fit for item 177's rule engine) is available. Do NOT
+// re-align this with precedent-search.ts's threshold again -- the two
+// now run on different embedding models with different score
+// distributions, so keeping them equal is no longer meaningful.
+export const MIN_CONTEXT_SIMILARITY = 0.83;
 const DEFAULT_CONTEXT_LIMIT = 8;
 
 /**
