@@ -654,7 +654,7 @@ function ApiKeySettingsPanel({
     <div className="mt-3 space-y-4 rounded border border-white/10 bg-black/20 p-3">
       <div>
         <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
-          Tone (for POST /respond)
+          Tone (reserved -- not currently applied by /respond)
           <textarea
             value={persona}
             onChange={(e) => setPersona(e.target.value)}
@@ -665,6 +665,10 @@ function ApiKeySettingsPanel({
             className="rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200 disabled:opacity-50"
           />
         </label>
+        <p className="mt-0.5 text-[10px] font-mono text-zinc-600">
+          /respond now answers deterministically from your context entries with no generative model in the
+          path, so there's no tone-shaping step left to apply this to. Saved for a possible future use.
+        </p>
         <p className="mt-0.5 text-right text-[10px] font-mono text-zinc-600">{persona.length}/500</p>
       </div>
 

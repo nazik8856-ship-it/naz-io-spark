@@ -3,7 +3,6 @@
 //
 // Run with: deno test --allow-none supabase/functions/_shared/response-context_test.ts
 import {
-  buildContextPromptBlock,
   parseRespondRequest,
   isValidPersona,
   isValidFallbackMessage,
@@ -23,37 +22,6 @@ function assertEquals<T>(actual: T, expected: T, msg?: string): void {
   const ok = JSON.stringify(actual) === JSON.stringify(expected);
   assert(ok, msg ?? `expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
 }
-
-// ---- buildContextPromptBlock ----
-
-Deno.test("buildContextPromptBlock: no entries produces an empty string, never an empty header", () => {
-  assert(buildContextPromptBlock([]) === "");
-});
-
-Deno.test("buildContextPromptBlock: includes every entry's text and a grounding-framed header", () => {
-  const entries: ResponseContextEntry[] = [
-    { id: "1", entry_text: "Our support hours are 9-5 ET." },
-    { id: "2", entry_text: "Refunds take 5-7 business days." },
-  ];
-  const block = buildContextPromptBlock(entries);
-  assert(block.includes("Our support hours are 9-5 ET."));
-  assert(block.includes("Refunds take 5-7 business days."));
-  assert(block.includes("CONTEXT PROVIDED BY THIS INTEGRATION"));
-  assert(block.includes("never invent facts beyond it"));
-});
-
-Deno.test("buildContextPromptBlock: truncates an overly long entry rather than blowing up the prompt", () => {
-  const longText = "x".repeat(5000);
-  const block = buildContextPromptBlock([{ id: "1", entry_text: longText }]);
-  assert(block.length < longText.length + 200);
-});
-
-Deno.test("buildContextPromptBlock: caps the number of entries injected into the prompt", () => {
-  const entries: ResponseContextEntry[] = Array.from({ length: 50 }, (_, i) => ({ id: String(i), entry_text: `fact ${i}` }));
-  const block = buildContextPromptBlock(entries);
-  assertFalse(block.includes("fact 49"));
-  assert(block.includes("fact 0"));
-});
 
 // ---- parseRespondRequest ----
 
@@ -166,31 +134,22 @@ Deno.test("isValidFallbackMessage: rejects non-string, non-null values", () => {
   assertFalse(isValidFallbackMessage(undefined));
 });
 
-// ---- parseRespondRequest: item 175 (response_schema) ----
+// ---- parseRespondRequest: item 176 (response_schema no longer supported) ----
 
-Deno.test("parseRespondRequest: no response_schema at all is fine, field omitted", () => {
+Deno.test("parseRespondRequest: no response_schema at all is fine", () => {
   const r = parseRespondRequest({ message: "hi" });
   if ("error" in r) throw new Error("expected success, got error: " + r.error);
-  assert(r.responseSchema === undefined);
 });
 
-Deno.test("parseRespondRequest: accepts a plain-object response_schema", () => {
+Deno.test("parseRespondRequest: an explicit response_schema is now rejected -- no model left to target it at", () => {
   const schema = { type: "object", properties: { answer: { type: "string" } } };
   const r = parseRespondRequest({ message: "hi", response_schema: schema });
-  if ("error" in r) throw new Error("expected success, got error: " + r.error);
-  assertEquals(r.responseSchema, schema);
-});
-
-Deno.test("parseRespondRequest: rejects a non-object response_schema", () => {
-  const r1 = parseRespondRequest({ message: "hi", response_schema: "not an object" });
-  assert("error" in r1);
-  const r2 = parseRespondRequest({ message: "hi", response_schema: ["also", "not", "an", "object"] });
-  assert("error" in r2);
-});
-
-Deno.test("parseRespondRequest: rejects response_schema combined with stream", () => {
-  const r = parseRespondRequest({ message: "hi", response_schema: { type: "object" }, stream: true });
   assert("error" in r);
+});
+
+Deno.test("parseRespondRequest: response_schema: null is still accepted (treated as absent)", () => {
+  const r = parseRespondRequest({ message: "hi", response_schema: null });
+  if ("error" in r) throw new Error("expected success, got error: " + r.error);
 });
 
 // ---- findRelevantContext ----

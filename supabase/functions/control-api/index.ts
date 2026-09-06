@@ -42,7 +42,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { resolveApiKeyAuth } from "../_shared/control-api-auth.ts";
 import { runControlGate } from "../_shared/control-gate.ts";
 import { checkIpRateLimit, checkRateLimit, resolveConfiguredRateLimit } from "../_shared/rate-limit.ts";
-import { getApiKeySpendStatus, estimateCostUsd } from "../_shared/spend-guard.ts";
+import { getApiKeySpendStatus } from "../_shared/spend-guard.ts";
 import { checkApiVersion, CONTROL_API_VERSION } from "../_shared/api-versioning.ts";
 import { parseControlApiAction, MAX_BATCH_ACTIONS, type ParsedControlApiAction } from "../_shared/control-api-action.ts";
 import { decodeExportCursor, clampExportLimit, exportCursorFilter, buildExportPage, groupOutcomesByDecision, type ExportableOutcome } from "../_shared/decision-export.ts";
@@ -58,11 +58,11 @@ import { summarizeAttestationCounts, distinctPolicyVersions, buildAttestationCan
 import { buildDecisionExplanation } from "../_shared/decision-explanation.ts";
 import { hasOpenReview, buildDisputeReasonText } from "../_shared/decision-dispute.ts";
 import { triggerWebhooks } from "../_shared/webhooks.ts";
-import { parseRespondRequest, buildContextPromptBlock, findRelevantContext, summarizeSourcesUsed, type ResponseContextEntry, type ResponseSource } from "../_shared/response-context.ts";
+import { parseRespondRequest, findRelevantContext, summarizeSourcesUsed, type ResponseContextEntry, type ResponseSource } from "../_shared/response-context.ts";
 import { cacheKeyFor, findExactCachedResponse, findNearDuplicateCachedResponse, storeCachedResponse } from "../_shared/response-cache.ts";
-import { buildSystemPrompt, generateGroundedAnswer, checkGrounding, RESPONSE_MODEL, GROUNDING_FALLBACK_ANSWER } from "../_shared/response-generation.ts";
-import { sanitizeResponse, containsSelfDisclosure } from "../_shared/response-sanitizer.ts";
-import { detectContextLeak, LEAK_FALLBACK_ANSWER } from "../_shared/response-injection-guard.ts";
+import { generateLocalEmbedding } from "../_shared/local-embeddings.ts";
+import { synthesizeAnswer, NO_MATCH_FALLBACK_ANSWER } from "../_shared/response-synthesis.ts";
+import { sanitizeResponse } from "../_shared/response-sanitizer.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -1040,15 +1040,21 @@ Deno.serve(async (req) => {
   }
 
   // ---- POST /control-api/v1/respond ----------------------------------------
-  // "White-labeled 'brain' endpoint" plan, item 1: lets an integrating
-  // company hand NazAI one of ITS OWN end user's messages, plus whatever
-  // grounding context and tone it configured for this key (see
-  // POST /api-keys/:id/context and .../policy's response_persona), and get
-  // back a grounded, non-hallucinating, fully white-labeled text answer to
-  // relay straight back to that end user as if it were their own AI
-  // speaking. Deliberately key-scoped like every other route on this API --
-  // there is no unauthenticated/anonymous path here; the integrating
-  // company's own backend calls this and relays the answer onward itself.
+  // "Own decision-making machine" plan, item 176: lets an integrating
+  // company hand NazAI one of ITS OWN end user's messages and get back a
+  // white-labeled text answer to relay straight back to that end user, as
+  // if it were their own AI speaking. Deliberately key-scoped like every
+  // other route on this API -- there is no unauthenticated/anonymous path
+  // here; the integrating company's own backend calls this and relays the
+  // answer onward itself.
+  //
+  // No generative model anywhere in this path -- the answer IS the
+  // matched context entry text (response-synthesis.ts), embedded via
+  // Supabase's own built-in local inference (local-embeddings.ts). This
+  // replaced the original LLM-based generation+fact-check+leak-guard
+  // pipeline (items 4/5/6/164) entirely: nothing here can hallucinate,
+  // and there's no external AI dependency, no API key, and no per-call
+  // cost left to meter.
   if (req.method === "POST" && /\/respond\/?$/.test(url.pathname)) {
     if (!auth.keyId) return json({ error: "not_found" }, 404);
 
@@ -1065,24 +1071,18 @@ Deno.serve(async (req) => {
     if ("error" in parsed) return json({ error: parsed.error }, 400);
 
     const startedAt = Date.now();
-    // "Knowledge & autonomy" plan, item 7's own established gate -- a
-    // sandbox/test key runs through this exact pipeline (context, tone,
-    // generation, grounding check, sanitizer) but never spends real
-    // budget or writes the audit row below.
+    // "Knowledge & autonomy" plan, item 7's own established gate -- still
+    // meaningful for a sandbox key even with no AI spend left to protect:
+    // it still governs the audit row, the cache, and the escalation
+    // webhook below, none of which a test key should touch.
     const meterSpend = countsTowardRealUsage(auth.isTest);
 
-    // Item 174: response caching, exact-match fast path. Costs nothing
-    // beyond a hash + a keyed index lookup (no embedding call), and skips
-    // literally everything else below on a hit -- the persona/context
-    // lookup, both model calls, every guardrail. Sandbox keys never check
-    // or populate the cache (meterSpend gate): a test key wants realistic
-    // end-to-end behavior on every call, not a canned replay. Item 175:
-    // also never caches a response_schema request -- the cache key is
-    // message-only, with no awareness of which schema (or none) a given
-    // call asked for, so the SAME question with and without a schema (or
-    // with two different schemas) would otherwise risk replaying an
-    // answer shaped for a different request.
-    const messageHash = (meterSpend && !parsed.responseSchema) ? await cacheKeyFor(parsed.message) : null;
+    // Item 174: response caching, exact-match fast path -- now purely a
+    // latency optimization (skip re-embedding + re-searching a repeat
+    // question) rather than a cost one, but still worth keeping. Sandbox
+    // keys never check or populate the cache: a test key wants realistic
+    // end-to-end behavior on every call, not a canned replay.
+    const messageHash = meterSpend ? await cacheKeyFor(parsed.message) : null;
     if (messageHash) {
       const exactHit = await findExactCachedResponse(admin, auth.keyId, messageHash);
       if (exactHit) {
@@ -1098,41 +1098,43 @@ Deno.serve(async (req) => {
     }
 
     const [{ data: keyRow }, { data: anyEntry }] = await Promise.all([
-      admin.from("api_keys").select("response_persona, fallback_message").eq("id", auth.keyId).maybeSingle(),
+      admin.from("api_keys").select("fallback_message").eq("id", auth.keyId).maybeSingle(),
       admin.from("api_key_context_entries").select("id").eq("api_key_id", auth.keyId).eq("enabled", true).limit(1).maybeSingle(),
     ]);
-    const persona = (keyRow as { response_persona?: string | null } | null)?.response_persona ?? null;
     // Item 175: a per-key override for the generic "I don't have enough
-    // information" wording, applied everywhere that wording would
-    // otherwise appear (the leak guard below, and checkGrounding's own
-    // fallback) -- undefined (not null) when unset, so checkGrounding's
-    // `fallbackMessage ?? GROUNDING_FALLBACK_ANSWER` default applies.
-    const customFallback = (keyRow as { fallback_message?: string | null } | null)?.fallback_message ?? undefined;
+    // information" wording -- the only fallback case left now (leak
+    // detection and the LLM fact-check are both gone; there was never
+    // anything else this could mean). response_persona is deliberately
+    // NOT read here anymore: it shaped a generative model's tone, and
+    // there's no rewrite step left to apply it to. The column and its
+    // /policy write endpoint are untouched for now (harmless, possibly
+    // useful for a future template-level hint), just unused by this
+    // handler.
+    const customFallback = (keyRow as { fallback_message?: string | null } | null)?.fallback_message || null;
 
-    // Item 163: retrieve only the context entries relevant to THIS
-    // message once retrieval actually has something to search -- falls
-    // back to every enabled entry (the original behavior) whenever
-    // retrieval comes back empty, so a key whose entries predate
-    // embeddings, or whose embedding call fails, or a sandbox key (which
-    // never spends real embedding budget, same as every other real-usage
-    // gate this endpoint already has) never loses its configured context.
+    // Item 163/176: retrieve only the context entries relevant to THIS
+    // message. Deliberately NO "load every enabled entry" fallback when
+    // retrieval comes back empty -- that was safe under the old
+    // architecture because the LLM's own grounding check would still
+    // catch and reject an answer built from irrelevant context. With no
+    // model left to make that call, synthesizing an answer from
+    // UNRELATED entries would be worse than an honest "I don't know," so
+    // finding nothing above the similarity floor (or the embedding call
+    // itself failing) both fall straight through to the fallback below.
     let contextEntries: ResponseContextEntry[] = [];
-    // Item 174: the embedding literal computed below (when present) is
-    // reused for the near-duplicate cache check AND for context
-    // retrieval -- never generated twice for the same message.
+    // Item 174/178: the embedding literal computed below (when present)
+    // is reused for the near-duplicate cache check AND for context
+    // retrieval -- never generated twice for the same message. Item 178:
+    // this is Supabase's own built-in local inference (no external call,
+    // no cost), so unlike the old Lovable-based embedding it runs
+    // unconditionally -- a sandbox key now gets the exact same real
+    // retrieval a live key would, not a degraded no-context experience.
     let cacheEmbeddingLiteral: string | null = null;
     if (anyEntry) {
-      const queryEmbedding = meterSpend
-        ? await generateEmbeddingWithinBudget(admin, userId, auth.keyId, parsed.message)
-        : null;
+      const queryEmbedding = await generateLocalEmbedding(parsed.message);
       if (queryEmbedding) {
         cacheEmbeddingLiteral = formatEmbeddingLiteral(queryEmbedding);
-        // Item 175: same reasoning as the exact-hash check above -- never
-        // serve (or below, populate) the cache for a response_schema
-        // request.
-        const nearDupHit = parsed.responseSchema
-          ? null
-          : await findNearDuplicateCachedResponse(admin, auth.keyId, cacheEmbeddingLiteral);
+        const nearDupHit = meterSpend ? await findNearDuplicateCachedResponse(admin, auth.keyId, cacheEmbeddingLiteral) : null;
         if (nearDupHit) {
           const cacheFields = {
             cost_usd: 0,
@@ -1145,115 +1147,37 @@ Deno.serve(async (req) => {
         }
         contextEntries = await findRelevantContext(admin, auth.keyId, cacheEmbeddingLiteral);
       }
-      if (!contextEntries.length) {
-        const { data: allEntries } = await admin
-          .from("api_key_context_entries")
-          .select("id, entry_text")
-          .eq("api_key_id", auth.keyId)
-          .eq("enabled", true)
-          .order("created_at", { ascending: true });
-        contextEntries = (allEntries ?? []) as ResponseContextEntry[];
-      }
-    }
-    const contextBlock = buildContextPromptBlock(contextEntries);
-
-    const systemPrompt = buildSystemPrompt(contextBlock, persona);
-    const generation = await generateGroundedAnswer(
-      admin, userId, auth.keyId, meterSpend, systemPrompt, parsed.message, parsed.conversationHistory,
-      parsed.responseSchema,
-    );
-    if (!generation.ok) {
-      if (generation.error === "spend_cap_reached") {
-        const spend = generation.spend;
-        return json({
-          error: "spend_cap_reached",
-          message: `This API key's own daily AI spend cap is used up ($${spend.spent_usd.toFixed(2)} of ` +
-            `$${spend.cap_usd.toFixed(2)}). Generating a response shares this same budget with judgment ` +
-            `calls. Resumes tomorrow (UTC), or when an owner raises the cap.`,
-        }, 429);
-      }
-      return json({ error: "generation_failed", message: generation.message }, 502);
     }
 
-    // Item 164: a deterministic, free check for the drafted answer being a
-    // verbatim (or near-verbatim) dump of the context block -- a
-    // different failure mode from item 5's grounding check below, which
-    // would trivially PASS a verbatim copy (every "claim" in it is, by
-    // definition, supported by the context it was lifted from). Runs
-    // first and skips the paid grounding call entirely when it fires --
-    // there's no reason to spend a model call verifying an answer that's
-    // already being discarded.
-    const leaked = detectContextLeak(contextBlock, generation.text);
-    // Item 5: a second, independent pass -- never trusts the system
-    // prompt's own "don't hallucinate" instruction alone.
-    const grounded = leaked
-      ? { text: customFallback ?? LEAK_FALLBACK_ANSWER, intervened: true, usage: undefined }
-      : await checkGrounding(admin, userId, auth.keyId, meterSpend, contextBlock, persona, generation.text, customFallback);
+    // Item 176: the answer IS the matched entry text -- see
+    // response-synthesis.ts. `synthesis` is null exactly when there was
+    // nothing to build from (no qualifying match, or no entries
+    // configured at all), which is this endpoint's one and only "content
+    // gap" case now.
+    const synthesis = contextEntries.length ? synthesizeAnswer(contextEntries) : null;
+    const noMatch = !synthesis;
+    const rawAnswer = synthesis ? synthesis.text : (customFallback ?? NO_MATCH_FALLBACK_ANSWER);
 
-    // Item 6 / item 175: the last step before this ever leaves the
-    // endpoint. Structured JSON mode takes a DIFFERENT path here on
-    // purpose: scrubSelfDisclosure edits text sentence-by-sentence
-    // (splitting on ".!?"), which would silently corrupt a JSON answer's
-    // syntax -- so a genuinely grounded structured answer instead gets
-    // containsSelfDisclosure's atomic whole-answer check (discard
-    // entirely on a hit, never surgically edited) and is otherwise left
-    // byte-for-byte as the model returned it. Falls through to the
-    // normal text sanitizer whenever there's no schema, the answer is
-    // already the fallback (nothing structured to preserve), or the
-    // model didn't actually return valid JSON despite being asked.
-    let sanitized: { text: string; intervened: boolean };
-    let structuredValue: unknown;
-    // Distinct from sanitized.intervened: in text mode that flag can mean
-    // a light, surgical edit (one self-disclosing sentence dropped) that
-    // still leaves a genuinely grounded answer behind -- sources/caching
-    // downstream correctly still treat that as "a real answer." A JSON-
-    // mode self-disclosure hit is different: the WHOLE structured answer
-    // gets replaced (never surgically edited, see containsSelfDisclosure's
-    // own docs), the same wholesale-substitution class as grounded.intervened.
-    let selfDisclosureReplaced = false;
-    if (parsed.responseSchema && !grounded.intervened) {
-      if (containsSelfDisclosure(grounded.text)) {
-        sanitized = { text: customFallback ?? GROUNDING_FALLBACK_ANSWER, intervened: true };
-        selfDisclosureReplaced = true;
-      } else {
-        try {
-          structuredValue = JSON.parse(grounded.text);
-          sanitized = { text: grounded.text, intervened: false };
-        } catch {
-          sanitized = sanitizeResponse(grounded.text);
-        }
-      }
-    } else {
-      sanitized = sanitizeResponse(grounded.text);
-    }
-    const structuredFields = structuredValue !== undefined ? { structured: structuredValue } : {};
-    // Used below wherever "was the served answer a wholesale fallback
-    // substitution" is the actual question -- sourceFields and caching.
-    const answerIsFallback = grounded.intervened || selfDisclosureReplaced;
+    // Item 6: the last step before this ever leaves the endpoint. Still
+    // worth running even though nothing here is model-generated --
+    // an account owner's own context entry could itself carelessly
+    // contain self-disclosing text (e.g. pasted marketing copy), and
+    // repairMarkdown is a free, non-destructive safety net either way.
+    const sanitized = sanitizeResponse(rawAnswer);
 
-    // Item 171: per-call cost + confidence metadata. Cost is the real,
-    // measured $ for both model calls this request actually made
-    // (generation, plus the grounding check when it ran) -- reported even
-    // on a sandbox key (which never bills it against a real cap, per
-    // meterSpend/countsTowardRealUsage) since it's still an honest
-    // estimate of what a real call like this one would cost. Confidence
-    // is deliberately a plain high/low rather than a fabricated numeric
-    // score: checkGrounding's own verdict is a boolean pass/fail, not a
-    // scored one, and inventing false precision on top of it would
-    // misrepresent what was actually checked.
-    const costUsd = estimateCostUsd(RESPONSE_MODEL, generation.usage) + estimateCostUsd(RESPONSE_MODEL, grounded.usage);
-    const costFields = { cost_usd: Number(costUsd.toFixed(6)), confidence: answerIsFallback ? "low" : "high" };
+    // Item 171: cost is always $0 now -- there's no model call left to
+    // meter. Confidence is deliberately a plain high/low tied directly
+    // to whether a qualifying match was found, not a fabricated numeric
+    // score on top of a similarity number that was never meant to be
+    // read as a probability.
+    const costFields = { cost_usd: 0, confidence: noMatch ? "low" : "high" };
 
     const testModeFields = auth.isTest ? { test_mode: true, note: testModeVerdictNote(auth.isTest) } : {};
-    // Item 168: "sources used" metadata. Only meaningful when the final
-    // answer is genuinely the model's context-grounded draft -- when the
-    // leak guard or grounding check replaced it with the generic fallback
-    // (grounded.intervened / leaked), nothing was actually "used" to
-    // produce that fallback text, so the field is omitted entirely rather
-    // than sent as a misleading empty (or worse, stale-looking) array.
-    const sourceFields = (!leaked && !answerIsFallback && contextEntries.length)
-      ? { sources: summarizeSourcesUsed(contextEntries) }
-      : {};
+    // Item 168: "sources used" metadata -- exactly the entries
+    // response-synthesis.ts actually incorporated (after its own dedup
+    // and cap), not every entry retrieval matched. Omitted entirely on
+    // the fallback path rather than sent as a misleading empty array.
+    const sourceFields = (!noMatch && synthesis) ? { sources: summarizeSourcesUsed(synthesis.usedEntries) } : {};
 
     if (meterSpend) {
       try {
@@ -1265,33 +1189,41 @@ Deno.serve(async (req) => {
           // audit trail (what shape of question came in, did a guardrail
           // fire), not a transcript archive.
           message: parsed.message.slice(0, 500),
-          injection_guard_intervened: leaked,
-          grounding_check_intervened: grounded.intervened,
+          // injection_guard_intervened's original meaning (a verbatim
+          // context-block dump caught before an LLM's answer was
+          // returned) no longer applies -- nothing here can leak a
+          // system prompt that doesn't exist. Always false now.
+          injection_guard_intervened: false,
+          // Repurposed, not removed: this now means "no qualifying
+          // context entry was found for this message" -- the one and
+          // only fallback case in the new architecture, in place of the
+          // old "the LLM's fact-check declined" meaning.
+          grounding_check_intervened: noMatch,
           sanitizer_intervened: sanitized.intervened,
           latency_ms: Date.now() - startedAt,
         });
       } catch { /* audit logging must never break a real answer that already succeeded */ }
 
-      // Item 174: only a genuinely grounded answer is ever cached -- an
-      // "I don't know" fallback isn't a reusable answer, and caching it
-      // would silently blunt item 169's content-gap feed and item 170's
+      // Item 174: only a genuine match is ever cached -- an "I don't
+      // know" fallback isn't a reusable answer, and caching it would
+      // silently blunt item 169's content-gap feed and item 170's
       // escalation webhook, which both depend on seeing every real
       // occurrence of an unanswered question.
-      if (!answerIsFallback && messageHash) {
+      if (!noMatch && messageHash) {
         await storeCachedResponse(
           admin, userId, auth.keyId, parsed.message, messageHash, cacheEmbeddingLiteral,
           sanitized.text, (sourceFields as { sources?: ResponseSource[] }).sources, String(costFields.confidence),
         );
       }
 
-      // Item 170: escalation-to-human webhook. Only for a REAL call whose
-      // final answer is the generic fallback -- a sandbox key never fires
-      // this (nothing "escalates" from test traffic), matching the same
+      // Item 170: escalation-to-human webhook. Only for a REAL call that
+      // found no qualifying match -- a sandbox key never fires this
+      // (nothing "escalates" from test traffic), matching the same
       // meterSpend gate the audit row above already uses.
-      if (grounded.intervened) {
+      if (noMatch) {
         await triggerWebhooks(admin, userId, "response_grounding_failed", {
           api_key_id: auth.keyId,
-          reason: leaked ? "context_leak" : "insufficient_context",
+          reason: "insufficient_context",
           message: parsed.message.slice(0, 500),
           answer: sanitized.text,
         });
@@ -1299,21 +1231,23 @@ Deno.serve(async (req) => {
     }
 
     if (parsed.stream) return streamAnswer(sanitized.text, { ...testModeFields, ...sourceFields, ...costFields });
-    return json({ ok: true, answer: sanitized.text, ...structuredFields, ...sourceFields, ...costFields, ...testModeFields });
+    return json({ ok: true, answer: sanitized.text, ...sourceFields, ...costFields, ...testModeFields });
   }
 
   // ---- GET /control-api/v1/content-gaps -------------------------------------
   // "/respond" MVP backlog, item 169: content-gap analytics. Every real
-  // /respond call where the fact-check declined to answer
-  // (grounding_check_intervened -- see api_response_generations, item 8)
-  // is, by definition, a question this key's configured context didn't
-  // cover. Surfacing that raw feed lets the integrating company see
-  // exactly what to add via POST /api-keys/:id/context, instead of
-  // guessing. Scoped to this one key, same as its context entries --
-  // one company's unanswered questions are never mixed into another
-  // key's feed. Reuses the decision-export endpoints' own keyset
-  // cursor/limit pagination directly rather than reinventing it -- the
-  // shape (id + created_at, ascending order, opaque cursor) is identical.
+  // /respond call where no qualifying context entry was found
+  // (grounding_check_intervened -- repurposed by item 176 from "the LLM's
+  // fact-check declined" to "no rule matched and no context entry cleared
+  // the similarity floor"; see api_response_generations, item 8) is, by
+  // definition, a question this key's configured context didn't cover.
+  // Surfacing that raw feed lets the integrating company see exactly what
+  // to add via POST /api-keys/:id/context, instead of guessing. Scoped to
+  // this one key, same as its context entries -- one company's unanswered
+  // questions are never mixed into another key's feed. Reuses the
+  // decision-export endpoints' own keyset cursor/limit pagination
+  // directly rather than reinventing it -- the shape (id + created_at,
+  // ascending order, opaque cursor) is identical.
   if (req.method === "GET" && /\/content-gaps\/?$/.test(url.pathname)) {
     if (!auth.keyId) return json({ error: "not_found" }, 404);
 
