@@ -37,13 +37,18 @@ ALTER TABLE public.api_key_context_entries
 -- than one round-trip per entry (an answer can cite several).
 CREATE FUNCTION public.record_context_entry_usage(_entry_ids uuid[])
 RETURNS void
-LANGUAGE sql
+LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
+BEGIN
+  IF auth.role() <> 'service_role' THEN
+    RAISE EXCEPTION 'not authorized';
+  END IF;
   UPDATE public.api_key_context_entries
   SET use_count = use_count + 1, last_used_at = now()
   WHERE id = ANY(_entry_ids);
+END;
 $$;
 
 REVOKE ALL ON FUNCTION public.record_context_entry_usage(uuid[]) FROM public, anon, authenticated;
