@@ -93,6 +93,15 @@ const EXAMPLE_CONTEXT_CURL = `curl -X POST "${SUPABASE_FUNCTIONS_URL}/api-keys/<
   -H "Content-Type: application/json" \\
   -d '{ "entry_text": "Refunds are processed within 5-7 business days. Support hours are 9am-5pm ET, Mon-Fri." }'`;
 
+const EXAMPLE_RESPONSE_RULE_CURL = `curl -X POST "${SUPABASE_FUNCTIONS_URL}/api-keys/<key id>/response-rules" \\
+  -H "Authorization: Bearer <your NazAI login session>" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "trigger_phrase": "cancel",
+    "match_type": "contains_phrase",
+    "answer_text": "You can cancel any time from Settings > Billing. Youll keep access until the end of your current period."
+  }'`;
+
 const EXAMPLE_RESPOND_CURL = `curl -X POST "${SUPABASE_FUNCTIONS_URL}/control-api/v1/respond" \\
   -H "Authorization: Bearer nazai_sk_<your key>" \\
   -H "Content-Type: application/json" \\
@@ -337,6 +346,23 @@ export default function ControlApiDocs() {
           </p>
           <CodeBlock>{EXAMPLE_CONTEXT_CURL}</CodeBlock>
 
+          <p className="mt-4 font-semibold text-zinc-200">1b. (Optional) Guarantee an exact answer with a rule</p>
+          <p className="mt-1">
+            Context entries are matched by similarity — the best available match wins, but which entry that is
+            can shift as you add more. For a question you want answered with the SAME exact wording every time
+            (cancellation policy, a legal disclaimer, a specific escalation path), add a rule instead. Rules are
+            checked first, before context — a match returns its answer exactly as written, never stitched with
+            anything else, and always wins even over a cached answer from before the rule existed.
+          </p>
+          <CodeBlock>{EXAMPLE_RESPONSE_RULE_CURL}</CodeBlock>
+          <p className="mt-2 text-xs text-zinc-500">
+            <span className="font-mono">match_type</span> is either <span className="font-mono">"contains_phrase"</span> (fires
+            whenever the phrase appears anywhere in the message — the default) or{" "}
+            <span className="font-mono">"exact_phrase"</span> (the entire message must equal the phrase, for one specific
+            known question). Both are matched case- and whitespace-insensitively. When several rules would
+            match, the oldest one you added wins — order them from most to least specific if that matters.
+          </p>
+
           <p className="mt-4 font-semibold text-zinc-200">2. (Optional) Customize the "I don't know" message</p>
           <p className="mt-1">
             By default, a question your context doesn't cover gets back{" "}
@@ -354,7 +380,7 @@ export default function ControlApiDocs() {
           <CodeBlock>{EXAMPLE_RESPOND_RESPONSE}</CodeBlock>
 
           <p className="mt-3 text-xs text-zinc-500">
-            If none of your context entries actually match the question, you get an honest{" "}
+            If no rule matches and none of your context entries do either, you get an honest{" "}
             <span className="font-mono">"I don't have enough information to answer that."</span> instead of a
             guess — with no generative model in the path, there's nothing left that could produce a plausible-
             sounding wrong answer. 20 requests per minute per key. There's no model call to meter, so this never
@@ -380,9 +406,9 @@ export default function ControlApiDocs() {
           <p className="mt-1">
             Whenever the answer is genuinely built from context you provided, the response includes a{" "}
             <span className="font-mono text-cyan-300">sources</span> array — the id and a short excerpt of each
-            context entry that was actually used. It's omitted (not sent as an empty array) whenever no entry
-            matched and you got the honest "I don't have enough information" fallback instead, since nothing was
-            actually used to produce that text.
+            context entry that was actually used. It's omitted (not sent as an empty array) both when no entry
+            matched (the honest "I don't have enough information" fallback) and when a rule answered instead —
+            a rule's answer is your own fixed text, not something built from context, so there's nothing to cite.
           </p>
           <CodeBlock>{`{
   "api_version": "v1",

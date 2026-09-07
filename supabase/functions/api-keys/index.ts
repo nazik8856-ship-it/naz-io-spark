@@ -29,6 +29,7 @@ import { DEFAULT_CONFIDENCE_THRESHOLD } from "../_shared/decision-scoring.ts";
 import { isValidPersona, isValidFallbackMessage } from "../_shared/response-context.ts";
 import { formatEmbeddingLiteral } from "../_shared/decision-embeddings.ts";
 import { generateLocalEmbedding } from "../_shared/local-embeddings.ts";
+import { isValidTriggerPhrase, isValidRuleAnswer, isValidMatchType } from "../_shared/response-rules.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -594,6 +595,74 @@ Deno.serve(async (req) => {
       } catch { /* embedding is a best-effort enrichment, never a required step */ }
     }
     return json({ ok: true, entry: data });
+  }
+
+  // ---- /api-keys/:id/response-rules ------------------------------------
+  // "Own decision-making machine" plan, item 177 (Phase 2): the rule tier
+  // of /respond's two-tier pipeline -- checked BEFORE embedding retrieval,
+  // for a guaranteed verbatim answer rather than whatever a similarity
+  // search happens to surface. Same shape as /context immediately above
+  // (GET lists, POST adds, DELETE removes by id; no update-in-place
+  // endpoint, edit by delete+recreate) -- deliberately a SEPARATE table
+  // and route from context entries, since a rule is a direct instruction
+  // ("when this, answer exactly this"), not a fact a similarity search
+  // may or may not decide is relevant.
+  const rulesMatch = url.pathname.match(/\/api-keys\/([0-9a-fA-F-]{36})\/response-rules\/?$/);
+  if (rulesMatch && (req.method === "GET" || req.method === "POST" || req.method === "DELETE")) {
+    const keyId = rulesMatch[1];
+    const body = req.method === "GET" ? {} : await req.json().catch(() => ({}));
+    const accountId = req.method === "GET" ? url.searchParams.get("account_id") : (body?.account_id ?? null);
+    const targetUserId = await resolveAccountScope(userClient, userId, accountId, "integrations");
+    if (!targetUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
+
+    const { data: keyRow, error: keyErr } = await admin
+      .from("api_keys").select("id").eq("id", keyId).eq("user_id", targetUserId).maybeSingle();
+    if (keyErr) return json({ error: keyErr.message }, 500);
+    if (!keyRow) return json({ error: "Key not found for this account." }, 404);
+
+    if (req.method === "GET") {
+      const { data, error } = await admin
+        .from("api_key_response_rules")
+        .select("id, trigger_phrase, match_type, answer_text, enabled, created_at")
+        .eq("api_key_id", keyId)
+        .order("created_at", { ascending: true });
+      if (error) return json({ error: error.message }, 500);
+      return json({ ok: true, rules: data ?? [] });
+    }
+
+    if (req.method === "DELETE") {
+      const ruleId = String(body?.rule_id || "");
+      if (!ruleId) return json({ error: "rule_id is required" }, 400);
+      const { error } = await admin
+        .from("api_key_response_rules")
+        .delete()
+        .eq("api_key_id", keyId)
+        .eq("id", ruleId);
+      if (error) return json({ error: error.message }, 500);
+      return json({ ok: true, removed: true });
+    }
+
+    const triggerPhrase = String(body?.trigger_phrase ?? "").trim();
+    if (!isValidTriggerPhrase(triggerPhrase)) {
+      return json({ error: "trigger_phrase is required and must be at most 500 characters" }, 400);
+    }
+    const answerText = String(body?.answer_text ?? "").trim();
+    if (!isValidRuleAnswer(answerText)) {
+      return json({ error: "answer_text is required and must be at most 2000 characters" }, 400);
+    }
+    const matchType = body?.match_type === undefined ? "contains_phrase" : body.match_type;
+    if (!isValidMatchType(matchType)) {
+      return json({ error: `match_type must be one of: exact_phrase, contains_phrase` }, 400);
+    }
+    const enabled = body?.enabled !== false;
+
+    const { data, error } = await admin
+      .from("api_key_response_rules")
+      .insert({ user_id: targetUserId, api_key_id: keyId, trigger_phrase: triggerPhrase, match_type: matchType, answer_text: answerText, enabled })
+      .select("id, trigger_phrase, match_type, answer_text, enabled, created_at")
+      .maybeSingle();
+    if (error) return json({ error: error.message }, 500);
+    return json({ ok: true, rule: data });
   }
 
   // ---- GET /api-keys --------------------------------------------------------

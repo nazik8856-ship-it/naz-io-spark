@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, KeyRound, Plus, Copy, Ban, Check, Send, Settings, ChevronDown, ChevronUp, Trash2, MessageSquareText } from "lucide-react";
+import { ArrowLeft, KeyRound, Plus, Copy, Ban, Check, Send, Settings, ChevronDown, ChevronUp, Trash2, MessageSquareText, Zap } from "lucide-react";
 import { supabase, SUPABASE_FUNCTIONS_URL } from "@/integrations/supabase/client";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { hasPermission } from "@/lib/account-switcher";
@@ -27,6 +27,7 @@ type ApiKeyRow = {
 };
 
 type ContextEntry = { id: string; entry_text: string; enabled: boolean; created_at: string };
+type ResponseRule = { id: string; trigger_phrase: string; match_type: "exact_phrase" | "contains_phrase"; answer_text: string; enabled: boolean; created_at: string };
 
 type KeyActivity = { callsToday: number; lastDecision: string | null; lastDecisionAt: string | null };
 
@@ -565,6 +566,14 @@ function ApiKeySettingsPanel({
   const [addingEntry, setAddingEntry] = useState(false);
   const [deletingEntryId, setDeletingEntryId] = useState<string | null>(null);
 
+  const [rules, setRules] = useState<ResponseRule[]>([]);
+  const [rulesLoading, setRulesLoading] = useState(true);
+  const [newRuleTrigger, setNewRuleTrigger] = useState("");
+  const [newRuleMatchType, setNewRuleMatchType] = useState<ResponseRule["match_type"]>("contains_phrase");
+  const [newRuleAnswer, setNewRuleAnswer] = useState("");
+  const [addingRule, setAddingRule] = useState(false);
+  const [deletingRuleId, setDeletingRuleId] = useState<string | null>(null);
+
   const loadEntries = useCallback(async () => {
     setEntriesLoading(true);
     const qs = accountId ? `?account_id=${encodeURIComponent(accountId)}` : "";
@@ -578,7 +587,20 @@ function ApiKeySettingsPanel({
     setEntriesLoading(false);
   }, [keyId, accountId]);
 
-  useEffect(() => { loadEntries(); }, [loadEntries]);
+  const loadRules = useCallback(async () => {
+    setRulesLoading(true);
+    const qs = accountId ? `?account_id=${encodeURIComponent(accountId)}` : "";
+    const { data, error } = await supabase.functions.invoke(`api-keys/${keyId}/response-rules${qs}`, { method: "GET" });
+    const res = (data ?? {}) as { ok?: boolean; rules?: ResponseRule[]; error?: string };
+    if (error || !res.ok) {
+      toast({ title: "Couldn't load response rules", description: res.error || error?.message, variant: "destructive" });
+    } else {
+      setRules(res.rules ?? []);
+    }
+    setRulesLoading(false);
+  }, [keyId, accountId]);
+
+  useEffect(() => { loadEntries(); loadRules(); }, [loadEntries, loadRules]);
 
   const saveSettings = async () => {
     const trimmedPersona = persona.trim();
@@ -648,6 +670,48 @@ function ApiKeySettingsPanel({
       return;
     }
     setEntries((prev) => prev.filter((e) => e.id !== entryId));
+  };
+
+  const addRule = async () => {
+    const trigger = newRuleTrigger.trim();
+    const answer = newRuleAnswer.trim();
+    if (!trigger || !answer) return;
+    if (trigger.length > 500) {
+      toast({ title: "Trigger phrase too long", description: "Keep it to 500 characters or fewer.", variant: "destructive" });
+      return;
+    }
+    if (answer.length > 2000) {
+      toast({ title: "Answer too long", description: "Keep it to 2000 characters or fewer.", variant: "destructive" });
+      return;
+    }
+    setAddingRule(true);
+    const { data, error } = await supabase.functions.invoke(`api-keys/${keyId}/response-rules`, {
+      body: { account_id: accountId, trigger_phrase: trigger, match_type: newRuleMatchType, answer_text: answer },
+    });
+    setAddingRule(false);
+    const res = (data ?? {}) as { ok?: boolean; error?: string };
+    if (error || !res.ok) {
+      toast({ title: "Couldn't add that rule", description: res.error || error?.message, variant: "destructive" });
+      return;
+    }
+    setNewRuleTrigger("");
+    setNewRuleAnswer("");
+    loadRules();
+  };
+
+  const deleteRule = async (ruleId: string) => {
+    setDeletingRuleId(ruleId);
+    const { data, error } = await supabase.functions.invoke(`api-keys/${keyId}/response-rules`, {
+      method: "DELETE",
+      body: { account_id: accountId, rule_id: ruleId },
+    });
+    setDeletingRuleId(null);
+    const res = (data ?? {}) as { ok?: boolean; error?: string };
+    if (error || !res.ok) {
+      toast({ title: "Couldn't remove that rule", description: res.error || error?.message, variant: "destructive" });
+      return;
+    }
+    setRules((prev) => prev.filter((r) => r.id !== ruleId));
   };
 
   return (
@@ -745,6 +809,85 @@ function ApiKeySettingsPanel({
             >
               <Plus className="h-3.5 w-3.5" /> Add
             </button>
+          </div>
+        )}
+      </div>
+
+      <div className="border-t border-white/5 pt-3">
+        <h3 className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+          <Zap className="h-3.5 w-3.5" /> Response rules for /respond
+        </h3>
+        <p className="mt-1 text-[11px] text-zinc-500">
+          Checked before context above -- a matching rule always wins and returns its answer exactly as
+          written, never stitched or reworded. "Exact" requires the whole message to match; "contains" fires
+          whenever the phrase appears anywhere in it.
+        </p>
+
+        {rulesLoading ? (
+          <p className="mt-2 font-mono text-[10px] uppercase text-zinc-600">Loading…</p>
+        ) : rules.length === 0 ? (
+          <p className="mt-2 text-[11px] text-zinc-600">No response rules yet.</p>
+        ) : (
+          <ul className="mt-2 space-y-1.5">
+            {rules.map((r) => (
+              <li key={r.id} className="flex items-start justify-between gap-2 rounded border border-white/5 bg-white/[0.02] px-2 py-1.5">
+                <div className="flex-1">
+                  <p className="font-mono text-[10px] uppercase text-zinc-500">
+                    {r.match_type === "exact_phrase" ? "Exact" : "Contains"}: <span className="text-zinc-300">"{r.trigger_phrase}"</span>
+                  </p>
+                  <p className="mt-0.5 text-[11px] text-zinc-300">{r.answer_text}</p>
+                </div>
+                {canWrite && (
+                  <button
+                    onClick={() => deleteRule(r.id)}
+                    disabled={deletingRuleId === r.id}
+                    className="shrink-0 text-zinc-500 hover:text-rose-400 disabled:opacity-50"
+                    aria-label="Remove rule"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {canWrite && (
+          <div className="mt-2 space-y-1.5">
+            <div className="flex items-center gap-2">
+              <input
+                value={newRuleTrigger}
+                onChange={(e) => setNewRuleTrigger(e.target.value)}
+                placeholder="Trigger phrase, e.g. cancel"
+                maxLength={500}
+                className="flex-1 rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200"
+              />
+              <select
+                value={newRuleMatchType}
+                onChange={(e) => setNewRuleMatchType(e.target.value as ResponseRule["match_type"])}
+                className="rounded border border-white/10 bg-black/40 px-2 py-1.5 font-mono text-[10px] uppercase text-zinc-300"
+              >
+                <option value="contains_phrase">Contains</option>
+                <option value="exact_phrase">Exact</option>
+              </select>
+            </div>
+            <div className="flex items-start gap-2">
+              <textarea
+                value={newRuleAnswer}
+                onChange={(e) => setNewRuleAnswer(e.target.value)}
+                placeholder="Verbatim answer, e.g. You can cancel any time from Settings > Billing."
+                rows={2}
+                maxLength={2000}
+                className="flex-1 rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200"
+              />
+              <button
+                onClick={addRule}
+                disabled={addingRule || !newRuleTrigger.trim() || !newRuleAnswer.trim()}
+                className="flex shrink-0 items-center gap-1 rounded border border-cyan-500/40 bg-cyan-500/10 px-2 py-1.5 font-mono text-[10px] uppercase text-cyan-300 hover:bg-cyan-500/20 disabled:opacity-50"
+              >
+                <Plus className="h-3.5 w-3.5" /> Add
+              </button>
+            </div>
           </div>
         )}
       </div>

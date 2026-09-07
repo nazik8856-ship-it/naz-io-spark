@@ -62,6 +62,7 @@ import { parseRespondRequest, findRelevantContext, summarizeSourcesUsed, type Re
 import { cacheKeyFor, findExactCachedResponse, findNearDuplicateCachedResponse, storeCachedResponse } from "../_shared/response-cache.ts";
 import { generateLocalEmbedding } from "../_shared/local-embeddings.ts";
 import { synthesizeAnswer, NO_MATCH_FALLBACK_ANSWER } from "../_shared/response-synthesis.ts";
+import { findMatchingRule, type ResponseRule } from "../_shared/response-rules.ts";
 import { sanitizeResponse } from "../_shared/response-sanitizer.ts";
 
 const corsHeaders = {
@@ -1048,13 +1049,15 @@ Deno.serve(async (req) => {
   // here; the integrating company's own backend calls this and relays the
   // answer onward itself.
   //
-  // No generative model anywhere in this path -- the answer IS the
-  // matched context entry text (response-synthesis.ts), embedded via
-  // Supabase's own built-in local inference (local-embeddings.ts). This
-  // replaced the original LLM-based generation+fact-check+leak-guard
-  // pipeline (items 4/5/6/164) entirely: nothing here can hallucinate,
-  // and there's no external AI dependency, no API key, and no per-call
-  // cost left to meter.
+  // No generative model anywhere in this path -- the answer IS either a
+  // matched response-rule's own verbatim text (item 177's rule tier,
+  // checked first) or the matched context entry text (response-
+  // synthesis.ts's retrieval tier, item 176), embedded via Supabase's
+  // own built-in local inference (local-embeddings.ts). This replaced
+  // the original LLM-based generation+fact-check+leak-guard pipeline
+  // (items 4/5/6/164) entirely: nothing here can hallucinate, and
+  // there's no external AI dependency, no API key, and no per-call cost
+  // left to meter.
   if (req.method === "POST" && /\/respond\/?$/.test(url.pathname)) {
     if (!auth.keyId) return json({ error: "not_found" }, 404);
 
@@ -1076,6 +1079,54 @@ Deno.serve(async (req) => {
     // it still governs the audit row, the cache, and the escalation
     // webhook below, none of which a test key should touch.
     const meterSpend = countsTowardRealUsage(auth.isTest);
+
+    // Item 177 (Phase 2): the rule tier, checked BEFORE anything else --
+    // including the cache below. A rule is the account owner's own
+    // explicit, guaranteed override; it must win even against a
+    // previously cached retrieval answer for the same question (and a
+    // matched rule is itself never cached -- see below -- so an edited
+    // or deleted rule can never be served stale from the cache either).
+    // Free and synchronous: no embedding call needed to check a rule,
+    // so a match short-circuits the entire retrieval path this request
+    // would otherwise pay for.
+    const { data: ruleRows } = await admin
+      .from("api_key_response_rules")
+      .select("id, trigger_phrase, match_type, answer_text")
+      .eq("api_key_id", auth.keyId)
+      .eq("enabled", true)
+      .order("created_at", { ascending: true });
+    const matchedRule = findMatchingRule((ruleRows ?? []) as ResponseRule[], parsed.message);
+
+    if (matchedRule) {
+      const sanitized = sanitizeResponse(matchedRule.answer_text);
+      const costFields = { cost_usd: 0, confidence: "high" as const };
+      const testModeFields = auth.isTest ? { test_mode: true, note: testModeVerdictNote(auth.isTest) } : {};
+
+      if (meterSpend) {
+        try {
+          await admin.from("api_response_generations").insert({
+            user_id: userId,
+            api_key_id: auth.keyId,
+            is_test: auth.isTest,
+            message: parsed.message.slice(0, 500),
+            // Repurposed a second time: this column's original meaning
+            // (a verbatim context-block dump caught before an LLM's
+            // answer was returned) stopped applying the moment item 176
+            // removed the LLM entirely, at which point it was always
+            // false. It now means "this exact answer came from a
+            // matched response rule, not retrieval" -- a real, useful
+            // signal again instead of permanently-dead weight.
+            injection_guard_intervened: true,
+            grounding_check_intervened: false,
+            sanitizer_intervened: sanitized.intervened,
+            latency_ms: Date.now() - startedAt,
+          });
+        } catch { /* audit logging must never break a real answer that already succeeded */ }
+      }
+
+      if (parsed.stream) return streamAnswer(sanitized.text, { ...testModeFields, ...costFields });
+      return json({ ok: true, answer: sanitized.text, ...costFields, ...testModeFields });
+    }
 
     // Item 174: response caching, exact-match fast path -- now purely a
     // latency optimization (skip re-embedding + re-searching a repeat
@@ -1189,15 +1240,18 @@ Deno.serve(async (req) => {
           // audit trail (what shape of question came in, did a guardrail
           // fire), not a transcript archive.
           message: parsed.message.slice(0, 500),
-          // injection_guard_intervened's original meaning (a verbatim
+          // Repurposed by item 176/177: false here means this answer
+          // came from the retrieval tier, not a matched response rule
+          // (see this handler's own rule-tier block above, which always
+          // writes true). The column's original meaning -- a verbatim
           // context-block dump caught before an LLM's answer was
-          // returned) no longer applies -- nothing here can leak a
-          // system prompt that doesn't exist. Always false now.
+          // returned -- stopped applying the moment item 176 removed
+          // the LLM entirely.
           injection_guard_intervened: false,
-          // Repurposed, not removed: this now means "no qualifying
-          // context entry was found for this message" -- the one and
-          // only fallback case in the new architecture, in place of the
-          // old "the LLM's fact-check declined" meaning.
+          // Repurposed, not removed: this now means "no rule matched
+          // AND no qualifying context entry was found for this
+          // message" -- the one and only fallback case left, in place
+          // of the old "the LLM's fact-check declined" meaning.
           grounding_check_intervened: noMatch,
           sanitizer_intervened: sanitized.intervened,
           latency_ms: Date.now() - startedAt,
@@ -1237,10 +1291,14 @@ Deno.serve(async (req) => {
   // ---- GET /control-api/v1/content-gaps -------------------------------------
   // "/respond" MVP backlog, item 169: content-gap analytics. Every real
   // /respond call where no qualifying context entry was found
-  // (grounding_check_intervened -- repurposed by item 176 from "the LLM's
-  // fact-check declined" to "no rule matched and no context entry cleared
-  // the similarity floor"; see api_response_generations, item 8) is, by
-  // definition, a question this key's configured context didn't cover.
+  // (grounding_check_intervened -- repurposed by items 176/177 from "the
+  // LLM's fact-check declined" to "no rule matched and no context entry
+  // cleared the similarity floor"; see api_response_generations, item 8)
+  // is, by definition, a question this key's configured context didn't
+  // cover. A rule match never sets this column at all (see the rule
+  // tier's own audit insert above), so a question a rule already
+  // answers correctly never shows up here as something to add context
+  // for.
   // Surfacing that raw feed lets the integrating company see exactly what
   // to add via POST /api-keys/:id/context, instead of guessing. Scoped to
   // this one key, same as its context entries -- one company's unanswered
