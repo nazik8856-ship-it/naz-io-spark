@@ -29,7 +29,7 @@ import { DEFAULT_CONFIDENCE_THRESHOLD } from "../_shared/decision-scoring.ts";
 import { isValidPersona, isValidFallbackMessage } from "../_shared/response-context.ts";
 import { formatEmbeddingLiteral } from "../_shared/decision-embeddings.ts";
 import { generateLocalEmbedding } from "../_shared/local-embeddings.ts";
-import { isValidTriggerPhrase, isValidRuleAnswer, isValidMatchType } from "../_shared/response-rules.ts";
+import { isValidTriggerPhrase, isValidRuleAnswer, isValidMatchType, MAX_RESPONSE_RULES_PER_KEY } from "../_shared/response-rules.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -655,6 +655,29 @@ Deno.serve(async (req) => {
       return json({ error: `match_type must be one of: exact_phrase, contains_phrase` }, 400);
     }
     const enabled = body?.enabled !== false;
+
+    // control-api/index.ts's /respond handler checks every rule on this
+    // key on every call (no ranking lets it stop early the way
+    // findRelevantContext's similarity floor does) -- capped here, not
+    // on that read, so every rule an account owner actually configures
+    // is always guaranteed to be checked rather than a high-numbered one
+    // silently never firing.
+    const { count: existingRuleCount, error: countErr } = await admin
+      .from("api_key_response_rules")
+      .select("id", { count: "exact", head: true })
+      .eq("api_key_id", keyId);
+    if (countErr) return json({ error: countErr.message }, 500);
+    if ((existingRuleCount ?? 0) >= MAX_RESPONSE_RULES_PER_KEY) {
+      // A full sentence directly in `error`, matching every other
+      // validation response on this same route (e.g. the
+      // trigger_phrase/answer_text checks above) -- the settings-panel
+      // UI's toast reads `error` first and never falls back to a
+      // separate `message` field, so a {error: "<code>", message:
+      // "<text>"} shape here would show the unhelpful code instead.
+      return json({
+        error: `This key already has ${MAX_RESPONSE_RULES_PER_KEY} response rules, the maximum. Remove one before adding another, or use a context entry instead for facts that don't need a guaranteed exact answer.`,
+      }, 400);
+    }
 
     const { data, error } = await admin
       .from("api_key_response_rules")
