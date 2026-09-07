@@ -546,9 +546,11 @@ Deno.serve(async (req) => {
     if (!keyRow) return json({ error: "Key not found for this account." }, 404);
 
     if (req.method === "GET") {
+      // Item 181: use_count/last_used_at surfaced so an account owner can
+      // see which entries are actually pulling weight in real answers.
       const { data, error } = await admin
         .from("api_key_context_entries")
-        .select("id, entry_text, enabled, created_at")
+        .select("id, entry_text, enabled, created_at, use_count, last_used_at")
         .eq("api_key_id", keyId)
         .order("created_at", { ascending: true });
       if (error) return json({ error: error.message }, 500);
@@ -591,7 +593,7 @@ Deno.serve(async (req) => {
     const { data, error } = await admin
       .from("api_key_context_entries")
       .insert({ user_id: targetUserId, api_key_id: keyId, entry_text: entryText, enabled })
-      .select("id, entry_text, enabled, created_at")
+      .select("id, entry_text, enabled, created_at, use_count, last_used_at")
       .maybeSingle();
     if (error) return json({ error: error.message }, 500);
     // "/respond" MVP backlog, item 163 (embed on write), updated by item
