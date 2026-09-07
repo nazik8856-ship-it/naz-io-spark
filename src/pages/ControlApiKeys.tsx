@@ -26,7 +26,7 @@ type ApiKeyRow = {
   response_persona: string | null;
 };
 
-type ContextEntry = { id: string; entry_text: string; enabled: boolean; created_at: string };
+type ContextEntry = { id: string; entry_text: string; enabled: boolean; created_at: string; use_count: number; last_used_at: string | null };
 type ResponseRule = { id: string; trigger_phrase: string; match_type: "exact_phrase" | "contains_phrase"; answer_text: string; enabled: boolean; created_at: string };
 
 type KeyActivity = { callsToday: number; lastDecision: string | null; lastDecisionAt: string | null };
@@ -776,7 +776,14 @@ function ApiKeySettingsPanel({
           <ul className="mt-2 space-y-1.5">
             {entries.map((e) => (
               <li key={e.id} className="flex items-start justify-between gap-2 rounded border border-white/5 bg-white/[0.02] px-2 py-1.5">
-                <span className="flex-1 text-[11px] text-zinc-300">{e.entry_text}</span>
+                <div className="flex-1">
+                  <span className="text-[11px] text-zinc-300">{e.entry_text}</span>
+                  <p className="mt-0.5 text-[10px] text-zinc-600">
+                    {e.use_count > 0
+                      ? `Used ${e.use_count}x · Last used ${new Date(e.last_used_at as string).toLocaleString()}`
+                      : "Never used"}
+                  </p>
+                </div>
                 {canWrite && (
                   <button
                     onClick={() => deleteEntry(e.id)}

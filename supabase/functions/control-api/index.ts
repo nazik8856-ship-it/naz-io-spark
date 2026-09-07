@@ -1270,6 +1270,21 @@ Deno.serve(async (req) => {
         );
       }
 
+      // Item 181: usage tracking for context entries -- lets an account
+      // owner see which of their entries are actually pulling weight in
+      // real answers (surfaced in ControlApiKeys.tsx) rather than
+      // guessing. Only entries response-synthesis.ts actually incorporated
+      // count as "used," same set as sourceFields above. Best-effort,
+      // same posture as every other post-answer side effect in this
+      // block: never allowed to affect a response that already succeeded.
+      if (!noMatch && synthesis && synthesis.usedEntries.length) {
+        try {
+          await admin.rpc("record_context_entry_usage", {
+            _entry_ids: synthesis.usedEntries.map((e) => e.id),
+          });
+        } catch { /* usage tracking must never break a real answer that already succeeded */ }
+      }
+
       // Item 170: escalation-to-human webhook. Only for a REAL call that
       // found no qualifying match -- a sandbox key never fires this
       // (nothing "escalates" from test traffic), matching the same
