@@ -49,6 +49,19 @@ export function isValidRuleAnswer(text: unknown): text is string {
   return typeof text === "string" && text.trim().length > 0 && text.length <= 2000;
 }
 
+// control-api/index.ts's /respond handler fetches EVERY enabled rule for
+// a key on every single call (there's no ranking to cut off early the
+// way findRelevantContext's similarity floor lets it stop at the top
+// few matches -- any rule could be the one that matches, so all of them
+// must be checked). A cap on the read side would silently stop checking
+// rule #201+ with no error, which is worse than an unbounded read; this
+// caps rule CREATION instead, so every rule an account owner actually
+// configured is always guaranteed to be checked. Generous for a curated
+// set of guaranteed-answer triggers -- an account that genuinely needs
+// more than this almost certainly wants context entries (similarity-
+// ranked, no per-message scan) for most of them instead.
+export const MAX_RESPONSE_RULES_PER_KEY = 200;
+
 export const RULE_MATCH_TYPES = ["exact_phrase", "contains_phrase"] as const;
 
 /** Pure -- a valid match_type, or the default when omitted entirely (never for an explicitly-sent invalid value -- that's a caller error). */
