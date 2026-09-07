@@ -474,7 +474,41 @@ export default function ControlApiDocs() {
             Keyset-paginated with <span className="font-mono">limit</span> (default 100, max 500) and{" "}
             <span className="font-mono">cursor</span> query params — pass the previous page's{" "}
             <span className="font-mono">next_cursor</span> to fetch the next one. Sandbox (test-mode) traffic is
-            never included, since it isn't a real gap in your live product.
+            never included, since it isn't a real gap in your live product. Once you add a context entry that
+            covers a gap, a background sweep notices within about 30 minutes and it drops out of this feed
+            automatically — no need to track which ones you've already fixed.
+          </p>
+        </Section>
+
+        <Section title="Content gap clusters: the same question asked a dozen ways">
+          <p>
+            The raw feed above lists every OCCURRENCE of an unanswered question — "How long for a refund?",
+            "when will I get refunded", "refund timeline?" show up as three separate rows even though they're
+            really the same missing fact. This endpoint groups them and ranks the groups by how often the
+            underlying question has actually come up, so you see one prioritized to-do item instead of dozens
+            of near-duplicate rows.
+          </p>
+          <CodeBlock>{`GET ${SUPABASE_FUNCTIONS_URL}/control-api/v1/content-gap-clusters`}</CodeBlock>
+          <CodeBlock>{`curl "${SUPABASE_FUNCTIONS_URL}/control-api/v1/content-gap-clusters" \\
+  -H "Authorization: Bearer nazai_sk_<your key>"`}</CodeBlock>
+          <CodeBlock>{`{
+  "api_version": "v1",
+  "clusters": [
+    {
+      "id": "c1a2...",
+      "representative_message": "How long for a refund?",
+      "occurrence_count": 47,
+      "first_seen_at": "2026-08-01T09:00:00Z",
+      "last_seen_at": "2026-09-06T14:30:00Z"
+    }
+  ]
+}`}</CodeBlock>
+          <p className="mt-2 text-xs text-zinc-500">
+            <span className="font-mono">representative_message</span> is simply the first question that started
+            the group — a label, not something curated. Sorted by{" "}
+            <span className="font-mono">occurrence_count</span> descending, so the most-asked unanswered question
+            is always first. A cluster stops appearing the moment every one of its occurrences has been
+            auto-resolved — nothing to clean up on your end.
           </p>
         </Section>
 

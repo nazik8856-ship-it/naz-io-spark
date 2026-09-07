@@ -1306,6 +1306,11 @@ Deno.serve(async (req) => {
   // decision-export endpoints' own keyset cursor/limit pagination
   // directly rather than reinventing it -- the shape (id + created_at,
   // ascending order, opaque cursor) is identical.
+  //
+  // Items 179-180 (Phase 3): excludes any gap content-gap-triage-sweep
+  // has since resolved -- once a context entry now covers a question,
+  // it's no longer something still to fix, and staying in this feed
+  // forever would defeat the entire point of auto-resolving it.
   if (req.method === "GET" && /\/content-gaps\/?$/.test(url.pathname)) {
     if (!auth.keyId) return json({ error: "not_found" }, 404);
 
@@ -1325,7 +1330,8 @@ Deno.serve(async (req) => {
       .select("id, message, created_at")
       .eq("api_key_id", auth.keyId)
       .eq("is_test", false)
-      .eq("grounding_check_intervened", true);
+      .eq("grounding_check_intervened", true)
+      .is("resolved_at", null);
     if (cursor) query = query.or(exportCursorFilter(cursor));
     query = query.order("created_at", { ascending: true }).order("id", { ascending: true }).limit(limit + 1);
 
@@ -1334,6 +1340,44 @@ Deno.serve(async (req) => {
 
     const { page, hasMore, nextCursor } = buildExportPage((data ?? []) as { id: string; created_at: string }[], limit);
     return json({ gaps: page, has_more: hasMore, next_cursor: nextCursor });
+  }
+
+  // ---- GET /control-api/v1/content-gap-clusters -----------------------------
+  // Items 179-180: the "ranked to-do list" half of the content-gap
+  // story. Every raw row in /content-gaps above is one occurrence of one
+  // question; this groups differently-worded occurrences of the SAME
+  // underlying missing fact (content-gap-triage-sweep's own clustering
+  // pass) and ranks them by how often it's actually come up, so an
+  // integrating company sees "asked 47 times" as one item instead of 47
+  // scattered rows. Only ever lists clusters with at least one still-
+  // unresolved member (list_gap_clusters_ranked's own join filters that
+  // live, so a cluster whose every occurrence got auto-resolved quietly
+  // stops appearing with no separate cleanup step needed here).
+  if (req.method === "GET" && /\/content-gap-clusters\/?$/.test(url.pathname)) {
+    if (!auth.keyId) return json({ error: "not_found" }, 404);
+
+    const rate = await checkRateLimit(admin, userId, "control-api-content-gaps", EXPORT_RATE_LIMIT_PER_MINUTE, 60);
+    if (!rate.allowed) {
+      return json({
+        error: "rate_limited",
+        message: `Too many requests — ${rate.count} in the last minute (limit ${rate.limit}). Try again shortly.`,
+      }, 429);
+    }
+
+    const limit = clampExportLimit(url.searchParams.get("limit"));
+    const { data, error } = await admin.rpc("list_gap_clusters_ranked", { _api_key_id: auth.keyId, _limit: Math.min(limit, 100) });
+    if (error) return json({ error: error.message }, 500);
+
+    const clusters = ((data ?? []) as {
+      cluster_id: string; representative_message: string; occurrence_count: number; first_seen_at: string; last_seen_at: string;
+    }[]).map((c) => ({
+      id: c.cluster_id,
+      representative_message: c.representative_message,
+      occurrence_count: c.occurrence_count,
+      first_seen_at: c.first_seen_at,
+      last_seen_at: c.last_seen_at,
+    }));
+    return json({ clusters });
   }
 
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
