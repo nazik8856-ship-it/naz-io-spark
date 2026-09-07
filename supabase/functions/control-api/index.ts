@@ -1080,6 +1080,23 @@ Deno.serve(async (req) => {
     // webhook below, none of which a test key should touch.
     const meterSpend = countsTowardRealUsage(auth.isTest);
 
+    // Item 181: usage tracking for context entries -- shared by every path
+    // below that can hand back an answer built from one or more entries
+    // (a fresh retrieval AND both cache-hit paths, see their own call
+    // sites). A cache hit is still real, ongoing usage of whatever
+    // entries originally backed that cached answer -- omitting it would
+    // badly undercount exactly the entries doing the most work, since a
+    // heavily-relied-on entry is the one whose answers get cached fastest.
+    // Best-effort, same posture as every other post-answer side effect in
+    // this handler: never allowed to affect a response that already
+    // succeeded.
+    const trackContextUsage = async (entryIds: string[]) => {
+      if (!entryIds.length) return;
+      try {
+        await admin.rpc("record_context_entry_usage", { _entry_ids: entryIds });
+      } catch { /* usage tracking must never break a real answer that already succeeded */ }
+    };
+
     // Item 177 (Phase 2): the rule tier, checked BEFORE anything else --
     // including the cache below. A rule is the account owner's own
     // explicit, guaranteed override; it must win even against a
@@ -1137,6 +1154,7 @@ Deno.serve(async (req) => {
     if (messageHash) {
       const exactHit = await findExactCachedResponse(admin, auth.keyId, messageHash);
       if (exactHit) {
+        await trackContextUsage((exactHit.sources ?? []).map((s) => s.id));
         const cacheFields = {
           cost_usd: 0,
           confidence: exactHit.confidence ?? "high",
@@ -1187,6 +1205,7 @@ Deno.serve(async (req) => {
         cacheEmbeddingLiteral = formatEmbeddingLiteral(queryEmbedding);
         const nearDupHit = meterSpend ? await findNearDuplicateCachedResponse(admin, auth.keyId, cacheEmbeddingLiteral) : null;
         if (nearDupHit) {
+          await trackContextUsage((nearDupHit.sources ?? []).map((s) => s.id));
           const cacheFields = {
             cost_usd: 0,
             confidence: nearDupHit.confidence ?? "high",
@@ -1270,19 +1289,12 @@ Deno.serve(async (req) => {
         );
       }
 
-      // Item 181: usage tracking for context entries -- lets an account
-      // owner see which of their entries are actually pulling weight in
-      // real answers (surfaced in ControlApiKeys.tsx) rather than
-      // guessing. Only entries response-synthesis.ts actually incorporated
-      // count as "used," same set as sourceFields above. Best-effort,
-      // same posture as every other post-answer side effect in this
-      // block: never allowed to affect a response that already succeeded.
-      if (!noMatch && synthesis && synthesis.usedEntries.length) {
-        try {
-          await admin.rpc("record_context_entry_usage", {
-            _entry_ids: synthesis.usedEntries.map((e) => e.id),
-          });
-        } catch { /* usage tracking must never break a real answer that already succeeded */ }
+      // Item 181: usage tracking for context entries actually incorporated
+      // into this freshly-synthesized answer -- same entry set as
+      // sourceFields above. See trackContextUsage's own definition for why
+      // this also runs on both cache-hit paths, not just here.
+      if (!noMatch && synthesis) {
+        await trackContextUsage(synthesis.usedEntries.map((e) => e.id));
       }
 
       // Item 170: escalation-to-human webhook. Only for a REAL call that
