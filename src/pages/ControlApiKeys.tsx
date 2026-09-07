@@ -871,6 +871,11 @@ function ApiKeySettingsPanel({
                 <option value="exact_phrase">Exact</option>
               </select>
             </div>
+            {newRuleMatchType === "contains_phrase" && newRuleTrigger.trim().length > 0 && newRuleTrigger.trim().length < 4 && (
+              <p className="text-[10px] text-amber-400/80">
+                Short "Contains" triggers can match unrelated messages -- consider a longer phrase or "Exact" instead.
+              </p>
+            )}
             <div className="flex items-start gap-2">
               <textarea
                 value={newRuleAnswer}

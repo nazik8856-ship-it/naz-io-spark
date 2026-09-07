@@ -558,6 +558,22 @@ Deno.serve(async (req) => {
     if (req.method === "DELETE") {
       const entryId = String(body?.entry_id || "");
       if (!entryId) return json({ error: "entry_id is required" }, 400);
+      // Items 179-180: a gap this entry resolved must go back to being an
+      // open gap once the entry itself is gone -- the FK on
+      // resolved_by_entry_id only clears ITSELF on delete (ON DELETE SET
+      // NULL), which would otherwise leave resolved_at silently set
+      // forever with no record of what resolved it, even though the fact
+      // that resolved it no longer exists. Best-effort and never blocks
+      // the delete itself -- a stale "resolved" gap is a much smaller
+      // problem than failing to let someone remove a wrong/outdated
+      // context entry.
+      try {
+        await admin
+          .from("api_response_generations")
+          .update({ resolved_at: null, resolved_by_entry_id: null })
+          .eq("resolved_by_entry_id", entryId);
+      } catch { /* never blocks the entry deletion itself */ }
+
       const { error } = await admin
         .from("api_key_context_entries")
         .delete()
