@@ -576,6 +576,26 @@ Deno.serve(async (req) => {
           .eq("resolved_by_entry_id", entryId);
       } catch { /* never blocks the entry deletion itself */ }
 
+      // Integration round: a cached answer (item 174) built from this
+      // entry must not keep being served after the entry is gone -- an
+      // account owner deleting a wrong/outdated entry expects /respond to
+      // stop repeating it immediately, not up to CACHE_TTL_HOURS (24h)
+      // later. There's no edit endpoint for entries today (an edit is a
+      // delete + recreate), so DELETE is the only write path this needs
+      // to cover. `sources` is a jsonb array of {id, excerpt} objects
+      // (see response-context.ts's summarizeSourcesUsed) -- .contains()
+      // matches any cache row whose sources array has an element with
+      // this id, regardless of its excerpt text. Best-effort, same
+      // posture as the gap-resolution cleanup just above: never blocks
+      // the entry deletion itself.
+      try {
+        await admin
+          .from("api_response_cache")
+          .delete()
+          .eq("api_key_id", keyId)
+          .contains("sources", [{ id: entryId }]);
+      } catch { /* never blocks the entry deletion itself */ }
+
       const { error } = await admin
         .from("api_key_context_entries")
         .delete()
