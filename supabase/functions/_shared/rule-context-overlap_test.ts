@@ -2,7 +2,7 @@
 // (integration round, following on from items 177/179-180).
 //
 // Run with: deno test --allow-none supabase/functions/_shared/rule-context-overlap_test.ts
-import { findOverlappingCandidates, type OverlapCandidate } from "./rule-context-overlap.ts";
+import { findOverlappingCandidates, excerptOf, MIN_OVERLAP_PHRASE_LENGTH, type OverlapCandidate } from "./rule-context-overlap.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
@@ -55,4 +55,26 @@ Deno.test("findOverlappingCandidates: excerpt is truncated for a very long candi
   assertEquals(result.length, 1);
   assert(result[0].excerpt.endsWith("…"), "expected truncated excerpt to end with an ellipsis");
   assert(result[0].excerpt.length <= 201, "expected excerpt to be capped near MAX_OVERLAP_EXCERPT_CHARS");
+});
+
+Deno.test("findOverlappingCandidates: a phrase below MIN_OVERLAP_PHRASE_LENGTH never flags anything, even a verbatim match", () => {
+  const candidates: OverlapCandidate[] = [{ id: "c1", text: "This is our full policy text." }];
+  assertEquals(findOverlappingCandidates("is", candidates), []);
+});
+
+Deno.test("findOverlappingCandidates: a phrase exactly at MIN_OVERLAP_PHRASE_LENGTH still matches", () => {
+  const phrase = "x".repeat(MIN_OVERLAP_PHRASE_LENGTH);
+  const candidates: OverlapCandidate[] = [{ id: "c1", text: `some text containing ${phrase} in it` }];
+  assertEquals(findOverlappingCandidates(phrase, candidates), [{ id: "c1", excerpt: `some text containing ${phrase} in it` }]);
+});
+
+Deno.test("excerptOf: returns text unchanged when under the max length", () => {
+  assertEquals(excerptOf("short text"), "short text");
+});
+
+Deno.test("excerptOf: truncates with an ellipsis when over the max length", () => {
+  const long = "x".repeat(250);
+  const result = excerptOf(long);
+  assert(result.endsWith("…"));
+  assert(result.length <= 201);
 });

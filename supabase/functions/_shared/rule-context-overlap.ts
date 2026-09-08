@@ -25,7 +25,18 @@ export type OverlapWarning = { id: string; excerpt: string };
 
 const MAX_OVERLAP_EXCERPT_CHARS = 200;
 
-function excerptOf(text: string): string {
+// Same floor ControlApiKeys.tsx's own UI hint already warns on for a
+// "contains_phrase" rule trigger ("Short 'Contains' triggers can match
+// unrelated messages"), applied here for the identical reason: a trigger
+// phrase below this length (a single common word, "is", "ok") would
+// verbatim-match huge swaths of unrelated text, turning this advisory
+// into noise that buries the genuine overlaps it exists to surface.
+// Below this floor, silently reporting no overlap is more honest than
+// reporting dozens of meaningless ones.
+export const MIN_OVERLAP_PHRASE_LENGTH = 4;
+
+/** Pure -- exported so api-keys/index.ts can excerpt a rule's answer_text for display when reporting an overlap in the context-entry direction (see its own call site for why: the entry's own text isn't useful to echo back to whoever just typed it). */
+export function excerptOf(text: string): string {
   return text.length > MAX_OVERLAP_EXCERPT_CHARS ? `${text.slice(0, MAX_OVERLAP_EXCERPT_CHARS)}…` : text;
 }
 
@@ -40,7 +51,7 @@ function excerptOf(text: string): string {
  */
 export function findOverlappingCandidates(phrase: string, candidates: OverlapCandidate[]): OverlapWarning[] {
   const normalizedPhrase = normalize(phrase);
-  if (!normalizedPhrase) return [];
+  if (normalizedPhrase.length < MIN_OVERLAP_PHRASE_LENGTH) return [];
   const warnings: OverlapWarning[] = [];
   for (const candidate of candidates) {
     if (normalize(candidate.text).includes(normalizedPhrase)) {
