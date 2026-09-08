@@ -686,9 +686,12 @@ Deno.serve(async (req) => {
     if (!keyRow) return json({ error: "Key not found for this account." }, 404);
 
     if (req.method === "GET") {
+      // Integration round: use_count/last_used_at surfaced so an account
+      // owner can see whether a rule is actually firing, same as item
+      // 181 already does for context entries.
       const { data, error } = await admin
         .from("api_key_response_rules")
-        .select("id, trigger_phrase, match_type, answer_text, enabled, created_at")
+        .select("id, trigger_phrase, match_type, answer_text, enabled, created_at, use_count, last_used_at")
         .eq("api_key_id", keyId)
         .order("created_at", { ascending: true });
       if (error) return json({ error: error.message }, 500);
@@ -759,7 +762,7 @@ Deno.serve(async (req) => {
     const { data, error } = await admin
       .from("api_key_response_rules")
       .insert({ user_id: targetUserId, api_key_id: keyId, trigger_phrase: triggerPhrase, match_type: matchType, answer_text: answerText, enabled })
-      .select("id, trigger_phrase, match_type, answer_text, enabled, created_at")
+      .select("id, trigger_phrase, match_type, answer_text, enabled, created_at, use_count, last_used_at")
       .maybeSingle();
     if (error) return json({ error: error.message }, 500);
 

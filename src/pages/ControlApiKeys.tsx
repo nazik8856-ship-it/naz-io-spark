@@ -27,7 +27,7 @@ type ApiKeyRow = {
 };
 
 type ContextEntry = { id: string; entry_text: string; enabled: boolean; created_at: string; use_count: number; last_used_at: string | null };
-type ResponseRule = { id: string; trigger_phrase: string; match_type: "exact_phrase" | "contains_phrase"; answer_text: string; enabled: boolean; created_at: string };
+type ResponseRule = { id: string; trigger_phrase: string; match_type: "exact_phrase" | "contains_phrase"; answer_text: string; enabled: boolean; created_at: string; use_count: number; last_used_at: string | null };
 
 type KeyActivity = { callsToday: number; lastDecision: string | null; lastDecisionAt: string | null };
 
@@ -843,6 +843,11 @@ function ApiKeySettingsPanel({
                     {r.match_type === "exact_phrase" ? "Exact" : "Contains"}: <span className="text-zinc-300">"{r.trigger_phrase}"</span>
                   </p>
                   <p className="mt-0.5 text-[11px] text-zinc-300">{r.answer_text}</p>
+                  <p className="mt-0.5 text-[10px] text-zinc-600">
+                    {r.use_count > 0
+                      ? `Used ${r.use_count}x · Last used ${new Date(r.last_used_at as string).toLocaleString()}`
+                      : "Never used"}
+                  </p>
                 </div>
                 {canWrite && (
                   <button
