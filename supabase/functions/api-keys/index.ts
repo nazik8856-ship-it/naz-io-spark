@@ -30,7 +30,7 @@ import { isValidPersona, isValidFallbackMessage } from "../_shared/response-cont
 import { formatEmbeddingLiteral } from "../_shared/decision-embeddings.ts";
 import { generateLocalEmbedding } from "../_shared/local-embeddings.ts";
 import { isValidTriggerPhrase, isValidRuleAnswer, isValidMatchType, MAX_RESPONSE_RULES_PER_KEY } from "../_shared/response-rules.ts";
-import { findOverlappingCandidates } from "../_shared/rule-context-overlap.ts";
+import { findOverlappingCandidates, excerptOf } from "../_shared/rule-context-overlap.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -639,18 +639,23 @@ Deno.serve(async (req) => {
     // overlap.ts's own header for why this doesn't try to do more than
     // that without reintroducing a generative-model dependency). Omitted
     // entirely rather than sent as an empty array when nothing overlaps,
-    // matching this route's own sources-field convention.
-    let possibleConflicts: { rule_id: string; trigger_phrase: string; excerpt: string }[] = [];
+    // matching this route's own sources-field convention. The excerpt
+    // shown is the RULE's own answer_text, not this entry's text -- the
+    // caller already knows exactly what they just typed; what they don't
+    // yet know without a second call is what the matching rule currently
+    // promises, which is the only piece of information that actually
+    // lets them judge whether the two disagree.
+    let possibleConflicts: { rule_id: string; trigger_phrase: string; rule_answer_excerpt: string }[] = [];
     if (data?.id) {
       try {
         const { data: ruleRows } = await admin
           .from("api_key_response_rules")
-          .select("id, trigger_phrase")
+          .select("id, trigger_phrase, answer_text")
           .eq("api_key_id", keyId)
           .eq("enabled", true);
-        for (const rule of (ruleRows ?? []) as { id: string; trigger_phrase: string }[]) {
+        for (const rule of (ruleRows ?? []) as { id: string; trigger_phrase: string; answer_text: string }[]) {
           const hit = findOverlappingCandidates(rule.trigger_phrase, [{ id: data.id, text: entryText }]);
-          if (hit.length) possibleConflicts.push({ rule_id: rule.id, trigger_phrase: rule.trigger_phrase, excerpt: hit[0].excerpt });
+          if (hit.length) possibleConflicts.push({ rule_id: rule.id, trigger_phrase: rule.trigger_phrase, rule_answer_excerpt: excerptOf(rule.answer_text) });
         }
       } catch { /* advisory only, never required */ }
     }
@@ -764,7 +769,7 @@ Deno.serve(async (req) => {
     // endpoint's own check above, just the other direction. See
     // rule-context-overlap.ts's header for why this stops at "worth a
     // glance," not a verified conflict.
-    let possibleConflicts: { context_entry_id: string; excerpt: string }[] = [];
+    let possibleConflicts: { context_entry_id: string; entry_excerpt: string }[] = [];
     try {
       const { data: entryRows } = await admin
         .from("api_key_context_entries")
@@ -774,7 +779,7 @@ Deno.serve(async (req) => {
       possibleConflicts = findOverlappingCandidates(
         triggerPhrase,
         ((entryRows ?? []) as { id: string; entry_text: string }[]).map((e) => ({ id: e.id, text: e.entry_text })),
-      ).map((hit) => ({ context_entry_id: hit.id, excerpt: hit.excerpt }));
+      ).map((hit) => ({ context_entry_id: hit.id, entry_excerpt: hit.excerpt }));
     } catch { /* advisory only, never required */ }
 
     return json({ ok: true, rule: data, ...(possibleConflicts.length ? { possible_conflicts: possibleConflicts } : {}) });
