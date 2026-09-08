@@ -651,6 +651,18 @@ Deno.serve(async (req) => {
     if (req.method === "DELETE") {
       const ruleId = String(body?.rule_id || "");
       if (!ruleId) return json({ error: "rule_id is required" }, 400);
+      // Integration round: a gap this rule resolved (content-gap-triage-
+      // sweep's own resolution phase, see the accompanying migration)
+      // must go back to being an open gap once the rule itself is gone --
+      // same best-effort, never-blocks-the-delete treatment as the
+      // context-entry DELETE handler above uses for resolved_by_entry_id.
+      try {
+        await admin
+          .from("api_response_generations")
+          .update({ resolved_at: null, resolved_by_rule_id: null })
+          .eq("resolved_by_rule_id", ruleId);
+      } catch { /* never blocks the rule deletion itself */ }
+
       const { error } = await admin
         .from("api_key_response_rules")
         .delete()
