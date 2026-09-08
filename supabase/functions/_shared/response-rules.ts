@@ -13,8 +13,8 @@ export type ResponseRule = {
   answer_text: string;
 };
 
-/** Pure -- collapses case/whitespace so trivial formatting differences on either side of the comparison never matter. */
-function normalize(text: string): string {
+/** Pure -- collapses case/whitespace so trivial formatting differences on either side of the comparison never matter. Exported for rule-context-overlap.ts's own use -- same normalization, not a second copy of it. */
+export function normalize(text: string): string {
   return text.toLowerCase().trim().replace(/\s+/g, " ");
 }
 
