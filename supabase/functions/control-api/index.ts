@@ -1139,6 +1139,17 @@ Deno.serve(async (req) => {
             latency_ms: Date.now() - startedAt,
           });
         } catch { /* audit logging must never break a real answer that already succeeded */ }
+
+        // Integration round: usage tracking for rules, mirroring item
+        // 181's use_count/last_used_at for context entries -- a rule is
+        // never cached (see storeCachedResponse's own call site below,
+        // never reached from this branch), so this rule-tier match is
+        // the ONLY place a rule is ever actually used to answer a real
+        // message. Best-effort, same posture as the audit insert above:
+        // never allowed to affect a response that already succeeded.
+        try {
+          await admin.rpc("record_rule_usage", { _rule_id: matchedRule.id });
+        } catch { /* usage tracking must never break a real answer that already succeeded */ }
       }
 
       if (parsed.stream) return streamAnswer(sanitized.text, { ...testModeFields, ...costFields });
