@@ -454,10 +454,12 @@ export default function ControlApiDocs() {
 
         <Section title="Content gaps: see what your context doesn't cover yet">
           <p>
-            Every real <span className="font-mono">/respond</span> call where no context entry matched the
+            Every real <span className="font-mono">/respond</span> call where no rule or context entry matched the
             question (an honest "I don't have enough information" rather than a guess) is, by definition, a
-            question your configured context doesn't cover. This endpoint lists those questions so you know
-            exactly what to add via <span className="font-mono">POST /api-keys/:id/context</span> — no guessing.
+            question your configuration doesn't cover. This endpoint lists those questions so you know exactly
+            what to add — a context entry via <span className="font-mono">POST /api-keys/:id/context</span> for a
+            general fact, or a rule via <span className="font-mono">POST /api-keys/:id/response-rules</span> for a
+            recurring, FAQ-shaped one that deserves a guaranteed exact answer — no guessing.
           </p>
           <CodeBlock>{`GET ${SUPABASE_FUNCTIONS_URL}/control-api/v1/content-gaps`}</CodeBlock>
           <CodeBlock>{`curl "${SUPABASE_FUNCTIONS_URL}/control-api/v1/content-gaps" \\
@@ -474,9 +476,9 @@ export default function ControlApiDocs() {
             Keyset-paginated with <span className="font-mono">limit</span> (default 100, max 500) and{" "}
             <span className="font-mono">cursor</span> query params — pass the previous page's{" "}
             <span className="font-mono">next_cursor</span> to fetch the next one. Sandbox (test-mode) traffic is
-            never included, since it isn't a real gap in your live product. Once you add a context entry that
-            covers a gap, a background sweep notices within about 30 minutes and it drops out of this feed
-            automatically — no need to track which ones you've already fixed.
+            never included, since it isn't a real gap in your live product. Once you add a context entry or a
+            rule that covers a gap, a background sweep notices within about 30 minutes and it drops out of this
+            feed automatically — no need to track which ones you've already fixed.
           </p>
         </Section>
 

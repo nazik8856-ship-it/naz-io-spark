@@ -1,11 +1,13 @@
 // "Own decision-making machine" plan, items 179-180 (Phase 3): scheduled
 // (pg_cron, every 30 min) sweep that closes the loop on content gaps
 // (item 169) two independent ways -- resolving ones a newly-added
-// context entry now covers, and clustering the rest so recurring ones
-// surface as one ranked to-do item instead of many raw rows. Combined
-// into one sweep, not two, since both phases need the same free local
-// embedding of the gap's own message -- no reason to pay for it twice
-// in two separate cron jobs.
+// context entry OR response rule now covers (integration round: rules
+// were originally left out of resolution entirely, even though a rule
+// is often the more natural fix for a recurring FAQ-shaped gap), and
+// clustering the rest so recurring ones surface as one ranked to-do item
+// instead of many raw rows. Combined into one sweep, not two, since both
+// phases need the same free local embedding of the gap's own message --
+// no reason to pay for it twice in two separate cron jobs.
 //
 // Platform-wide (not per-account, unlike precedent-pipeline-health-
 // sweep) -- both candidate queries already scope by row, not by caller,
@@ -15,6 +17,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { generateLocalEmbedding } from "../_shared/local-embeddings.ts";
 import { formatEmbeddingLiteral } from "../_shared/decision-embeddings.ts";
 import { findRelevantContext } from "../_shared/response-context.ts";
+import { findMatchingRule, type ResponseRule } from "../_shared/response-rules.ts";
 import { pickMatchingCluster, MAX_GAPS_PER_SWEEP_PHASE, type GapClusterCandidate } from "../_shared/content-gap-triage.ts";
 
 const corsHeaders = {
@@ -40,10 +43,12 @@ Deno.serve(async (req) => {
 
   // ---- Phase A: resolution -------------------------------------------
   // Only gaps whose key has gained a genuinely new embedded context
-  // entry since the gap was recorded (see the RPC's own comment) --
-  // re-embeds the gap's message fresh (free, local) and re-runs the
-  // exact same retrieval /respond itself uses; a qualifying match means
-  // this question is no longer a real gap.
+  // entry OR a new enabled response rule since the gap was recorded (see
+  // the RPC's own comment) -- a rule is checked first for each
+  // candidate, same rule-tier-before-retrieval-tier precedence
+  // /respond's own handler uses, and free (no embedding call) unlike the
+  // context check below it. A qualifying match either way means this
+  // question is no longer a real gap.
   let resolved = 0;
   {
     const { data: rows, error } = await admin.rpc("list_resolvable_gap_candidates", { _limit: MAX_GAPS_PER_SWEEP_PHASE });
@@ -52,6 +57,24 @@ Deno.serve(async (req) => {
 
     for (const gap of candidates) {
       try {
+        const { data: ruleRows } = await admin
+          .from("api_key_response_rules")
+          .select("id, trigger_phrase, match_type, answer_text")
+          .eq("api_key_id", gap.api_key_id)
+          .eq("enabled", true)
+          .order("created_at", { ascending: true });
+        const matchedRule = findMatchingRule((ruleRows ?? []) as ResponseRule[], gap.message);
+
+        if (matchedRule) {
+          const { error: updateErr } = await admin
+            .from("api_response_generations")
+            .update({ resolved_at: new Date().toISOString(), resolved_by_rule_id: matchedRule.id })
+            .eq("id", gap.id);
+          if (updateErr) console.error(`[CONTENT GAP TRIAGE] failed to mark ${gap.id} resolved: ${updateErr.message}`);
+          else resolved++;
+          continue;
+        }
+
         const embedding = await generateLocalEmbedding(gap.message);
         if (!embedding) continue;
         const literal = formatEmbeddingLiteral(embedding);
