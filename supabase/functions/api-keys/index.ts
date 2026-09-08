@@ -30,6 +30,7 @@ import { isValidPersona, isValidFallbackMessage } from "../_shared/response-cont
 import { formatEmbeddingLiteral } from "../_shared/decision-embeddings.ts";
 import { generateLocalEmbedding } from "../_shared/local-embeddings.ts";
 import { isValidTriggerPhrase, isValidRuleAnswer, isValidMatchType, MAX_RESPONSE_RULES_PER_KEY } from "../_shared/response-rules.ts";
+import { findOverlappingCandidates } from "../_shared/rule-context-overlap.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -632,7 +633,28 @@ Deno.serve(async (req) => {
         }
       } catch { /* embedding is a best-effort enrichment, never a required step */ }
     }
-    return json({ ok: true, entry: data });
+    // Integration round: warn (never block) when this entry's text
+    // contains an existing rule's trigger phrase verbatim -- a keyword-
+    // overlap heuristic, not a verified fact conflict (see rule-context-
+    // overlap.ts's own header for why this doesn't try to do more than
+    // that without reintroducing a generative-model dependency). Omitted
+    // entirely rather than sent as an empty array when nothing overlaps,
+    // matching this route's own sources-field convention.
+    let possibleConflicts: { rule_id: string; trigger_phrase: string; excerpt: string }[] = [];
+    if (data?.id) {
+      try {
+        const { data: ruleRows } = await admin
+          .from("api_key_response_rules")
+          .select("id, trigger_phrase")
+          .eq("api_key_id", keyId)
+          .eq("enabled", true);
+        for (const rule of (ruleRows ?? []) as { id: string; trigger_phrase: string }[]) {
+          const hit = findOverlappingCandidates(rule.trigger_phrase, [{ id: data.id, text: entryText }]);
+          if (hit.length) possibleConflicts.push({ rule_id: rule.id, trigger_phrase: rule.trigger_phrase, excerpt: hit[0].excerpt });
+        }
+      } catch { /* advisory only, never required */ }
+    }
+    return json({ ok: true, entry: data, ...(possibleConflicts.length ? { possible_conflicts: possibleConflicts } : {}) });
   }
 
   // ---- /api-keys/:id/response-rules ------------------------------------
@@ -735,7 +757,27 @@ Deno.serve(async (req) => {
       .select("id, trigger_phrase, match_type, answer_text, enabled, created_at")
       .maybeSingle();
     if (error) return json({ error: error.message }, 500);
-    return json({ ok: true, rule: data });
+
+    // Integration round: warn (never block) when an existing context
+    // entry's text already contains this rule's trigger phrase verbatim
+    // -- same keyword-overlap heuristic as the context-entry POST
+    // endpoint's own check above, just the other direction. See
+    // rule-context-overlap.ts's header for why this stops at "worth a
+    // glance," not a verified conflict.
+    let possibleConflicts: { context_entry_id: string; excerpt: string }[] = [];
+    try {
+      const { data: entryRows } = await admin
+        .from("api_key_context_entries")
+        .select("id, entry_text")
+        .eq("api_key_id", keyId)
+        .eq("enabled", true);
+      possibleConflicts = findOverlappingCandidates(
+        triggerPhrase,
+        ((entryRows ?? []) as { id: string; entry_text: string }[]).map((e) => ({ id: e.id, text: e.entry_text })),
+      ).map((hit) => ({ context_entry_id: hit.id, excerpt: hit.excerpt }));
+    } catch { /* advisory only, never required */ }
+
+    return json({ ok: true, rule: data, ...(possibleConflicts.length ? { possible_conflicts: possibleConflicts } : {}) });
   }
 
   // ---- GET /api-keys --------------------------------------------------------

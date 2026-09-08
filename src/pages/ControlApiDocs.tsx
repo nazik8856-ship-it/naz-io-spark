@@ -361,6 +361,9 @@ export default function ControlApiDocs() {
             <span className="font-mono">"exact_phrase"</span> (the entire message must equal the phrase, for one specific
             known question). Both are matched case- and whitespace-insensitively. When several rules would
             match, the oldest one you added wins — order them from most to least specific if that matters.
+            Adding a rule (or a context entry) whose text overlaps one already on the key gets back an extra{" "}
+            <span className="font-mono">possible_conflicts</span> array in the response — a heads-up that the two
+            might disagree, worth a glance, never a block on creating either one.
           </p>
 
           <p className="mt-4 font-semibold text-zinc-200">2. (Optional) Customize the "I don't know" message</p>
