@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, KeyRound, Plus, Copy, Ban, Check, Send, Settings, ChevronDown, ChevronUp, Trash2, MessageSquareText, Zap } from "lucide-react";
 import { supabase, SUPABASE_FUNCTIONS_URL } from "@/integrations/supabase/client";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { hasPermission } from "@/lib/account-switcher";
 import { toast } from "@/hooks/use-toast";
+import { findStaleResponseRules, RESPONSE_RULE_STALE_WINDOW_DAYS } from "@/lib/response-rule-effectiveness";
 
 // api_keys is new (2026-08-26) -- not yet in the generated Supabase types
 // (types.ts isn't regenerated in this sandbox), same established
@@ -568,6 +569,14 @@ function ApiKeySettingsPanel({
 
   const [rules, setRules] = useState<ResponseRule[]>([]);
   const [rulesLoading, setRulesLoading] = useState(true);
+  // Rule effectiveness for response rules -- mirrors the hard_rules/
+  // safety_rules "dead rule" finder, but derived from use_count/
+  // last_used_at directly on the row (see response-rule-effectiveness.ts)
+  // rather than a live COUNT(*) against a separate matches table.
+  const staleRuleReasonById = useMemo(() => {
+    const windowStart = new Date(Date.now() - RESPONSE_RULE_STALE_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
+    return new Map(findStaleResponseRules(rules, windowStart).map((r) => [r.id, r.reason]));
+  }, [rules]);
   const [newRuleTrigger, setNewRuleTrigger] = useState("");
   const [newRuleMatchType, setNewRuleMatchType] = useState<ResponseRule["match_type"]>("contains_phrase");
   const [newRuleAnswer, setNewRuleAnswer] = useState("");
@@ -848,6 +857,13 @@ function ApiKeySettingsPanel({
                       ? `Used ${r.use_count}x · Last used ${new Date(r.last_used_at as string).toLocaleString()}`
                       : "Never used"}
                   </p>
+                  {staleRuleReasonById.has(r.id) && (
+                    <p className="mt-0.5 inline-block rounded border border-amber-500/40 px-1.5 py-0.5 font-mono text-[9px] uppercase text-amber-300">
+                      {staleRuleReasonById.get(r.id) === "never_fired"
+                        ? `⚠ Never fired in ${RESPONSE_RULE_STALE_WINDOW_DAYS}+ days`
+                        : `⚠ No matches in ${RESPONSE_RULE_STALE_WINDOW_DAYS}+ days`}
+                    </p>
+                  )}
                 </div>
                 {canWrite && (
                   <button
