@@ -517,6 +517,65 @@ export default function ControlApiDocs() {
           </p>
         </Section>
 
+        <Section title="Automation value: how much of your traffic ran with zero human involved">
+          <p>
+            One real number, backed by this key's own history: how much of its traffic — gated actions checked
+            via <span className="font-mono">POST /control-api/v1</span> and questions answered via{" "}
+            <span className="font-mono">/respond</span> — resolved automatically, how that trended week over
+            week, and a rough estimate of the manual-review or manual-support-reply effort it saved. The actual
+            business case for automating more, not a guess.
+          </p>
+          <CodeBlock>{`GET ${SUPABASE_FUNCTIONS_URL}/control-api/v1/automation-value`}</CodeBlock>
+          <CodeBlock>{`curl "${SUPABASE_FUNCTIONS_URL}/control-api/v1/automation-value?weeks=12" \\
+  -H "Authorization: Bearer nazai_sk_<your key>"`}</CodeBlock>
+          <CodeBlock>{`{
+  "api_version": "v1",
+  "window_weeks": 12,
+  "since": "2026-06-17T00:00:00Z",
+  "summary": {
+    "total": 480,
+    "autonomous": 452,
+    "needs_human": 28,
+    "blocked": 11,
+    "modified": 6,
+    "allowed": 435,
+    "autonomous_share": 0.94,
+    "spend_usd": 3.42,
+    "cost_per_autonomous_decision_usd": 0.0076,
+    "estimated_manual_review_hours_saved": 22.6
+  },
+  "weekly_trend": [
+    { "week_start": "2026-06-15", "total": 38, "autonomous": 35, "needs_human": 3, "spend_usd": 0.28, "cost_per_autonomous_decision_usd": 0.008 }
+  ],
+  "respond_activity": {
+    "total": 1204,
+    "autonomous": 1151,
+    "needs_human": 53,
+    "rule_answered": 340,
+    "retrieval_answered": 811,
+    "cache_hits": 402,
+    "autonomous_share": 0.96,
+    "estimated_manual_response_hours_saved": 95.9
+  }
+}`}</CodeBlock>
+          <p className="mt-2 text-xs text-zinc-500">
+            <span className="font-mono">summary</span>/<span className="font-mono">weekly_trend</span> cover
+            gated actions (<span className="font-mono">needs_human</span> means escalated, per your
+            on_uncertain policy). <span className="font-mono">respond_activity</span> covers{" "}
+            <span className="font-mono">/respond</span> traffic separately — its{" "}
+            <span className="font-mono">needs_human</span> means the honest "I don't have enough information"
+            fallback fired (the same case that shows up in content gaps above), and{" "}
+            <span className="font-mono">rule_answered</span>/<span className="font-mono">retrieval_answered</span>/
+            <span className="font-mono">cache_hits</span> show which tier handled each answer (
+            <span className="font-mono">cache_hits</span> is a subset of{" "}
+            <span className="font-mono">retrieval_answered</span>, not additive). It always reports{" "}
+            <span className="font-mono">spend_usd: 0</span> implicitly — <span className="font-mono">/respond</span>{" "}
+            answers deterministically with no model call left to meter, so there's no cost-per-answer figure to
+            report the way there is for gated actions. <span className="font-mono">weeks</span> query param:
+            1–26, default 12.
+          </p>
+        </Section>
+
         <Section title="Response caching">
           <p>
             A genuinely grounded answer is cached for 24 hours, scoped to this one key. Ask the exact same
