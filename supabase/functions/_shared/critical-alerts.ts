@@ -66,7 +66,14 @@ export type CriticalAlertEvent =
   // pauses in a short window, or a callback URL that's stopped
   // answering. A genuine, explicit exception to "only a human changes
   // on_uncertain," always tagged unmistakably as system-initiated.
-  | "on_uncertain_auto_downgraded";
+  | "on_uncertain_auto_downgraded"
+  // Item, 2026-09-09: the same "quietly stopped working" shape as
+  // precedent_pipeline_stale, applied to items 179-180's content-gap
+  // pipeline -- an api key's single largest unresolved content-gap
+  // cluster has grown past a real threshold with nothing ever added to
+  // cover it, and nothing about any one occurrence looks wrong on its
+  // own to notice.
+  | "content_gap_backlog_stale";
 
 const APP_BASE_URL = "https://www.nazai.net";
 
@@ -96,6 +103,7 @@ export const LABELS: Record<CriticalAlertEvent, string> = {
   precedent_pipeline_stale: "🧠 An API key's real-precedent memory has gone stale",
   control_api_coordinated_abuse: "🚩 Unusual activity spread across multiple Control API keys",
   on_uncertain_auto_downgraded: "🛑 An API key's auto-resolve policy was automatically pulled back to human review",
+  content_gap_backlog_stale: "📚 A recurring unanswered question is piling up in an API key's content gaps",
 };
 
 export function decisionLink(decisionId?: string | null): string | null {

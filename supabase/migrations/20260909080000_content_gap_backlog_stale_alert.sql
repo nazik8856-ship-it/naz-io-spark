@@ -1,0 +1,32 @@
+-- Item, 2026-09-09: lets content-gap-backlog-sweep track which api keys
+-- it has already alerted on for a stale content-gap backlog, and clear
+-- that flag once the backlog is resolved (a rule or context entry gets
+-- added, or the recurring question stops recurring) -- same shape as
+-- embedding_pipeline_alerted_at / profiles.auto_resolution_share_alerted_at.
+-- Lives on api_keys itself since the content-gap backlog is measured per
+-- api key, not per account (each key has its own independent context
+-- entries, rules, and end-user traffic).
+ALTER TABLE public.api_keys
+  ADD COLUMN IF NOT EXISTS content_gap_backlog_alerted_at timestamptz;
+
+-- ============================================================
+-- POST-MIGRATION STEP (same convention as every other scheduled sweep in
+-- this codebase -- applied directly against the live project, not baked
+-- into this file, since it needs this project's own service_role vault
+-- secret and function URL):
+--
+--    SELECT cron.schedule(
+--      'content-gap-backlog-sweep-every-30min',
+--      '*/30 * * * *',
+--      $$
+--      INSERT INTO public.scheduled_job_requests (job_name, request_id)
+--      SELECT 'content-gap-backlog-sweep-every-30min', net.http_post(
+--        url := '<SUPABASE_URL>/functions/v1/content-gap-backlog-sweep',
+--        headers := jsonb_build_object(
+--          'Content-Type', 'application/json',
+--          'Authorization', 'Bearer ' || (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'email_queue_service_role_key')
+--        ),
+--        body := '{}'::jsonb
+--      );
+--      $$
+--    );
