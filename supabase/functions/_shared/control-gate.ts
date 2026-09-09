@@ -20,7 +20,6 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { clearExpiredSpendKillSwitch, clearExpiredAgentSpendKillSwitch, getSpendStatus, getAgentSpendStatus, type SpendStatus } from "./spend-guard.ts";
 import { sendCriticalAlert } from "./critical-alerts.ts";
-import { openIncident } from "./incidents.ts";
 import { scanAction, type SafetyRule, type SafetyScan } from "./safety-scanner.ts";
 import { countTodaySuccesses, detectAnomaly, loadAgentBaseline, type AnomalyCheck } from "./anomaly-detector.ts";
 import { loadStrictness } from "./decision-scoring.ts";
@@ -544,8 +543,8 @@ export async function createPendingApproval(
             await admin.from("api_keys").update(updates).eq("id", input.apiKeyId);
             if (troubled) {
               const summary = summarizePolicyDowngrade("callback_failures", String(streak));
+              // sendCriticalAlert already opens the incident -- see its own doc comment.
               await sendCriticalAlert(admin, input.userId, { event: "on_uncertain_auto_downgraded", summary });
-              await openIncident(admin, input.userId, { kind: "on_uncertain_auto_downgraded", summary });
               // "Knowledge & autonomy" plan, item 6: tell the account's
               // own systems the moment this happens, instead of making
               // them keep polling for it.
@@ -1268,6 +1267,11 @@ async function runControlGateInner(
         description: ctx.description, params: ctx.params,
       });
     }
+    // gate_error/gate_error_fail_open are both listed IncidentKinds --
+    // sendCriticalAlert below already opens the incident on its own (see
+    // its own doc comment); a second explicit openIncident call here was
+    // found 2026-09-09 to be silently creating a duplicate incidents row
+    // on every fail-closed/fail-open outcome since this block was written.
     try {
       await sendCriticalAlert(admin, userId, {
         event: failOpen ? "gate_error_fail_open" : "gate_error",
@@ -1277,25 +1281,6 @@ async function runControlGateInner(
         provider,
       });
     } catch { /* alerting must never break the fail-closed/fail-open block */ }
-    // "15 more items" plan, item 4: gate_error is a real, listed
-    // IncidentKind (incidents.ts explicitly calls out "the gate itself
-    // failing closed" as incident-worthy) but this fail-closed block never
-    // actually opened one -- only recorded the decision and alerted.
-    // Fixed alongside control-engine/index.ts's own outer catch getting
-    // the same three-part treatment for the first time. Still opened for
-    // a fail-OPEN outcome too -- "every time that setting actually kicks
-    // in, it's logged clearly as its own distinct, auditable event" (item
-    // 8's own scope) applies just as much to an incident as to the
-    // decision row above.
-    try {
-      await openIncident(admin, userId, {
-        kind: failOpen ? "gate_error_fail_open" : "gate_error",
-        summary: `${reason} (${message})`,
-        actionType,
-        provider,
-        decisionId,
-      });
-    } catch { /* incident tracking must never break the fail-closed/fail-open block */ }
     return {
       ok: failOpen,
       verdict: failOpen ? "allow" : "block",

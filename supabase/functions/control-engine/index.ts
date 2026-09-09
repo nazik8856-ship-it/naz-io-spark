@@ -22,7 +22,6 @@ import {
 import { CAPABILITY_REGISTRY, canOfferTool } from "../_shared/capability-registry.ts";
 import { recordAiSpend } from "../_shared/spend-guard.ts";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
-import { openIncident } from "../_shared/incidents.ts";
 import { runControlGate, createPendingApproval, loadOnUncertainPolicy, loadActionTypeOverrides } from "../_shared/control-gate.ts";
 import { resolveEffectiveConfidenceThreshold } from "../_shared/action-type-policy.ts";
 import { extractNarrowedAction, narrowedActionResolution } from "../_shared/api-key-policy.ts";
@@ -1581,6 +1580,11 @@ serve(async (req) => {
         }).select("id").maybeSingle();
         decisionId = (data as { id?: string } | null)?.id ?? null;
       } catch { /* logging must never mask the real error below */ }
+      // gate_error is a listed IncidentKind -- sendCriticalAlert below
+      // already opens the incident on its own (see its own doc comment);
+      // a second explicit openIncident call here was found 2026-09-09 to
+      // be silently creating a duplicate incidents row on every one of
+      // control-engine's own unhandled errors since this block was written.
       try {
         await sendCriticalAlert(admin, userId, {
           event: "gate_error",
@@ -1588,13 +1592,6 @@ serve(async (req) => {
           decisionId,
         });
       } catch { /* alerting must never mask the real error below */ }
-      try {
-        await openIncident(admin, userId, {
-          kind: "gate_error",
-          summary: `control-engine failed with an unhandled error: ${message}`,
-          decisionId,
-        });
-      } catch { /* incident tracking must never mask the real error below */ }
     } else {
       console.error("control-engine: unhandled error before an account could be resolved:", message);
     }

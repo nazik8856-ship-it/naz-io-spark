@@ -204,6 +204,19 @@ async function sendCriticalAlertEmail(
   } catch { /* email fallback must never break alerting */ }
 }
 
+/**
+ * Already opens an incident automatically (via persistAlert -> openIncident)
+ * for any event isIncidentWorthy() returns true for -- callers must NEVER
+ * also call openIncident directly afterward for the same event. Found
+ * 2026-09-09: nine call sites across five files had done exactly that,
+ * each one silently creating a duplicate incidents row per real alert
+ * (control-gate.ts, control-engine/index.ts, precedent-pipeline-health-sweep,
+ * outcome-quality-sweep, auto-resolution-share-sweep, control-api-abuse-sweep)
+ * -- the pattern was copy-pasted forward under the mistaken belief that
+ * sendCriticalAlert only alerts and never opens an incident on its own.
+ * If a caller's event isn't incident-worthy yet but should be, add it to
+ * INCIDENT_KINDS in incidents.ts instead of calling openIncident directly.
+ */
 export async function sendCriticalAlert(
   admin: SupabaseClient,
   userId: string,

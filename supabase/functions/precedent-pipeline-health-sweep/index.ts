@@ -15,7 +15,6 @@ import {
   summarizeEmbeddingCoverage, isEmbeddingPipelineStale, summarizeStalePipeline, type DecisionRow,
 } from "../_shared/precedent-pipeline-health.ts";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
-import { openIncident } from "../_shared/incidents.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -80,10 +79,9 @@ Deno.serve(async (req) => {
         const { error: updErr } = await admin
           .from("api_keys").update({ embedding_pipeline_alerted_at: new Date().toISOString() }).eq("id", row.apiKeyId);
         if (updErr) console.error(`[PRECEDENT PIPELINE HEALTH SWEEP] failed to stamp ${row.apiKeyId}: ${updErr.message}`);
-        else {
-          alerted++;
-          await openIncident(admin, userId, { kind: "precedent_pipeline_stale", summary });
-        }
+        // sendCriticalAlert above already opened the incident (it's a
+        // listed IncidentKind) -- see its own doc comment.
+        else alerted++;
       } catch (e) {
         console.error(`[PRECEDENT PIPELINE HEALTH SWEEP] alert failed for ${row.apiKeyId}: ${e instanceof Error ? e.message : String(e)}`);
       }
