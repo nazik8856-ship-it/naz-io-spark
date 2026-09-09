@@ -17,7 +17,6 @@ import {
   type ResolvedApprovalRow,
 } from "../_shared/auto-resolution-anomaly.ts";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
-import { openIncident } from "../_shared/incidents.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -77,10 +76,9 @@ Deno.serve(async (req) => {
         const { error: updErr } = await admin
           .from("profiles").update({ auto_resolution_share_alerted_at: now.toISOString() }).eq("id", recent.userId);
         if (updErr) console.error(`[AUTO-RESOLUTION SHARE SWEEP] failed to stamp ${recent.userId}: ${updErr.message}`);
-        else {
-          alerted.push(recent.userId);
-          await openIncident(admin, recent.userId, { kind: "auto_resolution_share_spike", summary });
-        }
+        // sendCriticalAlert above already opened the incident (it's a
+        // listed IncidentKind) -- see its own doc comment.
+        else alerted.push(recent.userId);
       } catch (e) {
         console.error(`[AUTO-RESOLUTION SHARE SWEEP] alert failed for ${recent.userId}: ${e instanceof Error ? e.message : String(e)}`);
       }

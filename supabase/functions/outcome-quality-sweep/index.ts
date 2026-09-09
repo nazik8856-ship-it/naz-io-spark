@@ -17,7 +17,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isBadOutcomeTrouble, summarizePolicyDowngrade } from "../_shared/policy-downgrade.ts";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
-import { openIncident } from "../_shared/incidents.ts";
 import { triggerWebhooks } from "../_shared/webhooks.ts";
 
 const corsHeaders = {
@@ -93,8 +92,9 @@ Deno.serve(async (req) => {
       }).eq("id", apiKeyId);
       if (updErr) { console.error(`[OUTCOME QUALITY SWEEP] failed to downgrade ${apiKeyId}: ${updErr.message}`); continue; }
       downgraded.push(apiKeyId);
+      // sendCriticalAlert already opens the incident (it's a listed
+      // IncidentKind) -- see its own doc comment.
       await sendCriticalAlert(admin, totals.userId, { event: "on_uncertain_auto_downgraded", summary });
-      await openIncident(admin, totals.userId, { kind: "on_uncertain_auto_downgraded", summary });
       // "Knowledge & autonomy" plan, item 6: tell the account's own
       // systems the moment this happens, instead of making them keep
       // polling for it.

@@ -17,7 +17,6 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { summarizeKeyActivity, isVolumeAbuse, isBlockRateAbuse, summarizeAbuseReason, computePauseUntil, summarizeAccountActivity, isCoordinatedAccountAbuse, summarizeCoordinatedAbuse, type DecisionRow } from "../_shared/control-api-abuse.ts";
 import { isRepeatedPauseTrouble, summarizePolicyDowngrade } from "../_shared/policy-downgrade.ts";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
-import { openIncident } from "../_shared/incidents.ts";
 import { triggerWebhooks } from "../_shared/webhooks.ts";
 
 const corsHeaders = {
@@ -113,11 +112,9 @@ Deno.serve(async (req) => {
         if (updErr) console.error(`[CONTROL API ABUSE SWEEP] failed to stamp/pause ${a.apiKeyId}: ${updErr.message}`);
         else {
           alerted.push(a.apiKeyId);
-          // A real, auditable automated intervention (not just an alert) --
-          // same tier as kill_switch_auto / circuit_breaker_trip, both of
-          // which also open an incident the moment the SYSTEM itself takes
-          // an action, not only when it merely notices something.
-          await openIncident(admin, a.userId, { kind: "control_api_abuse", summary });
+          // sendCriticalAlert above already opened the incident (it's a
+          // listed IncidentKind, same tier as kill_switch_auto /
+          // circuit_breaker_trip) -- see its own doc comment.
           // "Knowledge & autonomy" plan, item 6: tell the account's own
           // systems the moment this happens, instead of making them
           // keep polling for it.
@@ -125,8 +122,8 @@ Deno.serve(async (req) => {
             api_key_id: a.apiKeyId, key_prefix: key?.key_prefix ?? null, paused_until: pausedUntil, reason: summary,
           });
           if (downgradeSummary) {
+            // sendCriticalAlert already opens the incident -- see its own doc comment.
             await sendCriticalAlert(admin, a.userId, { event: "on_uncertain_auto_downgraded", summary: downgradeSummary });
-            await openIncident(admin, a.userId, { kind: "on_uncertain_auto_downgraded", summary: downgradeSummary });
             await triggerWebhooks(admin, a.userId, "api_key_on_uncertain_downgraded", {
               api_key_id: a.apiKeyId, key_prefix: key?.key_prefix ?? null, reason: downgradeSummary,
             });
@@ -168,10 +165,8 @@ Deno.serve(async (req) => {
         const { error: updErr } = await admin
           .from("profiles").update({ coordinated_abuse_alerted_at: new Date().toISOString() }).eq("id", acc.userId);
         if (updErr) console.error(`[CONTROL API ABUSE SWEEP] failed to stamp coordinated abuse for ${acc.userId}: ${updErr.message}`);
-        else {
-          coordinatedAlerted.push(acc.userId);
-          await openIncident(admin, acc.userId, { kind: "control_api_coordinated_abuse", summary });
-        }
+        // sendCriticalAlert above already opened the incident -- see its own doc comment.
+        else coordinatedAlerted.push(acc.userId);
       } catch (e) {
         console.error(`[CONTROL API ABUSE SWEEP] coordinated-abuse alert failed for ${acc.userId}: ${e instanceof Error ? e.message : String(e)}`);
       }
