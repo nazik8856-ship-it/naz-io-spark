@@ -64,11 +64,15 @@ for (const r of results) console.log(r.index, r.verdict);
 ### Respond -- a white-labeled answer for your own end users
 
 ```ts
-const { answer, sources, confidence } = await client.respond({
+const { answer, sources, confidence, cached } = await client.respond({
   message: "How long do refunds take?",
 });
-console.log(answer, confidence); // "Refunds are processed within..." "high"
+console.log(answer, confidence, cached); // "Refunds are processed within..." "high" false
 ```
+
+`cached` is `true` when this exact (or a near-duplicate) question was already answered
+recently and the same answer was served back without a fresh lookup -- same answer either
+way, just faster.
 
 Non-streaming only -- for the typing-effect SSE mode, POST directly with `stream: true`
 (see the "Respond" section of the Control API docs); this client keeps that out to stay small.
