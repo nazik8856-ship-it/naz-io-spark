@@ -145,6 +145,65 @@ describe("ControlApiClient", () => {
     expect(fetchImpl).toHaveBeenCalledWith("https://proj.supabase.co/functions/v1/control-api/v1/decisions", expect.anything());
   });
 
+  it("respond() posts to /respond and maps a freshly generated answer", async () => {
+    const fetchImpl = fakeFetch(200, {
+      ok: true,
+      answer: "Refunds take 5-7 business days.",
+      sources: [{ id: "c1", excerpt: "Refunds are processed within 5-7 business days." }],
+      cost_usd: 0,
+      confidence: "high",
+    });
+    const client = new ControlApiClient({ apiKey: "nazai_sk_test", baseUrl: "https://proj.supabase.co/functions/v1", fetchImpl });
+
+    const result = await client.respond({ message: "How long do refunds take?" });
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://proj.supabase.co/functions/v1/control-api/v1/respond",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ Authorization: "Bearer nazai_sk_test" }),
+      }),
+    );
+    expect(result).toEqual({
+      answer: "Refunds take 5-7 business days.",
+      sources: [{ id: "c1", excerpt: "Refunds are processed within 5-7 business days." }],
+      costUsd: 0,
+      confidence: "high",
+      cached: false,
+      testMode: false,
+      testModeNote: null,
+    });
+  });
+
+  it("respond() maps cached: true on a cache-hit answer", async () => {
+    const fetchImpl = fakeFetch(200, {
+      ok: true,
+      answer: "Refunds take 5-7 business days.",
+      cost_usd: 0,
+      confidence: "high",
+      cached: true,
+    });
+    const client = new ControlApiClient({ apiKey: "nazai_sk_test", baseUrl: "https://proj.supabase.co/functions/v1", fetchImpl });
+
+    const result = await client.respond({ message: "How long do refunds take?" });
+    expect(result.cached).toBe(true);
+  });
+
+  it("respond() maps the honest fallback when no context matched", async () => {
+    const fetchImpl = fakeFetch(200, {
+      ok: true,
+      answer: "I don't have enough information to answer that.",
+      cost_usd: 0,
+      confidence: "low",
+    });
+    const client = new ControlApiClient({ apiKey: "nazai_sk_test", baseUrl: "https://proj.supabase.co/functions/v1", fetchImpl });
+
+    const result = await client.respond({ message: "What's the meaning of life?" });
+    expect(result.sources).toBeNull();
+    expect(result.confidence).toBe("low");
+    expect(result.cached).toBe(false);
+  });
+
   it("throws ControlApiError with status and body on a non-2xx response", async () => {
     const fetchImpl = fakeFetch(429, { error: "rate_limited", message: "Too many requests" });
     const client = new ControlApiClient({ apiKey: "nazai_sk_test", baseUrl: "https://proj.supabase.co/functions/v1", fetchImpl });

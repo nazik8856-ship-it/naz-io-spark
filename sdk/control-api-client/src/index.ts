@@ -105,8 +105,10 @@ export interface ControlApiRespondResult {
   sources: ControlApiRespondSource[] | null;
   /** Always 0 -- /respond answers deterministically from your own configured context, with no generative model call left to meter. */
   costUsd: number | null;
-  /** "high" when a context entry matched the question, "low" when none did and the fallback was used. */
+  /** "high" when a context entry (or a matched response rule) backed the answer, "low" when neither did and the fallback was used. */
   confidence: "high" | "low" | null;
+  /** True when this exact answer was served from the response cache instead of a fresh lookup -- same answer either way, just faster. Absent (false) on a freshly generated answer or a response-rule match, neither of which are ever cached. */
+  cached: boolean;
   /** True on a sandbox (test-mode) key -- judged identically, but never billed. */
   testMode: boolean;
   testModeNote: string | null;
@@ -180,6 +182,7 @@ function toRespondResult(data: Record<string, unknown>): ControlApiRespondResult
       : null,
     costUsd: typeof data.cost_usd === "number" ? data.cost_usd : null,
     confidence: data.confidence === "high" || data.confidence === "low" ? data.confidence : null,
+    cached: Boolean(data.cached),
     testMode: Boolean(data.test_mode),
     testModeNote: (data.note as string | null) ?? null,
   };
