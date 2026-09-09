@@ -5,7 +5,8 @@
 import {
   classifyDecisionOutcome, summarizeDecisionsForRoi, costPerAutonomousDecision,
   weekBucketKey, buildRoiTrend, estimateManualReviewHoursSaved, ASSUMED_MINUTES_PER_MANUAL_REVIEW,
-  type DecisionForRoiTrend,
+  summarizeRespondForRoi, estimateManualResponseHoursSaved, ASSUMED_MINUTES_PER_MANUAL_RESPONSE,
+  type DecisionForRoiTrend, type RespondRowForRoi,
 } from "./roi-report.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
@@ -104,4 +105,51 @@ Deno.test("estimateManualReviewHoursSaved: scales with the assumed minutes-per-r
 
 Deno.test("estimateManualReviewHoursSaved: zero autonomous decisions is zero hours, not a crash", () => {
   assertEquals(estimateManualReviewHoursSaved(0), 0);
+});
+
+// ---- integration round, item 4: /respond activity in automation-value ----
+
+const respondRow = (over: Partial<RespondRowForRoi> = {}): RespondRowForRoi => ({
+  ruleAnswered: false,
+  groundingCheckIntervened: false,
+  servedFromCache: false,
+  ...over,
+});
+
+Deno.test("summarizeRespondForRoi: splits rule-answered, retrieval-answered, and needs-human", () => {
+  const counts = summarizeRespondForRoi([
+    respondRow({ ruleAnswered: true }),
+    respondRow(), // fresh retrieval match
+    respondRow({ servedFromCache: true }), // cached retrieval match
+    respondRow({ groundingCheckIntervened: true }), // honest fallback, needs a human
+  ]);
+  assertEquals(counts, {
+    total: 4, ruleAnswered: 1, retrievalAnswered: 2, cacheHits: 1, needsHuman: 1, autonomous: 3,
+  });
+});
+
+Deno.test("summarizeRespondForRoi: a rule match is never also counted as needing a human, even if grounding_check_intervened were somehow set", () => {
+  // Defensive: the rule tier never sets grounding_check_intervened (see
+  // control-api/index.ts's own rule-tier audit insert), but the summary
+  // should still treat a rule match as authoritative if it ever did.
+  const counts = summarizeRespondForRoi([respondRow({ ruleAnswered: true, groundingCheckIntervened: true })]);
+  assertEquals(counts.ruleAnswered, 1);
+  assertEquals(counts.needsHuman, 0);
+  assertEquals(counts.autonomous, 1);
+});
+
+Deno.test("summarizeRespondForRoi: no /respond activity is a well-formed zeroed summary", () => {
+  assertEquals(summarizeRespondForRoi([]), {
+    total: 0, ruleAnswered: 0, retrievalAnswered: 0, cacheHits: 0, needsHuman: 0, autonomous: 0,
+  });
+});
+
+Deno.test("estimateManualResponseHoursSaved: scales with its own assumed minutes-per-response constant, distinct from manual review", () => {
+  const hours = estimateManualResponseHoursSaved(24);
+  assertEquals(hours, Math.round(((24 * ASSUMED_MINUTES_PER_MANUAL_RESPONSE) / 60) * 10) / 10);
+  assertEquals(ASSUMED_MINUTES_PER_MANUAL_RESPONSE === ASSUMED_MINUTES_PER_MANUAL_REVIEW, false);
+});
+
+Deno.test("estimateManualResponseHoursSaved: zero autonomous /respond answers is zero hours, not a crash", () => {
+  assertEquals(estimateManualResponseHoursSaved(0), 0);
 });

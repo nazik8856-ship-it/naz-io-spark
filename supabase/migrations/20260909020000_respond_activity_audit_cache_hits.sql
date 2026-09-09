@@ -1,0 +1,21 @@
+-- "Own decision-making machine" plan, integration round (item 4 of the
+-- 2026-09-09 slate): extending the automation-value report to include
+-- /respond activity first requires every real /respond call to actually
+-- be counted -- and today it isn't. Both cache-hit paths in
+-- control-api/index.ts's /respond handler (the exact-match and
+-- near-duplicate lookups) return the cached answer directly without ever
+-- writing a row to api_response_generations, the one table any per-key
+-- activity report can read from. That's the exact same class of bug item
+-- 181 already found and fixed once this week for context-entry usage
+-- tracking ("a cache hit is still real, ongoing usage... omitting it
+-- would badly undercount exactly the entries doing the most work") -- a
+-- cache hit is still a real end-user question answered with zero human
+-- involved, not a no-op.
+--
+-- served_from_cache distinguishes a cache-hit row from a freshly
+-- generated one without overloading grounding_check_intervened or
+-- injection_guard_intervened any further -- both columns are already
+-- repurposed once each by items 176/177 for reasons unrelated to
+-- caching.
+ALTER TABLE public.api_response_generations
+  ADD COLUMN served_from_cache boolean NOT NULL DEFAULT false;

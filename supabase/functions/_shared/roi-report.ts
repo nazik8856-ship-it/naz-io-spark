@@ -109,3 +109,60 @@ export const ASSUMED_MINUTES_PER_MANUAL_REVIEW = 3;
 export function estimateManualReviewHoursSaved(autonomousCount: number): number {
   return Math.round(((autonomousCount * ASSUMED_MINUTES_PER_MANUAL_REVIEW) / 60) * 10) / 10;
 }
+
+// Integration round, item 4 of the 2026-09-09 slate: automation-value
+// (GET /automation-value) was built entirely from agent_decisions/
+// ai_spend_daily -- the gating system -- and never extended when
+// /respond (a whole second product surface, item 176 on) shipped. A key
+// that only ever calls /respond and never /check would read as zero
+// automated activity, even though every answered question is exactly
+// the same "zero human involved" outcome this report already exists to
+// measure. Mirrors summarizeDecisionsForRoi's own autonomous/needsHuman
+// split: grounding_check_intervened is /respond's one and only "needs a
+// human" signal (it's what item 170's escalation webhook fires on), so
+// everything else -- rule-answered or retrieval-answered, fresh or
+// served from cache -- is autonomous by the same definition.
+export type RespondRowForRoi = { ruleAnswered: boolean; groundingCheckIntervened: boolean; servedFromCache: boolean };
+
+export type RespondCounts = {
+  total: number;
+  ruleAnswered: number;
+  retrievalAnswered: number;
+  cacheHits: number;
+  needsHuman: number;
+  autonomous: number;
+};
+
+/** Pure — how much of this key's /respond traffic was answered automatically, and by which tier. */
+export function summarizeRespondForRoi(rows: RespondRowForRoi[]): RespondCounts {
+  let ruleAnswered = 0, needsHuman = 0, cacheHits = 0;
+  for (const r of rows) {
+    if (r.ruleAnswered) ruleAnswered++;
+    else if (r.groundingCheckIntervened) needsHuman++;
+    if (r.servedFromCache) cacheHits++;
+  }
+  const total = rows.length;
+  return {
+    total,
+    ruleAnswered,
+    retrievalAnswered: total - ruleAnswered - needsHuman,
+    cacheHits,
+    needsHuman,
+    autonomous: total - needsHuman,
+  };
+}
+
+/**
+ * Rough, clearly-labeled assumption, separate from
+ * ASSUMED_MINUTES_PER_MANUAL_REVIEW -- approving/rejecting a proposed
+ * agent action and writing a real answer to an end user's question are
+ * different tasks with different typical durations, so they get their
+ * own explicit estimate rather than sharing one number that fits neither
+ * well.
+ */
+export const ASSUMED_MINUTES_PER_MANUAL_RESPONSE = 5;
+
+/** Pure — rough hours of manual support-response effort avoided by /respond answering this many questions with zero human involved. */
+export function estimateManualResponseHoursSaved(autonomousRespondCount: number): number {
+  return Math.round(((autonomousRespondCount * ASSUMED_MINUTES_PER_MANUAL_RESPONSE) / 60) * 10) / 10;
+}

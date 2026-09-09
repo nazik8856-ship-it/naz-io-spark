@@ -51,7 +51,7 @@ import { classifyPlatformStatus, platformStatusMessage, DEGRADED_LOOKBACK_MINUTE
 import { classifyDecisionVerification, type RawDecisionVerification } from "../_shared/decision-verification.ts";
 import { excludeDecisionFromPrecedent, loadPrecedentForPrompt } from "../_shared/precedent-search.ts";
 import { evaluateCoarsePrecedentLookup, summarizeCoarsePrecedentLookup, type CrossAccountStat } from "../_shared/cross-account-precedent.ts";
-import { summarizeDecisionsForRoi, costPerAutonomousDecision, buildRoiTrend, estimateManualReviewHoursSaved, weekBucketKey, type DecisionForRoi, type DecisionForRoiTrend } from "../_shared/roi-report.ts";
+import { summarizeDecisionsForRoi, costPerAutonomousDecision, buildRoiTrend, estimateManualReviewHoursSaved, weekBucketKey, summarizeRespondForRoi, estimateManualResponseHoursSaved, type DecisionForRoi, type DecisionForRoiTrend, type RespondRowForRoi } from "../_shared/roi-report.ts";
 import { buildEmbeddingInput, formatEmbeddingLiteral, generateEmbeddingWithinBudget } from "../_shared/decision-embeddings.ts";
 import { countsTowardRealUsage, testModeVerdictNote } from "../_shared/sandbox-mode.ts";
 import { summarizeAttestationCounts, distinctPolicyVersions, buildAttestationCanonicalPayload } from "../_shared/compliance-attestation.ts";
@@ -778,12 +778,23 @@ Deno.serve(async (req) => {
     const since = new Date(Date.now() - weeks * 7 * 86400_000);
     const sinceIso = since.toISOString();
 
-    const [decisionsRes, spendRes] = await Promise.all([
+    const [decisionsRes, spendRes, respondRes] = await Promise.all([
       admin.from("agent_decisions").select("decision, escalated, created_at").eq("api_key_id", auth.keyId).gte("created_at", sinceIso),
       admin.from("ai_spend_daily").select("day, cost_usd").eq("api_key_id", auth.keyId).gte("day", sinceIso.slice(0, 10)),
+      // Integration round, item 4: /respond is a second, separate source
+      // of zero-human-involved automation this report has never counted
+      // -- see roi-report.ts's own comment on summarizeRespondForRoi for
+      // why. is_test rows are never written for /respond (meterSpend
+      // gates every insert), so no extra filter is needed here, same as
+      // /content-gaps' own query -- kept explicit anyway for the same
+      // defense-in-depth reason that endpoint states.
+      admin.from("api_response_generations")
+        .select("injection_guard_intervened, grounding_check_intervened, served_from_cache")
+        .eq("api_key_id", auth.keyId).eq("is_test", false).gte("created_at", sinceIso),
     ]);
     if (decisionsRes.error) return json({ error: decisionsRes.error.message }, 500);
     if (spendRes.error) return json({ error: spendRes.error.message }, 500);
+    if (respondRes.error) return json({ error: respondRes.error.message }, 500);
 
     const decisions = (decisionsRes.data ?? []) as { decision: string; escalated: boolean; created_at: string }[];
     const trendDecisions: DecisionForRoiTrend[] = decisions.map((d) => ({ decision: d.decision, escalated: d.escalated, createdAt: d.created_at }));
@@ -796,6 +807,15 @@ Deno.serve(async (req) => {
 
     const totalCounts = summarizeDecisionsForRoi(decisions as DecisionForRoi[]);
     const totalSpendUsd = Math.round([...spendByWeek.values()].reduce((sum, v) => sum + v, 0) * 100) / 100;
+
+    const respondRows: RespondRowForRoi[] = ((respondRes.data ?? []) as {
+      injection_guard_intervened: boolean; grounding_check_intervened: boolean; served_from_cache: boolean;
+    }[]).map((r) => ({
+      ruleAnswered: r.injection_guard_intervened,
+      groundingCheckIntervened: r.grounding_check_intervened,
+      servedFromCache: r.served_from_cache,
+    }));
+    const respondCounts = summarizeRespondForRoi(respondRows);
 
     return json({
       ok: true,
@@ -821,6 +841,23 @@ Deno.serve(async (req) => {
         spend_usd: p.spendUsd,
         cost_per_autonomous_decision_usd: p.costPerDecision,
       })),
+      // Integration round, item 4: a second, independent measure of
+      // automated work -- /respond answering an end user's own question
+      // directly, rather than gating a proposed action. Kept as its own
+      // section (not merged into `summary` above) since it's a distinct
+      // traffic type with its own zero-cost economics (item 176 removed
+      // the model call, so there's no spend/cost-per-decision figure to
+      // report here the way there is for gated actions).
+      respond_activity: {
+        total: respondCounts.total,
+        autonomous: respondCounts.autonomous,
+        needs_human: respondCounts.needsHuman,
+        rule_answered: respondCounts.ruleAnswered,
+        retrieval_answered: respondCounts.retrievalAnswered,
+        cache_hits: respondCounts.cacheHits,
+        autonomous_share: respondCounts.total > 0 ? Math.round((respondCounts.autonomous / respondCounts.total) * 100) / 100 : null,
+        estimated_manual_response_hours_saved: estimateManualResponseHoursSaved(respondCounts.autonomous),
+      },
     });
   }
 
@@ -1097,6 +1134,41 @@ Deno.serve(async (req) => {
       } catch { /* usage tracking must never break a real answer that already succeeded */ }
     };
 
+    // Integration round (item 4 of the 2026-09-09 slate): a cache hit is
+    // still a real /respond call that answered a real end-user question
+    // with zero human involved -- the exact same "still real usage, don't
+    // undercount it" reasoning trackContextUsage's own comment already
+    // documents above, now applied to the audit table itself instead of
+    // just the entries backing it. Before this, BOTH cache-hit paths below
+    // returned the cached answer directly with no row ever written here,
+    // which would have silently understated real call volume for any
+    // per-key activity report built on this table -- including the one
+    // this same round adds to GET /automation-value. served_from_cache
+    // distinguishes this from a freshly generated retrieval-tier answer
+    // without overloading grounding_check_intervened or
+    // injection_guard_intervened any further; both are already repurposed
+    // once each by items 176/177 for reasons unrelated to caching.
+    const logRespondAudit = async (fields: {
+      injectionGuardIntervened: boolean;
+      groundingCheckIntervened: boolean;
+      sanitizerIntervened: boolean;
+      servedFromCache: boolean;
+    }) => {
+      try {
+        await admin.from("api_response_generations").insert({
+          user_id: userId,
+          api_key_id: auth.keyId,
+          is_test: auth.isTest,
+          message: parsed.message.slice(0, 500),
+          injection_guard_intervened: fields.injectionGuardIntervened,
+          grounding_check_intervened: fields.groundingCheckIntervened,
+          sanitizer_intervened: fields.sanitizerIntervened,
+          served_from_cache: fields.servedFromCache,
+          latency_ms: Date.now() - startedAt,
+        });
+      } catch { /* audit logging must never break a real answer that already succeeded */ }
+    };
+
     // Item 177 (Phase 2): the rule tier, checked BEFORE anything else --
     // including the cache below. A rule is the account owner's own
     // explicit, guaranteed override; it must win even against a
@@ -1136,6 +1208,7 @@ Deno.serve(async (req) => {
             injection_guard_intervened: true,
             grounding_check_intervened: false,
             sanitizer_intervened: sanitized.intervened,
+            served_from_cache: false,
             latency_ms: Date.now() - startedAt,
           });
         } catch { /* audit logging must never break a real answer that already succeeded */ }
@@ -1166,6 +1239,10 @@ Deno.serve(async (req) => {
       const exactHit = await findExactCachedResponse(admin, auth.keyId, messageHash);
       if (exactHit) {
         await trackContextUsage((exactHit.sources ?? []).map((s) => s.id));
+        await logRespondAudit({
+          injectionGuardIntervened: false, groundingCheckIntervened: false,
+          sanitizerIntervened: false, servedFromCache: true,
+        });
         const cacheFields = {
           cost_usd: 0,
           confidence: exactHit.confidence ?? "high",
@@ -1217,6 +1294,10 @@ Deno.serve(async (req) => {
         const nearDupHit = meterSpend ? await findNearDuplicateCachedResponse(admin, auth.keyId, cacheEmbeddingLiteral) : null;
         if (nearDupHit) {
           await trackContextUsage((nearDupHit.sources ?? []).map((s) => s.id));
+          await logRespondAudit({
+            injectionGuardIntervened: false, groundingCheckIntervened: false,
+            sanitizerIntervened: false, servedFromCache: true,
+          });
           const cacheFields = {
             cost_usd: 0,
             confidence: nearDupHit.confidence ?? "high",
@@ -1284,6 +1365,7 @@ Deno.serve(async (req) => {
           // of the old "the LLM's fact-check declined" meaning.
           grounding_check_intervened: noMatch,
           sanitizer_intervened: sanitized.intervened,
+          served_from_cache: false,
           latency_ms: Date.now() - startedAt,
         });
       } catch { /* audit logging must never break a real answer that already succeeded */ }
