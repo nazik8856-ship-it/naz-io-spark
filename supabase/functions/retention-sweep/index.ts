@@ -38,6 +38,26 @@
 // globally rather than per-account below: its expires_at is a real TTL
 // completely independent of any account's retention_days setting, so
 // looping per-profile to purge it would be both wrong and wasteful.
+//
+// Integration round (item, 2026-09-09): a REVOKED api_keys row is the
+// same shape too -- ControlApiKeys.tsx has kept every revoked key
+// forever, visible in the UI only as a "Revoked" badge with nothing else
+// to act on, exactly like a resolved incident or a decided approval
+// above. Cutoff is measured from revoked_at, not created_at -- unlike
+// every other table here, an api_keys row's age says nothing about how
+// settled it is; a key created two years ago but revoked yesterday must
+// get its own full retention window starting from yesterday, not be
+// eligible for deletion the instant it's revoked. A still-active key
+// (revoked_at IS NULL) is never touched regardless of age, same "still
+// live" rule as an open incident or a pending approval. See this
+// migration's own comment (20260909030000) for why ai_spend_daily's FK
+// had to move from CASCADE to SET NULL before this could ship safely --
+// every other api_keys-scoped child table (context entries, rules,
+// cache, spend caps, shadow observations, gap clusters, decision
+// embeddings) is genuinely disposable once its parent key is gone, but
+// ai_spend_daily is real financial history read account-wide by
+// compliance-attestation and the report emails, keyed by user_id, not
+// something a single key's cleanup should ever be able to shrink.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { retentionCutoffIso } from "../_shared/retention.ts";
 
@@ -87,13 +107,14 @@ Deno.serve(async (req) => {
     deletedConfigChanges: number;
     deletedPolicyWatchObservations: number;
     deletedResponseGenerations: number;
+    deletedRevokedKeys: number;
     error: string | null;
   }[] = [];
 
   for (const p of (profiles ?? []) as { id: string; retention_days: number }[]) {
     const cutoff = retentionCutoffIso(p.retention_days);
     try {
-      const [decisions, events, incidents, alerts, deliveries, approvals, changes, watchObs, responseGenerations] = await Promise.all([
+      const [decisions, events, incidents, alerts, deliveries, approvals, changes, watchObs, responseGenerations, revokedKeys] = await Promise.all([
         admin.from("agent_decisions").delete().eq("user_id", p.id).lt("created_at", cutoff).select("id"),
         admin.from("agent_events").delete().eq("user_id", p.id).lt("created_at", cutoff).select("id"),
         admin.from("incidents").delete().eq("user_id", p.id).eq("status", "resolved").lt("opened_at", cutoff).select("id"),
@@ -108,6 +129,12 @@ Deno.serve(async (req) => {
         // age, same as an open incident or a pending approval above.
         admin.from("api_response_generations").delete().eq("user_id", p.id).lt("created_at", cutoff)
           .or("grounding_check_intervened.eq.false,resolved_at.not.is.null").select("id"),
+        // Integration round: cutoff here is against revoked_at, NOT the
+        // shared `cutoff` variable's created_at semantics elsewhere in
+        // this Promise.all -- see this file's own top-of-file comment for
+        // why. A key with revoked_at IS NULL (still active) never matches
+        // this filter at all, regardless of age.
+        admin.from("api_keys").delete().eq("user_id", p.id).not("revoked_at", "is", null).lt("revoked_at", cutoff).select("id"),
       ]);
       outcomes.push({
         userId: p.id,
@@ -120,15 +147,17 @@ Deno.serve(async (req) => {
         deletedConfigChanges: (changes.data ?? []).length,
         deletedPolicyWatchObservations: (watchObs.data ?? []).length,
         deletedResponseGenerations: (responseGenerations.data ?? []).length,
+        deletedRevokedKeys: (revokedKeys.data ?? []).length,
         error: decisions.error?.message ?? events.error?.message ?? incidents.error?.message
           ?? alerts.error?.message ?? deliveries.error?.message ?? approvals.error?.message
-          ?? changes.error?.message ?? watchObs.error?.message ?? responseGenerations.error?.message ?? null,
+          ?? changes.error?.message ?? watchObs.error?.message ?? responseGenerations.error?.message
+          ?? revokedKeys.error?.message ?? null,
       });
     } catch (e) {
       outcomes.push({
         userId: p.id, deletedDecisions: 0, deletedEvents: 0, deletedIncidents: 0,
         deletedAlerts: 0, deletedWebhookDeliveries: 0, deletedApprovals: 0, deletedConfigChanges: 0,
-        deletedPolicyWatchObservations: 0, deletedResponseGenerations: 0,
+        deletedPolicyWatchObservations: 0, deletedResponseGenerations: 0, deletedRevokedKeys: 0,
         error: e instanceof Error ? e.message : "unknown error",
       });
     }
@@ -162,6 +191,7 @@ Deno.serve(async (req) => {
     totalDeletedConfigChanges: outcomes.reduce((n, o) => n + o.deletedConfigChanges, 0),
     totalDeletedPolicyWatchObservations: outcomes.reduce((n, o) => n + o.deletedPolicyWatchObservations, 0),
     totalDeletedResponseGenerations: outcomes.reduce((n, o) => n + o.deletedResponseGenerations, 0),
+    totalDeletedRevokedKeys: outcomes.reduce((n, o) => n + o.deletedRevokedKeys, 0),
     deletedExpiredCache,
     expiredCacheError,
     deletedOrphanedClusters,
