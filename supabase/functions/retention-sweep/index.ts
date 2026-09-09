@@ -134,6 +134,22 @@ Deno.serve(async (req) => {
     }
   }
 
+  // Integration round: a content gap cluster (items 179-180) with no
+  // remaining unresolved member -- every one resolved, or just deleted
+  // above by this exact sweep run -- is done work with nothing left to
+  // rank, but was never itself removed. Run after the per-profile loop
+  // so it also catches clusters this same tick's own deletions just
+  // orphaned, not only ones that were already orphaned coming in.
+  let deletedOrphanedClusters = 0;
+  let orphanedClustersError: string | null = null;
+  try {
+    const { data: orphanedClusters, error: clustersErr } = await admin.rpc("delete_orphaned_gap_clusters");
+    if (clustersErr) orphanedClustersError = clustersErr.message;
+    deletedOrphanedClusters = (orphanedClusters ?? []).length;
+  } catch (e) {
+    orphanedClustersError = e instanceof Error ? e.message : "unknown error";
+  }
+
   return json({
     ok: true,
     checked: outcomes.length,
@@ -148,6 +164,8 @@ Deno.serve(async (req) => {
     totalDeletedResponseGenerations: outcomes.reduce((n, o) => n + o.deletedResponseGenerations, 0),
     deletedExpiredCache,
     expiredCacheError,
+    deletedOrphanedClusters,
+    orphanedClustersError,
     outcomes,
   });
 });
