@@ -49,6 +49,11 @@ export const INCIDENT_KINDS = [
   // automatically pulled back toward caution after repeated real
   // trouble -- a real, auditable system intervention, not just a notice.
   "on_uncertain_auto_downgraded",
+  // Item, 2026-09-09: an api key's single largest unresolved content-gap
+  // cluster has grown past a real threshold -- the same "quietly
+  // stopped working, nobody would otherwise notice" shape as
+  // precedent_pipeline_stale, applied to the content-gap pipeline.
+  "content_gap_backlog_stale",
 ] as const;
 export type IncidentKind = typeof INCIDENT_KINDS[number];
 
