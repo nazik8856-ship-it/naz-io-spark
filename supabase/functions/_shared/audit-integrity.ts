@@ -3,6 +3,9 @@
 // testable, same reasoning as self-audit-diff.ts for control-self-audit.
 import { CONTRADICTORY_LOWER_BOUND, NON_ALLOW_SHARE_OVERRIDE_THRESHOLD, MIN_PRECEDENT_SAMPLE } from "./precedent-advice.ts";
 import { matchesActionTypePattern } from "./action-type-policy.ts";
+import { isVolumeAbuse, isBlockRateAbuse, VOLUME_THRESHOLD, BLOCK_RATE_MIN_SAMPLE, BLOCK_RATE_THRESHOLD } from "./control-api-abuse.ts";
+import { isStuckPastMaxWait } from "./api-key-policy.ts";
+import { isBadOutcomeTrouble } from "./policy-downgrade.ts";
 
 export type SignatureVerifyResult = {
   checked: number;
@@ -62,7 +65,20 @@ export type KnowledgeBaseHealthAuditFields = {
   knowledge_base_mismatched?: number;
 };
 
-export type AuditIntegrityResult = SignatureVerifyResult & AutoResolutionAuditFields & PrecedentCitationAuditFields & DecisionConsistencyAuditFields & KnowledgeBaseHealthAuditFields;
+// "Sweep safety & observability" plan, item 5: extends this same sweep to
+// ALSO retrospectively re-check whether the 3 consequential sweeps'
+// auto-actions (control-api-abuse-sweep's key pauses, outcome-quality-sweep's
+// and control-api-abuse-sweep's own on_uncertain downgrades, stuck-approval-
+// sweep's auto-resolutions) were actually justified when they happened --
+// not just alerted-on-and-trusted. Same optional-fields-on-the-same-
+// result-type technique as every other dimension above, so every existing
+// caller/test keeps working unchanged.
+export type ConsequentialSweepAuditFields = {
+  consequential_sweep_actions_checked?: number;
+  consequential_sweep_actions_unjustified?: number;
+};
+
+export type AuditIntegrityResult = SignatureVerifyResult & AutoResolutionAuditFields & PrecedentCitationAuditFields & DecisionConsistencyAuditFields & KnowledgeBaseHealthAuditFields & ConsequentialSweepAuditFields;
 
 export type StoredPrecedentCitation = {
   reason: string;
@@ -188,6 +204,67 @@ export function isKnowledgeBaseHealthMismatch(
   return isStaleKnowledgeBaseEntry(entry, recentShapes) || isUnreachableKnowledgeBaseEntry(entry, hardRules);
 }
 
+// "Sweep safety & observability" plan, item 5: re-derive whether each of
+// the 3 consequential sweeps' past auto-actions actually held up, using
+// the EXACT SAME pure classifiers and thresholds those sweeps themselves
+// enforce (never a second, looser or stricter copy of the same judgment).
+
+/**
+ * Pure -- was a control-api-abuse-sweep pause of this key, at the moment
+ * it happened, actually justified by that key's own volume/block-rate in
+ * the sweep's lookback window ending at the pause? Re-runs the identical
+ * isVolumeAbuse/isBlockRateAbuse checks the sweep itself uses, over the
+ * SAME window shape, against decisions re-fetched for that exact window --
+ * unlike the on_uncertain downgrade checks below, api_keys stores no
+ * historical "what a past pause was based on" snapshot, so this only
+ * catches drift if the account's own agent_decisions history for that
+ * window has changed since (it normally hasn't -- decisions are never
+ * edited after the fact).
+ */
+export function isUnjustifiedApiKeyPause(totalInWindow: number, nonAllowInWindow: number): boolean {
+  return !(
+    isVolumeAbuse(totalInWindow, VOLUME_THRESHOLD) ||
+    isBlockRateAbuse(totalInWindow, nonAllowInWindow, BLOCK_RATE_MIN_SAMPLE, BLOCK_RATE_THRESHOLD)
+  );
+}
+
+/**
+ * Pure -- was a bad_outcomes on_uncertain downgrade, at the moment it
+ * happened, actually justified by that key's own real-world outcome
+ * history in the sweep's lookback window ending at the downgrade? Reuses
+ * outcome-quality-sweep's own isBadOutcomeTrouble unchanged.
+ */
+export function isUnjustifiedBadOutcomeDowngrade(negativeCount: number, totalMeasured: number): boolean {
+  return !isBadOutcomeTrouble(negativeCount, totalMeasured);
+}
+
+/**
+ * Pure -- a structural-integrity check for a repeated_pause (or any
+ * non-bad_outcomes) on_uncertain downgrade. Deliberately NOT a full
+ * re-derivation: control-api-abuse-sweep's "repeated trouble" trigger
+ * compares a new pause against the key's PREVIOUS last_pause_at, which is
+ * overwritten the moment the new pause is recorded -- the exact timestamp
+ * this decision was actually based on no longer exists anywhere to
+ * re-check against. Falls back to confirming the downgrade's own record is
+ * internally consistent (it actually flipped on_uncertain to human_review
+ * and recorded a real reason) -- catches corruption or a bug that stamps
+ * the downgrade timestamp without the policy genuinely changing, though it
+ * can't catch a downgrade that fired on a bogus trigger in the first place.
+ */
+export function isUnjustifiedRepeatedPauseDowngrade(onUncertain: string | null, downgradeReason: string | null): boolean {
+  return onUncertain !== "human_review" || !downgradeReason;
+}
+
+/**
+ * Pure -- was a stuck-approval-sweep auto-resolution, at the moment it
+ * happened, actually of a row that was genuinely stuck past the sweep's
+ * own max-wait threshold? Reuses isStuckPastMaxWait unchanged, just fed
+ * the real resolution time instead of "now."
+ */
+export function isUnjustifiedAutoResolvedApproval(createdAtIso: string, resolvedAtIso: string): boolean {
+  return !isStuckPastMaxWait(createdAtIso, new Date(resolvedAtIso));
+}
+
 /**
  * A sweep is a failure worth alerting on if ANY signature didn't match
  * what was actually signed at creation (the audit trail may have been
@@ -199,7 +276,7 @@ export function isKnowledgeBaseHealthMismatch(
 export function isAuditIntegrityFailure(r: AuditIntegrityResult): boolean {
   return r.mismatched_count > 0 || r.unsigned > 0 || (r.auto_resolutions_mismatched ?? 0) > 0 ||
     (r.precedent_citations_mismatched ?? 0) > 0 || (r.decision_consistency_mismatched ?? 0) > 0 ||
-    (r.knowledge_base_mismatched ?? 0) > 0;
+    (r.knowledge_base_mismatched ?? 0) > 0 || (r.consequential_sweep_actions_unjustified ?? 0) > 0;
 }
 
 export function summarizeAuditIntegrityFailure(r: AuditIntegrityResult): string {
@@ -236,6 +313,13 @@ export function summarizeAuditIntegrityFailure(r: AuditIntegrityResult): string 
       `${r.knowledge_base_mismatched} of ${r.knowledge_base_checked ?? 0} knowledge-base entr(y/ies) are stale (no matching ` +
       `real decision in a long time) or unreachable (an always_block hard rule already shadows their exact scope) -- worth ` +
       `reviewing and cleaning up.`,
+    );
+  }
+  if ((r.consequential_sweep_actions_unjustified ?? 0) > 0) {
+    parts.push(
+      `${r.consequential_sweep_actions_unjustified} of ${r.consequential_sweep_actions_checked ?? 0} auto-action(s) taken by ` +
+      `the 3 consequential sweeps (key pauses, on_uncertain downgrades, stuck-approval auto-resolutions) do NOT hold up under ` +
+      `re-derivation against the same thresholds those sweeps themselves enforce -- worth a human's review.`,
     );
   }
   return parts.join(" ");

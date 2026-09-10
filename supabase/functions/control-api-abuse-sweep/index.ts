@@ -14,10 +14,11 @@
 // gets its own alert (same moving-window reasoning as
 // webhooks.alerted_at / agent_integrations.revoked_alerted_at).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { summarizeKeyActivity, isVolumeAbuse, isBlockRateAbuse, summarizeAbuseReason, computePauseUntil, summarizeAccountActivity, isCoordinatedAccountAbuse, summarizeCoordinatedAbuse, type DecisionRow } from "../_shared/control-api-abuse.ts";
+import { summarizeKeyActivity, isVolumeAbuse, isBlockRateAbuse, summarizeAbuseReason, computePauseUntil, summarizeAccountActivity, isCoordinatedAccountAbuse, summarizeCoordinatedAbuse, ABUSE_LOOKBACK_MINUTES, VOLUME_THRESHOLD, BLOCK_RATE_MIN_SAMPLE, BLOCK_RATE_THRESHOLD, type DecisionRow } from "../_shared/control-api-abuse.ts";
 import { isRepeatedPauseTrouble, summarizePolicyDowngrade } from "../_shared/policy-downgrade.ts";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
 import { triggerWebhooks } from "../_shared/webhooks.ts";
+import { areConsequentialSweepsPaused } from "../_shared/consequential-sweep-pause.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -27,13 +28,20 @@ const corsHeaders = {
 const json = (b: unknown, status = 200) =>
   new Response(JSON.stringify(b), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
-const LOOKBACK_MINUTES = 15;
-// Deliberately generous defaults -- a legitimate high-volume integration
-// can run hot; these are sized against a genuinely abnormal spike or a
-// probing pattern, not normal heavy use. Tune once real traffic exists.
-const VOLUME_THRESHOLD = 500;
-const BLOCK_RATE_MIN_SAMPLE = 20;
-const BLOCK_RATE_THRESHOLD = 0.5;
+// "Sweep safety & observability" plan, item 3: reviewed these thresholds
+// against real production data on 2026-09-10 -- agent_decisions is
+// completely empty (zero real Control API traffic has happened yet, only
+// 5 pre-existing test-era keys with no calls attributed to them at all).
+// There is no real data to genuinely calibrate against, so these are left
+// exactly as originally set rather than guessing new numbers -- an
+// unjustified change here would be worse than no change. Revisit once
+// get_consequential_sweep_activity's blast-radius counts (see
+// consequential-sweep-pause.ts's callers) show real pause/downgrade
+// activity to react to. Moved here (from being local consts) so the
+// weekly self-audit's justification re-check (audit-integrity.ts) uses
+// the IDENTICAL thresholds this sweep enforces, never a second, driftable
+// copy of the same numbers.
+const LOOKBACK_MINUTES = ABUSE_LOOKBACK_MINUTES;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -44,6 +52,14 @@ Deno.serve(async (req) => {
   if (authHeader !== `Bearer ${serviceKey}`) return json({ error: "unauthorized" }, 401);
 
   const admin = createClient(Deno.env.get("SUPABASE_URL")!, serviceKey);
+
+  // "Sweep safety & observability" plan, item 4: a dedicated pause switch
+  // for this and the other 2 consequential sweeps -- see consequential-
+  // sweep-pause.ts's own doc comment for why the platform kill switch
+  // doesn't already cover this.
+  if (await areConsequentialSweepsPaused(admin)) {
+    return json({ ok: true, skipped: true, reason: "consequential sweeps are paused" });
+  }
 
   const since = new Date(Date.now() - LOOKBACK_MINUTES * 60 * 1000).toISOString();
   const { data, error } = await admin
@@ -104,6 +120,7 @@ Deno.serve(async (req) => {
           updates.on_uncertain = "human_review";
           updates.on_uncertain_downgraded_at = now.toISOString();
           updates.on_uncertain_downgrade_reason = downgradeSummary;
+          updates.on_uncertain_downgrade_kind = "repeated_pause";
         }
         const { error: updErr } = await admin
           .from("api_keys")

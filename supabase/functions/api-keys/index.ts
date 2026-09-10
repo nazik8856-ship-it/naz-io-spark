@@ -112,6 +112,7 @@ Deno.serve(async (req) => {
       on_uncertain: body.on_uncertain,
       on_uncertain_downgraded_at: null,
       on_uncertain_downgrade_reason: null,
+      on_uncertain_downgrade_kind: null,
       callback_failure_streak: 0,
     };
     // Item 6: a SEPARATE, optional shadow-mode policy -- lets an account
