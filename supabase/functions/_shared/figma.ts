@@ -99,6 +99,27 @@ type FigmaTokenResponse = {
   token_type?: string;
 };
 
+/**
+ * Pure -- builds the message shown for a failed token exchange. Figma's
+ * `error_description` field is often the SAME generic boilerplate
+ * ("An error occurred processing your request") regardless of the actual
+ * `error` code underneath it (confirmed directly against Figma's real
+ * token endpoint: "Client ID is required" and "invalid_grant" both came
+ * back with this identical description) -- preferring error_description
+ * alone, as this function used to, hid the one field that's actually
+ * specific. Leads with `error` (the short, structured code) and appends
+ * the description only when it says something the code doesn't already.
+ */
+export function summarizeFigmaTokenError(
+  data: { message?: string; error?: string; error_description?: string } | null | undefined,
+  status: number,
+): string {
+  const code = data?.error;
+  const detail = data?.message || data?.error_description;
+  if (code && detail && detail !== code) return `${code}: ${detail}`;
+  return code || detail || `Figma token exchange failed (${status})`;
+}
+
 export async function exchangeCode(code: string): Promise<FigmaTokenResponse> {
   const clientId = Deno.env.get("FIGMA_CLIENT_ID") || "";
   const secrets = getRotatableClientSecret("FIGMA_CLIENT_SECRET");
@@ -125,7 +146,7 @@ export async function exchangeCode(code: string): Promise<FigmaTokenResponse> {
     ({ r }) => r.status === 401,
   );
   if (!r.ok) {
-    throw new Error(data?.message || data?.error_description || data?.error || `Figma token exchange failed (${r.status})`);
+    throw new Error(summarizeFigmaTokenError(data, r.status));
   }
   return data as FigmaTokenResponse;
 }
