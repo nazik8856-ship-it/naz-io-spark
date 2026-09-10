@@ -4,6 +4,7 @@
 import {
   isAuditIntegrityFailure, summarizeAuditIntegrityFailure, isAutoResolutionMismatch, isPrecedentCitationMismatch, isDecisionConsistencyMismatch,
   isStaleKnowledgeBaseEntry, isUnreachableKnowledgeBaseEntry, isKnowledgeBaseHealthMismatch,
+  isUnjustifiedApiKeyPause, isUnjustifiedBadOutcomeDowngrade, isUnjustifiedRepeatedPauseDowngrade, isUnjustifiedAutoResolvedApproval,
   type SignatureVerifyResult, type StoredPrecedentCitation, type KnowledgeBaseHealthEntry, type RecentActionShape, type HardRuleBlockShape,
 } from "./audit-integrity.ts";
 
@@ -36,6 +37,52 @@ Deno.test("summarizeAuditIntegrityFailure: mentions checked/verified counts alwa
   const summary = summarizeAuditIntegrityFailure(clean);
   assert(summary.includes("checked 10"));
   assert(summary.includes("10 verified"));
+});
+
+// ---- "Sweep safety & observability" plan, item 5 ----
+
+Deno.test("isUnjustifiedApiKeyPause: a genuinely high-volume window is justified (not unjustified)", () => {
+  assertFalse(isUnjustifiedApiKeyPause(600, 10));
+});
+
+Deno.test("isUnjustifiedApiKeyPause: a genuinely high block-rate window is justified", () => {
+  assertFalse(isUnjustifiedApiKeyPause(30, 20));
+});
+
+Deno.test("isUnjustifiedApiKeyPause: a quiet window that wouldn't trip either threshold is unjustified", () => {
+  assert(isUnjustifiedApiKeyPause(5, 1));
+});
+
+Deno.test("isUnjustifiedBadOutcomeDowngrade: a genuinely bad outcome rate with real sample is justified", () => {
+  assertFalse(isUnjustifiedBadOutcomeDowngrade(5, 10));
+});
+
+Deno.test("isUnjustifiedBadOutcomeDowngrade: too small a sample is unjustified even with a bad rate", () => {
+  assert(isUnjustifiedBadOutcomeDowngrade(2, 2));
+});
+
+Deno.test("isUnjustifiedRepeatedPauseDowngrade: a real downgrade (human_review + a reason) is justified", () => {
+  assertFalse(isUnjustifiedRepeatedPauseDowngrade("human_review", "this key has been automatically paused..."));
+});
+
+Deno.test("isUnjustifiedRepeatedPauseDowngrade: a stamped timestamp with no actual policy change is unjustified", () => {
+  assert(isUnjustifiedRepeatedPauseDowngrade("auto_allow", "this key has been automatically paused..."));
+});
+
+Deno.test("isUnjustifiedRepeatedPauseDowngrade: a missing reason is unjustified", () => {
+  assert(isUnjustifiedRepeatedPauseDowngrade("human_review", null));
+});
+
+Deno.test("isUnjustifiedAutoResolvedApproval: genuinely stuck past the max-wait threshold is justified", () => {
+  const created = new Date("2026-01-01T00:00:00Z").toISOString();
+  const resolved = new Date("2026-01-01T00:20:00Z").toISOString(); // 20 min later
+  assertFalse(isUnjustifiedAutoResolvedApproval(created, resolved));
+});
+
+Deno.test("isUnjustifiedAutoResolvedApproval: resolved well before the max-wait threshold is unjustified", () => {
+  const created = new Date("2026-01-01T00:00:00Z").toISOString();
+  const resolved = new Date("2026-01-01T00:05:00Z").toISOString(); // 5 min later
+  assert(isUnjustifiedAutoResolvedApproval(created, resolved));
 });
 
 Deno.test("summarizeAuditIntegrityFailure: calls out a mismatch as a possible tamper", () => {

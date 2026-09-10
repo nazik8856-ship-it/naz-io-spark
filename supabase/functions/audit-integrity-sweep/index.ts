@@ -21,10 +21,11 @@
 // 2. A real user JWT — runs the sweep for just that one caller.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
-import { isAuditIntegrityFailure, summarizeAuditIntegrityFailure, isAutoResolutionMismatch, isPrecedentCitationMismatch, isDecisionConsistencyMismatch, isKnowledgeBaseHealthMismatch, type SignatureVerifyResult, type AuditIntegrityResult, type StoredPrecedentCitation, type KnowledgeBaseHealthEntry, type RecentActionShape, type HardRuleBlockShape } from "../_shared/audit-integrity.ts";
+import { isAuditIntegrityFailure, summarizeAuditIntegrityFailure, isAutoResolutionMismatch, isPrecedentCitationMismatch, isDecisionConsistencyMismatch, isKnowledgeBaseHealthMismatch, isUnjustifiedApiKeyPause, isUnjustifiedBadOutcomeDowngrade, isUnjustifiedRepeatedPauseDowngrade, isUnjustifiedAutoResolvedApproval, type SignatureVerifyResult, type AuditIntegrityResult, type StoredPrecedentCitation, type KnowledgeBaseHealthEntry, type RecentActionShape, type HardRuleBlockShape } from "../_shared/audit-integrity.ts";
 import { evaluateAction, type PolicySnapshot } from "../_shared/policy-replay.ts";
-import { isNonAllowDecision } from "../_shared/control-api-abuse.ts";
+import { isNonAllowDecision, ABUSE_LOOKBACK_MINUTES } from "../_shared/control-api-abuse.ts";
 import { loadStoredEmbeddingLiteral, findPrecedent } from "../_shared/precedent-search.ts";
+import { BAD_OUTCOME_LOOKBACK_DAYS } from "../_shared/policy-downgrade.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -230,6 +231,115 @@ async function checkKnowledgeBaseHealth(
   }
 }
 
+// "Sweep safety & observability" plan, item 5: re-checks every auto-action
+// the 3 consequential sweeps took in range against the same pure
+// classifiers those sweeps themselves use. Never throws -- a failure in any
+// one branch reports zero checked for it, never blocking the rest of this
+// sweep (same discipline as every other check function in this file).
+async function checkConsequentialSweepActions(
+  admin: ReturnType<typeof createClient>,
+  userId: string,
+  from: string,
+  to: string,
+): Promise<{ checked: number; unjustified: number }> {
+  let checked = 0;
+  let unjustified = 0;
+
+  // 1. control-api-abuse-sweep's key pauses: re-fetch this key's own
+  // agent_decisions in the EXACT SAME lookback window the sweep itself
+  // used (ending at the moment of the pause), and re-run the identical
+  // volume/block-rate checks.
+  try {
+    const { data: pausedKeys } = await admin
+      .from("api_keys")
+      .select("id, last_pause_at")
+      .eq("user_id", userId)
+      .not("last_pause_at", "is", null)
+      .gte("last_pause_at", from)
+      .lte("last_pause_at", to);
+    for (const key of (pausedKeys ?? []) as { id: string; last_pause_at: string }[]) {
+      const windowStart = new Date(new Date(key.last_pause_at).getTime() - ABUSE_LOOKBACK_MINUTES * 60_000).toISOString();
+      const { data: rows } = await admin
+        .from("agent_decisions")
+        .select("decision")
+        .eq("api_key_id", key.id)
+        .gte("created_at", windowStart)
+        .lte("created_at", key.last_pause_at);
+      const decisions = (rows ?? []) as { decision: string }[];
+      const total = decisions.length;
+      const nonAllow = decisions.filter((d) => isNonAllowDecision(d.decision)).length;
+      checked++;
+      if (isUnjustifiedApiKeyPause(total, nonAllow)) unjustified++;
+    }
+  } catch { /* reports whatever was already tallied before the failure */ }
+
+  // 2. on_uncertain downgrades (both control-api-abuse-sweep's
+  // repeated_pause and outcome-quality-sweep's bad_outcomes).
+  try {
+    const { data: downgradedKeys } = await admin
+      .from("api_keys")
+      .select("id, on_uncertain, on_uncertain_downgrade_reason, on_uncertain_downgrade_kind, on_uncertain_downgraded_at")
+      .eq("user_id", userId)
+      .not("on_uncertain_downgraded_at", "is", null)
+      .gte("on_uncertain_downgraded_at", from)
+      .lte("on_uncertain_downgraded_at", to);
+    for (const key of (downgradedKeys ?? []) as {
+      id: string; on_uncertain: string | null; on_uncertain_downgrade_reason: string | null;
+      on_uncertain_downgrade_kind: string | null; on_uncertain_downgraded_at: string;
+    }[]) {
+      checked++;
+      if (key.on_uncertain_downgrade_kind === "bad_outcomes") {
+        const windowStart = new Date(
+          new Date(key.on_uncertain_downgraded_at).getTime() - BAD_OUTCOME_LOOKBACK_DAYS * 86400_000,
+        ).toISOString();
+        const { data: outcomeRows } = await admin
+          .from("decision_outcomes")
+          .select("direction, agent_decisions!inner(api_key_id, escalated, created_at)")
+          .eq("agent_decisions.api_key_id", key.id)
+          .eq("agent_decisions.escalated", false)
+          .gte("agent_decisions.created_at", windowStart)
+          .lte("agent_decisions.created_at", key.on_uncertain_downgraded_at)
+          .limit(20000);
+        let total = 0;
+        let negative = 0;
+        for (const r of (outcomeRows ?? []) as { direction: string }[]) {
+          const dir = String(r.direction || "").toLowerCase();
+          if (dir !== "negative" && dir !== "positive") continue;
+          total++;
+          if (dir === "negative") negative++;
+        }
+        if (isUnjustifiedBadOutcomeDowngrade(negative, total)) unjustified++;
+      } else {
+        // repeated_pause, callback_failures, or a pre-migration row with no
+        // recorded kind at all -- see isUnjustifiedRepeatedPauseDowngrade's
+        // own doc comment for why this can't be a full re-derivation.
+        if (isUnjustifiedRepeatedPauseDowngrade(key.on_uncertain, key.on_uncertain_downgrade_reason)) unjustified++;
+      }
+    }
+  } catch { /* reports whatever was already tallied before the failure */ }
+
+  // 3. stuck-approval-sweep's auto-resolutions.
+  try {
+    const { data: events } = await admin
+      .from("pending_approval_events")
+      .select("approval_id, created_at")
+      .eq("user_id", userId)
+      .eq("event_type", "auto_resolved")
+      .gte("created_at", from)
+      .lte("created_at", to);
+    for (const ev of (events ?? []) as { approval_id: string; created_at: string }[]) {
+      const { data: approvalRow } = await admin
+        .from("pending_approvals").select("created_at").eq("id", ev.approval_id).maybeSingle();
+      const approval = approvalRow as { created_at?: string } | null;
+      if (!approval?.created_at) continue;
+      checked++;
+      if (isUnjustifiedAutoResolvedApproval(approval.created_at, ev.created_at)) unjustified++;
+    }
+  } catch { /* reports whatever was already tallied before the failure */ }
+
+  return { checked, unjustified };
+}
+
 async function sweepOrg(
   admin: ReturnType<typeof createClient>,
   userId: string,
@@ -246,6 +356,7 @@ async function sweepOrg(
   const precedentCitations = await checkPrecedentCitations(admin, userId, from, to);
   const decisionConsistency = await checkDecisionConsistency(admin, userId, from, to);
   const knowledgeBaseHealth = await checkKnowledgeBaseHealth(admin, userId);
+  const consequentialSweepActions = await checkConsequentialSweepActions(admin, userId, from, to);
   const result: AuditIntegrityResult = {
     ...signatureResult,
     auto_resolutions_checked: autoResolutions.checked,
@@ -256,6 +367,8 @@ async function sweepOrg(
     decision_consistency_mismatched: decisionConsistency.mismatched,
     knowledge_base_checked: knowledgeBaseHealth.checked,
     knowledge_base_mismatched: knowledgeBaseHealth.mismatched,
+    consequential_sweep_actions_checked: consequentialSweepActions.checked,
+    consequential_sweep_actions_unjustified: consequentialSweepActions.unjustified,
   };
 
   await admin.from("audit_integrity_runs").insert({
@@ -273,6 +386,8 @@ async function sweepOrg(
     decision_consistency_mismatched: result.decision_consistency_mismatched,
     knowledge_base_checked: result.knowledge_base_checked,
     knowledge_base_mismatched: result.knowledge_base_mismatched,
+    consequential_sweep_actions_checked: result.consequential_sweep_actions_checked,
+    consequential_sweep_actions_unjustified: result.consequential_sweep_actions_unjustified,
     range_from: from,
     range_to: to,
   });

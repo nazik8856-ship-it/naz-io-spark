@@ -15,7 +15,7 @@
 // a separate, unscheduled sweep), so there's nothing new to see between
 // runs much faster than that.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { isBadOutcomeTrouble, summarizePolicyDowngrade } from "../_shared/policy-downgrade.ts";
+import { isBadOutcomeTrouble, summarizePolicyDowngrade, BAD_OUTCOME_LOOKBACK_DAYS } from "../_shared/policy-downgrade.ts";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
 import { triggerWebhooks } from "../_shared/webhooks.ts";
 import { areConsequentialSweepsPaused } from "../_shared/consequential-sweep-pause.ts";
@@ -27,10 +27,7 @@ const corsHeaders = {
 const json = (b: unknown, status = 200) =>
   new Response(JSON.stringify(b), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
-// Wide enough to gather a real, meaningful sample of measured outcomes
-// (which is sparse coverage by nature -- see precedent-search.ts's own
-// loadOutcomeDirections comment) without judging a key on ancient history.
-const LOOKBACK_DAYS = 30;
+const LOOKBACK_DAYS = BAD_OUTCOME_LOOKBACK_DAYS;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
