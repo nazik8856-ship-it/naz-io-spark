@@ -149,6 +149,22 @@ Deno.serve(async (req) => {
         update.rate_limit_per_minute = null;
       }
     }
+    // Same override as rate_limit_per_minute above, but for
+    // POST /control-api/v1/respond specifically -- rate-limited under its
+    // own tag ("control-api-respond"), so an account that wants to send
+    // heavy /respond traffic can raise that limit without also widening
+    // (or being forced to share) its main judgment-endpoint limit.
+    if (body?.respond_rate_limit_per_minute !== undefined) {
+      if (body.respond_rate_limit_per_minute !== null) {
+        const limit = Number(body.respond_rate_limit_per_minute);
+        if (!Number.isInteger(limit) || limit < 1 || limit > 6000) {
+          return json({ error: "respond_rate_limit_per_minute must be an integer between 1 and 6000, or null to use the default" }, 400);
+        }
+        update.respond_rate_limit_per_minute = limit;
+      } else {
+        update.respond_rate_limit_per_minute = null;
+      }
+    }
     // "White-labeled 'brain' endpoint" plan, item 3: lets a company tell
     // NazAI once how their AI should sound on POST /control-api/v1/respond,
     // applied to every call instead of repeating it every time. `null`
@@ -215,7 +231,7 @@ Deno.serve(async (req) => {
       .update(update)
       .eq("id", keyId)
       .eq("user_id", targetUserId)
-      .select("id, on_uncertain, callback_url, callback_timeout_seconds, callback_fallback, shadow_on_uncertain, on_gate_error, rate_limit_per_minute, response_persona, fallback_message, on_uncertain_downgraded_at, on_uncertain_downgrade_reason")
+      .select("id, on_uncertain, callback_url, callback_timeout_seconds, callback_fallback, shadow_on_uncertain, on_gate_error, rate_limit_per_minute, respond_rate_limit_per_minute, response_persona, fallback_message, on_uncertain_downgraded_at, on_uncertain_downgrade_reason")
       .maybeSingle();
     if (error) return json({ error: error.message }, 500);
     if (!data) return json({ error: "Key not found for this account." }, 404);
@@ -795,7 +811,7 @@ Deno.serve(async (req) => {
 
     const { data, error } = await admin
       .from("api_keys")
-      .select("id, name, key_prefix, scopes, on_uncertain, shadow_on_uncertain, on_gate_error, rate_limit_per_minute, last_used_at, revoked_at, expires_at, created_at, on_uncertain_downgraded_at, on_uncertain_downgrade_reason, is_test")
+      .select("id, name, key_prefix, scopes, on_uncertain, shadow_on_uncertain, on_gate_error, rate_limit_per_minute, respond_rate_limit_per_minute, last_used_at, revoked_at, expires_at, created_at, on_uncertain_downgraded_at, on_uncertain_downgrade_reason, is_test")
       .eq("user_id", targetUserId)
       .order("created_at", { ascending: false });
     if (error) return json({ error: error.message }, 500);

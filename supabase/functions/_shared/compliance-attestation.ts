@@ -48,6 +48,29 @@ export function distinctPolicyVersions(rows: { policy_version: number | null }[]
   return [...versions].sort((a, b) => a - b);
 }
 
+export type ComplianceAttestationIncidentCounts = {
+  opened: number;
+  resolvedWithinPeriod: number;
+  stillOpen: number;
+};
+
+/** Pure -- opened-in-period / resolved-in-period / still-open-now counts, the same "did anything go wrong, and was it fixed" governance signal an external auditor would otherwise have to ask about separately. `stillOpen` is judged against `rows` themselves (each row already carries its current status), not the period boundary -- an incident opened in-period can still be open well after the period ends. */
+export function summarizeAttestationIncidents(
+  rows: { opened_at: string; resolved_at: string | null; status: string }[],
+  periodStart: string,
+  periodEnd: string,
+): ComplianceAttestationIncidentCounts {
+  let opened = 0, resolvedWithinPeriod = 0, stillOpen = 0;
+  for (const r of rows) {
+    if (r.opened_at >= periodStart && r.opened_at < periodEnd) {
+      opened++;
+      if (r.status !== "resolved") stillOpen++;
+    }
+    if (r.resolved_at && r.resolved_at >= periodStart && r.resolved_at < periodEnd) resolvedWithinPeriod++;
+  }
+  return { opened, resolvedWithinPeriod, stillOpen };
+}
+
 export type ComplianceAttestationFields = {
   userId: string;
   periodStart: string;
@@ -57,6 +80,7 @@ export type ComplianceAttestationFields = {
   spendUsd: number;
   costPerAutonomousDecisionUsd: number | null;
   estimatedManualReviewHoursSaved: number;
+  incidents: ComplianceAttestationIncidentCounts;
 };
 
 /**
@@ -68,7 +92,12 @@ export type ComplianceAttestationFields = {
  * re-derive the same signature, the same way an individual decision's
  * signature is independently checkable. Field ORDER matters and must
  * never change once shipped -- changing it would silently invalidate
- * every attestation signed before the change.
+ * every attestation signed before the change. New fields (like
+ * `incidents` below) are always APPENDED after `generatedAt`'s position,
+ * never inserted earlier -- each attestation is self-describing (the
+ * response documents exactly which fields, in which order, produced its
+ * own canonical_payload), so an older attestation stays independently
+ * verifiable exactly as it was signed.
  */
 export function buildAttestationCanonicalPayload(fields: ComplianceAttestationFields, generatedAt: string): string {
   return [
@@ -84,5 +113,8 @@ export function buildAttestationCanonicalPayload(fields: ComplianceAttestationFi
     fields.costPerAutonomousDecisionUsd == null ? "" : fields.costPerAutonomousDecisionUsd.toFixed(6),
     fields.estimatedManualReviewHoursSaved.toFixed(2),
     generatedAt,
+    String(fields.incidents.opened),
+    String(fields.incidents.resolvedWithinPeriod),
+    String(fields.incidents.stillOpen),
   ].join("|");
 }

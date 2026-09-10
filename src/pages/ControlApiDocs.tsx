@@ -386,9 +386,13 @@ export default function ControlApiDocs() {
             If no rule matches and none of your context entries do either, you get an honest{" "}
             <span className="font-mono">"I don't have enough information to answer that."</span> instead of a
             guess — with no generative model in the path, there's nothing left that could produce a plausible-
-            sounding wrong answer. 20 requests per minute per key. There's no model call to meter, so this never
-            counts against your key's AI spend cap — <span className="font-mono">cost_usd</span> is always{" "}
-            <span className="font-mono">0</span>.
+            sounding wrong answer. 20 requests per minute per key by default — raise or lower it with the same{" "}
+            <span className="font-mono">/policy</span> endpoint above (
+            <span className="font-mono">{`{ "respond_rate_limit_per_minute": 100 }`}</span>, or{" "}
+            <span className="font-mono">null</span> to go back to the default; 1–6000). It's a separate limit from
+            your key's main judgment-endpoint rate limit, so raising one never affects the other. There's no model
+            call to meter, so this never counts against your key's AI spend cap —{" "}
+            <span className="font-mono">cost_usd</span> is always <span className="font-mono">0</span>.
           </p>
 
           <p className="mt-4 font-semibold text-zinc-200">4. (Optional) Stream the answer</p>

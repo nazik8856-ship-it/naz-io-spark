@@ -54,7 +54,7 @@ import { evaluateCoarsePrecedentLookup, summarizeCoarsePrecedentLookup, type Cro
 import { summarizeDecisionsForRoi, costPerAutonomousDecision, buildRoiTrend, estimateManualReviewHoursSaved, weekBucketKey, summarizeRespondForRoi, estimateManualResponseHoursSaved, type DecisionForRoi, type DecisionForRoiTrend, type RespondRowForRoi } from "../_shared/roi-report.ts";
 import { buildEmbeddingInput, formatEmbeddingLiteral, generateEmbeddingWithinBudget } from "../_shared/decision-embeddings.ts";
 import { countsTowardRealUsage, testModeVerdictNote } from "../_shared/sandbox-mode.ts";
-import { summarizeAttestationCounts, distinctPolicyVersions, buildAttestationCanonicalPayload } from "../_shared/compliance-attestation.ts";
+import { summarizeAttestationCounts, distinctPolicyVersions, buildAttestationCanonicalPayload, summarizeAttestationIncidents } from "../_shared/compliance-attestation.ts";
 import { buildDecisionExplanation } from "../_shared/decision-explanation.ts";
 import { hasOpenReview, buildDisputeReasonText } from "../_shared/decision-dispute.ts";
 import { triggerWebhooks } from "../_shared/webhooks.ts";
@@ -891,13 +891,26 @@ Deno.serve(async (req) => {
     const periodStartIso = periodStart.toISOString();
     const periodEndIso = periodEnd.toISOString();
 
-    const [decisionsRes, spendRes] = await Promise.all([
+    const [decisionsRes, spendRes, incidentsRes] = await Promise.all([
       admin.from("agent_decisions").select("decision, escalated, signature, policy_version")
         .eq("user_id", userId).gte("created_at", periodStartIso).limit(50000),
       admin.from("ai_spend_daily").select("cost_usd").eq("user_id", userId).gte("day", periodStartIso.slice(0, 10)),
+      // Item 38: a real, count-checkable "did anything go wrong, and was
+      // it fixed" governance signal -- the exact kind of question an
+      // external auditor would otherwise have to ask about separately.
+      // Widened past periodStart on opened_at so a still-open incident
+      // opened just before the period, but resolved (or not) during it,
+      // is counted correctly by summarizeAttestationIncidents itself
+      // rather than silently dropped by the query.
+      admin.from("incidents").select("opened_at, resolved_at, status")
+        .eq("user_id", userId)
+        .or(`opened_at.gte.${periodStartIso},resolved_at.gte.${periodStartIso}`)
+        .lt("opened_at", periodEndIso)
+        .limit(50000),
     ]);
     if (decisionsRes.error) return json({ error: decisionsRes.error.message }, 500);
     if (spendRes.error) return json({ error: spendRes.error.message }, 500);
+    if (incidentsRes.error) return json({ error: incidentsRes.error.message }, 500);
 
     type Row = { decision: string; escalated: boolean; signature: string | null; policy_version: number | null };
     const rows = (decisionsRes.data ?? []) as Row[];
@@ -907,10 +920,14 @@ Deno.serve(async (req) => {
       .reduce((sum, r) => sum + (Number(r.cost_usd) || 0), 0) * 100) / 100;
     const costPerAutonomousDecisionUsd = costPerAutonomousDecision(spendUsd, counts.autonomous);
     const estimatedManualReviewHoursSaved = estimateManualReviewHoursSaved(counts.autonomous);
+    const incidents = summarizeAttestationIncidents(
+      (incidentsRes.data ?? []) as { opened_at: string; resolved_at: string | null; status: string }[],
+      periodStartIso, periodEndIso,
+    );
 
     const fields = {
       userId, periodStart: periodStartIso, periodEnd: periodEndIso,
-      counts, policyVersions, spendUsd, costPerAutonomousDecisionUsd, estimatedManualReviewHoursSaved,
+      counts, policyVersions, spendUsd, costPerAutonomousDecisionUsd, estimatedManualReviewHoursSaved, incidents,
     };
     const generatedAt = new Date().toISOString();
     const canonicalPayload = buildAttestationCanonicalPayload(fields, generatedAt);
@@ -932,6 +949,11 @@ Deno.serve(async (req) => {
       spend_usd: spendUsd,
       cost_per_autonomous_decision_usd: costPerAutonomousDecisionUsd,
       estimated_manual_review_hours_saved: estimatedManualReviewHoursSaved,
+      incidents: {
+        opened: incidents.opened,
+        resolved_within_period: incidents.resolvedWithinPeriod,
+        still_open: incidents.stillOpen,
+      },
       canonical_payload: canonicalPayload,
       signature,
       note: "Signed with NazAI's own server-side signing key (the same one used for every individual decision's signature) over canonical_payload -- the exact pipe-joined string derived from every field above, in the fixed order this response documents. Altering any field after export changes what canonical_payload should be, so it would no longer match this signature.",
@@ -1098,7 +1120,18 @@ Deno.serve(async (req) => {
   if (req.method === "POST" && /\/respond\/?$/.test(url.pathname)) {
     if (!auth.keyId) return json({ error: "not_found" }, 404);
 
-    const rate = await checkRateLimit(admin, userId, "control-api-respond", RESPOND_RATE_LIMIT_PER_MINUTE, 60);
+    // Per-key override, same "one discrete setting, one typed column"
+    // convention as the main endpoint's own rate_limit_per_minute -- kept
+    // as a SEPARATE column/tag so an account can size its /respond traffic
+    // independently of its judgment-endpoint limit.
+    const { data: respondKeyRow } = await admin
+      .from("api_keys").select("respond_rate_limit_per_minute").eq("id", auth.keyId).maybeSingle();
+    const respondRateLimitPerMinute = resolveConfiguredRateLimit(
+      (respondKeyRow as { respond_rate_limit_per_minute?: number | null } | null)?.respond_rate_limit_per_minute,
+      RESPOND_RATE_LIMIT_PER_MINUTE,
+    );
+
+    const rate = await checkRateLimit(admin, userId, "control-api-respond", respondRateLimitPerMinute, 60);
     if (!rate.allowed) {
       return json({
         error: "rate_limited",

@@ -29,6 +29,7 @@ interface RoiSummary {
   needsHuman: number
   spendUsd: number
   costPerDecision: number | null
+  respond: { calls: number; cacheHitPct: number; contentGapPct: number } | null
 }
 
 interface MonthlyReportProps {
@@ -73,6 +74,11 @@ const MonthlyReportEmail = ({
               <Text style={row}>{roi.total} actions reviewed — <span style={strong}>{roi.blocked + roi.modified}</span> blocked or modified</Text>
               <Text style={row}><span style={strong}>{roi.autonomous}</span> handled without a human, {roi.needsHuman} needed review</Text>
               <Text style={row}>AI spend: <span style={strong}>${roi.spendUsd.toFixed(2)}</span>{roi.costPerDecision !== null ? ` · $${roi.costPerDecision.toFixed(4)} per autonomous decision` : ''}</Text>
+              {roi.respond && (
+                <Text style={row}>
+                  /respond: <span style={strong}>{roi.respond.calls}</span> calls · {roi.respond.cacheHitPct}% served from cache · {roi.respond.contentGapPct}% found a content gap
+                </Text>
+              )}
               <Hr style={hr} />
             </>
           )}
@@ -93,7 +99,7 @@ export const template = {
   previewData: {
     monthLabel: 'August 2026',
     compliance: { passRatePct: 100, openIncidents: 1, resolvedIncidents: 3, settingsChanges: 5 },
-    roi: { total: 420, blocked: 12, modified: 8, autonomous: 380, needsHuman: 40, spendUsd: 4.32, costPerDecision: 0.0114 },
+    roi: { total: 420, blocked: 12, modified: 8, autonomous: 380, needsHuman: 40, spendUsd: 4.32, costPerDecision: 0.0114, respond: { calls: 310, cacheHitPct: 24, contentGapPct: 6 } },
   },
 } satisfies TemplateEntry
 

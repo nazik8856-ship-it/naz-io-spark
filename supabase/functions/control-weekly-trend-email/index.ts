@@ -43,11 +43,18 @@ Deno.serve(async (req) => {
 
   for (const userId of userIds) {
     try {
-      const [{ data: thisWeekDecisions }, { data: lastWeekDecisions }, { data: thisWeekSpend }, { data: lastWeekSpend }] = await Promise.all([
+      const [{ data: thisWeekDecisions }, { data: lastWeekDecisions }, { data: thisWeekSpend }, { data: lastWeekSpend }, { data: thisWeekResponds }, { data: lastWeekResponds }] = await Promise.all([
         admin.from("agent_decisions").select("escalated, gate_duration_ms").eq("user_id", userId).gte("created_at", thisWeekStart),
         admin.from("agent_decisions").select("escalated, gate_duration_ms").eq("user_id", userId).gte("created_at", lastWeekStart).lt("created_at", thisWeekStart),
         admin.from("ai_spend_daily").select("cost_usd").eq("user_id", userId).gte("day", thisWeekStart.slice(0, 10)),
         admin.from("ai_spend_daily").select("cost_usd").eq("user_id", userId).gte("day", lastWeekStart.slice(0, 10)).lt("day", thisWeekStart.slice(0, 10)),
+        // "Own decision-making machine" plan: POST /control-api/v1/respond
+        // has its own usage shape (a cache-hit rate, a content-gap rate)
+        // that decision volume/escalation/spend above don't capture at
+        // all -- real (non-test) calls only, same convention as every
+        // other real-usage metric in this project.
+        admin.from("api_response_generations").select("served_from_cache, content_gap_cluster_id").eq("user_id", userId).eq("is_test", false).gte("created_at", thisWeekStart),
+        admin.from("api_response_generations").select("served_from_cache, content_gap_cluster_id").eq("user_id", userId).eq("is_test", false).gte("created_at", lastWeekStart).lt("created_at", thisWeekStart),
       ]);
 
       const thisRows = (thisWeekDecisions ?? []) as { escalated: boolean; gate_duration_ms: number | null }[];
@@ -63,8 +70,17 @@ Deno.serve(async (req) => {
       const thisGateLatencyMs = avgMs(thisRows);
       const lastGateLatencyMs = avgMs(lastRows);
 
+      const thisRespondRows = (thisWeekResponds ?? []) as { served_from_cache: boolean; content_gap_cluster_id: string | null }[];
+      const lastRespondRows = (lastWeekResponds ?? []) as { served_from_cache: boolean; content_gap_cluster_id: string | null }[];
+      const pct = (rows: { served_from_cache?: boolean; content_gap_cluster_id?: string | null }[], hit: (r: typeof rows[number]) => boolean) =>
+        rows.length ? Math.round((rows.filter(hit).length / rows.length) * 1000) / 10 : 0;
+      const thisCacheHitPct = pct(thisRespondRows, (r) => r.served_from_cache === true);
+      const lastCacheHitPct = pct(lastRespondRows, (r) => r.served_from_cache === true);
+      const thisContentGapPct = pct(thisRespondRows, (r) => r.content_gap_cluster_id != null);
+      const lastContentGapPct = pct(lastRespondRows, (r) => r.content_gap_cluster_id != null);
+
       // Nothing happened either week — skip, same "no empty digest" principle as the daily one.
-      if (thisRows.length === 0 && lastRows.length === 0 && thisSpend === 0 && lastSpend === 0) {
+      if (thisRows.length === 0 && lastRows.length === 0 && thisSpend === 0 && lastSpend === 0 && thisRespondRows.length === 0 && lastRespondRows.length === 0) {
         outcomes.push({ userId, sent: false, reason: "no activity either week" });
         continue;
       }
@@ -97,6 +113,9 @@ Deno.serve(async (req) => {
               escalationRatePct: computeTrend(thisEscalationPct, lastEscalationPct),
               spendUsd: computeTrend(Math.round(thisSpend * 100) / 100, Math.round(lastSpend * 100) / 100),
               gateLatencyMs: computeTrend(thisGateLatencyMs, lastGateLatencyMs),
+              respondCalls: computeTrend(thisRespondRows.length, lastRespondRows.length),
+              respondCacheHitPct: computeTrend(thisCacheHitPct, lastCacheHitPct),
+              respondContentGapPct: computeTrend(thisContentGapPct, lastContentGapPct),
             },
           }),
         }),
