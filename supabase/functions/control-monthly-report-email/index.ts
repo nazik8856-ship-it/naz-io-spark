@@ -76,19 +76,34 @@ Deno.serve(async (req) => {
         };
       }
 
-      let roi: { total: number; blocked: number; modified: number; autonomous: number; needsHuman: number; spendUsd: number; costPerDecision: number | null } | null = null;
+      let roi: { total: number; blocked: number; modified: number; autonomous: number; needsHuman: number; spendUsd: number; costPerDecision: number | null; respond: { calls: number; cacheHitPct: number; contentGapPct: number } | null } | null = null;
       if (wantsRoi) {
-        const [decisions, spend] = await Promise.all([
+        const [decisions, spend, responds] = await Promise.all([
           admin.from("agent_decisions").select("decision, escalated").eq("user_id", userId).gte("created_at", monthStartIso).lt("created_at", monthEndIso),
           admin.from("ai_spend_daily").select("cost_usd").eq("user_id", userId).is("agent_id", null).gte("day", monthStartIso.slice(0, 10)).lt("day", monthEndIso.slice(0, 10)),
+          // "Own decision-making machine" plan: POST /control-api/v1/respond
+          // is real, meterable account activity with its own value story
+          // (a growing cache-hit rate is direct cost/latency savings, a
+          // shrinking content-gap rate is the context base actually
+          // improving) -- worth its own line in the monthly value report,
+          // not just the judgment-endpoint's decision counts above.
+          admin.from("api_response_generations").select("served_from_cache, content_gap_cluster_id").eq("user_id", userId).eq("is_test", false).gte("created_at", monthStartIso).lt("created_at", monthEndIso),
         ]);
         const counts = summarizeDecisionsForRoi((decisions.data ?? []) as DecisionForRoi[]);
         const spendUsd = ((spend.data ?? []) as { cost_usd: number }[]).reduce((n, r) => n + (Number(r.cost_usd) || 0), 0);
+        const respondRows = (responds.data ?? []) as { served_from_cache: boolean; content_gap_cluster_id: string | null }[];
+        const respondPct = (hit: (r: typeof respondRows[number]) => boolean) =>
+          respondRows.length ? Math.round((respondRows.filter(hit).length / respondRows.length) * 1000) / 10 : 0;
         roi = {
           total: counts.total, blocked: counts.blocked, modified: counts.modified,
           autonomous: counts.autonomous, needsHuman: counts.needsHuman,
           spendUsd: Math.round(spendUsd * 100) / 100,
           costPerDecision: costPerAutonomousDecision(spendUsd, counts.autonomous),
+          respond: respondRows.length ? {
+            calls: respondRows.length,
+            cacheHitPct: respondPct((r) => r.served_from_cache === true),
+            contentGapPct: respondPct((r) => r.content_gap_cluster_id != null),
+          } : null,
         };
       }
 
@@ -97,7 +112,7 @@ Deno.serve(async (req) => {
       // never blocks sending on its own (it's simply absent, not "empty").
       const complianceEmpty = !wantsCompliance ||
         (compliance?.openIncidents === 0 && compliance?.resolvedIncidents === 0 && compliance?.settingsChanges === 0 && compliance?.passRatePct === null);
-      const roiEmpty = !wantsRoi || roi?.total === 0;
+      const roiEmpty = !wantsRoi || (roi?.total === 0 && roi?.respond === null);
       if (complianceEmpty && roiEmpty) {
         outcomes.push({ userId, sent: false, reason: "no activity this month" });
         continue;

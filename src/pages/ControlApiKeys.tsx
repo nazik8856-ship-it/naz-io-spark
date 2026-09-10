@@ -24,6 +24,7 @@ type ApiKeyRow = {
   created_at: string;
   on_uncertain: string;
   rate_limit_per_minute: number | null;
+  respond_rate_limit_per_minute: number | null;
   response_persona: string | null;
 };
 
@@ -89,7 +90,7 @@ export default function ControlApiKeys() {
     setLoading(true);
     const { data, error } = await anyDb
       .from("api_keys")
-      .select("id, name, key_prefix, scopes, last_used_at, revoked_at, expires_at, created_at, on_uncertain, rate_limit_per_minute, response_persona")
+      .select("id, name, key_prefix, scopes, last_used_at, revoked_at, expires_at, created_at, on_uncertain, rate_limit_per_minute, respond_rate_limit_per_minute, response_persona")
       .eq("user_id", accountId)
       .order("created_at", { ascending: false });
     if (error) toast({ title: "Couldn't load API keys", description: error.message, variant: "destructive" });
@@ -383,6 +384,7 @@ export default function ControlApiKeys() {
                     onUncertain={k.on_uncertain}
                     initialPersona={k.response_persona}
                     initialRateLimit={k.rate_limit_per_minute}
+                    initialRespondRateLimit={k.respond_rate_limit_per_minute}
                     canWrite={canWrite}
                     onSaved={load}
                   />
@@ -546,6 +548,7 @@ function ApiKeySettingsPanel({
   onUncertain,
   initialPersona,
   initialRateLimit,
+  initialRespondRateLimit,
   canWrite,
   onSaved,
 }: {
@@ -554,11 +557,13 @@ function ApiKeySettingsPanel({
   onUncertain: string;
   initialPersona: string | null;
   initialRateLimit: number | null;
+  initialRespondRateLimit: number | null;
   canWrite: boolean;
   onSaved: () => void;
 }) {
   const [persona, setPersona] = useState(initialPersona ?? "");
   const [rateLimit, setRateLimit] = useState(initialRateLimit != null ? String(initialRateLimit) : "");
+  const [respondRateLimit, setRespondRateLimit] = useState(initialRespondRateLimit != null ? String(initialRespondRateLimit) : "");
   const [savingSettings, setSavingSettings] = useState(false);
 
   const [entries, setEntries] = useState<ContextEntry[]>([]);
@@ -626,6 +631,15 @@ function ApiKeySettingsPanel({
       }
       rateLimitValue = parsed;
     }
+    let respondRateLimitValue: number | null = null;
+    if (respondRateLimit.trim()) {
+      const parsed = Number(respondRateLimit.trim());
+      if (!Number.isInteger(parsed) || parsed < 1 || parsed > 6000) {
+        toast({ title: "Invalid /respond rate limit", description: "Must be a whole number between 1 and 6000, or blank for the default.", variant: "destructive" });
+        return;
+      }
+      respondRateLimitValue = parsed;
+    }
     setSavingSettings(true);
     const { data, error } = await supabase.functions.invoke(`api-keys/${keyId}/policy`, {
       body: {
@@ -633,6 +647,7 @@ function ApiKeySettingsPanel({
         on_uncertain: onUncertain,
         response_persona: trimmedPersona || null,
         rate_limit_per_minute: rateLimitValue,
+        respond_rate_limit_per_minute: respondRateLimitValue,
       },
     });
     setSavingSettings(false);
@@ -753,6 +768,20 @@ function ApiKeySettingsPanel({
           max={6000}
           value={rateLimit}
           onChange={(e) => setRateLimit(e.target.value)}
+          disabled={!canWrite}
+          placeholder="platform default"
+          className="w-40 rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200 disabled:opacity-50"
+        />
+      </label>
+
+      <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+        /respond rate limit (requests/minute — separate from the limit above, blank for platform default)
+        <input
+          type="number"
+          min={1}
+          max={6000}
+          value={respondRateLimit}
+          onChange={(e) => setRespondRateLimit(e.target.value)}
           disabled={!canWrite}
           placeholder="platform default"
           className="w-40 rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200 disabled:opacity-50"

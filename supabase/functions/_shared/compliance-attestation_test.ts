@@ -6,6 +6,7 @@ import {
   summarizeAttestationCounts,
   distinctPolicyVersions,
   buildAttestationCanonicalPayload,
+  summarizeAttestationIncidents,
   type ComplianceAttestationFields,
 } from "./compliance-attestation.ts";
 
@@ -59,6 +60,42 @@ Deno.test("distinctPolicyVersions: a null policy_version (predates versioning) i
   assertEquals(distinctPolicyVersions(rows), [5]);
 });
 
+// ---- summarizeAttestationIncidents ----
+
+const PERIOD_START = "2026-08-01T00:00:00.000Z";
+const PERIOD_END = "2026-08-28T00:00:00.000Z";
+
+Deno.test("summarizeAttestationIncidents: no incidents at all reports a clean zero state", () => {
+  assertEquals(summarizeAttestationIncidents([], PERIOD_START, PERIOD_END), { opened: 0, resolvedWithinPeriod: 0, stillOpen: 0 });
+});
+
+Deno.test("summarizeAttestationIncidents: an incident opened and still open in-period counts toward both opened and stillOpen", () => {
+  const rows = [{ opened_at: "2026-08-10T00:00:00.000Z", resolved_at: null, status: "open" }];
+  assertEquals(summarizeAttestationIncidents(rows, PERIOD_START, PERIOD_END), { opened: 1, resolvedWithinPeriod: 0, stillOpen: 1 });
+});
+
+Deno.test("summarizeAttestationIncidents: an incident opened AND resolved in-period counts toward opened and resolvedWithinPeriod, never stillOpen", () => {
+  const rows = [{ opened_at: "2026-08-10T00:00:00.000Z", resolved_at: "2026-08-12T00:00:00.000Z", status: "resolved" }];
+  assertEquals(summarizeAttestationIncidents(rows, PERIOD_START, PERIOD_END), { opened: 1, resolvedWithinPeriod: 1, stillOpen: 0 });
+});
+
+Deno.test("summarizeAttestationIncidents: an incident opened BEFORE the period but resolved WITHIN it counts toward resolvedWithinPeriod, never opened", () => {
+  const rows = [{ opened_at: "2026-07-20T00:00:00.000Z", resolved_at: "2026-08-05T00:00:00.000Z", status: "resolved" }];
+  assertEquals(summarizeAttestationIncidents(rows, PERIOD_START, PERIOD_END), { opened: 0, resolvedWithinPeriod: 1, stillOpen: 0 });
+});
+
+Deno.test("summarizeAttestationIncidents: an incident opened before the period start is never counted as opened, even if still open", () => {
+  const rows = [{ opened_at: "2026-07-01T00:00:00.000Z", resolved_at: null, status: "open" }];
+  const result = summarizeAttestationIncidents(rows, PERIOD_START, PERIOD_END);
+  assertEquals(result.opened, 0);
+  assertEquals(result.stillOpen, 0);
+});
+
+Deno.test("summarizeAttestationIncidents: an incident opened exactly at periodEnd is excluded (half-open interval)", () => {
+  const rows = [{ opened_at: PERIOD_END, resolved_at: null, status: "open" }];
+  assertEquals(summarizeAttestationIncidents(rows, PERIOD_START, PERIOD_END).opened, 0);
+});
+
 // ---- buildAttestationCanonicalPayload ----
 
 const fields = (over: Partial<ComplianceAttestationFields> = {}): ComplianceAttestationFields => ({
@@ -70,6 +107,7 @@ const fields = (over: Partial<ComplianceAttestationFields> = {}): ComplianceAtte
   spendUsd: 12.5,
   costPerAutonomousDecisionUsd: 0.15625,
   estimatedManualReviewHoursSaved: 4.0,
+  incidents: { opened: 2, resolvedWithinPeriod: 1, stillOpen: 1 },
   ...over,
 });
 
@@ -102,5 +140,20 @@ Deno.test("buildAttestationCanonicalPayload: a different generatedAt changes the
 Deno.test("buildAttestationCanonicalPayload: an empty policyVersions list serializes cleanly, doesn't break field ordering", () => {
   const payload = buildAttestationCanonicalPayload(fields({ policyVersions: [] }), "2026-08-28T12:00:00.000Z");
   const parts = payload.split("|");
-  assertEquals(parts.length, 12);
+  assertEquals(parts.length, 15);
+});
+
+Deno.test("buildAttestationCanonicalPayload: the incidents counts are appended after generatedAt, not inserted earlier", () => {
+  const payload = buildAttestationCanonicalPayload(fields(), "2026-08-28T12:00:00.000Z");
+  const parts = payload.split("|");
+  assertEquals(parts.slice(-3), ["2", "1", "1"]);
+});
+
+Deno.test("buildAttestationCanonicalPayload: changing only the incidents counts changes the payload", () => {
+  const base = buildAttestationCanonicalPayload(fields(), "2026-08-28T12:00:00.000Z");
+  const changed = buildAttestationCanonicalPayload(
+    fields({ incidents: { opened: 3, resolvedWithinPeriod: 1, stillOpen: 2 } }),
+    "2026-08-28T12:00:00.000Z",
+  );
+  assert(base !== changed, "a changed incident count must produce a different canonical payload");
 });

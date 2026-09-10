@@ -21,6 +21,9 @@ interface WeeklyTrendProps {
   escalationRatePct?: TrendProps
   spendUsd?: TrendProps
   gateLatencyMs?: TrendProps
+  respondCalls?: TrendProps
+  respondCacheHitPct?: TrendProps
+  respondContentGapPct?: TrendProps
   controlSystemUrl?: string
 }
 
@@ -36,7 +39,7 @@ const TrendLine = ({ label, t, unit = '' }: { label: string; t?: TrendProps; uni
   </Text>
 )
 
-const WeeklyTrendEmail = ({ decisions, escalationRatePct, spendUsd, gateLatencyMs, controlSystemUrl = 'https://www.nazai.net/control-system/health' }: WeeklyTrendProps) => (
+const WeeklyTrendEmail = ({ decisions, escalationRatePct, spendUsd, gateLatencyMs, respondCalls, respondCacheHitPct, respondContentGapPct, controlSystemUrl = 'https://www.nazai.net/control-system/health' }: WeeklyTrendProps) => (
   <Html lang="en" dir="ltr">
     <Head />
     <Preview>Your weekly NazAI Control System trend summary</Preview>
@@ -57,6 +60,15 @@ const WeeklyTrendEmail = ({ decisions, escalationRatePct, spendUsd, gateLatencyM
           {((gateLatencyMs?.current ?? 0) > 0 || (gateLatencyMs?.previous ?? 0) > 0) && (
             <TrendLine label="Gate latency (avg)" t={gateLatencyMs} unit="ms" />
           )}
+          {/* Hidden the same way -- an account that's never called
+              POST /control-api/v1/respond has nothing to show here. */}
+          {((respondCalls?.current ?? 0) > 0 || (respondCalls?.previous ?? 0) > 0) && (
+            <>
+              <TrendLine label="/respond calls" t={respondCalls} />
+              <TrendLine label="/respond cache hit rate" t={respondCacheHitPct} unit="%" />
+              <TrendLine label="/respond content-gap rate" t={respondContentGapPct} unit="%" />
+            </>
+          )}
           <Hr style={hr} />
           <Button style={button} href={controlSystemUrl}>
             View control-plane health
@@ -76,6 +88,9 @@ export const template = {
     escalationRatePct: { current: 8, previous: 12, changePct: -33.3, direction: 'down' },
     spendUsd: { current: 3.2, previous: 4.1, changePct: -22, direction: 'down' },
     gateLatencyMs: { current: 180, previous: 210, changePct: -14.3, direction: 'down' },
+    respondCalls: { current: 96, previous: 60, changePct: 60, direction: 'up' },
+    respondCacheHitPct: { current: 28, previous: 15, changePct: 86.7, direction: 'up' },
+    respondContentGapPct: { current: 4, previous: 9, changePct: -55.6, direction: 'down' },
   },
 } satisfies TemplateEntry
 
