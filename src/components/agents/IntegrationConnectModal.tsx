@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
 import { useIntegrationOAuthMessages } from "@/hooks/useIntegrationOAuthMessages";
 import { IntegrationLogo, getIntegrationLogo } from "@/components/IntegrationLogos";
 import ExecutionLog from "@/components/execution/ExecutionLog";
@@ -535,7 +536,13 @@ export default function IntegrationConnectModal({
         body: { agentId: agentId || null, origin: window.location.origin, ...(opts.extraBody || {}) },
         headers: { Authorization: `Bearer ${accessToken}` },
       });
-      if (fnErr) throw new Error(fnErr.message || `Failed to start ${opts.label} OAuth`);
+      if (fnErr) {
+        // fnErr.message is always the generic "Edge Function returned a
+        // non-2xx status code" -- the real reason lives in the response
+        // body, which supabase-js never parses automatically.
+        const realMessage = await extractFunctionErrorMessage(fnErr);
+        throw new Error(realMessage || fnErr.message || `Failed to start ${opts.label} OAuth`);
+      }
       const url = (data as { url?: string; error?: string; not_configured?: boolean }).url;
       const errMsg = (data as { url?: string; error?: string }).error;
       const notConfigured = (data as { not_configured?: boolean }).not_configured;
