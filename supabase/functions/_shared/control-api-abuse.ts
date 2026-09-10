@@ -8,6 +8,18 @@
 export type DecisionRow = { api_key_id: string; user_id: string; decision: string };
 export type KeyActivity = { apiKeyId: string; userId: string; total: number; nonAllow: number };
 
+// Shared with the weekly audit-integrity sweep's own re-derivation of
+// whether a past auto-pause was actually justified (see audit-integrity.ts)
+// -- exported here, not duplicated as a second set of magic numbers, so the
+// two can never silently drift apart.
+export const ABUSE_LOOKBACK_MINUTES = 15;
+// Deliberately generous defaults -- a legitimate high-volume integration
+// can run hot; these are sized against a genuinely abnormal spike or a
+// probing pattern, not normal heavy use. Tune once real traffic exists.
+export const VOLUME_THRESHOLD = 500;
+export const BLOCK_RATE_MIN_SAMPLE = 20;
+export const BLOCK_RATE_THRESHOLD = 0.5;
+
 /** Pure -- this codebase's own decision strings all start with the verb ("ALLOW ...", "BLOCK ...", "MODIFY ...", "CIRCUIT_BREAKER_TRIPPED ..."). Anything not starting with ALLOW is a non-allow outcome. */
 export function isNonAllowDecision(decisionText: string): boolean {
   return !decisionText.trim().toUpperCase().startsWith("ALLOW");

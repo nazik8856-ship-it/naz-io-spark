@@ -39,6 +39,14 @@ export function isCallbackFailureTrouble(failureStreak: number): boolean {
 // one or two unlucky negative outcomes must never trip this on their own.
 export const BAD_OUTCOME_MIN_SAMPLE = 5;
 export const BAD_OUTCOME_NEGATIVE_RATE_THRESHOLD = 0.4;
+// Shared with the weekly audit-integrity sweep's own re-derivation of
+// whether a past bad-outcomes downgrade was actually justified (see
+// audit-integrity.ts) -- exported here, not duplicated as a second copy of
+// the same number, so the two can never silently drift apart. Wide enough
+// to gather a real, meaningful sample of measured outcomes (sparse by
+// nature -- see precedent-search.ts's own loadOutcomeDirections comment)
+// without judging a key on ancient history.
+export const BAD_OUTCOME_LOOKBACK_DAYS = 30;
 
 /** Pure -- is this key's own auto-resolved (never-escalated) decision history measurably going badly in the real world, with enough sample to trust the signal? */
 export function isBadOutcomeTrouble(

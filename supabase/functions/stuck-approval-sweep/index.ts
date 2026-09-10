@@ -17,6 +17,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isStuckPastMaxWait, resolveSweepFallback, STUCK_APPROVAL_MAX_WAIT_MINUTES } from "../_shared/api-key-policy.ts";
 import { triggerWebhooks } from "../_shared/webhooks.ts";
+import { areConsequentialSweepsPaused } from "../_shared/consequential-sweep-pause.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -45,6 +46,13 @@ Deno.serve(async (req) => {
   if (authHeader !== `Bearer ${serviceKey}`) return json({ error: "unauthorized" }, 401);
 
   const admin = createClient(Deno.env.get("SUPABASE_URL")!, serviceKey);
+
+  // "Sweep safety & observability" plan, item 4 -- see consequential-sweep-
+  // pause.ts's doc comment.
+  if (await areConsequentialSweepsPaused(admin)) {
+    return json({ ok: true, skipped: true, reason: "consequential sweeps are paused" });
+  }
+
   const now = new Date();
 
   const { data: rows, error } = await admin

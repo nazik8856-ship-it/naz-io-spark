@@ -1,10 +1,25 @@
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, CheckCircle2, ShieldAlert } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ShieldAlert, Activity } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 // Stale generated types: control-system tables aren't in types.ts yet.
 const anyDb = supabase as any;
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
+
+type SweepJobLastRun = { job_name: string; last_run_at: string | null; last_status: string | null };
+type ConsequentialSweepActivity = {
+  keys_paused: number;
+  keys_downgraded_abuse: number;
+  keys_downgraded_outcome: number;
+  approvals_auto_resolved: number;
+  coordinated_abuse_flagged: number;
+};
+
+const CONSEQUENTIAL_SWEEP_JOB_NAMES = new Set([
+  "control-api-abuse-sweep-every-15min",
+  "outcome-quality-sweep-daily",
+  "stuck-approval-sweep-every-30min",
+]);
 
 type PlatformIncident = {
   id: string;
@@ -31,6 +46,9 @@ export default function OpsPlatformIncidents() {
   const [filter, setFilter] = useState<"open" | "all">("open");
   const [busy, setBusy] = useState<string | null>(null);
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
+  const [sweepJobs, setSweepJobs] = useState<SweepJobLastRun[]>([]);
+  const [sweepActivity, setSweepActivity] = useState<ConsequentialSweepActivity | null>(null);
+  const [sweepLoading, setSweepLoading] = useState(true);
 
   useEffect(() => {
     if (!user) { setAuthorized(false); return; }
@@ -58,6 +76,31 @@ export default function OpsPlatformIncidents() {
   }, [authorized, filter]);
 
   useEffect(() => { load(); }, [load]);
+
+  // "Sweep safety & observability" plan, items 1+2: last-run status for
+  // every sweep-shaped cron job (cron.job_run_details -- proves the SQL
+  // command ran, not that the target function returned 2xx) plus a
+  // real 24h blast-radius count for the 3 sweeps that take hard-to-reverse
+  // account-state action (pauses, downgrades, auto-resolutions). Both RPCs
+  // are admin/owner-gated server-side (see the migration), same audience
+  // as platform_incidents above.
+  const loadSweepActivity = useCallback(async () => {
+    if (!authorized) return;
+    setSweepLoading(true);
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const [jobsRes, activityRes] = await Promise.all([
+      anyDb.rpc("get_sweep_job_last_runs"),
+      anyDb.rpc("get_consequential_sweep_activity", { _since: since }),
+    ]);
+    if (jobsRes.error) toast({ title: "Couldn't load sweep job status", description: jobsRes.error.message, variant: "destructive" });
+    if (activityRes.error) toast({ title: "Couldn't load sweep blast-radius", description: activityRes.error.message, variant: "destructive" });
+    setSweepJobs((jobsRes.data ?? []) as SweepJobLastRun[]);
+    const activityRow = (activityRes.data ?? [])[0] as ConsequentialSweepActivity | undefined;
+    setSweepActivity(activityRow ?? null);
+    setSweepLoading(false);
+  }, [authorized]);
+
+  useEffect(() => { loadSweepActivity(); }, [loadSweepActivity]);
 
   const resolve = async (incident: PlatformIncident) => {
     setBusy(incident.id);
@@ -116,6 +159,64 @@ export default function OpsPlatformIncidents() {
           NazAI's own scheduled jobs (cron-triggered edge functions), not scoped to any customer account.
           Opened automatically by cron-health-check when a job's HTTP response isn't 2xx.
         </p>
+
+        <section className="mt-6 rounded border border-white/10 bg-white/[0.02] p-4">
+          <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+            <Activity className="h-3.5 w-3.5 text-cyan-400" /> Sweep activity (last 24h)
+          </div>
+          <p className="mt-1 text-xs text-zinc-500">
+            Real blast-radius counts for the 3 sweeps that take hard-to-reverse account-state action. Use the
+            hidden kill-switch panel's "Consequential sweeps" toggle to pause all 3 immediately if these look wrong.
+          </p>
+          {sweepLoading ? (
+            <p className="mt-4 font-mono text-xs uppercase text-zinc-500">Loading…</p>
+          ) : (
+            <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
+              {[
+                { label: "Keys paused", value: sweepActivity?.keys_paused ?? 0, tone: (sweepActivity?.keys_paused ?? 0) > 0 },
+                { label: "Downgraded (abuse)", value: sweepActivity?.keys_downgraded_abuse ?? 0, tone: (sweepActivity?.keys_downgraded_abuse ?? 0) > 0 },
+                { label: "Downgraded (outcomes)", value: sweepActivity?.keys_downgraded_outcome ?? 0, tone: (sweepActivity?.keys_downgraded_outcome ?? 0) > 0 },
+                { label: "Approvals auto-resolved", value: sweepActivity?.approvals_auto_resolved ?? 0, tone: (sweepActivity?.approvals_auto_resolved ?? 0) > 0 },
+                { label: "Coordinated-abuse flags", value: sweepActivity?.coordinated_abuse_flagged ?? 0, tone: (sweepActivity?.coordinated_abuse_flagged ?? 0) > 0 },
+              ].map((s) => (
+                <div key={s.label} className={`rounded border p-3 ${s.tone ? "border-amber-500/30 bg-amber-500/[0.04]" : "border-white/10 bg-white/[0.02]"}`}>
+                  <div className="font-mono text-[9px] uppercase tracking-wider text-zinc-500">{s.label}</div>
+                  <div className="mt-1 text-xl font-semibold text-white">{s.value}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="mt-5 font-mono text-[10px] uppercase tracking-wider text-zinc-500">Sweep job last runs</div>
+          {sweepLoading ? (
+            <p className="mt-2 font-mono text-xs uppercase text-zinc-500">Loading…</p>
+          ) : sweepJobs.length === 0 ? (
+            <p className="mt-2 text-xs text-zinc-500">No sweep-shaped cron jobs found.</p>
+          ) : (
+            <ul className="mt-2 max-h-80 space-y-1 overflow-y-auto text-xs text-zinc-300">
+              {sweepJobs.map((j) => {
+                const isConsequential = CONSEQUENTIAL_SWEEP_JOB_NAMES.has(j.job_name);
+                const failed = j.last_status != null && j.last_status !== "succeeded";
+                return (
+                  <li key={j.job_name} className="flex items-center gap-2">
+                    {failed ? (
+                      <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-rose-400" />
+                    ) : j.last_run_at ? (
+                      <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
+                    ) : (
+                      <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-zinc-600" />
+                    )}
+                    <span className={`truncate font-mono ${isConsequential ? "text-amber-300" : "text-zinc-300"}`}>{j.job_name}</span>
+                    <span className="ml-auto shrink-0 text-zinc-500">
+                      {j.last_run_at ? new Date(j.last_run_at).toLocaleString() : "never run"}
+                      {j.last_status && ` · ${j.last_status}`}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
 
         {loading ? (
           <p className="mt-8 font-mono text-xs uppercase text-zinc-500">Loading…</p>

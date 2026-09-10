@@ -30,6 +30,8 @@ export default function KillSwitchPanel() {
   const [busy, setBusy] = useState(false);
   const [platformOn, setPlatformOn] = useState(false);
   const [platformBusy, setPlatformBusy] = useState(false);
+  const [sweepsOn, setSweepsOn] = useState(false);
+  const [sweepsBusy, setSweepsBusy] = useState(false);
   const buffer = useRef("");
 
   useEffect(() => {
@@ -94,10 +96,14 @@ export default function KillSwitchPanel() {
     if (!revealed || !user || !isPlatformAdmin) return;
     anyDb
       .from("platform_settings")
-      .select("kill_switch")
+      .select("kill_switch, consequential_sweeps_paused")
       .eq("id", 1)
       .maybeSingle()
-      .then(({ data }: { data: unknown }) => setPlatformOn(Boolean((data as { kill_switch?: boolean } | null)?.kill_switch)));
+      .then(({ data }: { data: unknown }) => {
+        const row = data as { kill_switch?: boolean; consequential_sweeps_paused?: boolean } | null;
+        setPlatformOn(Boolean(row?.kill_switch));
+        setSweepsOn(Boolean(row?.consequential_sweeps_paused));
+      });
   }, [revealed, user, isPlatformAdmin]);
 
   const toggle = useCallback(async () => {
@@ -181,6 +187,43 @@ export default function KillSwitchPanel() {
     }
   }, [platformBusy, platformOn, user, isPlatformAdmin]);
 
+  const toggleSweeps = useCallback(async () => {
+    if (!user || sweepsBusy || !isPlatformAdmin) return;
+    const next = !sweepsOn;
+    setSweepsBusy(true);
+    try {
+      const { error } = await anyDb.from("platform_settings").update({
+        consequential_sweeps_paused: next,
+        consequential_sweeps_paused_reason: next ? `Paused by ${user.email ?? user.id}` : null,
+        consequential_sweeps_paused_at: next ? new Date().toISOString() : null,
+        consequential_sweeps_paused_by: next ? user.id : null,
+      }).eq("id", 1);
+      if (error) throw error;
+      setSweepsOn(next);
+      await anyDb.from("agent_decisions").insert({
+        user_id: user.id,
+        decision: next ? "block" : "allow",
+        reasoning: `Consequential sweeps (control-api-abuse-sweep, outcome-quality-sweep, stuck-approval-sweep) ` +
+          `turned ${next ? "OFF" : "ON"} by ${user.email ?? user.id} -- affects every account's automatic key ` +
+          `pauses/policy downgrades/approval auto-resolutions, not just this one.`,
+        alternatives_considered: [],
+        confidence_score: 100,
+        source: "consequential_sweeps_paused_flip",
+        escalated: true,
+      });
+      toast({
+        title: next ? "Consequential sweeps PAUSED" : "Consequential sweeps resumed",
+        description: next
+          ? "control-api-abuse-sweep, outcome-quality-sweep, and stuck-approval-sweep will skip every run until this is turned off."
+          : "All 3 sweeps will resume taking real action on their next scheduled run.",
+      });
+    } catch (e) {
+      toast({ title: "Could not change the sweeps pause switch", description: (e as Error).message, variant: "destructive" });
+    } finally {
+      setSweepsBusy(false);
+    }
+  }, [sweepsBusy, sweepsOn, user, isPlatformAdmin]);
+
   if (!revealed || !user || (!isOwner && !isPlatformAdmin)) return null;
 
   return (
@@ -249,6 +292,41 @@ export default function KillSwitchPanel() {
           >
             <Power className="h-3.5 w-3.5" />
             {platformOn ? "Disable" : "Activate"}
+          </button>
+        </div>
+      )}
+
+      {isPlatformAdmin && (
+        <div
+          className="flex items-center gap-3 rounded-xl border px-4 py-3"
+          style={{
+            borderColor: sweepsOn ? "#ef444488" : "#f59e0b55",
+            backgroundColor: sweepsOn ? "#ef44440f" : "#f59e0b0f",
+          }}
+        >
+          <ShieldAlert className="h-4 w-4" style={{ color: sweepsOn ? "#ef4444" : "#f59e0b" }} />
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-mono uppercase tracking-wider" style={{ color: sweepsOn ? "#ef4444" : "#f59e0b" }}>
+              Consequential sweeps {sweepsOn ? "PAUSED" : "active"}
+            </p>
+            <p className="text-[11px] text-zinc-500 truncate">
+              {sweepsOn
+                ? "control-api-abuse-sweep, outcome-quality-sweep, stuck-approval-sweep are all skipping every run."
+                : "A narrower stop than the platform kill switch above -- only these 3 sweeps' auto-pauses/downgrades/auto-resolutions."}
+            </p>
+          </div>
+          <button
+            onClick={toggleSweeps}
+            disabled={sweepsBusy}
+            aria-label="Toggle the consequential sweeps pause switch"
+            className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-50"
+            style={{
+              borderColor: sweepsOn ? "#ef444488" : "#f59e0b55",
+              color: sweepsOn ? "#ef4444" : "#f59e0b",
+            }}
+          >
+            <Power className="h-3.5 w-3.5" />
+            {sweepsOn ? "Resume" : "Pause"}
           </button>
         </div>
       )}
