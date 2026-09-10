@@ -18,6 +18,7 @@ import { summarizeKeyActivity, isVolumeAbuse, isBlockRateAbuse, summarizeAbuseRe
 import { isRepeatedPauseTrouble, summarizePolicyDowngrade } from "../_shared/policy-downgrade.ts";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
 import { triggerWebhooks } from "../_shared/webhooks.ts";
+import { areConsequentialSweepsPaused } from "../_shared/consequential-sweep-pause.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -44,6 +45,14 @@ Deno.serve(async (req) => {
   if (authHeader !== `Bearer ${serviceKey}`) return json({ error: "unauthorized" }, 401);
 
   const admin = createClient(Deno.env.get("SUPABASE_URL")!, serviceKey);
+
+  // "Sweep safety & observability" plan, item 4: a dedicated pause switch
+  // for this and the other 2 consequential sweeps -- see consequential-
+  // sweep-pause.ts's own doc comment for why the platform kill switch
+  // doesn't already cover this.
+  if (await areConsequentialSweepsPaused(admin)) {
+    return json({ ok: true, skipped: true, reason: "consequential sweeps are paused" });
+  }
 
   const since = new Date(Date.now() - LOOKBACK_MINUTES * 60 * 1000).toISOString();
   const { data, error } = await admin
@@ -104,6 +113,7 @@ Deno.serve(async (req) => {
           updates.on_uncertain = "human_review";
           updates.on_uncertain_downgraded_at = now.toISOString();
           updates.on_uncertain_downgrade_reason = downgradeSummary;
+          updates.on_uncertain_downgrade_kind = "repeated_pause";
         }
         const { error: updErr } = await admin
           .from("api_keys")

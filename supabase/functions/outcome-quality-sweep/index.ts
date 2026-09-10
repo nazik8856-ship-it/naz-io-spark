@@ -18,6 +18,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isBadOutcomeTrouble, summarizePolicyDowngrade } from "../_shared/policy-downgrade.ts";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
 import { triggerWebhooks } from "../_shared/webhooks.ts";
+import { areConsequentialSweepsPaused } from "../_shared/consequential-sweep-pause.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -40,6 +41,12 @@ Deno.serve(async (req) => {
   if (authHeader !== `Bearer ${serviceKey}`) return json({ error: "unauthorized" }, 401);
 
   const admin = createClient(Deno.env.get("SUPABASE_URL")!, serviceKey);
+
+  // "Sweep safety & observability" plan, item 4 -- see consequential-sweep-
+  // pause.ts's doc comment.
+  if (await areConsequentialSweepsPaused(admin)) {
+    return json({ ok: true, skipped: true, reason: "consequential sweeps are paused" });
+  }
 
   const since = new Date(Date.now() - LOOKBACK_DAYS * 86400_000).toISOString();
   // Same nested-select join pattern calibrate-confidence already uses
@@ -89,6 +96,7 @@ Deno.serve(async (req) => {
         on_uncertain: "human_review",
         on_uncertain_downgraded_at: now,
         on_uncertain_downgrade_reason: summary,
+        on_uncertain_downgrade_kind: "bad_outcomes",
       }).eq("id", apiKeyId);
       if (updErr) { console.error(`[OUTCOME QUALITY SWEEP] failed to downgrade ${apiKeyId}: ${updErr.message}`); continue; }
       downgraded.push(apiKeyId);
