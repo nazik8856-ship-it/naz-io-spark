@@ -6,43 +6,33 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { verifyState, exchangeCode, fetchUserInfo, FIGMA_SCOPES, FIGMA_DEFAULT_GROUPS, scopesForGroups } from "../_shared/figma.ts";
 import { createSecret, updateSecret, readSecret } from "../_shared/integration-secrets.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
+import { oauthCallbackPage } from "../_shared/oauth-callback-page.ts";
 
 // Rate-limits repeated completions against the same account, keyed on the
 // userId verifyState resolves once the signature checks out.
 const RATE_LIMIT_PER_MINUTE = 10;
-
-const html = (title: string, msg: string, ok: boolean) => `<!doctype html>
-<html><head><meta charset="utf-8"><title>${title}</title>
-<style>
-  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;background:#0a0a0a;color:#e5e5e5;
-       display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px;text-align:center}
-  .card{max-width:420px;background:#111;border:1px solid #222;border-radius:12px;padding:28px}
-  h1{margin:0 0 8px;font-size:18px;color:${ok ? "#34d399" : "#f87171"}}
-  p{margin:0;font-size:14px;line-height:1.5;color:#a3a3a3}
-</style></head>
-<body><div class="card"><h1>${title}</h1><p>${msg}</p></div>
-<script>
-try {
-  if (window.opener) {
-    window.opener.postMessage({ source:"nazai-figma-oauth", ok:${ok}, message:${JSON.stringify(msg)} }, "*");
-  }
-} catch(e){}
-setTimeout(function(){ window.close(); }, 1200);
-</script></body></html>`;
 
 Deno.serve(async (req) => {
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
   const errParam = url.searchParams.get("error");
+  // Set once verifyState succeeds below -- the origin captured at OAuth-start
+  // time, used as the redirect-back target if this page has no
+  // window.opener (see oauth-callback-page.ts's own doc comment for why).
+  let redirectOrigin: string | null = null;
   const respond = (title: string, msg: string, ok: boolean, status = 200) =>
-    new Response(html(title, msg, ok), { status, headers: { "Content-Type": "text/html; charset=utf-8" } });
+    new Response(
+      oauthCallbackPage({ title, message: msg, ok, source: "nazai-figma-oauth", redirectOrigin }),
+      { status, headers: { "Content-Type": "text/html; charset=utf-8" } },
+    );
 
   if (errParam) return respond("Figma connection cancelled", errParam, false, 400);
   if (!code || !state) return respond("Invalid callback", "Missing code or state.", false, 400);
 
   const parsed = await verifyState(state);
   if (!parsed) return respond("Invalid state", "OAuth state failed verification. Please try again.", false, 400);
+  redirectOrigin = typeof parsed.o === "string" ? parsed.o : null;
   const userId = parsed.u as string;
   const agentId = (parsed.a as string | null) ?? null;
   const grantedGroups: string[] = Array.isArray(parsed.g) && (parsed.g as unknown[]).length
@@ -130,7 +120,7 @@ Deno.serve(async (req) => {
     if (error) throw new Error(error.message);
     return respond(
       "Figma connected",
-      `Connected as ${info?.handle || info?.email || "Figma account"}. You can close this window.`,
+      `Connected as ${info?.handle || info?.email || "Figma account"}.`,
       true,
     );
   } catch (e) {
