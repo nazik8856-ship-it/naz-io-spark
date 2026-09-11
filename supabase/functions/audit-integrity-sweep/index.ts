@@ -21,7 +21,7 @@
 // 2. A real user JWT — runs the sweep for just that one caller.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
-import { isAuditIntegrityFailure, summarizeAuditIntegrityFailure, isAutoResolutionMismatch, isPrecedentCitationMismatch, isDecisionConsistencyMismatch, isKnowledgeBaseHealthMismatch, isUnjustifiedApiKeyPause, isUnjustifiedBadOutcomeDowngrade, isUnjustifiedRepeatedPauseDowngrade, isUnjustifiedAutoResolvedApproval, type SignatureVerifyResult, type AuditIntegrityResult, type StoredPrecedentCitation, type KnowledgeBaseHealthEntry, type RecentActionShape, type HardRuleBlockShape } from "../_shared/audit-integrity.ts";
+import { isAuditIntegrityFailure, summarizeAuditIntegrityFailure, isAutoResolutionMismatch, isPrecedentCitationMismatch, isDecisionConsistencyMismatch, isKnowledgeBaseHealthMismatch, isUnjustifiedApiKeyPause, isUnjustifiedBadOutcomeDowngrade, isUnjustifiedRepeatedPauseDowngrade, isUnjustifiedAutoResolvedApproval, isStaleIncident, type SignatureVerifyResult, type AuditIntegrityResult, type StoredPrecedentCitation, type KnowledgeBaseHealthEntry, type RecentActionShape, type HardRuleBlockShape } from "../_shared/audit-integrity.ts";
 import { evaluateAction, type PolicySnapshot } from "../_shared/policy-replay.ts";
 import { isNonAllowDecision, ABUSE_LOOKBACK_MINUTES } from "../_shared/control-api-abuse.ts";
 import { loadStoredEmbeddingLiteral, findPrecedent } from "../_shared/precedent-search.ts";
@@ -340,6 +340,31 @@ async function checkConsequentialSweepActions(
   return { checked, unjustified };
 }
 
+// "Incident lifecycle" plan, item 5: a point-in-time check (not a
+// from/to range like the dimensions above -- an incident that opened
+// long before this run's own window is exactly the kind of thing a
+// range-scoped check would never see) for the ultimate backstop: an
+// incident still open/unacknowledged longer than incident-escalation-
+// sweep's own threshold should ever allow.
+async function checkStaleIncidents(
+  admin: ReturnType<typeof createClient>,
+  userId: string,
+  now: Date,
+): Promise<{ checked: number; flagged: number }> {
+  try {
+    const { data: rows } = await admin
+      .from("incidents")
+      .select("status, opened_at")
+      .eq("user_id", userId)
+      .neq("status", "resolved");
+    const incidents = (rows ?? []) as { status: string; opened_at: string }[];
+    const flagged = incidents.filter((i) => isStaleIncident(i.status, i.opened_at, now)).length;
+    return { checked: incidents.length, flagged };
+  } catch {
+    return { checked: 0, flagged: 0 };
+  }
+}
+
 async function sweepOrg(
   admin: ReturnType<typeof createClient>,
   userId: string,
@@ -357,6 +382,7 @@ async function sweepOrg(
   const decisionConsistency = await checkDecisionConsistency(admin, userId, from, to);
   const knowledgeBaseHealth = await checkKnowledgeBaseHealth(admin, userId);
   const consequentialSweepActions = await checkConsequentialSweepActions(admin, userId, from, to);
+  const staleIncidents = await checkStaleIncidents(admin, userId, new Date(to));
   const result: AuditIntegrityResult = {
     ...signatureResult,
     auto_resolutions_checked: autoResolutions.checked,
@@ -369,6 +395,8 @@ async function sweepOrg(
     knowledge_base_mismatched: knowledgeBaseHealth.mismatched,
     consequential_sweep_actions_checked: consequentialSweepActions.checked,
     consequential_sweep_actions_unjustified: consequentialSweepActions.unjustified,
+    stale_incidents_checked: staleIncidents.checked,
+    stale_incidents_flagged: staleIncidents.flagged,
   };
 
   await admin.from("audit_integrity_runs").insert({
@@ -388,6 +416,8 @@ async function sweepOrg(
     knowledge_base_mismatched: result.knowledge_base_mismatched,
     consequential_sweep_actions_checked: result.consequential_sweep_actions_checked,
     consequential_sweep_actions_unjustified: result.consequential_sweep_actions_unjustified,
+    stale_incidents_checked: result.stale_incidents_checked,
+    stale_incidents_flagged: result.stale_incidents_flagged,
     range_from: from,
     range_to: to,
   });
