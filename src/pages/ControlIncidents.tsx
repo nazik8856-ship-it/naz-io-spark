@@ -9,6 +9,7 @@ import { friendlyErrorMessage } from "@/lib/friendly-errors";
 import { toast } from "@/hooks/use-toast";
 import { filterBySearch } from "@/lib/search-filter";
 import { actorName, buildActorNameMap } from "@/lib/actor-names";
+import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
 
 // Kept in sync with _shared/incidents.ts's INCIDENT_KINDS by hand -- a
 // missing entry here is only ever a silent `undefined` label at render
@@ -140,7 +141,8 @@ export default function ControlIncidents() {
     setBusy(null);
     const res = (data ?? {}) as { ok?: boolean; already_resolved?: boolean };
     if (error && !res.ok) {
-      toast({ title: "Couldn't resolve it", description: friendlyErrorMessage(error.message), variant: "destructive" });
+      const detail = (await extractFunctionErrorMessage(error)) ?? friendlyErrorMessage(error.message);
+      toast({ title: "Couldn't resolve it", description: detail, variant: "destructive" });
       return;
     }
     toast({ title: res.already_resolved ? "Already resolved" : "Resolved", description: incident.summary.slice(0, 120) });
@@ -154,7 +156,8 @@ export default function ControlIncidents() {
     setBusy(null);
     const res = (data ?? {}) as { ok?: boolean };
     if (error && !res.ok) {
-      toast({ title: "Couldn't acknowledge it", description: friendlyErrorMessage(error.message), variant: "destructive" });
+      const detail = (await extractFunctionErrorMessage(error)) ?? friendlyErrorMessage(error.message);
+      toast({ title: "Couldn't acknowledge it", description: detail, variant: "destructive" });
       return;
     }
     toast({ title: "Acknowledged", description: incident.summary.slice(0, 120) });
@@ -171,7 +174,8 @@ export default function ControlIncidents() {
     setBusy(null);
     const res = (data ?? {}) as { ok?: boolean };
     if (error && !res.ok) {
-      toast({ title: "Couldn't update the assignment", description: friendlyErrorMessage(error.message), variant: "destructive" });
+      const detail = (await extractFunctionErrorMessage(error)) ?? friendlyErrorMessage(error.message);
+      toast({ title: "Couldn't update the assignment", description: detail, variant: "destructive" });
       return;
     }
     toast({ title: assigneeId ? "Assigned" : "Unassigned", description: incident.summary.slice(0, 120) });
