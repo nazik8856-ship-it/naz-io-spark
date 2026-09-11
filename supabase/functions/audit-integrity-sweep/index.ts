@@ -449,10 +449,22 @@ Deno.serve(async (req) => {
   const isServiceRole = authHeader === `Bearer ${serviceKey}`;
   if (isServiceRole) {
     // Scheduled entry point: sweep every org with at least one decision in
-    // the lookback window.
-    const { data: rows, error } = await admin.rpc("get_recent_decision_user_ids", { _since: from });
+    // the lookback window, UNION every org with a still-open/acknowledged
+    // incident regardless of recent decision volume. Without the union,
+    // checkStaleIncidents() (this dimension's whole point is catching what
+    // incident-escalation-sweep itself might have missed) would never even
+    // run for an account whose decisions have stopped entirely -- exactly
+    // the account most likely to have a neglected incident sitting on it.
+    const [{ data: rows, error }, { data: incidentRows, error: incidentErr }] = await Promise.all([
+      admin.rpc("get_recent_decision_user_ids", { _since: from }),
+      admin.from("incidents").select("user_id").neq("status", "resolved"),
+    ]);
     if (error) return json({ error: error.message }, 500);
-    const userIds = ((rows ?? []) as { user_id: string }[]).map((r) => r.user_id);
+    if (incidentErr) return json({ error: incidentErr.message }, 500);
+    const userIds = [...new Set([
+      ...((rows ?? []) as { user_id: string }[]).map((r) => r.user_id),
+      ...((incidentRows ?? []) as { user_id: string }[]).map((r) => r.user_id),
+    ])];
 
     const outcomes = [];
     for (const userId of userIds) {

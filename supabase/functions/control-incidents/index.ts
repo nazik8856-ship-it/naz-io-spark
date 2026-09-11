@@ -152,10 +152,12 @@ Deno.serve(async (req) => {
     if (row.status === "resolved") {
       return json({ ok: true, already_resolved: true, id: incidentId });
     }
-    // A related incident must be real and belong to the same account --
-    // otherwise this becomes a way to leak whether an arbitrary uuid
-    // exists, or to link across accounts.
+    // A related incident must be real, belong to the same account, and not
+    // be the incident itself -- otherwise this becomes a way to leak
+    // whether an arbitrary uuid exists, link across accounts, or record an
+    // incident as its own cause.
     if (relatedIncidentId) {
+      if (relatedIncidentId === incidentId) return json({ error: "an incident cannot be related to itself" }, 400);
       const { data: relatedRow } = await admin.from("incidents").select("id").eq("id", relatedIncidentId).eq("user_id", row.user_id!).maybeSingle();
       if (!relatedRow) return json({ error: "invalid_related_incident_id" }, 400);
     }
@@ -171,7 +173,14 @@ Deno.serve(async (req) => {
       .select("id").maybeSingle();
     if (error) return json({ error: error.message }, 500);
     if (updated) {
-      await triggerWebhooks(admin, userId, "incident_resolved", {
+      // Must be row.user_id (the incident's own account owner), not the
+      // calling userId -- a team member resolving on someone else's
+      // account must never fire webhooks configured on the team member's
+      // own separate account. Found during review: this line used to read
+      // `userId` (pre-dating acknowledge/assign, which already got this
+      // right), a real cross-tenant leak if that team member happens to
+      // have their own webhooks configured elsewhere.
+      await triggerWebhooks(admin, row.user_id!, "incident_resolved", {
         incident_id: incidentId, kind: row.kind, action_type: row.action_type, provider: row.provider, note: note || null,
         root_cause_category: rootCauseCategory, related_incident_id: relatedIncidentId,
       });
