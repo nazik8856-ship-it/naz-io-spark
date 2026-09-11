@@ -56,6 +56,15 @@ export const WEBHOOK_EVENTS = [
   // a human right when it happens, instead of only discovering the gap
   // later by polling.
   "response_grounding_failed",
+  // "Incident lifecycle" plan, items 1/2/3: found during review -- these
+  // three were already being passed to triggerWebhooks() from
+  // control-incidents/index.ts and incident-escalation-sweep/index.ts
+  // (acknowledge, assign, and the escalation sweep) but were never added
+  // to this canonical list, so they fell outside the WebhookEvent type
+  // entirely and no webhook could ever be configured to receive them.
+  "incident_acknowledged",
+  "incident_assigned",
+  "incident_escalated",
 ] as const;
 export type WebhookEvent = typeof WEBHOOK_EVENTS[number];
 
