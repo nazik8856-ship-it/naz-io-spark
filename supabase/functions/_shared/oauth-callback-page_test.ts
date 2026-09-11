@@ -13,14 +13,14 @@ function assertEquals<T>(actual: T, expected: T, msg?: string): void {
   assert(actual === expected, msg ?? `expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
 }
 
-Deno.test("isAllowedRedirectOrigin: every real origin this project is deployed to is allowed", () => {
-  // Mirrors supabase/config.toml's [auth].additional_redirect_urls exactly --
-  // missing any of these would silently redirect a real user or reviewer to
-  // the wrong domain instead of back to where they actually started.
+Deno.test("isAllowedRedirectOrigin: the real production and Vercel origins are allowed", () => {
   assert(isAllowedRedirectOrigin("https://nazai.net"));
   assert(isAllowedRedirectOrigin("https://www.nazai.net"));
   assert(isAllowedRedirectOrigin("https://naz-io.vercel.app"));
-  assert(isAllowedRedirectOrigin("https://naz-io-spark.lovable.app"));
+});
+
+Deno.test("isAllowedRedirectOrigin: the Lovable preview domain is deliberately not a redirect target", () => {
+  assertFalse(isAllowedRedirectOrigin("https://naz-io-spark.lovable.app"));
 });
 
 Deno.test("isAllowedRedirectOrigin: localhost (any port) is allowed for local dev", () => {
