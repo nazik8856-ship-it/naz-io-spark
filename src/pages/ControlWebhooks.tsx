@@ -6,7 +6,14 @@ import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { hasPermission } from "@/lib/account-switcher";
 import { toast } from "@/hooks/use-toast";
 
-const EVENTS = ["approval_created", "approval_escalated", "incident_opened", "incident_resolved", "decision_logged"] as const;
+const EVENTS = [
+  "approval_created", "approval_escalated", "incident_opened", "incident_resolved", "decision_logged",
+  // Found during an "incident lifecycle" front review: these three were
+  // already firing from the backend (acknowledge, assign, and the
+  // escalation sweep) but were missing here, so no webhook could ever be
+  // configured to receive them.
+  "incident_acknowledged", "incident_assigned", "incident_escalated",
+] as const;
 
 type WebhookRow = {
   id: string;
