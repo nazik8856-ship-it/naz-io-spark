@@ -16,7 +16,19 @@
 // would be a textbook open-redirect vector (the origin is client-supplied
 // at OAuth-start time and nothing upstream of this file validates it).
 
-const KNOWN_APP_ORIGINS = ["https://nazai.net", "https://www.nazai.net"];
+// Keep in sync with supabase/config.toml's [auth].additional_redirect_urls --
+// that list is this project's own authoritative record of every real origin
+// it's actually deployed to (production custom domain, Vercel, Lovable
+// preview). Found missing two of the four during a correctness review: this
+// list originally had only the custom domain, so a user or reviewer
+// starting the OAuth flow from the Vercel or Lovable preview would have hit
+// the no-opener fallback and been redirected to the WRONG domain entirely.
+const KNOWN_APP_ORIGINS = [
+  "https://nazai.net",
+  "https://www.nazai.net",
+  "https://naz-io.vercel.app",
+  "https://naz-io-spark.lovable.app",
+];
 
 /** Pure -- is this a real, known origin of ours (or localhost, for local dev)? */
 export function isAllowedRedirectOrigin(origin: string | null | undefined): boolean {
