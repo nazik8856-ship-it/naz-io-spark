@@ -62,6 +62,23 @@ export function isIncidentWorthy(event: CriticalAlertEvent): event is IncidentKi
   return (INCIDENT_KINDS as readonly string[]).includes(event);
 }
 
+// "Incident lifecycle" plan, item 4: a small, fixed vocabulary for a
+// resolved incident's root cause -- never free text, which would just be
+// another summary field nobody can aggregate or report on.
+export const ROOT_CAUSE_CATEGORIES = [
+  "transient_infra",
+  "configuration_error",
+  "external_provider_outage",
+  "software_bug",
+  "expected_behavior_misclassified",
+  "other",
+] as const;
+export type RootCauseCategory = typeof ROOT_CAUSE_CATEGORIES[number];
+
+export function isValidRootCauseCategory(value: unknown): value is RootCauseCategory {
+  return typeof value === "string" && (ROOT_CAUSE_CATEGORIES as readonly string[]).includes(value);
+}
+
 /** Best-effort: opens a new incident row for an incident-worthy alert. Never throws. */
 export async function openIncident(
   admin: SupabaseClient,
