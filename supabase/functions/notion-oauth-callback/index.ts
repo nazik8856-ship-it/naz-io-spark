@@ -8,38 +8,27 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { exchangeCode } from "../_shared/notion.ts";
 import { createSecret, updateSecret } from "../_shared/integration-secrets.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
+import { oauthCallbackPage } from "../_shared/oauth-callback-page.ts";
 
 // Confirmed zero rate-limit coverage. Public/unauthenticated endpoint, so
 // there's no real userId to key on until AFTER the one-time transaction is
 // consumed below.
 const RATE_LIMIT_PER_MINUTE = 10;
 
-const html = (title: string, msg: string, ok: boolean, workspace?: string) => `<!doctype html>
-<html><head><meta charset="utf-8"><title>${title}</title>
-<style>
-  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;background:#0a0a0a;color:#e5e5e5;
-       display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px;text-align:center}
-  .card{max-width:420px;background:#111;border:1px solid #222;border-radius:12px;padding:28px}
-  h1{margin:0 0 8px;font-size:18px;color:${ok ? "#34d399" : "#f87171"}}
-  p{margin:0;font-size:14px;line-height:1.5;color:#a3a3a3}
-</style></head>
-<body><div class="card"><h1>${title}</h1><p>${msg}</p></div>
-<script>
-try {
-  if (window.opener) {
-    window.opener.postMessage({ source:"nazai-notion-oauth", ok:${ok}, workspace:${JSON.stringify(workspace || "")}, message:${JSON.stringify(msg)} }, "*");
-  }
-} catch(e){}
-setTimeout(function(){ window.close(); }, 120);
-</script></body></html>`;
-
 Deno.serve(async (req) => {
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
   const errParam = url.searchParams.get("error");
+  // Set once the transaction is consumed below -- the origin captured at
+  // OAuth-start time, used as the redirect-back target if this page has no
+  // window.opener (see oauth-callback-page.ts's own doc comment for why).
+  let redirectOrigin: string | null = null;
   const respond = (title: string, msg: string, ok: boolean, workspace?: string, status = 200) =>
-    new Response(html(title, msg, ok, workspace), { status, headers: { "Content-Type": "text/html; charset=utf-8" } });
+    new Response(
+      oauthCallbackPage({ title, message: msg, ok, source: "nazai-notion-oauth", redirectOrigin, extra: { workspace: workspace || "" } }),
+      { status, headers: { "Content-Type": "text/html; charset=utf-8" } },
+    );
 
   if (errParam) return respond("Notion connection cancelled", errParam, false, undefined, 400);
   if (!code || !state) return respond("Invalid callback", "Missing code or state.", false, undefined, 400);
@@ -54,6 +43,7 @@ Deno.serve(async (req) => {
     if (txErr || !tx) {
       return respond("Invalid state", "OAuth state is invalid, expired, or already used. Please try again.", false, undefined, 400);
     }
+    redirectOrigin = typeof tx.request_origin === "string" ? tx.request_origin : null;
     const userId = tx.user_id as string;
 
     const rate = await checkRateLimit(admin, userId, "notion-oauth-callback", RATE_LIMIT_PER_MINUTE, 60);
@@ -122,7 +112,7 @@ Deno.serve(async (req) => {
 
     return respond(
       "Notion connected",
-      `Connected to ${workspaceName}. You can close this window.`,
+      `Connected to ${workspaceName}.`,
       true,
       workspaceId,
       200,
