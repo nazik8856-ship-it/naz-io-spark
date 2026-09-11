@@ -73,7 +73,14 @@ export type CriticalAlertEvent =
   // cluster has grown past a real threshold with nothing ever added to
   // cover it, and nothing about any one occurrence looks wrong on its
   // own to notice.
-  | "content_gap_backlog_stale";
+  | "content_gap_backlog_stale"
+  // "Incident lifecycle" plan, item 3: an incident itself has sat open
+  // and unacknowledged too long. Deliberately NOT added to INCIDENT_KINDS
+  // -- this event is a re-notification ABOUT an existing incident, not a
+  // new thing having gone wrong, so it must never auto-open a second
+  // incident for the same underlying problem (see sendCriticalAlert's own
+  // doc comment on that exact duplicate-incident bug class).
+  | "incident_stale_unacknowledged";
 
 const APP_BASE_URL = "https://www.nazai.net";
 
@@ -104,6 +111,7 @@ export const LABELS: Record<CriticalAlertEvent, string> = {
   control_api_coordinated_abuse: "🚩 Unusual activity spread across multiple Control API keys",
   on_uncertain_auto_downgraded: "🛑 An API key's auto-resolve policy was automatically pulled back to human review",
   content_gap_backlog_stale: "📚 A recurring unanswered question is piling up in an API key's content gaps",
+  incident_stale_unacknowledged: "⏳ An incident has been open too long with no acknowledgment",
 };
 
 export function decisionLink(decisionId?: string | null): string | null {

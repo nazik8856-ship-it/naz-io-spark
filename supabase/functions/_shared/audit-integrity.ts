@@ -78,7 +78,20 @@ export type ConsequentialSweepAuditFields = {
   consequential_sweep_actions_unjustified?: number;
 };
 
-export type AuditIntegrityResult = SignatureVerifyResult & AutoResolutionAuditFields & PrecedentCitationAuditFields & DecisionConsistencyAuditFields & KnowledgeBaseHealthAuditFields & ConsequentialSweepAuditFields;
+// "Incident lifecycle" plan, item 5: extends this same sweep to ALSO catch
+// an incident that's been sitting open/unacknowledged even LONGER than
+// incident-escalation-sweep's own threshold -- the ultimate backstop for
+// the exact scenario this codebase keeps building safety nets for
+// elsewhere (a sweep that's supposed to catch something quietly failing
+// to run at all). A materially longer window than
+// INCIDENT_ESCALATION_HOURS (a real "this got dropped," not a duplicate
+// of the 30-minute sweep's own job).
+export type StaleIncidentAuditFields = {
+  stale_incidents_checked?: number;
+  stale_incidents_flagged?: number;
+};
+
+export type AuditIntegrityResult = SignatureVerifyResult & AutoResolutionAuditFields & PrecedentCitationAuditFields & DecisionConsistencyAuditFields & KnowledgeBaseHealthAuditFields & ConsequentialSweepAuditFields & StaleIncidentAuditFields;
 
 export type StoredPrecedentCitation = {
   reason: string;
@@ -265,6 +278,20 @@ export function isUnjustifiedAutoResolvedApproval(createdAtIso: string, resolved
   return !isStuckPastMaxWait(createdAtIso, new Date(resolvedAtIso));
 }
 
+// "Incident lifecycle" plan, item 5: a materially longer backstop window
+// than incident-escalation-sweep's own INCIDENT_ESCALATION_HOURS (4h) --
+// this dimension exists specifically to catch what THAT sweep itself
+// might have missed (never ran, threw, or otherwise silently stopped
+// firing), not to duplicate its job at the same cadence.
+export const STALE_INCIDENT_DAYS = 3;
+
+/** Pure -- has this incident sat unresolved for longer than a real backstop threshold should ever allow, whatever its current status? */
+export function isStaleIncident(status: string, openedAtIso: string, now: Date = new Date()): boolean {
+  if (status === "resolved") return false;
+  const daysOpen = (now.getTime() - new Date(openedAtIso).getTime()) / (1000 * 60 * 60 * 24);
+  return daysOpen >= STALE_INCIDENT_DAYS;
+}
+
 /**
  * A sweep is a failure worth alerting on if ANY signature didn't match
  * what was actually signed at creation (the audit trail may have been
@@ -276,7 +303,8 @@ export function isUnjustifiedAutoResolvedApproval(createdAtIso: string, resolved
 export function isAuditIntegrityFailure(r: AuditIntegrityResult): boolean {
   return r.mismatched_count > 0 || r.unsigned > 0 || (r.auto_resolutions_mismatched ?? 0) > 0 ||
     (r.precedent_citations_mismatched ?? 0) > 0 || (r.decision_consistency_mismatched ?? 0) > 0 ||
-    (r.knowledge_base_mismatched ?? 0) > 0 || (r.consequential_sweep_actions_unjustified ?? 0) > 0;
+    (r.knowledge_base_mismatched ?? 0) > 0 || (r.consequential_sweep_actions_unjustified ?? 0) > 0 ||
+    (r.stale_incidents_flagged ?? 0) > 0;
 }
 
 export function summarizeAuditIntegrityFailure(r: AuditIntegrityResult): string {
@@ -320,6 +348,13 @@ export function summarizeAuditIntegrityFailure(r: AuditIntegrityResult): string 
       `${r.consequential_sweep_actions_unjustified} of ${r.consequential_sweep_actions_checked ?? 0} auto-action(s) taken by ` +
       `the 3 consequential sweeps (key pauses, on_uncertain downgrades, stuck-approval auto-resolutions) do NOT hold up under ` +
       `re-derivation against the same thresholds those sweeps themselves enforce -- worth a human's review.`,
+    );
+  }
+  if ((r.stale_incidents_flagged ?? 0) > 0) {
+    parts.push(
+      `${r.stale_incidents_flagged} of ${r.stale_incidents_checked ?? 0} incident(s) have sat open or unacknowledged for ` +
+      `${STALE_INCIDENT_DAYS}+ days -- either incident-escalation-sweep itself missed them, or nobody has acted on the ` +
+      `escalation it already sent.`,
     );
   }
   return parts.join(" ");

@@ -5,6 +5,7 @@ import {
   isAuditIntegrityFailure, summarizeAuditIntegrityFailure, isAutoResolutionMismatch, isPrecedentCitationMismatch, isDecisionConsistencyMismatch,
   isStaleKnowledgeBaseEntry, isUnreachableKnowledgeBaseEntry, isKnowledgeBaseHealthMismatch,
   isUnjustifiedApiKeyPause, isUnjustifiedBadOutcomeDowngrade, isUnjustifiedRepeatedPauseDowngrade, isUnjustifiedAutoResolvedApproval,
+  isStaleIncident, STALE_INCIDENT_DAYS,
   type SignatureVerifyResult, type StoredPrecedentCitation, type KnowledgeBaseHealthEntry, type RecentActionShape, type HardRuleBlockShape,
 } from "./audit-integrity.ts";
 
@@ -323,4 +324,35 @@ Deno.test("summarizeAuditIntegrityFailure: calls out a knowledge-base mismatch d
   const summary = summarizeAuditIntegrityFailure({ ...clean, knowledge_base_checked: 5, knowledge_base_mismatched: 2 });
   assert(summary.includes("2 of 5 knowledge-base"));
   assert(summary.toLowerCase().includes("stale"));
+});
+
+// ---- "Incident lifecycle" plan, item 5 ----
+
+Deno.test("isStaleIncident: a resolved incident is never stale, however old", () => {
+  const old = new Date(Date.now() - (STALE_INCIDENT_DAYS + 10) * 86_400_000).toISOString();
+  assertFalse(isStaleIncident("resolved", old));
+});
+
+Deno.test("isStaleIncident: an open incident younger than the threshold is not stale", () => {
+  const recent = new Date(Date.now() - 1 * 86_400_000).toISOString();
+  assertFalse(isStaleIncident("open", recent));
+});
+
+Deno.test("isStaleIncident: an open incident past the threshold is stale", () => {
+  const old = new Date(Date.now() - (STALE_INCIDENT_DAYS + 1) * 86_400_000).toISOString();
+  assert(isStaleIncident("open", old));
+});
+
+Deno.test("isStaleIncident: an acknowledged incident past the threshold is ALSO stale -- being acknowledged doesn't excuse it forever", () => {
+  const old = new Date(Date.now() - (STALE_INCIDENT_DAYS + 1) * 86_400_000).toISOString();
+  assert(isStaleIncident("acknowledged", old));
+});
+
+Deno.test("isAuditIntegrityFailure: any stale-incident flag is a failure, even with clean signatures", () => {
+  assert(isAuditIntegrityFailure({ ...clean, stale_incidents_checked: 3, stale_incidents_flagged: 1 }));
+});
+
+Deno.test("summarizeAuditIntegrityFailure: calls out stale incidents distinctly, with both counts", () => {
+  const summary = summarizeAuditIntegrityFailure({ ...clean, stale_incidents_checked: 4, stale_incidents_flagged: 1 });
+  assert(summary.includes("1 of 4 incident"));
 });
