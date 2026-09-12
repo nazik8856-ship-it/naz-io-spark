@@ -89,6 +89,11 @@ export type ConsequentialSweepAuditFields = {
 export type StaleIncidentAuditFields = {
   stale_incidents_checked?: number;
   stale_incidents_flagged?: number;
+  // The account's own configured threshold (incident_thresholds.stale_days),
+  // if it has one -- surfaced so the human-readable summary below reports
+  // the real number that was actually enforced, not always the hardcoded
+  // default.
+  stale_incident_days_used?: number;
 };
 
 export type AuditIntegrityResult = SignatureVerifyResult & AutoResolutionAuditFields & PrecedentCitationAuditFields & DecisionConsistencyAuditFields & KnowledgeBaseHealthAuditFields & ConsequentialSweepAuditFields & StaleIncidentAuditFields;
@@ -285,11 +290,22 @@ export function isUnjustifiedAutoResolvedApproval(createdAtIso: string, resolved
 // firing), not to duplicate its job at the same cadence.
 export const STALE_INCIDENT_DAYS = 3;
 
-/** Pure -- has this incident sat unresolved for longer than a real backstop threshold should ever allow, whatever its current status? */
-export function isStaleIncident(status: string, openedAtIso: string, now: Date = new Date()): boolean {
+/**
+ * Pure -- has this incident sat unresolved for longer than a real backstop
+ * threshold should ever allow, whatever its current status? `staleDays`
+ * defaults to the flat constant above -- pass the account's own
+ * incident_thresholds row once one exists (see checkStaleIncidents's caller
+ * in audit-integrity-sweep/index.ts).
+ */
+export function isStaleIncident(
+  status: string,
+  openedAtIso: string,
+  now: Date = new Date(),
+  staleDays: number = STALE_INCIDENT_DAYS,
+): boolean {
   if (status === "resolved") return false;
   const daysOpen = (now.getTime() - new Date(openedAtIso).getTime()) / (1000 * 60 * 60 * 24);
-  return daysOpen >= STALE_INCIDENT_DAYS;
+  return daysOpen >= staleDays;
 }
 
 /**
@@ -353,8 +369,8 @@ export function summarizeAuditIntegrityFailure(r: AuditIntegrityResult): string 
   if ((r.stale_incidents_flagged ?? 0) > 0) {
     parts.push(
       `${r.stale_incidents_flagged} of ${r.stale_incidents_checked ?? 0} incident(s) have sat open or unacknowledged for ` +
-      `${STALE_INCIDENT_DAYS}+ days -- either incident-escalation-sweep itself missed them, or nobody has acted on the ` +
-      `escalation it already sent.`,
+      `${r.stale_incident_days_used ?? STALE_INCIDENT_DAYS}+ days -- either incident-escalation-sweep itself missed them, ` +
+      `or nobody has acted on the escalation it already sent.`,
     );
   }
   return parts.join(" ");

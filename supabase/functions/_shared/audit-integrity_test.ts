@@ -348,6 +348,12 @@ Deno.test("isStaleIncident: an acknowledged incident past the threshold is ALSO 
   assert(isStaleIncident("acknowledged", old));
 });
 
+Deno.test("isStaleIncident: a custom per-account threshold overrides the default", () => {
+  const old = new Date(Date.now() - 2 * 86_400_000).toISOString();
+  assertFalse(isStaleIncident("open", old, new Date(), STALE_INCIDENT_DAYS));
+  assert(isStaleIncident("open", old, new Date(), 1));
+});
+
 Deno.test("isAuditIntegrityFailure: any stale-incident flag is a failure, even with clean signatures", () => {
   assert(isAuditIntegrityFailure({ ...clean, stale_incidents_checked: 3, stale_incidents_flagged: 1 }));
 });

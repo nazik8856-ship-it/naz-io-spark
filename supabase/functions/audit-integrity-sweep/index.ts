@@ -21,7 +21,7 @@
 // 2. A real user JWT — runs the sweep for just that one caller.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
-import { isAuditIntegrityFailure, summarizeAuditIntegrityFailure, isAutoResolutionMismatch, isPrecedentCitationMismatch, isDecisionConsistencyMismatch, isKnowledgeBaseHealthMismatch, isUnjustifiedApiKeyPause, isUnjustifiedBadOutcomeDowngrade, isUnjustifiedRepeatedPauseDowngrade, isUnjustifiedAutoResolvedApproval, isStaleIncident, type SignatureVerifyResult, type AuditIntegrityResult, type StoredPrecedentCitation, type KnowledgeBaseHealthEntry, type RecentActionShape, type HardRuleBlockShape } from "../_shared/audit-integrity.ts";
+import { isAuditIntegrityFailure, summarizeAuditIntegrityFailure, isAutoResolutionMismatch, isPrecedentCitationMismatch, isDecisionConsistencyMismatch, isKnowledgeBaseHealthMismatch, isUnjustifiedApiKeyPause, isUnjustifiedBadOutcomeDowngrade, isUnjustifiedRepeatedPauseDowngrade, isUnjustifiedAutoResolvedApproval, isStaleIncident, STALE_INCIDENT_DAYS, type SignatureVerifyResult, type AuditIntegrityResult, type StoredPrecedentCitation, type KnowledgeBaseHealthEntry, type RecentActionShape, type HardRuleBlockShape } from "../_shared/audit-integrity.ts";
 import { evaluateAction, type PolicySnapshot } from "../_shared/policy-replay.ts";
 import { isNonAllowDecision, ABUSE_LOOKBACK_MINUTES } from "../_shared/control-api-abuse.ts";
 import { loadStoredEmbeddingLiteral, findPrecedent } from "../_shared/precedent-search.ts";
@@ -350,18 +350,18 @@ async function checkStaleIncidents(
   admin: ReturnType<typeof createClient>,
   userId: string,
   now: Date,
-): Promise<{ checked: number; flagged: number }> {
+): Promise<{ checked: number; flagged: number; staleDays: number }> {
   try {
-    const { data: rows } = await admin
-      .from("incidents")
-      .select("status, opened_at")
-      .eq("user_id", userId)
-      .neq("status", "resolved");
+    const [{ data: rows }, { data: threshold }] = await Promise.all([
+      admin.from("incidents").select("status, opened_at").eq("user_id", userId).neq("status", "resolved"),
+      admin.from("incident_thresholds").select("stale_days").eq("user_id", userId).maybeSingle(),
+    ]);
+    const staleDays = (threshold as { stale_days?: number } | null)?.stale_days ?? STALE_INCIDENT_DAYS;
     const incidents = (rows ?? []) as { status: string; opened_at: string }[];
-    const flagged = incidents.filter((i) => isStaleIncident(i.status, i.opened_at, now)).length;
-    return { checked: incidents.length, flagged };
+    const flagged = incidents.filter((i) => isStaleIncident(i.status, i.opened_at, now, staleDays)).length;
+    return { checked: incidents.length, flagged, staleDays };
   } catch {
-    return { checked: 0, flagged: 0 };
+    return { checked: 0, flagged: 0, staleDays: STALE_INCIDENT_DAYS };
   }
 }
 
@@ -397,6 +397,7 @@ async function sweepOrg(
     consequential_sweep_actions_unjustified: consequentialSweepActions.unjustified,
     stale_incidents_checked: staleIncidents.checked,
     stale_incidents_flagged: staleIncidents.flagged,
+    stale_incident_days_used: staleIncidents.staleDays,
   };
 
   await admin.from("audit_integrity_runs").insert({

@@ -32,3 +32,9 @@ Deno.test("isIncidentOverdueForEscalation: a resolved incident is never escalate
 Deno.test("isIncidentOverdueForEscalation: already escalated once is never escalated again", () => {
   assertFalse(isIncidentOverdueForEscalation({ status: "open", opened_at: hoursAgo(100), escalation_alerted_at: hoursAgo(1) }, now));
 });
+
+Deno.test("isIncidentOverdueForEscalation: a custom per-account threshold overrides the default", () => {
+  const row = { status: "open", opened_at: hoursAgo(2), escalation_alerted_at: null };
+  assertFalse(isIncidentOverdueForEscalation(row, now, INCIDENT_ESCALATION_HOURS));
+  assert(isIncidentOverdueForEscalation(row, now, 1));
+});
