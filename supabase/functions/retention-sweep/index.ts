@@ -39,6 +39,20 @@
 // completely independent of any account's retention_days setting, so
 // looping per-profile to purge it would be both wrong and wasteful.
 //
+// "10 tasks" plan, item 201 (a review, not a new feature -- found while
+// checking this sweep against the incident-lifecycle columns added
+// 2026-09-11): the incidents delete below used to measure its cutoff
+// from opened_at, the exact same bug the api_keys comment right below
+// this one already explains and fixes for revoked_at -- an incident's
+// age says nothing about how settled it is. An incident that sat open
+// for months (nothing here force-resolves one; the self-audit sweep
+// only flags it as stale, it doesn't act) and was finally resolved
+// yesterday would already be past a short retention window measured
+// from opened_at, and get swept almost immediately after resolution.
+// Fixed to measure from resolved_at instead, which the resolve
+// endpoint (control-incidents/index.ts) always sets atomically with
+// status = 'resolved', so it's never null on a row this filter matches.
+//
 // Integration round (item, 2026-09-09): a REVOKED api_keys row is the
 // same shape too -- ControlApiKeys.tsx has kept every revoked key
 // forever, visible in the UI only as a "Revoked" badge with nothing else
@@ -117,7 +131,7 @@ Deno.serve(async (req) => {
       const [decisions, events, incidents, alerts, deliveries, approvals, changes, watchObs, responseGenerations, revokedKeys] = await Promise.all([
         admin.from("agent_decisions").delete().eq("user_id", p.id).lt("created_at", cutoff).select("id"),
         admin.from("agent_events").delete().eq("user_id", p.id).lt("created_at", cutoff).select("id"),
-        admin.from("incidents").delete().eq("user_id", p.id).eq("status", "resolved").lt("opened_at", cutoff).select("id"),
+        admin.from("incidents").delete().eq("user_id", p.id).eq("status", "resolved").lt("resolved_at", cutoff).select("id"),
         admin.from("critical_alerts").delete().eq("user_id", p.id).lt("created_at", cutoff).select("id"),
         admin.from("webhook_deliveries").delete().eq("user_id", p.id).lt("created_at", cutoff).select("id"),
         admin.from("pending_approvals").delete().eq("user_id", p.id).neq("status", "pending").lt("created_at", cutoff).select("id"),
