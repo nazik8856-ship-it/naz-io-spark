@@ -918,6 +918,97 @@ export type Database = {
           },
         ]
       }
+      api_key_context_entries: {
+        Row: {
+          api_key_id: string
+          created_at: string
+          embedding: string | null
+          enabled: boolean
+          entry_text: string
+          id: string
+          last_used_at: string | null
+          use_count: number
+          user_id: string
+        }
+        Insert: {
+          api_key_id: string
+          created_at?: string
+          embedding?: string | null
+          enabled?: boolean
+          entry_text: string
+          id?: string
+          last_used_at?: string | null
+          use_count?: number
+          user_id: string
+        }
+        Update: {
+          api_key_id?: string
+          created_at?: string
+          embedding?: string | null
+          enabled?: boolean
+          entry_text?: string
+          id?: string
+          last_used_at?: string | null
+          use_count?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "api_key_context_entries_api_key_id_fkey"
+            columns: ["api_key_id"]
+            isOneToOne: false
+            referencedRelation: "api_keys"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      api_key_response_rules: {
+        Row: {
+          answer_text: string
+          api_key_id: string
+          created_at: string
+          enabled: boolean
+          id: string
+          last_used_at: string | null
+          match_type: string
+          trigger_phrase: string
+          use_count: number
+          user_id: string
+        }
+        Insert: {
+          answer_text: string
+          api_key_id: string
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          last_used_at?: string | null
+          match_type?: string
+          trigger_phrase: string
+          use_count?: number
+          user_id: string
+        }
+        Update: {
+          answer_text?: string
+          api_key_id?: string
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          last_used_at?: string | null
+          match_type?: string
+          trigger_phrase?: string
+          use_count?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "api_key_response_rules_api_key_id_fkey"
+            columns: ["api_key_id"]
+            isOneToOne: false
+            referencedRelation: "api_keys"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       api_key_shadow_observations: {
         Row: {
           action_type: string
@@ -974,9 +1065,11 @@ export type Database = {
           callback_secret: string | null
           callback_timeout_seconds: number
           callback_url: string | null
+          content_gap_backlog_alerted_at: string | null
           created_at: string
           embedding_pipeline_alerted_at: string | null
           expires_at: string | null
+          fallback_message: string | null
           id: string
           is_test: boolean
           key_hash: string
@@ -986,6 +1079,7 @@ export type Database = {
           name: string
           on_gate_error: string
           on_uncertain: string
+          on_uncertain_downgrade_kind: string | null
           on_uncertain_downgrade_reason: string | null
           on_uncertain_downgraded_at: string | null
           pause_count: number
@@ -994,6 +1088,8 @@ export type Database = {
           quiet_hours_start_hour: number | null
           quiet_hours_timezone: string | null
           rate_limit_per_minute: number | null
+          respond_rate_limit_per_minute: number | null
+          response_persona: string | null
           revoked_at: string | null
           scopes: string[]
           shadow_on_uncertain: string | null
@@ -1006,9 +1102,11 @@ export type Database = {
           callback_secret?: string | null
           callback_timeout_seconds?: number
           callback_url?: string | null
+          content_gap_backlog_alerted_at?: string | null
           created_at?: string
           embedding_pipeline_alerted_at?: string | null
           expires_at?: string | null
+          fallback_message?: string | null
           id?: string
           is_test?: boolean
           key_hash: string
@@ -1018,6 +1116,7 @@ export type Database = {
           name: string
           on_gate_error?: string
           on_uncertain?: string
+          on_uncertain_downgrade_kind?: string | null
           on_uncertain_downgrade_reason?: string | null
           on_uncertain_downgraded_at?: string | null
           pause_count?: number
@@ -1026,6 +1125,8 @@ export type Database = {
           quiet_hours_start_hour?: number | null
           quiet_hours_timezone?: string | null
           rate_limit_per_minute?: number | null
+          respond_rate_limit_per_minute?: number | null
+          response_persona?: string | null
           revoked_at?: string | null
           scopes?: string[]
           shadow_on_uncertain?: string | null
@@ -1038,9 +1139,11 @@ export type Database = {
           callback_secret?: string | null
           callback_timeout_seconds?: number
           callback_url?: string | null
+          content_gap_backlog_alerted_at?: string | null
           created_at?: string
           embedding_pipeline_alerted_at?: string | null
           expires_at?: string | null
+          fallback_message?: string | null
           id?: string
           is_test?: boolean
           key_hash?: string
@@ -1050,6 +1153,7 @@ export type Database = {
           name?: string
           on_gate_error?: string
           on_uncertain?: string
+          on_uncertain_downgrade_kind?: string | null
           on_uncertain_downgrade_reason?: string | null
           on_uncertain_downgraded_at?: string | null
           pause_count?: number
@@ -1058,6 +1162,8 @@ export type Database = {
           quiet_hours_start_hour?: number | null
           quiet_hours_timezone?: string | null
           rate_limit_per_minute?: number | null
+          respond_rate_limit_per_minute?: number | null
+          response_persona?: string | null
           revoked_at?: string | null
           scopes?: string[]
           shadow_on_uncertain?: string | null
@@ -1065,11 +1171,146 @@ export type Database = {
         }
         Relationships: []
       }
+      api_response_cache: {
+        Row: {
+          answer: string
+          api_key_id: string
+          confidence: string | null
+          created_at: string
+          embedding: string | null
+          expires_at: string
+          id: string
+          message: string
+          message_hash: string
+          sources: Json | null
+          user_id: string
+        }
+        Insert: {
+          answer: string
+          api_key_id: string
+          confidence?: string | null
+          created_at?: string
+          embedding?: string | null
+          expires_at: string
+          id?: string
+          message: string
+          message_hash: string
+          sources?: Json | null
+          user_id: string
+        }
+        Update: {
+          answer?: string
+          api_key_id?: string
+          confidence?: string | null
+          created_at?: string
+          embedding?: string | null
+          expires_at?: string
+          id?: string
+          message?: string
+          message_hash?: string
+          sources?: Json | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "api_response_cache_api_key_id_fkey"
+            columns: ["api_key_id"]
+            isOneToOne: false
+            referencedRelation: "api_keys"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      api_response_generations: {
+        Row: {
+          api_key_id: string
+          content_gap_cluster_id: string | null
+          created_at: string
+          grounding_check_intervened: boolean
+          id: string
+          injection_guard_intervened: boolean
+          is_test: boolean
+          latency_ms: number | null
+          message: string
+          resolved_at: string | null
+          resolved_by_entry_id: string | null
+          resolved_by_rule_id: string | null
+          sanitizer_intervened: boolean
+          served_from_cache: boolean
+          user_id: string
+        }
+        Insert: {
+          api_key_id: string
+          content_gap_cluster_id?: string | null
+          created_at?: string
+          grounding_check_intervened?: boolean
+          id?: string
+          injection_guard_intervened?: boolean
+          is_test?: boolean
+          latency_ms?: number | null
+          message: string
+          resolved_at?: string | null
+          resolved_by_entry_id?: string | null
+          resolved_by_rule_id?: string | null
+          sanitizer_intervened?: boolean
+          served_from_cache?: boolean
+          user_id: string
+        }
+        Update: {
+          api_key_id?: string
+          content_gap_cluster_id?: string | null
+          created_at?: string
+          grounding_check_intervened?: boolean
+          id?: string
+          injection_guard_intervened?: boolean
+          is_test?: boolean
+          latency_ms?: number | null
+          message?: string
+          resolved_at?: string | null
+          resolved_by_entry_id?: string | null
+          resolved_by_rule_id?: string | null
+          sanitizer_intervened?: boolean
+          served_from_cache?: boolean
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "api_response_generations_api_key_id_fkey"
+            columns: ["api_key_id"]
+            isOneToOne: false
+            referencedRelation: "api_keys"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "api_response_generations_content_gap_cluster_id_fkey"
+            columns: ["content_gap_cluster_id"]
+            isOneToOne: false
+            referencedRelation: "content_gap_clusters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "api_response_generations_resolved_by_entry_id_fkey"
+            columns: ["resolved_by_entry_id"]
+            isOneToOne: false
+            referencedRelation: "api_key_context_entries"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "api_response_generations_resolved_by_rule_id_fkey"
+            columns: ["resolved_by_rule_id"]
+            isOneToOne: false
+            referencedRelation: "api_key_response_rules"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       audit_integrity_runs: {
         Row: {
           auto_resolutions_checked: number
           auto_resolutions_mismatched: number
           checked: number
+          consequential_sweep_actions_checked: number | null
+          consequential_sweep_actions_unjustified: number | null
           created_at: string
           decision_consistency_checked: number
           decision_consistency_mismatched: number
@@ -1081,6 +1322,8 @@ export type Database = {
           precedent_citations_mismatched: number
           range_from: string
           range_to: string
+          stale_incidents_checked: number | null
+          stale_incidents_flagged: number | null
           triggered_by: string
           unsigned: number
           user_id: string
@@ -1090,6 +1333,8 @@ export type Database = {
           auto_resolutions_checked?: number
           auto_resolutions_mismatched?: number
           checked: number
+          consequential_sweep_actions_checked?: number | null
+          consequential_sweep_actions_unjustified?: number | null
           created_at?: string
           decision_consistency_checked?: number
           decision_consistency_mismatched?: number
@@ -1101,6 +1346,8 @@ export type Database = {
           precedent_citations_mismatched?: number
           range_from: string
           range_to: string
+          stale_incidents_checked?: number | null
+          stale_incidents_flagged?: number | null
           triggered_by: string
           unsigned: number
           user_id: string
@@ -1110,6 +1357,8 @@ export type Database = {
           auto_resolutions_checked?: number
           auto_resolutions_mismatched?: number
           checked?: number
+          consequential_sweep_actions_checked?: number | null
+          consequential_sweep_actions_unjustified?: number | null
           created_at?: string
           decision_consistency_checked?: number
           decision_consistency_mismatched?: number
@@ -1121,6 +1370,8 @@ export type Database = {
           precedent_citations_mismatched?: number
           range_from?: string
           range_to?: string
+          stale_incidents_checked?: number | null
+          stale_incidents_flagged?: number | null
           triggered_by?: string
           unsigned?: number
           user_id?: string
@@ -1460,6 +1711,41 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      content_gap_clusters: {
+        Row: {
+          api_key_id: string
+          created_at: string
+          embedding: string | null
+          id: string
+          representative_message: string
+          user_id: string
+        }
+        Insert: {
+          api_key_id: string
+          created_at?: string
+          embedding?: string | null
+          id?: string
+          representative_message: string
+          user_id: string
+        }
+        Update: {
+          api_key_id?: string
+          created_at?: string
+          embedding?: string | null
+          id?: string
+          representative_message?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "content_gap_clusters_api_key_id_fkey"
+            columns: ["api_key_id"]
+            isOneToOne: false
+            referencedRelation: "api_keys"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       control_test_runs: {
         Row: {
@@ -2033,49 +2319,67 @@ export type Database = {
       }
       incidents: {
         Row: {
+          acknowledged_at: string | null
+          acknowledged_by: string | null
           action_type: string | null
           alert_id: string | null
+          assigned_to: string | null
           created_at: string
           decision_id: string | null
+          escalation_alerted_at: string | null
           id: string
           kind: string
           opened_at: string
           provider: string | null
+          related_incident_id: string | null
           resolution_note: string | null
           resolved_at: string | null
           resolved_by: string | null
+          root_cause_category: string | null
           status: string
           summary: string
           user_id: string
         }
         Insert: {
+          acknowledged_at?: string | null
+          acknowledged_by?: string | null
           action_type?: string | null
           alert_id?: string | null
+          assigned_to?: string | null
           created_at?: string
           decision_id?: string | null
+          escalation_alerted_at?: string | null
           id?: string
           kind: string
           opened_at?: string
           provider?: string | null
+          related_incident_id?: string | null
           resolution_note?: string | null
           resolved_at?: string | null
           resolved_by?: string | null
+          root_cause_category?: string | null
           status?: string
           summary: string
           user_id: string
         }
         Update: {
+          acknowledged_at?: string | null
+          acknowledged_by?: string | null
           action_type?: string | null
           alert_id?: string | null
+          assigned_to?: string | null
           created_at?: string
           decision_id?: string | null
+          escalation_alerted_at?: string | null
           id?: string
           kind?: string
           opened_at?: string
           provider?: string | null
+          related_incident_id?: string | null
           resolution_note?: string | null
           resolved_at?: string | null
           resolved_by?: string | null
+          root_cause_category?: string | null
           status?: string
           summary?: string
           user_id?: string
@@ -2086,6 +2390,13 @@ export type Database = {
             columns: ["alert_id"]
             isOneToOne: false
             referencedRelation: "critical_alerts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "incidents_related_incident_id_fkey"
+            columns: ["related_incident_id"]
+            isOneToOne: false
+            referencedRelation: "incidents"
             referencedColumns: ["id"]
           },
         ]
@@ -2571,6 +2882,10 @@ export type Database = {
       }
       platform_settings: {
         Row: {
+          consequential_sweeps_paused: boolean
+          consequential_sweeps_paused_at: string | null
+          consequential_sweeps_paused_by: string | null
+          consequential_sweeps_paused_reason: string | null
           id: number
           kill_switch: boolean
           kill_switch_reason: string | null
@@ -2578,6 +2893,10 @@ export type Database = {
           kill_switch_updated_by: string | null
         }
         Insert: {
+          consequential_sweeps_paused?: boolean
+          consequential_sweeps_paused_at?: string | null
+          consequential_sweeps_paused_by?: string | null
+          consequential_sweeps_paused_reason?: string | null
           id?: number
           kill_switch?: boolean
           kill_switch_reason?: string | null
@@ -2585,6 +2904,10 @@ export type Database = {
           kill_switch_updated_by?: string | null
         }
         Update: {
+          consequential_sweeps_paused?: boolean
+          consequential_sweeps_paused_at?: string | null
+          consequential_sweeps_paused_by?: string | null
+          consequential_sweeps_paused_reason?: string | null
           id?: number
           kill_switch?: boolean
           kill_switch_reason?: string | null
@@ -3406,6 +3729,13 @@ export type Database = {
       }
       build_policy_snapshot: { Args: { _user_id: string }; Returns: Json }
       cancel_data_deletion: { Args: { _request_id: string }; Returns: boolean }
+      check_vector_rpc_search_paths: {
+        Args: never
+        Returns: {
+          function_name: string
+          search_path_ok: boolean
+        }[]
+      }
       consume_canva_oauth_transaction: {
         Args: { _state: string }
         Returns: {
@@ -3473,9 +3803,22 @@ export type Database = {
         Returns: boolean
       }
       delete_integration_secret: { Args: { sid: string }; Returns: undefined }
+      delete_orphaned_gap_clusters: {
+        Args: never
+        Returns: {
+          id: string
+        }[]
+      }
       enqueue_email: {
         Args: { payload: Json; queue_name: string }
         Returns: number
+      }
+      get_account_owner_contact: {
+        Args: { _account_owner_id: string }
+        Returns: {
+          display_name: string
+          email: string
+        }[]
       }
       get_active_policy_version: {
         Args: { _user_id: string }
@@ -3486,6 +3829,16 @@ export type Database = {
         }[]
       }
       get_business_context: { Args: { _user_id: string }; Returns: Json }
+      get_consequential_sweep_activity: {
+        Args: { _since: string }
+        Returns: {
+          approvals_auto_resolved: number
+          coordinated_abuse_flagged: number
+          keys_downgraded_abuse: number
+          keys_downgraded_outcome: number
+          keys_paused: number
+        }[]
+      }
       get_identity_providers_for_email: {
         Args: { _email: string }
         Returns: string[]
@@ -3528,6 +3881,14 @@ export type Database = {
           real_source: string
         }[]
       }
+      get_sweep_job_last_runs: {
+        Args: never
+        Returns: {
+          job_name: string
+          last_run_at: string
+          last_status: string
+        }[]
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -3550,6 +3911,24 @@ export type Database = {
           _permission?: string
         }
         Returns: boolean
+      }
+      list_gap_clusters_ranked: {
+        Args: { _api_key_id: string; _limit?: number }
+        Returns: {
+          cluster_id: string
+          first_seen_at: string
+          last_seen_at: string
+          occurrence_count: number
+          representative_message: string
+        }[]
+      }
+      list_resolvable_gap_candidates: {
+        Args: { _limit?: number }
+        Returns: {
+          api_key_id: string
+          id: string
+          message: string
+        }[]
       }
       move_to_dlq: {
         Args: {
@@ -3616,6 +3995,11 @@ export type Database = {
         }
         Returns: Json
       }
+      record_context_entry_usage: {
+        Args: { _entry_ids: string[] }
+        Returns: undefined
+      }
+      record_rule_usage: { Args: { _rule_id: string }; Returns: undefined }
       reject_policy_change: {
         Args: { _request_id: string }
         Returns: {
@@ -3748,6 +4132,31 @@ export type Database = {
           similarity: number
         }[]
       }
+      search_gap_clusters: {
+        Args: { _api_key_id: string; _embedding: string; _limit?: number }
+        Returns: {
+          id: string
+          representative_message: string
+          similarity: number
+        }[]
+      }
+      search_response_cache: {
+        Args: { _api_key_id: string; _embedding: string; _limit?: number }
+        Returns: {
+          answer: string
+          confidence: string
+          similarity: number
+          sources: Json
+        }[]
+      }
+      search_response_context: {
+        Args: { _api_key_id: string; _embedding: string; _limit?: number }
+        Returns: {
+          entry_text: string
+          id: string
+          similarity: number
+        }[]
+      }
       sign_compliance_attestation: {
         Args: { _payload: string }
         Returns: string
@@ -3783,12 +4192,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -3812,11 +4221,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -3837,11 +4246,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -3862,11 +4271,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -3879,11 +4288,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }

@@ -6,11 +6,24 @@
 
 export type MemberRow = { member_id: string | null; email: string };
 
-export function buildActorNameMap(currentUserId: string, members: MemberRow[]): Record<string, string> {
+/**
+ * `owner` resolves the account owner's own real name/email -- without it,
+ * a team member viewing another account's incidents/approvals always sees
+ * the owner's own actions attributed to a shortened uuid, since
+ * account_members never contains a row for the owner themselves. Fetch it
+ * via the get_account_owner_contact RPC (SECURITY DEFINER, checks the
+ * caller is an active member of that account) and pass it through here.
+ */
+export function buildActorNameMap(
+  currentUserId: string,
+  members: MemberRow[],
+  owner?: { id: string; label: string } | null,
+): Record<string, string> {
   const map: Record<string, string> = { [currentUserId]: "You" };
   for (const m of members) {
     if (m.member_id) map[m.member_id] = m.email;
   }
+  if (owner && owner.id !== currentUserId) map[owner.id] = owner.label;
   return map;
 }
 

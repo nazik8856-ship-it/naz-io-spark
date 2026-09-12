@@ -89,14 +89,16 @@ export default function ControlIncidents() {
   const canResolve = canApprove(role);
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<"open" | "acknowledged" | "all">("open");
+  const [filter, setFilter] = useState<"open" | "acknowledged" | "resolved" | "all">("open");
+  const [mineOnly, setMineOnly] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
   const [categoryDrafts, setCategoryDrafts] = useState<Record<string, RootCauseCategory | "">>({});
   const [search, setSearch] = useState("");
   const [names, setNames] = useState<Record<string, string>>({});
   const [assignableMembers, setAssignableMembers] = useState<{ id: string; label: string }[]>([]);
-  const visibleIncidents = filterBySearch(incidents, search, ["summary", "kind", "action_type", "provider"]);
+  const searchedIncidents = filterBySearch(incidents, search, ["summary", "kind", "action_type", "provider"]);
+  const visibleIncidents = mineOnly ? searchedIncidents.filter((i) => i.assigned_to === user?.id) : searchedIncidents;
   const nameFor = (uid: string) => actorName(names, uid);
 
   const load = useCallback(async () => {
@@ -108,14 +110,17 @@ export default function ControlIncidents() {
       .eq("user_id", accountId)
       .order("opened_at", { ascending: false });
     if (filter !== "all") query = query.eq("status", filter);
-    const [{ data, error }, { data: members }] = await Promise.all([
+    const [{ data, error }, { data: members }, { data: ownerContact }] = await Promise.all([
       query,
       supabase.from("account_members").select("member_id, email, role").eq("account_owner_id", accountId).eq("status", "active"),
+      supabase.rpc("get_account_owner_contact", { _account_owner_id: accountId }).maybeSingle(),
     ]);
     if (error) toast({ title: "Couldn't load incidents", description: friendlyErrorMessage(error.message), variant: "destructive" });
     setIncidents((data ?? []) as unknown as Incident[]);
     const memberRows = (members ?? []) as { member_id: string | null; email: string; role: string }[];
-    const nameMap = buildActorNameMap(user.id, memberRows);
+    const ownerRow = ownerContact as { email?: string; display_name?: string } | null;
+    const ownerLabel = ownerRow?.display_name || ownerRow?.email;
+    const nameMap = buildActorNameMap(user.id, memberRows, ownerLabel ? { id: accountId, label: ownerLabel } : null);
     setNames(nameMap);
     // Same eligibility the assign endpoint itself enforces (approver/owner,
     // active) -- the account owner is always eligible too, per the same
@@ -194,7 +199,7 @@ export default function ControlIncidents() {
           <span className="font-mono text-sm uppercase tracking-wider">Control System</span>
         </button>
         <nav className="ml-auto flex items-center gap-2">
-          {(["open", "acknowledged", "all"] as const).map((f) => (
+          {(["open", "acknowledged", "resolved", "all"] as const).map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f)}
@@ -202,6 +207,7 @@ export default function ControlIncidents() {
                 filter === f
                   ? f === "open" ? "border-rose-500/40 bg-rose-500/10 text-rose-300"
                     : f === "acknowledged" ? "border-amber-500/40 bg-amber-500/10 text-amber-300"
+                    : f === "resolved" ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
                     : "border-white/40 bg-white/10 text-white"
                   : "border-white/15 bg-white/5 text-zinc-300 hover:bg-white/10"
               }`}
@@ -209,6 +215,17 @@ export default function ControlIncidents() {
               {f === "acknowledged" ? "Investigating" : f[0].toUpperCase() + f.slice(1)}
             </button>
           ))}
+          <button
+            onClick={() => setMineOnly((v) => !v)}
+            aria-pressed={mineOnly}
+            className={`rounded border px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider ${
+              mineOnly
+                ? "border-cyan-500/40 bg-cyan-500/10 text-cyan-300"
+                : "border-white/15 bg-white/5 text-zinc-300 hover:bg-white/10"
+            }`}
+          >
+            Mine
+          </button>
         </nav>
       </header>
 
@@ -230,7 +247,11 @@ export default function ControlIncidents() {
           <p className="mt-8 font-mono text-xs uppercase text-zinc-500">Loading…</p>
         ) : visibleIncidents.length === 0 ? (
           <p className="mt-6 rounded border border-white/10 bg-white/[0.02] p-4 text-sm text-zinc-500">
-            {incidents.length === 0 ? (filter === "all" ? "No incidents recorded yet." : `No ${filter === "acknowledged" ? "incidents being investigated" : filter} incidents.`) : "No incidents match that search."}
+            {incidents.length === 0
+              ? (filter === "all" ? "No incidents recorded yet." : `No ${filter === "acknowledged" ? "incidents being investigated" : filter} incidents.`)
+              : searchedIncidents.length === 0
+              ? "No incidents match that search."
+              : "No incidents assigned to you in this view."}
           </p>
         ) : (
           <ul className="mt-6 space-y-3">
