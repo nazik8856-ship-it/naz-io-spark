@@ -1,6 +1,20 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { Session, User } from "@supabase/supabase-js";
+import { posthog } from "@/lib/posthog";
+
+// Ties PostHog's anonymous pre-signin activity to a real person once we
+// know who they are, and severs it again on sign-out -- without this,
+// every session looks anonymous and "how many times did this user come
+// back" is unanswerable. Safe to call on every session update: posthog-js
+// no-ops an identify() for an already-identified matching id.
+function syncPostHogIdentity(nextUser: User | null) {
+  if (nextUser) {
+    posthog.identify(nextUser.id, { email: nextUser.email });
+  } else {
+    posthog.reset();
+  }
+}
 
 interface AuthContextValue {
   user: User | null;
@@ -26,6 +40,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (isActive) {
         setSession(initialSession);
         setUser(initialSession?.user ?? null);
+        syncPostHogIdentity(initialSession?.user ?? null);
         // CRITICAL: Unblocks the app after the first check
         setLoading(false);
       }
@@ -38,6 +53,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (isActive) {
         setSession(currentSession);
         setUser(currentSession?.user ?? null);
+        syncPostHogIdentity(currentSession?.user ?? null);
         setLoading(false);
       }
     });

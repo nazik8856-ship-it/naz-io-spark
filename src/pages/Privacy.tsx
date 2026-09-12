@@ -24,9 +24,20 @@ const Privacy = () => (
 
     <LegalSection title="Who we share it with">
       <p>
-        We do not sell, rent, or share your data with third parties for advertising or any purpose
-        unrelated to operating NazAI. Data is only transmitted to the AI providers named above,
-        solely to process your requests.
+        We do not sell, rent, or share your data with third parties for advertising. Data is
+        transmitted to the AI providers named above solely to process your requests, and to the
+        analytics provider named below solely to understand and improve how NazAI itself is used —
+        never for advertising or any purpose unrelated to operating NazAI.
+      </p>
+    </LegalSection>
+
+    <LegalSection title="Analytics and product usage">
+      <p>
+        We use PostHog to understand how the NazAI product is used — which pages and features people
+        actually use, where they run into trouble, and to make session recordings so we can see and
+        fix a broken experience directly. Text you type into form fields is masked by default in
+        these recordings and is not captured. This data is used only to improve NazAI and is never
+        sold or used for advertising.
       </p>
     </LegalSection>
 
