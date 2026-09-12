@@ -20,10 +20,19 @@ export type IncidentLike = {
  * Only ever true for a still-OPEN incident: "acknowledged" already means a
  * human is actively on it (see the acknowledge endpoint), and a resolved
  * incident needs nothing further. Fires at most once per incident.
+ *
+ * `escalationHours` defaults to the flat constant above -- pass the
+ * account's own incident_thresholds row (see the incident-escalation-sweep
+ * caller) once one exists, so an account can tune how much slack it gives
+ * itself before this fires.
  */
-export function isIncidentOverdueForEscalation(row: IncidentLike, now: Date = new Date()): boolean {
+export function isIncidentOverdueForEscalation(
+  row: IncidentLike,
+  now: Date = new Date(),
+  escalationHours: number = INCIDENT_ESCALATION_HOURS,
+): boolean {
   if (row.status !== "open") return false;
   if (row.escalation_alerted_at) return false;
   const hoursOpen = (now.getTime() - new Date(row.opened_at).getTime()) / (1000 * 60 * 60);
-  return hoursOpen >= INCIDENT_ESCALATION_HOURS;
+  return hoursOpen >= escalationHours;
 }

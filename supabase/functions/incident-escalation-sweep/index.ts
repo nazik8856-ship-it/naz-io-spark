@@ -45,10 +45,23 @@ Deno.serve(async (req) => {
     .is("escalation_alerted_at", null);
   if (error) return json({ error: error.message }, 500);
 
+  // Per-account configurable threshold (incident_thresholds), falling back
+  // to the flat default for any account that's never set one -- fetched
+  // once for the whole batch rather than per-row, since this sweep spans
+  // every account with a stale-open incident.
+  const userIds = [...new Set(((rows ?? []) as Row[]).map((r) => r.user_id))];
+  const { data: thresholdRows } = userIds.length
+    ? await admin.from("incident_thresholds").select("user_id, escalation_hours").in("user_id", userIds)
+    : { data: [] as { user_id: string; escalation_hours: number }[] };
+  const escalationHoursByUser = new Map(
+    ((thresholdRows ?? []) as { user_id: string; escalation_hours: number }[]).map((t) => [t.user_id, t.escalation_hours]),
+  );
+
   const now = new Date();
   let escalated = 0;
   for (const row of (rows ?? []) as Row[]) {
-    if (!isIncidentOverdueForEscalation(row, now)) continue;
+    const escalationHours = escalationHoursByUser.get(row.user_id) ?? INCIDENT_ESCALATION_HOURS;
+    if (!isIncidentOverdueForEscalation(row, now, escalationHours)) continue;
 
     // Atomic: only the sweep that actually flips escalation_alerted_at
     // gets to alert -- a second sweep racing on the same row sees no row
@@ -65,7 +78,7 @@ Deno.serve(async (req) => {
     const waitedHours = Math.round((now.getTime() - new Date(row.opened_at).getTime()) / (1000 * 60 * 60));
     await sendCriticalAlert(admin, row.user_id, {
       event: "incident_stale_unacknowledged",
-      summary: `An incident has been open ${waitedHours}h with no acknowledgment (≥${INCIDENT_ESCALATION_HOURS}h threshold): ${row.summary}`,
+      summary: `An incident has been open ${waitedHours}h with no acknowledgment (≥${escalationHours}h threshold): ${row.summary}`,
       actionType: row.action_type,
       provider: row.provider,
     });
