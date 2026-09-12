@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, AlertTriangle, CheckCircle2, Eye, Settings } from "lucide-react";
+import { ArrowLeft, AlertTriangle, CheckCircle2, Eye, Settings, BarChart3 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
@@ -10,6 +10,7 @@ import { toast } from "@/hooks/use-toast";
 import { filterBySearch } from "@/lib/search-filter";
 import { actorName, buildActorNameMap } from "@/lib/actor-names";
 import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
+import { computeIncidentAnalytics, type IncidentAnalytics, type IncidentForAnalytics } from "@/lib/incident-analytics";
 
 // Kept in sync with _shared/incidents.ts's INCIDENT_KINDS by hand -- a
 // missing entry here is only ever a silent `undefined` label at render
@@ -83,6 +84,11 @@ const ROOT_CAUSE_LABEL: Record<RootCauseCategory, string> = {
 const DEFAULT_ESCALATION_HOURS = 4;
 const DEFAULT_STALE_DAYS = 3;
 
+function formatHours(hours: number | null): string {
+  if (hours === null) return "—";
+  return hours < 48 ? `${hours.toFixed(1)}h` : `${(hours / 24).toFixed(1)}d`;
+}
+
 /**
  * INCIDENTS — every automatic/abnormal safety event (not a deliberate human
  * toggle, not a rule doing its job) promoted from "a decision row plus an
@@ -102,6 +108,9 @@ export default function ControlIncidents() {
   const [thresholds, setThresholds] = useState({ escalation_hours: DEFAULT_ESCALATION_HOURS, stale_days: DEFAULT_STALE_DAYS });
   const [thresholdDrafts, setThresholdDrafts] = useState({ escalation_hours: String(DEFAULT_ESCALATION_HOURS), stale_days: String(DEFAULT_STALE_DAYS) });
   const [savingThresholds, setSavingThresholds] = useState(false);
+  const [showAnalytics, setShowAnalytics] = useState(false);
+  const [analytics, setAnalytics] = useState<IncidentAnalytics | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
   const [categoryDrafts, setCategoryDrafts] = useState<Record<string, RootCauseCategory | "">>({});
@@ -153,6 +162,26 @@ export default function ControlIncidents() {
   }, [user, accountId, filter]);
 
   useEffect(() => { load(); }, [load]);
+
+  const toggleAnalytics = async () => {
+    const opening = !showAnalytics;
+    setShowAnalytics(opening);
+    if (!opening || !accountId) return;
+    setAnalyticsLoading(true);
+    // Account-wide across every status, independent of the page's own
+    // filter tab -- MTTA/MTTR/breakdown are historical account numbers,
+    // not scoped to whichever tab happens to be selected right now.
+    const { data, error } = await supabase
+      .from("incidents")
+      .select("status, opened_at, acknowledged_at, resolved_at, root_cause_category")
+      .eq("user_id", accountId);
+    setAnalyticsLoading(false);
+    if (error) {
+      toast({ title: "Couldn't load analytics", description: friendlyErrorMessage(error.message), variant: "destructive" });
+      return;
+    }
+    setAnalytics(computeIncidentAnalytics((data ?? []) as unknown as IncidentForAnalytics[]));
+  };
 
   const resolve = async (incident: Incident) => {
     if (!canResolve) return;
@@ -278,6 +307,18 @@ export default function ControlIncidents() {
           >
             <Settings className="h-3.5 w-3.5" />
           </button>
+          <button
+            onClick={toggleAnalytics}
+            aria-pressed={showAnalytics}
+            aria-label="Incident analytics"
+            className={`rounded border p-1.5 ${
+              showAnalytics
+                ? "border-cyan-500/40 bg-cyan-500/10 text-cyan-300"
+                : "border-white/15 bg-white/5 text-zinc-300 hover:bg-white/10"
+            }`}
+          >
+            <BarChart3 className="h-3.5 w-3.5" />
+          </button>
         </nav>
       </header>
 
@@ -332,6 +373,52 @@ export default function ControlIncidents() {
                 owner with policy permission can change this.
               </p>
             )}
+          </div>
+        )}
+
+        {showAnalytics && (
+          <div className="mt-3 rounded border border-white/10 bg-white/[0.02] p-4">
+            <p className="text-xs text-zinc-400">
+              Mean time to acknowledge and resolve, and how resolved incidents break down by root cause. Account-wide,
+              across every status, independent of the tabs above.
+            </p>
+            {analyticsLoading ? (
+              <p className="mt-3 font-mono text-xs uppercase text-zinc-500">Loading…</p>
+            ) : analytics ? (
+              <div className="mt-3 space-y-4">
+                <div className="flex flex-wrap gap-6">
+                  <div>
+                    <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Mean time to acknowledge</div>
+                    <div className="mt-1 text-lg font-semibold text-amber-300">
+                      {formatHours(analytics.mtta_hours)}
+                    </div>
+                    <div className="text-[11px] text-zinc-500">{analytics.acknowledged_count} acknowledged</div>
+                  </div>
+                  <div>
+                    <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Mean time to resolve</div>
+                    <div className="mt-1 text-lg font-semibold text-emerald-300">
+                      {formatHours(analytics.mttr_hours)}
+                    </div>
+                    <div className="text-[11px] text-zinc-500">{analytics.resolved_count} resolved</div>
+                  </div>
+                </div>
+                <div>
+                  <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Root cause breakdown (resolved)</div>
+                  {analytics.root_cause_breakdown.length === 0 ? (
+                    <p className="mt-1 text-xs text-zinc-500">No resolved incidents yet.</p>
+                  ) : (
+                    <ul className="mt-2 space-y-1">
+                      {analytics.root_cause_breakdown.map(({ category, count }) => (
+                        <li key={category} className="flex items-center justify-between gap-3 text-xs text-zinc-300">
+                          <span>{category === "uncategorized" ? "Uncategorized" : ROOT_CAUSE_LABEL[category as RootCauseCategory] ?? category}</span>
+                          <span className="font-mono text-zinc-500">{count}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            ) : null}
           </div>
         )}
 
