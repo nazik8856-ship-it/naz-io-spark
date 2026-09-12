@@ -12,6 +12,7 @@ import { useCredits } from "@/hooks/useCredits";
 import { TIER_PLANS, TierId, setStoredTier, formatCredits } from "@/lib/credit-tiers";
 import { useToast } from "@/hooks/use-toast";
 import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
+import { posthog } from "@/lib/posthog";
 
 type Method = "paypal" | "card";
 type Phase = "form" | "processing" | "success";
@@ -113,6 +114,15 @@ export default function PaymentWindow() {
       return;
     }
     setPhase("processing");
+    // Never include email/card fields here -- only the commercial shape of
+    // the attempt (what, how much, which method), nothing identifying or
+    // sensitive.
+    posthog.capture("payment_attempted", {
+      kind: intent.kind,
+      method,
+      total_usd: total,
+      ...(intent.kind === "pack" ? { pack_id: intent.pack.id } : { tier: intent.tierId, annual: !!intent.annual }),
+    });
     // Simulate provider round-trip.
     await new Promise((r) => setTimeout(r, 1600 + Math.random() * 800));
 
@@ -146,9 +156,11 @@ export default function PaymentWindow() {
         });
         if (error) throw error;
       }
+      posthog.capture("payment_succeeded", { kind: intent.kind, total_usd: total });
       setPhase("success");
     } catch (err: any) {
       const detail = (await extractFunctionErrorMessage(err)) ?? err?.message ?? "Something went wrong. No charge was made.";
+      posthog.capture("payment_failed", { kind: intent.kind, reason: detail });
       toast({
         title: "Payment failed",
         description: detail,

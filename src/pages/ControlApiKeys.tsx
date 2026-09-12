@@ -7,6 +7,7 @@ import { hasPermission } from "@/lib/account-switcher";
 import { toast } from "@/hooks/use-toast";
 import { findStaleResponseRules, RESPONSE_RULE_STALE_WINDOW_DAYS } from "@/lib/response-rule-effectiveness";
 import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
+import { posthog } from "@/lib/posthog";
 
 // api_keys is new (2026-08-26) -- not yet in the generated Supabase types
 // (types.ts isn't regenerated in this sandbox), same established
@@ -151,6 +152,7 @@ export default function ControlApiKeys() {
       toast({ title: "Couldn't create the key", description: res.error || (await extractFunctionErrorMessage(error)) || error?.message, variant: "destructive" });
       return;
     }
+    posthog.capture("control_api_key_created");
     setName("");
     setJustCreated({ key: res.key, name: res.name || trimmed });
     setCopied(false);
