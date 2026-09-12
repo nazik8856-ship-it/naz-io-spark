@@ -13,6 +13,13 @@ const EVENTS = [
   // escalation sweep) but were missing here, so no webhook could ever be
   // configured to receive them.
   "incident_acknowledged", "incident_assigned", "incident_escalated",
+  // Same gap, found again: these seven were already in the backend's own
+  // canonical WEBHOOK_EVENTS list (_shared/webhooks.ts) and already firing
+  // from real sweeps/endpoints, but never added here, so none of them
+  // could actually be picked when configuring a webhook.
+  "approval_auto_resolved", "hard_rule_auto_drafted", "api_key_auto_paused",
+  "api_key_on_uncertain_downgraded", "automation_readiness_ready", "shadow_policy_promotion_ready",
+  "response_grounding_failed",
 ] as const;
 
 type WebhookRow = {
