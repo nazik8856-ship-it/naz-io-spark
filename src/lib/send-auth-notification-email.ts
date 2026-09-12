@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
 
 /**
  * Fires the "you signed in" / "your password was changed" security notices.
@@ -21,7 +22,7 @@ async function sendAuthNotification(
         templateData: { email, timestamp: new Date().toISOString(), ...templateData },
       },
     });
-    if (error) console.error(`[auth-notification] ${templateName} failed:`, error.message);
+    if (error) console.error(`[auth-notification] ${templateName} failed:`, (await extractFunctionErrorMessage(error)) ?? error.message);
   } catch (err) {
     console.error(`[auth-notification] ${templateName} threw:`, err instanceof Error ? err.message : err);
   }

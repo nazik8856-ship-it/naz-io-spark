@@ -20,6 +20,7 @@ import { supabase } from "@/integrations/supabase/client";
 import AttachmentChip, { type Attachment } from "./AttachmentChip";
 import { useMissions } from "@/hooks/useMissions";
 import { PROCESS_MISSION_FUNCTION } from "@/constants";
+import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
 
 interface ActionTerminalProps {
   activeSection: string;
@@ -286,8 +287,9 @@ const ActionTerminal: React.FC<ActionTerminalProps> = ({ activeSection, initialD
                   }
                 }, 500);
               })
-              .catch((err) => {
-                addLog(`CORE_LOGIC_FAILURE // ${err.message?.toUpperCase()}`, "error");
+              .catch(async (err) => {
+                const detail = (await extractFunctionErrorMessage(err)) ?? err.message;
+                addLog(`CORE_LOGIC_FAILURE // ${detail?.toUpperCase()}`, "error");
                 setWorkflowActive(false);
               });
 

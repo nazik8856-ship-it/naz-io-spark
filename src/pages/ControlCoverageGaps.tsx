@@ -8,6 +8,7 @@ import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { toast } from "@/hooks/use-toast";
 import { findCoverageGaps, type CapabilityForCoverage, type HardRuleForCoverage } from "@/lib/coverage-gaps";
 import { classifyAnomalyCoverage, topAgentlessActionTypes, type AgentlessActionType, type CoverageSeverity } from "@/lib/anomaly-coverage";
+import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
 
 type AgentOption = { id: string; name: string };
 
@@ -62,9 +63,10 @@ export default function ControlCoverageGaps() {
     void sess;
 
     if (statusRes.error || rulesRes.error) {
+      const detail = (await extractFunctionErrorMessage(statusRes.error)) ?? statusRes.error?.message ?? rulesRes.error?.message;
       toast({
         title: "Couldn't load coverage",
-        description: statusRes.error?.message || rulesRes.error?.message,
+        description: detail,
         variant: "destructive",
       });
       setLoading(false);

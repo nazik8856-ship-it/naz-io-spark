@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { Link } from "react-router-dom";
 import { ArrowLeft, RefreshCw, Sparkles, TrendingUp, Lightbulb, GitBranch, FlaskConical, Send, ChevronDown, ChevronRight } from "lucide-react";
+import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
 
 type Insight = {
   id: string;
@@ -87,7 +88,7 @@ export default function Insights() {
       else setMsg(`Learned ${d.inserted ?? 0} new · reinforced ${d.updated ?? 0}.`);
       await load();
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : "Analysis failed");
+      setMsg((await extractFunctionErrorMessage(e)) ?? (e instanceof Error ? e.message : "Analysis failed"));
     } finally {
       setAnalyzing(false);
     }
@@ -106,7 +107,7 @@ export default function Insights() {
       setOpenSim(d.id);
       setQuestion("");
     } catch (e) {
-      setSimError(e instanceof Error ? e.message : "Simulation failed");
+      setSimError((await extractFunctionErrorMessage(e)) ?? (e instanceof Error ? e.message : "Simulation failed"));
     } finally {
       setSimulating(false);
     }
