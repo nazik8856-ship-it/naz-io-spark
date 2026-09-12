@@ -64,6 +64,7 @@ import { generateLocalEmbedding } from "../_shared/local-embeddings.ts";
 import { synthesizeAnswer, NO_MATCH_FALLBACK_ANSWER } from "../_shared/response-synthesis.ts";
 import { findMatchingRule, type ResponseRule } from "../_shared/response-rules.ts";
 import { sanitizeResponse } from "../_shared/response-sanitizer.ts";
+import { ROOT_CAUSE_CATEGORIES, isValidRootCauseCategory } from "../_shared/incidents.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -159,6 +160,19 @@ const DECISION_DISPUTE_RATE_LIMIT_PER_MINUTE = 10;
 // does two real LLM calls per request (generation + a grounding-check
 // second pass), never a cheap read.
 const RESPOND_RATE_LIMIT_PER_MINUTE = 20;
+// "10 tasks" plan, item 195: incidents are already exposed internally via
+// control-incidents/index.ts (session-JWT, the account owner's own
+// dashboard); this exposes the same list/acknowledge/resolve surface to
+// an external caller authenticated by API key instead, so a company's own
+// monitoring/on-call tooling can react to a NazAI-detected incident
+// without a human relaying it manually. A plain read, same lightweight
+// budget as the decision-explain single-row read.
+const INCIDENTS_LIST_RATE_LIMIT_PER_MINUTE = 30;
+// A real write, but a deliberate one-per-incident action (mirrors
+// decision-dispute's own reasoning for why this sits below the verdict
+// endpoint's own much higher budget).
+const INCIDENT_ACKNOWLEDGE_RATE_LIMIT_PER_MINUTE = 20;
+const INCIDENT_RESOLVE_RATE_LIMIT_PER_MINUTE = 20;
 
 // "Zero human review" plan, item 13: a thin wrapper around the real
 // per-action logic (renamed judgeOneActionInner below) that wires in the
@@ -1531,6 +1545,137 @@ Deno.serve(async (req) => {
       last_seen_at: c.last_seen_at,
     }));
     return json({ clusters });
+  }
+
+  // ---- GET /control-api/v1/incidents ---------------------------------------
+  // "10 tasks" plan, item 195: same list shape as control-incidents/index.ts's
+  // own internal GET (session-JWT, the account owner's dashboard) -- exposed
+  // here under API-key auth so a company's own on-call tooling can pull its
+  // own NazAI-detected incidents automatically.
+  if (req.method === "GET" && /\/incidents\/?$/.test(url.pathname)) {
+    const rate = await checkRateLimit(admin, userId, "control-api-incidents-list", INCIDENTS_LIST_RATE_LIMIT_PER_MINUTE, 60);
+    if (!rate.allowed) {
+      return json({
+        error: "rate_limited",
+        message: `Too many requests — ${rate.count} in the last minute (limit ${rate.limit}). Try again shortly.`,
+      }, 429);
+    }
+    const status = url.searchParams.get("status");
+    let query = admin
+      .from("incidents")
+      .select("id, kind, status, summary, action_type, provider, decision_id, opened_at, acknowledged_at, resolved_at, resolution_note, root_cause_category, related_incident_id")
+      .eq("user_id", userId)
+      .order("opened_at", { ascending: false })
+      .limit(200);
+    if (status === "open" || status === "acknowledged" || status === "resolved") query = query.eq("status", status);
+    const { data, error } = await query;
+    if (error) return json({ error: error.message }, 500);
+    const incidents = data ?? [];
+    return json({
+      incidents,
+      summary: {
+        total: incidents.length,
+        open: (incidents as { status: string }[]).filter((i) => i.status === "open").length,
+      },
+    });
+  }
+
+  // ---- POST /control-api/v1/incidents/:id/acknowledge ----------------------
+  const incidentAckMatch = url.pathname.match(/\/incidents\/([0-9a-fA-F-]{36})\/acknowledge\/?$/);
+  if (req.method === "POST" && incidentAckMatch) {
+    const incidentId = incidentAckMatch[1];
+    const rate = await checkRateLimit(admin, userId, "control-api-incident-acknowledge", INCIDENT_ACKNOWLEDGE_RATE_LIMIT_PER_MINUTE, 60);
+    if (!rate.allowed) {
+      return json({
+        error: "rate_limited",
+        message: `Too many requests — ${rate.count} in the last minute (limit ${rate.limit}). Try again shortly.`,
+      }, 429);
+    }
+    const { data: row, error } = await admin
+      .from("incidents")
+      .select("id, status, kind, action_type, provider")
+      .eq("id", incidentId)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (error) return json({ error: error.message }, 500);
+    if (!row) return json({ error: "not_found", message: "No incident with this id exists for your account." }, 404);
+    const incidentRow = row as { id: string; status: string; kind: string; action_type: string | null; provider: string | null };
+    if (incidentRow.status !== "open") {
+      return json({ ok: true, already_acknowledged: true, id: incidentId, status: incidentRow.status });
+    }
+    const { data: updated, error: updateErr } = await admin.from("incidents").update({
+      status: "acknowledged",
+      acknowledged_at: new Date().toISOString(),
+      acknowledged_by: userId,
+    }).eq("id", incidentId).eq("status", "open") // atomic: only the first acknowledge wins
+      .select("id").maybeSingle();
+    if (updateErr) return json({ error: updateErr.message }, 500);
+    if (updated) {
+      await triggerWebhooks(admin, userId, "incident_acknowledged", {
+        incident_id: incidentId, kind: incidentRow.kind, action_type: incidentRow.action_type, provider: incidentRow.provider,
+      });
+    }
+    return json({ ok: true, id: incidentId, status: "acknowledged" });
+  }
+
+  // ---- POST /control-api/v1/incidents/:id/resolve ---------------------------
+  const incidentResolveMatch = url.pathname.match(/\/incidents\/([0-9a-fA-F-]{36})\/resolve\/?$/);
+  if (req.method === "POST" && incidentResolveMatch) {
+    const incidentId = incidentResolveMatch[1];
+    const rate = await checkRateLimit(admin, userId, "control-api-incident-resolve", INCIDENT_RESOLVE_RATE_LIMIT_PER_MINUTE, 60);
+    if (!rate.allowed) {
+      return json({
+        error: "rate_limited",
+        message: `Too many requests — ${rate.count} in the last minute (limit ${rate.limit}). Try again shortly.`,
+      }, 429);
+    }
+    const body = await req.json().catch(() => ({} as Record<string, unknown>));
+    const note = String(body?.note || "").slice(0, 2000);
+    if (body?.root_cause_category !== undefined && body.root_cause_category !== null && !isValidRootCauseCategory(body.root_cause_category)) {
+      return json({ error: `root_cause_category must be one of: ${ROOT_CAUSE_CATEGORIES.join(", ")}` }, 400);
+    }
+    const rootCauseCategory = isValidRootCauseCategory(body?.root_cause_category) ? body.root_cause_category : null;
+    const relatedIncidentId = typeof body?.related_incident_id === "string" ? body.related_incident_id : null;
+
+    const { data: row, error } = await admin
+      .from("incidents")
+      .select("id, status, kind, action_type, provider")
+      .eq("id", incidentId)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (error) return json({ error: error.message }, 500);
+    if (!row) return json({ error: "not_found", message: "No incident with this id exists for your account." }, 404);
+    const incidentRow = row as { id: string; status: string; kind: string; action_type: string | null; provider: string | null };
+    if (incidentRow.status === "resolved") {
+      return json({ ok: true, already_resolved: true, id: incidentId });
+    }
+    // Same open-redirect-shaped validation as the internal endpoint: a
+    // related incident must be real and belong to the same account, or
+    // this becomes a way to leak whether an arbitrary uuid exists or link
+    // across accounts.
+    if (relatedIncidentId) {
+      if (relatedIncidentId === incidentId) return json({ error: "an incident cannot be related to itself" }, 400);
+      const { data: relatedRow } = await admin.from("incidents").select("id").eq("id", relatedIncidentId).eq("user_id", userId).maybeSingle();
+      if (!relatedRow) return json({ error: "invalid_related_incident_id" }, 400);
+    }
+
+    const { data: updated, error: updateErr } = await admin.from("incidents").update({
+      status: "resolved",
+      resolved_at: new Date().toISOString(),
+      resolved_by: userId,
+      resolution_note: note || null,
+      root_cause_category: rootCauseCategory,
+      related_incident_id: relatedIncidentId,
+    }).eq("id", incidentId).neq("status", "resolved") // atomic: only the first resolve wins, from open or acknowledged
+      .select("id").maybeSingle();
+    if (updateErr) return json({ error: updateErr.message }, 500);
+    if (updated) {
+      await triggerWebhooks(admin, userId, "incident_resolved", {
+        incident_id: incidentId, kind: incidentRow.kind, action_type: incidentRow.action_type, provider: incidentRow.provider, note: note || null,
+        root_cause_category: rootCauseCategory, related_incident_id: relatedIncidentId,
+      });
+    }
+    return json({ ok: true, id: incidentId, resolved: true });
   }
 
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
