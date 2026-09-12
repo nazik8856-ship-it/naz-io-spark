@@ -2317,6 +2317,30 @@ export type Database = {
         }
         Relationships: []
       }
+      incident_thresholds: {
+        Row: {
+          created_at: string
+          escalation_hours: number
+          stale_days: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          escalation_hours?: number
+          stale_days?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          escalation_hours?: number
+          stale_days?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       incidents: {
         Row: {
           acknowledged_at: string | null

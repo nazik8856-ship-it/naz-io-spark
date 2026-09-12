@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, AlertTriangle, CheckCircle2, Eye } from "lucide-react";
+import { ArrowLeft, AlertTriangle, CheckCircle2, Eye, Settings } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
-import { canApprove } from "@/lib/account-switcher";
+import { canApprove, hasPermission } from "@/lib/account-switcher";
 import { friendlyErrorMessage } from "@/lib/friendly-errors";
 import { toast } from "@/hooks/use-toast";
 import { filterBySearch } from "@/lib/search-filter";
@@ -77,6 +77,12 @@ const ROOT_CAUSE_LABEL: Record<RootCauseCategory, string> = {
   other: "Other",
 };
 
+// Mirrors the backend's own hardcoded fallbacks (_shared/incident-escalation.ts's
+// INCIDENT_ESCALATION_HOURS, _shared/audit-integrity.ts's STALE_INCIDENT_DAYS) --
+// what an account gets until it sets its own row in incident_thresholds.
+const DEFAULT_ESCALATION_HOURS = 4;
+const DEFAULT_STALE_DAYS = 3;
+
 /**
  * INCIDENTS — every automatic/abnormal safety event (not a deliberate human
  * toggle, not a rule doing its job) promoted from "a decision row plus an
@@ -85,12 +91,17 @@ const ROOT_CAUSE_LABEL: Record<RootCauseCategory, string> = {
 export default function ControlIncidents() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { accountId, role } = useActiveAccount();
+  const { accountId, role, permissions } = useActiveAccount();
   const canResolve = canApprove(role);
+  const canEditThresholds = hasPermission(role, permissions, "policy");
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"open" | "acknowledged" | "resolved" | "all">("open");
   const [mineOnly, setMineOnly] = useState(false);
+  const [showThresholds, setShowThresholds] = useState(false);
+  const [thresholds, setThresholds] = useState({ escalation_hours: DEFAULT_ESCALATION_HOURS, stale_days: DEFAULT_STALE_DAYS });
+  const [thresholdDrafts, setThresholdDrafts] = useState({ escalation_hours: String(DEFAULT_ESCALATION_HOURS), stale_days: String(DEFAULT_STALE_DAYS) });
+  const [savingThresholds, setSavingThresholds] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
   const [categoryDrafts, setCategoryDrafts] = useState<Record<string, RootCauseCategory | "">>({});
@@ -110,13 +121,21 @@ export default function ControlIncidents() {
       .eq("user_id", accountId)
       .order("opened_at", { ascending: false });
     if (filter !== "all") query = query.eq("status", filter);
-    const [{ data, error }, { data: members }, { data: ownerContact }] = await Promise.all([
+    const [{ data, error }, { data: members }, { data: ownerContact }, { data: thresholdRow }] = await Promise.all([
       query,
       supabase.from("account_members").select("member_id, email, role").eq("account_owner_id", accountId).eq("status", "active"),
       supabase.rpc("get_account_owner_contact", { _account_owner_id: accountId }).maybeSingle(),
+      supabase.from("incident_thresholds").select("escalation_hours, stale_days").eq("user_id", accountId).maybeSingle(),
     ]);
     if (error) toast({ title: "Couldn't load incidents", description: friendlyErrorMessage(error.message), variant: "destructive" });
     setIncidents((data ?? []) as unknown as Incident[]);
+    const savedThresholds = thresholdRow as { escalation_hours: number; stale_days: number } | null;
+    const resolvedThresholds = {
+      escalation_hours: savedThresholds?.escalation_hours ?? DEFAULT_ESCALATION_HOURS,
+      stale_days: savedThresholds?.stale_days ?? DEFAULT_STALE_DAYS,
+    };
+    setThresholds(resolvedThresholds);
+    setThresholdDrafts({ escalation_hours: String(resolvedThresholds.escalation_hours), stale_days: String(resolvedThresholds.stale_days) });
     const memberRows = (members ?? []) as { member_id: string | null; email: string; role: string }[];
     const ownerRow = ownerContact as { email?: string; display_name?: string } | null;
     const ownerLabel = ownerRow?.display_name || ownerRow?.email;
@@ -187,6 +206,27 @@ export default function ControlIncidents() {
     load();
   };
 
+  const saveThresholds = async () => {
+    if (!canEditThresholds || !accountId) return;
+    const escalationHours = Number(thresholdDrafts.escalation_hours);
+    const staleDays = Number(thresholdDrafts.stale_days);
+    if (!Number.isFinite(escalationHours) || escalationHours <= 0 || !Number.isFinite(staleDays) || staleDays <= 0) {
+      toast({ title: "Invalid thresholds", description: "Both values must be positive numbers.", variant: "destructive" });
+      return;
+    }
+    setSavingThresholds(true);
+    const { error } = await supabase
+      .from("incident_thresholds")
+      .upsert({ user_id: accountId, escalation_hours: escalationHours, stale_days: staleDays }, { onConflict: "user_id" });
+    setSavingThresholds(false);
+    if (error) {
+      toast({ title: "Couldn't save thresholds", description: friendlyErrorMessage(error.message), variant: "destructive" });
+      return;
+    }
+    setThresholds({ escalation_hours: escalationHours, stale_days: staleDays });
+    toast({ title: "Thresholds saved", description: `Escalate after ${escalationHours}h, flag stale after ${staleDays}d.` });
+  };
+
   return (
     <div className="min-h-screen w-full text-white" style={{ backgroundColor: "#020617" }}>
       <header className="flex items-center gap-3 border-b border-white/5 px-6 py-4">
@@ -226,6 +266,18 @@ export default function ControlIncidents() {
           >
             Mine
           </button>
+          <button
+            onClick={() => setShowThresholds((v) => !v)}
+            aria-pressed={showThresholds}
+            aria-label="Escalation and staleness thresholds"
+            className={`rounded border p-1.5 ${
+              showThresholds
+                ? "border-cyan-500/40 bg-cyan-500/10 text-cyan-300"
+                : "border-white/15 bg-white/5 text-zinc-300 hover:bg-white/10"
+            }`}
+          >
+            <Settings className="h-3.5 w-3.5" />
+          </button>
         </nav>
       </header>
 
@@ -235,6 +287,53 @@ export default function ControlIncidents() {
           Automatic kill-switch trips, circuit-breaker trips, gate errors, and self-audit regressions —
           the events that mean something actually went wrong, not a deliberate toggle or a rule working as intended.
         </p>
+
+        {showThresholds && (
+          <div className="mt-3 rounded border border-white/10 bg-white/[0.02] p-4">
+            <p className="text-xs text-zinc-400">
+              How long an incident can sit open before an escalation alert fires, and how many days before the
+              weekly self-audit flags it as stale. Applies to this account only.
+            </p>
+            {canEditThresholds ? (
+              <div className="mt-3 flex flex-wrap items-end gap-3">
+                <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+                  Escalate after (hours)
+                  <input
+                    type="number"
+                    min="0.1"
+                    step="0.5"
+                    value={thresholdDrafts.escalation_hours}
+                    onChange={(e) => setThresholdDrafts((d) => ({ ...d, escalation_hours: e.target.value }))}
+                    className="w-28 rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+                  Flag stale after (days)
+                  <input
+                    type="number"
+                    min="0.1"
+                    step="0.5"
+                    value={thresholdDrafts.stale_days}
+                    onChange={(e) => setThresholdDrafts((d) => ({ ...d, stale_days: e.target.value }))}
+                    className="w-28 rounded border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-200"
+                  />
+                </label>
+                <button
+                  disabled={savingThresholds}
+                  onClick={saveThresholds}
+                  className="rounded border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 font-mono text-[11px] uppercase text-cyan-300 hover:bg-cyan-500/20 disabled:opacity-50"
+                >
+                  {savingThresholds ? "Saving…" : "Save"}
+                </button>
+              </div>
+            ) : (
+              <p className="mt-2 font-mono text-xs text-zinc-300">
+                {thresholds.escalation_hours}h escalation, {thresholds.stale_days}d stale threshold. Only an account
+                owner with policy permission can change this.
+              </p>
+            )}
+          </div>
+        )}
 
         <input
           value={search}
