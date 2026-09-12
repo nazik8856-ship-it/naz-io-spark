@@ -521,6 +521,55 @@ export default function ControlApiDocs() {
           </p>
         </Section>
 
+        <Section title="Incidents: list, acknowledge, and resolve">
+          <p>
+            NazAI opens an incident automatically whenever something actually went wrong on your account — a
+            kill-switch trip, a circuit breaker tripping, the gate itself failing closed, or a self-audit
+            regression — never for a deliberate toggle or a rule doing its job. These three routes let your own
+            on-call or monitoring tooling react to that the moment it happens, instead of a person having to
+            check the NazAI dashboard.
+          </p>
+          <CodeBlock>{`GET ${SUPABASE_FUNCTIONS_URL}/control-api/v1/incidents`}</CodeBlock>
+          <CodeBlock>{`curl "${SUPABASE_FUNCTIONS_URL}/control-api/v1/incidents?status=open" \\
+  -H "Authorization: Bearer nazai_sk_<your key>"`}</CodeBlock>
+          <CodeBlock>{`{
+  "api_version": "v1",
+  "incidents": [
+    {
+      "id": "9f2a...", "kind": "circuit_breaker_trip", "status": "open",
+      "summary": "Circuit breaker tripped for send_email via Gmail.",
+      "action_type": "send_email", "provider": "Gmail", "decision_id": "7b1c...",
+      "opened_at": "2026-09-12T08:00:00Z", "acknowledged_at": null, "resolved_at": null,
+      "resolution_note": null, "root_cause_category": null, "related_incident_id": null
+    }
+  ],
+  "summary": { "total": 1, "open": 1 }
+}`}</CodeBlock>
+          <p className="mt-2 text-xs text-zinc-500">
+            Optional <span className="font-mono">?status=open|acknowledged|resolved</span> query param; omitted,
+            every status is returned (most recent first, capped at 200).
+          </p>
+          <CodeBlock>{`curl -X POST "${SUPABASE_FUNCTIONS_URL}/control-api/v1/incidents/9f2a.../acknowledge" \\
+  -H "Authorization: Bearer nazai_sk_<your key>"`}</CodeBlock>
+          <CodeBlock>{`curl -X POST "${SUPABASE_FUNCTIONS_URL}/control-api/v1/incidents/9f2a.../resolve" \\
+  -H "Authorization: Bearer nazai_sk_<your key>" \\
+  -H "Content-Type: application/json" \\
+  -d '{"note": "Gmail API key was rotated.", "root_cause_category": "configuration_error"}'`}</CodeBlock>
+          <p className="mt-2 text-xs text-zinc-500">
+            <span className="font-mono">root_cause_category</span> is optional, one of{" "}
+            <span className="font-mono">transient_infra</span>, <span className="font-mono">configuration_error</span>,{" "}
+            <span className="font-mono">external_provider_outage</span>, <span className="font-mono">software_bug</span>,{" "}
+            <span className="font-mono">expected_behavior_misclassified</span>, or{" "}
+            <span className="font-mono">other</span>. An optional <span className="font-mono">related_incident_id</span>{" "}
+            links a duplicate to the incident that actually explains it — it must belong to this same account.
+            Acknowledging or resolving an already-acknowledged/resolved incident is a no-op that returns{" "}
+            <span className="font-mono">already_acknowledged</span>/<span className="font-mono">already_resolved</span>{" "}
+            rather than an error, so a retry is always safe. Both actions fire the same{" "}
+            <span className="font-mono">incident_acknowledged</span>/<span className="font-mono">incident_resolved</span>{" "}
+            webhooks as the NazAI dashboard's own acknowledge/resolve actions.
+          </p>
+        </Section>
+
         <Section title="Automation value: how much of your traffic ran with zero human involved">
           <p>
             One real number, backed by this key's own history: how much of its traffic — gated actions checked
