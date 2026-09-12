@@ -73,7 +73,7 @@ export default function ControlApprovals() {
 
   const load = useCallback(async () => {
     if (!user || !accountId) return;
-    const [{ data }, { data: members }] = await Promise.all([
+    const [{ data }, { data: members }, { data: ownerContact }] = await Promise.all([
       anyDb
         .from("pending_approvals")
         .select("*")
@@ -86,10 +86,17 @@ export default function ControlApprovals() {
         .eq("account_owner_id", accountId)
         .eq("status", "active")
         .in("role", ["approver", "owner"]),
+      anyDb.rpc("get_account_owner_contact", { _account_owner_id: accountId }).maybeSingle(),
     ]);
     const rows = (data ?? []) as unknown as Approval[];
     setItems(rows);
-    setNames(buildActorNameMap(user.id, (members ?? []) as { member_id: string | null; email: string }[]));
+    const ownerRow = ownerContact as { email?: string; display_name?: string } | null;
+    const ownerLabel = ownerRow?.display_name || ownerRow?.email;
+    setNames(buildActorNameMap(
+      user.id,
+      (members ?? []) as { member_id: string | null; email: string }[],
+      ownerLabel ? { id: accountId, label: ownerLabel } : null,
+    ));
     setAssignable((members ?? []) as MemberForAssignment[]);
 
     const ids = rows.map((r) => r.id);
