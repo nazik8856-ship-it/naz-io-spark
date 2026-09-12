@@ -23,6 +23,16 @@ describe("buildActorNameMap", () => {
     // actually overwrite "You" -- this locks in which behavior is intended.
     expect(map["owner-uid"]).toBe("owner@example.com");
   });
+
+  it("resolves a different account's owner to their real name/email when passed", () => {
+    const map = buildActorNameMap("member-uid", [], { id: "owner-uid", label: "Alice Owner" });
+    expect(map["owner-uid"]).toBe("Alice Owner");
+  });
+
+  it("never overwrites the viewer's own 'You' with a same-id owner contact", () => {
+    const map = buildActorNameMap("owner-uid", [], { id: "owner-uid", label: "Alice Owner" });
+    expect(map["owner-uid"]).toBe("You");
+  });
 });
 
 describe("actorName", () => {
