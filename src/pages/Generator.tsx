@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import ModelSidebar from "@/components/ModelSidebar";
 import { toast } from "sonner";
 import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
+import { posthog } from "@/lib/posthog";
 
 const Generator = () => {
   const navigate = useNavigate();
@@ -36,27 +37,30 @@ const Generator = () => {
     setLoading(true);
     setGeneratedCode(""); 
     
+    posthog.capture("mission_generation_started", { model: activeModel });
     try {
       // ── UPDATED FUNCTION INVOCATION ──
       // Pointing to the new mission processing function observed in dashboard
       const { data, error } = await supabase.functions.invoke("supabase-functions-new-process-mission", {
-        body: { 
-          prompt: prompt.trim(), 
-          model_choice: activeModel 
+        body: {
+          prompt: prompt.trim(),
+          model_choice: activeModel
         },
       });
 
       if (error) throw error;
-      
+
       const content = data?.content || (typeof data === 'string' ? data : JSON.stringify(data));
       setGeneratedCode(content);
+      posthog.capture("mission_generation_succeeded", { model: activeModel });
       toast.success("UPLINK_STABLE: Data Received");
     } catch (err) {
       const detail = (await extractFunctionErrorMessage(err)) ?? (err instanceof Error ? err.message : null);
       console.error("UPLINK_CRASH:", err);
+      posthog.capture("mission_generation_failed", { model: activeModel, reason: detail ?? "unknown" });
       toast.error(detail ? `UPLINK_CRASH: ${detail}` : "UPLINK_CRASH: Re-establishing...");
     } finally {
-      setLoading(false); 
+      setLoading(false);
     }
   };
 

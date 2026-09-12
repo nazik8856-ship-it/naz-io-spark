@@ -10,6 +10,7 @@ import { sendWelcomeEmail } from "@/lib/send-welcome-email";
 import { sendSignInNotification } from "@/lib/send-auth-notification-email";
 import { validatePassword, PASSWORD_REQUIREMENTS_HINT } from "@/lib/password-policy";
 import { sanitizeAuthErrorMessage } from "@/lib/auth-error-message";
+import { posthog } from "@/lib/posthog";
 
 const clearStaleDashboardCache = () => {
   try {
@@ -124,6 +125,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
         // notice, not the "Welcome to NazAI" first-time email (that one
         // stays scoped to actual signups, below).
         void sendSignInNotification(signInData.user?.email ?? formData.email, "password");
+        posthog.capture("user_signed_in", { method: "password" });
         await refreshSession();
         clearStaleDashboardCache();
         onSuccess();
@@ -255,12 +257,16 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
       }
 
       if (signUpData.session) {
+        posthog.capture("user_signed_up", { method: "password" });
         await refreshSession();
         clearStaleDashboardCache();
         onSuccess();
         return;
       }
 
+      // No session yet (email confirmation required) -- the funnel step is
+      // still real signup intent, just not a completed session yet.
+      posthog.capture("user_signed_up", { method: "password", email_confirmation_pending: true });
       setPendingConfirmationEmail(formData.email);
     } finally {
       setLoading(false);
@@ -276,6 +282,10 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onClose, onSuccess }) => {
       // (no popup) — control returns here only on error; on success the
       // browser navigates away and back to redirectTo, where Supabase's
       // detectSessionInUrl (default true) picks up the session automatically.
+      // Capture "started" here since a successful attempt never returns to
+      // this code path to capture a "completed" event -- the post-redirect
+      // identify() in useAuth.tsx is what actually confirms the sign-in.
+      posthog.capture("oauth_sign_in_started", { provider });
       const { error } = await supabase.auth.signInWithOAuth({
         provider,
         options: { redirectTo: window.location.origin },
