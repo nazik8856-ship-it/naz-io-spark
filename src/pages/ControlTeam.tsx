@@ -7,6 +7,7 @@ const anyDb = supabase as any;
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 import { ACCOUNT_PERMISSIONS, PERMISSION_LABEL, type AccountPermission } from "@/lib/account-switcher";
+import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
 
 type Role = "owner" | "approver" | "viewer";
 type MemberRow = {
@@ -67,7 +68,8 @@ export default function ControlTeam() {
     setInviting(false);
     const res = (data ?? {}) as { ok?: boolean; error?: string };
     if (error || !res.ok) {
-      toast({ title: "Couldn't send the invite", description: res.error || error?.message, variant: "destructive" });
+      const detail = res.error || (await extractFunctionErrorMessage(error)) || error?.message;
+      toast({ title: "Couldn't send the invite", description: detail, variant: "destructive" });
       return;
     }
     setEmail("");

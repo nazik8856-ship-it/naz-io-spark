@@ -20,6 +20,7 @@ import { supabase } from "@/integrations/supabase/client";
 // Stale generated types: control-system tables aren't in types.ts yet.
 const anyDb = supabase as any;
 import { toast } from "@/hooks/use-toast";
+import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
 
 type Turn = { role: "user" | "assistant"; content: string; node?: ReactNode };
 
@@ -90,7 +91,7 @@ export default function ControlSystem() {
       });
 
     } catch (e) {
-      const msg = (e as Error)?.message || "Something went wrong reviewing that action.";
+      const msg = (await extractFunctionErrorMessage(e)) ?? (e as Error)?.message ?? "Something went wrong reviewing that action.";
       toast({ title: "Decision failed", description: msg, variant: "destructive" });
       setTurns((t) => {
         const next = [...t];

@@ -12,6 +12,7 @@ import { toast } from "@/hooks/use-toast";
 import { filterBySearch } from "@/lib/search-filter";
 import { actorName, buildActorNameMap } from "@/lib/actor-names";
 import { suggestAssignee, isOutOfOffice } from "@/lib/approval-assignment";
+import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
 
 type Approval = {
   id: string;
@@ -218,7 +219,8 @@ export default function ControlApprovals() {
     setBusy(null);
     const res = (data ?? {}) as { message?: string; summary?: string; executed?: boolean; already_executed?: boolean };
     if (error && !res.message) {
-      toast({ title: "Couldn't run it", description: friendlyErrorMessage(error.message), variant: "destructive" });
+      const detail = (await extractFunctionErrorMessage(error)) ?? friendlyErrorMessage(error.message);
+      toast({ title: "Couldn't run it", description: detail, variant: "destructive" });
       return;
     }
     toast({

@@ -8,6 +8,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
 
 type AgentRow = {
   id: string;
@@ -105,7 +106,7 @@ export default function AgentEmployeePanel({ agentId, events }: { agentId: strin
     const { data, error } = await supabase.functions.invoke("agent-approval", {
       body: { eventId, action: granted ? "approve" : "reject" },
     });
-    if (error) { toast.error(error.message || "Approval failed"); return; }
+    if (error) { toast.error((await extractFunctionErrorMessage(error)) ?? error.message ?? "Approval failed"); return; }
     const summary = (data as { summary?: string; resolved?: string; ok?: boolean } | null) || {};
     if (granted) {
       toast.success(summary.ok === false ? "Approved, but delivery failed — see events." : "Approved & executed.");
