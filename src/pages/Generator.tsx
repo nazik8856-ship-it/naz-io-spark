@@ -5,6 +5,7 @@ import { Plus, Home, Clock, Archive, Shield, ChevronRight, Zap, DatabaseZap, Loa
 import { supabase } from "@/integrations/supabase/client";
 import ModelSidebar from "@/components/ModelSidebar";
 import { toast } from "sonner";
+import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
 
 const Generator = () => {
   const navigate = useNavigate();
@@ -50,10 +51,11 @@ const Generator = () => {
       const content = data?.content || (typeof data === 'string' ? data : JSON.stringify(data));
       setGeneratedCode(content);
       toast.success("UPLINK_STABLE: Data Received");
-    } catch (err) { 
+    } catch (err) {
+      const detail = (await extractFunctionErrorMessage(err)) ?? (err instanceof Error ? err.message : null);
       console.error("UPLINK_CRASH:", err);
-      toast.error("UPLINK_CRASH: Re-establishing...");
-    } finally { 
+      toast.error(detail ? `UPLINK_CRASH: ${detail}` : "UPLINK_CRASH: Re-establishing...");
+    } finally {
       setLoading(false); 
     }
   };

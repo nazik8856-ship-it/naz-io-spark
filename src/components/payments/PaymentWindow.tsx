@@ -11,6 +11,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useCredits } from "@/hooks/useCredits";
 import { TIER_PLANS, TierId, setStoredTier, formatCredits } from "@/lib/credit-tiers";
 import { useToast } from "@/hooks/use-toast";
+import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
 
 type Method = "paypal" | "card";
 type Phase = "form" | "processing" | "success";
@@ -147,9 +148,10 @@ export default function PaymentWindow() {
       }
       setPhase("success");
     } catch (err: any) {
+      const detail = (await extractFunctionErrorMessage(err)) ?? err?.message ?? "Something went wrong. No charge was made.";
       toast({
         title: "Payment failed",
-        description: err?.message ?? "Something went wrong. No charge was made.",
+        description: detail,
         variant: "destructive",
       });
       setPhase("form");

@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { ArrowLeft, FlaskConical } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
+import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
 
 type SimResult = {
   live_rules: { matched: { id: string; rule_text: string; effect: string } | null; shadow_matches: { id: string; rule_text: string; would_have: string }[] };
@@ -65,7 +66,8 @@ export default function ControlRuleSimulator() {
     });
     setBusy(false);
     if (error) {
-      toast({ title: "Simulation failed", description: error.message, variant: "destructive" });
+      const detail = (await extractFunctionErrorMessage(error)) ?? error.message;
+      toast({ title: "Simulation failed", description: detail, variant: "destructive" });
       return;
     }
     setResult(data as SimResult);

@@ -4,6 +4,7 @@ import { CheckCircle2, XCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
+import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
 
 type Preview = { role: string; status: string; invited_email: string };
 
@@ -21,9 +22,12 @@ export default function AcceptInvite() {
   useEffect(() => {
     if (!token) { setError("Missing invite token."); return; }
     supabase.functions.invoke(`account-invite-accept?token=${encodeURIComponent(token)}`, { method: "GET" })
-      .then(({ data, error: err }) => {
+      .then(async ({ data, error: err }) => {
         const res = (data ?? {}) as Preview & { error?: string; message?: string };
-        if (err || res.error) { setError(res.message || res.error || err?.message || "Invite not found."); return; }
+        if (err || res.error) {
+          setError(res.message || res.error || (await extractFunctionErrorMessage(err)) || err?.message || "Invite not found.");
+          return;
+        }
         setPreview(res);
       });
   }, [token]);
@@ -38,7 +42,8 @@ export default function AcceptInvite() {
     setAccepting(false);
     const res = (data ?? {}) as { ok?: boolean; error?: string; message?: string };
     if (err || !res.ok) {
-      toast({ title: "Couldn't accept the invite", description: res.message || res.error || err?.message, variant: "destructive" });
+      const detail = res.message || res.error || (await extractFunctionErrorMessage(err)) || err?.message;
+      toast({ title: "Couldn't accept the invite", description: detail, variant: "destructive" });
       return;
     }
     setAccepted(true);

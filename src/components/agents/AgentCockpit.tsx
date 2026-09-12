@@ -14,6 +14,7 @@ import { AlertTriangle } from "lucide-react";
 import AskUserPrompt from "./AskUserPrompt";
 import { pendingClarification } from "@/lib/agent-clarifications";
 import AgentHealthBadge from "./AgentHealthBadge";
+import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
 
 type OutputItem = {
   id: string;
@@ -155,13 +156,14 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
   const verifyGmail = useCallback(async () => {
     setGmailVerifying(true);
     try {
-      await supabase.functions.invoke("integration-connect", {
+      const { error } = await supabase.functions.invoke("integration-connect", {
         body: { action: "fetch", provider: "Gmail", agentId },
       });
+      if (error) throw error;
       await loadGmail();
       toast.success("Gmail account confirmed");
-    } catch {
-      toast.error("Couldn't verify Gmail");
+    } catch (e) {
+      toast.error((await extractFunctionErrorMessage(e)) ?? (e instanceof Error ? e.message : "Couldn't verify Gmail"));
     } finally {
       setGmailVerifying(false);
     }
@@ -435,10 +437,10 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
       const { data, error } = await supabase.functions.invoke("agent-runtime", {
         body: { agentId, trigger: "manual" },
       });
-      if (error) throw new Error(error.message || "Run failed");
+      if (error) throw error;
       toast.success(`Run finished: ${(data as { summary?: string })?.summary || "ok"}`);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Run failed");
+      toast.error((await extractFunctionErrorMessage(e)) ?? (e instanceof Error ? e.message : "Run failed"));
     } finally {
       setRunning(false);
       loadEvents();

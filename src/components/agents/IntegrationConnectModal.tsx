@@ -712,7 +712,7 @@ export default function IntegrationConnectModal({
       const { data, error: fnErr } = await supabase.functions.invoke("integration-account-search", {
         body: { provider: integration.name, query: q },
       });
-      if (fnErr) throw new Error(fnErr.message || "Search failed");
+      if (fnErr) throw new Error((await extractFunctionErrorMessage(fnErr)) ?? fnErr.message ?? "Search failed");
       const res = data as { found: boolean; accounts: FoundAccount[]; error?: string };
       if (!res.found || !res.accounts?.length) {
         setResults([]);
@@ -755,7 +755,7 @@ export default function IntegrationConnectModal({
           },
         },
       });
-      if (fnErr) throw new Error(fnErr.message || "Connection failed");
+      if (fnErr) throw new Error((await extractFunctionErrorMessage(fnErr)) ?? fnErr.message ?? "Connection failed");
       const res = data as { ok: boolean; error?: string };
       if (!res.ok) throw new Error(typeof res.error === "string" ? res.error : "Connection rejected");
       setStep("connected");
@@ -773,7 +773,7 @@ export default function IntegrationConnectModal({
       const { error: fnErr } = await supabase.functions.invoke("integration-connect", {
         body: { action: "disconnect", provider: providerKey, agentId: agentId || null },
       });
-      if (fnErr) throw new Error(fnErr.message);
+      if (fnErr) throw new Error((await extractFunctionErrorMessage(fnErr)) ?? fnErr.message);
       setAccount(null);
       setEmail("");
       setPassword("");
@@ -793,7 +793,7 @@ export default function IntegrationConnectModal({
       const { data, error: fnErr } = await supabase.functions.invoke("integration-sync", {
         body: { provider: providerKey, agentId: agentId || null },
       });
-      if (fnErr) throw new Error(fnErr.message);
+      if (fnErr) throw new Error((await extractFunctionErrorMessage(fnErr)) ?? fnErr.message);
       const res = (data as { synced?: Array<{ ok: boolean; kind: string; data: Record<string, unknown>; error?: string }> }).synced || [];
       const hit = res[0];
       if (hit) {
@@ -1242,7 +1242,7 @@ export default function IntegrationConnectModal({
                       },
                     },
                   });
-                  if (fnErr) throw new Error(fnErr.message || "Connection failed");
+                  if (fnErr) throw new Error((await extractFunctionErrorMessage(fnErr)) ?? fnErr.message ?? "Connection failed");
                   const res = data as { ok: boolean; error?: string; sample?: Record<string, unknown> };
                   if (!res.ok) throw new Error(typeof res.error === "string" ? res.error : "Connection rejected");
                   const sample = res.sample || {};

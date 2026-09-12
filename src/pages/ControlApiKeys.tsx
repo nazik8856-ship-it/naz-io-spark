@@ -6,6 +6,7 @@ import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { hasPermission } from "@/lib/account-switcher";
 import { toast } from "@/hooks/use-toast";
 import { findStaleResponseRules, RESPONSE_RULE_STALE_WINDOW_DAYS } from "@/lib/response-rule-effectiveness";
+import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
 
 // api_keys is new (2026-08-26) -- not yet in the generated Supabase types
 // (types.ts isn't regenerated in this sandbox), same established
@@ -147,7 +148,7 @@ export default function ControlApiKeys() {
     setBusy(false);
     const res = (data ?? {}) as { ok?: boolean; key?: string; name?: string; error?: string };
     if (error || !res.ok || !res.key) {
-      toast({ title: "Couldn't create the key", description: res.error || error?.message, variant: "destructive" });
+      toast({ title: "Couldn't create the key", description: res.error || (await extractFunctionErrorMessage(error)) || error?.message, variant: "destructive" });
       return;
     }
     setName("");
@@ -161,7 +162,7 @@ export default function ControlApiKeys() {
     const { data, error } = await supabase.functions.invoke(`api-keys/${row.id}/revoke`, { body: { account_id: accountId } });
     const res = (data ?? {}) as { ok?: boolean; error?: string };
     if (error || !res.ok) {
-      toast({ title: "Couldn't revoke it", description: res.error || error?.message, variant: "destructive" });
+      toast({ title: "Couldn't revoke it", description: res.error || (await extractFunctionErrorMessage(error)) || error?.message, variant: "destructive" });
       return;
     }
     toast({ title: "Key revoked", description: `"${row.name}" can no longer authenticate.` });
@@ -594,7 +595,7 @@ function ApiKeySettingsPanel({
     const { data, error } = await supabase.functions.invoke(`api-keys/${keyId}/context${qs}`, { method: "GET" });
     const res = (data ?? {}) as { ok?: boolean; entries?: ContextEntry[]; error?: string };
     if (error || !res.ok) {
-      toast({ title: "Couldn't load context entries", description: res.error || error?.message, variant: "destructive" });
+      toast({ title: "Couldn't load context entries", description: res.error || (await extractFunctionErrorMessage(error)) || error?.message, variant: "destructive" });
     } else {
       setEntries(res.entries ?? []);
     }
@@ -607,7 +608,7 @@ function ApiKeySettingsPanel({
     const { data, error } = await supabase.functions.invoke(`api-keys/${keyId}/response-rules${qs}`, { method: "GET" });
     const res = (data ?? {}) as { ok?: boolean; rules?: ResponseRule[]; error?: string };
     if (error || !res.ok) {
-      toast({ title: "Couldn't load response rules", description: res.error || error?.message, variant: "destructive" });
+      toast({ title: "Couldn't load response rules", description: res.error || (await extractFunctionErrorMessage(error)) || error?.message, variant: "destructive" });
     } else {
       setRules(res.rules ?? []);
     }
@@ -653,7 +654,7 @@ function ApiKeySettingsPanel({
     setSavingSettings(false);
     const res = (data ?? {}) as { ok?: boolean; error?: string };
     if (error || !res.ok) {
-      toast({ title: "Couldn't save settings", description: res.error || error?.message, variant: "destructive" });
+      toast({ title: "Couldn't save settings", description: res.error || (await extractFunctionErrorMessage(error)) || error?.message, variant: "destructive" });
       return;
     }
     toast({ title: "Settings saved" });
@@ -674,7 +675,7 @@ function ApiKeySettingsPanel({
     setAddingEntry(false);
     const res = (data ?? {}) as { ok?: boolean; error?: string };
     if (error || !res.ok) {
-      toast({ title: "Couldn't add that entry", description: res.error || error?.message, variant: "destructive" });
+      toast({ title: "Couldn't add that entry", description: res.error || (await extractFunctionErrorMessage(error)) || error?.message, variant: "destructive" });
       return;
     }
     setNewEntryText("");
@@ -690,7 +691,7 @@ function ApiKeySettingsPanel({
     setDeletingEntryId(null);
     const res = (data ?? {}) as { ok?: boolean; error?: string };
     if (error || !res.ok) {
-      toast({ title: "Couldn't remove that entry", description: res.error || error?.message, variant: "destructive" });
+      toast({ title: "Couldn't remove that entry", description: res.error || (await extractFunctionErrorMessage(error)) || error?.message, variant: "destructive" });
       return;
     }
     setEntries((prev) => prev.filter((e) => e.id !== entryId));
@@ -715,7 +716,7 @@ function ApiKeySettingsPanel({
     setAddingRule(false);
     const res = (data ?? {}) as { ok?: boolean; error?: string };
     if (error || !res.ok) {
-      toast({ title: "Couldn't add that rule", description: res.error || error?.message, variant: "destructive" });
+      toast({ title: "Couldn't add that rule", description: res.error || (await extractFunctionErrorMessage(error)) || error?.message, variant: "destructive" });
       return;
     }
     setNewRuleTrigger("");
@@ -732,7 +733,7 @@ function ApiKeySettingsPanel({
     setDeletingRuleId(null);
     const res = (data ?? {}) as { ok?: boolean; error?: string };
     if (error || !res.ok) {
-      toast({ title: "Couldn't remove that rule", description: res.error || error?.message, variant: "destructive" });
+      toast({ title: "Couldn't remove that rule", description: res.error || (await extractFunctionErrorMessage(error)) || error?.message, variant: "destructive" });
       return;
     }
     setRules((prev) => prev.filter((r) => r.id !== ruleId));
