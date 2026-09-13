@@ -7,6 +7,7 @@ import ModelSidebar from "@/components/ModelSidebar";
 import { toast } from "sonner";
 import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
 import { posthog } from "@/lib/posthog";
+import { PROCESS_MISSION_FUNCTION } from "@/constants";
 
 const Generator = () => {
   const navigate = useNavigate();
@@ -39,18 +40,24 @@ const Generator = () => {
     
     posthog.capture("mission_generation_started", { model: activeModel });
     try {
-      // ── UPDATED FUNCTION INVOCATION ──
-      // Pointing to the new mission processing function observed in dashboard
-      const { data, error } = await supabase.functions.invoke("supabase-functions-new-process-mission", {
-        body: {
-          prompt: prompt.trim(),
-          model_choice: activeModel
-        },
+      // process-mission expects { directive } and returns
+      // { solution, explanation, actions } -- it doesn't accept a model
+      // choice (hardcodes its own model), so activeModel is tracked here
+      // for analytics only, not sent to the function.
+      const { data, error } = await supabase.functions.invoke(PROCESS_MISSION_FUNCTION, {
+        body: { directive: prompt.trim() },
       });
 
       if (error) throw error;
 
-      const content = data?.content || (typeof data === 'string' ? data : JSON.stringify(data));
+      const result = data as { solution?: string; explanation?: string; actions?: string[] } | null;
+      const content = result?.solution
+        ? [
+            result.solution,
+            result.explanation ? `\n${result.explanation}` : "",
+            result.actions?.length ? `\n\nNext steps:\n${result.actions.map((a) => `- ${a}`).join("\n")}` : "",
+          ].join("")
+        : JSON.stringify(data);
       setGeneratedCode(content);
       posthog.capture("mission_generation_succeeded", { model: activeModel });
       toast.success("UPLINK_STABLE: Data Received");
