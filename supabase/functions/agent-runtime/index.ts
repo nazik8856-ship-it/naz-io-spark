@@ -19,6 +19,7 @@ import { timingSafeEqual } from "../_shared/timing-safe.ts";
 import { recordAiSpend, estimateCostUsd } from "../_shared/spend-guard.ts";
 import { triggerWebhooks } from "../_shared/webhooks.ts";
 import { validateOutboundUrl } from "../_shared/url-safety.ts";
+import { reportEdgeException } from "../_shared/sentry.ts";
 
 import {
   readConfidence,
@@ -3180,6 +3181,7 @@ Reply with ONE fenced JSON block:
 
   } catch (e) {
     console.error("agent-runtime error", e);
+    await reportEdgeException(e, { function: "agent-runtime" });
     return json({ error: e instanceof Error ? e.message : "unknown" }, 500);
   }
 });

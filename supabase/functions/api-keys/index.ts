@@ -32,6 +32,7 @@ import { formatEmbeddingLiteral } from "../_shared/decision-embeddings.ts";
 import { generateLocalEmbedding } from "../_shared/local-embeddings.ts";
 import { isValidTriggerPhrase, isValidRuleAnswer, isValidMatchType, MAX_RESPONSE_RULES_PER_KEY } from "../_shared/response-rules.ts";
 import { findOverlappingCandidates, excerptOf } from "../_shared/rule-context-overlap.ts";
+import { reportEdgeException } from "../_shared/sentry.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -48,6 +49,10 @@ const json = (b: unknown, status = 200) =>
 const PERFORMANCE_LOOKBACK_DAYS = 7;
 
 Deno.serve(async (req) => {
+  // Correctness-audit fix: no outer crash visibility existed here at all
+  // -- see control-api's identical addition for the full reasoning.
+  // Minimal-diff wrap: internal indentation left as-is.
+  try {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   const authHeader = req.headers.get("Authorization") || "";
@@ -879,4 +884,8 @@ Deno.serve(async (req) => {
   }
 
   return json({ error: "Method not allowed" }, 405);
+  } catch (e) {
+    await reportEdgeException(e, { function: "api-keys" });
+    return json({ error: "internal_error", message: "An unexpected error occurred." }, 500);
+  }
 });

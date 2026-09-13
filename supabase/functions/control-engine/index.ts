@@ -29,6 +29,7 @@ import { checkApprovalQuorum } from "../_shared/quorum.ts";
 import { claimIdempotencyKey, saveIdempotencyResponse, releaseIdempotencyKey, claimRowOnce, releaseRowClaim, type ClaimResult } from "../_shared/idempotency.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { triggerWebhooks } from "../_shared/webhooks.ts";
+import { reportEdgeException } from "../_shared/sentry.ts";
 import { loadActiveConfidenceBucketFlags, widenThresholdForFlags } from "../_shared/confidence-bucket-flags.ts";
 
 // Generous enough that a legitimate agent-runtime run bursting several
@@ -1575,6 +1576,12 @@ serve(async (req) => {
 
   } catch (e) {
     const message = String((e as Error)?.message || e);
+    // Correctness-audit fix: reports the raw exception (with stack trace)
+    // regardless of whether userId resolved -- sendCriticalAlert below
+    // already reports a message-level Sentry event for the userId-known
+    // case (via critical-alerts.ts), but this is the only coverage at all
+    // for the narrower "failed before an account could be resolved" case.
+    await reportEdgeException(e, { function: "control-engine" });
     // "15 more items" plan, item 4: this outer catch used to just return a
     // bare 500 -- no decision row, no alert, no incident, unlike the INNER
     // gate-logic catch (control-gate.ts's own fail-closed block) which at

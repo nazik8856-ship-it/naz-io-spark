@@ -66,6 +66,7 @@ import { findMatchingRule, type ResponseRule } from "../_shared/response-rules.t
 import { sanitizeResponse } from "../_shared/response-sanitizer.ts";
 import { ROOT_CAUSE_CATEGORIES, isValidRootCauseCategory } from "../_shared/incidents.ts";
 import { loadSafetyRules, scanWithRules } from "../_shared/safety-scanner.ts";
+import { reportEdgeException } from "../_shared/sentry.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -462,6 +463,14 @@ async function judgeOneActionInner(
 }
 
 Deno.serve(async (req) => {
+  // Correctness-audit fix: this whole handler previously had NO outer
+  // crash visibility at all (unlike control-engine's own equivalent
+  // catch) -- an uncaught exception anywhere below just became Deno's
+  // generic, unstructured 500. This wraps the entire existing body
+  // unchanged (deliberately minimal-diff: internal indentation is left
+  // as-is) so any escaping error is reported to Sentry and still returns
+  // a real JSON error response.
+  try {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   const url = new URL(req.url);
@@ -1834,4 +1843,8 @@ Deno.serve(async (req) => {
   }
   if (verdict.error === "assessment_failed") return json(verdict, 502);
   return json(verdict);
+  } catch (e) {
+    await reportEdgeException(e, { function: "control-api" });
+    return json({ error: "internal_error", message: "An unexpected error occurred." }, 500);
+  }
 });
