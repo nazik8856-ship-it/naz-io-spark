@@ -43,7 +43,7 @@ function fakeSupabase(opts: { slackConnected: boolean }) {
       if (table === "agent_integrations") {
         return new FakeQuery(() =>
           opts.slackConnected
-            ? { data: { provider: "slack", metadata: { default_channel: "#alerts" } }, error: null }
+            ? { data: { provider: "Slack", metadata: { default_channel: "#alerts" } }, error: null }
             : { data: null, error: null }
         );
       }

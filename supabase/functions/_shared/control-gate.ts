@@ -539,6 +539,13 @@ export async function createPendingApproval(
               updates.on_uncertain = "human_review";
               updates.on_uncertain_downgraded_at = now.toISOString();
               updates.on_uncertain_downgrade_reason = summarizePolicyDowngrade("callback_failures", String(streak));
+              // Correctness-audit fix: the other two downgrade paths
+              // (control-api-abuse-sweep's "repeated_pause",
+              // outcome-quality-sweep's "bad_outcomes") both set this;
+              // this branch was the one left NULL, undercounting
+              // callback-failure downgrades in the audit/blast-radius
+              // queries that filter on it.
+              updates.on_uncertain_downgrade_kind = "callback_failures";
             }
             await admin.from("api_keys").update(updates).eq("id", input.apiKeyId);
             if (troubled) {

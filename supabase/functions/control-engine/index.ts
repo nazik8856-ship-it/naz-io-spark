@@ -262,16 +262,42 @@ serve(async (req) => {
           message: String(row.irreversible_reason || "This action cannot be undone."),
         }, 409);
       }
+
+      // Atomic claim: only ONE concurrent /undo call for this row may
+      // actually run the real compensating action, same claimRowOnce
+      // shape as /approvals/:id/execute (executed_at) and
+      // /decisions/:id/override (overridden_at) already use — two
+      // simultaneous undo requests must not both delete/restore the
+      // provider-side resource. A failed attempt releases the claim so a
+      // genuine retry can still try again, mirroring /execute's own
+      // release-on-failure behavior.
+      const claimed = await claimRowOnce(supabase, "action_reversals", row.id as string, "executed_at");
+      if (!claimed) {
+        const { data: latest } = await supabase
+          .from("action_reversals").select("status,summary").eq("id", row.id as string).maybeSingle();
+        const latestRow = latest as { status?: string; summary?: string } | null;
+        if (latestRow?.status === "undone") {
+          return json({ ok: true, already_undone: true, status: "undone", summary: latestRow.summary ?? "Already undone." });
+        }
+        return json({
+          ok: false, error: "in_progress",
+          message: "Another undo request for this decision is already in progress — nothing ran again.",
+        }, 409);
+      }
+
       const result = await runUndo(supabase, userId, String(row.agent_id || ""), {
         tool: String(row.tool),
         ref: (row.ref as string | null) ?? null,
         undo_payload: (row.undo_payload as Record<string, unknown> | null) ?? {},
       });
+      if (!result.ok) {
+        // Nothing real happened — release the claim so this stays retryable.
+        await releaseRowClaim(supabase, "action_reversals", row.id as string, "executed_at");
+      }
       await supabase.from("action_reversals").update({
         status: result.ok ? "undone" : "failed",
         summary: result.summary,
         error: result.ok ? null : result.summary,
-        executed_at: new Date().toISOString(),
       }).eq("id", row.id as string);
 
       // The undo is itself an auditable decision, signed like every other one.

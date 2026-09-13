@@ -20,6 +20,7 @@
 // since every write here goes through the service-role admin client.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sha256Hex, generateRawKey, displayPrefixFor } from "../_shared/api-key-auth.ts";
+import { validateOutboundUrl } from "../_shared/url-safety.ts";
 import { resolveAccountScope } from "../_shared/account-scope.ts";
 import { isValidOnUncertainPolicy, summarizeShadowObservations, evaluateShadowPromotionReadiness, summarizeShadowPromotionReadiness, type ShadowObservationRow } from "../_shared/api-key-policy.ts";
 import { evaluateAutomationReadiness, gatherAutomationReadinessInput, READINESS_LOOKBACK_DAYS } from "../_shared/automation-readiness.ts";
@@ -207,6 +208,15 @@ Deno.serve(async (req) => {
       const callbackSecret = String(body?.callback_secret || "").trim();
       if (!callbackUrl || !callbackSecret) {
         return json({ error: "on_uncertain='callback' requires both callback_url and callback_secret" }, 400);
+      }
+      // SSRF guard: this URL gets POSTed to by our own server-side runtime
+      // every time an escalation lands on this key, on a schedule the
+      // account fully controls -- reject anything that isn't a public
+      // https host up front, the same check agent-runtime's http_post
+      // tool applies to agent-initiated calls.
+      const urlCheck = await validateOutboundUrl(callbackUrl);
+      if (!urlCheck.ok) {
+        return json({ error: `callback_url is not allowed: ${urlCheck.reason}` }, 400);
       }
       update.callback_url = callbackUrl;
       update.callback_secret = callbackSecret;
@@ -434,12 +444,23 @@ Deno.serve(async (req) => {
     // a live key's, it's simply scoped to that one key's own traffic
     // either way (see sandbox-mode.ts's module comment on this item).
     const since = new Date(Date.now() - PERFORMANCE_LOOKBACK_DAYS * 86400_000).toISOString();
-    const { data: rows, error } = await admin
-      .from("agent_decisions")
-      .select("gate_duration_ms, source")
-      .eq("api_key_id", keyId)
-      .gte("created_at", since)
-      .limit(20000);
+    const [{ data: rows, error }, { data: cleanAllowRows }] = await Promise.all([
+      admin
+        .from("agent_decisions")
+        .select("gate_duration_ms, source")
+        .eq("api_key_id", keyId)
+        .gte("created_at", since)
+        .limit(20000),
+      // Correctness-audit fix: a clean mode="fast" allow never gets its
+      // own agent_decisions row (see clean_allow_counts's own migration
+      // comment) -- folded into keyUptimeStats's denominator below so
+      // this report doesn't understate a key's real uptime.
+      admin
+        .from("clean_allow_counts")
+        .select("count")
+        .eq("api_key_id", keyId)
+        .gte("window_start", since),
+    ]);
     if (error) return json({ error: error.message }, 500);
 
     type Row = { gate_duration_ms: number | null; source: string | null };
@@ -448,7 +469,8 @@ Deno.serve(async (req) => {
       .map((r) => r.gate_duration_ms)
       .filter((d): d is number => typeof d === "number" && Number.isFinite(d));
     const latency = keyLatencyStats(durations);
-    const uptime = keyUptimeStats(typedRows.map((r) => r.source));
+    const extraCleanAllows = ((cleanAllowRows ?? []) as { count: number }[]).reduce((sum, r) => sum + r.count, 0);
+    const uptime = keyUptimeStats(typedRows.map((r) => r.source), extraCleanAllows);
 
     return json({
       ok: true,

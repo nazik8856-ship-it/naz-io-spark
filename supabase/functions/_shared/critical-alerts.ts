@@ -252,7 +252,12 @@ export async function sendCriticalAlert(
       .from("agent_integrations")
       .select("provider, metadata")
       .eq("user_id", userId)
-      .eq("provider", "slack")
+      // Correctness-audit fix: the only writer (slack-oauth-callback)
+      // stores provider="Slack" (capital S) -- this was "slack"
+      // (lowercase), so this lookup could never find a connected
+      // integration and Slack critical-alert delivery always silently
+      // fell through to the log+email path.
+      .eq("provider", "Slack")
       .eq("status", "connected")
       .maybeSingle();
 

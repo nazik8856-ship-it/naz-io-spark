@@ -41,7 +41,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { resolveApiKeyAuth } from "../_shared/control-api-auth.ts";
 import { runControlGate } from "../_shared/control-gate.ts";
-import { checkIpRateLimit, checkRateLimit, resolveConfiguredRateLimit } from "../_shared/rate-limit.ts";
+import { checkIpRateLimit, checkRateLimit, resolveConfiguredRateLimit, computeWindowStart } from "../_shared/rate-limit.ts";
 import { getApiKeySpendStatus } from "../_shared/spend-guard.ts";
 import { checkApiVersion, CONTROL_API_VERSION } from "../_shared/api-versioning.ts";
 import { parseControlApiAction, MAX_BATCH_ACTIONS, type ParsedControlApiAction } from "../_shared/control-api-action.ts";
@@ -52,7 +52,7 @@ import { classifyDecisionVerification, type RawDecisionVerification } from "../_
 import { excludeDecisionFromPrecedent, loadPrecedentForPrompt } from "../_shared/precedent-search.ts";
 import { evaluateCoarsePrecedentLookup, summarizeCoarsePrecedentLookup, type CrossAccountStat } from "../_shared/cross-account-precedent.ts";
 import { summarizeDecisionsForRoi, costPerAutonomousDecision, buildRoiTrend, estimateManualReviewHoursSaved, weekBucketKey, summarizeRespondForRoi, estimateManualResponseHoursSaved, type DecisionForRoi, type DecisionForRoiTrend, type RespondRowForRoi } from "../_shared/roi-report.ts";
-import { buildEmbeddingInput, formatEmbeddingLiteral, generateEmbeddingWithinBudget } from "../_shared/decision-embeddings.ts";
+import { buildEmbeddingInput, formatEmbeddingLiteral, generateEmbeddingWithinBudget, generateEmbedding } from "../_shared/decision-embeddings.ts";
 import { countsTowardRealUsage, testModeVerdictNote } from "../_shared/sandbox-mode.ts";
 import { summarizeAttestationCounts, distinctPolicyVersions, buildAttestationCanonicalPayload, summarizeAttestationIncidents } from "../_shared/compliance-attestation.ts";
 import { buildDecisionExplanation } from "../_shared/decision-explanation.ts";
@@ -65,6 +65,7 @@ import { synthesizeAnswer, NO_MATCH_FALLBACK_ANSWER } from "../_shared/response-
 import { findMatchingRule, type ResponseRule } from "../_shared/response-rules.ts";
 import { sanitizeResponse } from "../_shared/response-sanitizer.ts";
 import { ROOT_CAUSE_CATEGORIES, isValidRootCauseCategory } from "../_shared/incidents.ts";
+import { loadSafetyRules, scanWithRules } from "../_shared/safety-scanner.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -160,6 +161,12 @@ const DECISION_DISPUTE_RATE_LIMIT_PER_MINUTE = 10;
 // does two real LLM calls per request (generation + a grounding-check
 // second pass), never a cheap read.
 const RESPOND_RATE_LIMIT_PER_MINUTE = 20;
+// Correctness-audit fix: shown when the account's own hard_rules/safety_rules
+// engine matches the end user's incoming message. Deliberately generic --
+// never echoes back what was flagged, matching the safety scanner's own
+// "secrets and PII are never echoed back" convention elsewhere.
+const SAFETY_DECLINE_ANSWER =
+  "I'm not able to help with that request.";
 // "10 tasks" plan, item 195: incidents are already exposed internally via
 // control-incidents/index.ts (session-JWT, the account owner's own
 // dashboard); this exposes the same list/acknowledge/resolve surface to
@@ -310,6 +317,23 @@ async function judgeOneActionInner(
         ...testModeFields,
       };
     }
+    // Correctness-audit fix: this is the ONE outcome on this path that
+    // never writes an agent_decisions row at all (a deliberate perf/cost
+    // choice for the common, cheap "nothing stopped it" case) -- which
+    // left keyUptimeStats/classifyPlatformStatus computing their
+    // denominator from a set that excludes almost all real successful
+    // traffic while including every failure, making uptime look far
+    // worse than reality. A lightweight, row-free counter closes that gap
+    // without undoing the perf/cost win (see clean_allow_counts's own
+    // migration comment). Sandbox traffic is excluded, same as every
+    // other real-usage signal (sandbox-mode.ts).
+    if (keyId && countsTowardRealUsage(isTest)) {
+      try {
+        await admin.rpc("increment_clean_allow_count", {
+          _user_id: userId, _api_key_id: keyId, _window_start: computeWindowStart(new Date(), 60),
+        });
+      } catch { /* this counter must never affect the real verdict already decided */ }
+    }
     return {
       verdict: "allow",
       reason: "No hard rule, safety match, spend cap, or circuit breaker stopped this action.",
@@ -363,6 +387,21 @@ async function judgeOneActionInner(
         }).select("id").maybeSingle();
         decisionId = (logged as { id?: string } | null)?.id ?? null;
       } catch { /* logging must never break the cap enforcement itself */ }
+      // Correctness-audit fix: every other decision-logging path
+      // (control-gate.ts's logStop, control-engine's override/undo paths)
+      // fires decision_logged here -- this per-key cap block was the one
+      // path that inserted its own agent_decisions row directly and
+      // skipped it, so an account relying on this webhook to mirror its
+      // decision log would silently miss every block caused by this
+      // specific (key-level, as opposed to account-wide) cap.
+      if (decisionId) {
+        try {
+          await triggerWebhooks(admin, userId, "decision_logged", {
+            id: decisionId, decision: `BLOCK ${actionType} (${provider})`.slice(0, 400),
+            source: "ai_spend_cap", escalated: false, agent_id: null,
+          });
+        } catch { /* ignore */ }
+      }
       return {
         verdict: "block",
         reason,
@@ -473,12 +512,18 @@ Deno.serve(async (req) => {
     const killSwitch = (platformRow as { kill_switch?: boolean } | null)?.kill_switch === true;
 
     const since = new Date(Date.now() - DEGRADED_LOOKBACK_MINUTES * 60 * 1000).toISOString();
-    const { data: recentDecisions } = await admin
-      .from("agent_decisions")
-      .select("source")
-      .gte("created_at", since);
+    const [{ data: recentDecisions }, { data: cleanAllowRows }] = await Promise.all([
+      admin.from("agent_decisions").select("source").gte("created_at", since),
+      // Correctness-audit fix: a clean mode="fast" allow never gets its
+      // own agent_decisions row (see clean_allow_counts's own migration
+      // comment) -- folded into the denominator below so a platform
+      // seeing mostly clean fast-mode traffic doesn't report a
+      // gate-error rate far worse than reality.
+      admin.from("clean_allow_counts").select("count").gte("window_start", since),
+    ]);
     const rows = (recentDecisions ?? []) as { source: string | null }[];
-    const total = rows.length;
+    const extraCleanAllows = ((cleanAllowRows ?? []) as { count: number }[]).reduce((sum, r) => sum + r.count, 0);
+    const total = rows.length + Math.max(0, extraCleanAllows);
     const gateErrors = rows.filter((r) => r.source === "gate_error" || r.source === "gate_error_fail_open").length;
 
     const status = classifyPlatformStatus(killSwitch, total, gateErrors);
@@ -678,24 +723,36 @@ Deno.serve(async (req) => {
     const parsed = parseControlApiAction(body);
     if ("error" in parsed) return json({ error: parsed.error }, 400);
 
-    // Checked explicitly (rather than just letting generateEmbeddingWithinBudget
-    // silently return null) so a caller asking specifically FOR precedent gets
-    // an honest reason for an empty result, unlike every other call site where
-    // precedent is a silent background enrichment.
-    const spend = await getApiKeySpendStatus(admin, userId, auth.keyId);
-    if (spend.has_cap && spend.over_cap) {
-      return json({
-        error: "spend_cap_reached",
-        message: `This API key's own daily AI spend cap is used up ($${spend.spent_usd.toFixed(2)} of ` +
-          `$${spend.cap_usd.toFixed(2)}). Precedent search needs a fresh embedding, which shares this same ` +
-          `budget with judgment calls. Resumes tomorrow (UTC), or when an owner raises the cap.`,
-      }, 429);
-    }
+    // Sandbox/test-mode keys judge exactly like a real key but must never
+    // count toward real AI spend (sandbox-mode.ts's countsTowardRealUsage
+    // contract) -- so a test key skips the spend-cap check entirely and
+    // gets an unbilled embedding via the raw (non-budget-recording)
+    // generateEmbedding, instead of going through
+    // generateEmbeddingWithinBudget, which always calls recordAiSpend.
+    const meterSpend = countsTowardRealUsage(auth.isTest);
+    const embeddingInput = buildEmbeddingInput({
+      actionType: parsed.actionType, provider: parsed.provider, description: parsed.description, params: parsed.params,
+    });
 
-    const embedding = await generateEmbeddingWithinBudget(
-      admin, userId, auth.keyId,
-      buildEmbeddingInput({ actionType: parsed.actionType, provider: parsed.provider, description: parsed.description, params: parsed.params }),
-    );
+    let embedding: number[] | null;
+    if (meterSpend) {
+      // Checked explicitly (rather than just letting generateEmbeddingWithinBudget
+      // silently return null) so a caller asking specifically FOR precedent gets
+      // an honest reason for an empty result, unlike every other call site where
+      // precedent is a silent background enrichment.
+      const spend = await getApiKeySpendStatus(admin, userId, auth.keyId);
+      if (spend.has_cap && spend.over_cap) {
+        return json({
+          error: "spend_cap_reached",
+          message: `This API key's own daily AI spend cap is used up ($${spend.spent_usd.toFixed(2)} of ` +
+            `$${spend.cap_usd.toFixed(2)}). Precedent search needs a fresh embedding, which shares this same ` +
+            `budget with judgment calls. Resumes tomorrow (UTC), or when an owner raises the cap.`,
+        }, 429);
+      }
+      embedding = await generateEmbeddingWithinBudget(admin, userId, auth.keyId, embeddingInput);
+    } else {
+      embedding = await generateEmbedding(embeddingInput);
+    }
     if (!embedding) {
       return json({
         ok: true, count: 0, matches: [], degraded: true,
@@ -1215,6 +1272,45 @@ Deno.serve(async (req) => {
         });
       } catch { /* audit logging must never break a real answer that already succeeded */ }
     };
+
+    // Correctness-audit fix: the account's OWN hard_rules/safety_rules
+    // engine -- the same deterministic pattern scanner control-gate.ts
+    // runs before every judgment verdict -- is applied here too, checked
+    // BEFORE even the rule tier below: a safety match on the end user's
+    // own incoming message (a pasted secret, card number, SSN, or
+    // destructive wording) must win over a canned answer or context
+    // match, since /respond has no human-approval loop to fall back on
+    // the way control-gate.ts's require_approval severity does. Any
+    // match (block OR require_approval) means "decline to answer" here --
+    // there's no reviewer to hand a require_approval case to mid-request.
+    const safetyRules = await loadSafetyRules(admin, userId);
+    const safetyScan = scanWithRules(safetyRules, {}, parsed.message);
+    if (safetyScan.matched) {
+      // Deliberately NOT the per-key custom fallback_message (item 175) --
+      // that wording is for an honest "I don't have enough information,"
+      // a different situation from "I won't process this message at all."
+      const sanitizedDecline = sanitizeResponse(SAFETY_DECLINE_ANSWER);
+      const testModeFields = auth.isTest ? { test_mode: true, note: testModeVerdictNote(auth.isTest) } : {};
+      if (meterSpend) {
+        try {
+          await admin.from("api_response_generations").insert({
+            user_id: userId,
+            api_key_id: auth.keyId,
+            is_test: auth.isTest,
+            message: parsed.message.slice(0, 500),
+            injection_guard_intervened: false,
+            grounding_check_intervened: false,
+            sanitizer_intervened: sanitizedDecline.intervened,
+            safety_rule_intervened: true,
+            served_from_cache: false,
+            latency_ms: Date.now() - startedAt,
+          });
+        } catch { /* audit logging must never break a real answer that already succeeded */ }
+      }
+      const costFields = { cost_usd: 0, confidence: "high" as const };
+      if (parsed.stream) return streamAnswer(sanitizedDecline.text, { ...testModeFields, ...costFields });
+      return json({ ok: true, answer: sanitizedDecline.text, ...costFields, ...testModeFields });
+    }
 
     // Item 177 (Phase 2): the rule tier, checked BEFORE anything else --
     // including the cache below. A rule is the account owner's own
