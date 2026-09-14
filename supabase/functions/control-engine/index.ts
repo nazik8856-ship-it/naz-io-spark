@@ -66,8 +66,8 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const LOVABLE_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
-const MODEL = "google/gemini-3-flash-preview";
+const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
+const MODEL = "gpt-4o-mini";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -157,8 +157,8 @@ serve(async (req) => {
   // to attribute a record/alert/incident to in the first place.
   let userId: string | undefined;
   try {
-    const key = Deno.env.get("LOVABLE_API_KEY");
-    if (!key) return json({ error: "Missing LOVABLE_API_KEY" }, 500);
+    const key = Deno.env.get("OPENAI_API_KEY");
+    if (!key) return json({ error: "Missing OPENAI_API_KEY" }, 500);
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
@@ -955,7 +955,7 @@ serve(async (req) => {
     const injection = scanForInjection(untrustedFields);
     const untrustedBlock = buildUntrustedBlock(untrustedFields, provider);
 
-    const res = await fetch(LOVABLE_URL, {
+    const res = await fetch(OPENAI_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
       body: JSON.stringify({
