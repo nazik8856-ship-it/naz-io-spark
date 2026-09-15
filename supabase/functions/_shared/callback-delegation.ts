@@ -16,6 +16,7 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0
 import { hmacHex, buildSignaturePayload } from "./webhooks.ts";
 import { claimRowOnce } from "./idempotency.ts";
 import { classifyPendingApprovalStatus } from "./api-key-policy.ts";
+import { validateOutboundUrl } from "./url-safety.ts";
 
 export type CallbackConfig = {
   url: string;
@@ -51,6 +52,12 @@ async function notifyCallback(
   payload: Record<string, unknown>,
 ): Promise<void> {
   try {
+    // Defense in depth: api-keys/index.ts already rejects a non-public
+    // callback_url at set time, but re-check here too -- a DNS record
+    // can change after the fact (rebinding), and this is the point where
+    // our server actually makes the outbound request.
+    const check = await validateOutboundUrl(url);
+    if (!check.ok) return;
     const body = JSON.stringify({ event: "decision_needs_resolution", data: payload, sent_at: new Date().toISOString() });
     const timestamp = Date.now().toString();
     const signature = await hmacHex(secret, buildSignaturePayload(timestamp, body));

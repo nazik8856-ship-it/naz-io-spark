@@ -42,10 +42,19 @@ export type KeyUptimeStats = { uptimePct: number | null; errorCount: number; tot
  * does for the platform-wide stat -- the gate itself failed; the fact
  * this specific key was configured to fail open doesn't make that not an
  * outage from the key's own point of view.
+ *
+ * `extraCleanAllows` (correctness-audit fix): a clean mode="fast" allow
+ * never gets its own agent_decisions row (see clean_allow_counts's own
+ * migration comment) -- without folding this count into the denominator,
+ * a key seeing mostly clean fast-mode traffic would report uptime far
+ * worse than reality, since almost all of its real successful calls
+ * would be invisible to `total` while every failure still shows up in
+ * `sources`. Always non-negative; the caller sums a service-role-only
+ * counter table, never user input.
  */
-export function keyUptimeStats(sources: (string | null | undefined)[]): KeyUptimeStats {
-  const total = sources.length;
-  if (total === 0) return { uptimePct: null, errorCount: 0, total: 0 };
+export function keyUptimeStats(sources: (string | null | undefined)[], extraCleanAllows: number = 0): KeyUptimeStats {
   const errorCount = sources.filter((s) => s != null && GATE_ERROR_SOURCES.has(s)).length;
+  const total = sources.length + Math.max(0, extraCleanAllows);
+  if (total === 0) return { uptimePct: null, errorCount: 0, total: 0 };
   return { uptimePct: Math.round((1 - errorCount / total) * 1000) / 10, errorCount, total };
 }

@@ -30,6 +30,11 @@ function generateToken(): string {
     .join('')
 }
 
+async function sha256Hex(input: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input))
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
 // Auth note: this function uses verify_jwt = true in config.toml, so Supabase's
 // gateway validates the caller's JWT (anon or service_role) before the request
 // reaches this code. No in-function auth check is needed.
@@ -65,9 +70,23 @@ Deno.serve(async (req) => {
     templateName = body.templateName || body.template_name
     recipientEmail = body.recipientEmail || body.recipient_email
     messageId = crypto.randomUUID()
-    idempotencyKey = body.idempotencyKey || body.idempotency_key || messageId
     if (body.templateData && typeof body.templateData === 'object') {
       templateData = body.templateData
+    }
+    const suppliedKey = body.idempotencyKey || body.idempotency_key
+    if (suppliedKey) {
+      idempotencyKey = suppliedKey
+    } else {
+      // Correctness-audit fix: this used to fall back to messageId, which
+      // is a freshly randomized UUID on every invocation -- an idempotency
+      // key that's different every call can never dedupe anything, which
+      // defeats the entire point of one. Derive a STABLE key from the
+      // actual request content instead, so a genuine retry of the exact
+      // same send (same template, recipient, data) collapses to the same
+      // key downstream (process-email-queue's own dedup), while two calls
+      // that differ in any of those are correctly treated as different
+      // sends.
+      idempotencyKey = `auto:${await sha256Hex(JSON.stringify({ templateName, recipientEmail, templateData }))}`
     }
   } catch {
     return new Response(
