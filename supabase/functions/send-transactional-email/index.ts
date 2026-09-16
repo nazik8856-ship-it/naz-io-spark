@@ -2,6 +2,7 @@ import * as React from 'npm:react@18.3.1'
 import { renderAsync } from 'npm:@react-email/components@0.0.22'
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { TEMPLATES } from '../_shared/transactional-email-templates/registry.ts'
+import { checkIpRateLimit } from '../_shared/rate-limit.ts'
 
 // Configuration baked in at scaffold time — do NOT change these manually.
 // To update, re-run the email domain setup flow.
@@ -57,6 +58,30 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       }
     )
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseServiceKey)
+
+  // verify_jwt=true accepts either the service-role key (trusted internal
+  // callers, e.g. account-invite) or the public anon key -- the anon key
+  // ships in the frontend bundle, so an anon-keyed caller is effectively
+  // the whole internet. Only rate-limit that traffic; internal callers
+  // stay unlimited, same isInternal trust boundary this codebase already
+  // uses elsewhere.
+  const authHeader = req.headers.get('Authorization') ?? ''
+  const callerToken = authHeader.replace(/^Bearer\s+/i, '')
+  const isInternal = callerToken === supabaseServiceKey
+  if (!isInternal) {
+    const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+      || req.headers.get('cf-connecting-ip')
+      || 'unknown'
+    const ipRate = await checkIpRateLimit(supabase, ip, 'send-transactional-email', 10, 600)
+    if (!ipRate.allowed) {
+      return new Response(
+        JSON.stringify({ error: 'Too many requests from this address. Try again shortly.' }),
+        { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
   }
 
   // Parse request body
@@ -140,9 +165,6 @@ Deno.serve(async (req) => {
       }
     )
   }
-
-  // Create Supabase client with service role (bypasses RLS)
-  const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
   // 2. Check suppression list (fail-closed: if we can't verify, don't send)
   const { data: suppressed, error: suppressionError } = await supabase

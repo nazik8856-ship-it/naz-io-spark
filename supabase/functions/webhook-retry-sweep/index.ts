@@ -9,6 +9,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildSignaturePayload, handleWebhookDeliveryOutcome } from "../_shared/webhooks.ts";
 import { isRetryEligible, computeNextRetryAt } from "../_shared/webhook-retry.ts";
 import { previousSecretActive } from "../_shared/webhook-secret-rotation.ts";
+import { validateOutboundUrl } from "../_shared/url-safety.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -90,6 +91,11 @@ Deno.serve(async (req) => {
     let ok = false;
     let errMsg: string | null = null;
     try {
+      // Same call-time re-check as _shared/webhooks.ts's own triggerWebhooks
+      // -- a DNS record can change after the fact (rebinding), and this is
+      // a separate outbound fetch, not routed through that helper.
+      const urlCheck = await validateOutboundUrl(hook.url);
+      if (!urlCheck.ok) throw new Error(`blocked: ${urlCheck.reason}`);
       const signaturePayload = buildSignaturePayload(timestamp, body);
       const signature = await hmacHex(hook.secret, signaturePayload);
       const headers: Record<string, string> = {

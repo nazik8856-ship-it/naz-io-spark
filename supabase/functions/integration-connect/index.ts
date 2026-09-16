@@ -25,6 +25,7 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { createSecret, updateSecret, deleteSecret } from "../_shared/integration-secrets.ts";
+import { validateOutboundUrl } from "../_shared/url-safety.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -63,7 +64,10 @@ async function verifyShopify(c: Credentials) {
   const store = c.store_url?.trim().replace(/^https?:\/\//, "").replace(/\/$/, "");
   const token = c.access_token?.trim();
   if (!store || !token) return { ok: false, error: "Missing store URL or access token" };
-  const r = await fetch(`https://${store}/admin/api/2024-07/shop.json`, {
+  const shopifyUrl = `https://${store}/admin/api/2024-07/shop.json`;
+  const shopifyCheck = await validateOutboundUrl(shopifyUrl);
+  if (!shopifyCheck.ok) return { ok: false, error: `store_url is not allowed: ${shopifyCheck.reason}` };
+  const r = await fetch(shopifyUrl, {
     headers: { "X-Shopify-Access-Token": token, "Content-Type": "application/json" },
   });
   const data = await r.json().catch(() => ({}));
@@ -85,8 +89,11 @@ async function verifyWoo(c: Credentials) {
   const key = c.client_id?.trim();
   const secret = c.client_secret?.trim();
   if (!store || !key || !secret) return { ok: false, error: "Missing store URL or keys" };
+  const wooUrl = `${store}/wp-json/wc/v3/system_status`;
+  const wooCheck = await validateOutboundUrl(wooUrl);
+  if (!wooCheck.ok) return { ok: false, error: `store_url is not allowed: ${wooCheck.reason}` };
   const auth = btoa(`${key}:${secret}`);
-  const r = await fetch(`${store}/wp-json/wc/v3/system_status`, {
+  const r = await fetch(wooUrl, {
     headers: { Authorization: `Basic ${auth}` },
   });
   const data = await r.json().catch(() => ({}));
@@ -105,6 +112,8 @@ async function verifyWoo(c: Credentials) {
 async function verifySlack(c: Credentials) {
   // Incoming webhook ping
   if (c.webhook_url?.trim()) {
+    const slackCheck = await validateOutboundUrl(c.webhook_url.trim());
+    if (!slackCheck.ok) return { ok: false, error: `webhook_url is not allowed: ${slackCheck.reason}` };
     const r = await fetch(c.webhook_url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
