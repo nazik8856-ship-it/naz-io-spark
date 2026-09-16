@@ -8,7 +8,12 @@ const ensureInit = () => {
   mermaid.initialize({
     startOnLoad: false,
     theme: "dark",
-    securityLevel: "loose",
+    // "strict" (Mermaid's own sanitized mode, backed by DOMPurify) -- diagram
+    // source can originate from AI-generated chat content, so "loose" (which
+    // disables that sanitization and lets label/click-event HTML execute
+    // verbatim) would be a stored-XSS hole given the SVG below is injected
+    // via dangerouslySetInnerHTML.
+    securityLevel: "strict",
     fontFamily: "JetBrains Mono, ui-monospace, monospace",
     themeVariables: {
       background: "transparent",

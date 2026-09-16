@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import {
   TIER_PLANS,
+  TIER_ORDER,
   TierId,
   getStoredTier,
   setStoredTier,
@@ -43,11 +44,22 @@ export function useCredits(userId: string | undefined) {
     await ensureProfile();
     const { data, error } = await supabase
       .from("profiles")
-      .select("credits")
+      .select("credits, tier")
       .eq("id", userId)
       .single();
     if (!error && data) {
       setCredits(data.credits ?? 0);
+      // profiles.tier is server-authoritative (only purchase-credits, running
+      // with the service role, ever writes it). Resync it into local state
+      // and the localStorage cache on every fetch -- this is what actually
+      // overwrites a tampered localStorage value with the real one, since
+      // feature-gates.ts's useTier() picks up the change via the
+      // nazai:tier-changed event setStoredTier dispatches.
+      const serverTier = data.tier as string | null | undefined;
+      if (serverTier && (TIER_ORDER as string[]).includes(serverTier)) {
+        setTier(serverTier as TierId);
+        setStoredTier(serverTier as TierId);
+      }
     } else {
       setCredits(0);
     }
@@ -76,6 +88,11 @@ export function useCredits(userId: string | undefined) {
         (payload: any) => {
           const next = payload?.new?.credits;
           if (typeof next === "number") setCredits(next);
+          const nextTier = payload?.new?.tier;
+          if (typeof nextTier === "string" && (TIER_ORDER as string[]).includes(nextTier)) {
+            setTier(nextTier as TierId);
+            setStoredTier(nextTier as TierId);
+          }
         },
       )
       .subscribe();
@@ -102,11 +119,6 @@ export function useCredits(userId: string | undefined) {
     return true;
   }, [userId, fetchCredits]);
 
-  const upgradeTier = useCallback((next: TierId) => {
-    setTier(next);
-    setStoredTier(next);
-  }, []);
-
   return {
     credits,
     used,
@@ -116,6 +128,5 @@ export function useCredits(userId: string | undefined) {
     loading,
     deductCredit,
     refetchCredits: fetchCredits,
-    upgradeTier,
   };
 }

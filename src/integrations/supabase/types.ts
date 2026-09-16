@@ -1235,6 +1235,7 @@ export type Database = {
           resolved_at: string | null
           resolved_by_entry_id: string | null
           resolved_by_rule_id: string | null
+          safety_rule_intervened: boolean
           sanitizer_intervened: boolean
           served_from_cache: boolean
           user_id: string
@@ -1252,6 +1253,7 @@ export type Database = {
           resolved_at?: string | null
           resolved_by_entry_id?: string | null
           resolved_by_rule_id?: string | null
+          safety_rule_intervened?: boolean
           sanitizer_intervened?: boolean
           served_from_cache?: boolean
           user_id: string
@@ -1269,6 +1271,7 @@ export type Database = {
           resolved_at?: string | null
           resolved_by_entry_id?: string | null
           resolved_by_rule_id?: string | null
+          safety_rule_intervened?: boolean
           sanitizer_intervened?: boolean
           served_from_cache?: boolean
           user_id?: string
@@ -1556,6 +1559,35 @@ export type Database = {
             columns: ["agent_id"]
             isOneToOne: false
             referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      clean_allow_counts: {
+        Row: {
+          api_key_id: string
+          count: number
+          user_id: string
+          window_start: string
+        }
+        Insert: {
+          api_key_id: string
+          count?: number
+          user_id: string
+          window_start: string
+        }
+        Update: {
+          api_key_id?: string
+          count?: number
+          user_id?: string
+          window_start?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "clean_allow_counts_api_key_id_fkey"
+            columns: ["api_key_id"]
+            isOneToOne: false
+            referencedRelation: "api_keys"
             referencedColumns: ["id"]
           },
         ]
@@ -3107,6 +3139,7 @@ export type Database = {
           retention_days: number
           roi_report_monthly_enabled: boolean
           share_anonymized_precedent_stats: boolean
+          tier: string
           updated_at: string
           user_context: Json
         }
@@ -3127,6 +3160,7 @@ export type Database = {
           retention_days?: number
           roi_report_monthly_enabled?: boolean
           share_anonymized_precedent_stats?: boolean
+          tier?: string
           updated_at?: string
           user_context?: Json
         }
@@ -3147,6 +3181,7 @@ export type Database = {
           retention_days?: number
           roi_report_monthly_enabled?: boolean
           share_anonymized_precedent_stats?: boolean
+          tier?: string
           updated_at?: string
           user_context?: Json
         }
@@ -3919,6 +3954,10 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
+      }
+      increment_clean_allow_count: {
+        Args: { _api_key_id: string; _user_id: string; _window_start: string }
+        Returns: number
       }
       increment_ip_rate_limit: {
         Args: { _endpoint: string; _ip: string; _window_start: string }

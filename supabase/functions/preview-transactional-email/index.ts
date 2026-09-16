@@ -1,6 +1,7 @@
 import * as React from 'npm:react@18.3.1'
 import { renderAsync } from 'npm:@react-email/components@0.0.22'
 import { TEMPLATES } from '../_shared/transactional-email-templates/registry.ts'
+import { timingSafeEqual } from '../_shared/timing-safe.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -8,15 +9,21 @@ const corsHeaders = {
 }
 
 // Renders all registered templates with their previewData.
-// Gated by LOVABLE_API_KEY — only the Go API calls this.
+// Internal-only: the caller must present the project's own service-role
+// key. Previously gated by reusing LOVABLE_API_KEY (an unrelated AI-gateway
+// secret shared with 20+ other functions) as a bearer token here -- a leak
+// of that key anywhere in its actual purpose would also have granted
+// access to this endpoint, and vice versa. This is the same isInternal
+// trust boundary send-transactional-email already uses for its own
+// internal-caller check.
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders })
   }
 
-  const apiKey = Deno.env.get('LOVABLE_API_KEY')
-  if (!apiKey) {
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+  if (!serviceKey) {
     return new Response(
       JSON.stringify({ error: 'Server configuration error' }),
       {
@@ -26,10 +33,11 @@ Deno.serve(async (req) => {
     )
   }
 
-  // Verify the caller is authorized with LOVABLE_API_KEY
+  // Constant-time compare -- this is a straight secret-equality check, same
+  // shape as the inbound webhook secret comparison elsewhere in this repo.
   const authHeader = req.headers.get('Authorization')
-  const token = authHeader?.replace(/^Bearer\s+/i, '')
-  if (token !== apiKey) {
+  const token = authHeader?.replace(/^Bearer\s+/i, '') ?? ''
+  if (!timingSafeEqual(token, serviceKey)) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), {
       status: 401,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
