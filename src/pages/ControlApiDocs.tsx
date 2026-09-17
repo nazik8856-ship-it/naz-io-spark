@@ -444,8 +444,19 @@ export default function ControlApiDocs() {
             talks to your own key's configured context — zero dependencies, no build step, and it never
             mentions NazAI or any underlying model in anything it renders.
           </p>
+          <p className="mt-2 text-sm text-amber-300/90">
+            First create a <span className="font-mono">respond_only</span>-scoped key for this — anyone who views
+            your page source can read whatever key you put in the script tag, so never use a full-access key here.
+            A respond_only key can only call <span className="font-mono">POST /v1/respond</span>; it cannot read
+            decisions, precedent data, incidents, or anything else on your account even if it's copied out of your
+            page.
+          </p>
+          <CodeBlock>{`curl -X POST "${SUPABASE_FUNCTIONS_URL}/api-keys" \\
+  -H "Authorization: Bearer <your NazAI session token>" \\
+  -H "Content-Type: application/json" \\
+  -d '{"name": "Website widget", "scope": "respond_only"}'`}</CodeBlock>
           <CodeBlock>{`<script src="${window.location.origin}/respond-widget.js"
-  data-api-key="nazai_sk_<your key>"
+  data-api-key="nazai_sk_<your respond_only key>"
   data-base-url="${SUPABASE_FUNCTIONS_URL}"
   data-title="Chat with us"
   data-greeting="Hi! How can I help?"
@@ -453,9 +464,8 @@ export default function ControlApiDocs() {
           <p className="mt-2 text-xs text-zinc-500">
             Optional attributes: <span className="font-mono">data-position</span> ("right", default, or "left"),{" "}
             <span className="font-mono">data-accent-color</span> (any CSS color). It streams the answer (item 4
-            above) into the bubble for a typing effect. Treat your API key the same way you would in any other
-            client-side script — anyone who can view your page source can read it, so use a key scoped to this
-            one integration and keep its rate limit and spend cap sized for public traffic.
+            above) into the bubble for a typing effect. Also size this key's rate limit and spend cap for public
+            traffic, since anyone can trigger calls through it once it's live on your page.
           </p>
         </Section>
 

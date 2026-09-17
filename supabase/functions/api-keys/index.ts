@@ -864,6 +864,17 @@ Deno.serve(async (req) => {
     if (body?.on_uncertain !== undefined && !isValidOnUncertainPolicy(body.on_uncertain)) {
       return json({ error: "on_uncertain must be one of: human_review, auto_deny, auto_allow, auto_narrow, callback" }, 400);
     }
+    // 'respond_only' issues a key scoped to POST /v1/respond alone -- the
+    // right shape for the embeddable widget (respond-widget.js), which
+    // necessarily ships the key in public page HTML. A leaked/copied
+    // respond-only key can't touch decisions, precedent, incidents, or any
+    // other authenticated endpoint on this account. Defaults to 'full' so
+    // every existing integration keeps working unchanged.
+    const scopeInput = String(body?.scope || "full");
+    if (!["full", "respond_only"].includes(scopeInput)) {
+      return json({ error: "scope must be 'full' or 'respond_only'" }, 400);
+    }
+    const scopes = scopeInput === "respond_only" ? ["control:respond"] : ["control:verdict"];
 
     const targetUserId = await resolveAccountScope(userClient, userId, body?.account_id, "integrations");
     if (!targetUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
@@ -902,7 +913,7 @@ Deno.serve(async (req) => {
       .from("api_keys")
       .insert({
         user_id: targetUserId, name, key_prefix: displayPrefix, key_hash: keyHash,
-        is_test: isTest,
+        is_test: isTest, scopes,
         ...(body.on_uncertain ? { on_uncertain: body.on_uncertain } : {}),
       })
       .select("id, name, key_prefix, scopes, on_uncertain, created_at, is_test")

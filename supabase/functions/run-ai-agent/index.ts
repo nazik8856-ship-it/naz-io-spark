@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { checkRateLimit } from "../_shared/rate-limit.ts";
+import { checkRateLimit, checkIpRateLimit } from "../_shared/rate-limit.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -15,14 +15,19 @@ const LOVABLE_MODEL = "google/gemini-3-flash-preview";
 
 // Confirmed zero rate-limit coverage and zero auth resolution -- this
 // endpoint has never decoded the caller's JWT at all (verify_jwt = false
-// at the platform level), even though the real frontend caller sends the
-// signed-in user's own access token (authedFunctionHeaders() in
-// GenerationWorkspace.tsx). Real model calls, so worth limiting.
-// Best-effort only: if a real userId can't be resolved from the token,
-// the call proceeds unlimited exactly as it always has -- this adds
-// rate limiting for the identifiable case, it deliberately does NOT turn
-// into a new hard auth requirement for a route that never had one.
+// at the platform level). The per-user check below is best-effort (kept
+// for a future caller that does send a real user token) but in practice
+// it's dead code today: the actual frontend caller (GenerationWorkspace.tsx)
+// sends functionHeaders() -- explicitly documented in that file as "anon --
+// for unauthenticated stream endpoints" -- so userClient.auth.getUser()
+// never resolves a real user and the per-user limiter never fires, for
+// legitimate traffic OR a direct external caller. IP-based limiting below
+// (the same fallback nazai-chat/generate-ai-agent already use for their
+// own unauthenticated traffic) is what actually bounds this endpoint's
+// real-money model calls in practice.
 const RATE_LIMIT_PER_MINUTE = 20;
+const IP_RATE_LIMIT_PER_WINDOW = 10;
+const IP_RATE_LIMIT_WINDOW_SECONDS = 600;
 
 function deriveSystemPrompt(spec: string): string {
   return `You are the autonomous AI agent described in the specification below. Stay fully in-character as this agent at all times. Never break character, never mention being an LLM, never say you cannot perform real actions — instead, simulate performing them concretely with realistic outputs (booked confirmations, generated drafts, decisions, follow-ups, etc.). When the user asks you to do something within your capabilities, DO IT — produce the concrete deliverable the agent would produce (a confirmation, a plan, a message, a summary, a recommendation). Be concise, professional, and useful. Honor the guardrails in your spec and ask for human approval only when the spec requires it.
@@ -98,7 +103,10 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
+    const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+
     const authHeader = req.headers.get("Authorization") || "";
+    let identifiedUserId: string | null = null;
     if (authHeader.startsWith("Bearer ")) {
       try {
         const userClient = createClient(
@@ -107,15 +115,29 @@ serve(async (req) => {
           { global: { headers: { Authorization: authHeader } } },
         );
         const { data: userData } = await userClient.auth.getUser();
-        const userId = userData?.user?.id;
-        if (userId) {
-          const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-          const rate = await checkRateLimit(admin, userId, "run-ai-agent", RATE_LIMIT_PER_MINUTE, 60);
+        identifiedUserId = userData?.user?.id ?? null;
+        if (identifiedUserId) {
+          const rate = await checkRateLimit(admin, identifiedUserId, "run-ai-agent", RATE_LIMIT_PER_MINUTE, 60);
           if (!rate.allowed) {
             return errorResponse(429, `Too many requests — ${rate.count} in the last minute (limit ${rate.limit}). Try again shortly.`);
           }
         }
       } catch { /* best-effort only -- never block on identification failing */ }
+    }
+    // No real user resolved (the actual production caller sends the anon
+    // key, not a user session -- see the comment on IP_RATE_LIMIT_PER_WINDOW
+    // above) -- fall back to the same IP-keyed limiter nazai-chat/
+    // generate-ai-agent already use for their own unauthenticated traffic,
+    // so this endpoint isn't the one real-model-calling route left with no
+    // cost control at all.
+    if (!identifiedUserId) {
+      const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+        || req.headers.get("cf-connecting-ip")
+        || "unknown";
+      const ipRate = await checkIpRateLimit(admin, ip, "run-ai-agent", IP_RATE_LIMIT_PER_WINDOW, IP_RATE_LIMIT_WINDOW_SECONDS);
+      if (!ipRate.allowed) {
+        return errorResponse(429, "Too many requests from this address. Try again shortly.");
+      }
     }
 
     const cfg = pickGateway();

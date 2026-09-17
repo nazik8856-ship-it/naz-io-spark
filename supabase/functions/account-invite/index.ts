@@ -41,11 +41,18 @@ Deno.serve(async (req) => {
 
   const admin = createClient(supabaseUrl, serviceKey);
 
+  // Invites never expired before this -- a leaked/forwarded/cached link
+  // stayed redeemable forever. 7 days matches this app's other short-lived
+  // token conventions (e.g. OAuth state) scaled up for something a human
+  // needs time to actually see and act on in their inbox.
+  const inviteExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
   const { data: inserted, error } = await admin.from("account_members").insert({
     account_owner_id: ownerId,
     email,
     role,
     status: "pending",
+    invite_expires_at: inviteExpiresAt,
   }).select("id, invite_token").maybeSingle();
 
   if (error) {

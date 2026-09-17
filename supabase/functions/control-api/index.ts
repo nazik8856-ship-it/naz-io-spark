@@ -506,6 +506,26 @@ Deno.serve(async (req) => {
   if (!auth.ok) return json(auth.body, auth.status);
   const userId = auth.userId;
 
+  // ---- Scope gate -----------------------------------------------------
+  // A key created with scopes=['control:respond'] (see api-keys/index.ts's
+  // scope: 'respond_only' option) is meant for exactly one use case: the
+  // drop-in embeddable widget (respond-widget.js), which necessarily ships
+  // the key in public page HTML -- anyone can view-source it. Restricting
+  // that key type to this one POST route bounds the blast radius of that
+  // unavoidable public exposure to "can answer chat messages for this
+  // account", instead of granting the full authenticated surface (decision
+  // export, precedent data, incident data, compliance attestation, policy
+  // endpoints, etc.) to whoever copies it out of a page's source. A
+  // full-access key (the 'control:verdict' scope, the default for every
+  // key created before this existed) is unaffected.
+  const isRespondRoute = req.method === "POST" && /\/respond\/?$/.test(url.pathname);
+  if (!isRespondRoute && !auth.scopes.includes("control:verdict")) {
+    return json({
+      error: "insufficient_scope",
+      message: "This key is scoped to POST /v1/respond only. Create a full-access key for other endpoints.",
+    }, 403);
+  }
+
   // ---- GET /control-api/v1/status -------------------------------------
   // "Zero human review" plan, item 9: the only way an external caller
   // previously found out NazAI was paused or degraded was getting an
