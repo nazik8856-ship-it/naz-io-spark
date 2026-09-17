@@ -4,7 +4,7 @@
 // signs in as they would on Google. Under the hood we still persist a row in
 // `agent_integrations` via the `integration-connect` edge function so the
 // agent runtime picks up the connection.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import {
@@ -376,6 +376,10 @@ export default function IntegrationConnectModal({
   const [syncing, setSyncing] = useState(false);
   const [oauthLoading, setOauthLoading] = useState(false);
   const [pendingOAuth, setPendingOAuth] = useState<{ source: string; label: string } | null>(null);
+  // Tracks which OAuth attempts (by postMessage `source`) already resolved
+  // via a real postMessage from the popup, so the popup-closed fallback
+  // below never double-handles one that already completed normally.
+  const settledOAuthSourcesRef = useRef<Set<string>>(new Set());
   // Live, event-driven progress for the whole OAuth handshake (no fake timers).
   const oauthLog = useExecutionLog();
   const credSchema = useMemo(() => credentialSchemaFor(integration.name), [integration.name]);
@@ -451,9 +455,9 @@ export default function IntegrationConnectModal({
 
 
 
-  const reloadConnected = async () => {
+  const reloadConnected = async (): Promise<boolean> => {
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    if (!user) return false;
     let q = supabase
       .from("agent_integrations")
       .select("status, metadata")
@@ -474,11 +478,14 @@ export default function IntegrationConnectModal({
       setEmail(displayEmail);
       setStep("connected");
       onChange?.();
+      return true;
     }
+    return false;
   };
 
   useIntegrationOAuthMessages(
     (info) => {
+      settledOAuthSourcesRef.current.add(info.source);
       if (!pendingOAuth || info.source !== pendingOAuth.source) return;
       oauthLog.done("await", "Approved in the provider window");
       oauthLog.begin("exchange", "Exchanging authorization code for tokens…");
@@ -492,6 +499,7 @@ export default function IntegrationConnectModal({
       onClose();
     },
     (info) => {
+      settledOAuthSourcesRef.current.add(info.source);
       if (!pendingOAuth || info.source !== pendingOAuth.source) return;
       const message = info.message || `${pendingOAuth.label} connection failed`;
       oauthLog.fail("await", message);
@@ -562,6 +570,34 @@ export default function IntegrationConnectModal({
         if (popup.closed) {
           clearInterval(timer);
           oauthLog.note("await", "Provider window closed — finalizing…");
+          // The popup normally posts a message back and closes itself, but
+          // that message can be lost entirely -- a browser refusing
+          // window.close() after a multi-page OAuth flow, a
+          // Cross-Origin-Opener-Policy boundary severing window.opener, or
+          // the user closing the tab by hand. Confirmed as the exact cause
+          // of a Figma app-review rejection: their reviewer's window never
+          // received the message and the connection looked stuck for
+          // minutes, even though the callback function's own database
+          // write had already succeeded. Give the real postMessage a brief
+          // head start, then ask the database directly instead of leaving
+          // the UI waiting on a message that may never arrive.
+          setTimeout(async () => {
+            if (settledOAuthSourcesRef.current.has(opts.source)) return;
+            const connected = await reloadConnected();
+            settledOAuthSourcesRef.current.add(opts.source);
+            if (connected) {
+              oauthLog.done("await", "Approved in the provider window");
+              oauthLog.finish("Connection successful — NazAI can now read this platform's data");
+              setOauthLoading(false);
+              setPendingOAuth(null);
+              toast.success(`${opts.label} connected`);
+            } else {
+              oauthLog.fail("await", "The window closed before authorization finished.");
+              setOauthLoading(false);
+              setPendingOAuth(null);
+              setError("Connection wasn't completed. Please try again.");
+            }
+          }, 2500);
         }
       }, 300);
     } catch (e) {

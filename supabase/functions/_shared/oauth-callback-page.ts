@@ -73,15 +73,35 @@ export function oauthCallbackPage(opts: OAuthCallbackPageOptions): string {
 <body><div class="card"><h1>${opts.title}</h1><p>${opts.message}</p><p class="status" id="oauth-callback-status"></p></div>
 <script>
 var statusEl = document.getElementById("oauth-callback-status");
+var REDIRECT_TARGET = ${JSON.stringify(redirectOrigin)};
+function fallbackRedirect(){
+  if (statusEl) statusEl.textContent = "Redirecting you back to NazAI…";
+  window.location.href = REDIRECT_TARGET;
+}
 try {
   if (window.opener) {
     window.opener.postMessage(${payload}, "*");
     if (statusEl) statusEl.textContent = "You can close this window.";
-    setTimeout(function(){ window.close(); }, 120);
+    setTimeout(function(){
+      window.close();
+      // Some browsers silently refuse to close a window that navigated
+      // through several pages during the OAuth flow, or that opened in a
+      // context the popup blocker still tracks -- confirmed as the exact
+      // cause of a Figma app-review rejection where window.opener was
+      // present but close() was a no-op, leaving the reviewer's window
+      // stuck on "You can close this window" indefinitely. If we're still
+      // here a moment later, fall back to the same redirect the
+      // no-opener branch below uses instead of dead-ending.
+      setTimeout(function(){ if (!window.closed) fallbackRedirect(); }, 1500);
+    }, 120);
   } else {
     if (statusEl) statusEl.textContent = "Redirecting you back to NazAI…";
-    setTimeout(function(){ window.location.href = ${JSON.stringify(redirectOrigin)}; }, 500);
+    setTimeout(fallbackRedirect, 500);
   }
-} catch(e){}
+} catch(e){
+  // window.opener can itself throw under a Cross-Origin-Opener-Policy
+  // boundary -- never let that leave the page stuck with no next step.
+  try { fallbackRedirect(); } catch(e2){}
+}
 </script></body></html>`;
 }
