@@ -191,24 +191,16 @@ export default function ControlPolicy() {
 
   const rollback = async () => {
     if (!canWrite) return;
-    const active = versions.find((v) => v.status === "active");
     const previous = versions.find((v) => v.status === "archived");
     if (!previous) {
       toast({ title: "Nothing to roll back to", description: "There is no earlier policy version.", variant: "destructive" });
       return;
     }
     setBusy(previous.id);
-    if (active) {
-      await supabase.from("policy_versions").update({ status: "archived" }).eq("id", active.id).eq("user_id", accountId);
-    }
-    const { error } = await supabase
-      .from("policy_versions")
-      .update({ status: "active", activated_at: new Date().toISOString() })
-      .eq("id", previous.id)
-      .eq("user_id", accountId);
+    const { ok, body } = await call("/policy/rollback");
     setBusy(null);
-    if (error) {
-      toast({ title: "Rollback failed", description: error.message, variant: "destructive" });
+    if (!ok) {
+      toast({ title: "Rollback failed", description: String(body.error ?? "Unknown error"), variant: "destructive" });
       return;
     }
     toast({ title: `Rolled back to policy v${previous.version}` });

@@ -689,6 +689,36 @@ serve(async (req) => {
       return json({ ok: true, activated: true, policy_version: report.draft_version.version, replay: report });
     }
 
+    // ---- POST /control-engine/policy/rollback --------------------------------
+    // Restores the most recently archived policy version to active. Moved
+    // server-side (was a direct client-side Supabase update in
+    // ControlPolicy.tsx) so this can share the same service-role write path
+    // as /activate, letting policy_versions.status/activated_at be locked
+    // down to service-role-only at the RLS/trigger level without breaking
+    // this legitimate transition. Deliberately skips the replay gate
+    // /activate enforces -- restoring a version that was already the live
+    // policy moments ago doesn't need re-validating against itself.
+    if (url.pathname.replace(/\/$/, "").endsWith("/policy/rollback")) {
+      const scopedUserId = await resolvePolicyScopeUserId();
+      if (!scopedUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
+      const { data: active } = await supabase.from("policy_versions")
+        .select("id").eq("user_id", scopedUserId).eq("status", "active").maybeSingle();
+      const { data: previous } = await supabase.from("policy_versions")
+        .select("id, version").eq("user_id", scopedUserId).eq("status", "archived")
+        .order("version", { ascending: false }).limit(1).maybeSingle();
+      if (!previous) return json({ error: "Nothing to roll back to — there is no earlier policy version." }, 400);
+      if (active) {
+        const { error: archErr } = await supabase.from("policy_versions")
+          .update({ status: "archived" }).eq("id", active.id).eq("user_id", scopedUserId);
+        if (archErr) return json({ ok: false, error: archErr.message }, 500);
+      }
+      const { error: actErr } = await supabase.from("policy_versions")
+        .update({ status: "active", activated_at: new Date().toISOString() })
+        .eq("id", previous.id).eq("user_id", scopedUserId);
+      if (actErr) return json({ ok: false, error: actErr.message }, 500);
+      return json({ ok: true, rolled_back_to: previous.version });
+    }
+
     // ---- POST /control-engine/policy/:id/watch ------------------------------
     // "15 more items" plan, item 13: mark a whole DRAFT policy version as
     // "watching" -- from now on, every new live decision is silently
