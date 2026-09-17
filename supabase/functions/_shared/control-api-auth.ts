@@ -11,7 +11,7 @@ import { sha256Hex, isValidRawKeyFormat } from "./api-key-auth.ts";
 import { isCurrentlyPaused, pausedKeyMessage } from "./control-api-abuse.ts";
 
 export type ApiKeyAuthResult =
-  | { ok: true; userId: string; keyId: string | null; isTest: boolean }
+  | { ok: true; userId: string; keyId: string | null; isTest: boolean; scopes: string[] }
   | { ok: false; status: number; body: { error: string; message: string; paused_until?: string } };
 
 // deno-lint-ignore no-explicit-any
@@ -27,7 +27,7 @@ export async function resolveApiKeyAuth(admin: any, authHeader: string | null): 
   const keyHash = await sha256Hex(presented);
   const { data: resolved, error } = await admin.rpc("resolve_api_key", { _key_hash: keyHash });
   const row = (Array.isArray(resolved) ? resolved[0] : resolved) as
-    | { user_id?: string; key_id?: string; paused_until?: string | null; is_test?: boolean }
+    | { user_id?: string; key_id?: string; paused_until?: string | null; is_test?: boolean; scopes?: string[] | null }
     | null;
   if (error || !row?.user_id) {
     return { ok: false, status: 401, body: { error: "unauthorized", message: "Invalid, expired, or revoked API key." } };
@@ -47,5 +47,14 @@ export async function resolveApiKeyAuth(admin: any, authHeader: string | null): 
       body: { error: "key_paused", message: pausedKeyMessage(row.paused_until), paused_until: row.paused_until },
     };
   }
-  return { ok: true, userId: row.user_id, keyId: row.key_id ?? null, isTest: row.is_test === true };
+  return {
+    ok: true,
+    userId: row.user_id,
+    keyId: row.key_id ?? null,
+    isTest: row.is_test === true,
+    // Falls back to the full-access scope for any pre-existing key whose
+    // scopes column somehow reads null/empty -- never silently narrows a
+    // key that was never meant to be restricted.
+    scopes: Array.isArray(row.scopes) && row.scopes.length ? row.scopes : ["control:verdict"],
+  };
 }

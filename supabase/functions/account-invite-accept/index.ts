@@ -33,9 +33,10 @@ Deno.serve(async (req) => {
     const token = new URL(req.url).searchParams.get("token");
     if (!token) return json({ error: "token required" }, 400);
     const { data } = await admin.from("account_members")
-      .select("role, status, email").eq("invite_token", token).maybeSingle();
+      .select("role, status, email, invite_expires_at").eq("invite_token", token).maybeSingle();
     if (!data) return json({ error: "not_found" }, 404);
-    return json({ role: data.role, status: data.status, invited_email: data.email });
+    const expired = data.status === "pending" && !!data.invite_expires_at && new Date(data.invite_expires_at) < new Date();
+    return json({ role: data.role, status: expired ? "expired" : data.status, invited_email: data.email });
   }
 
   if (req.method !== "POST") return json({ error: "GET or POST only" }, 405);
@@ -44,10 +45,13 @@ Deno.serve(async (req) => {
   if (!token) return json({ error: "token required" }, 400);
 
   const { data: invite } = await admin.from("account_members")
-    .select("id, email, status, account_owner_id").eq("invite_token", token).maybeSingle();
+    .select("id, email, status, account_owner_id, invite_expires_at").eq("invite_token", token).maybeSingle();
   if (!invite) return json({ error: "not_found", message: "This invite link is invalid." }, 404);
   if (invite.status !== "pending") {
     return json({ error: "already_resolved", message: `This invite has already been ${invite.status}.` }, 409);
+  }
+  if (invite.invite_expires_at && new Date(invite.invite_expires_at) < new Date()) {
+    return json({ error: "expired", message: "This invite link has expired. Ask the account owner to send a new one." }, 410);
   }
   if (String(invite.email).toLowerCase() !== memberEmail) {
     return json({ error: "email_mismatch", message: "This invite was sent to a different email address than your account." }, 403);

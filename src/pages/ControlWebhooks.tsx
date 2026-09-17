@@ -25,18 +25,12 @@ const EVENTS = [
 type WebhookRow = {
   id: string;
   url: string;
-  secret: string;
   events: string[];
   enabled: boolean;
   created_at: string;
 };
 
 type DeliveryRow = { webhook_id: string; ok: boolean; status_code: number | null; created_at: string };
-
-function randomSecret(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(24));
-  return Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
-}
 
 /**
  * OUTBOUND WEBHOOKS — one general mechanism to notify any external system
@@ -54,13 +48,17 @@ export default function ControlWebhooks() {
   const [url, setUrl] = useState("");
   const [events, setEvents] = useState<Set<string>>(new Set(EVENTS));
   const [busy, setBusy] = useState(false);
+  // The signing secret is only ever visible right after creation -- see
+  // webhooks-create/index.ts's own reasoning for why it's no longer
+  // selectable from the table at all afterward.
+  const [justCreated, setJustCreated] = useState<{ id: string; secret: string } | null>(null);
 
   const load = useCallback(async () => {
     if (!accountId) return;
     setLoading(true);
     const { data, error } = await supabase
       .from("webhooks")
-      .select("id, url, secret, events, enabled, created_at")
+      .select("id, url, events, enabled, created_at")
       .eq("user_id", accountId)
       .order("created_at", { ascending: false });
     if (error) toast({ title: "Couldn't load webhooks", description: error.message, variant: "destructive" });
@@ -103,20 +101,18 @@ export default function ControlWebhooks() {
       return;
     }
     setBusy(true);
-    const { error } = await supabase.from("webhooks").insert({
-      user_id: accountId,
-      url,
-      secret: randomSecret(),
-      events: [...events],
-      enabled: true,
+    const { data, error: fnErr } = await supabase.functions.invoke("webhooks-create", {
+      body: { account_id: accountId, url, events: [...events] },
     });
     setBusy(false);
-    if (error) {
-      toast({ title: "Couldn't create it", description: error.message, variant: "destructive" });
+    const res = data as { ok?: boolean; id?: string; secret?: string; error?: string } | null;
+    if (fnErr || !res?.ok) {
+      toast({ title: "Couldn't create it", description: res?.error ?? fnErr?.message, variant: "destructive" });
       return;
     }
     setUrl("");
-    toast({ title: "Webhook created" });
+    setJustCreated({ id: res.id!, secret: res.secret! });
+    toast({ title: "Webhook created — copy the signing secret now, it won't be shown again" });
     load();
   };
 
@@ -155,6 +151,26 @@ export default function ControlWebhooks() {
           Notify any external system — PagerDuty, Opsgenie, Teams, or your own endpoint — when an approval is
           created or escalated, or an incident opens or resolves. Each delivery is HMAC-SHA256 signed.
         </p>
+
+        {justCreated && (
+          <div className="mt-6 rounded border border-amber-500/40 bg-amber-500/[0.06] p-4">
+            <div className="text-xs font-mono uppercase tracking-wider text-amber-300">
+              Signing secret — copy it now, it won't be shown again
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <code className="flex-1 truncate rounded bg-black/40 px-2 py-1.5 text-xs text-zinc-200">{justCreated.secret}</code>
+              <button
+                onClick={() => { navigator.clipboard.writeText(justCreated.secret); toast({ title: "Copied" }); }}
+                className="shrink-0 rounded border border-white/15 px-2 py-1.5 text-[10px] font-mono uppercase hover:bg-white/10"
+              >
+                Copy
+              </button>
+            </div>
+            <button onClick={() => setJustCreated(null)} className="mt-2 text-[10px] font-mono uppercase text-zinc-500 hover:text-zinc-300">
+              Dismiss
+            </button>
+          </div>
+        )}
 
         {canWrite ? (
           <div className="mt-6 space-y-3 rounded border border-white/10 bg-white/[0.02] p-4">
@@ -212,7 +228,7 @@ export default function ControlWebhooks() {
                         ))}
                       </div>
                       <div className="mt-1 text-[10px] font-mono text-zinc-500">
-                        secret: {h.secret.slice(0, 8)}… (use this to verify X-NazAI-Signature)
+                        Signing secret was shown once, at creation. Delete and re-create this webhook if you've lost it.
                       </div>
                       {recent.length > 0 && (
                         <div className={`mt-1 text-[10px] font-mono ${lastFailed ? "text-rose-400" : "text-emerald-400"}`}>
