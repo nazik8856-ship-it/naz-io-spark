@@ -20,6 +20,7 @@ import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supa
 import { ensureAccessToken, gmailList } from "../_shared/gmail.ts";
 import { readSecret } from "../_shared/integration-secrets.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
+import { validateOutboundUrl } from "../_shared/url-safety.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -73,10 +74,14 @@ async function syncShopify(c: Credentials): Promise<SyncResult> {
   const store = c.store_url?.trim().replace(/^https?:\/\//, "").replace(/\/$/, "");
   const token = c.access_token?.trim();
   if (!store || !token) return simulate("shopify", c);
+  const ordersUrl = `https://${store}/admin/api/2024-07/orders.json?status=any&limit=25`;
+  const productsUrl = `https://${store}/admin/api/2024-07/products/count.json`;
+  const shopifyCheck = await validateOutboundUrl(ordersUrl);
+  if (!shopifyCheck.ok) return { ok: false, kind: "commerce", data: {}, error: `store_url is not allowed: ${shopifyCheck.reason}` };
   const h = { "X-Shopify-Access-Token": token, "Content-Type": "application/json" };
   const [ordersR, productsR] = await Promise.all([
-    fetch(`https://${store}/admin/api/2024-07/orders.json?status=any&limit=25`, { headers: h }),
-    fetch(`https://${store}/admin/api/2024-07/products/count.json`, { headers: h }),
+    fetch(ordersUrl, { headers: h }),
+    fetch(productsUrl, { headers: h }),
   ]);
   const orders = await ordersR.json().catch(() => ({}));
   const products = await productsR.json().catch(() => ({}));
@@ -101,8 +106,11 @@ async function syncWoo(c: Credentials): Promise<SyncResult> {
   const key = c.client_id?.trim();
   const secret = c.client_secret?.trim();
   if (!store || !key || !secret) return simulate("woocommerce", c);
+  const wooUrl = `${store}/wp-json/wc/v3/orders?per_page=20`;
+  const wooCheck = await validateOutboundUrl(wooUrl);
+  if (!wooCheck.ok) return { ok: false, kind: "commerce", data: {}, error: `store_url is not allowed: ${wooCheck.reason}` };
   const auth = btoa(`${key}:${secret}`);
-  const r = await fetch(`${store}/wp-json/wc/v3/orders?per_page=20`, { headers: { Authorization: `Basic ${auth}` } });
+  const r = await fetch(wooUrl, { headers: { Authorization: `Basic ${auth}` } });
   const rows = await r.json().catch(() => []);
   if (!r.ok) return { ok: false, kind: "commerce", data: {}, error: rows?.message || `Woo ${r.status}` };
   const list = (rows || []) as Array<{ total: string; currency: string; date_created: string; status: string }>;

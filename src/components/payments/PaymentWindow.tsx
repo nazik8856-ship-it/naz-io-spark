@@ -9,7 +9,7 @@ import { CreditPack, PaymentIntent, totalCredits } from "@/lib/credit-packs";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useCredits } from "@/hooks/useCredits";
-import { TIER_PLANS, TierId, setStoredTier, formatCredits } from "@/lib/credit-tiers";
+import { formatCredits } from "@/lib/credit-tiers";
 import { useToast } from "@/hooks/use-toast";
 import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
 import { posthog } from "@/lib/posthog";
@@ -128,33 +128,35 @@ export default function PaymentWindow() {
 
     try {
       if (intent.kind === "pack") {
-        const amount = totalCredits(intent.pack);
+        // The server derives the real amount/price from its own catalog
+        // copy keyed by packId -- it no longer trusts a client-computed
+        // amount or price for what to grant.
         const { error } = await supabase.functions.invoke("purchase-credits", {
           body: {
             kind: "pack",
-            amount,
-            price_usd: total,
-            type: "credit_pack",
-            description: `${formatCredits(amount)} credits pack${appliedPromo ? ` · ${appliedPromo.code}` : ""}`,
-            metadata: { method, pack_id: intent.pack.id, promo: appliedPromo?.code ?? null },
+            packId: intent.pack.id,
+            promoCode: appliedPromo?.code ?? undefined,
+            metadata: { method },
           },
         });
         if (error) throw error;
         await refetchCredits();
       } else {
-        // Plan switch — stored locally for now (subscription billing wires later).
-        setStoredTier(intent.tierId as TierId);
+        // Plan switch. The server is now the only writer of the real tier
+        // (profiles.tier) -- refetchCredits() below pulls that back down
+        // and resyncs the local/localStorage cache, rather than this client
+        // unilaterally deciding its own tier before the request even lands.
         const { error } = await supabase.functions.invoke("purchase-credits", {
           body: {
             kind: "plan",
-            amount: TIER_PLANS[intent.tierId as TierId]?.monthlyCredits ?? 0,
-            price_usd: total,
-            type: "plan_change",
-            description: `Switched to ${intent.name} plan${intent.annual ? " (annual)" : " (monthly)"}`,
-            metadata: { method, tier: intent.tierId, annual: !!intent.annual, promo: appliedPromo?.code ?? null },
+            tierId: intent.tierId,
+            annual: !!intent.annual,
+            promoCode: appliedPromo?.code ?? undefined,
+            metadata: { method },
           },
         });
         if (error) throw error;
+        await refetchCredits();
       }
       posthog.capture("payment_succeeded", { kind: intent.kind, total_usd: total });
       setPhase("success");

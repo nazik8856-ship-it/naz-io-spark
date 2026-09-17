@@ -18,6 +18,8 @@ import { claimIdempotencyKey, saveIdempotencyResponse, releaseIdempotencyKey, bu
 import { timingSafeEqual } from "../_shared/timing-safe.ts";
 import { recordAiSpend, estimateCostUsd } from "../_shared/spend-guard.ts";
 import { triggerWebhooks } from "../_shared/webhooks.ts";
+import { validateOutboundUrl } from "../_shared/url-safety.ts";
+import { reportEdgeException } from "../_shared/sentry.ts";
 
 import {
   readConfidence,
@@ -2821,7 +2823,7 @@ Rules:
             messages.push({ role: "user", content: `${msg} Continue with other work or finish.` });
             continue;
           }
-          const check = await validateHttpPostUrl(url, supabase, userId, agentId);
+          const check = await validateOutboundUrl(url);
 
           if (!check.ok) {
             await logEvent("tool_error", { tool: tool.name, message: check.reason, url });
@@ -3179,6 +3181,7 @@ Reply with ONE fenced JSON block:
 
   } catch (e) {
     console.error("agent-runtime error", e);
+    await reportEdgeException(e, { function: "agent-runtime" });
     return json({ error: e instanceof Error ? e.message : "unknown" }, 500);
   }
 });
@@ -3343,58 +3346,3 @@ function stripHtml(s: string): string {
 // before generic http_post calls will resolve for anything except an exact
 // match to an integration's configured webhook_url.
 const WEBHOOK_DOMAIN_ALLOWLIST: string[] = [];
-
-async function validateHttpPostUrl(
-  rawUrl: string,
-  supabase: SupabaseClient,
-  userId: string,
-  agentId: string,
-): Promise<{ ok: boolean; reason: string }> {
-  if (!rawUrl) return { ok: false, reason: "empty url" };
-  let u: URL;
-  try { u = new URL(rawUrl); } catch { return { ok: false, reason: "invalid url" }; }
-  if (u.protocol !== "https:") return { ok: false, reason: "only https is allowed" };
-  const host = u.hostname.toLowerCase();
-  if (["localhost", "127.0.0.1", "0.0.0.0", "::1", "169.254.169.254"].includes(host)) {
-    return { ok: false, reason: `blocked host ${host}` };
-  }
-  // Resolve DNS and check every A/AAAA against private/loopback/link-local ranges.
-  try {
-    const addrs = await Promise.allSettled([
-      Deno.resolveDns(host, "A"),
-      Deno.resolveDns(host, "AAAA"),
-    ]);
-    const ips: string[] = [];
-    for (const r of addrs) if (r.status === "fulfilled") ips.push(...r.value);
-    for (const ip of ips) {
-      if (isPrivateOrLoopbackIp(ip)) return { ok: false, reason: `resolved to private/loopback ip ${ip}` };
-    }
-  } catch (_) {
-    return { ok: false, reason: "dns resolution failed" };
-  }
-  // Domain allowlist check removed — any public hostname is permitted once IP
-  // checks above pass. Per-agent approval gate remains the authorization surface.
-  return { ok: true, reason: `host ${host} passed ip checks` };
-
-}
-
-function isPrivateOrLoopbackIp(ip: string): boolean {
-  if (ip.includes(":")) {
-    // IPv6: loopback ::1, link-local fe80::/10, unique-local fc00::/7
-    const lower = ip.toLowerCase();
-    if (lower === "::1" || lower === "::") return true;
-    if (lower.startsWith("fe8") || lower.startsWith("fe9") || lower.startsWith("fea") || lower.startsWith("feb")) return true;
-    if (lower.startsWith("fc") || lower.startsWith("fd")) return true;
-    return false;
-  }
-  const parts = ip.split(".").map((n) => parseInt(n, 10));
-  if (parts.length !== 4 || parts.some((n) => isNaN(n) || n < 0 || n > 255)) return true;
-  const [a, b] = parts;
-  if (a === 10) return true;
-  if (a === 127) return true;
-  if (a === 0) return true;
-  if (a === 169 && b === 254) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
-  return false;
-}

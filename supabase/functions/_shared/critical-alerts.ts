@@ -22,6 +22,7 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { slackPostMessage } from "./provider-writes.ts";
 import { isIncidentWorthy, openIncident } from "./incidents.ts";
 import { resolveNotificationRecipients, type MemberRow, type PreferenceRow } from "./notification-preferences.ts";
+import { reportEdgeMessage } from "./sentry.ts";
 
 export type CriticalAlertEvent =
   | "kill_switch_on"
@@ -247,12 +248,33 @@ export async function sendCriticalAlert(
   ].filter(Boolean) as string[];
   const text = lines.join("\n");
 
+  // Every critical alert -- kill switch trips, hard-rule blocks, gate
+  // errors, abuse detection, on_uncertain downgrades, all of it -- also
+  // becomes its own Sentry issue, independent of whether Slack/email
+  // delivery succeeds below. This is the single choke point every one of
+  // these events already funnels through, so wiring Sentry in here (once)
+  // covers all of them instead of touching every call site individually.
+  // Awaited deliberately, not fire-and-forget: reportEdgeMessage's own
+  // Sentry.flush() must complete before this function (and its caller)
+  // can return, or the edge function's isolate can be torn down mid-flush
+  // and silently drop the event. Bounded to 2s internally and never
+  // throws, so it can only ever ADD latency to an already-rare alert
+  // path, never break it.
+  await reportEdgeMessage(`[${opts.event}] ${LABELS[opts.event]}: ${opts.summary}`, {
+    event: opts.event, userId, actionType: opts.actionType, provider: opts.provider, decisionId: opts.decisionId,
+  });
+
   try {
     const { data } = await admin
       .from("agent_integrations")
       .select("provider, metadata")
       .eq("user_id", userId)
-      .eq("provider", "slack")
+      // Correctness-audit fix: the only writer (slack-oauth-callback)
+      // stores provider="Slack" (capital S) -- this was "slack"
+      // (lowercase), so this lookup could never find a connected
+      // integration and Slack critical-alert delivery always silently
+      // fell through to the log+email path.
+      .eq("provider", "Slack")
       .eq("status", "connected")
       .maybeSingle();
 

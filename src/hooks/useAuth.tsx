@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { supabase } from "@/integrations/supabase/client";
 import type { Session, User } from "@supabase/supabase-js";
 import { posthog } from "@/lib/posthog";
+import { syncSentryIdentity } from "@/lib/sentry";
 
 // Ties PostHog's anonymous pre-signin activity to a real person once we
 // know who they are, and severs it again on sign-out -- without this,
@@ -41,6 +42,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSession(initialSession);
         setUser(initialSession?.user ?? null);
         syncPostHogIdentity(initialSession?.user ?? null);
+        syncSentryIdentity(initialSession?.user ?? null);
         // CRITICAL: Unblocks the app after the first check
         setLoading(false);
       }

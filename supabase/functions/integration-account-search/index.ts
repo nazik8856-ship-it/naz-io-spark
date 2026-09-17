@@ -7,6 +7,8 @@
 // If found=false the client shows "Account doesn't exist — try another".
 
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { checkIpRateLimit } from "../_shared/rate-limit.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -276,9 +278,34 @@ async function searchAccounts(provider: string, query: string): Promise<Account[
   return lookupHeuristic(provider, q);
 }
 
+// Confirmed zero auth and zero rate-limit coverage. Genuinely public by
+// design (reachable pre-signup from the generator's PromptExtras flow,
+// same as nazai-chat/generate-ai-agent), but with no throttle at all it
+// was a free, unlimited server-side fetch proxy against GitHub/Shopify/
+// YouTube/TikTok/Instagram/Twitter -- a cost/DoS vector against NazAI's
+// own infrastructure and a reputational risk (repeated automated use
+// through NazAI's server IP could get that IP flagged by those platforms).
+// IP-keyed, matching the other two public pre-signup endpoints.
+const RATE_LIMIT_PER_10_MIN = 15;
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (supabaseUrl && serviceKey) {
+      const admin = createClient(supabaseUrl, serviceKey);
+      const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+        || req.headers.get("cf-connecting-ip")
+        || "unknown";
+      const rate = await checkIpRateLimit(admin, ip, "integration-account-search", RATE_LIMIT_PER_10_MIN, 600);
+      if (!rate.allowed) {
+        return j(429, {
+          error: "rate_limited",
+          message: `Too many requests — ${rate.count} in the last 10 minutes (limit ${rate.limit}). Try again shortly.`,
+        });
+      }
+    }
     const body = await req.json().catch(() => ({}));
     const provider = String(body.provider || "").trim();
     const query = String(body.query || "").trim();

@@ -62,3 +62,21 @@ Deno.test("keyUptimeStats: a source that merely BLOCKED on purpose (hard_rule, s
   const stats = keyUptimeStats(["hard_rule", "safety_scanner", "kill_switch", "circuit_breaker_trip"]);
   assertEquals(stats, { uptimePct: 100, errorCount: 0, total: 4 });
 });
+
+Deno.test("keyUptimeStats: extraCleanAllows folds into the denominator as successful, non-error traffic", () => {
+  // 1 real gate_error out of what would otherwise look like 1 total (a
+  // false 0% uptime) becomes 1 error out of 101 once the 100 unlogged
+  // clean fast-mode allows are counted -- the correctness-audit fix.
+  const stats = keyUptimeStats(["gate_error"], 100);
+  assertEquals(stats, { uptimePct: 99, errorCount: 1, total: 101 });
+});
+
+Deno.test("keyUptimeStats: extraCleanAllows alone (no agent_decisions rows at all) still reports real uptime, not null", () => {
+  const stats = keyUptimeStats([], 50);
+  assertEquals(stats, { uptimePct: 100, errorCount: 0, total: 50 });
+});
+
+Deno.test("keyUptimeStats: a negative extraCleanAllows (should never happen, but defensively) is clamped to zero", () => {
+  const stats = keyUptimeStats(["model"], -5);
+  assertEquals(stats, { uptimePct: 100, errorCount: 0, total: 1 });
+});

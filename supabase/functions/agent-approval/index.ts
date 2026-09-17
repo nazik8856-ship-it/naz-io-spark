@@ -12,6 +12,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { runControlGate } from "../_shared/control-gate.ts";
 import { claimRowOnce, releaseRowClaim } from "../_shared/idempotency.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
+import { validateOutboundUrl } from "../_shared/url-safety.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -187,9 +188,15 @@ serve(async (req) => {
       const p = (payload.payload as Record<string, unknown>) || {};
       const url = String(p.url || "").trim();
       const bodyObj = (p.body && typeof p.body === "object") ? p.body : {};
-      if (!/^https:\/\//.test(url)) {
-        await logEvent("approval_rejected", { original_event_id: eventId, action: actionType, reason: "invalid queued url" });
-        return json({ error: "Queued http_post url invalid" }, 400);
+      // Same SSRF check the direct-send http_post path already applies
+      // (agent-runtime's own validateOutboundUrl call) -- this queued,
+      // approval-gated path was only checking the literal "https://"
+      // prefix, letting a public hostname that resolves to a private/
+      // loopback/link-local address straight through.
+      const urlCheck = await validateOutboundUrl(url);
+      if (!urlCheck.ok) {
+        await logEvent("approval_rejected", { original_event_id: eventId, action: actionType, reason: `blocked queued url: ${urlCheck.reason}` });
+        return json({ error: `Queued http_post url is not allowed: ${urlCheck.reason}` }, 400);
       }
       try {
         const ctrl = new AbortController();

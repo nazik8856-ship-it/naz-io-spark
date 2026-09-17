@@ -1,4 +1,14 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { checkIpRateLimit } from "../_shared/rate-limit.ts";
+
+// This endpoint is intentionally reachable without a signed-in session --
+// /generation-workspace is a public, unauthenticated try-before-signup
+// flow. There's no user_id to rate-limit or bill against, so abuse
+// protection is IP-keyed instead (same pattern control-api uses for its
+// own pre-auth traffic).
+const RATE_LIMIT_PER_WINDOW = 10;
+const RATE_LIMIT_WINDOW_SECONDS = 600;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -206,6 +216,21 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
+    const admin = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+    );
+    const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+      || req.headers.get("cf-connecting-ip")
+      || "unknown";
+    const ipRate = await checkIpRateLimit(admin, ip, "generate-ai-agent", RATE_LIMIT_PER_WINDOW, RATE_LIMIT_WINDOW_SECONDS);
+    if (!ipRate.allowed) {
+      return new Response(
+        JSON.stringify({ error: "Too many requests from this address. Try again shortly." }),
+        { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     const { prompt, messages, industry, challenges, previousSpec } = await req.json();
 
     const rawPrompt: string =

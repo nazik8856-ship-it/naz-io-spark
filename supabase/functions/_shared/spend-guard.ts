@@ -202,7 +202,9 @@ async function notifyOrg(admin: SupabaseClient, userId: string, text: string): P
       .from("agent_integrations")
       .select("provider, metadata")
       .eq("user_id", userId)
-      .eq("provider", "slack")
+      // Correctness-audit fix: same case mismatch as critical-alerts.ts --
+      // the only writer (slack-oauth-callback) stores provider="Slack".
+      .eq("provider", "Slack")
       .eq("status", "connected")
       .maybeSingle();
     const channel = (data as { metadata?: Record<string, unknown> } | null)?.metadata?.default_channel;

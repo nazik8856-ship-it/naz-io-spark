@@ -100,7 +100,10 @@ Deno.serve(async (req) => {
     .maybeSingle()
 
   if (updateError) {
-    console.error('Failed to mark token as used', { error: updateError, token })
+    // Never log the raw token -- it's a live, unused bearer credential for
+    // this unsubscribe action; logging it would leak it to anyone with
+    // read access to function logs.
+    console.error('Failed to mark token as used', { error: updateError, tokenRecordId: tokenRecord.id })
     return jsonResponse({ error: 'Failed to process unsubscribe' }, 500)
   }
 

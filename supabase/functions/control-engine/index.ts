@@ -29,6 +29,7 @@ import { checkApprovalQuorum } from "../_shared/quorum.ts";
 import { claimIdempotencyKey, saveIdempotencyResponse, releaseIdempotencyKey, claimRowOnce, releaseRowClaim, type ClaimResult } from "../_shared/idempotency.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { triggerWebhooks } from "../_shared/webhooks.ts";
+import { reportEdgeException } from "../_shared/sentry.ts";
 import { loadActiveConfidenceBucketFlags, widenThresholdForFlags } from "../_shared/confidence-bucket-flags.ts";
 
 // Generous enough that a legitimate agent-runtime run bursting several
@@ -65,8 +66,8 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const LOVABLE_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
-const MODEL = "google/gemini-3-flash-preview";
+const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
+const MODEL = "gpt-4o-mini";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -156,8 +157,8 @@ serve(async (req) => {
   // to attribute a record/alert/incident to in the first place.
   let userId: string | undefined;
   try {
-    const key = Deno.env.get("LOVABLE_API_KEY");
-    if (!key) return json({ error: "Missing LOVABLE_API_KEY" }, 500);
+    const key = Deno.env.get("OPENAI_API_KEY");
+    if (!key) return json({ error: "Missing OPENAI_API_KEY" }, 500);
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
@@ -262,16 +263,42 @@ serve(async (req) => {
           message: String(row.irreversible_reason || "This action cannot be undone."),
         }, 409);
       }
+
+      // Atomic claim: only ONE concurrent /undo call for this row may
+      // actually run the real compensating action, same claimRowOnce
+      // shape as /approvals/:id/execute (executed_at) and
+      // /decisions/:id/override (overridden_at) already use — two
+      // simultaneous undo requests must not both delete/restore the
+      // provider-side resource. A failed attempt releases the claim so a
+      // genuine retry can still try again, mirroring /execute's own
+      // release-on-failure behavior.
+      const claimed = await claimRowOnce(supabase, "action_reversals", row.id as string, "executed_at");
+      if (!claimed) {
+        const { data: latest } = await supabase
+          .from("action_reversals").select("status,summary").eq("id", row.id as string).maybeSingle();
+        const latestRow = latest as { status?: string; summary?: string } | null;
+        if (latestRow?.status === "undone") {
+          return json({ ok: true, already_undone: true, status: "undone", summary: latestRow.summary ?? "Already undone." });
+        }
+        return json({
+          ok: false, error: "in_progress",
+          message: "Another undo request for this decision is already in progress — nothing ran again.",
+        }, 409);
+      }
+
       const result = await runUndo(supabase, userId, String(row.agent_id || ""), {
         tool: String(row.tool),
         ref: (row.ref as string | null) ?? null,
         undo_payload: (row.undo_payload as Record<string, unknown> | null) ?? {},
       });
+      if (!result.ok) {
+        // Nothing real happened — release the claim so this stays retryable.
+        await releaseRowClaim(supabase, "action_reversals", row.id as string, "executed_at");
+      }
       await supabase.from("action_reversals").update({
         status: result.ok ? "undone" : "failed",
         summary: result.summary,
         error: result.ok ? null : result.summary,
-        executed_at: new Date().toISOString(),
       }).eq("id", row.id as string);
 
       // The undo is itself an auditable decision, signed like every other one.
@@ -662,6 +689,36 @@ serve(async (req) => {
       return json({ ok: true, activated: true, policy_version: report.draft_version.version, replay: report });
     }
 
+    // ---- POST /control-engine/policy/rollback --------------------------------
+    // Restores the most recently archived policy version to active. Moved
+    // server-side (was a direct client-side Supabase update in
+    // ControlPolicy.tsx) so this can share the same service-role write path
+    // as /activate, letting policy_versions.status/activated_at be locked
+    // down to service-role-only at the RLS/trigger level without breaking
+    // this legitimate transition. Deliberately skips the replay gate
+    // /activate enforces -- restoring a version that was already the live
+    // policy moments ago doesn't need re-validating against itself.
+    if (url.pathname.replace(/\/$/, "").endsWith("/policy/rollback")) {
+      const scopedUserId = await resolvePolicyScopeUserId();
+      if (!scopedUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
+      const { data: active } = await supabase.from("policy_versions")
+        .select("id").eq("user_id", scopedUserId).eq("status", "active").maybeSingle();
+      const { data: previous } = await supabase.from("policy_versions")
+        .select("id, version").eq("user_id", scopedUserId).eq("status", "archived")
+        .order("version", { ascending: false }).limit(1).maybeSingle();
+      if (!previous) return json({ error: "Nothing to roll back to — there is no earlier policy version." }, 400);
+      if (active) {
+        const { error: archErr } = await supabase.from("policy_versions")
+          .update({ status: "archived" }).eq("id", active.id).eq("user_id", scopedUserId);
+        if (archErr) return json({ ok: false, error: archErr.message }, 500);
+      }
+      const { error: actErr } = await supabase.from("policy_versions")
+        .update({ status: "active", activated_at: new Date().toISOString() })
+        .eq("id", previous.id).eq("user_id", scopedUserId);
+      if (actErr) return json({ ok: false, error: actErr.message }, 500);
+      return json({ ok: true, rolled_back_to: previous.version });
+    }
+
     // ---- POST /control-engine/policy/:id/watch ------------------------------
     // "15 more items" plan, item 13: mark a whole DRAFT policy version as
     // "watching" -- from now on, every new live decision is silently
@@ -928,7 +985,7 @@ serve(async (req) => {
     const injection = scanForInjection(untrustedFields);
     const untrustedBlock = buildUntrustedBlock(untrustedFields, provider);
 
-    const res = await fetch(LOVABLE_URL, {
+    const res = await fetch(OPENAI_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
       body: JSON.stringify({
@@ -1549,6 +1606,12 @@ serve(async (req) => {
 
   } catch (e) {
     const message = String((e as Error)?.message || e);
+    // Correctness-audit fix: reports the raw exception (with stack trace)
+    // regardless of whether userId resolved -- sendCriticalAlert below
+    // already reports a message-level Sentry event for the userId-known
+    // case (via critical-alerts.ts), but this is the only coverage at all
+    // for the narrower "failed before an account could be resolved" case.
+    await reportEdgeException(e, { function: "control-engine" });
     // "15 more items" plan, item 4: this outer catch used to just return a
     // bare 500 -- no decision row, no alert, no incident, unlike the INNER
     // gate-logic catch (control-gate.ts's own fail-closed block) which at

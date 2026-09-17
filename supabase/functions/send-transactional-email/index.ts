@@ -2,6 +2,7 @@ import * as React from 'npm:react@18.3.1'
 import { renderAsync } from 'npm:@react-email/components@0.0.22'
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { TEMPLATES } from '../_shared/transactional-email-templates/registry.ts'
+import { checkIpRateLimit } from '../_shared/rate-limit.ts'
 
 // Configuration baked in at scaffold time — do NOT change these manually.
 // To update, re-run the email domain setup flow.
@@ -30,6 +31,11 @@ function generateToken(): string {
     .join('')
 }
 
+async function sha256Hex(input: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input))
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
 // Auth note: this function uses verify_jwt = true in config.toml, so Supabase's
 // gateway validates the caller's JWT (anon or service_role) before the request
 // reaches this code. No in-function auth check is needed.
@@ -54,6 +60,30 @@ Deno.serve(async (req) => {
     )
   }
 
+  const supabase = createClient(supabaseUrl, supabaseServiceKey)
+
+  // verify_jwt=true accepts either the service-role key (trusted internal
+  // callers, e.g. account-invite) or the public anon key -- the anon key
+  // ships in the frontend bundle, so an anon-keyed caller is effectively
+  // the whole internet. Only rate-limit that traffic; internal callers
+  // stay unlimited, same isInternal trust boundary this codebase already
+  // uses elsewhere.
+  const authHeader = req.headers.get('Authorization') ?? ''
+  const callerToken = authHeader.replace(/^Bearer\s+/i, '')
+  const isInternal = callerToken === supabaseServiceKey
+  if (!isInternal) {
+    const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+      || req.headers.get('cf-connecting-ip')
+      || 'unknown'
+    const ipRate = await checkIpRateLimit(supabase, ip, 'send-transactional-email', 10, 600)
+    if (!ipRate.allowed) {
+      return new Response(
+        JSON.stringify({ error: 'Too many requests from this address. Try again shortly.' }),
+        { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+  }
+
   // Parse request body
   let templateName: string
   let recipientEmail: string
@@ -65,9 +95,23 @@ Deno.serve(async (req) => {
     templateName = body.templateName || body.template_name
     recipientEmail = body.recipientEmail || body.recipient_email
     messageId = crypto.randomUUID()
-    idempotencyKey = body.idempotencyKey || body.idempotency_key || messageId
     if (body.templateData && typeof body.templateData === 'object') {
       templateData = body.templateData
+    }
+    const suppliedKey = body.idempotencyKey || body.idempotency_key
+    if (suppliedKey) {
+      idempotencyKey = suppliedKey
+    } else {
+      // Correctness-audit fix: this used to fall back to messageId, which
+      // is a freshly randomized UUID on every invocation -- an idempotency
+      // key that's different every call can never dedupe anything, which
+      // defeats the entire point of one. Derive a STABLE key from the
+      // actual request content instead, so a genuine retry of the exact
+      // same send (same template, recipient, data) collapses to the same
+      // key downstream (process-email-queue's own dedup), while two calls
+      // that differ in any of those are correctly treated as different
+      // sends.
+      idempotencyKey = `auto:${await sha256Hex(JSON.stringify({ templateName, recipientEmail, templateData }))}`
     }
   } catch {
     return new Response(
@@ -121,9 +165,6 @@ Deno.serve(async (req) => {
       }
     )
   }
-
-  // Create Supabase client with service role (bypasses RLS)
-  const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
   // 2. Check suppression list (fail-closed: if we can't verify, don't send)
   const { data: suppressed, error: suppressionError } = await supabase

@@ -20,6 +20,7 @@
 // since every write here goes through the service-role admin client.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sha256Hex, generateRawKey, displayPrefixFor } from "../_shared/api-key-auth.ts";
+import { validateOutboundUrl } from "../_shared/url-safety.ts";
 import { resolveAccountScope } from "../_shared/account-scope.ts";
 import { isValidOnUncertainPolicy, summarizeShadowObservations, evaluateShadowPromotionReadiness, summarizeShadowPromotionReadiness, type ShadowObservationRow } from "../_shared/api-key-policy.ts";
 import { evaluateAutomationReadiness, gatherAutomationReadinessInput, READINESS_LOOKBACK_DAYS } from "../_shared/automation-readiness.ts";
@@ -31,6 +32,8 @@ import { formatEmbeddingLiteral } from "../_shared/decision-embeddings.ts";
 import { generateLocalEmbedding } from "../_shared/local-embeddings.ts";
 import { isValidTriggerPhrase, isValidRuleAnswer, isValidMatchType, MAX_RESPONSE_RULES_PER_KEY } from "../_shared/response-rules.ts";
 import { findOverlappingCandidates, excerptOf } from "../_shared/rule-context-overlap.ts";
+import { reportEdgeException } from "../_shared/sentry.ts";
+import { checkRateLimit } from "../_shared/rate-limit.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -46,7 +49,20 @@ const json = (b: unknown, status = 200) =>
 // historical average.
 const PERFORMANCE_LOOKBACK_DAYS = 7;
 
+// Confirmed zero rate-limit coverage and no cap on key creation. Each key
+// can independently self-set rate_limit_per_minute up to 6000 (see the
+// /policy route below), so unlimited key creation was an infrastructure-
+// level abuse amplifier: N keys x 6000 req/min each, with nothing to slow
+// the creation loop itself down. Sized generously against real multi-
+// integration use, not against a scripted loop.
+const CREATE_KEY_RATE_LIMIT_PER_MINUTE = 10;
+const MAX_ACTIVE_KEYS_PER_ACCOUNT = 25;
+
 Deno.serve(async (req) => {
+  // Correctness-audit fix: no outer crash visibility existed here at all
+  // -- see control-api's identical addition for the full reasoning.
+  // Minimal-diff wrap: internal indentation left as-is.
+  try {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   const authHeader = req.headers.get("Authorization") || "";
@@ -207,6 +223,15 @@ Deno.serve(async (req) => {
       const callbackSecret = String(body?.callback_secret || "").trim();
       if (!callbackUrl || !callbackSecret) {
         return json({ error: "on_uncertain='callback' requires both callback_url and callback_secret" }, 400);
+      }
+      // SSRF guard: this URL gets POSTed to by our own server-side runtime
+      // every time an escalation lands on this key, on a schedule the
+      // account fully controls -- reject anything that isn't a public
+      // https host up front, the same check agent-runtime's http_post
+      // tool applies to agent-initiated calls.
+      const urlCheck = await validateOutboundUrl(callbackUrl);
+      if (!urlCheck.ok) {
+        return json({ error: `callback_url is not allowed: ${urlCheck.reason}` }, 400);
       }
       update.callback_url = callbackUrl;
       update.callback_secret = callbackSecret;
@@ -434,12 +459,23 @@ Deno.serve(async (req) => {
     // a live key's, it's simply scoped to that one key's own traffic
     // either way (see sandbox-mode.ts's module comment on this item).
     const since = new Date(Date.now() - PERFORMANCE_LOOKBACK_DAYS * 86400_000).toISOString();
-    const { data: rows, error } = await admin
-      .from("agent_decisions")
-      .select("gate_duration_ms, source")
-      .eq("api_key_id", keyId)
-      .gte("created_at", since)
-      .limit(20000);
+    const [{ data: rows, error }, { data: cleanAllowRows }] = await Promise.all([
+      admin
+        .from("agent_decisions")
+        .select("gate_duration_ms, source")
+        .eq("api_key_id", keyId)
+        .gte("created_at", since)
+        .limit(20000),
+      // Correctness-audit fix: a clean mode="fast" allow never gets its
+      // own agent_decisions row (see clean_allow_counts's own migration
+      // comment) -- folded into keyUptimeStats's denominator below so
+      // this report doesn't understate a key's real uptime.
+      admin
+        .from("clean_allow_counts")
+        .select("count")
+        .eq("api_key_id", keyId)
+        .gte("window_start", since),
+    ]);
     if (error) return json({ error: error.message }, 500);
 
     type Row = { gate_duration_ms: number | null; source: string | null };
@@ -448,7 +484,8 @@ Deno.serve(async (req) => {
       .map((r) => r.gate_duration_ms)
       .filter((d): d is number => typeof d === "number" && Number.isFinite(d));
     const latency = keyLatencyStats(durations);
-    const uptime = keyUptimeStats(typedRows.map((r) => r.source));
+    const extraCleanAllows = ((cleanAllowRows ?? []) as { count: number }[]).reduce((sum, r) => sum + r.count, 0);
+    const uptime = keyUptimeStats(typedRows.map((r) => r.source), extraCleanAllows);
 
     return json({
       ok: true,
@@ -831,6 +868,26 @@ Deno.serve(async (req) => {
     const targetUserId = await resolveAccountScope(userClient, userId, body?.account_id, "integrations");
     if (!targetUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
 
+    const rate = await checkRateLimit(admin, userId, "api-keys-create", CREATE_KEY_RATE_LIMIT_PER_MINUTE, 60);
+    if (!rate.allowed) {
+      return json({
+        error: "rate_limited",
+        message: `Too many key-creation attempts — ${rate.count} in the last minute (limit ${rate.limit}). Try again shortly.`,
+      }, 429);
+    }
+
+    const { count: activeKeyCount } = await admin
+      .from("api_keys")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", targetUserId)
+      .is("revoked_at", null);
+    if ((activeKeyCount ?? 0) >= MAX_ACTIVE_KEYS_PER_ACCOUNT) {
+      return json({
+        error: "key_limit_reached",
+        message: `This account already has ${activeKeyCount} active keys (limit ${MAX_ACTIVE_KEYS_PER_ACCOUNT}). Revoke an unused key before creating another.`,
+      }, 409);
+    }
+
     const rawKey = generateRawKey();
     const keyHash = await sha256Hex(rawKey);
     const displayPrefix = displayPrefixFor(rawKey);
@@ -857,4 +914,8 @@ Deno.serve(async (req) => {
   }
 
   return json({ error: "Method not allowed" }, 405);
+  } catch (e) {
+    await reportEdgeException(e, { function: "api-keys" });
+    return json({ error: "internal_error", message: "An unexpected error occurred." }, 500);
+  }
 });

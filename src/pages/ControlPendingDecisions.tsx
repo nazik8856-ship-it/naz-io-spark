@@ -2,11 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Check, X, ChevronDown, ChevronRight, Download } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 import { toCsv } from "@/lib/csv";
 import { filterBySearch } from "@/lib/search-filter";
 import { GateTraceList, type TraceEntry } from "@/components/control/GateTraceList";
+import { useActiveAccount } from "@/hooks/useActiveAccount";
 
 type DecisionRow = {
   id: string;
@@ -30,7 +30,7 @@ const CONFIDENCE_BAR = 60;
  */
 export default function ControlPendingDecisions() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { accountId } = useActiveAccount();
   const [rows, setRows] = useState<DecisionRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
@@ -46,11 +46,11 @@ export default function ControlPendingDecisions() {
     });
 
   const load = useCallback(async () => {
-    if (!user) return;
+    if (!accountId) return;
     const { data, error } = await supabase
       .from("agent_decisions")
       .select("id,decision,reasoning,confidence_score,escalated,source,agent_id,agent_run_id,human_response,created_at,gate_trace")
-      .eq("user_id", user.id)
+      .eq("user_id", accountId)
       .is("human_response", null)
       // Deferred "not a fit" verdicts are included too: overriding one is the
       // signal the fit/value learning loop measures against real outcomes.
@@ -60,7 +60,7 @@ export default function ControlPendingDecisions() {
     if (error) toast({ title: "Couldn't load decisions", description: error.message, variant: "destructive" });
     setRows((data ?? []) as DecisionRow[]);
     setLoading(false);
-  }, [user]);
+  }, [accountId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -89,14 +89,14 @@ export default function ControlPendingDecisions() {
   // pending ones the table above shows. The first thing any compliance-
   // minded customer asks for: a real CSV they can hand to an auditor.
   const exportCsv = async () => {
-    if (!user) return;
+    if (!accountId) return;
     setExporting(true);
     const fromIso = new Date(`${exportFrom}T00:00:00.000Z`).toISOString();
     const toIso = new Date(`${exportTo}T23:59:59.999Z`).toISOString();
     const { data, error } = await supabase
       .from("agent_decisions")
       .select("id,decision,reasoning,confidence_score,escalated,source,agent_id,agent_run_id,human_response,created_at,policy_version")
-      .eq("user_id", user.id)
+      .eq("user_id", accountId)
       .gte("created_at", fromIso)
       .lte("created_at", toIso)
       .order("created_at", { ascending: true })

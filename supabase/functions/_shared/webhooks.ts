@@ -8,6 +8,7 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isRetryEligible, isExhausted, computeNextRetryAt } from "./webhook-retry.ts";
 import { sendCriticalAlert } from "./critical-alerts.ts";
 import { previousSecretActive } from "./webhook-secret-rotation.ts";
+import { validateOutboundUrl } from "./url-safety.ts";
 
 export const WEBHOOK_EVENTS = [
   "approval_created",
@@ -147,6 +148,12 @@ export async function triggerWebhooks(
       let ok = false;
       let errMsg: string | null = null;
       try {
+        // Re-checked here (not just at set time) since a DNS record can
+        // change after the fact (rebinding) -- this is the point where our
+        // server actually makes the outbound request, same reasoning as
+        // callback-delegation.ts's own call-time check.
+        const urlCheck = await validateOutboundUrl(hook.url);
+        if (!urlCheck.ok) throw new Error(`blocked: ${urlCheck.reason}`);
         const signaturePayload = buildSignaturePayload(timestamp, body);
         const signature = await hmacHex(hook.secret, signaturePayload);
         const headers: Record<string, string> = {

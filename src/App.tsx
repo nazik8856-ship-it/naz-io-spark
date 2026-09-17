@@ -10,6 +10,7 @@ import OutOfCreditsModal from "@/components/payments/OutOfCreditsModal";
 import OAuthReturnHandler from "@/components/OAuthReturnHandler";
 import IntegrationOAuthMessageBridge from "@/components/integrations/IntegrationOAuthMessageBridge";
 import { AuthGuard } from "@/components/AuthGuard";
+import { Sentry } from "@/lib/sentry";
 
 // ─── Route Components ─────────────────────────────────────────────────────────
 // Retry lazy imports once after a hard reload when the browser is holding a
@@ -94,7 +95,25 @@ const PageSkeleton = () => (
   </div>
 );
 
+// Catches a React render crash anywhere in the tree that would otherwise
+// white-screen the whole app -- reports it to Sentry and shows a real
+// recovery option instead of a blank page.
+const ErrorFallback = () => (
+  <div className="min-h-screen flex items-center justify-center px-6" style={{ background: "#020617" }}>
+    <div className="text-center max-w-sm">
+      <p className="text-white/70 text-sm mb-4">Something went wrong. The error's been reported.</p>
+      <button
+        onClick={() => window.location.reload()}
+        className="rounded-lg px-5 py-2.5 text-sm font-bold text-[#020617] bg-[#00A3FF] hover:bg-[#22d3ee] transition-colors"
+      >
+        Reload
+      </button>
+    </div>
+  </div>
+);
+
 const App = () => (
+  <Sentry.ErrorBoundary fallback={<ErrorFallback />}>
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
       <ActiveAccountProvider>
@@ -185,6 +204,7 @@ const App = () => (
       </ActiveAccountProvider>
     </AuthProvider>
   </QueryClientProvider>
+  </Sentry.ErrorBoundary>
 );
 
 export default App;
