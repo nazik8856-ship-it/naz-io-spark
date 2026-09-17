@@ -73,3 +73,29 @@ Deno.test("oauthCallbackPage: merges provider-specific extra fields into the pos
   });
   assert(htmlOut.includes('"shop":"mystore.myshopify.com"'));
 });
+
+Deno.test("oauthCallbackPage: falls back to the redirect if window.close() silently no-ops", () => {
+  // Regression test for a real Figma app-review rejection: window.opener
+  // was present but close() was a no-op in their reviewer's browser
+  // context, leaving the page stuck on "You can close this window"
+  // forever. The page must check window.closed after attempting close()
+  // and redirect instead of dead-ending.
+  const htmlOut = oauthCallbackPage({
+    title: "Figma connected", message: "Connected as Alice.", ok: true,
+    source: "nazai-figma-oauth",
+  });
+  assert(htmlOut.includes("fallbackRedirect"));
+  assert(htmlOut.includes("window.closed"));
+});
+
+Deno.test("oauthCallbackPage: falls back to the redirect if window.opener itself throws", () => {
+  // A Cross-Origin-Opener-Policy boundary can make accessing window.opener
+  // throw instead of returning null -- the outer catch must still reach a
+  // working next step, not leave the page silently stuck.
+  const htmlOut = oauthCallbackPage({
+    title: "Figma connected", message: "Connected as Alice.", ok: true,
+    source: "nazai-figma-oauth",
+  });
+  const catchBlock = htmlOut.slice(htmlOut.indexOf("} catch(e){"));
+  assert(catchBlock.includes("fallbackRedirect"));
+});
