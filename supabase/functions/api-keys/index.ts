@@ -33,6 +33,7 @@ import { generateLocalEmbedding } from "../_shared/local-embeddings.ts";
 import { isValidTriggerPhrase, isValidRuleAnswer, isValidMatchType, MAX_RESPONSE_RULES_PER_KEY } from "../_shared/response-rules.ts";
 import { findOverlappingCandidates, excerptOf } from "../_shared/rule-context-overlap.ts";
 import { reportEdgeException } from "../_shared/sentry.ts";
+import { checkRateLimit } from "../_shared/rate-limit.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -47,6 +48,15 @@ const json = (b: unknown, status = 200) =>
 // enough to answer "how is this doing right now" rather than a slow-moving
 // historical average.
 const PERFORMANCE_LOOKBACK_DAYS = 7;
+
+// Confirmed zero rate-limit coverage and no cap on key creation. Each key
+// can independently self-set rate_limit_per_minute up to 6000 (see the
+// /policy route below), so unlimited key creation was an infrastructure-
+// level abuse amplifier: N keys x 6000 req/min each, with nothing to slow
+// the creation loop itself down. Sized generously against real multi-
+// integration use, not against a scripted loop.
+const CREATE_KEY_RATE_LIMIT_PER_MINUTE = 10;
+const MAX_ACTIVE_KEYS_PER_ACCOUNT = 25;
 
 Deno.serve(async (req) => {
   // Correctness-audit fix: no outer crash visibility existed here at all
@@ -857,6 +867,26 @@ Deno.serve(async (req) => {
 
     const targetUserId = await resolveAccountScope(userClient, userId, body?.account_id, "integrations");
     if (!targetUserId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
+
+    const rate = await checkRateLimit(admin, userId, "api-keys-create", CREATE_KEY_RATE_LIMIT_PER_MINUTE, 60);
+    if (!rate.allowed) {
+      return json({
+        error: "rate_limited",
+        message: `Too many key-creation attempts — ${rate.count} in the last minute (limit ${rate.limit}). Try again shortly.`,
+      }, 429);
+    }
+
+    const { count: activeKeyCount } = await admin
+      .from("api_keys")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", targetUserId)
+      .is("revoked_at", null);
+    if ((activeKeyCount ?? 0) >= MAX_ACTIVE_KEYS_PER_ACCOUNT) {
+      return json({
+        error: "key_limit_reached",
+        message: `This account already has ${activeKeyCount} active keys (limit ${MAX_ACTIVE_KEYS_PER_ACCOUNT}). Revoke an unused key before creating another.`,
+      }, 409);
+    }
 
     const rawKey = generateRawKey();
     const keyHash = await sha256Hex(rawKey);
