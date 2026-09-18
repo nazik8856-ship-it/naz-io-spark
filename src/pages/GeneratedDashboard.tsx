@@ -32,6 +32,7 @@ import PromptExtras, { analyzeAndBuildContext, type Attachment } from "@/compone
 import { cn } from "@/lib/utils";
 import ExecutionLog from "@/components/execution/ExecutionLog";
 import { useExecutionLog } from "@/hooks/useExecutionLog";
+import { buildStaticSiteHtml } from "@/lib/static-site-export";
 import { toast } from "sonner";
 
 type WebsiteView = "preview" | "code";
@@ -381,7 +382,11 @@ export default function GeneratedDashboard() {
       }
       setPublishOpen(false);
       window.open(`/website-preview/${id}`, "_blank");
-      toast.success("Opening live site — use the publish flow in project settings to deploy.");
+      toast.success(
+        opts.saveDomain && domainInput.trim()
+          ? "Domain preference saved for later — custom-domain hosting isn't available yet. Your site is live now at its NazAI link."
+          : "Your site is live at its NazAI link.",
+      );
     } catch (e: any) {
       toast.error(e?.message || "Couldn't save domain");
     } finally {
@@ -390,15 +395,15 @@ export default function GeneratedDashboard() {
   };
   const exportSite = async () => {
     try {
-      const payload = { website, pages };
-      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const html = buildStaticSiteHtml(website, pages);
+      const blob = new Blob([html], { type: "text/html" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${(website?.name || "website").replace(/\s+/g, "-").toLowerCase()}.json`;
+      a.download = `${(website?.name || "website").replace(/\s+/g, "-").toLowerCase()}.html`;
       a.click();
       URL.revokeObjectURL(url);
-      toast.success("Export downloaded");
+      toast.success("Static site downloaded — open it directly or host it anywhere.");
     } catch {
       toast.error("Export failed");
     }
@@ -782,10 +787,11 @@ export default function GeneratedDashboard() {
               <h3 className="text-white font-semibold">Publish website</h3>
             </div>
             <p className="text-xs text-white/50 mb-4">
-              Add a custom domain now, or skip to keep the current setup.
+              Your site is already live at its NazAI link — publishing here just saves the
+              domain you'd like to use once custom-domain hosting ships.
             </p>
             <label className="block text-[11px] font-mono uppercase tracking-[0.2em] text-white/40 mb-2">
-              Custom domain (optional)
+              Intended domain (optional)
             </label>
             <input
               value={domainInput}
@@ -800,8 +806,8 @@ export default function GeneratedDashboard() {
               </p>
             )}
             <p className="mt-3 text-[11px] text-white/40 leading-relaxed">
-              Domains are stored securely on your account. After saving, point an A record for the root and{" "}
-              <span className="font-mono">www</span> to <span className="font-mono text-white/70">185.158.133.1</span> at your registrar.
+              Custom-domain hosting isn't available yet — saving a domain here doesn't connect
+              DNS or route any traffic. Don't change your registrar's records for this yet.
             </p>
             <div className="mt-5 flex items-center justify-end gap-2">
               <button
