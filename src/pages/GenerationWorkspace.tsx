@@ -2136,6 +2136,9 @@ export default function GenerationWorkspace() {
                               agentId={lastNaz.agentDbId}
                               manifest={lastNaz.agentManifest}
                               onOpenBlueprint={() => setBlueprintOpenId(lastNaz.id)}
+                              isLocalOnly={lastNaz.agentDbId.startsWith("local-")}
+                              deployError={lastNaz.agentError}
+                              onRetryDeploy={() => void buildAgent(lastNaz.id, lastNaz.agentFinalSpec)}
                             />
                           </AgentRenderBoundary>
                         ) : status === "approved" ? (

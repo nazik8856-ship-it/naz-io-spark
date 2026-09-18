@@ -80,12 +80,19 @@ interface Props {
   agentId: string;
   manifest: AgentManifest;
   onOpenBlueprint?: () => void;
+  /** True when this agent couldn't be persisted to the backend and is only
+   * rendered from a local fallback manifest -- agentId is a `local-` prefixed
+   * placeholder that doesn't exist in the database, so Run Now/scheduling/
+   * integrations all have nothing real to act on. */
+  isLocalOnly?: boolean;
+  deployError?: string;
+  onRetryDeploy?: () => void;
 }
 
 
 
 
-export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Props) {
+export default function AgentCockpit({ agentId, manifest, onOpenBlueprint, isLocalOnly, deployError, onRetryDeploy }: Props) {
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [decisions, setDecisions] = useState<DecisionRow[]>([]);
 
@@ -426,6 +433,10 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
 
   const runNow = async () => {
     if (running) return;
+    if (isLocalOnly) {
+      toast.error("This agent isn't saved to your account yet — retry saving it before running.");
+      return;
+    }
     const hasIntegrations = await checkIntegrations();
     if (!hasIntegrations) {
       setNeedsIntegrations(true);
@@ -487,6 +498,26 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
 
   return (
     <div className="space-y-4">
+      {isLocalOnly && (
+        <div className="flex flex-wrap items-center gap-3 px-3 py-2.5 rounded-lg border border-amber-400/30 bg-amber-400/[0.06] text-xs">
+          <AlertTriangle className="h-3.5 w-3.5 text-amber-300 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <span className="text-amber-200 font-semibold">Not saved to your account.</span>{" "}
+            <span className="text-zinc-400">
+              {deployError ? `Deployment failed: ${deployError}. ` : ""}
+              Run Now, scheduling, and integrations won't work until this agent is saved.
+            </span>
+          </div>
+          {onRetryDeploy && (
+            <button
+              onClick={onRetryDeploy}
+              className="px-2.5 py-1 rounded border border-amber-400/30 text-amber-200 hover:bg-amber-400/10 text-[11px] font-semibold shrink-0"
+            >
+              Retry save
+            </button>
+          )}
+        </div>
+      )}
       {gmailAcct && (
         <div className="flex flex-wrap items-center gap-3 px-3 py-2 rounded-lg border border-emerald-400/25 bg-emerald-400/[0.04] text-xs">
           <Mail className="h-3.5 w-3.5 text-emerald-300 shrink-0" />
@@ -511,7 +542,8 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint }: Pro
         <AgentHealthBadge agentId={agentId} />
         <button
           onClick={runNow}
-          disabled={running}
+          disabled={running || isLocalOnly}
+          title={isLocalOnly ? "This agent isn't saved to your account yet" : undefined}
           className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gradient-to-r from-emerald-400 to-cyan-400 text-black text-sm font-bold hover:opacity-90 disabled:opacity-50"
         >
           {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
