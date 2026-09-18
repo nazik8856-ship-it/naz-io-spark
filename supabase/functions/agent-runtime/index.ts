@@ -17,6 +17,7 @@ import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { claimIdempotencyKey, saveIdempotencyResponse, releaseIdempotencyKey, buildRealActionKey } from "../_shared/idempotency.ts";
 import { timingSafeEqual } from "../_shared/timing-safe.ts";
 import { recordAiSpend, estimateCostUsd } from "../_shared/spend-guard.ts";
+import { pickAiGateway, callAiGateway, type GatewayConfig } from "../_shared/ai-gateway.ts";
 import { triggerWebhooks } from "../_shared/webhooks.ts";
 import { validateOutboundUrl } from "../_shared/url-safety.ts";
 import { reportEdgeException } from "../_shared/sentry.ts";
@@ -45,9 +46,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-scheduler-user-id",
 };
 
-const LOVABLE_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
-const MODEL = "google/gemini-3-flash-preview";
-const DEEP_MODEL = "google/gemini-3.1-pro-preview"; // stronger reasoning for deep analysis / audits / plans
 const MAX_STEPS = 24;
 // Per-run spend ceiling, independent of the account's DAILY cap
 // (ai_spend_caps) -- a single run could stay comfortably under a generous
@@ -91,8 +89,8 @@ type Manifest = {
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
-    const key = Deno.env.get("LOVABLE_API_KEY");
-    if (!key) return json({ error: "Missing LOVABLE_API_KEY" }, 500);
+    const gw = pickAiGateway();
+    if (!gw) return json({ error: "Missing OPENAI_API_KEY (or LOVABLE_API_KEY)" }, 500);
 
     // Accept params from either query string (external webhook callers) or JSON body (scheduler / frontend).
     const url = new URL(req.url);
@@ -1144,21 +1142,17 @@ Rules:
     // Bounded by the wrapper's attempt ceiling; returns null to stop retrying.
     const correctToolInput: Corrector = async (ctx) => {
       try {
-        const resp = await fetch(LOVABLE_URL, {
-          method: "POST",
-          headers: { "Lovable-API-Key": key, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: MODEL,
-            temperature: 0.1,
-            messages: [
-              { role: "system", content: "You repair failed tool-call inputs. Output ONLY the requested fenced JSON block." },
-              { role: "user", content: buildCorrectionPrompt(ctx) },
-            ],
-          }),
-        });
+        const resp = await callAiGateway({
+          model: gw.model,
+          temperature: 0.1,
+          messages: [
+            { role: "system", content: "You repair failed tool-call inputs. Output ONLY the requested fenced JSON block." },
+            { role: "user", content: buildCorrectionPrompt(ctx) },
+          ],
+        }, gw);
         if (!resp.ok) return null;
         const data = await resp.json();
-        await recordAiSpend(supabase, userId, MODEL, data?.usage, "agent-runtime-correction", agentId);
+        await recordAiSpend(supabase, userId, gw.model, data?.usage, "agent-runtime-correction", agentId);
         const raw: string = data?.choices?.[0]?.message?.content ?? "";
         const block = extractAction(raw);
         const nextInput = block?.input;
@@ -1328,12 +1322,7 @@ Rules:
       const stepTimeout = setTimeout(() => stepCtrl.abort(), STEP_TIMEOUT_MS);
       let resp: Response;
       try {
-        resp = await fetch(LOVABLE_URL, {
-          method: "POST",
-          headers: { "Lovable-API-Key": key, "Content-Type": "application/json" },
-          body: JSON.stringify({ model: MODEL, messages, temperature: 0.4 }),
-          signal: stepCtrl.signal,
-        });
+        resp = await callAiGateway({ model: gw.model, messages, temperature: 0.4 }, gw, stepCtrl.signal);
       } catch (e) {
         const timedOut = e instanceof Error && e.name === "AbortError";
         await logEvent("error", {
@@ -1357,8 +1346,8 @@ Rules:
       // Meter this reasoning-loop call against the org's daily spend cap
       // (warns at 90%, auto-trips the kill switch at 100%) -- same call
       // shape control-engine already uses for its own gateway calls.
-      await recordAiSpend(supabase, userId, MODEL, data?.usage, "agent-runtime", agentId);
-      runSpendUsd += estimateCostUsd(MODEL, data?.usage);
+      await recordAiSpend(supabase, userId, gw.model, data?.usage, "agent-runtime", agentId);
+      runSpendUsd += estimateCostUsd(gw.model, data?.usage);
       const raw: string = data?.choices?.[0]?.message?.content ?? "";
       messages.push({ role: "assistant", content: raw });
 
@@ -3106,21 +3095,17 @@ Reply with ONE fenced JSON block:
 \`\`\`json
 {"goal_met":"yes|partial|no","summary":"1-3 sentences, plain English, name the delivered artifacts or why the goal was not met"}
 \`\`\``;
-      const gResp = await fetch(LOVABLE_URL, {
-        method: "POST",
-        headers: { "Lovable-API-Key": key, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: MODEL,
-          messages: [
-            { role: "system", content: "You grade completion accurately. No hedging, no marketing. Under 400 chars." },
-            { role: "user", content: gradePrompt },
-          ],
-          temperature: 0.1,
-        }),
-      });
+      const gResp = await callAiGateway({
+        model: gw.model,
+        messages: [
+          { role: "system", content: "You grade completion accurately. No hedging, no marketing. Under 400 chars." },
+          { role: "user", content: gradePrompt },
+        ],
+        temperature: 0.1,
+      }, gw);
       if (gResp.ok) {
         const gData = await gResp.json();
-        await recordAiSpend(supabase, userId, MODEL, gData?.usage, "agent-runtime-grading", agentId);
+        await recordAiSpend(supabase, userId, gw.model, gData?.usage, "agent-runtime-grading", agentId);
         const raw = gData?.choices?.[0]?.message?.content ?? "";
         const parsed = extractAction(raw);
         if (parsed) {
@@ -3207,22 +3192,19 @@ async function executeTool(
     if (tool.kind === "web_search") {
       const query = String(input.query || tool.config?.query || "").slice(0, 200);
       if (!query) return { summary: "No query provided.", error: true };
-      const key = Deno.env.get("LOVABLE_API_KEY")!;
-      const resp = await fetch(LOVABLE_URL, {
-        method: "POST",
-        headers: { "Lovable-API-Key": key, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: MODEL,
-          messages: [
-            { role: "system", content: "You are a precise web research assistant. Summarize current public information in 4-6 bullets with concrete numbers/dates when possible." },
-            { role: "user", content: `Research the latest on: ${query}` },
-          ],
-          temperature: 0.3,
-        }),
-      });
+      const gw1 = pickAiGateway();
+      if (!gw1) return { summary: "Missing OPENAI_API_KEY (or LOVABLE_API_KEY).", error: true };
+      const resp = await callAiGateway({
+        model: gw1.model,
+        messages: [
+          { role: "system", content: "You are a precise web research assistant. Summarize current public information in 4-6 bullets with concrete numbers/dates when possible." },
+          { role: "user", content: `Research the latest on: ${query}` },
+        ],
+        temperature: 0.3,
+      }, gw1);
       if (!resp.ok) return { summary: `Search gateway ${resp.status}`, error: true };
       const data = await resp.json();
-      await recordAiSpend(supabase, userId, MODEL, data?.usage, "agent-runtime-tool", agentId);
+      await recordAiSpend(supabase, userId, gw1.model, data?.usage, "agent-runtime-tool", agentId);
       return { summary: (data?.choices?.[0]?.message?.content ?? "(empty)").slice(0, 1200) };
     }
     if (tool.kind === "http_get") {
@@ -3258,22 +3240,19 @@ async function executeTool(
       const ctx = String(input.context || "").slice(0, 4000);
       const focus = String(input.focus || "").slice(0, 300);
       if (!subject) return { summary: "deep_analyze requires a 'subject'.", error: true };
-      const key = Deno.env.get("LOVABLE_API_KEY")!;
-      const resp = await fetch(LOVABLE_URL, {
-        method: "POST",
-        headers: { "Lovable-API-Key": key, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: DEEP_MODEL,
-          messages: [
-            { role: "system", content: "You are a senior operator (strategy + engineering + ops). Produce a rigorous structured diagnosis. Sections: 1) Findings (bullet list, evidence-based), 2) Root causes, 3) Risks / blast radius, 4) Prioritized fixes (P0/P1/P2 with owner + expected impact + effort), 5) Success metrics. Be concrete, name numbers/URLs when given, never vague." },
-            { role: "user", content: `Subject: ${subject}\nFocus: ${focus || "(none — decide what matters)"}\nContext:\n${ctx || "(none provided)"}` },
-          ],
-          temperature: 0.3,
-        }),
-      });
+      const gw2 = pickAiGateway();
+      if (!gw2) return { summary: "Missing OPENAI_API_KEY (or LOVABLE_API_KEY).", error: true };
+      const resp = await callAiGateway({
+        model: gw2.deepModel,
+        messages: [
+          { role: "system", content: "You are a senior operator (strategy + engineering + ops). Produce a rigorous structured diagnosis. Sections: 1) Findings (bullet list, evidence-based), 2) Root causes, 3) Risks / blast radius, 4) Prioritized fixes (P0/P1/P2 with owner + expected impact + effort), 5) Success metrics. Be concrete, name numbers/URLs when given, never vague." },
+          { role: "user", content: `Subject: ${subject}\nFocus: ${focus || "(none — decide what matters)"}\nContext:\n${ctx || "(none provided)"}` },
+        ],
+        temperature: 0.3,
+      }, gw2);
       if (!resp.ok) return { summary: `deep_analyze gateway ${resp.status}`, error: true };
       const data = await resp.json();
-      await recordAiSpend(supabase, userId, DEEP_MODEL, data?.usage, "agent-runtime-tool", agentId);
+      await recordAiSpend(supabase, userId, gw2.deepModel, data?.usage, "agent-runtime-tool", agentId);
       return { summary: (data?.choices?.[0]?.message?.content ?? "(empty)").slice(0, 3500) };
     }
     if (tool.kind === "audit_url") {
@@ -3288,44 +3267,38 @@ async function executeTool(
       } catch (e) {
         return { summary: `Fetch failed: ${e instanceof Error ? e.message : "unknown"}`, error: true };
       }
-      const key = Deno.env.get("LOVABLE_API_KEY")!;
-      const resp = await fetch(LOVABLE_URL, {
-        method: "POST",
-        headers: { "Lovable-API-Key": key, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: DEEP_MODEL,
-          messages: [
-            { role: "system", content: "You audit web pages / documents. Produce: 1) What the page is trying to do (1 line), 2) What's WRONG (specific — copy, structure, clarity, CTA, credibility, SEO, technical), 3) What's MISSING, 4) Prioritized fixes (P0/P1/P2, each with exact suggested change), 5) One-paragraph rewrite of the hero if applicable. Cite quoted text from the page as evidence. Be blunt and useful." },
-            { role: "user", content: `URL: ${url}\nFocus: ${focus || "(none — full audit)"}\n\nPAGE CONTENT (stripped):\n${pageText}` },
-          ],
-          temperature: 0.3,
-        }),
-      });
+      const gw3 = pickAiGateway();
+      if (!gw3) return { summary: "Missing OPENAI_API_KEY (or LOVABLE_API_KEY).", error: true };
+      const resp = await callAiGateway({
+        model: gw3.deepModel,
+        messages: [
+          { role: "system", content: "You audit web pages / documents. Produce: 1) What the page is trying to do (1 line), 2) What's WRONG (specific — copy, structure, clarity, CTA, credibility, SEO, technical), 3) What's MISSING, 4) Prioritized fixes (P0/P1/P2, each with exact suggested change), 5) One-paragraph rewrite of the hero if applicable. Cite quoted text from the page as evidence. Be blunt and useful." },
+          { role: "user", content: `URL: ${url}\nFocus: ${focus || "(none — full audit)"}\n\nPAGE CONTENT (stripped):\n${pageText}` },
+        ],
+        temperature: 0.3,
+      }, gw3);
       if (!resp.ok) return { summary: `audit_url gateway ${resp.status}`, error: true };
       const data = await resp.json();
-      await recordAiSpend(supabase, userId, DEEP_MODEL, data?.usage, "agent-runtime-tool", agentId);
+      await recordAiSpend(supabase, userId, gw3.deepModel, data?.usage, "agent-runtime-tool", agentId);
       return { summary: (data?.choices?.[0]?.message?.content ?? "(empty)").slice(0, 3500) };
     }
     if (tool.kind === "make_plan") {
       const objective = String(input.objective || "").slice(0, 600);
       const constraints = String(input.constraints || "").slice(0, 800);
       if (!objective) return { summary: "make_plan requires an 'objective'.", error: true };
-      const key = Deno.env.get("LOVABLE_API_KEY")!;
-      const resp = await fetch(LOVABLE_URL, {
-        method: "POST",
-        headers: { "Lovable-API-Key": key, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: DEEP_MODEL,
-          messages: [
-            { role: "system", content: "You produce concrete execution plans. Output a numbered list. Each step: [Owner] Action → Tool/how → Success criterion. End with a Kickoff step the agent will execute right now. No fluff, no restating the objective." },
-            { role: "user", content: `Objective: ${objective}\nConstraints: ${constraints || "(none)"}` },
-          ],
-          temperature: 0.3,
-        }),
-      });
+      const gw4 = pickAiGateway();
+      if (!gw4) return { summary: "Missing OPENAI_API_KEY (or LOVABLE_API_KEY).", error: true };
+      const resp = await callAiGateway({
+        model: gw4.deepModel,
+        messages: [
+          { role: "system", content: "You produce concrete execution plans. Output a numbered list. Each step: [Owner] Action → Tool/how → Success criterion. End with a Kickoff step the agent will execute right now. No fluff, no restating the objective." },
+          { role: "user", content: `Objective: ${objective}\nConstraints: ${constraints || "(none)"}` },
+        ],
+        temperature: 0.3,
+      }, gw4);
       if (!resp.ok) return { summary: `make_plan gateway ${resp.status}`, error: true };
       const data = await resp.json();
-      await recordAiSpend(supabase, userId, DEEP_MODEL, data?.usage, "agent-runtime-tool", agentId);
+      await recordAiSpend(supabase, userId, gw4.deepModel, data?.usage, "agent-runtime-tool", agentId);
       return { summary: (data?.choices?.[0]?.message?.content ?? "(empty)").slice(0, 3000) };
     }
     return { summary: `Unknown tool kind ${tool.kind}.`, error: true };

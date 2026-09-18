@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { checkIpRateLimit } from "../_shared/rate-limit.ts";
+import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
 
 // This endpoint is intentionally reachable without a signed-in session --
 // /generation-workspace is a public, unauthenticated try-before-signup
@@ -57,8 +58,8 @@ serve(async (req) => {
     const { messages, mode } = await req.json();
     const chatMode: Mode = (mode as Mode) ?? "build";
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
+    const gw = pickAiGateway();
+    if (!gw) throw new Error("Missing OPENAI_API_KEY (or LOVABLE_API_KEY)");
 
     if (!Array.isArray(messages) || messages.length === 0) {
       return new Response(JSON.stringify({ error: "messages required" }), {
@@ -67,24 +68,14 @@ serve(async (req) => {
       });
     }
 
-    const response = await fetch(
-      "https://ai.gateway.lovable.dev/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${LOVABLE_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "google/gemini-3-flash-preview",
-          messages: [
-            { role: "system", content: SYSTEM_PROMPTS[chatMode] },
-            ...messages,
-          ],
-          stream: true,
-        }),
-      },
-    );
+    const response = await callAiGateway({
+      model: gw.model,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPTS[chatMode] },
+        ...messages,
+      ],
+      stream: true,
+    }, gw);
 
     if (!response.ok) {
       if (response.status === 429) {

@@ -9,6 +9,12 @@
 // previously this endpoint accepted the CORS-listed svix-* headers but never
 // actually checked them, so anyone who found the URL could POST arbitrary
 // forged events and have them processed as if Resend had sent them.
+//
+// Also the suppression-list writer now that email sends go straight through
+// Resend (see process-email-queue) instead of Lovable's hosted email API --
+// email.bounced/email.complained are Resend's equivalent of what Lovable's
+// own Go service used to forward to handle-email-suppression (now retired).
+import { createClient } from "npm:@supabase/supabase-js@2";
 import { timingSafeEqual } from "../_shared/timing-safe.ts";
 
 const corsHeaders = {
@@ -130,6 +136,11 @@ Deno.serve(async (request: Request) => {
       return json({ success: true, event });
     }
 
+    if (event?.type === "email.bounced" || event?.type === "email.complained") {
+      await recordSuppression(event);
+      return json({ success: true });
+    }
+
     // Log common Resend delivery events for visibility
     if (typeof event?.type === "string") {
       console.log(`Resend event type: ${event.type}`);
@@ -142,3 +153,61 @@ Deno.serve(async (request: Request) => {
     return json({ error: "Invalid webhook payload" }, 400);
   }
 });
+
+// Mirrors what handle-email-suppression used to do with events Lovable's Go
+// service forwarded to it — upsert the address into suppressed_emails
+// (idempotent, safe for Resend's at-least-once webhook delivery) and append
+// a log entry. Never updates existing email_send_log rows, only inserts.
+async function recordSuppression(event: { type: string; data?: Record<string, unknown> }): Promise<void> {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!supabaseUrl || !supabaseServiceKey) {
+    console.error("Missing SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY -- cannot record suppression");
+    return;
+  }
+
+  const data = event.data ?? {};
+  const recipients = Array.isArray(data.to) ? data.to.filter((r): r is string => typeof r === "string") : [];
+  const emailId = typeof data.email_id === "string" ? data.email_id : null;
+  if (recipients.length === 0) {
+    console.warn("Resend suppression event had no recipient", { type: event.type, emailId });
+    return;
+  }
+
+  const reason = event.type === "email.bounced" ? "bounce" : "complaint";
+  const status = event.type === "email.bounced" ? "bounced" : "complained";
+  const message = event.type === "email.bounced" ? "Bounce reported by Resend" : "Spam complaint reported by Resend";
+
+  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+  for (const recipient of recipients) {
+    const normalizedEmail = recipient.toLowerCase();
+
+    const { error: suppressError } = await supabase
+      .from("suppressed_emails")
+      .upsert({ email: normalizedEmail, reason }, { onConflict: "email" });
+    if (suppressError) {
+      console.error("Failed to upsert suppressed email", {
+        error: suppressError,
+        email_redacted: normalizedEmail[0] + "***@" + normalizedEmail.split("@")[1],
+      });
+      continue;
+    }
+
+    const { error: insertError } = await supabase.from("email_send_log").insert({
+      message_id: emailId,
+      template_name: "system",
+      recipient_email: normalizedEmail,
+      status,
+      error_message: message,
+    });
+    if (insertError) {
+      console.warn("Failed to insert email_send_log for suppression", { error: insertError });
+    }
+
+    console.log("Suppression processed", {
+      email_redacted: normalizedEmail[0] + "***@" + normalizedEmail.split("@")[1],
+      reason,
+    });
+  }
+}

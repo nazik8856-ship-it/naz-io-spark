@@ -5,14 +5,12 @@
 //          intakeAnswers?: Record<string,string>, role?: string }
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-
-const LOVABLE_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
-const MODEL = "google/gemini-3-flash-preview";
 
 type Automation = {
   name: string;
@@ -190,8 +188,8 @@ Rules:
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
-    const key = Deno.env.get("LOVABLE_API_KEY");
-    if (!key) return json({ error: "Missing LOVABLE_API_KEY" }, 500);
+    const gw = pickAiGateway();
+    if (!gw) return json({ error: "Missing OPENAI_API_KEY (or LOVABLE_API_KEY)" }, 500);
 
     const body = await req.json();
     const { plan, save = true, businessProfileId, userPrompt = "", intakeAnswers = {}, role: roleHint, existingAgentId = null } = body || {};
@@ -213,7 +211,25 @@ serve(async (req) => {
       profile = data ?? null;
     }
 
-    const role = pickRole(plan + " " + userPrompt, roleHint);
+    // INCREMENTAL EDIT CONTEXT: when refining an existing agent, compile
+    // against its current plan so the new instruction is applied on top of
+    // what's already there — otherwise a short edit ("run at 9am instead")
+    // would compile in isolation and silently drop the rest of the agent.
+    let existingAgentRow: { manifest: unknown; source_plan: string | null; role: string | null } | null = null;
+    if (existingAgentId && user && typeof existingAgentId === "string" && !existingAgentId.startsWith("local-")) {
+      const { data: existing } = await supabase
+        .from("agents")
+        .select("manifest, source_plan, role")
+        .eq("id", existingAgentId)
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (existing) existingAgentRow = existing as typeof existingAgentRow;
+    }
+    const effectivePlan = existingAgentRow
+      ? `EXISTING AGENT — preserve everything below unless the requested change says otherwise:\n${(existingAgentRow.source_plan || JSON.stringify(existingAgentRow.manifest)).slice(0, 6000)}\n\nREQUESTED CHANGE:\n${plan}`
+      : plan;
+
+    const role = pickRole(effectivePlan + " " + userPrompt, roleHint ?? existingAgentRow?.role ?? undefined);
     const blueprint = ROLE_LIBRARY[role];
 
     const intakeBlock = Object.keys(intakeAnswers).length
@@ -243,18 +259,14 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
     let normalized: Manifest;
     let usedFallback = false;
     try {
-      const resp = await fetch(LOVABLE_URL, {
-        method: "POST",
-        headers: { "Lovable-API-Key": key, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: MODEL,
-          messages: [
-            { role: "system", content: `You are NazAI Agent Compiler.\n\n${MANIFEST_SCHEMA_DOC}` },
-            { role: "user", content: `Compile this plan into the Agent Manifest JSON. Return only the JSON object.${profileBlock}${blueprintBlock}${intakeBlock}\n\nPLAN:\n${plan}` },
-          ],
-          temperature: 0.2,
-        }),
-      });
+      const resp = await callAiGateway({
+        model: gw.model,
+        messages: [
+          { role: "system", content: `You are NazAI Agent Compiler.\n\n${MANIFEST_SCHEMA_DOC}` },
+          { role: "user", content: `Compile this plan into the Agent Manifest JSON. Return only the JSON object.${profileBlock}${blueprintBlock}${intakeBlock}\n\nPLAN:\n${effectivePlan}` },
+        ],
+        temperature: 0.2,
+      }, gw);
       if (!resp.ok) throw new Error(`gateway ${resp.status}`);
       const data = await resp.json();
       const raw: string = data?.choices?.[0]?.message?.content ?? "";
@@ -263,7 +275,15 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
       normalized = normalizeManifest(manifest);
       if (!normalized.name || !normalized.tools.length) throw new Error("missing fields");
     } catch (aiErr) {
-      console.warn("compile AI failed, using deterministic fallback:", aiErr);
+      console.warn("compile AI failed:", aiErr);
+      // For a brand-new agent, a deterministic fallback manifest is safe — there's
+      // nothing to lose. For an EDIT, silently falling back would discard the
+      // existing agent's real manifest and replace it with a generic guess built
+      // from just the short edit instruction. Fail loudly instead so the caller
+      // can tell the user the edit didn't apply, rather than corrupt a working agent.
+      if (existingAgentRow) {
+        return json({ error: "Couldn't apply that edit right now — the agent compiler is unavailable. Nothing was changed; please try again." }, 502);
+      }
       usedFallback = true;
       normalized = buildFallbackManifest(plan, userPrompt, role, blueprint, profile);
     }
@@ -386,7 +406,7 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
             .from("agents")
             .update({
               name: normalized.name, slug, goal: normalized.goal,
-              manifest: normalized, source_plan: plan.slice(0, 8000),
+              manifest: normalized, source_plan: effectivePlan.slice(0, 8000),
               role, schedule_cron: cron, schedule_label: label,
               next_run_at: nextRunFromCron(cron),
               business_profile_id: businessProfileId ?? null,
@@ -421,7 +441,7 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
             .from("agents")
             .update({
               name: normalized.name, goal: normalized.goal,
-              manifest: normalized, source_plan: plan.slice(0, 8000),
+              manifest: normalized, source_plan: effectivePlan.slice(0, 8000),
               role, schedule_cron: cron, schedule_label: blueprint.schedule_label,
               next_run_at: nextRunFromCron(cron),
               business_profile_id: businessProfileId ?? null,
@@ -444,7 +464,7 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
           .from("agents")
           .insert({
             user_id: user.id, name: normalized.name, slug, goal: normalized.goal,
-            manifest: normalized, source_plan: plan.slice(0, 8000),
+            manifest: normalized, source_plan: effectivePlan.slice(0, 8000),
             status: "active", role,
             schedule_cron: blueprint.schedule_cron, schedule_label: blueprint.schedule_label,
             next_run_at, business_profile_id: businessProfileId ?? null,

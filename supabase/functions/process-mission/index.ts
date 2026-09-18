@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts"
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -46,36 +47,29 @@ serve(async (req) => {
       })
     }
 
-    // Process directive with Lovable AI Gateway
+    // Process directive with the AI gateway
     const { directive } = await req.json()
-    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY')
-    if (!LOVABLE_API_KEY) throw new Error('LOVABLE_API_KEY is not configured')
+    const gw = pickAiGateway()
+    if (!gw) throw new Error('Missing OPENAI_API_KEY (or LOVABLE_API_KEY)')
 
-    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-3-flash-preview',
-        messages: [
-          {
-            role: 'system',
-            content: `You are a senior problem-solving AI. Analyze problems and return a JSON object with exactly these keys:
+    const response = await callAiGateway({
+      model: gw.model,
+      messages: [
+        {
+          role: 'system',
+          content: `You are a senior problem-solving AI. Analyze problems and return a JSON object with exactly these keys:
 - "solution": A clear, actionable solution (2-3 sentences).
 - "explanation": The reasoning behind it (2-3 sentences).
 - "actions": An array of 3-5 short action steps (each under 5 words).
 
 Return ONLY valid JSON. No markdown, no code fences.`
-          },
-          {
-            role: 'user',
-            content: directive
-          }
-        ],
-      }),
-    })
+        },
+        {
+          role: 'user',
+          content: directive
+        }
+      ],
+    }, gw)
 
     if (!response.ok) {
       if (response.status === 429) {

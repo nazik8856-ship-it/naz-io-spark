@@ -23,6 +23,9 @@ import {
   Download,
   Check,
   Eye,
+  History,
+  Undo2,
+  X,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -32,6 +35,7 @@ import PromptExtras, { analyzeAndBuildContext, type Attachment } from "@/compone
 import { cn } from "@/lib/utils";
 import ExecutionLog from "@/components/execution/ExecutionLog";
 import { useExecutionLog } from "@/hooks/useExecutionLog";
+import { buildStaticSiteHtml } from "@/lib/static-site-export";
 import { toast } from "sonner";
 
 type WebsiteView = "preview" | "code";
@@ -87,10 +91,17 @@ export default function GeneratedDashboard() {
   const [publishOpen, setPublishOpen] = useState(false);
   const [domainInput, setDomainInput] = useState("");
   const [savingDomain, setSavingDomain] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [versions, setVersions] = useState<{ id: string; label: string | null; created_at: string }[]>([]);
+  const [loadingVersions, setLoadingVersions] = useState(false);
+  const [restoringVersionId, setRestoringVersionId] = useState<string | null>(null);
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [chatBusy, setChatBusy] = useState(false);
   // Real-time step log for website chat actions (replaces the generic spinner).
   const websiteLog = useExecutionLog();
+  const [agentTurns, setAgentTurns] = useState<ChatTurn[]>([]);
+  const [agentChatBusy, setAgentChatBusy] = useState(false);
+  const agentLog = useExecutionLog();
   const [chatAttachments, setChatAttachments] = useState<Attachment[]>([]);
   const [chatTone, setChatTone] = useState<string | null>(null);
   const [previewKey, setPreviewKey] = useState(0);
@@ -148,6 +159,10 @@ export default function GeneratedDashboard() {
             kpis: m.kpis || [],
             ui: m.ui,
           });
+          setAgentTurns([
+            { role: "user", content: agent.goal || m.goal || "Build my agent", time: "just now" },
+            { role: "assistant", content: `Deployed "${agent.name || m.name || "your agent"}". Run it from the dashboard, or tell me what to change.`, time: "just now" },
+          ]);
         } else {
           throw new Error(`Unsupported kind: ${kind}`);
         }
@@ -319,6 +334,70 @@ export default function GeneratedDashboard() {
     }
   };
 
+  const sendAgentEdit = async (text: string) => {
+    if (!id) return;
+    setAgentTurns((t) => [...t, { role: "user", content: text, time: "just now" }]);
+    setAgentChatBusy(true);
+    agentLog.start([
+      { id: "auth", label: "Validating session…" },
+      { id: "compile", label: "Applying the change to the agent's manifest…" },
+      { id: "save", label: "Saving and refreshing the dashboard…" },
+    ]);
+    try {
+      agentLog.begin("auth");
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess.session?.access_token;
+      agentLog.done("auth", "Session valid");
+      agentLog.begin("compile");
+      const resp = await supabase.functions.invoke("compile-agent-manifest", {
+        body: { plan: text, existingAgentId: id, save: true },
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      if (resp.error) {
+        let detail = resp.error.message || "Edit failed";
+        try {
+          const ctx: any = (resp.error as any).context;
+          if (ctx && typeof ctx.json === "function") {
+            const body = await ctx.json();
+            if (body?.error) detail = body.error;
+          } else if (ctx && typeof ctx.text === "function") {
+            const txt = await ctx.text();
+            try { const parsed = JSON.parse(txt); if (parsed?.error) detail = parsed.error; } catch { if (txt) detail = txt; }
+          }
+        } catch { /* keep base message */ }
+        throw new Error(detail);
+      }
+      const responseData = (resp.data as any) || {};
+      if (responseData.error) throw new Error(responseData.error);
+      const m = responseData.manifest;
+      if (!m) throw new Error("No manifest returned");
+      agentLog.done("compile", "Manifest updated");
+      agentLog.begin("save");
+      setAgentManifest({
+        name: m.name || agentManifest?.name || "Agent",
+        goal: m.goal || "",
+        systemPrompt: m.systemPrompt || "",
+        decisionPolicy: m.decisionPolicy || "",
+        tools: m.tools || [],
+        triggers: m.triggers || [],
+        guardrails: m.guardrails || [],
+        kpis: m.kpis || [],
+        ui: m.ui,
+      });
+      agentLog.done("save", "Saved");
+      agentLog.finish("Done");
+      setAgentTurns((t) => [...t, { role: "assistant", content: `✓ Updated "${m.name}" — the dashboard now reflects the change.`, time: "just now" }]);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const activeStep = agentLog.steps.find((s2) => s2.status === "active");
+      agentLog.fail(activeStep?.id || "compile", msg);
+      setAgentTurns((t) => [...t, { role: "assistant", content: `Couldn't apply that: ${msg}`, time: "just now" }]);
+      toast.error(msg);
+    } finally {
+      setAgentChatBusy(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#020617] text-white">
@@ -340,8 +419,12 @@ export default function GeneratedDashboard() {
 
   const liveUrl = id ? `${typeof window !== "undefined" ? window.location.origin : ""}/website-preview/${id}` : "";
   const currentPage = pages.find((p) => p.slug === selectedPage) || pages[0];
+  // `embed=1` tells WebsitePreview it's rendering inside this builder's own
+  // iframe -- it shows the "Back"/page-tab preview chrome there. The bare
+  // liveUrl (Share/Publish/real visitors) never carries this param, so they
+  // get the site's real header/nav instead of internal dev tooling.
   const previewSrc = id
-    ? `/website-preview/${id}${currentPage?.slug ? `?page=${encodeURIComponent(currentPage.slug)}` : ""}`
+    ? `/website-preview/${id}?embed=1${currentPage?.slug ? `&page=${encodeURIComponent(currentPage.slug)}` : ""}`
     : "";
   const refreshPreview = () => setPreviewKey((k) => k + 1);
   const copyShare = async () => {
@@ -381,7 +464,11 @@ export default function GeneratedDashboard() {
       }
       setPublishOpen(false);
       window.open(`/website-preview/${id}`, "_blank");
-      toast.success("Opening live site — use the publish flow in project settings to deploy.");
+      toast.success(
+        opts.saveDomain && domainInput.trim()
+          ? "Domain preference saved for later — custom-domain hosting isn't available yet. Your site is live now at its NazAI link."
+          : "Your site is live at its NazAI link.",
+      );
     } catch (e: any) {
       toast.error(e?.message || "Couldn't save domain");
     } finally {
@@ -390,15 +477,15 @@ export default function GeneratedDashboard() {
   };
   const exportSite = async () => {
     try {
-      const payload = { website, pages };
-      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const html = buildStaticSiteHtml(website, pages);
+      const blob = new Blob([html], { type: "text/html" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${(website?.name || "website").replace(/\s+/g, "-").toLowerCase()}.json`;
+      a.download = `${(website?.name || "website").replace(/\s+/g, "-").toLowerCase()}.html`;
       a.click();
       URL.revokeObjectURL(url);
-      toast.success("Export downloaded");
+      toast.success("Static site downloaded — open it directly or host it anywhere.");
     } catch {
       toast.error("Export failed");
     }
@@ -451,6 +538,51 @@ export default function GeneratedDashboard() {
     if (error) return toast.error(error.message);
     toast.success("Deleted");
     navigate("/generator-home");
+  };
+
+  const openHistory = async () => {
+    setHistoryOpen(true);
+    setLoadingVersions(true);
+    const { data, error } = await supabase
+      .from("website_versions")
+      .select("id, label, created_at")
+      .eq("website_id", id!)
+      .order("created_at", { ascending: false })
+      .limit(30);
+    if (error) toast.error(error.message);
+    setVersions(data || []);
+    setLoadingVersions(false);
+  };
+
+  const restoreVersion = async (versionId: string) => {
+    if (!id) return;
+    if (!confirm("Restore this version? Your current content will be saved as a new version first, so you can undo this too.")) return;
+    setRestoringVersionId(versionId);
+    try {
+      const { error } = await supabase.rpc("restore_website_version", { _version_id: versionId });
+      if (error) throw error;
+      const { data: site } = await supabase.from("websites").select("*").eq("id", id).maybeSingle();
+      const { data: pgs } = await supabase.from("website_pages").select("*").eq("website_id", id).order("order_index", { ascending: true });
+      if (site) setWebsite(site);
+      if (pgs) setPages(pgs);
+      if (site && pgs) cacheWebsitePreview(id, site, pgs);
+      if (pgs && pgs.length && !pgs.some((p: any) => p.slug === selectedPage)) setSelectedPage(pgs[0].slug);
+      setPreviewKey((k) => k + 1);
+      setTurns((t) => [...t, { role: "assistant", content: `✓ Restored a previous version of "${site?.name || "the site"}".`, time: "just now" }]);
+      toast.success("Version restored");
+      // Refresh the list in place so the new "Before restore" snapshot shows up.
+      const { data: freshVersions } = await supabase
+        .from("website_versions")
+        .select("id, label, created_at")
+        .eq("website_id", id)
+        .order("created_at", { ascending: false })
+        .limit(30);
+      setVersions(freshVersions || []);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Restore failed");
+    } finally {
+      setRestoringVersionId(null);
+    }
   };
 
   return (
@@ -555,6 +687,7 @@ export default function GeneratedDashboard() {
                     {[
                       { icon: Pencil, label: "Rename", onClick: renameSite },
                       { icon: Copy, label: "Duplicate", onClick: duplicateSite },
+                      { icon: History, label: "Version history", onClick: openHistory },
                       { icon: Download, label: "Export", onClick: exportSite },
                       { icon: Trash2, label: "Delete", onClick: deleteSite, danger: true },
                     ].map(({ icon: Icon, label, onClick, danger }) => (
@@ -681,14 +814,20 @@ export default function GeneratedDashboard() {
               agentId={id || "agent"}
               name={agentManifest.name}
               goal={agentManifest.goal}
-              turns={[
-                { role: "user", content: agentManifest.goal || "Build my agent" },
-                { role: "assistant", content: `Deployed "${agentManifest.name}". Run it from the dashboard or ask for tweaks here.` },
+              turns={agentTurns.map((t) => ({ role: t.role, content: t.content }))}
+              suggestions={[
+                "Change the schedule to run every morning at 9am",
+                "Make the tone more formal",
+                "Add a guardrail requiring approval before sending emails",
               ]}
-              suggestions={[]}
-              streaming={false}
+              streaming={agentChatBusy}
+              executionLog={
+                agentLog.steps.length > 0 ? (
+                  <ExecutionLog steps={agentLog.steps} title="Working" accent="#22d3ee" compact />
+                ) : null
+              }
               fullSpec={agentManifest.systemPrompt || ""}
-              onSend={(t) => toast.info(`Agent edits coming soon: "${t}"`)}
+              onSend={sendAgentEdit}
             />
           </div>
         )}
@@ -782,10 +921,11 @@ export default function GeneratedDashboard() {
               <h3 className="text-white font-semibold">Publish website</h3>
             </div>
             <p className="text-xs text-white/50 mb-4">
-              Add a custom domain now, or skip to keep the current setup.
+              Your site is already live at its NazAI link — publishing here just saves the
+              domain you'd like to use once custom-domain hosting ships.
             </p>
             <label className="block text-[11px] font-mono uppercase tracking-[0.2em] text-white/40 mb-2">
-              Custom domain (optional)
+              Intended domain (optional)
             </label>
             <input
               value={domainInput}
@@ -800,8 +940,8 @@ export default function GeneratedDashboard() {
               </p>
             )}
             <p className="mt-3 text-[11px] text-white/40 leading-relaxed">
-              Domains are stored securely on your account. After saving, point an A record for the root and{" "}
-              <span className="font-mono">www</span> to <span className="font-mono text-white/70">185.158.133.1</span> at your registrar.
+              Custom-domain hosting isn't available yet — saving a domain here doesn't connect
+              DNS or route any traffic. Don't change your registrar's records for this yet.
             </p>
             <div className="mt-5 flex items-center justify-end gap-2">
               <button
@@ -819,6 +959,57 @@ export default function GeneratedDashboard() {
                 {savingDomain ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Rocket className="h-3.5 w-3.5" />}
                 {domainInput.trim() ? "Save & publish" : "Publish"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {historyOpen && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+          onClick={() => setHistoryOpen(false)}
+        >
+          <div
+            className="w-full max-w-md max-h-[70vh] flex flex-col rounded-2xl border border-white/10 bg-[#0a0f1e] shadow-[0_20px_80px_-20px_rgba(34,211,238,0.3)] p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center gap-2">
+                <History className="h-4 w-4 text-cyan-300" />
+                <h3 className="text-white font-semibold">Version history</h3>
+              </div>
+              <button onClick={() => setHistoryOpen(false)} className="text-white/40 hover:text-white">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <p className="text-xs text-white/50 mb-4">
+              A snapshot is saved automatically before every edit or full regeneration. Restore any
+              version to bring it back — restoring saves your current state as a new version too, so it's never a dead end.
+            </p>
+            <div className="flex-1 min-h-0 overflow-y-auto space-y-2">
+              {loadingVersions && (
+                <div className="flex items-center gap-2 text-xs text-white/50 py-4 justify-center">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading…
+                </div>
+              )}
+              {!loadingVersions && versions.length === 0 && (
+                <p className="text-xs text-white/40 text-center py-6">No saved versions yet — one is created the next time you edit or regenerate this site.</p>
+              )}
+              {!loadingVersions && versions.map((v) => (
+                <div key={v.id} className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2.5">
+                  <div className="min-w-0">
+                    <div className="text-xs text-white/80 font-medium truncate">{v.label || "Snapshot"}</div>
+                    <div className="text-[10px] text-white/40 font-mono">{new Date(v.created_at).toLocaleString()}</div>
+                  </div>
+                  <button
+                    disabled={restoringVersionId === v.id}
+                    onClick={() => restoreVersion(v.id)}
+                    className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-semibold text-cyan-200 border border-cyan-400/30 bg-cyan-400/10 hover:bg-cyan-400/20 transition disabled:opacity-50"
+                  >
+                    {restoringVersionId === v.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Undo2 className="h-3 w-3" />}
+                    Restore
+                  </button>
+                </div>
+              ))}
             </div>
           </div>
         </div>

@@ -918,11 +918,18 @@ export default function GenerationWorkspace() {
       editing: false,
       agentError: undefined,
     });
-    // INCREMENTAL EDIT: if a previous approved agent exists in this session
-    // with a real (non-local) DB id, treat this deploy as an in-place refinement
-    // of that agent instead of spawning a duplicate. Everything the user didn't
-    // ask to change is preserved server-side (memory, integrations, cron, events).
-    const priorApproved = [...messages].reverse().find(
+    // INCREMENTAL EDIT: if THIS message is already a deployed agent (e.g. a
+    // conversational edit or retry rebuilding it in place), that's the agent to
+    // update. Otherwise, if a DIFFERENT previously-approved agent exists in this
+    // session with a real (non-local) DB id, treat this deploy as an in-place
+    // refinement of that agent instead of spawning a duplicate. Either way,
+    // everything the user didn't ask to change is preserved server-side (memory,
+    // integrations, cron, events).
+    const ownExistingId =
+      latestMsg?.agentStatus === "approved" && latestMsg?.agentDbId && !latestMsg.agentDbId.startsWith("local-")
+        ? latestMsg.agentDbId
+        : null;
+    const priorApproved = ownExistingId ? null : [...messages].reverse().find(
       (m) =>
         m.id !== id &&
         m.kind === "agent-spec" &&
@@ -930,7 +937,7 @@ export default function GenerationWorkspace() {
         m.agentDbId &&
         !m.agentDbId.startsWith("local-"),
     );
-    const existingAgentId = priorApproved?.agentDbId ?? null;
+    const existingAgentId = ownExistingId ?? priorApproved?.agentDbId ?? null;
     const isEdit = !!existingAgentId;
 
     deployLog.start([
@@ -1247,24 +1254,35 @@ export default function GenerationWorkspace() {
           | null;
         if (!data?.finalSpec) throw new Error("Could not revise the agent.");
         const summary = (data.summary || "Updated your agent.").trim();
+        const revisedSpec = data.finalSpec;
+        const wasDeployed = msg.agentStatus === "approved" && !!msg.agentDbId && !msg.agentDbId.startsWith("local-");
         setMessages((all) =>
           all.map((x) => {
             if (x.id !== id) return x;
             const copy = [...(x.agentChat ?? [])];
             copy[copy.length - 1] = {
               role: "assistant",
-              content: `🛠️ **NazAI updated this agent.**\n\n${summary}\n\n_The agent's spec, dashboard and runtime have been refreshed._`,
+              content: wasDeployed
+                ? `🛠️ **NazAI revised this agent's spec.**\n\n${summary}\n\n_Saving the change to the live agent now…_`
+                : `🛠️ **NazAI revised this agent's spec.**\n\n${summary}\n\n_Press "Approve & Build" to deploy it._`,
             };
             return {
               ...x,
-              content: data.finalSpec!,
-              agentFinalSpec: data.finalSpec!,
+              content: revisedSpec,
+              agentFinalSpec: revisedSpec,
               agentName: data.name || x.agentName,
               agentChat: copy,
             };
           }),
         );
-        toast.success("Agent improved by NazAI.");
+        // A revision to an already-deployed agent is only real once it's
+        // persisted — rebuild in place so the manifest, dashboard, and runtime
+        // actually reflect it instead of just the in-memory chat spec.
+        if (wasDeployed) {
+          void buildAgent(id, revisedSpec);
+        } else {
+          toast.success("Agent spec revised by NazAI.");
+        }
         return;
       }
 
@@ -2136,6 +2154,9 @@ export default function GenerationWorkspace() {
                               agentId={lastNaz.agentDbId}
                               manifest={lastNaz.agentManifest}
                               onOpenBlueprint={() => setBlueprintOpenId(lastNaz.id)}
+                              isLocalOnly={lastNaz.agentDbId.startsWith("local-")}
+                              deployError={lastNaz.agentError}
+                              onRetryDeploy={() => void buildAgent(lastNaz.id, lastNaz.agentFinalSpec)}
                             />
                           </AgentRenderBoundary>
                         ) : status === "approved" ? (

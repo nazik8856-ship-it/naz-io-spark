@@ -2,26 +2,22 @@
 // Input:  { prompt: string, profile: object, role?: string }
 // Output: { questions: { id: string, question: string, options?: string[], placeholder?: string }[] }
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-const LOVABLE_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
-const MODEL = "google/gemini-3-flash-preview";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
-    const key = Deno.env.get("LOVABLE_API_KEY");
-    if (!key) return json({ error: "Missing LOVABLE_API_KEY" }, 500);
+    const gw = pickAiGateway();
+    if (!gw) return json({ error: "Missing OPENAI_API_KEY (or LOVABLE_API_KEY)" }, 500);
     const { prompt = "", profile = {}, role = "" } = await req.json().catch(() => ({}));
 
-    const resp = await fetch(LOVABLE_URL, {
-      method: "POST",
-      headers: { "Lovable-API-Key": key, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: MODEL,
+    const resp = await callAiGateway({
+        model: gw.model,
         messages: [
           {
             role: "system",
@@ -42,8 +38,7 @@ Rules:
           },
         ],
         temperature: 0.3,
-      }),
-    });
+    }, gw);
     if (resp.status === 429) return json({ error: "Rate limit" }, 429);
     if (resp.status === 402) return json({ error: "AI credits exhausted" }, 402);
     if (!resp.ok) return json({ error: `AI gateway ${resp.status}` }, 500);

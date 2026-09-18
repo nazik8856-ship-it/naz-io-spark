@@ -1,13 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-
-const LOVABLE_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
-const LOVABLE_MODEL = "google/gemini-3-flash-preview";
 
 type Insight = { insight: string; kind: string; confidence: string; source_agent_ids?: string[] };
 
@@ -32,8 +30,8 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const lovableKey = Deno.env.get("LOVABLE_API_KEY");
-    if (!lovableKey) return new Response(JSON.stringify({ error: "no AI key" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    const gw = pickAiGateway();
+    if (!gw) return new Response(JSON.stringify({ error: "no AI key" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
     const userClient = createClient(supabaseUrl, anonKey, { global: { headers: { Authorization: authHeader } } });
     const { data: authData } = await userClient.auth.getUser();
@@ -84,28 +82,24 @@ serve(async (req) => {
       `- agent:${n.agent_id} client:${n.name || n.company || "?"} → ${String(n.notes ?? "").slice(0, 200)}`
     ).join("\n").slice(0, 3000);
 
-    const resp = await fetch(LOVABLE_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Lovable-API-Key": lovableKey },
-      body: JSON.stringify({
-        model: LOVABLE_MODEL,
-        temperature: 0.2,
-        messages: [
-          {
-            role: "system",
-            content: `You extract GENUINE, specific business patterns from an operator's real agent activity. Output ONLY JSON: {"insights":[{"insight":"...","kind":"pattern|correlation|lesson","confidence":"high|medium|low"}]}. Rules:
+    const resp = await callAiGateway({
+      model: gw.model,
+      temperature: 0.2,
+      messages: [
+        {
+          role: "system",
+          content: `You extract GENUINE, specific business patterns from an operator's real agent activity. Output ONLY JSON: {"insights":[{"insight":"...","kind":"pattern|correlation|lesson","confidence":"high|medium|low"}]}. Rules:
 - Each insight must reference concrete evidence in the data (specific tool, action type, client segment, outcome).
 - REJECT vague generalities ("emails are important", "customers matter"). If you can't find something specific, return fewer insights.
 - Prefer CORRELATION statements ("X co-occurs with Y") and LESSONS ("action A repeatedly fails when B"). Max 6 insights. Each under 160 chars.`,
-          },
-          {
-            role: "user",
-            content: `Recent successful actions:\n${actionsBlob || "(none)"}\n\nRecent runs:\n${runsBlob || "(none)"}\n\nRecent client notes:\n${notesBlob || "(none)"}\n\nExtract genuine patterns.`,
-          },
-        ],
-        response_format: { type: "json_object" },
-      }),
-    });
+        },
+        {
+          role: "user",
+          content: `Recent successful actions:\n${actionsBlob || "(none)"}\n\nRecent runs:\n${runsBlob || "(none)"}\n\nRecent client notes:\n${notesBlob || "(none)"}\n\nExtract genuine patterns.`,
+        },
+      ],
+      response_format: { type: "json_object" },
+    }, gw);
 
     if (!resp.ok) {
       const t = await resp.text().catch(() => "");

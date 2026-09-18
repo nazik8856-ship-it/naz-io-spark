@@ -327,6 +327,8 @@ function safeCalc(formula: string, vars: Record<string, number>): number | null 
 type CtaNav = {
   pages: { slug: string; title: string }[];
   go: (url: string) => void;
+  websiteId?: string;
+  pageSlug?: string;
 };
 const CtaNavCtx = createContext<CtaNav | null>(null);
 
@@ -400,6 +402,11 @@ function CtaButton({
 export default function WebsitePreview() {
   const { id } = useParams<{ id: string }>();
   const [params] = useSearchParams();
+  // Only the builder's own iframe (GeneratedDashboard's previewSrc) sets this.
+  // The bare URL -- what Share/Publish hand out and what real visitors open --
+  // never carries it, so it gets the site's real header/nav instead of
+  // internal dev tooling ("Back", "· preview", the page-tab switcher).
+  const isEmbed = params.get("embed") === "1";
   const navigate = useNavigate();
   const initialCache = useMemo(() => readPreviewCache(id), [id]);
   const [site, setSite] = useState<Website | null>(() => initialCache?.website ?? null);
@@ -659,7 +666,9 @@ export default function WebsitePreview() {
         window.scrollTo({ top: 0, behavior: "smooth" });
       }
     },
-  }), [pages]);
+    websiteId: id,
+    pageSlug: activeSlug,
+  }), [pages, id, activeSlug]);
 
   // Scoped CSS — palette + fonts + animations
   const scopedCss = `
@@ -785,7 +794,8 @@ export default function WebsitePreview() {
       <div className="nz-pattern" aria-hidden="true" />
       <div className="nz-grain" aria-hidden="true" />
 
-      {/* Preview chrome */}
+      {isEmbed ? (
+      /* Builder-only preview chrome -- never shown on the real/shared URL */
       <div className="sticky top-0 z-50 flex items-center justify-between gap-4 px-4 py-2.5 border-b backdrop-blur text-xs"
         style={{ borderColor: "rgba(255,255,255,0.1)", background: "rgba(0,0,0,0.6)", color: "#fff" }}>
         <button onClick={() => navigate("/generator-home")} className="flex items-center gap-1.5 text-zinc-300 hover:text-white">
@@ -809,6 +819,28 @@ export default function WebsitePreview() {
           ))}
         </div>
       </div>
+      ) : (
+      /* Real site header for the actual live URL -- a working nav, not dev tooling */
+      <header className="sticky top-0 z-50 flex items-center justify-between gap-4 px-6 py-4 border-b backdrop-blur"
+        style={{ borderColor: p.border, background: `color-mix(in srgb, ${p.bg} 85%, transparent)` }}>
+        <button onClick={() => ctaNav.go(pages[0]?.slug || "home")} className="flex items-center gap-2 font-semibold shrink-0" style={{ color: p.text }}>
+          <MotifIcon path={motif.path} color={p.accent} size={16} />
+          {site.name}
+        </button>
+        <nav className="flex items-center gap-5 overflow-x-auto">
+          {pages.map((pg) => (
+            <button
+              key={pg.id}
+              onClick={() => ctaNav.go(pg.slug)}
+              className="text-sm whitespace-nowrap transition"
+              style={{ color: activeSlug === pg.slug ? p.accent : p.text, opacity: activeSlug === pg.slug ? 1 : 0.75 }}
+            >
+              {pg.title}
+            </button>
+          ))}
+        </nav>
+      </header>
+      )}
 
       {activePage?.sections.map((s, idx) => (
         <div key={idx}>
@@ -1164,19 +1196,7 @@ function SectionBlock({
                 {fieldStr(c, "address") && <li>📍 {fieldStr(c, "address")}</li>}
               </ul>
             </div>
-            <form className="nz-card rounded-xl p-6 space-y-3" onSubmit={(e) => { e.preventDefault(); alert("Thanks — we'll be in touch."); }}>
-              {(fieldStrArr(c, "form_fields").length ? fieldStrArr(c, "form_fields") : ["Name", "Email", "Message"]).map((f, i) => (
-                <div key={i}>
-                  <label className="block text-xs uppercase tracking-wider opacity-70 mb-1">{f}</label>
-                  {f.toLowerCase().includes("message") ? (
-                    <textarea rows={4} className="nz-input w-full rounded px-3 py-2 text-sm" />
-                  ) : (
-                    <input className="nz-input w-full rounded px-3 py-2 text-sm" />
-                  )}
-                </div>
-              ))}
-              <button type="submit" className="nz-btn-primary w-full rounded-lg py-2.5 font-semibold">Send</button>
-            </form>
+            <ContactForm fields={fieldStrArr(c, "form_fields").length ? fieldStrArr(c, "form_fields") : ["Name", "Email", "Message"]} />
           </div>
         </section>
       );
@@ -1413,9 +1433,64 @@ function Hero({
   );
 }
 
+type SubmitStatus = "idle" | "sending" | "sent" | "error";
+
+async function submitWebsiteForm(
+  ctx: CtaNav | null,
+  sectionKind: "contact" | "newsletter" | "booking" | "quote" | "custom",
+  fields: Record<string, string>,
+): Promise<boolean> {
+  if (!ctx?.websiteId) return false;
+  const { error } = await supabase.functions.invoke("website-form-submit", {
+    body: { websiteId: ctx.websiteId, pageSlug: ctx.pageSlug, sectionKind, fields },
+  });
+  return !error;
+}
+
+function ContactForm({ fields }: { fields: string[] }) {
+  const ctx = useContext(CtaNavCtx);
+  const [status, setStatus] = useState<SubmitStatus>("idle");
+
+  if (status === "sent") {
+    return <div className="nz-card rounded-xl p-6 text-center text-sm opacity-90">Thanks — we'll be in touch.</div>;
+  }
+
+  return (
+    <form
+      className="nz-card rounded-xl p-6 space-y-3"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setStatus("sending");
+        const fd = new FormData(e.currentTarget);
+        const values: Record<string, string> = {};
+        fields.forEach((f) => { values[f] = String(fd.get(f) ?? ""); });
+        const ok = await submitWebsiteForm(ctx, "contact", values);
+        setStatus(ok ? "sent" : "error");
+      }}
+    >
+      {fields.map((f, i) => (
+        <div key={i}>
+          <label className="block text-xs uppercase tracking-wider opacity-70 mb-1">{f}</label>
+          {f.toLowerCase().includes("message") ? (
+            <textarea name={f} rows={4} required className="nz-input w-full rounded px-3 py-2 text-sm" />
+          ) : (
+            <input name={f} required className="nz-input w-full rounded px-3 py-2 text-sm" />
+          )}
+        </div>
+      ))}
+      <button type="submit" disabled={status === "sending"} className="nz-btn-primary w-full rounded-lg py-2.5 font-semibold disabled:opacity-60">
+        {status === "sending" ? "Sending…" : "Send"}
+      </button>
+      {status === "error" && <p className="text-xs text-red-400">Something went wrong — please try again.</p>}
+    </form>
+  );
+}
+
 function CustomBlock({
   c, palette, container, heading, eyebrow, displayFont,
 }: { c: Record<string, unknown>; palette: Palette; container: string; heading: string; eyebrow: string; displayFont?: string }) {
+  const ctx = useContext(CtaNavCtx);
+  const [status, setStatus] = useState<SubmitStatus>("idle");
   const kind = fieldStr(c, "kind");
   const fields = fieldArr<Record<string, unknown>>(c, "fields");
   const [values, setValues] = useState<Record<string, string>>({});
@@ -1466,44 +1541,130 @@ function CustomBlock({
     );
   }
 
+  if (kind === "map") {
+    const address = fieldStr(c, "address");
+    return (
+      <section className={container} data-reveal>
+        <h2 className={heading}>{renderHeadline(fieldStr(c, "heading", "Find us"), palette, displayFont)}</h2>
+        {fieldStr(c, "body") && <p className="opacity-80 max-w-2xl mb-6">{fieldStr(c, "body")}</p>}
+        {address ? (
+          <div className="nz-card rounded-2xl overflow-hidden max-w-3xl" style={{ height: 360 }}>
+            <iframe
+              title="Location map"
+              src={`https://www.google.com/maps?q=${encodeURIComponent(address)}&output=embed`}
+              className="w-full h-full border-0"
+              loading="lazy"
+            />
+          </div>
+        ) : (
+          <div className="nz-card rounded-2xl p-8 max-w-3xl text-sm opacity-70">No address provided.</div>
+        )}
+      </section>
+    );
+  }
+
+  if (kind === "embed") {
+    const embedUrl = fieldStr(c, "embed_url");
+    const isSafeEmbed = /^https:\/\//i.test(embedUrl);
+    return (
+      <section className={container} data-reveal>
+        <h2 className={heading}>{renderHeadline(fieldStr(c, "heading", "Embed"), palette, displayFont)}</h2>
+        {fieldStr(c, "body") && <p className="opacity-80 max-w-2xl mb-6">{fieldStr(c, "body")}</p>}
+        {isSafeEmbed ? (
+          <div className="nz-card rounded-2xl overflow-hidden max-w-3xl" style={{ height: 480 }}>
+            <iframe
+              title={fieldStr(c, "heading", "Embedded content")}
+              src={embedUrl}
+              className="w-full h-full border-0"
+              loading="lazy"
+              sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+            />
+          </div>
+        ) : (
+          <div className="nz-card rounded-2xl p-8 max-w-3xl text-sm opacity-70">No embed URL provided.</div>
+        )}
+      </section>
+    );
+  }
+
   if (kind === "newsletter") {
     return (
       <section className={container} data-reveal>
         <div className="nz-card rounded-2xl p-10 md:p-14 text-center max-w-2xl mx-auto">
           <h2 className="nz-h text-3xl md:text-4xl font-bold">{fieldStr(c, "heading", "Stay in the loop")}</h2>
           {fieldStr(c, "body") && <p className="mt-3 opacity-80">{fieldStr(c, "body")}</p>}
-          <form className="mt-6 flex gap-2" onSubmit={(e) => { e.preventDefault(); alert("Subscribed."); }}>
-            <input type="email" required placeholder="you@email.com" className="nz-input flex-1 rounded px-4 py-3 text-sm" />
-            <button className="nz-btn-primary rounded px-5 py-3 font-semibold text-sm">Subscribe</button>
-          </form>
+          {status === "sent" ? (
+            <p className="mt-6 text-sm opacity-90">Subscribed — thanks for joining.</p>
+          ) : (
+            <form
+              className="mt-6 flex gap-2"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setStatus("sending");
+                const email = String(new FormData(e.currentTarget).get("email") ?? "");
+                const ok = await submitWebsiteForm(ctx, "newsletter", { Email: email });
+                setStatus(ok ? "sent" : "error");
+              }}
+            >
+              <input name="email" type="email" required placeholder="you@email.com" className="nz-input flex-1 rounded px-4 py-3 text-sm" />
+              <button disabled={status === "sending"} className="nz-btn-primary rounded px-5 py-3 font-semibold text-sm disabled:opacity-60">
+                {status === "sending" ? "…" : "Subscribe"}
+              </button>
+            </form>
+          )}
+          {status === "error" && <p className="mt-2 text-xs text-red-400">Something went wrong — please try again.</p>}
         </div>
       </section>
     );
   }
 
   // booking / quote / generic — real form
+  const requestFields = fields.length ? fields : [
+    { name: "name", label: "Name", type: "text" },
+    { name: "email", label: "Email", type: "email" },
+    { name: "date", label: "Date", type: "date" },
+  ];
+  if (status === "sent") {
+    return (
+      <section className={container} data-reveal>
+        <h2 className={heading}>{renderHeadline(fieldStr(c, "heading", kind || "Request"), palette, displayFont)}</h2>
+        <div className="nz-card rounded-2xl p-6 max-w-3xl text-sm opacity-90">Request sent — we'll follow up soon.</div>
+      </section>
+    );
+  }
   return (
     <section className={container} data-reveal>
       <h2 className={heading}>{renderHeadline(fieldStr(c, "heading", kind || "Request"), palette, displayFont)}</h2>
       {fieldStr(c, "body") && <p className="opacity-80 max-w-2xl">{fieldStr(c, "body")}</p>}
       <form className="mt-8 nz-card rounded-2xl p-6 grid gap-4 md:grid-cols-2 max-w-3xl"
-        onSubmit={(e) => { e.preventDefault(); alert("Request sent."); }}>
-        {(fields.length ? fields : [
-          { name: "name", label: "Name", type: "text" },
-          { name: "email", label: "Email", type: "email" },
-          { name: "date", label: "Date", type: "date" },
-        ]).map((f, i) => {
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setStatus("sending");
+          const fd = new FormData(e.currentTarget);
+          const values: Record<string, string> = {};
+          requestFields.forEach((f) => {
+            const name = fieldStr(f as Record<string, unknown>, "name");
+            const label = fieldStr(f as Record<string, unknown>, "label", name);
+            values[label] = String(fd.get(name) ?? "");
+          });
+          const ok = await submitWebsiteForm(ctx, (kind === "booking" || kind === "quote") ? kind : "custom", values);
+          setStatus(ok ? "sent" : "error");
+        }}>
+        {requestFields.map((f, i) => {
           const name = fieldStr(f as Record<string, unknown>, "name");
           const type = fieldStr(f as Record<string, unknown>, "type", "text");
           return (
             <div key={i} className={type === "text" && name.toLowerCase().includes("message") ? "md:col-span-2" : ""}>
               <label className="block text-xs uppercase tracking-wider opacity-70 mb-1">{fieldStr(f as Record<string, unknown>, "label", name)}</label>
-              <input type={type} className="nz-input w-full rounded px-3 py-2 text-sm" />
+              <input name={name} type={type} required className="nz-input w-full rounded px-3 py-2 text-sm" />
             </div>
           );
         })}
         <div className="md:col-span-2">
-          <button className="nz-btn-primary rounded-lg px-6 py-3 font-semibold">Submit</button>
+          <button disabled={status === "sending"} className="nz-btn-primary rounded-lg px-6 py-3 font-semibold disabled:opacity-60">
+            {status === "sending" ? "Sending…" : "Submit"}
+          </button>
+          {status === "error" && <p className="mt-2 text-xs text-red-400">Something went wrong — please try again.</p>}
         </div>
       </form>
     </section>

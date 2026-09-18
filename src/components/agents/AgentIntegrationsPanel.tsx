@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import {
-  Plug, KeyRound, Webhook, ShieldCheck, Lock, CheckCircle2, X, Search, Sparkles, Wand2,
+  Plug, KeyRound, Webhook, ShieldCheck, Lock, CheckCircle2, X, Search, Sparkles, Wand2, AlertTriangle,
 } from "lucide-react";
 import IntegrationConnectModal from "./IntegrationConnectModal";
 import { supabase } from "@/integrations/supabase/client";
@@ -273,32 +273,41 @@ export default function AgentIntegrationsPanel({
   const [query, setQuery] = useState("");
   const [connectedNames, setConnectedNames] = useState<Set<string>>(new Set());
   const [optimisticConnectedNames, setOptimisticConnectedNames] = useState<Set<string>>(new Set());
+  // Providers whose token was revoked/expired (agent_integrations.status === "error"),
+  // mapped to the stored last_error so a broken connection is never shown as if
+  // it were healthy — or as if it had never been connected at all.
+  const [erroredIntegrations, setErroredIntegrations] = useState<Map<string, string>>(new Map());
 
   const refresh = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setConnectedNames(new Set()); return; }
+    if (!user) { setConnectedNames(new Set()); setErroredIntegrations(new Map()); return; }
     const { data, error } = await supabase.functions.invoke("integration-connect", {
       body: { action: "list", agentId: agentId || null },
     });
     if (error || !data) return;
-    const rows = ((data as { integrations?: { provider: string; status: string; metadata?: Record<string, unknown> }[] }).integrations) || [];
+    const rows = ((data as { integrations?: { provider: string; status: string; last_error?: string | null; metadata?: Record<string, unknown> }[] }).integrations) || [];
     const names = new Set<string>();
-    rows.filter((r) => r.status === "connected").forEach((r) => {
-      names.add(r.provider);
-      // Expand the shared "Gmail" row into its granted per-service names so
-      // each Google catalogue entry (Drive/Calendar/Analytics) shows its own
-      // green "Connected" state.
+    const errored = new Map<string, string>();
+    // Expand the shared "Gmail" row into its granted per-service names so each
+    // Google catalogue entry (Drive/Calendar/Analytics) reflects the same state.
+    const expand = (r: { provider: string; metadata?: Record<string, unknown> }, add: (name: string) => void) => {
+      add(r.provider);
       if (r.provider === "Gmail") {
         const services = Array.isArray(r.metadata?.services) ? (r.metadata!.services as string[]) : [];
         services.forEach((s) => {
           const k = String(s).toLowerCase();
-          if (k === "drive") names.add("Google Drive");
-          else if (k === "calendar") names.add("Google Calendar");
-          else if (k === "analytics") names.add("Google Analytics");
+          if (k === "drive") add("Google Drive");
+          else if (k === "calendar") add("Google Calendar");
+          else if (k === "analytics") add("Google Analytics");
         });
       }
+    };
+    rows.forEach((r) => {
+      if (r.status === "connected") expand(r, (n) => names.add(n));
+      else if (r.status === "error") expand(r, (n) => errored.set(n, r.last_error || "Connection needs to be re-authorized."));
     });
     setConnectedNames(names);
+    setErroredIntegrations(errored);
   }, [agentId]);
 
   useEffect(() => { refresh(); }, [refresh, openIntegration, hubOpen]);
@@ -317,6 +326,12 @@ export default function AgentIntegrationsPanel({
   const isConnectedName = useCallback(
     (name: string) => connectedNames.has(name) || optimisticConnectedNames.has(name),
     [connectedNames, optimisticConnectedNames],
+  );
+
+  // A reconnect (optimisticConnectedNames) always wins over a stale error.
+  const erroredName = useCallback(
+    (name: string) => (!optimisticConnectedNames.has(name) ? erroredIntegrations.get(name) : undefined),
+    [erroredIntegrations, optimisticConnectedNames],
   );
 
   useEffect(() => {
@@ -342,16 +357,18 @@ export default function AgentIntegrationsPanel({
           (i) => i.name.toLowerCase().includes(q) || i.category.toLowerCase().includes(q),
         )
       : spec.integrations;
-    // Sort: connected → recommended → alphabetical
+    // Sort: broken (needs attention) → connected → recommended → alphabetical
     return [...base].sort((a, b) => {
-      const ac = isConnectedName(a.name) ? 0 : recommendedNames.has(a.name) ? 1 : 2;
-      const bc = isConnectedName(b.name) ? 0 : recommendedNames.has(b.name) ? 1 : 2;
+      const rank = (name: string) => (erroredName(name) ? 0 : isConnectedName(name) ? 1 : recommendedNames.has(name) ? 2 : 3);
+      const ac = rank(a.name);
+      const bc = rank(b.name);
       if (ac !== bc) return ac - bc;
       return a.name.localeCompare(b.name);
     });
-  }, [query, spec.integrations, isConnectedName, recommendedNames]);
+  }, [query, spec.integrations, isConnectedName, erroredName, recommendedNames]);
 
   const connectedCount = new Set([...connectedNames, ...optimisticConnectedNames]).size;
+  const erroredCount = [...erroredIntegrations.keys()].filter((n) => !optimisticConnectedNames.has(n)).length;
   const total = spec.integrations.length;
 
 
@@ -381,6 +398,12 @@ export default function AgentIntegrationsPanel({
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded"
                 style={{ background: `${accent}22`, color: accent, border: `1px solid ${accent}55` }}>
                 <CheckCircle2 className="h-3 w-3" /> {connectedCount} connected
+              </span>
+            )}
+            {erroredCount > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded"
+                style={{ background: "rgba(248,113,113,0.15)", color: "#f87171", border: "1px solid rgba(248,113,113,0.4)" }}>
+                <AlertTriangle className="h-3 w-3" /> {erroredCount} need{erroredCount === 1 ? "s" : ""} reconnecting
               </span>
             )}
           </div>
@@ -471,15 +494,25 @@ export default function AgentIntegrationsPanel({
               {filtered.map((it) => {
                 const isConnected = isConnectedName(it.name);
                 const isRecommended = recommendedNames.has(it.name);
+                const errorMsg = erroredName(it.name);
                 return (
                   <div key={it.name}
-                    className="rounded-2xl border border-white/10 bg-white/[0.02] p-4 hover:border-white/20 hover:bg-white/[0.04] transition-all flex flex-col">
+                    className={`rounded-2xl border p-4 transition-all flex flex-col ${
+                      errorMsg
+                        ? "border-red-400/40 bg-red-400/[0.04] hover:border-red-400/60 hover:bg-red-400/[0.06]"
+                        : "border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.04]"
+                    }`}>
                     <div className="flex items-start justify-between gap-2 mb-2">
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <IntegrationLogo name={it.name} size={16} />
                           <div className="text-sm font-semibold text-white truncate">{it.name}</div>
-                          {isConnected ? (
+                          {errorMsg ? (
+                            <span title={errorMsg} className="inline-flex items-center gap-1 text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded"
+                              style={{ background: "rgba(248,113,113,0.15)", color: "#f87171", border: "1px solid rgba(248,113,113,0.4)" }}>
+                              <AlertTriangle className="h-2.5 w-2.5" /> Reconnect needed
+                            </span>
+                          ) : isConnected ? (
                             <span className="inline-flex items-center gap-1 text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded"
                               style={{ background: `${accent}22`, color: accent, border: `1px solid ${accent}55` }}>
                               <CheckCircle2 className="h-2.5 w-2.5" /> Connected
@@ -498,14 +531,20 @@ export default function AgentIntegrationsPanel({
                         {it.method}
                       </span>
                     </div>
-                    <p className="text-[11px] text-zinc-400 mb-3 line-clamp-2">{it.examples[0]}</p>
+                    {errorMsg ? (
+                      <p className="text-[11px] text-red-300/90 mb-3 line-clamp-2">{errorMsg}</p>
+                    ) : (
+                      <p className="text-[11px] text-zinc-400 mb-3 line-clamp-2">{it.examples[0]}</p>
+                    )}
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); setOpenIntegration(it); }}
                       className="relative z-10 mt-auto inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold text-black cursor-pointer touch-manipulation"
-                      style={{ background: `linear-gradient(135deg, ${accent}, #22d3ee)`, boxShadow: `0 6px 18px -8px ${accent}99` }}
+                      style={errorMsg
+                        ? { background: "linear-gradient(135deg, #f87171, #fbbf24)", boxShadow: "0 6px 18px -8px rgba(248,113,113,0.6)" }
+                        : { background: `linear-gradient(135deg, ${accent}, #22d3ee)`, boxShadow: `0 6px 18px -8px ${accent}99` }}
                     >
-                      {isConnected ? "Manage" : "Connect"}
+                      {errorMsg ? "Reconnect" : isConnected ? "Manage" : "Connect"}
                     </button>
 
                   </div>

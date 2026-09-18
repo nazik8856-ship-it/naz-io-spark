@@ -21,6 +21,7 @@ export type Database = {
           created_at: string
           email: string
           id: string
+          invite_expires_at: string | null
           invite_token: string
           invited_at: string
           invited_by: string
@@ -37,6 +38,7 @@ export type Database = {
           created_at?: string
           email: string
           id?: string
+          invite_expires_at?: string | null
           invite_token?: string
           invited_at?: string
           invited_by: string
@@ -53,6 +55,7 @@ export type Database = {
           created_at?: string
           email?: string
           id?: string
+          invite_expires_at?: string | null
           invite_token?: string
           invited_at?: string
           invited_by?: string
@@ -3663,6 +3666,47 @@ export type Database = {
         }
         Relationships: []
       }
+      website_form_submissions: {
+        Row: {
+          created_at: string
+          fields: Json
+          id: string
+          page_slug: string | null
+          section_kind: string
+          submitter_ip: string | null
+          user_id: string
+          website_id: string
+        }
+        Insert: {
+          created_at?: string
+          fields?: Json
+          id?: string
+          page_slug?: string | null
+          section_kind: string
+          submitter_ip?: string | null
+          user_id: string
+          website_id: string
+        }
+        Update: {
+          created_at?: string
+          fields?: Json
+          id?: string
+          page_slug?: string | null
+          section_kind?: string
+          submitter_ip?: string | null
+          user_id?: string
+          website_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "website_form_submissions_website_id_fkey"
+            columns: ["website_id"]
+            isOneToOne: false
+            referencedRelation: "websites"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       website_pages: {
         Row: {
           created_at: string
@@ -3700,6 +3744,44 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "website_pages_website_id_fkey"
+            columns: ["website_id"]
+            isOneToOne: false
+            referencedRelation: "websites"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      website_versions: {
+        Row: {
+          created_at: string
+          id: string
+          label: string | null
+          pages_snapshot: Json
+          user_id: string
+          website_id: string
+          website_snapshot: Json
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          label?: string | null
+          pages_snapshot: Json
+          user_id: string
+          website_id: string
+          website_snapshot: Json
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          label?: string | null
+          pages_snapshot?: Json
+          user_id?: string
+          website_id?: string
+          website_snapshot?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "website_versions_website_id_fkey"
             columns: ["website_id"]
             isOneToOne: false
             referencedRelation: "websites"
@@ -4144,6 +4226,10 @@ export type Database = {
           scopes: string[]
           user_id: string
         }[]
+      }
+      restore_website_version: {
+        Args: { _version_id: string }
+        Returns: string
       }
       rollback_config_change: {
         Args: { _change_id: string }
