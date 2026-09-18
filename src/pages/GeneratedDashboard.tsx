@@ -92,6 +92,9 @@ export default function GeneratedDashboard() {
   const [chatBusy, setChatBusy] = useState(false);
   // Real-time step log for website chat actions (replaces the generic spinner).
   const websiteLog = useExecutionLog();
+  const [agentTurns, setAgentTurns] = useState<ChatTurn[]>([]);
+  const [agentChatBusy, setAgentChatBusy] = useState(false);
+  const agentLog = useExecutionLog();
   const [chatAttachments, setChatAttachments] = useState<Attachment[]>([]);
   const [chatTone, setChatTone] = useState<string | null>(null);
   const [previewKey, setPreviewKey] = useState(0);
@@ -149,6 +152,10 @@ export default function GeneratedDashboard() {
             kpis: m.kpis || [],
             ui: m.ui,
           });
+          setAgentTurns([
+            { role: "user", content: agent.goal || m.goal || "Build my agent", time: "just now" },
+            { role: "assistant", content: `Deployed "${agent.name || m.name || "your agent"}". Run it from the dashboard, or tell me what to change.`, time: "just now" },
+          ]);
         } else {
           throw new Error(`Unsupported kind: ${kind}`);
         }
@@ -317,6 +324,70 @@ export default function GeneratedDashboard() {
       toast.error(msg);
     } finally {
       setChatBusy(false);
+    }
+  };
+
+  const sendAgentEdit = async (text: string) => {
+    if (!id) return;
+    setAgentTurns((t) => [...t, { role: "user", content: text, time: "just now" }]);
+    setAgentChatBusy(true);
+    agentLog.start([
+      { id: "auth", label: "Validating session…" },
+      { id: "compile", label: "Applying the change to the agent's manifest…" },
+      { id: "save", label: "Saving and refreshing the dashboard…" },
+    ]);
+    try {
+      agentLog.begin("auth");
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess.session?.access_token;
+      agentLog.done("auth", "Session valid");
+      agentLog.begin("compile");
+      const resp = await supabase.functions.invoke("compile-agent-manifest", {
+        body: { plan: text, existingAgentId: id, save: true },
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      if (resp.error) {
+        let detail = resp.error.message || "Edit failed";
+        try {
+          const ctx: any = (resp.error as any).context;
+          if (ctx && typeof ctx.json === "function") {
+            const body = await ctx.json();
+            if (body?.error) detail = body.error;
+          } else if (ctx && typeof ctx.text === "function") {
+            const txt = await ctx.text();
+            try { const parsed = JSON.parse(txt); if (parsed?.error) detail = parsed.error; } catch { if (txt) detail = txt; }
+          }
+        } catch { /* keep base message */ }
+        throw new Error(detail);
+      }
+      const responseData = (resp.data as any) || {};
+      if (responseData.error) throw new Error(responseData.error);
+      const m = responseData.manifest;
+      if (!m) throw new Error("No manifest returned");
+      agentLog.done("compile", "Manifest updated");
+      agentLog.begin("save");
+      setAgentManifest({
+        name: m.name || agentManifest?.name || "Agent",
+        goal: m.goal || "",
+        systemPrompt: m.systemPrompt || "",
+        decisionPolicy: m.decisionPolicy || "",
+        tools: m.tools || [],
+        triggers: m.triggers || [],
+        guardrails: m.guardrails || [],
+        kpis: m.kpis || [],
+        ui: m.ui,
+      });
+      agentLog.done("save", "Saved");
+      agentLog.finish("Done");
+      setAgentTurns((t) => [...t, { role: "assistant", content: `✓ Updated "${m.name}" — the dashboard now reflects the change.`, time: "just now" }]);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const activeStep = agentLog.steps.find((s2) => s2.status === "active");
+      agentLog.fail(activeStep?.id || "compile", msg);
+      setAgentTurns((t) => [...t, { role: "assistant", content: `Couldn't apply that: ${msg}`, time: "just now" }]);
+      toast.error(msg);
+    } finally {
+      setAgentChatBusy(false);
     }
   };
 
@@ -690,14 +761,20 @@ export default function GeneratedDashboard() {
               agentId={id || "agent"}
               name={agentManifest.name}
               goal={agentManifest.goal}
-              turns={[
-                { role: "user", content: agentManifest.goal || "Build my agent" },
-                { role: "assistant", content: `Deployed "${agentManifest.name}". Run it from the dashboard or ask for tweaks here.` },
+              turns={agentTurns.map((t) => ({ role: t.role, content: t.content }))}
+              suggestions={[
+                "Change the schedule to run every morning at 9am",
+                "Make the tone more formal",
+                "Add a guardrail requiring approval before sending emails",
               ]}
-              suggestions={[]}
-              streaming={false}
+              streaming={agentChatBusy}
+              executionLog={
+                agentLog.steps.length > 0 ? (
+                  <ExecutionLog steps={agentLog.steps} title="Working" accent="#22d3ee" compact />
+                ) : null
+              }
               fullSpec={agentManifest.systemPrompt || ""}
-              onSend={(t) => toast.info(`Agent edits coming soon: "${t}"`)}
+              onSend={sendAgentEdit}
             />
           </div>
         )}

@@ -213,7 +213,25 @@ serve(async (req) => {
       profile = data ?? null;
     }
 
-    const role = pickRole(plan + " " + userPrompt, roleHint);
+    // INCREMENTAL EDIT CONTEXT: when refining an existing agent, compile
+    // against its current plan so the new instruction is applied on top of
+    // what's already there — otherwise a short edit ("run at 9am instead")
+    // would compile in isolation and silently drop the rest of the agent.
+    let existingAgentRow: { manifest: unknown; source_plan: string | null; role: string | null } | null = null;
+    if (existingAgentId && user && typeof existingAgentId === "string" && !existingAgentId.startsWith("local-")) {
+      const { data: existing } = await supabase
+        .from("agents")
+        .select("manifest, source_plan, role")
+        .eq("id", existingAgentId)
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (existing) existingAgentRow = existing as typeof existingAgentRow;
+    }
+    const effectivePlan = existingAgentRow
+      ? `EXISTING AGENT — preserve everything below unless the requested change says otherwise:\n${(existingAgentRow.source_plan || JSON.stringify(existingAgentRow.manifest)).slice(0, 6000)}\n\nREQUESTED CHANGE:\n${plan}`
+      : plan;
+
+    const role = pickRole(effectivePlan + " " + userPrompt, roleHint ?? existingAgentRow?.role ?? undefined);
     const blueprint = ROLE_LIBRARY[role];
 
     const intakeBlock = Object.keys(intakeAnswers).length
@@ -250,7 +268,7 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
           model: MODEL,
           messages: [
             { role: "system", content: `You are NazAI Agent Compiler.\n\n${MANIFEST_SCHEMA_DOC}` },
-            { role: "user", content: `Compile this plan into the Agent Manifest JSON. Return only the JSON object.${profileBlock}${blueprintBlock}${intakeBlock}\n\nPLAN:\n${plan}` },
+            { role: "user", content: `Compile this plan into the Agent Manifest JSON. Return only the JSON object.${profileBlock}${blueprintBlock}${intakeBlock}\n\nPLAN:\n${effectivePlan}` },
           ],
           temperature: 0.2,
         }),
@@ -263,7 +281,15 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
       normalized = normalizeManifest(manifest);
       if (!normalized.name || !normalized.tools.length) throw new Error("missing fields");
     } catch (aiErr) {
-      console.warn("compile AI failed, using deterministic fallback:", aiErr);
+      console.warn("compile AI failed:", aiErr);
+      // For a brand-new agent, a deterministic fallback manifest is safe — there's
+      // nothing to lose. For an EDIT, silently falling back would discard the
+      // existing agent's real manifest and replace it with a generic guess built
+      // from just the short edit instruction. Fail loudly instead so the caller
+      // can tell the user the edit didn't apply, rather than corrupt a working agent.
+      if (existingAgentRow) {
+        return json({ error: "Couldn't apply that edit right now — the agent compiler is unavailable. Nothing was changed; please try again." }, 502);
+      }
       usedFallback = true;
       normalized = buildFallbackManifest(plan, userPrompt, role, blueprint, profile);
     }
@@ -386,7 +412,7 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
             .from("agents")
             .update({
               name: normalized.name, slug, goal: normalized.goal,
-              manifest: normalized, source_plan: plan.slice(0, 8000),
+              manifest: normalized, source_plan: effectivePlan.slice(0, 8000),
               role, schedule_cron: cron, schedule_label: label,
               next_run_at: nextRunFromCron(cron),
               business_profile_id: businessProfileId ?? null,
@@ -421,7 +447,7 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
             .from("agents")
             .update({
               name: normalized.name, goal: normalized.goal,
-              manifest: normalized, source_plan: plan.slice(0, 8000),
+              manifest: normalized, source_plan: effectivePlan.slice(0, 8000),
               role, schedule_cron: cron, schedule_label: blueprint.schedule_label,
               next_run_at: nextRunFromCron(cron),
               business_profile_id: businessProfileId ?? null,
@@ -444,7 +470,7 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
           .from("agents")
           .insert({
             user_id: user.id, name: normalized.name, slug, goal: normalized.goal,
-            manifest: normalized, source_plan: plan.slice(0, 8000),
+            manifest: normalized, source_plan: effectivePlan.slice(0, 8000),
             status: "active", role,
             schedule_cron: blueprint.schedule_cron, schedule_label: blueprint.schedule_label,
             next_run_at, business_profile_id: businessProfileId ?? null,
