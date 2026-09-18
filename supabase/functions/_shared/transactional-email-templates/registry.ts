@@ -18,6 +18,7 @@ import { template as controlMonthlyReport } from './control-monthly-report.tsx'
 import { template as criticalAlert } from './critical-alert.tsx'
 import { template as signInNotification } from './sign-in-notification.tsx'
 import { template as passwordChanged } from './password-changed.tsx'
+import { template as websiteLeadNotification } from './website-lead-notification.tsx'
 
 export const TEMPLATES: Record<string, TemplateEntry> = {
   'welcome-nazai': welcomeNazai,
@@ -29,4 +30,5 @@ export const TEMPLATES: Record<string, TemplateEntry> = {
   'critical-alert': criticalAlert,
   'sign-in-notification': signInNotification,
   'password-changed': passwordChanged,
+  'website-lead-notification': websiteLeadNotification,
 }
