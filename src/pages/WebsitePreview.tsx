@@ -402,6 +402,11 @@ function CtaButton({
 export default function WebsitePreview() {
   const { id } = useParams<{ id: string }>();
   const [params] = useSearchParams();
+  // Only the builder's own iframe (GeneratedDashboard's previewSrc) sets this.
+  // The bare URL -- what Share/Publish hand out and what real visitors open --
+  // never carries it, so it gets the site's real header/nav instead of
+  // internal dev tooling ("Back", "· preview", the page-tab switcher).
+  const isEmbed = params.get("embed") === "1";
   const navigate = useNavigate();
   const initialCache = useMemo(() => readPreviewCache(id), [id]);
   const [site, setSite] = useState<Website | null>(() => initialCache?.website ?? null);
@@ -789,7 +794,8 @@ export default function WebsitePreview() {
       <div className="nz-pattern" aria-hidden="true" />
       <div className="nz-grain" aria-hidden="true" />
 
-      {/* Preview chrome */}
+      {isEmbed ? (
+      /* Builder-only preview chrome -- never shown on the real/shared URL */
       <div className="sticky top-0 z-50 flex items-center justify-between gap-4 px-4 py-2.5 border-b backdrop-blur text-xs"
         style={{ borderColor: "rgba(255,255,255,0.1)", background: "rgba(0,0,0,0.6)", color: "#fff" }}>
         <button onClick={() => navigate("/generator-home")} className="flex items-center gap-1.5 text-zinc-300 hover:text-white">
@@ -813,6 +819,28 @@ export default function WebsitePreview() {
           ))}
         </div>
       </div>
+      ) : (
+      /* Real site header for the actual live URL -- a working nav, not dev tooling */
+      <header className="sticky top-0 z-50 flex items-center justify-between gap-4 px-6 py-4 border-b backdrop-blur"
+        style={{ borderColor: p.border, background: `color-mix(in srgb, ${p.bg} 85%, transparent)` }}>
+        <button onClick={() => ctaNav.go(pages[0]?.slug || "home")} className="flex items-center gap-2 font-semibold shrink-0" style={{ color: p.text }}>
+          <MotifIcon path={motif.path} color={p.accent} size={16} />
+          {site.name}
+        </button>
+        <nav className="flex items-center gap-5 overflow-x-auto">
+          {pages.map((pg) => (
+            <button
+              key={pg.id}
+              onClick={() => ctaNav.go(pg.slug)}
+              className="text-sm whitespace-nowrap transition"
+              style={{ color: activeSlug === pg.slug ? p.accent : p.text, opacity: activeSlug === pg.slug ? 1 : 0.75 }}
+            >
+              {pg.title}
+            </button>
+          ))}
+        </nav>
+      </header>
+      )}
 
       {activePage?.sections.map((s, idx) => (
         <div key={idx}>

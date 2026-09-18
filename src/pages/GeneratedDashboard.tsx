@@ -341,8 +341,12 @@ export default function GeneratedDashboard() {
 
   const liveUrl = id ? `${typeof window !== "undefined" ? window.location.origin : ""}/website-preview/${id}` : "";
   const currentPage = pages.find((p) => p.slug === selectedPage) || pages[0];
+  // `embed=1` tells WebsitePreview it's rendering inside this builder's own
+  // iframe -- it shows the "Back"/page-tab preview chrome there. The bare
+  // liveUrl (Share/Publish/real visitors) never carries this param, so they
+  // get the site's real header/nav instead of internal dev tooling.
   const previewSrc = id
-    ? `/website-preview/${id}${currentPage?.slug ? `?page=${encodeURIComponent(currentPage.slug)}` : ""}`
+    ? `/website-preview/${id}?embed=1${currentPage?.slug ? `&page=${encodeURIComponent(currentPage.slug)}` : ""}`
     : "";
   const refreshPreview = () => setPreviewKey((k) => k + 1);
   const copyShare = async () => {
