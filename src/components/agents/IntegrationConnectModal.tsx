@@ -372,6 +372,10 @@ export default function IntegrationConnectModal({
   const [results, setResults] = useState<FoundAccount[]>([]);
   const [account, setAccount] = useState<FoundAccount | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // True when we land on the "error" step because a PREVIOUSLY working
+  // connection was found revoked/expired (agent_integrations.status ===
+  // "error"), rather than because a fresh sign-in attempt just failed.
+  const [revoked, setRevoked] = useState(false);
   const [liveData, setLiveData] = useState<{ kind?: string; data?: Record<string, unknown>; error?: string | null; fetched_at?: string } | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [oauthLoading, setOauthLoading] = useState(false);
@@ -396,7 +400,7 @@ export default function IntegrationConnectModal({
       // always look up by (user_id, provider="Gmail", agent_id IS NULL).
       let q = supabase
         .from("agent_integrations")
-        .select("status, metadata")
+        .select("status, metadata, last_error")
         .eq("user_id", user.id)
         .eq("provider", providerKey);
       q = isGoogle || !agentId ? q.is("agent_id", null) : q.eq("agent_id", agentId);
@@ -405,6 +409,15 @@ export default function IntegrationConnectModal({
       const meta = (data?.metadata as Record<string, unknown>) || {};
       const services = Array.isArray(meta.services) ? (meta.services as string[]) : [];
       const googleServiceConnected = isGoogle && googleKind && services.includes(googleKind);
+      if (data?.status === "error") {
+        // A previously working connection was found revoked/expired — say so
+        // plainly instead of silently dropping into the fresh-connect flow as
+        // if this integration had never been set up.
+        setError(data.last_error || `This connection to ${integration.name} was revoked or expired.`);
+        setRevoked(true);
+        setStep("error");
+        return;
+      }
       if (data?.status === "connected" && (!isGoogle || googleServiceConnected)) {
         // No full-screen "Connected" card for Google services — just close
         // and let the catalogue reflect the green state.
@@ -1468,17 +1481,17 @@ export default function IntegrationConnectModal({
             <div className="flex-1 flex flex-col animate-fade-in">
               <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 mb-4">
                 <div className="flex items-center gap-1.5 mb-1 font-medium">
-                  <AlertTriangle className="h-4 w-4" /> Sign-in failed
+                  <AlertTriangle className="h-4 w-4" /> {revoked ? "Reconnect required" : "Sign-in failed"}
                 </div>
                 <div className="text-xs break-words">{error}</div>
               </div>
               <div className="mt-auto flex items-center justify-end">
                 <button
-                  onClick={() => { setStep("email"); setError(null); }}
+                  onClick={() => { setStep("email"); setError(null); setRevoked(false); }}
                   className="px-6 h-10 rounded-md text-sm font-semibold text-white"
                   style={{ background: "#1a73e8" }}
                 >
-                  Try again
+                  {revoked ? "Reconnect" : "Try again"}
                 </button>
               </div>
             </div>

@@ -98,7 +98,7 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint, isLoc
 
   const [running, setRunning] = useState(false);
   const [lastRunStatus, setLastRunStatus] = useState<string>("");
-  const [gmailAcct, setGmailAcct] = useState<{ email: string | null; verified: string | null; status: string } | null>(null);
+  const [gmailAcct, setGmailAcct] = useState<{ email: string | null; verified: string | null; status: string; lastError: string | null } | null>(null);
   const [gmailVerifying, setGmailVerifying] = useState(false);
   const feedRef = useRef<HTMLDivElement>(null);
 
@@ -147,7 +147,7 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint, isLoc
   const loadGmail = useCallback(async () => {
     const { data } = await supabase
       .from("agent_integrations")
-      .select("provider, status, metadata, last_verified_at")
+      .select("provider, status, metadata, last_verified_at, last_error")
       .eq("agent_id", agentId)
       .eq("provider", "Gmail")
       .maybeSingle();
@@ -157,6 +157,7 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint, isLoc
       email: (meta.account_email as string) || null,
       verified: (data.last_verified_at as string) || null,
       status: (data.status as string) || "connected",
+      lastError: (data.last_error as string) || null,
     });
   }, [agentId]);
 
@@ -518,7 +519,21 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint, isLoc
           )}
         </div>
       )}
-      {gmailAcct && (
+      {gmailAcct && gmailAcct.status === "error" ? (
+        <div className="flex flex-wrap items-center gap-3 px-3 py-2 rounded-lg border border-red-400/30 bg-red-400/[0.04] text-xs">
+          <AlertTriangle className="h-3.5 w-3.5 text-red-300 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <span className="text-red-200 font-semibold">Google account needs reconnecting:</span>{" "}
+            <span className="text-red-300/90">{gmailAcct.lastError || "The connection was revoked or expired."}</span>
+          </div>
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent("nazai:open-integrations-hub", { detail: { agentId } }))}
+            className="px-2 py-1 rounded border border-red-400/40 text-red-200 hover:bg-red-400/10 text-[11px] font-semibold"
+          >
+            Reconnect
+          </button>
+        </div>
+      ) : gmailAcct && (
         <div className="flex flex-wrap items-center gap-3 px-3 py-2 rounded-lg border border-emerald-400/25 bg-emerald-400/[0.04] text-xs">
           <Mail className="h-3.5 w-3.5 text-emerald-300 shrink-0" />
           <div className="min-w-0 flex-1">
