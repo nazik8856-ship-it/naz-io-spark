@@ -432,6 +432,30 @@ Rules:
   }
 }
 
+// Snapshot the CURRENT (pre-change) website + pages before an edit or rebuild
+// overwrites them, so a regeneration the user doesn't like can be undone.
+// Best-effort: a failure here must never block the actual save.
+async function snapshotWebsiteVersion(
+  supabase: ReturnType<typeof createClient>,
+  websiteId: string,
+  userId: string,
+  label: string,
+  websiteRow: Record<string, unknown>,
+  pageRows: Record<string, unknown>[],
+) {
+  try {
+    await supabase.from("website_versions").insert({
+      website_id: websiteId,
+      user_id: userId,
+      label,
+      website_snapshot: websiteRow,
+      pages_snapshot: pageRows,
+    });
+  } catch (err) {
+    console.warn("website version snapshot failed (non-fatal)", err);
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
@@ -551,6 +575,13 @@ serve(async (req) => {
         }
       }
 
+      // Snapshot the pre-edit state so this refinement can be undone. Fires
+      // before the write below, and never blocks the save if it fails.
+      await snapshotWebsiteVersion(
+        supabase, String(previousWebsiteId), user.id,
+        `Edit: ${refined.intent || "mixed"}`, existing, existingPages || [],
+      );
+
       const pageRows = nextManifest.pages.map((p, i) => ({
         website_id: previousWebsiteId,
         slug: p.slug, title: p.title,
@@ -625,8 +656,19 @@ serve(async (req) => {
 
     // REBUILD: regenerate this same website in place, replacing all of its pages.
     if (rebuildWebsiteId) {
+      const { data: oldWebsite } = await supabase
+        .from("websites").select("*").eq("id", rebuildWebsiteId).eq("user_id", user.id).maybeSingle();
       const { data: oldPages } = await supabase
-        .from("website_pages").select("id, slug").eq("website_id", rebuildWebsiteId);
+        .from("website_pages").select("*").eq("website_id", rebuildWebsiteId);
+
+      // Snapshot the pre-rebuild state so a full regeneration can be undone —
+      // this is the most destructive save path, and the one most worth an undo.
+      if (oldWebsite) {
+        await snapshotWebsiteVersion(
+          supabase, String(rebuildWebsiteId), user.id,
+          "Full rebuild", oldWebsite, oldPages || [],
+        );
+      }
 
       const rebuildRows = manifest.pages.map((p, i) => ({
         website_id: rebuildWebsiteId,
