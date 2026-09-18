@@ -159,7 +159,9 @@ Section content shapes (fill with REAL, specific copy — never lorem ipsum, nev
                   "heading"?: string, "body"?: string,
                   "fields"?: [{"name":string,"label":string,"type":"number"|"text"|"email"|"date"|"select","options"?:string[],"unit"?:string}],
                   "formula"?: string,                 // for calculator: e.g. "hours * rate * 1.2"
-                  "output_label"?: string, "output_unit"?: string }
+                  "output_label"?: string, "output_unit"?: string,
+                  "address"?: string,                 // for map: a real, specific address/place to embed
+                  "embed_url"?: string }              // for embed: a real embeddable URL (YouTube/Vimeo watch link, Calendly, Typeform, Google Calendar/Sheets "publish to web" link, etc.) — never a bare homepage URL
 
 Image prompts: for EVERY visual section (hero, about with image, feature-split, gallery items, service items when relevant) provide a SPECIFIC image_prompt — subject, mood, lighting, palette hint. Example: "aerial photo of a wooden pilates studio at golden hour, warm shadows, muted earth tones".
 When the user supplies an exact image URL or uploaded image and asks to place/use it, copy that URL byte-for-byte into the target section/item's asset_url. asset_url always takes precedence over image_prompt; never claim an image was added unless asset_url is present in the updated manifest.

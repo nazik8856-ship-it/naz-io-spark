@@ -1513,6 +1513,52 @@ function CustomBlock({
     );
   }
 
+  if (kind === "map") {
+    const address = fieldStr(c, "address");
+    return (
+      <section className={container} data-reveal>
+        <h2 className={heading}>{renderHeadline(fieldStr(c, "heading", "Find us"), palette, displayFont)}</h2>
+        {fieldStr(c, "body") && <p className="opacity-80 max-w-2xl mb-6">{fieldStr(c, "body")}</p>}
+        {address ? (
+          <div className="nz-card rounded-2xl overflow-hidden max-w-3xl" style={{ height: 360 }}>
+            <iframe
+              title="Location map"
+              src={`https://www.google.com/maps?q=${encodeURIComponent(address)}&output=embed`}
+              className="w-full h-full border-0"
+              loading="lazy"
+            />
+          </div>
+        ) : (
+          <div className="nz-card rounded-2xl p-8 max-w-3xl text-sm opacity-70">No address provided.</div>
+        )}
+      </section>
+    );
+  }
+
+  if (kind === "embed") {
+    const embedUrl = fieldStr(c, "embed_url");
+    const isSafeEmbed = /^https:\/\//i.test(embedUrl);
+    return (
+      <section className={container} data-reveal>
+        <h2 className={heading}>{renderHeadline(fieldStr(c, "heading", "Embed"), palette, displayFont)}</h2>
+        {fieldStr(c, "body") && <p className="opacity-80 max-w-2xl mb-6">{fieldStr(c, "body")}</p>}
+        {isSafeEmbed ? (
+          <div className="nz-card rounded-2xl overflow-hidden max-w-3xl" style={{ height: 480 }}>
+            <iframe
+              title={fieldStr(c, "heading", "Embedded content")}
+              src={embedUrl}
+              className="w-full h-full border-0"
+              loading="lazy"
+              sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+            />
+          </div>
+        ) : (
+          <div className="nz-card rounded-2xl p-8 max-w-3xl text-sm opacity-70">No embed URL provided.</div>
+        )}
+      </section>
+    );
+  }
+
   if (kind === "newsletter") {
     return (
       <section className={container} data-reveal>
