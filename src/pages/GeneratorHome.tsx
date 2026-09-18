@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Globe, Building2, ShoppingBag, Palette, Code2, FileText, Zap, Clock, ChevronRight, Sparkles, Loader2 } from "lucide-react";
+import { ArrowLeft, Globe, Building2, ShoppingBag, Palette, Code2, FileText, Zap, Clock, ChevronRight, Sparkles, Loader2, MoreHorizontal } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase, SUPABASE_FUNCTIONS_URL, SUPABASE_ANON } from "@/integrations/supabase/client";
 import { formatDistanceToNow } from "date-fns";
@@ -8,6 +8,54 @@ import { toast } from "sonner";
 import PromptExtras, { analyzeAndBuildContext, type Attachment } from "@/components/generator/PromptExtras";
 import { RecentOutcomes } from "@/components/agents/RunOutcomes";
 
+
+// Small "..." menu used on each recent project card — Edit navigates to the
+// same generated dashboard the card itself opens; Delete removes the row
+// (RLS-scoped to the owner) and lets the caller drop it from local state.
+function CardMenu({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => void }) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [open]);
+
+  return (
+    <div ref={containerRef} className="relative shrink-0" onClick={(e) => e.stopPropagation()}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="h-7 w-7 rounded-lg flex items-center justify-center text-zinc-400 hover:text-white hover:bg-white/10 transition-colors"
+        aria-label="More options"
+        title="More"
+      >
+        <MoreHorizontal className="h-4 w-4" />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 min-w-[140px] rounded-lg border border-white/10 bg-[#0a0a0f] shadow-2xl shadow-black/60 py-1 z-50">
+          <button
+            type="button"
+            onClick={() => { setOpen(false); onEdit(); }}
+            className="w-full text-left px-3 py-2 text-sm text-zinc-200 hover:bg-white/5 transition-colors"
+          >
+            Edit
+          </button>
+          <button
+            type="button"
+            onClick={() => { setOpen(false); onDelete(); }}
+            className="w-full text-left px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
+          >
+            Delete
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 const TYPES = [
   { id: "website", label: "Website", icon: Globe },
@@ -176,6 +224,28 @@ export default function GeneratorHome() {
 
 
 
+  const handleDeleteWebsite = async (id: string, name: string | null) => {
+    if (!window.confirm(`Delete "${name || "this website"}"? This can't be undone.`)) return;
+    const { error } = await supabase.from("websites").delete().eq("id", id);
+    if (error) {
+      toast.error(error.message || "Failed to delete website");
+      return;
+    }
+    setRecentWebsites((prev) => prev.filter((w) => w.id !== id));
+    toast.success("Website deleted");
+  };
+
+  const handleDeleteAgent = async (id: string, name: string) => {
+    if (!window.confirm(`Delete "${name}"? This can't be undone.`)) return;
+    const { error } = await supabase.from("agents").delete().eq("id", id);
+    if (error) {
+      toast.error(error.message || "Failed to delete agent");
+      return;
+    }
+    setRecentAgents((prev) => prev.filter((a) => a.id !== id));
+    toast.success("Agent deleted");
+  };
+
   const [compiling, setCompiling] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [tone, setTone] = useState<string | null>(null);
@@ -240,6 +310,33 @@ export default function GeneratorHome() {
         navigate(`/generated/website/${body.website_id}`);
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Website compile failed");
+        setCompiling(false);
+      }
+      return;
+    }
+
+    if (activeType === "business") {
+      try {
+        const { data: sess } = await supabase.auth.getSession();
+        const token = sess.session?.access_token ?? SUPABASE_ANON;
+        const resp = await fetch(`${SUPABASE_FUNCTIONS_URL}/compile-agent-manifest`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+            apikey: SUPABASE_ANON,
+          },
+          body: JSON.stringify({ plan: p, save: true }),
+        });
+        const body = await resp.json().catch(() => ({}));
+        if (!resp.ok || !body?.agentId) {
+          toast.error(body?.error || `Agent compile failed (${resp.status})`);
+          setCompiling(false);
+          return;
+        }
+        navigate(`/generated/agent/${body.agentId}`);
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Agent compile failed");
         setCompiling(false);
       }
       return;
@@ -433,25 +530,31 @@ export default function GeneratorHome() {
                           <div className="flex items-start justify-between gap-2 mb-4">
                             <button
                               type="button"
-                              onClick={() => navigate("/generation-workspace")}
+                              onClick={() => navigate(`/generated/agent/${a.id}`)}
                               className="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-400 to-cyan-400 flex items-center justify-center shadow-[0_8px_24px_-8px_rgba(52,211,153,0.6)]"
                               aria-label="Open agent"
                             >
                               <Sparkles className="h-5 w-5 text-black" />
                             </button>
-                            {outcome && (
-                              <span
-                                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider ${toneClasses[outcome.tone]}`}
-                                title="Derived from the latest run's events"
-                              >
-                                <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                                {outcome.label}
-                              </span>
-                            )}
+                            <div className="flex items-center gap-1.5">
+                              {outcome && (
+                                <span
+                                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider ${toneClasses[outcome.tone]}`}
+                                  title="Derived from the latest run's events"
+                                >
+                                  <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                                  {outcome.label}
+                                </span>
+                              )}
+                              <CardMenu
+                                onEdit={() => navigate(`/generated/agent/${a.id}`)}
+                                onDelete={() => handleDeleteAgent(a.id, a.name || "Agent")}
+                              />
+                            </div>
                           </div>
                           <button
                             type="button"
-                            onClick={() => navigate("/generation-workspace")}
+                            onClick={() => navigate(`/generated/agent/${a.id}`)}
                             className="block w-full text-left"
                           >
                             <div className="text-[9px] uppercase tracking-[0.24em] font-mono text-emerald-300 mb-1">AI Agent</div>
@@ -531,23 +634,39 @@ export default function GeneratorHome() {
                       const initial = (site.name || "?").trim()[0]?.toUpperCase() || "N";
                       const ago = formatDistanceToNow(new Date(site.created_at), { addSuffix: true });
                       return (
-                        <button
+                        <div
                           key={site.id}
-                          onClick={() => navigate(`/generated/website/${site.id}`)}
-                          className="text-left rounded-2xl border border-white/10 bg-white/[0.02] hover:bg-white/[0.05] hover:border-purple-400/40 transition-all p-5"
+                          className="rounded-2xl border border-white/10 bg-white/[0.02] hover:bg-white/[0.05] hover:border-purple-400/40 transition-all p-5"
                         >
-                          <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-purple-500 to-cyan-400 flex items-center justify-center font-bold text-black mb-4">
-                            {initial}
+                          <div className="flex items-start justify-between gap-2 mb-4">
+                            <button
+                              type="button"
+                              onClick={() => navigate(`/generated/website/${site.id}`)}
+                              className="h-10 w-10 rounded-xl bg-gradient-to-br from-purple-500 to-cyan-400 flex items-center justify-center font-bold text-black"
+                              aria-label="Open website"
+                            >
+                              {initial}
+                            </button>
+                            <CardMenu
+                              onEdit={() => navigate(`/generated/website/${site.id}`)}
+                              onDelete={() => handleDeleteWebsite(site.id, site.name)}
+                            />
                           </div>
-                          <div className="font-semibold truncate">
-                            {(site.name || "Untitled website").slice(0, 40)}
-                          </div>
-                          {site.tagline && <div className="text-xs text-zinc-400 line-clamp-2 mt-1">{site.tagline}</div>}
-                          <div className="flex items-center gap-1.5 mt-2 text-xs text-zinc-500">
-                            <Clock className="h-3 w-3" />
-                            {ago}
-                          </div>
-                        </button>
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/generated/website/${site.id}`)}
+                            className="block w-full text-left"
+                          >
+                            <div className="font-semibold truncate">
+                              {(site.name || "Untitled website").slice(0, 40)}
+                            </div>
+                            {site.tagline && <div className="text-xs text-zinc-400 line-clamp-2 mt-1">{site.tagline}</div>}
+                            <div className="flex items-center gap-1.5 mt-2 text-xs text-zinc-500">
+                              <Clock className="h-3 w-3" />
+                              {ago}
+                            </div>
+                          </button>
+                        </div>
                       );
                     })}
                   </div>
