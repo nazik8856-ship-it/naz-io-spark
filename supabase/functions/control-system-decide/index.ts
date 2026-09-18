@@ -11,14 +11,12 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildCapabilityBlock } from "../_shared/capability-registry.ts";
+import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-
-const LOVABLE_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
-const MODEL = "google/gemini-3-flash-preview";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -65,8 +63,8 @@ const EXTRACT_TOOL = {
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
-    const key = Deno.env.get("LOVABLE_API_KEY");
-    if (!key) return json({ error: "Missing LOVABLE_API_KEY" }, 500);
+    const gw = pickAiGateway();
+    if (!gw) return json({ error: "Missing OPENAI_API_KEY (or LOVABLE_API_KEY)" }, 500);
 
     const authHeader = req.headers.get("Authorization") || "";
     const supabase = createClient(
@@ -116,11 +114,8 @@ serve(async (req) => {
         .map((m) => ({ role: m.role as "user" | "assistant", content: String(m.content).slice(0, 4000) }))
       : [];
 
-    const res = await fetch(LOVABLE_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-      body: JSON.stringify({
-        model: MODEL,
+    const res = await callAiGateway({
+        model: gw.model,
         temperature: 0.3,
         messages: [
           {
@@ -151,8 +146,7 @@ serve(async (req) => {
         ],
         tools: [EXTRACT_TOOL],
         tool_choice: "auto",
-      }),
-    });
+    }, gw);
 
     if (res.status === 429) return json({ error: "rate_limited", message: "Too many requests right now — try again in a moment." }, 429);
     if (res.status === 402) return json({ error: "payment_required", message: "AI credits are exhausted. Add credits to continue." }, 402);

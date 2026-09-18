@@ -7,30 +7,17 @@
 // human review" round. NazAI's own internal agents are untouched: this
 // module is never called for a decision with no api_key_id.
 //
-// Generates embeddings via the same Lovable AI gateway every other AI
-// call in this codebase already uses (control-engine's own
-// `https://ai.gateway.lovable.dev/v1/chat/completions`), on the
-// documented assumption that gateway also exposes an OpenAI-compatible
-// `/v1/embeddings` route -- this needs verifying against the gateway's
-// actual docs before this is ever run against a real account; if the
-// model name or response shape differs, `generateEmbedding` fails
-// closed (returns null) rather than silently storing garbage.
+// Generates embeddings via the shared ai-gateway resolver -- OpenAI's
+// text-embedding-3-small (truncated to EMBEDDING_DIMENSIONS via the
+// `dimensions` param) when OPENAI_API_KEY is configured, falling back to
+// the Lovable gateway's embeddings route otherwise. If the model name or
+// response shape ever differs, `generateEmbedding` fails closed (returns
+// null) rather than silently storing garbage.
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getApiKeySpendStatus, recordAiSpend } from "./spend-guard.ts";
+import { pickEmbeddingGateway, EMBEDDING_DIMENSIONS } from "./ai-gateway.ts";
 
-const EMBEDDINGS_URL = "https://ai.gateway.lovable.dev/v1/embeddings";
-
-// NOTE: EMBEDDING_DIMENSIONS must exactly match whatever EMBEDDING_MODEL
-// actually returns -- pgvector's column dimension is fixed at table-
-// creation time (see the accompanying migration), so changing either of
-// these after real rows exist requires a real migration, not just an
-// edit here. 768 matches Google's common text-embedding-004 family,
-// a reasonable default given every other AI call in this codebase
-// already routes through a "google/..." model on this same gateway --
-// confirm against the gateway's actual embeddings support before this
-// runs against a live account.
-export const EMBEDDING_MODEL = "google/text-embedding-004";
-export const EMBEDDING_DIMENSIONS = 768;
+export { EMBEDDING_DIMENSIONS };
 
 export type EmbeddableAction = {
   actionType: string;
@@ -107,16 +94,20 @@ const EMBEDDING_FETCH_TIMEOUT_MS = 5_000;
  */
 export async function generateEmbedding(text: string): Promise<number[] | null> {
   try {
-    const apiKey = Deno.env.get("LOVABLE_API_KEY");
-    if (!apiKey || !text) return null;
+    const gw = pickEmbeddingGateway();
+    if (!gw || !text) return null;
     const ctrl = new AbortController();
     const to = setTimeout(() => ctrl.abort(), EMBEDDING_FETCH_TIMEOUT_MS);
     let res: Response;
     try {
-      res = await fetch(EMBEDDINGS_URL, {
+      res = await fetch(gw.url, {
         method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ model: EMBEDDING_MODEL, input: text }),
+        headers: { Authorization: `Bearer ${gw.key}`, "Content-Type": "application/json" },
+        body: JSON.stringify(
+          gw.provider === "openai"
+            ? { model: gw.model, input: text, dimensions: EMBEDDING_DIMENSIONS }
+            : { model: gw.model, input: text },
+        ),
         signal: ctrl.signal,
       });
     } finally {
@@ -172,7 +163,8 @@ export async function generateEmbeddingWithinBudget(
   if (!embedding) return null;
 
   try {
-    await recordAiSpend(admin, userId, EMBEDDING_MODEL, { prompt_tokens: estimateEmbeddingTokens(text) }, "embedding", null, apiKeyId);
+    const gw = pickEmbeddingGateway();
+    await recordAiSpend(admin, userId, gw?.model ?? "text-embedding-3-small", { prompt_tokens: estimateEmbeddingTokens(text) }, "embedding", null, apiKeyId);
   } catch { /* a metering hiccup must never throw away a real embedding that already succeeded */ }
 
   return embedding;

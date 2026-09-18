@@ -1,13 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-
-const LOVABLE_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
-const LOVABLE_MODEL = "google/gemini-3-flash-preview";
 
 type ScenarioResponse = {
   analysis: string;
@@ -28,8 +26,8 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const lovableKey = Deno.env.get("LOVABLE_API_KEY");
-    if (!lovableKey) {
+    const gw = pickAiGateway();
+    if (!gw) {
       return new Response(JSON.stringify({ error: "no AI key" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -55,11 +53,8 @@ serve(async (req) => {
     // Trim context to stay well under token limits while preserving signal.
     const contextJson = JSON.stringify(ctx).slice(0, 24000);
 
-    const resp = await fetch(LOVABLE_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Lovable-API-Key": lovableKey },
-      body: JSON.stringify({
-        model: LOVABLE_MODEL,
+    const resp = await callAiGateway({
+        model: gw.model,
         temperature: 0.3,
         messages: [
           {
@@ -86,8 +81,7 @@ Rules:
           },
         ],
         response_format: { type: "json_object" },
-      }),
-    });
+    }, gw);
 
     if (!resp.ok) {
       const t = await resp.text().catch(() => "");

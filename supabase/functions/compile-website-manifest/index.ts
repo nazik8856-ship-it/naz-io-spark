@@ -3,14 +3,12 @@
 // Output: { manifest, website_id?, pages? }
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-
-const LOVABLE_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
-const MODEL = "google/gemini-3.6-flash";
 
 const SECTION_TYPES = [
   "hero", "about", "services", "testimonials", "gallery", "contact",
@@ -389,21 +387,18 @@ Return STRICT JSON only:
 // "rebuild" → regenerate this same website from scratch, replacing its pages
 // "new"     → compile a separate, additional website and open it
 async function routeWebsiteChatIntent(
-  key: string,
+  gw: NonNullable<ReturnType<typeof pickAiGateway>>,
   prompt: string,
   siteName: string,
 ): Promise<{ route: "edit" | "rebuild" | "new"; brief: string; reason: string }> {
   const fallback = { route: "edit" as const, brief: prompt, reason: "defaulted to an edit" };
   try {
-    const resp = await fetch(LOVABLE_URL, {
-      method: "POST",
-      headers: { "Lovable-API-Key": key, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "google/gemini-3.1-flash-lite",
-        messages: [
-          {
-            role: "system",
-            content: `You classify what a user wants when they message the chat agent attached to an existing generated website called "${siteName}".
+    const resp = await callAiGateway({
+      model: gw.model,
+      messages: [
+        {
+          role: "system",
+          content: `You classify what a user wants when they message the chat agent attached to an existing generated website called "${siteName}".
 
 Return STRICT JSON: { "route": "edit" | "rebuild" | "new", "brief": string, "reason": string }
 
@@ -413,13 +408,12 @@ Rules:
 - "new": the user wants an ADDITIONAL, separate website for a different business/topic ("make me another website for a gym", "create a new site for my bakery", "build a second site").
 - "brief": for "rebuild"/"new", a complete standalone website brief (subject, audience, style, pages, features) built from the user's message; for "edit", echo the user's message unchanged.
 - "reason": one short sentence.`,
-          },
-          { role: "user", content: prompt },
-        ],
-        temperature: 0,
-        response_format: { type: "json_object" },
-      }),
-    });
+        },
+        { role: "user", content: prompt },
+      ],
+      temperature: 0,
+      response_format: { type: "json_object" },
+    }, gw);
     if (!resp.ok) return fallback;
     const data = await resp.json();
     const parsed = JSON.parse(stripFences(String(data?.choices?.[0]?.message?.content ?? "{}")));
@@ -459,8 +453,8 @@ async function snapshotWebsiteVersion(
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
-    const key = Deno.env.get("LOVABLE_API_KEY");
-    if (!key) return json({ error: "Missing LOVABLE_API_KEY" }, 500);
+    const gw = pickAiGateway();
+    if (!gw) return json({ error: "Missing OPENAI_API_KEY (or LOVABLE_API_KEY)" }, 500);
 
     const body = await req.json().catch(() => ({}));
     const { prompt, save = true, previousWebsiteId, refine = false, recentTurns = [], attachments = [] } = body || {};
@@ -489,7 +483,7 @@ serve(async (req) => {
       if (!existing) return json({ error: "Website not found" }, 404);
       const { data: existingPages } = await supabase.from("website_pages").select("*").eq("website_id", previousWebsiteId).order("order_index", { ascending: true });
 
-      const routed = await routeWebsiteChatIntent(key, prompt, String(existing.name || "this website"));
+      const routed = await routeWebsiteChatIntent(gw, prompt, String(existing.name || "this website"));
       routeInfo = { route: routed.route, reason: routed.reason };
       if (routed.route !== "edit") {
         compilePrompt = routed.brief;
@@ -521,27 +515,23 @@ serve(async (req) => {
 
       let refined: { intent?: string; summary?: string; manifest?: unknown } = {};
       try {
-        const resp = await fetch(LOVABLE_URL, {
-          method: "POST",
-          headers: { "Lovable-API-Key": key, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: MODEL,
-            messages: [
-              { role: "system", content: `${REFINE_DOC}\n\n${SCHEMA_DOC}` },
-              {
-                role: "user",
-                content: visualAttachments.length
-                  ? [
-                      { type: "text", text: `CURRENT MANIFEST (do not regenerate untouched parts):\n${JSON.stringify(currentManifest)}\n\n${conversation ? `RECENT CONVERSATION (use only to resolve references and continuity):\n${conversation}\n\n` : ""}USER REQUEST + ANALYZED INTENT:\n${prompt}\n\nAttached images are shown below — copy their exact URLs byte-for-byte into the target section/item's asset_url so they render in the site. First infer the user's real expectation, then execute it as a coordinated design change: visual signature, palette, typography, copy, hierarchy, imagery, and micro-interactions must still feel like one deliberate system. Preserve every detail not requested or required for coherence. Return the JSON envelope { intent, summary, manifest }.` },
-                      ...visualAttachments.map((a: any) => ({ type: "image_url", image_url: { url: a.assetUrl || a.url } })),
-                    ]
-                  : `CURRENT MANIFEST (do not regenerate untouched parts):\n${JSON.stringify(currentManifest)}\n\n${conversation ? `RECENT CONVERSATION (use only to resolve references and continuity):\n${conversation}\n\n` : ""}USER REQUEST + ANALYZED INTENT:\n${prompt}\n\nFirst infer the user's real expectation, then execute it as a coordinated design change: visual signature, palette, typography, copy, hierarchy, imagery, and micro-interactions must still feel like one deliberate system. Preserve every detail not requested or required for coherence. Return the JSON envelope { intent, summary, manifest }.`,
-              },
-            ],
-            temperature: 0.4,
-            response_format: { type: "json_object" },
-          }),
-        });
+        const resp = await callAiGateway({
+          model: gw.model,
+          messages: [
+            { role: "system", content: `${REFINE_DOC}\n\n${SCHEMA_DOC}` },
+            {
+              role: "user",
+              content: visualAttachments.length
+                ? [
+                    { type: "text", text: `CURRENT MANIFEST (do not regenerate untouched parts):\n${JSON.stringify(currentManifest)}\n\n${conversation ? `RECENT CONVERSATION (use only to resolve references and continuity):\n${conversation}\n\n` : ""}USER REQUEST + ANALYZED INTENT:\n${prompt}\n\nAttached images are shown below — copy their exact URLs byte-for-byte into the target section/item's asset_url so they render in the site. First infer the user's real expectation, then execute it as a coordinated design change: visual signature, palette, typography, copy, hierarchy, imagery, and micro-interactions must still feel like one deliberate system. Preserve every detail not requested or required for coherence. Return the JSON envelope { intent, summary, manifest }.` },
+                    ...visualAttachments.map((a: any) => ({ type: "image_url", image_url: { url: a.assetUrl || a.url } })),
+                  ]
+                : `CURRENT MANIFEST (do not regenerate untouched parts):\n${JSON.stringify(currentManifest)}\n\n${conversation ? `RECENT CONVERSATION (use only to resolve references and continuity):\n${conversation}\n\n` : ""}USER REQUEST + ANALYZED INTENT:\n${prompt}\n\nFirst infer the user's real expectation, then execute it as a coordinated design change: visual signature, palette, typography, copy, hierarchy, imagery, and micro-interactions must still feel like one deliberate system. Preserve every detail not requested or required for coherence. Return the JSON envelope { intent, summary, manifest }.`,
+            },
+          ],
+          temperature: 0.4,
+          response_format: { type: "json_object" },
+        }, gw);
         if (resp.status === 429) throw new Error("gateway rate limited");
         if (resp.status === 402) throw new Error("gateway credits unavailable");
         if (!resp.ok) throw new Error(`gateway ${resp.status}`);
@@ -628,18 +618,14 @@ serve(async (req) => {
     // ============ FRESH COMPILE PATH (also used for rebuild / new-site chat routes) ============
     let manifest: Manifest;
     try {
-      const resp = await fetch(LOVABLE_URL, {
-        method: "POST",
-        headers: { "Lovable-API-Key": key, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: MODEL,
-          messages: [
-            { role: "system", content: `You are NazAI Website Compiler.\n\n${SCHEMA_DOC}` },
-            { role: "user", content: `Compile this website brief into the JSON manifest. Follow user-specified style STRICTLY; invent a distinct identity where the brief is silent. Return only the JSON object.\n\nBRIEF:\n${compilePrompt}` },
-          ],
-          temperature: 0.85,
-        }),
-      });
+      const resp = await callAiGateway({
+        model: gw.model,
+        messages: [
+          { role: "system", content: `You are NazAI Website Compiler.\n\n${SCHEMA_DOC}` },
+          { role: "user", content: `Compile this website brief into the JSON manifest. Follow user-specified style STRICTLY; invent a distinct identity where the brief is silent. Return only the JSON object.\n\nBRIEF:\n${compilePrompt}` },
+        ],
+        temperature: 0.85,
+      }, gw);
       if (resp.status === 429) return json({ error: "Rate limited. Please retry in a moment." }, 429);
       if (resp.status === 402) return json({ error: "AI credits exhausted for this workspace." }, 402);
       if (!resp.ok) throw new Error(`gateway ${resp.status}`);

@@ -4,6 +4,7 @@
 // real understanding of what the user provided — not just raw appended text.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -11,9 +12,6 @@ const corsHeaders = {
 };
 const json = (b: unknown, s = 200) =>
   new Response(JSON.stringify(b), { status: s, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-
-const LOVABLE_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
-const MODEL = "google/gemini-3.6-flash";
 
 type InAtt = { id?: string; label?: string; contextText?: string; url?: string; assetUrl?: string; mimeType?: string; kind?: string };
 
@@ -50,8 +48,8 @@ async function fetchUrlText(url: string): Promise<string> {
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
-    const key = Deno.env.get("LOVABLE_API_KEY");
-    if (!key) return json({ error: "Missing LOVABLE_API_KEY" }, 500);
+    const gw = pickAiGateway();
+    if (!gw) return json({ error: "Missing OPENAI_API_KEY (or LOVABLE_API_KEY)" }, 500);
 
     const body = await req.json().catch(() => ({}));
     const prompt: string = String(body?.prompt ?? "").trim();
@@ -155,19 +153,15 @@ Rules:
 
     let analysis: Record<string, unknown> | null = null;
     try {
-      const resp = await fetch(LOVABLE_URL, {
-        method: "POST",
-        headers: { "Lovable-API-Key": key, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: MODEL,
-          messages: [
-            { role: "system", content: system },
-            { role: "user", content: userContent },
-          ],
-          temperature: 0.2,
-          response_format: { type: "json_object" },
-        }),
-      });
+      const resp = await callAiGateway({
+        model: gw.model,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: userContent },
+        ],
+        temperature: 0.2,
+        response_format: { type: "json_object" },
+      }, gw);
       if (resp.status === 429) return json({ error: "Rate limited. Please retry in a moment." }, 429);
       if (resp.status === 402) return json({ error: "AI credits exhausted." }, 402);
       if (resp.ok) {

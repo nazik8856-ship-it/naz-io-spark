@@ -5,14 +5,12 @@
 //          intakeAnswers?: Record<string,string>, role?: string }
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-
-const LOVABLE_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
-const MODEL = "google/gemini-3-flash-preview";
 
 type Automation = {
   name: string;
@@ -190,8 +188,8 @@ Rules:
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
-    const key = Deno.env.get("LOVABLE_API_KEY");
-    if (!key) return json({ error: "Missing LOVABLE_API_KEY" }, 500);
+    const gw = pickAiGateway();
+    if (!gw) return json({ error: "Missing OPENAI_API_KEY (or LOVABLE_API_KEY)" }, 500);
 
     const body = await req.json();
     const { plan, save = true, businessProfileId, userPrompt = "", intakeAnswers = {}, role: roleHint, existingAgentId = null } = body || {};
@@ -261,18 +259,14 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
     let normalized: Manifest;
     let usedFallback = false;
     try {
-      const resp = await fetch(LOVABLE_URL, {
-        method: "POST",
-        headers: { "Lovable-API-Key": key, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: MODEL,
-          messages: [
-            { role: "system", content: `You are NazAI Agent Compiler.\n\n${MANIFEST_SCHEMA_DOC}` },
-            { role: "user", content: `Compile this plan into the Agent Manifest JSON. Return only the JSON object.${profileBlock}${blueprintBlock}${intakeBlock}\n\nPLAN:\n${effectivePlan}` },
-          ],
-          temperature: 0.2,
-        }),
-      });
+      const resp = await callAiGateway({
+        model: gw.model,
+        messages: [
+          { role: "system", content: `You are NazAI Agent Compiler.\n\n${MANIFEST_SCHEMA_DOC}` },
+          { role: "user", content: `Compile this plan into the Agent Manifest JSON. Return only the JSON object.${profileBlock}${blueprintBlock}${intakeBlock}\n\nPLAN:\n${effectivePlan}` },
+        ],
+        temperature: 0.2,
+      }, gw);
       if (!resp.ok) throw new Error(`gateway ${resp.status}`);
       const data = await resp.json();
       const raw: string = data?.choices?.[0]?.message?.content ?? "";

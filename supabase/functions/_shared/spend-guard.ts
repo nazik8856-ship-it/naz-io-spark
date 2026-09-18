@@ -27,11 +27,15 @@ const PRICES: Record<string, [number, number]> = {
   // embedding call is never priced as if it were a full chat-completion
   // call (the `default` row above, ~15-25x more expensive per token).
   // Output price is 0: an embedding call has no generated tokens to
-  // price. Rough estimate, same "unverified assumption" caveat as
-  // EMBEDDING_MODEL/EMBEDDING_DIMENSIONS in decision-embeddings.ts --
-  // verify against the gateway's real embeddings pricing before this
-  // runs against a live account.
+  // price. Rough estimate -- verify against the gateway's real
+  // embeddings pricing before this runs against a live account.
   "google/text-embedding-004": [0.15, 0],
+  // Real OpenAI per-1M-token pricing (input, output) — added when the
+  // AI-gateway migration switched every function's default provider from
+  // the Lovable gateway to a direct OpenAI call.
+  "gpt-4o-mini": [0.15, 0.6],
+  "gpt-4o": [2.5, 10],
+  "text-embedding-3-small": [0.02, 0],
   default: [0.3, 2.5],
 };
 

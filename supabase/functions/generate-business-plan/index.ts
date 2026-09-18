@@ -1,17 +1,17 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { pickAiGateway, callAiGateway, type GatewayConfig } from "../_shared/ai-gateway.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const normalizeModel = (model?: string | null) => {
-  if (!model) return "google/gemini-3-flash-preview";
-  if (model.includes("openai") || model.includes("gpt")) return "openai/gpt-5-mini";
-  if (model.includes("gemini")) return "google/gemini-3-flash-preview";
-  return "google/gemini-3-flash-preview";
-};
+// The client passes a loose model hint ("openai"/"gpt" for a stronger request,
+// anything else for the default). Map that onto our two-tier gateway config
+// rather than a Lovable-namespaced alias.
+const resolveModel = (gw: GatewayConfig, hint?: string | null) =>
+  hint && /openai|gpt/i.test(hint) ? gw.deepModel : gw.model;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -40,28 +40,21 @@ serve(async (req) => {
     }
 
     const { prompt, model, style, systemPrompt } = await req.json();
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
+    const gw = pickAiGateway();
+    if (!gw) throw new Error("Missing OPENAI_API_KEY (or LOVABLE_API_KEY)");
 
     const isLiveEdit = String(prompt ?? "").includes("[ITERATION_DIRECTIVE: LIVE_EDIT]");
     const system = isLiveEdit
       ? "You are a precise website code editor. You are given the complete latest source code of the live preview. Use it precisely to make edits. Never guess or regenerate from scratch unless asked. Return only one complete standalone HTML document with inline CSS and JS."
       : `${systemPrompt || "You are NazAI, a premium AI Business OS."}\nFor website requests, return one complete standalone HTML document with inline CSS/JS that renders in iframe srcDoc. Make it bespoke to the user's prompt, not a generic template. Style preference: ${style || "Technical"}.`;
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: normalizeModel(model),
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: String(prompt ?? "") },
-        ],
-      }),
-    });
+    const response = await callAiGateway({
+      model: resolveModel(gw, model),
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: String(prompt ?? "") },
+      ],
+    }, gw);
 
     if (!response.ok) {
       if (response.status === 429) {

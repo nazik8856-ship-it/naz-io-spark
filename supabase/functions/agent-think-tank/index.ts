@@ -12,15 +12,13 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { pickAiGateway, callAiGateway, type GatewayConfig } from "../_shared/ai-gateway.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
-
-const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
-const MODEL = "google/gemini-3-flash-preview";
 
 type AgentId = "architect" | "pixel" | "syntax" | "echo";
 
@@ -106,22 +104,15 @@ const detectTrashSignals = (directive: string): string[] => {
 const callAgent = async (
   agentId: AgentId,
   userPayload: string,
-  apiKey: string,
+  gw: GatewayConfig,
 ): Promise<{ raw: string; parsed: any }> => {
-  const resp = await fetch(GATEWAY_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      messages: [
-        { role: "system", content: SYSTEM_PROMPTS[agentId] },
-        { role: "user", content: userPayload },
-      ],
-    }),
-  });
+  const resp = await callAiGateway({
+    model: gw.model,
+    messages: [
+      { role: "system", content: SYSTEM_PROMPTS[agentId] },
+      { role: "user", content: userPayload },
+    ],
+  }, gw);
 
   if (!resp.ok) {
     const errText = await resp.text();
@@ -164,9 +155,9 @@ serve(async (req) => {
     });
   }
 
-  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-  if (!LOVABLE_API_KEY) {
-    return new Response(JSON.stringify({ error: "LOVABLE_API_KEY not configured" }), {
+  const gw = pickAiGateway();
+  if (!gw) {
+    return new Response(JSON.stringify({ error: "Missing OPENAI_API_KEY (or LOVABLE_API_KEY)" }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
@@ -209,7 +200,7 @@ serve(async (req) => {
         const t = Date.now();
         send({ type: "agent_start", agent: id, label, ts: Date.now() - startedAt });
         try {
-          const { parsed } = await callAgent(id, userPayload, LOVABLE_API_KEY);
+          const { parsed } = await callAgent(id, userPayload, gw);
           send({
             type: "agent_done",
             agent: id,
