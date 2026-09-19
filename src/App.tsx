@@ -42,7 +42,6 @@ const Dashboard = lazyWithReload(() => import("./pages/Dashboard"));
 const AccountSettings = lazyWithReload(() => import("./pages/AccountSettings"));
 const Generator = lazyWithReload(() => import("./pages/Generator"));
 const GeneratorHome = lazyWithReload(() => import("./pages/GeneratorHome"));
-const GenerationWorkspace = lazyWithReload(() => import("./pages/GenerationWorkspace"));
 const Generating = lazyWithReload(() => import("./pages/Generating"));
 const Pricing = lazyWithReload(() => import("./pages/Pricing"));
 const Unsubscribe = lazyWithReload(() => import("./pages/Unsubscribe"));
@@ -139,7 +138,6 @@ const App = () => (
                 {/* Mission Generator & Dashboard */}
                 <Route path="/generate" element={<Generator />} />
                 <Route path="/generator-home" element={<GeneratorHome />} />
-                <Route path="/generation-workspace" element={<GenerationWorkspace />} />
                 <Route path="/pricing" element={<Pricing />} />
                 <Route path="/website-preview/:id" element={<WebsitePreview />} />
                 <Route path="/generated/:kind/:id" element={<GeneratedDashboard />} />

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Globe, Building2, ShoppingBag, Palette, Code2, FileText, Zap, Clock, ChevronRight, Sparkles, Loader2, MoreHorizontal } from "lucide-react";
+import { ArrowLeft, Globe, Building2, Zap, Clock, ChevronRight, Sparkles, Loader2, MoreHorizontal } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase, SUPABASE_FUNCTIONS_URL, SUPABASE_ANON } from "@/integrations/supabase/client";
 import { formatDistanceToNow } from "date-fns";
@@ -57,13 +57,15 @@ function CardMenu({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => vo
   );
 }
 
+// Only types with a real compile backend (compile-website-manifest,
+// compile-agent-manifest) are offered here. Store/Landing/App/Document
+// used to appear as chips too, but had no backend at all -- selecting one
+// and hitting Generate silently dropped the user into a generic chat that
+// never produced anything saved. Re-add a type here only once it has a
+// real compile-*-manifest function behind it.
 const TYPES = [
   { id: "website", label: "Website", icon: Globe },
   { id: "business", label: "AI Agent", icon: Building2 },
-  { id: "store", label: "Store", icon: ShoppingBag },
-  { id: "landing", label: "Landing", icon: Palette },
-  { id: "app", label: "App", icon: Code2 },
-  { id: "document", label: "Document", icon: FileText },
 ];
 
 export default function GeneratorHome() {
@@ -250,20 +252,65 @@ export default function GeneratorHome() {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [tone, setTone] = useState<string | null>(null);
 
+  // Neither compile-website-manifest nor compile-agent-manifest streams
+  // progress -- it's one blocking HTTP call -- so there's no real step count
+  // to report. This cycles through honest, generic stage labels on a timer
+  // so a 10-20s wait reads as forward motion instead of a static spinner
+  // that looks identical whether it's 2 seconds in or stuck.
+  const [compileStage, setCompileStage] = useState<string | null>(null);
+  useEffect(() => {
+    if (!compiling) {
+      setCompileStage(null);
+      return;
+    }
+    const stages = ["Understanding your prompt…", "Designing the structure…", "Generating content…", "Almost there…"];
+    let i = 0;
+    setCompileStage(stages[0]);
+    const interval = setInterval(() => {
+      i = Math.min(i + 1, stages.length - 1);
+      setCompileStage(stages[i]);
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [compiling]);
+
+  // Compiling a full website/agent from scratch can legitimately take
+  // 10-20s; anything past this almost certainly means the AI call or the
+  // edge function hung, not that it's still working. Without this, a hang
+  // left Generate disabled with an infinite spinner and no way out.
+  const COMPILE_TIMEOUT_MS = 60_000;
+
+  const fetchWithTimeout = (url: string, init: RequestInit) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), COMPILE_TIMEOUT_MS);
+    return fetch(url, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
+  };
+
   const handleGenerate = async () => {
     const raw = prompt.trim();
     if (!raw || compiling) return;
     setCompiling(true);
+
     // Read/analyze every attached input BEFORE generation so the compiler
-    // works off real understanding — not raw appended text.
-    const analyzerKind = activeType === "website" ? "website" : activeType === "business" ? "agent" : "generic";
-    const { enrichedPrompt: p } = await analyzeAndBuildContext(raw, tone, attachments, analyzerKind as "website" | "agent" | "generic");
+    // works off real understanding — not raw appended text. This can throw
+    // (e.g. a network error reading an attachment), and previously did so
+    // outside any try/catch, leaving `compiling` stuck true forever with no
+    // error shown -- the button just looked permanently broken.
+    let p: string;
+    try {
+      const analyzerKind = activeType === "website" ? "website" : "agent";
+      const result = await analyzeAndBuildContext(raw, tone, attachments, analyzerKind);
+      p = result.enrichedPrompt;
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't process your prompt/attachments");
+      setCompiling(false);
+      return;
+    }
 
     if (activeType === "website") {
       try {
         const { data: sess } = await supabase.auth.getSession();
         const token = sess.session?.access_token ?? SUPABASE_ANON;
-        const resp = await fetch(`${SUPABASE_FUNCTIONS_URL}/compile-website-manifest`, {
+        const resp = await fetchWithTimeout(`${SUPABASE_FUNCTIONS_URL}/compile-website-manifest`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -309,7 +356,8 @@ export default function GeneratorHome() {
         // Unified dashboard for any generated thing.
         navigate(`/generated/website/${body.website_id}`);
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Website compile failed");
+        const timedOut = e instanceof DOMException && e.name === "AbortError";
+        toast.error(timedOut ? "Taking too long to respond — please try again." : e instanceof Error ? e.message : "Website compile failed");
         setCompiling(false);
       }
       return;
@@ -319,7 +367,7 @@ export default function GeneratorHome() {
       try {
         const { data: sess } = await supabase.auth.getSession();
         const token = sess.session?.access_token ?? SUPABASE_ANON;
-        const resp = await fetch(`${SUPABASE_FUNCTIONS_URL}/compile-agent-manifest`, {
+        const resp = await fetchWithTimeout(`${SUPABASE_FUNCTIONS_URL}/compile-agent-manifest`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -336,16 +384,18 @@ export default function GeneratorHome() {
         }
         navigate(`/generated/agent/${body.agentId}`);
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Agent compile failed");
+        const timedOut = e instanceof DOMException && e.name === "AbortError";
+        toast.error(timedOut ? "Taking too long to respond — please try again." : e instanceof Error ? e.message : "Agent compile failed");
         setCompiling(false);
       }
       return;
     }
 
-    sessionStorage.setItem("nazai_pending_prompt", p);
-    sessionStorage.setItem("nazai_pending_type", activeType);
+    // Unreachable in practice -- activeType only ever comes from TYPES above,
+    // which is limited to website/business. Kept as an honest fallback rather
+    // than a silent no-op if that ever changes.
+    toast.error("This type isn't available yet");
     setCompiling(false);
-    navigate("/generation-workspace");
   };
 
   return (
@@ -464,9 +514,9 @@ export default function GeneratorHome() {
               disabled={!prompt.trim() || compiling}
               className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-purple-400/50 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              {compiling ? <Loader2 className="h-4 w-4 text-purple-300 animate-spin" /> : <Zap className="h-4 w-4 text-purple-300" />}
-              <span className="text-sm">{compiling ? "Compiling…" : "Generate"}</span>
-              <span className="text-purple-300">↗</span>
+              {compiling ? <Loader2 className="h-4 w-4 text-purple-300 animate-spin shrink-0" /> : <Zap className="h-4 w-4 text-purple-300" />}
+              <span className="text-sm whitespace-nowrap">{compiling ? compileStage || "Compiling…" : "Generate"}</span>
+              {!compiling && <span className="text-purple-300">↗</span>}
             </button>
           </div>
         </div>
