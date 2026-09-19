@@ -6,6 +6,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
+import { pickRole } from "../_shared/agent-role-classifier.ts";
+import { deriveCronLabel, nextRunFromCron } from "../_shared/agent-schedule.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -145,25 +147,9 @@ const ROLE_LIBRARY: Record<string, {
   },
 };
 
-function pickRole(plan: string, hinted?: string): keyof typeof ROLE_LIBRARY {
-  if (hinted && hinted in ROLE_LIBRARY) return hinted as keyof typeof ROLE_LIBRARY;
-  const p = plan.toLowerCase();
-  // Plain singular-only keyword lists silently missed plural forms --
-  // "invoices" never matched "invoice", so a clearly financial prompt fell
-  // through to "custom" (wrong default schedule + generic boilerplate
-  // automations unrelated to the actual request). Each keyword now
-  // optionally matches a trailing "s". "post"/"posts" was deliberately
-  // dropped rather than pluralized: live-tested and found it's generic
-  // enough ("posts a summary to Slack") to false-positive-match financial
-  // and ops prompts ahead of ops_finance's own, more specific keywords in
-  // this if/else chain -- content/blog/social/brand/campaign/seo/mention
-  // already cover real marketing prompts without that collision.
-  if (/\b(support|tickets?|inbox(?:es)?|helpdesk|customer service|complaints?)\b/.test(p)) return "support";
-  if (/\b(sales|leads?|prospects?|outreach|sdr|crm|pipelines?|cold emails?)\b/.test(p)) return "sales_ops";
-  if (/\b(markets?|content|seo|socials?|blogs?|brands?|campaigns?|mentions?)\b/.test(p)) return "marketing";
-  if (/\b(finances?|invoices?|kpis?|reports?|anomal(?:y|ies)|revenue|metrics?|dashboards?|ops|operations?)\b/.test(p)) return "ops_finance";
-  return "custom";
-}
+// pickRole lives in ../_shared/agent-role-classifier.ts (with real test
+// coverage) since two separate real bugs shipped from this exact logic in
+// one night before either was caught by anything but manual live-testing.
 
 const MANIFEST_SCHEMA_DOC = `Return STRICT JSON only — no markdown fences, no commentary.
 
@@ -509,43 +495,8 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
   }
 });
 
-// The AI is asked to produce its own `triggers` cron spec reflecting the
-// user's literal schedule request (e.g. "every morning" -> "0 8 * * *"),
-// separate from the role blueprint's generic default cadence (e.g.
-// ops_finance defaults to "0 7 * * *"). schedule_cron/schedule_label used
-// to always take the blueprint's default even when the AI supplied a
-// different, more accurate cron -- so a "daily at 8am" request could end
-// up actually scheduled (via agent-scheduler, which only reads this field)
-// on the blueprint's cadence instead. Only trust the AI's cron when it
-// matches one of the shapes nextRunFromCron actually understands, so a
-// malformed AI-supplied string can't silently produce a mislabeled or
-// unschedulable agent.
-function deriveCronLabel(cron: string): string | null {
-  let m = cron.match(/^\*\/(\d+)\s+\*\s+\*\s+\*\s+\*$/);
-  if (m) return `Every ${m[1]} minutes`;
-  m = cron.match(/^(\d+)\s+(\d+)\s+\*\s+\*\s+\*$/);
-  if (m) return `Daily at ${m[2].padStart(2, "0")}:${m[1].padStart(2, "0")} UTC`;
-  m = cron.match(/^(\d+)\s+\*\/(\d+)\s+\*\s+\*\s+\*$/);
-  if (m) return `Every ${m[2]} hours`;
-  return null;
-}
-
-function nextRunFromCron(cron: string): string {
-  const now = new Date();
-  let m = cron.match(/^\*\/(\d+)\s+\*\s+\*\s+\*\s+\*$/);
-  if (m) { now.setMinutes(now.getMinutes() + parseInt(m[1], 10)); return now.toISOString(); }
-  m = cron.match(/^(\d+)\s+(\d+)\s+\*\s+\*\s+\*$/);
-  if (m) {
-    const next = new Date(now);
-    next.setUTCHours(parseInt(m[2], 10), parseInt(m[1], 10), 0, 0);
-    if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
-    return next.toISOString();
-  }
-  m = cron.match(/^(\d+)\s+\*\/(\d+)\s+\*\s+\*\s+\*$/);
-  if (m) { now.setHours(now.getHours() + parseInt(m[2], 10)); return now.toISOString(); }
-  now.setHours(now.getHours() + 1);
-  return now.toISOString();
-}
+// deriveCronLabel / nextRunFromCron live in ../_shared/agent-schedule.ts
+// (with real test coverage) for the same reason as pickRole above.
 
 function json(b: unknown, s = 200) { return new Response(JSON.stringify(b), { status: s, headers: { ...corsHeaders, "Content-Type": "application/json" } }); }
 function extractJson(raw: string): Record<string, unknown> | null {

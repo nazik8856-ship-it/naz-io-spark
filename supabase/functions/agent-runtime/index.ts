@@ -21,6 +21,7 @@ import { pickAiGateway, callAiGateway, type GatewayConfig } from "../_shared/ai-
 import { triggerWebhooks } from "../_shared/webhooks.ts";
 import { validateOutboundUrl } from "../_shared/url-safety.ts";
 import { reportEdgeException } from "../_shared/sentry.ts";
+import { deriveRunOutcome, type AgentEvent } from "../_shared/agent-outcome.ts";
 
 import {
   readConfidence,
@@ -3059,40 +3060,21 @@ Rules:
         .order("created_at", { ascending: true })
         .limit(400);
       const evs = runEvs || [];
-      // Fast-path derivation matches the frontend logic exactly.
-      let hasPendingApproval = false, hasClarification = false, sawAction = false;
-      const lastOkByType = new Map<string, boolean>();
-      const actionLines: string[] = [];
-      for (const e of evs) {
-        const k = String(e.kind || "");
-        const p = (e.payload as Record<string, unknown>) || {};
-        if (k === "pending_approval") hasPendingApproval = true;
-        // A control-gate hold with verdict "require_approval"/"modify"/"deferred" is
-        // the same "waiting on a human" state as pending_approval -- it queues an
-        // approval_id for later resolution (see the "waiting in the approval queue"
-        // message shown to the model). Only a hard "block" verdict is a genuine
-        // rejection with no recourse. Without this, a run correctly held by the
-        // control gate fell through to the "no action succeeded" default below and
-        // was misreported as Failed even though it did exactly what it should.
-        else if (k === "control_gate_blocked" && String((p as { verdict?: unknown }).verdict) !== "block") hasPendingApproval = true;
-        else if (k === "approval_resolved" || k === "approved" || k === "rejected") hasPendingApproval = false;
-        else if (k === "clarification_request" || k === "ask_user" || k === "needs_input") hasClarification = true;
-        else if (k === "clarification_resolved" || k === "user_reply" || k === "clarification_answer") hasClarification = false;
-        else if (k === "action") {
-          sawAction = true;
-          const type = String((p as { type?: unknown }).type || "action");
-          const ok = (p as { ok?: unknown }).ok === true;
-          lastOkByType.set(type, ok);
-          actionLines.push(`- ${type} ok=${ok} ${String((p as { summary?: unknown }).summary || "").slice(0, 160)}`);
-        }
-      }
-      if (paused) outcomeLabel = "Paused";
-      else if (hasPendingApproval) outcomeLabel = "Needs approval";
-      else if (hasClarification) outcomeLabel = "Blocked";
-      else if (hitStepLimit) outcomeLabel = "Step limit";
-      else if (sawAction && Array.from(lastOkByType.values()).some((v) => v === false)) outcomeLabel = "Failed";
-      else if (sawAction) outcomeLabel = "Done";
-      else outcomeLabel = "Failed"; // finished with no delivered action = failed
+      // Fast-path derivation lives in ../_shared/agent-outcome.ts (with real
+      // test coverage, including the exact event sequence from the one
+      // production run that exposed the control_gate_blocked mislabel) and
+      // matches the frontend's copy of the same logic in
+      // src/lib/agent-outcome.ts -- keep both in sync by hand when either changes.
+      const agentEvents: AgentEvent[] = evs.map((e) => ({ kind: String(e.kind || ""), payload: (e.payload as Record<string, unknown>) || {} }));
+      outcomeLabel = deriveRunOutcome(agentEvents, { paused, hitStepLimit });
+      const actionLines: string[] = agentEvents
+        .filter((e) => e.kind === "action")
+        .map((e) => {
+          const p = e.payload || {};
+          const type = String(p.type || "action");
+          const ok = p.ok === true;
+          return `- ${type} ok=${ok} ${String(p.summary || "").slice(0, 160)}`;
+        });
 
       // Ask the model to grade against the original instruction — but keep
       // the derived label above; the model only refines the summary + goal_met.
