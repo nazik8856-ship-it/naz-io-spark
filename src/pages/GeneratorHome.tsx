@@ -226,6 +226,18 @@ export default function GeneratorHome() {
     if (!deleteTarget) return;
     setDeleting(true);
     try {
+      // getSession() transparently refreshes the access token in place if it
+      // had gone stale (e.g. the tab sat backgrounded long enough for the
+      // browser to throttle the SDK's background auto-refresh timer) --
+      // confirmed live: a delete on a row this user genuinely owns was
+      // silently rejected by RLS (0 rows, no error) because the request's
+      // JWT didn't carry a valid sub claim, even though the list itself,
+      // rendered from an earlier successful read, still looked fine.
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData.session) {
+        toast.error("Your session expired. Please refresh the page and sign in again.");
+        return;
+      }
       const table = deleteTarget.kind === "agent" ? "agents" : "websites";
       // .select() after .delete() makes Supabase return the rows it actually
       // removed -- without it, a delete silently blocked by RLS (wrong owner,
