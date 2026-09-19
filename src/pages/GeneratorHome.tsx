@@ -7,6 +7,7 @@ import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
 import PromptExtras, { analyzeAndBuildContext, type Attachment } from "@/components/generator/PromptExtras";
 import { RecentOutcomes } from "@/components/agents/RunOutcomes";
+import { computeRunOutcome, type Outcome } from "@/lib/agent-outcome";
 
 
 // Small "..." menu used on each recent project card — Edit navigates to the
@@ -85,7 +86,6 @@ export default function GeneratorHome() {
   const [recentAgents, setRecentAgents] = useState<RecentAgent[]>([]);
   const [agentsLoading, setAgentsLoading] = useState(false);
 
-  type Outcome = { label: string; tone: "green" | "amber" | "red" | "zinc" };
   type RunOutcome = { runId: string; outcome: Outcome; time: string };
   const [agentOutcomes, setAgentOutcomes] = useState<Record<string, Outcome>>({});
   // Last 7 scheduled runs per agent (cron-scheduled agents only).
@@ -153,38 +153,10 @@ export default function GeneratorHome() {
       }
 
       // Compute outcome for a set of events within a single run (chronological).
-      const computeOutcome = (runEvs: typeof evs): Outcome => {
-        let hasPendingApproval = false;
-        let hasClarification = false;
-        const lastActionOkByType = new Map<string, boolean>();
-        let sawAction = false;
-        for (const e of runEvs) {
-          const kind = String(e.kind || "");
-          const p = (e.payload as Record<string, unknown>) || {};
-          if (kind === "pending_approval") { hasPendingApproval = true; continue; }
-          // A control-gate hold (require_approval/modify/deferred) queues an
-          // approval_id for a human just like pending_approval does -- only a
-          // hard "block" verdict is a true rejection. Without this, a run the
-          // control gate correctly held for review fell through to "Failed"
-          // even though it did exactly what it should. Kept in sync with the
-          // matching fast-path derivation in agent-runtime/index.ts.
-          if (kind === "control_gate_blocked" && String((p as { verdict?: unknown }).verdict) !== "block") { hasPendingApproval = true; continue; }
-          if (kind === "approval_resolved" || kind === "approved" || kind === "rejected") { hasPendingApproval = false; continue; }
-          if (kind === "ask_user" || kind === "clarification" || kind === "needs_input") { hasClarification = true; continue; }
-          if (kind === "clarification_resolved" || kind === "user_reply") { hasClarification = false; continue; }
-          if (kind === "action") {
-            sawAction = true;
-            const type = String((p as { type?: unknown }).type || "action");
-            const ok = (p as { ok?: unknown }).ok === true;
-            lastActionOkByType.set(type, ok);
-          }
-        }
-        if (hasPendingApproval) return { label: "Needs approval", tone: "amber" };
-        if (hasClarification) return { label: "Blocked", tone: "amber" };
-        if (sawAction && Array.from(lastActionOkByType.values()).some((v) => v === false)) return { label: "Failed", tone: "red" };
-        if (sawAction) return { label: "Done", tone: "green" };
-        return { label: "Running", tone: "zinc" };
-      };
+      // Logic lives in @/lib/agent-outcome (with real Vitest coverage) and
+      // its matching Deno twin in supabase/functions/_shared/agent-outcome.ts.
+      const computeOutcome = (runEvs: typeof evs): Outcome =>
+        computeRunOutcome(runEvs.map((e) => ({ kind: String(e.kind || ""), payload: (e.payload as Record<string, unknown>) || {} })));
 
       const outcomes: Record<string, Outcome> = {};
       const history: Record<string, RunOutcome[]> = {};
