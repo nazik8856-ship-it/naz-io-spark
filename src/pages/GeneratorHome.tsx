@@ -226,30 +226,42 @@ export default function GeneratorHome() {
     if (!deleteTarget) return;
     setDeleting(true);
     try {
-      // getSession() transparently refreshes the access token in place if it
-      // had gone stale (e.g. the tab sat backgrounded long enough for the
-      // browser to throttle the SDK's background auto-refresh timer) --
-      // confirmed live: a delete on a row this user genuinely owns was
-      // silently rejected by RLS (0 rows, no error) because the request's
-      // JWT didn't carry a valid sub claim, even though the list itself,
-      // rendered from an earlier successful read, still looked fine.
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError || !sessionData.session) {
+      // The direct client-side supabase.from(table).delete() call (gated by
+      // RLS) went through three rounds of fixes in this same session --
+      // replacing window.confirm(), hardening error handling, then
+      // refreshing a possibly-stale session before the call -- and a live,
+      // reproducible case still had it silently affect zero rows despite a
+      // controlled simulation proving the RLS policy itself allows it for
+      // that exact user and row. Moved to a dedicated edge function
+      // (delete-project) instead: it verifies the caller's JWT directly
+      // (auth.getClaims on the raw token, not the browser's in-memory
+      // session state) and performs the actual delete with the service-role
+      // client, scoped by an explicit user_id check in the query itself.
+      // RLS and the browser's session-refresh timing are no longer part of
+      // this request's path at all.
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess.session?.access_token;
+      if (!token) {
         toast.error("Your session expired. Please refresh the page and sign in again.");
         return;
       }
-      const table = deleteTarget.kind === "agent" ? "agents" : "websites";
-      // .select() after .delete() makes Supabase return the rows it actually
-      // removed -- without it, a delete silently blocked by RLS (wrong owner,
-      // stale row) still comes back with no error, and the UI would report a
-      // false success while the row never actually left the database.
-      const { data, error } = await supabase.from(table).delete().eq("id", deleteTarget.id).select("id");
-      if (error) {
-        toast.error(error.message || `Failed to delete ${deleteTarget.kind}`);
-        return;
-      }
-      if (!data || data.length === 0) {
-        toast.error("Couldn't delete that — it may already be gone, or you don't have permission.");
+      const resp = await supabase.functions.invoke("delete-project", {
+        body: { kind: deleteTarget.kind, id: deleteTarget.id },
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (resp.error) {
+        let detail = resp.error.message || `Failed to delete ${deleteTarget.kind}`;
+        try {
+          const ctx: any = (resp.error as any).context;
+          if (ctx && typeof ctx.json === "function") {
+            const body = await ctx.json();
+            if (body?.error) detail = body.error;
+          } else if (ctx && typeof ctx.text === "function") {
+            const txt = await ctx.text();
+            try { const parsed = JSON.parse(txt); if (parsed?.error) detail = parsed.error; } catch { if (txt) detail = txt; }
+          }
+        } catch { /* keep base message */ }
+        toast.error(detail);
         return;
       }
       if (deleteTarget.kind === "agent") {
