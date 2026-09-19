@@ -485,6 +485,19 @@ serve(async (req) => {
     const { data: userData } = await supabase.auth.getUser();
     const user = userData?.user;
 
+    // A chat edit on an existing website REQUIRES a resolved user -- without
+    // one, refine/previousWebsiteId used to fall straight through both refine
+    // blocks below into the fresh-compile path, which has no idea an edit was
+    // intended: it silently compiled the user's request as a brand-new
+    // website, inserted a disconnected row nothing pointed at, and returned a
+    // normal-looking success response. The frontend re-reads the ORIGINAL
+    // website by its unchanged id, sees nothing changed, but still shows
+    // "✓ Updated" -- the user's suggestion silently never applied, no error
+    // surfaced. Fail loudly instead so the chat shows a real, actionable error.
+    if (refine && previousWebsiteId && !user) {
+      return json({ error: "Your session expired. Please refresh the page and try again." }, 401);
+    }
+
     // Follow-up chat on an existing website: decide edit vs rebuild vs new site.
     let compilePrompt = prompt;
     let rebuildWebsiteId: string | null = null;
