@@ -225,30 +225,39 @@ export default function GeneratorHome() {
   const confirmDelete = async () => {
     if (!deleteTarget) return;
     setDeleting(true);
-    const table = deleteTarget.kind === "agent" ? "agents" : "websites";
-    // .select() after .delete() makes Supabase return the rows it actually
-    // removed -- without it, a delete silently blocked by RLS (wrong owner,
-    // stale row) still comes back with no error, and the UI would report a
-    // false success while the row never actually left the database.
-    const { data, error } = await supabase.from(table).delete().eq("id", deleteTarget.id).select("id");
-    setDeleting(false);
-    if (error) {
-      toast.error(error.message || `Failed to delete ${deleteTarget.kind}`);
-      return;
-    }
-    if (!data || data.length === 0) {
-      toast.error("Couldn't delete that — it may already be gone, or you don't have permission.");
+    try {
+      const table = deleteTarget.kind === "agent" ? "agents" : "websites";
+      // .select() after .delete() makes Supabase return the rows it actually
+      // removed -- without it, a delete silently blocked by RLS (wrong owner,
+      // stale row) still comes back with no error, and the UI would report a
+      // false success while the row never actually left the database.
+      const { data, error } = await supabase.from(table).delete().eq("id", deleteTarget.id).select("id");
+      if (error) {
+        toast.error(error.message || `Failed to delete ${deleteTarget.kind}`);
+        return;
+      }
+      if (!data || data.length === 0) {
+        toast.error("Couldn't delete that — it may already be gone, or you don't have permission.");
+        return;
+      }
+      if (deleteTarget.kind === "agent") {
+        setRecentAgents((prev) => prev.filter((a) => a.id !== deleteTarget.id));
+        toast.success("Agent deleted");
+      } else {
+        setRecentWebsites((prev) => prev.filter((w) => w.id !== deleteTarget.id));
+        toast.success("Website deleted");
+      }
+    } catch (e) {
+      // A network hiccup or an unexpected thrown error here (rather than a
+      // clean {error} response) used to leave the dialog stuck on
+      // "Deleting..." forever with no toast and no way out -- the delete
+      // action would look completely dead. Always surface something and
+      // always let the user retry or back out.
+      toast.error(e instanceof Error ? e.message : "Something went wrong deleting that. Please try again.");
+    } finally {
+      setDeleting(false);
       setDeleteTarget(null);
-      return;
     }
-    if (deleteTarget.kind === "agent") {
-      setRecentAgents((prev) => prev.filter((a) => a.id !== deleteTarget.id));
-      toast.success("Agent deleted");
-    } else {
-      setRecentWebsites((prev) => prev.filter((w) => w.id !== deleteTarget.id));
-      toast.success("Website deleted");
-    }
-    setDeleteTarget(null);
   };
 
   const handleDeleteWebsite = (id: string, name: string | null) => {
