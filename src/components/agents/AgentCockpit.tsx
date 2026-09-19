@@ -5,6 +5,7 @@ import { Loader2, Play, Plug, X, Package, FileText, Sheet, Mail, Calendar, Exter
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import GeneratedAgentDashboard, { type AgentUiSpec } from "./GeneratedAgentDashboard";
+import AgentRenderBoundary from "./AgentRenderBoundary";
 import AgentEmployeePanel from "./AgentEmployeePanel";
 import AgentIntegrationsPanel from "./AgentIntegrationsPanel";
 import IntegrationIssueWindow from "@/components/integrations/IntegrationIssueWindow";
@@ -701,7 +702,9 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint, isLoc
 
       {/* Bespoke per-agent generated dashboard */}
       <div ref={feedRef}>
-        <GeneratedAgentDashboard manifest={manifest} events={events} agentId={agentId} />
+        <AgentRenderBoundary agentName={manifest.name} goal={manifest.goal}>
+          <GeneratedAgentDashboard manifest={manifest} events={events} agentId={agentId} />
+        </AgentRenderBoundary>
       </div>
 
       {/* Digital-employee surfaces: business sync, schedule, approvals, clarifications, memory */}
