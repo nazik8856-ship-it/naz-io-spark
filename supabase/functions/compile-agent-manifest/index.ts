@@ -148,10 +148,20 @@ const ROLE_LIBRARY: Record<string, {
 function pickRole(plan: string, hinted?: string): keyof typeof ROLE_LIBRARY {
   if (hinted && hinted in ROLE_LIBRARY) return hinted as keyof typeof ROLE_LIBRARY;
   const p = plan.toLowerCase();
-  if (/\b(support|ticket|inbox|helpdesk|customer service|complaint)\b/.test(p)) return "support";
-  if (/\b(sales|lead|prospect|outreach|sdr|crm|pipeline|cold email)\b/.test(p)) return "sales_ops";
-  if (/\b(market|content|seo|social|blog|post|brand|campaign|mention)\b/.test(p)) return "marketing";
-  if (/\b(finance|invoice|kpi|report|anomaly|revenue|metric|dashboard|ops|operations)\b/.test(p)) return "ops_finance";
+  // Plain singular-only keyword lists silently missed plural forms --
+  // "invoices" never matched "invoice", so a clearly financial prompt fell
+  // through to "custom" (wrong default schedule + generic boilerplate
+  // automations unrelated to the actual request). Each keyword now
+  // optionally matches a trailing "s". "post"/"posts" was deliberately
+  // dropped rather than pluralized: live-tested and found it's generic
+  // enough ("posts a summary to Slack") to false-positive-match financial
+  // and ops prompts ahead of ops_finance's own, more specific keywords in
+  // this if/else chain -- content/blog/social/brand/campaign/seo/mention
+  // already cover real marketing prompts without that collision.
+  if (/\b(support|tickets?|inbox(?:es)?|helpdesk|customer service|complaints?)\b/.test(p)) return "support";
+  if (/\b(sales|leads?|prospects?|outreach|sdr|crm|pipelines?|cold emails?)\b/.test(p)) return "sales_ops";
+  if (/\b(markets?|content|seo|socials?|blogs?|brands?|campaigns?|mentions?)\b/.test(p)) return "marketing";
+  if (/\b(finances?|invoices?|kpis?|reports?|anomal(?:y|ies)|revenue|metrics?|dashboards?|ops|operations?)\b/.test(p)) return "ops_finance";
   return "custom";
 }
 
@@ -372,8 +382,12 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
     // Stamp role onto the manifest so the Integrations panel picks the right
     // platform recommendations even when it only receives the manifest.
     (normalized as unknown as Record<string, unknown>).role = role;
-    (normalized as unknown as Record<string, unknown>).schedule_label = blueprint.schedule_label;
-    (normalized as unknown as Record<string, unknown>).schedule_cron = blueprint.schedule_cron;
+    const aiCron = normalized.triggers.find((t) => t.kind === "cron")?.spec;
+    const aiCronLabel = aiCron ? deriveCronLabel(aiCron) : null;
+    const finalScheduleCron = aiCronLabel ? aiCron! : blueprint.schedule_cron;
+    const finalScheduleLabel = aiCronLabel ?? blueprint.schedule_label;
+    (normalized as unknown as Record<string, unknown>).schedule_label = finalScheduleLabel;
+    (normalized as unknown as Record<string, unknown>).schedule_cron = finalScheduleCron;
 
 
 
@@ -382,7 +396,7 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
     if (save) {
       if (!user) return json({ error: "Not authenticated — sign in to deploy.", manifest: normalized, agentId: null }, 401);
       const slug = slugify(normalized.name);
-      const next_run_at = nextRunFromCron(blueprint.schedule_cron);
+      const next_run_at = nextRunFromCron(finalScheduleCron);
 
       // INCREMENTAL EDIT PATH: if the client passed an existingAgentId that
       // belongs to this user, UPDATE that agent's manifest in place instead of
@@ -400,8 +414,8 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
           // Preserve prior schedule if the user didn't reset the role — otherwise
           // adopt the new blueprint's schedule.
           const priorCron = (existing.schedule_cron as string | null) ?? null;
-          const cron = priorCron || blueprint.schedule_cron;
-          const label = priorCron ? blueprint.schedule_label : blueprint.schedule_label;
+          const cron = priorCron || finalScheduleCron;
+          const label = priorCron ? blueprint.schedule_label : finalScheduleLabel;
           const { error: updErr } = await supabase
             .from("agents")
             .update({
@@ -436,13 +450,13 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
           .eq("slug", slug)
           .maybeSingle();
         if (bySlug?.id) {
-          const cron = (bySlug.schedule_cron as string | null) || blueprint.schedule_cron;
+          const cron = (bySlug.schedule_cron as string | null) || finalScheduleCron;
           const { error: updErr } = await supabase
             .from("agents")
             .update({
               name: normalized.name, goal: normalized.goal,
               manifest: normalized, source_plan: effectivePlan.slice(0, 8000),
-              role, schedule_cron: cron, schedule_label: blueprint.schedule_label,
+              role, schedule_cron: cron, schedule_label: finalScheduleLabel,
               next_run_at: nextRunFromCron(cron),
               business_profile_id: businessProfileId ?? null,
             })
@@ -466,7 +480,7 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
             user_id: user.id, name: normalized.name, slug, goal: normalized.goal,
             manifest: normalized, source_plan: effectivePlan.slice(0, 8000),
             status: "active", role,
-            schedule_cron: blueprint.schedule_cron, schedule_label: blueprint.schedule_label,
+            schedule_cron: finalScheduleCron, schedule_label: finalScheduleLabel,
             next_run_at, business_profile_id: businessProfileId ?? null,
             autonomy: "guarded",
           })
@@ -488,12 +502,33 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
       }
     }
 
-    return json({ manifest: normalized, agentId, mode, role, schedule_cron: blueprint.schedule_cron, schedule_label: blueprint.schedule_label, usedFallback });
+    return json({ manifest: normalized, agentId, mode, role, schedule_cron: finalScheduleCron, schedule_label: finalScheduleLabel, usedFallback });
   } catch (e) {
     console.error("compile-agent-manifest error", e);
     return json({ error: e instanceof Error ? e.message : "unknown" }, 500);
   }
 });
+
+// The AI is asked to produce its own `triggers` cron spec reflecting the
+// user's literal schedule request (e.g. "every morning" -> "0 8 * * *"),
+// separate from the role blueprint's generic default cadence (e.g.
+// ops_finance defaults to "0 7 * * *"). schedule_cron/schedule_label used
+// to always take the blueprint's default even when the AI supplied a
+// different, more accurate cron -- so a "daily at 8am" request could end
+// up actually scheduled (via agent-scheduler, which only reads this field)
+// on the blueprint's cadence instead. Only trust the AI's cron when it
+// matches one of the shapes nextRunFromCron actually understands, so a
+// malformed AI-supplied string can't silently produce a mislabeled or
+// unschedulable agent.
+function deriveCronLabel(cron: string): string | null {
+  let m = cron.match(/^\*\/(\d+)\s+\*\s+\*\s+\*\s+\*$/);
+  if (m) return `Every ${m[1]} minutes`;
+  m = cron.match(/^(\d+)\s+(\d+)\s+\*\s+\*\s+\*$/);
+  if (m) return `Daily at ${m[2].padStart(2, "0")}:${m[1].padStart(2, "0")} UTC`;
+  m = cron.match(/^(\d+)\s+\*\/(\d+)\s+\*\s+\*\s+\*$/);
+  if (m) return `Every ${m[2]} hours`;
+  return null;
+}
 
 function nextRunFromCron(cron: string): string {
   const now = new Date();
