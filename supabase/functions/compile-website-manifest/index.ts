@@ -309,7 +309,7 @@ function normalize(raw: unknown, prompt: string): Manifest {
     design_rationale: typeof themeRaw.design_rationale === "string" ? themeRaw.design_rationale : undefined,
   };
   const pagesIn = Array.isArray(r.pages) ? r.pages : [];
-  const pages: Page[] = pagesIn.slice(0, 6).map((p, idx) => {
+  const pagesBuilt: Page[] = pagesIn.slice(0, 6).map((p, idx) => {
     const pp = (p ?? {}) as Record<string, unknown>;
     const sectionsIn = Array.isArray(pp.sections) ? pp.sections : [];
     const sections: Section[] = sectionsIn
@@ -317,10 +317,17 @@ function normalize(raw: unknown, prompt: string): Manifest {
         const ss = (s ?? {}) as Record<string, unknown>;
         const t = String(ss.type ?? "").toLowerCase();
         if (!SECTION_TYPES.includes(t as SectionType)) return null;
+        const content = (ss.content as Record<string, unknown>) ?? {};
+        // The AI occasionally emits a section with a valid type but empty
+        // content (seen live: "custom"/"gallery" sections shipped as
+        // content: {}) -- no section type renders anything meaningful with
+        // zero fields, so a blank block reached the live site instead of
+        // just not existing. Drop it rather than ship a guaranteed-empty section.
+        if (Object.keys(content).length === 0) return null;
         return {
           type: t as SectionType,
           variant: typeof ss.variant === "string" ? ss.variant : undefined,
-          content: (ss.content as Record<string, unknown>) ?? {},
+          content,
         };
       })
       .filter((x): x is Section => !!x);
@@ -333,6 +340,12 @@ function normalize(raw: unknown, prompt: string): Manifest {
       sections,
     };
   });
+
+  // A non-home page that lost every section to the empty-content filter above
+  // would otherwise ship as a real nav destination with nothing on it -- a
+  // dead page is worse than no page, so drop it rather than link to a blank
+  // one. Home (idx 0) always gets a hero backfilled below regardless.
+  const pages: Page[] = pagesBuilt.filter((p, idx) => idx === 0 || p.sections.length > 0);
 
   if (!pages.length) {
     pages.push({
