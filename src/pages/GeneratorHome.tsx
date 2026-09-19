@@ -8,6 +8,16 @@ import { toast } from "sonner";
 import PromptExtras, { analyzeAndBuildContext, type Attachment } from "@/components/generator/PromptExtras";
 import { RecentOutcomes } from "@/components/agents/RunOutcomes";
 import { computeRunOutcome, type Outcome } from "@/lib/agent-outcome";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 
 // Small "..." menu used on each recent project card — Edit navigates to the
@@ -205,26 +215,48 @@ export default function GeneratorHome() {
 
 
 
-  const handleDeleteWebsite = async (id: string, name: string | null) => {
-    if (!window.confirm(`Delete "${name || "this website"}"? This can't be undone.`)) return;
-    const { error } = await supabase.from("websites").delete().eq("id", id);
+  // window.confirm() is silently suppressed (returns false with no prompt
+  // ever shown) inside many sandboxed/embedded preview contexts -- which made
+  // Delete look completely dead with no error and no feedback. A real
+  // in-app dialog (below) can't be blocked that way.
+  const [deleteTarget, setDeleteTarget] = useState<{ kind: "agent" | "website"; id: string; name: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    const table = deleteTarget.kind === "agent" ? "agents" : "websites";
+    // .select() after .delete() makes Supabase return the rows it actually
+    // removed -- without it, a delete silently blocked by RLS (wrong owner,
+    // stale row) still comes back with no error, and the UI would report a
+    // false success while the row never actually left the database.
+    const { data, error } = await supabase.from(table).delete().eq("id", deleteTarget.id).select("id");
+    setDeleting(false);
     if (error) {
-      toast.error(error.message || "Failed to delete website");
+      toast.error(error.message || `Failed to delete ${deleteTarget.kind}`);
       return;
     }
-    setRecentWebsites((prev) => prev.filter((w) => w.id !== id));
-    toast.success("Website deleted");
+    if (!data || data.length === 0) {
+      toast.error("Couldn't delete that — it may already be gone, or you don't have permission.");
+      setDeleteTarget(null);
+      return;
+    }
+    if (deleteTarget.kind === "agent") {
+      setRecentAgents((prev) => prev.filter((a) => a.id !== deleteTarget.id));
+      toast.success("Agent deleted");
+    } else {
+      setRecentWebsites((prev) => prev.filter((w) => w.id !== deleteTarget.id));
+      toast.success("Website deleted");
+    }
+    setDeleteTarget(null);
   };
 
-  const handleDeleteAgent = async (id: string, name: string) => {
-    if (!window.confirm(`Delete "${name}"? This can't be undone.`)) return;
-    const { error } = await supabase.from("agents").delete().eq("id", id);
-    if (error) {
-      toast.error(error.message || "Failed to delete agent");
-      return;
-    }
-    setRecentAgents((prev) => prev.filter((a) => a.id !== id));
-    toast.success("Agent deleted");
+  const handleDeleteWebsite = (id: string, name: string | null) => {
+    setDeleteTarget({ kind: "website", id, name: name || "this website" });
+  };
+
+  const handleDeleteAgent = (id: string, name: string) => {
+    setDeleteTarget({ kind: "agent", id, name });
   };
 
   const [compiling, setCompiling] = useState(false);
@@ -705,6 +737,29 @@ export default function GeneratorHome() {
           )}
         </div>
       </main>
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+        <AlertDialogContent className="bg-[#0a0a0f] border-white/10 text-white">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete "{deleteTarget?.name}"?</AlertDialogTitle>
+            <AlertDialogDescription className="text-zinc-400">
+              This can't be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting} className="bg-transparent border-white/10 text-zinc-200 hover:bg-white/5 hover:text-white">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deleting}
+              onClick={(e) => { e.preventDefault(); confirmDelete(); }}
+              className="bg-red-500/90 text-white hover:bg-red-500"
+            >
+              {deleting ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
