@@ -21,7 +21,7 @@ export type Widget =
   | { kind: "alert_feed"; title: string; severity?: string; span?: number }
   | { kind: "tool_grid"; title: string; span?: number }
   | { kind: "kpi_radar"; title: string; span?: number }
-  | { kind: "status_grid"; title: string; items: { label: string; valueFrom: string }[]; span?: number }
+  | { kind: "status_grid"; title: string; items?: { label: string; valueFrom: string }[]; span?: number }
   | { kind: "guardrail_panel"; title: string; span?: number }
   | { kind: "tool_call_stream"; title: string; limit?: number; span?: number }
   | { kind: "automation_rules"; title: string; span?: number }
@@ -627,7 +627,7 @@ function WidgetCard({
         <div className="p-4 h-full">
           <CardHeading label={widget.title} accent={accent} />
           <div className="grid grid-cols-2 gap-2.5">
-            {widget.items.map((it, i) => (
+            {(widget.items ?? []).map((it, i) => (
               <div
                 key={i}
                 className="rounded-lg p-3 relative overflow-hidden"
