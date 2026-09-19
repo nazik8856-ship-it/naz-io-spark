@@ -162,6 +162,13 @@ export default function GeneratorHome() {
           const kind = String(e.kind || "");
           const p = (e.payload as Record<string, unknown>) || {};
           if (kind === "pending_approval") { hasPendingApproval = true; continue; }
+          // A control-gate hold (require_approval/modify/deferred) queues an
+          // approval_id for a human just like pending_approval does -- only a
+          // hard "block" verdict is a true rejection. Without this, a run the
+          // control gate correctly held for review fell through to "Failed"
+          // even though it did exactly what it should. Kept in sync with the
+          // matching fast-path derivation in agent-runtime/index.ts.
+          if (kind === "control_gate_blocked" && String((p as { verdict?: unknown }).verdict) !== "block") { hasPendingApproval = true; continue; }
           if (kind === "approval_resolved" || kind === "approved" || kind === "rejected") { hasPendingApproval = false; continue; }
           if (kind === "ask_user" || kind === "clarification" || kind === "needs_input") { hasClarification = true; continue; }
           if (kind === "clarification_resolved" || kind === "user_reply") { hasClarification = false; continue; }

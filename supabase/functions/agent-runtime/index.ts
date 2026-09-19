@@ -1072,6 +1072,9 @@ serve(async (req) => {
 
     const systemPrompt = `${manifest.systemPrompt}
 
+# Right now
+- The current real date and time is ${new Date().toISOString()} (UTC). You have no other source of "now" -- your training data's implicit sense of the date is not reliable and must never be used. Compute every relative date/time (tomorrow, next Monday, in 3 days, this morning) from this value, not from memory.
+
 # Operating contract
 - Goal: ${manifest.goal}
 - Decision policy: ${manifest.decisionPolicy}
@@ -2860,7 +2863,12 @@ Rules:
           const now = Date.now();
           const maxMs = 90 * 24 * 60 * 60 * 1000;
           if (isNaN(when.getTime()) || when.getTime() <= now || when.getTime() - now > maxMs || !instruction) {
-            const msg = "schedule_followup requires run_at_iso (valid ISO, in the future, ≤90 days out) and a non-empty instruction.";
+            // Reassert the real current time right at the failure point -- this
+            // is the exact spot a model relying on its own stale internal sense
+            // of "now" (rather than the "# Right now" system-prompt line) picks
+            // a past date and then, on retry, only tweaks the day instead of
+            // recomputing the year, since the message alone didn't say why.
+            const msg = `schedule_followup requires run_at_iso (valid ISO, in the future of the real current time ${new Date(now).toISOString()}, ≤90 days out) and a non-empty instruction.`;
             await logEvent("tool_result", { tool: tool.name, ok: false, summary: msg });
             await logEvent("action", { type: "schedule_followup", target: runAtIso, ok: false, result_ref: null, summary: msg });
             messages.push({ role: "user", content: `${msg} Continue.` });
@@ -3059,6 +3067,14 @@ Rules:
         const k = String(e.kind || "");
         const p = (e.payload as Record<string, unknown>) || {};
         if (k === "pending_approval") hasPendingApproval = true;
+        // A control-gate hold with verdict "require_approval"/"modify"/"deferred" is
+        // the same "waiting on a human" state as pending_approval -- it queues an
+        // approval_id for later resolution (see the "waiting in the approval queue"
+        // message shown to the model). Only a hard "block" verdict is a genuine
+        // rejection with no recourse. Without this, a run correctly held by the
+        // control gate fell through to the "no action succeeded" default below and
+        // was misreported as Failed even though it did exactly what it should.
+        else if (k === "control_gate_blocked" && String((p as { verdict?: unknown }).verdict) !== "block") hasPendingApproval = true;
         else if (k === "approval_resolved" || k === "approved" || k === "rejected") hasPendingApproval = false;
         else if (k === "clarification_request" || k === "ask_user" || k === "needs_input") hasClarification = true;
         else if (k === "clarification_resolved" || k === "user_reply" || k === "clarification_answer") hasClarification = false;
