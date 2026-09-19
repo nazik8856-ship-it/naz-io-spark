@@ -148,14 +148,19 @@ const ROLE_LIBRARY: Record<string, {
 function pickRole(plan: string, hinted?: string): keyof typeof ROLE_LIBRARY {
   if (hinted && hinted in ROLE_LIBRARY) return hinted as keyof typeof ROLE_LIBRARY;
   const p = plan.toLowerCase();
-  // Plain singular-only keyword lists silently missed plural/verb forms --
-  // "invoices"/"posts a summary" never matched "invoice"/"post", so a
-  // clearly financial or marketing prompt fell through to "custom" (wrong
-  // default schedule + generic boilerplate automations unrelated to the
-  // actual request). Each keyword now optionally matches a trailing "s".
+  // Plain singular-only keyword lists silently missed plural forms --
+  // "invoices" never matched "invoice", so a clearly financial prompt fell
+  // through to "custom" (wrong default schedule + generic boilerplate
+  // automations unrelated to the actual request). Each keyword now
+  // optionally matches a trailing "s". "post"/"posts" was deliberately
+  // dropped rather than pluralized: live-tested and found it's generic
+  // enough ("posts a summary to Slack") to false-positive-match financial
+  // and ops prompts ahead of ops_finance's own, more specific keywords in
+  // this if/else chain -- content/blog/social/brand/campaign/seo/mention
+  // already cover real marketing prompts without that collision.
   if (/\b(support|tickets?|inbox(?:es)?|helpdesk|customer service|complaints?)\b/.test(p)) return "support";
   if (/\b(sales|leads?|prospects?|outreach|sdr|crm|pipelines?|cold emails?)\b/.test(p)) return "sales_ops";
-  if (/\b(markets?|content|seo|socials?|blogs?|posts?|brands?|campaigns?|mentions?)\b/.test(p)) return "marketing";
+  if (/\b(markets?|content|seo|socials?|blogs?|brands?|campaigns?|mentions?)\b/.test(p)) return "marketing";
   if (/\b(finances?|invoices?|kpis?|reports?|anomal(?:y|ies)|revenue|metrics?|dashboards?|ops|operations?)\b/.test(p)) return "ops_finance";
   return "custom";
 }
