@@ -703,6 +703,40 @@ serve(async (req) => {
         }
       }
 
+      // ---- Notify the owner when the run pauses to ask them something -------
+      // A clarification_request used to be visible only by opening the
+      // cockpit — nothing ever told the owner an agent was waiting on them,
+      // so a paused run could sit unanswered indefinitely. Best-effort email,
+      // same template/pattern as the send_email tool's own notifications;
+      // a delivery failure here must never break event logging itself.
+      if (kind === "clarification_request") {
+        const p = payload as { question?: unknown; humanMessage?: unknown };
+        const question = String(p.humanMessage || p.question || "").slice(0, 2000);
+        if (question) {
+          try {
+            const { data: ownerUser } = await supabase.auth.admin.getUserById(userId);
+            const ownerEmail = ownerUser?.user?.email;
+            if (ownerEmail) {
+              await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-transactional-email`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+                body: JSON.stringify({
+                  templateName: "agent-notification",
+                  recipientEmail: ownerEmail,
+                  templateData: {
+                    subject: `${manifest.name || "Your agent"} needs your input`,
+                    body: `${question}\n\nOpen the agent to answer: https://www.nazai.net/generated/agent/${agentId}`,
+                    agentName: manifest.name,
+                  },
+                }),
+              });
+            }
+          } catch (e) {
+            console.warn("agent-runtime: clarification notification failed", e);
+          }
+        }
+      }
+
       // Attach decision provenance (reasoning + confidence) to the next action
       // event when the model provided it alongside the tool call. Purely
       // additive — old rows have these columns null.
