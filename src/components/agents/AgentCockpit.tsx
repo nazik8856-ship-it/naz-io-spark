@@ -255,12 +255,19 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint, isLoc
       setLastRunStatus("waiting");
       return;
     }
-    if (last.kind === "run_started" || (!finished && slice.length > 0 && last.kind !== "error")) {
+    if (last.kind === "run_started" || (!finished && slice.length > 0 && last.kind !== "error" && last.kind !== "guardrail_block")) {
       setRunning(true);
     } else {
       setRunning(false);
-      if (finished && hasProgress) setLastRunStatus("completed");
-      else if (hardError && !hasProgress) setLastRunStatus("error");
+      // A hard error/guardrail_block event means the run genuinely crashed
+      // or was blocked -- that's never "completed", regardless of whether
+      // some progress happened first. Previously `hardError && !hasProgress`
+      // meant a run that did some real work before crashing (agent-runtime's
+      // crash handler always logs a terminal "error" event, so this is the
+      // common case, not an edge case) fell through to the catch-all below
+      // and silently reported "completed" -- the crash was fully hidden.
+      if (hardError) setLastRunStatus("error");
+      else if (finished && hasProgress) setLastRunStatus("completed");
       else setLastRunStatus("completed");
     }
   }, [events]);
