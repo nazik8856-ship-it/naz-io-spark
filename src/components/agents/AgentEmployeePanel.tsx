@@ -1,7 +1,7 @@
 // Digital-Employee panel rendered beneath the generated dashboard in AgentCockpit.
 // Shows: Business Sync, Schedule, Approvals queue, Clarifications inbox, Memory.
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Brain, CalendarClock, CheckCircle2, MessageCircleQuestion, ShieldCheck, XCircle, Send, Copy, Webhook, Clock, Zap } from "lucide-react";
+import { Brain, CalendarClock, CheckCircle2, MessageCircleQuestion, ShieldCheck, XCircle, Send, Copy, Webhook, Clock, Zap, ChevronDown, ChevronRight } from "lucide-react";
 import { supabase, SUPABASE_FUNCTIONS_URL } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Calendar } from "@/components/ui/calendar";
@@ -9,6 +9,16 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 type AgentRow = {
   id: string;
@@ -115,14 +125,17 @@ export default function AgentEmployeePanel({ agentId, events }: { agentId: strin
     }
   };
 
-  const toggleAutoApprove = async () => {
-    if (!agent) return;
-    const next = !agent.auto_approve_low_risk;
-    if (next && !confirm("Enable auto-approve for low-risk sends? The agent will send emails and webhooks without asking, unless a guardrail explicitly says [REQUIRES APPROVAL].")) return;
+  const [confirmAutoApproveOpen, setConfirmAutoApproveOpen] = useState(false);
+  const applyAutoApprove = async (next: boolean) => {
     const { error } = await supabase.from("agents").update({ auto_approve_low_risk: next } as never).eq("id", agentId);
     if (error) { toast.error(error.message); return; }
-    toast.success(next ? "Auto-approve enabled — agent will send without asking." : "Auto-approve disabled — actions will queue for approval.");
+    toast.success(next ? "Turned on — routine emails and messages will send right away." : "Turned off — everything will wait for your approval again.");
     load();
+  };
+  const toggleAutoApprove = () => {
+    if (!agent) return;
+    if (agent.auto_approve_low_risk) { applyAutoApprove(false); return; }
+    setConfirmAutoApproveOpen(true);
   };
 
 
@@ -137,6 +150,8 @@ export default function AgentEmployeePanel({ agentId, events }: { agentId: strin
     load();
   };
 
+  const [advancedScheduleOpen, setAdvancedScheduleOpen] = useState(false);
+  const [advancedTriggerOpen, setAdvancedTriggerOpen] = useState(false);
   const [customCron, setCustomCron] = useState("");
   const cronValid = useMemo(
     () => /^(\*|[0-9,\-/]+)(\s+(\*|[0-9,\-/]+)){4}$/.test(customCron.trim()),
@@ -169,12 +184,14 @@ export default function AgentEmployeePanel({ agentId, events }: { agentId: strin
       toast.error("Copy failed — select and copy manually.");
     }
   };
-  const regenerateSecret = async () => {
-    if (!confirm("Regenerate webhook secret? Any external system using the current secret will stop working until updated.")) return;
+  const [confirmRegenSecretOpen, setConfirmRegenSecretOpen] = useState(false);
+  const regenerateSecret = () => setConfirmRegenSecretOpen(true);
+  const confirmRegenerateSecret = async () => {
+    setConfirmRegenSecretOpen(false);
     const { data, error } = await supabase.rpc("rotate_webhook_secret", { _agent_id: agentId } as never);
     if (error) { toast.error(error.message); return; }
     if (typeof data === "string") setWebhookSecret(data);
-    toast.warning("Webhook secret rotated. Update any external integrations with the new secret.");
+    toast.warning("New key created. Update anything you connected with the old one.");
     load();
   };
 
@@ -205,30 +222,31 @@ export default function AgentEmployeePanel({ agentId, events }: { agentId: strin
 
 
   return (
+    <>
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
       {/* Business Sync */}
-      <Card title="Business Sync" icon={<ShieldCheck className="h-4 w-4" />}>
+      <Card title="Your business" icon={<ShieldCheck className="h-4 w-4" />}>
         {profile ? (
           <div className="space-y-1.5 text-xs text-zinc-300">
             <div className="text-sm font-semibold text-white">{profile.company_name}</div>
             <div className="text-zinc-400">{profile.one_liner}</div>
             <div className="flex flex-wrap gap-1.5 pt-1">
               {profile.industry && <Tag>{profile.industry}</Tag>}
-              {profile.tone && <Tag>tone: {profile.tone}</Tag>}
+              {profile.tone && <Tag>{profile.tone} tone</Tag>}
               {profile.source_url && <Tag>{profile.source_url.replace(/^https?:\/\//, "").slice(0, 32)}</Tag>}
             </div>
-            <div className="text-zinc-500 mt-1">audience: {profile.audience}</div>
+            {profile.audience && <div className="text-zinc-500 mt-1">Audience: {profile.audience}</div>}
           </div>
         ) : (
-          <div className="text-xs text-zinc-500">No business profile attached. Add a URL in the next agent prompt and NazAI will auto-sync.</div>
+          <div className="text-xs text-zinc-500">No business details yet. Share your website in the next message and it'll pick them up automatically.</div>
         )}
       </Card>
 
       {/* Schedule */}
       <Card title="Schedule" icon={<CalendarClock className="h-4 w-4" />}>
         <div className="text-xs text-zinc-400 mb-2">
-          Current: <span className="text-emerald-300 font-mono">{agent?.schedule_label || agent?.schedule_cron || "manual"}</span>
-          {agent?.next_run_at && (<span className="ml-2 text-zinc-500">· next {new Date(agent.next_run_at).toLocaleString()}</span>)}
+          Runs: <span className="text-emerald-300">{agent?.schedule_label || "manually"}</span>
+          {agent?.next_run_at && (<span className="ml-2 text-zinc-500">· next run {new Date(agent.next_run_at).toLocaleString()}</span>)}
         </div>
         <div className="flex flex-wrap gap-1.5">
           {SCHEDULE_PRESETS.map((p) => (
@@ -238,65 +256,42 @@ export default function AgentEmployeePanel({ agentId, events }: { agentId: strin
             </button>
           ))}
         </div>
-        <div className="mt-3 flex items-center gap-1.5">
-          <input
-            value={customCron}
-            onChange={(e) => setCustomCron(e.target.value)}
-            placeholder="Custom cron  e.g. */15 * * * *"
-            className={`flex-1 px-2 py-1 text-[11px] font-mono rounded border bg-black/30 text-white focus:outline-none ${customCron && !cronValid ? "border-rose-400/60" : "border-white/10 focus:border-emerald-400/60"}`}
-          />
-          <button
-            disabled={!cronValid}
-            onClick={() => setSchedule(customCron.trim(), `Custom (${customCron.trim()})`)}
-            className="px-2 py-1 text-[10px] rounded bg-emerald-400 text-black font-bold disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            Save
-          </button>
-        </div>
-        {customCron && !cronValid && (
-          <div className="mt-1 text-[10px] text-rose-300/80">Needs 5 fields separated by spaces (e.g. <span className="font-mono">*/15 * * * *</span>).</div>
+        <button
+          onClick={() => setAdvancedScheduleOpen((o) => !o)}
+          className="mt-2.5 flex items-center gap-1 text-[10px] text-zinc-500 hover:text-zinc-300"
+        >
+          {advancedScheduleOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+          Set a custom time
+        </button>
+        {advancedScheduleOpen && (
+          <div className="mt-2">
+            <div className="flex items-center gap-1.5">
+              <input
+                value={customCron}
+                onChange={(e) => setCustomCron(e.target.value)}
+                placeholder="e.g. */15 * * * * (every 15 minutes)"
+                className={`flex-1 px-2 py-1 text-[11px] font-mono rounded border bg-black/30 text-white focus:outline-none ${customCron && !cronValid ? "border-rose-400/60" : "border-white/10 focus:border-emerald-400/60"}`}
+              />
+              <button
+                disabled={!cronValid}
+                onClick={() => setSchedule(customCron.trim(), `Custom (${customCron.trim()})`)}
+                className="px-2 py-1 text-[10px] rounded bg-emerald-400 text-black font-bold disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Save
+              </button>
+            </div>
+            {customCron && !cronValid && (
+              <div className="mt-1 text-[10px] text-rose-300/80">That doesn't look like a valid schedule — needs 5 parts separated by spaces (e.g. <span className="font-mono">*/15 * * * *</span>).</div>
+            )}
+          </div>
         )}
       </Card>
 
       {/* Triggers */}
-      <Card title="Triggers" icon={<Webhook className="h-4 w-4" />}>
+      <Card title="Run it manually" icon={<Webhook className="h-4 w-4" />}>
         <div className="space-y-3">
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <div className="text-[10px] uppercase tracking-wider font-mono text-zinc-500">Webhook trigger</div>
-              <button
-                onClick={regenerateSecret}
-                className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-amber-400/30 bg-amber-400/5 text-amber-300 hover:border-amber-400/60 hover:bg-amber-400/10"
-                title="Rotate the webhook secret (breaks old integrations)"
-              >
-                Regenerate secret
-              </button>
-            </div>
-            <div className="text-[10px] text-zinc-500 mb-1">
-              Requires header <code className="text-amber-300 font-mono">x-webhook-secret</code>. Keep this secret private.
-            </div>
-            <div className="flex items-start gap-1.5">
-              <pre className="flex-1 min-w-0 overflow-x-auto px-2 py-1.5 text-[10px] rounded border border-white/10 bg-black/40 text-cyan-200 font-mono whitespace-pre">
-{curlCommand}
-              </pre>
-              <div className="flex flex-col gap-1">
-                <button onClick={() => copyText(curlCommand, "curl command")} className="p-1.5 rounded border border-white/10 bg-white/[0.03] text-zinc-300 hover:text-white hover:border-white/30" title="Copy full curl command">
-                  <Copy className="h-3 w-3" />
-                </button>
-                <button onClick={() => copyText(webhookSecret, "Secret")} className="p-1.5 rounded border border-white/10 bg-white/[0.03] text-zinc-300 hover:text-white hover:border-white/30 text-[9px] font-mono" title="Copy just the secret">
-                  key
-                </button>
-                <button onClick={() => copyText(webhookUrl, "URL")} className="p-1.5 rounded border border-white/10 bg-white/[0.03] text-zinc-300 hover:text-white hover:border-white/30 text-[9px] font-mono" title="Copy just the URL">
-                  url
-                </button>
-              </div>
-            </div>
-            <div className="mt-1 text-[10px] text-zinc-500">POST body JSON is forwarded to the agent as its instruction.</div>
-          </div>
-
-
-          <div className="border-t border-white/5 pt-3">
-            <div className="text-[10px] uppercase tracking-wider font-mono text-zinc-500 mb-1 flex items-center gap-1"><Clock className="h-3 w-3" /> Run once at…</div>
+          <div className="border-t border-white/5 pt-1">
+            <div className="text-[10px] uppercase tracking-wider font-mono text-zinc-500 mb-1 flex items-center gap-1"><Clock className="h-3 w-3" /> Run once at a specific time</div>
             <div className="flex flex-wrap items-center gap-1.5">
               <Popover>
                 <PopoverTrigger asChild>
@@ -330,56 +325,78 @@ export default function AgentEmployeePanel({ agentId, events }: { agentId: strin
               </button>
             </div>
           </div>
+
+          <button
+            onClick={() => setAdvancedTriggerOpen((o) => !o)}
+            className="flex items-center gap-1 text-[10px] text-zinc-500 hover:text-zinc-300 border-t border-white/5 pt-2.5"
+          >
+            {advancedTriggerOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+            Connect from another app or system
+          </button>
+          {advancedTriggerOpen && (
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <div className="text-[10px] uppercase tracking-wider font-mono text-zinc-500">Webhook (for developers)</div>
+                <button
+                  onClick={regenerateSecret}
+                  className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-amber-400/30 bg-amber-400/5 text-amber-300 hover:border-amber-400/60 hover:bg-amber-400/10"
+                  title="Create a new key (the old one stops working)"
+                >
+                  Create new key
+                </button>
+              </div>
+              <div className="text-[10px] text-zinc-500 mb-1">
+                Give this to a developer to trigger the agent from another system. Keep the key private.
+              </div>
+              <div className="flex items-start gap-1.5">
+                <pre className="flex-1 min-w-0 overflow-x-auto px-2 py-1.5 text-[10px] rounded border border-white/10 bg-black/40 text-cyan-200 font-mono whitespace-pre">
+{curlCommand}
+                </pre>
+                <div className="flex flex-col gap-1">
+                  <button onClick={() => copyText(curlCommand, "Command")} className="p-1.5 rounded border border-white/10 bg-white/[0.03] text-zinc-300 hover:text-white hover:border-white/30" title="Copy full command">
+                    <Copy className="h-3 w-3" />
+                  </button>
+                  <button onClick={() => copyText(webhookSecret, "Key")} className="p-1.5 rounded border border-white/10 bg-white/[0.03] text-zinc-300 hover:text-white hover:border-white/30 text-[9px] font-mono" title="Copy just the key">
+                    key
+                  </button>
+                  <button onClick={() => copyText(webhookUrl, "URL")} className="p-1.5 rounded border border-white/10 bg-white/[0.03] text-zinc-300 hover:text-white hover:border-white/30 text-[9px] font-mono" title="Copy just the URL">
+                    url
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </Card>
 
 
 
       {/* Approvals queue */}
-      <Card title={`Approvals · ${approvals.length}`} icon={<CheckCircle2 className="h-4 w-4" />}>
+      <Card title={`Waiting for your OK · ${approvals.length}`} icon={<CheckCircle2 className="h-4 w-4" />}>
         <button
           onClick={toggleAutoApprove}
           className={`w-full mb-2 flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg border text-[11px] ${agent?.auto_approve_low_risk ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200" : "border-white/10 bg-white/[0.02] text-zinc-300 hover:text-white hover:border-white/30"}`}
-          title="When ON, low-risk send_email and http_post skip the queue and execute immediately. Guardrails marked [REQUIRES APPROVAL] still queue."
+          title="When on, routine emails and messages send right away without asking. Anything flagged as needing approval will still wait for you."
         >
-          <span className="flex items-center gap-1.5"><Zap className="h-3 w-3" /> Auto-approve low-risk sends</span>
+          <span className="flex items-center gap-1.5"><Zap className="h-3 w-3" /> Send routine messages without asking</span>
           <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold ${agent?.auto_approve_low_risk ? "bg-emerald-400 text-black" : "bg-white/10 text-zinc-400"}`}>
             {agent?.auto_approve_low_risk ? "ON" : "OFF"}
           </span>
         </button>
         {approvals.length === 0 ? (
-          <div className="text-xs text-zinc-500">No pending approvals. Agent will queue external actions here.</div>
+          <div className="text-xs text-zinc-500">Nothing waiting on you right now.</div>
         ) : (
           <div className="space-y-2">
-            {approvals.map((e) => {
-              const p = e.payload as { action?: string; payload?: unknown; risk?: string };
-              return (
-                <div key={e.id} className="rounded-lg border border-amber-400/20 bg-amber-400/[0.04] p-2.5">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="text-xs font-semibold text-amber-200 truncate">{p.action}</div>
-                      <div className="text-[10px] text-zinc-500 font-mono uppercase">risk: {p.risk || "med"}</div>
-                    </div>
-                    <div className="flex gap-1.5 shrink-0">
-                      <button onClick={() => respondApproval(e.id, true)} className="px-2 py-1 text-[10px] rounded bg-emerald-400 text-black font-bold hover:opacity-90">Approve</button>
-                      <button onClick={() => respondApproval(e.id, false)} className="px-2 py-1 text-[10px] rounded border border-white/15 text-zinc-300 hover:text-white"><XCircle className="h-3 w-3" /></button>
-                    </div>
-                  </div>
-                  <pre className="mt-1.5 text-[10px] text-zinc-400 overflow-x-auto whitespace-pre-wrap max-h-24">
-                    {JSON.stringify(p.payload, null, 2).slice(0, 600)}
-                  </pre>
-                </div>
-              );
-            })}
+            {approvals.map((e) => <ApprovalItem key={e.id} ev={e} onRespond={respondApproval} />)}
           </div>
         )}
       </Card>
 
 
       {/* Clarifications inbox */}
-      <Card title={`Clarifications · ${clarifications.length}`} icon={<MessageCircleQuestion className="h-4 w-4" />}>
+      <Card title={`Questions for you · ${clarifications.length}`} icon={<MessageCircleQuestion className="h-4 w-4" />}>
         {clarifications.length === 0 ? (
-          <div className="text-xs text-zinc-500">Agent will only ask here when essential info is missing.</div>
+          <div className="text-xs text-zinc-500">It'll only ask here when it's missing something it needs.</div>
         ) : (
           <div className="space-y-3">
             {clarifications.map((e) => <ClarificationItem key={e.id} ev={e} onAnswer={answerClarification} />)}
@@ -388,21 +405,81 @@ export default function AgentEmployeePanel({ agentId, events }: { agentId: strin
       </Card>
 
       {/* Memory */}
-      <Card title={`Memory · ${memory.length}`} icon={<Brain className="h-4 w-4" />} wide>
+      <Card title={`What it remembers · ${memory.length}`} icon={<Brain className="h-4 w-4" />} wide>
         {memory.length === 0 ? (
-          <div className="text-xs text-zinc-500">No facts yet. The agent will remember things as it works.</div>
+          <div className="text-xs text-zinc-500">Nothing yet — it'll remember things about your business as it works.</div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-56 overflow-y-auto pr-1 custom-scroll">
             {memory.map((m) => (
               <div key={m.id} className="rounded-md border border-white/10 bg-white/[0.02] p-2">
-                <div className="text-[10px] font-mono text-cyan-300/80 truncate">{m.key}</div>
+                <div className="text-[10px] text-cyan-300/80 truncate capitalize">{friendlyMemoryLabel(m.key)}</div>
                 <div className="text-xs text-zinc-200 break-words">{m.value}</div>
-                <div className="text-[9px] text-zinc-500 mt-0.5 uppercase">{m.source}</div>
+                <div className="text-[9px] text-zinc-500 mt-0.5">{friendlySource(m.source)}</div>
               </div>
             ))}
           </div>
         )}
       </Card>
+    </div>
+    <AlertDialog open={confirmAutoApproveOpen} onOpenChange={setConfirmAutoApproveOpen}>
+      <AlertDialogContent className="bg-zinc-950 border-white/10 text-white">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Send routine messages without asking?</AlertDialogTitle>
+          <AlertDialogDescription className="text-zinc-400">
+            The agent will send simple emails and messages right away instead of waiting for your OK. Anything flagged as needing approval will still wait for you.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel className="bg-transparent border-white/10 text-zinc-200 hover:bg-white/5 hover:text-white">Cancel</AlertDialogCancel>
+          <AlertDialogAction onClick={() => applyAutoApprove(true)} className="bg-emerald-400/20 text-emerald-200 border border-emerald-400/30 hover:bg-emerald-400/30">
+            Turn on
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    <AlertDialog open={confirmRegenSecretOpen} onOpenChange={setConfirmRegenSecretOpen}>
+      <AlertDialogContent className="bg-zinc-950 border-white/10 text-white">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Create a new key?</AlertDialogTitle>
+          <AlertDialogDescription className="text-zinc-400">
+            Anything you've already connected using the current key will stop working until you update it with the new one.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel className="bg-transparent border-white/10 text-zinc-200 hover:bg-white/5 hover:text-white">Cancel</AlertDialogCancel>
+          <AlertDialogAction onClick={confirmRegenerateSecret} className="bg-amber-400/20 text-amber-200 border border-amber-400/30 hover:bg-amber-400/30">
+            Create new key
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
+  );
+}
+
+function ApprovalItem({ ev, onRespond }: { ev: EventRow; onRespond: (id: string, granted: boolean) => void }) {
+  const p = ev.payload as { action?: string; payload?: unknown; risk?: string };
+  const [showDetails, setShowDetails] = useState(false);
+  return (
+    <div className="rounded-lg border border-amber-400/20 bg-amber-400/[0.04] p-2.5">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="text-xs font-semibold text-amber-200">{describeApprovalAction(p.action, p.payload)}</div>
+          <div className="text-[10px] text-zinc-500">Risk: {riskLabel(p.risk)}</div>
+        </div>
+        <div className="flex gap-1.5 shrink-0">
+          <button onClick={() => onRespond(ev.id, true)} className="px-2 py-1 text-[10px] rounded bg-emerald-400 text-black font-bold hover:opacity-90">Approve</button>
+          <button onClick={() => onRespond(ev.id, false)} className="px-2 py-1 text-[10px] rounded border border-white/15 text-zinc-300 hover:text-white"><XCircle className="h-3 w-3" /></button>
+        </div>
+      </div>
+      <button onClick={() => setShowDetails((s) => !s)} className="mt-1.5 text-[10px] text-zinc-500 hover:text-zinc-300">
+        {showDetails ? "Hide details" : "Show details"}
+      </button>
+      {showDetails && (
+        <pre className="mt-1 text-[10px] text-zinc-400 overflow-x-auto whitespace-pre-wrap max-h-24">
+          {JSON.stringify(p.payload, null, 2).slice(0, 600)}
+        </pre>
+      )}
     </div>
   );
 }
@@ -443,6 +520,46 @@ function Card({ title, icon, children, wide = false }: { title: string; icon: Re
 
 function Tag({ children }: { children: React.ReactNode }) {
   return <span className="px-1.5 py-0.5 rounded text-[10px] font-mono border border-white/10 bg-white/[0.04] text-zinc-300">{children}</span>;
+}
+
+const RISK_LABELS: Record<string, string> = { low: "Low", med: "Medium", medium: "Medium", high: "High" };
+function riskLabel(risk?: string): string {
+  return RISK_LABELS[(risk || "med").toLowerCase()] || "Medium";
+}
+
+// A plain-language one-liner for the most common queued actions, so a
+// business owner sees "Send an email to jane@acme.com" instead of raw JSON.
+// Anything not recognized still shows a short fallback rather than nothing.
+function describeApprovalAction(action: string | undefined, payload: unknown): string {
+  const p = (payload && typeof payload === "object" ? payload : {}) as Record<string, unknown>;
+  switch (action) {
+    case "send_email":
+      return `Send an email to ${p.to || "a recipient"}${p.subject ? ` — "${String(p.subject).slice(0, 60)}"` : ""}`;
+    case "reply_email":
+      return "Reply to an email";
+    case "http_post":
+      return `Send data to ${p.url || "an external system"}`;
+    case "slack_post_message":
+      return `Post a Slack message${p.channel ? ` in ${p.channel}` : ""}`;
+    case "create_calendar_event":
+      return `Create a calendar event${p.summary ? `: "${String(p.summary).slice(0, 60)}"` : ""}`;
+    default:
+      return action ? `Run "${action}"` : "Take an action";
+  }
+}
+
+// Internal memory keys look like "operator.answer.1758298123456" or
+// "intake.budget" -- meaningful for debugging, meaningless to a business
+// owner. Strip the technical prefix/id and show a plain label instead.
+function friendlyMemoryLabel(key: string): string {
+  if (key.startsWith("operator.answer.")) return "Your answer";
+  if (key.startsWith("business.")) return `Business: ${key.slice("business.".length).replace(/_/g, " ")}`;
+  if (key.startsWith("intake.")) return key.slice("intake.".length).replace(/_/g, " ");
+  return key.replace(/[._]/g, " ");
+}
+const SOURCE_LABELS: Record<string, string> = { research: "Learned from research", intake: "You told it", operator: "You answered", agent: "Learned while running" };
+function friendlySource(source: string): string {
+  return SOURCE_LABELS[source] || source;
 }
 
 function computeNext(cron: string): string {
