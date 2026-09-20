@@ -89,8 +89,16 @@ export default async function middleware(request: Request) {
       "referrer-policy": "strict-origin-when-cross-origin",
       "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()",
       "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+      // frame-ancestors 'self' (not 'none') -- this route is the one place
+      // the app legitimately frames itself: GeneratedDashboard's own live
+      // preview iframe loads exactly this path with ?embed=1. CSP's
+      // frame-ancestors overrides X-Frame-Options in every browser that
+      // supports it, so a stricter 'none' here silently blocked that
+      // same-origin iframe from ever rendering, regardless of X-Frame-Options
+      // saying SAMEORIGIN was fine -- the two headers contradicted each
+      // other and the more restrictive one always won.
       "content-security-policy":
-        "default-src 'self'; script-src 'self' 'unsafe-eval' https://us-assets.i.posthog.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://api.fontshare.com; img-src 'self' https: data: blob:; font-src 'self' data: https://fonts.gstatic.com https://api.fontshare.com https://cdn.fontshare.com; connect-src 'self' https://ekuodpaaiugzywfcmjeo.supabase.co wss://ekuodpaaiugzywfcmjeo.supabase.co https://us.i.posthog.com https://us-assets.i.posthog.com https://o4512076695666688.ingest.de.sentry.io; frame-src 'self' https:; object-src 'none'; base-uri 'self'; frame-ancestors 'none';",
+        "default-src 'self'; script-src 'self' 'unsafe-eval' https://us-assets.i.posthog.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://api.fontshare.com; img-src 'self' https: data: blob:; font-src 'self' data: https://fonts.gstatic.com https://api.fontshare.com https://cdn.fontshare.com; connect-src 'self' https://ekuodpaaiugzywfcmjeo.supabase.co wss://ekuodpaaiugzywfcmjeo.supabase.co https://us.i.posthog.com https://us-assets.i.posthog.com https://o4512076695666688.ingest.de.sentry.io; frame-src 'self' https:; object-src 'none'; base-uri 'self'; frame-ancestors 'self';",
     },
   });
 }
