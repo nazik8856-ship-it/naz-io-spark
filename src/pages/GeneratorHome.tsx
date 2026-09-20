@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Globe, Building2, Zap, Clock, ChevronRight, Sparkles, Loader2, MoreHorizontal } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import nazaiLogo from "@/assets/nazai-logo.png";
+import CreditBalance from "@/components/dashboard/CreditBalance";
 import { supabase, SUPABASE_FUNCTIONS_URL, SUPABASE_ANON } from "@/integrations/supabase/client";
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
@@ -478,6 +479,7 @@ export default function GeneratorHome() {
           >
             <Sparkles className="h-3.5 w-3.5" /> Insights
           </button>
+          <CreditBalance compact />
           <div className="h-8 w-8 rounded-full bg-black flex items-center justify-center overflow-hidden">
             <img src={nazaiLogo} alt="NazAI" className="h-full w-full object-cover" />
           </div>
