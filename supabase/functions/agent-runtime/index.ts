@@ -89,6 +89,14 @@ type Manifest = {
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  // Hoisted above the try so the outer catch can still identify which run
+  // (if any) was in flight when an unexpected exception hit -- everything
+  // below used to be declared inside the try, invisible to its own catch,
+  // which is exactly why a crash after run_started never got a terminal
+  // event/status: the catch had no way to know which run to close out.
+  let crashAgentId = "";
+  let crashUserId = "";
+  let crashRunId: string | null = null;
   try {
     const gw = pickAiGateway();
     if (!gw) return json({ error: "Missing OPENAI_API_KEY (or LOVABLE_API_KEY)" }, 500);
@@ -120,6 +128,7 @@ serve(async (req) => {
     }
 
     const agentId = bodyAgentId || qsAgentId;
+    crashAgentId = agentId;
     const trigger = bodyTrigger || qsTrigger || "manual";
     // For external webhook calls, forward the posted body as userInstruction if none was set explicitly.
     let userInstruction = bodyUserInstruction;
@@ -168,6 +177,7 @@ serve(async (req) => {
       userId = userData?.user?.id ?? "";
     }
     if (!userId) return json({ error: "Not authenticated" }, 401);
+    crashUserId = userId;
 
     // ---- Rate limit (run start) --------------------------------------------
     // Nothing previously stopped a misbehaving client (manual/cron/webhook)
@@ -385,6 +395,7 @@ serve(async (req) => {
       .select("id").single();
     if (runErr || !run) return json({ error: "Could not start run" }, 500);
     const runId = run.id as string;
+    crashRunId = runId;
 
     // Retry-alternative-first guard: on any tool_result/action logged with
     // ok:false, remember which tool failed so we can force the model to try
@@ -3165,6 +3176,37 @@ Reply with ONE fenced JSON block:
   } catch (e) {
     console.error("agent-runtime error", e);
     await reportEdgeException(e, { function: "agent-runtime" });
+    // A run that started but never reached its own completion/status-update
+    // block (any unexpected throw above -- a DB write failure, a bug) used
+    // to leave agent_runs stuck on "running" forever with no terminal
+    // event, so the cockpit read "Running..." indefinitely and disabled
+    // Run Now with no way to recover. Close it out here instead, using the
+    // hoisted crash* variables since everything else in this handler is
+    // scoped to the try block the catch can't see. Best-effort: if even
+    // this fails, the crash is already reported above via
+    // reportEdgeException, and the stale-lock sweep at the top of the next
+    // real invocation is still a second line of defense.
+    if (crashRunId && crashAgentId && crashUserId) {
+      try {
+        const crashClient = createClient(
+          Deno.env.get("SUPABASE_URL")!,
+          Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+        );
+        const message = (e instanceof Error ? e.message : "unknown error").slice(0, 500);
+        await crashClient.from("agent_events").insert({
+          agent_id: crashAgentId, user_id: crashUserId, run_id: crashRunId,
+          kind: "error", payload: { message, source: "unhandled_exception" },
+        });
+        await crashClient.from("agent_runs").update({
+          status: "failed",
+          finished_at: new Date().toISOString(),
+          summary: `[Failed] Run crashed unexpectedly: ${message}`,
+          outcome: "Failed",
+        }).eq("id", crashRunId).eq("status", "running");
+      } catch (closeErr) {
+        console.error("agent-runtime: failed to close out crashed run", closeErr);
+      }
+    }
     return json({ error: e instanceof Error ? e.message : "unknown" }, 500);
   }
 });
