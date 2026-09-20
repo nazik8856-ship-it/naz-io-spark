@@ -8,6 +8,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
 import { pickRole } from "../_shared/agent-role-classifier.ts";
 import { deriveCronLabel, nextRunFromCron } from "../_shared/agent-schedule.ts";
+import { consumeGenerationCredit, NO_CREDITS_MESSAGE } from "../_shared/credits.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -469,6 +470,14 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
       }
 
       if (!agentId) {
+        // Charge one credit for creating a brand-new agent -- both update
+        // paths above (existingAgentId and same-slug fallback) are edits to
+        // an agent the user already paid to create, so refining one via
+        // chat stays free. This is the only place a genuinely new agent is
+        // ever inserted, so it's the only place that should ever be charged.
+        const credit = await consumeGenerationCredit(user.id);
+        if (!credit.ok) return json({ error: NO_CREDITS_MESSAGE, code: "no_credits", manifest: normalized, agentId: null }, 402);
+
         const { data: inserted, error: insErr } = await supabase
           .from("agents")
           .insert({

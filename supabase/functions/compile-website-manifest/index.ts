@@ -4,6 +4,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
+import { consumeGenerationCredit, NO_CREDITS_MESSAGE } from "../_shared/credits.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -722,6 +723,14 @@ serve(async (req) => {
         route_reason: routeInfo.reason,
       });
     }
+
+    // Charge one credit for creating a brand-new website -- editing/refining
+    // or rebuilding an existing one (both handled above, before this point)
+    // stays free, so iterating on what you've already built never drains
+    // your balance. This is the only place a genuinely new website is ever
+    // inserted, so it's the only place that should ever be charged.
+    const credit = await consumeGenerationCredit(user.id);
+    if (!credit.ok) return json({ error: NO_CREDITS_MESSAGE, code: "no_credits" }, 402);
 
     const { data: siteRow, error: siteErr } = await supabase
       .from("websites")
