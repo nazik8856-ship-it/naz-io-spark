@@ -577,7 +577,24 @@ serve(async (req) => {
         return json({ error: "Could not understand that request. Try rephrasing more specifically." }, 500);
       }
 
-      const nextManifest = normalize(refined.manifest ?? currentManifest, existing.prompt || prompt);
+      // The model's own JSON output isn't validated for having a usable
+      // `manifest` before this point. Two real failure modes if it's not:
+      // - `manifest` omitted entirely -> normalize(currentManifest) rebuilds
+      //   the untouched site, but the response still claims success ("✓
+      //   Applied your changes") even though nothing changed.
+      // - `manifest` present but degenerate (e.g. `{}`) -> normalize()
+      //   doesn't detect that as "no manifest"; it manufactures a brand-new
+      //   minimal site ("Untitled Site", one default hero page) and that
+      //   gets written straight over the user's real content.
+      // A real website always has at least one page, so require that as the
+      // minimum signal the model actually returned something usable, and
+      // fail loudly instead of silently no-op'ing or overwriting.
+      const refinedManifestRaw = refined.manifest as Record<string, unknown> | undefined;
+      if (!refinedManifestRaw || typeof refinedManifestRaw !== "object" || !Array.isArray(refinedManifestRaw.pages) || refinedManifestRaw.pages.length === 0) {
+        console.error("refine AI returned no usable manifest", { intent: refined.intent, hasManifest: !!refinedManifestRaw });
+        return json({ error: "Couldn't apply that edit — the AI didn't return a usable update. Nothing was changed; please try again or rephrase your request." }, 502);
+      }
+      const nextManifest = normalize(refinedManifestRaw, existing.prompt || prompt);
 
       // A linked/uploaded asset is an executable instruction, not prose. If the
       // model omitted the exact URL, fail visibly instead of claiming success.
