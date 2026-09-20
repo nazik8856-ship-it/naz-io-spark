@@ -321,9 +321,16 @@ export default function GeneratedDashboard() {
         setWebsite(immediateWebsite);
         setPages(immediatePages);
         cacheWebsitePreview(id, immediateWebsite, immediatePages);
-        if (!immediatePages.some((p: any) => p.slug === selectedPage)) {
-          setSelectedPage(immediatePages[0]?.slug || "");
-        }
+        // Read the LIVE selectedPage via the functional updater, not the
+        // `selectedPage` closed over when this async handler started. A chat
+        // edit can take several seconds; if the user switches tabs to a
+        // different, still-valid page while it's in flight, comparing
+        // against the stale closure value would wrongly conclude their
+        // now-current tab "doesn't exist" and snap them back to page one the
+        // moment the edit lands -- silently discarding their manual navigation.
+        setSelectedPage((prevSelected) =>
+          immediatePages.some((p: any) => p.slug === prevSelected) ? prevSelected : (immediatePages[0]?.slug || ""),
+        );
       }
       websiteLog.done("apply", manifest?.pages?.length ? `${manifest.pages.length} page(s) updated` : "No structural changes");
       websiteLog.begin("persist");
@@ -619,7 +626,9 @@ export default function GeneratedDashboard() {
       if (site) setWebsite(site);
       if (pgs) setPages(pgs);
       if (site && pgs) cacheWebsitePreview(id, site, pgs);
-      if (pgs && pgs.length && !pgs.some((p: any) => p.slug === selectedPage)) setSelectedPage(pgs[0].slug);
+      if (pgs && pgs.length) {
+        setSelectedPage((prevSelected) => (pgs.some((p: any) => p.slug === prevSelected) ? prevSelected : pgs[0].slug));
+      }
       setPreviewKey((k) => k + 1);
       setTurns((t) => [...t, { role: "assistant", content: `✓ Restored a previous version of "${site?.name || "the site"}".`, time: "just now" }]);
       toast.success("Version restored");
