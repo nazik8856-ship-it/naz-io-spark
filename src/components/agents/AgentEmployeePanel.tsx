@@ -117,9 +117,15 @@ export default function AgentEmployeePanel({ agentId, events }: { agentId: strin
       body: { eventId, action: granted ? "approve" : "reject" },
     });
     if (error) { toast.error((await extractFunctionErrorMessage(error)) ?? error.message ?? "Approval failed"); return; }
-    const summary = (data as { summary?: string; resolved?: string; ok?: boolean } | null) || {};
+    const summary = (data as { summary?: string; resolved?: string; ok?: boolean; message?: string } | null) || {};
     if (granted) {
-      toast.success(summary.ok === false ? "Approved, but delivery failed — see events." : "Approved & executed.");
+      if (summary.resolved === "not_supported") {
+        toast.warning(summary.message || "This action can't be carried out automatically yet — do it manually.");
+      } else if (summary.ok === false) {
+        toast.success("Approved, but delivery failed — see events.");
+      } else {
+        toast.success("Approved & executed.");
+      }
     } else {
       toast.success("Rejected.");
     }

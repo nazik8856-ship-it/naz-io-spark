@@ -11,7 +11,7 @@ import {
   MAX_TOOL_ATTEMPTS,
   type Corrector,
 } from "../_shared/tool-retry.ts";
-import { PROVIDER_WRITE_KINDS, runProviderWrite } from "../_shared/provider-writes.ts";
+import { PROVIDER_WRITE_KINDS } from "../_shared/provider-writes.ts";
 import { runControlGate } from "../_shared/control-gate.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { claimIdempotencyKey, saveIdempotencyResponse, releaseIdempotencyKey, buildRealActionKey } from "../_shared/idempotency.ts";
@@ -2945,46 +2945,29 @@ Rules:
           continue;
         }
 
-        // ---- Real, verified provider writes (Slack / Notion / Canva / Shopify).
-        // Each one calls the external API for real and then re-fetches (or uses
-        // the provider's authoritative receipt) before reporting success.
+        // ---- Real, verified provider writes (Slack / Notion / Canva / Shopify / Figma / Calendar).
+        // Unlike send_email/http_post, these had NO guardrail check at all --
+        // a manifest guardrail literally saying "never post to Slack/change
+        // Shopify prices without approval [REQUIRES APPROVAL]" was silently
+        // unenforceable, and the action ran immediately every time. Until
+        // agent-approval can actually dispatch each of these kinds on
+        // approve (it currently can't -- see its own comment), always queue
+        // them for approval instead of running them, so at minimum nothing
+        // unapproved ever executes. This is a deliberate, temporary
+        // reduction in capability (these tools can't complete automatically
+        // right now) in exchange for the safety property the product
+        // promises actually holding.
         if (PROVIDER_WRITE_KINDS.has(tool.kind)) {
-          // Real-action idempotency claim -- see buildRealActionKey's own
-          // comment for exactly what this does and doesn't protect against.
-          const actionKey = await buildRealActionKey(runId, tool.kind, input);
-          const claim = await claimIdempotencyKey(supabase, userId, actionKey);
-          if (claim.status !== "claimed") {
-            const cached = claim.status === "replay" ? claim.response as { ok?: boolean; summary?: string; ref?: string | null } : null;
-            const msg = cached
-              ? `Already done earlier in this run — not repeating it: ${cached.summary ?? ""}`
-              : `This exact ${tool.kind} action is already being carried out elsewhere in this run — not repeating it.`;
-            await logEvent("tool_result", { tool: tool.name, ok: cached?.ok ?? false, summary: msg });
-            messages.push({ role: "user", content: `${msg}\n\nContinue with other work or finish.` });
-            continue;
-          }
-          let res;
-          try {
-            res = await runProviderWrite(tool.kind, supabase, userId, agentId, input);
-          } catch (e) {
-            res = { ok: false, summary: `${tool.kind} threw: ${e instanceof Error ? e.message : String(e)} — treat as NOT done.`, ref: null, url: null, target: null };
-          }
-          if (res.ok) await saveIdempotencyResponse(supabase, userId, actionKey, res);
-          else await releaseIdempotencyKey(supabase, userId, actionKey);
-          await logEvent("tool_result", { tool: tool.name, ok: res.ok, summary: res.summary });
-          await logEvent("action", {
-            type: tool.kind,
-            target: res.target ?? null,
-            ok: res.ok,
-            result_ref: res.ref ?? null,
-            url: res.url ?? null,
-            summary: res.summary,
+          await logEvent("pending_approval", {
+            action: tool.kind,
+            payload: input,
+            risk: "high",
+            guardrail: "Provider writes (Slack/Shopify/Notion/Canva/Figma/Calendar) always require approval for now.",
           });
-          messages.push({
-            role: "user",
-            content: res.ok
-              ? `${res.summary}${res.ref ? `\nid=${res.ref}` : ""}\n\nContinue.`
-              : `"${tool.name}" FAILED and produced no confirmed effect: ${res.summary}\nDo not claim it succeeded. Try one reasonable alternative or state this plainly to the operator.`,
-          });
+          const msg = `Queued for approval; NOT executed. Approving this in the current build only records the decision -- it does not yet perform the action. Tell the operator to do this manually for now.`;
+          await logEvent("tool_result", { tool: tool.name, ok: true, summary: msg });
+          await logEvent("action", { type: tool.kind, target: null, ok: false, result_ref: null, summary: msg });
+          messages.push({ role: "user", content: `${msg}\n\nContinue with other work or finish.` });
           continue;
         }
 
