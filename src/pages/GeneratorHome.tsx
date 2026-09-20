@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Globe, Building2, Zap, Clock, ChevronRight, Sparkles, Loader2, MoreHorizontal } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import nazaiLogo from "@/assets/nazai-logo.png";
+import CreditBalance from "@/components/dashboard/CreditBalance";
 import { supabase, SUPABASE_FUNCTIONS_URL, SUPABASE_ANON } from "@/integrations/supabase/client";
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
@@ -85,9 +87,14 @@ export default function GeneratorHome() {
   const [prompt, setPrompt] = useState("");
   const [activeType, setActiveType] = useState("website");
 
+  const WEBSITES_PAGE_SIZE = 9;
+  const AGENTS_PAGE_SIZE = 6;
+
   type RecentWebsite = { id: string; name: string | null; tagline: string | null; created_at: string };
   const [recentWebsites, setRecentWebsites] = useState<RecentWebsite[]>([]);
   const [websitesLoading, setWebsitesLoading] = useState(false);
+  const [websitesLimit, setWebsitesLimit] = useState(WEBSITES_PAGE_SIZE);
+  const [websitesHasMore, setWebsitesHasMore] = useState(false);
 
   // Recent AI Agents — surfaced here (previously shown inside the generation
   // workspace's "Your Agents" tab). Everything the user has generated lands in
@@ -95,6 +102,8 @@ export default function GeneratorHome() {
   type RecentAgent = { id: string; name: string; goal: string | null; created_at: string; schedule_cron: string | null };
   const [recentAgents, setRecentAgents] = useState<RecentAgent[]>([]);
   const [agentsLoading, setAgentsLoading] = useState(false);
+  const [agentsLimit, setAgentsLimit] = useState(AGENTS_PAGE_SIZE);
+  const [agentsHasMore, setAgentsHasMore] = useState(false);
 
   type RunOutcome = { runId: string; outcome: Outcome; time: string };
   const [agentOutcomes, setAgentOutcomes] = useState<Record<string, Outcome>>({});
@@ -116,17 +125,19 @@ export default function GeneratorHome() {
         .select("id, name, tagline, created_at")
         .eq("user_id", user.id)
         .order("created_at", { ascending: false })
-        .limit(10);
+        .limit(websitesLimit + 1);
       if (cancelled) return;
       if (error) {
         console.error("WEBSITES_FETCH_ERROR:", error);
         toast.error("Failed to load saved websites");
       }
-      setRecentWebsites((data as RecentWebsite[]) || []);
+      const fetched = (data as RecentWebsite[]) || [];
+      setWebsitesHasMore(fetched.length > websitesLimit);
+      setRecentWebsites(fetched.slice(0, websitesLimit));
       setWebsitesLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [user?.id]);
+  }, [user?.id, websitesLimit]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -138,9 +149,11 @@ export default function GeneratorHome() {
         .select("id, name, goal, created_at, schedule_cron")
         .eq("user_id", user.id)
         .order("created_at", { ascending: false })
-        .limit(6);
+        .limit(agentsLimit + 1);
       if (cancelled) return;
-      const agents = (data as RecentAgent[]) || [];
+      const fetched = (data as RecentAgent[]) || [];
+      setAgentsHasMore(fetched.length > agentsLimit);
+      const agents = fetched.slice(0, agentsLimit);
       setRecentAgents(agents);
       setAgentsLoading(false);
 
@@ -211,7 +224,7 @@ export default function GeneratorHome() {
       }
     })();
     return () => { cancelled = true; };
-  }, [user?.id]);
+  }, [user?.id, agentsLimit]);
 
 
 
@@ -477,8 +490,9 @@ export default function GeneratorHome() {
           >
             <Sparkles className="h-3.5 w-3.5" /> Insights
           </button>
-          <div className="h-8 w-8 rounded-full bg-gradient-to-br from-purple-500 to-cyan-400 flex items-center justify-center text-xs font-bold">
-            {user?.email?.[0]?.toUpperCase() || "N"}
+          <CreditBalance compact />
+          <div className="h-8 w-8 rounded-full bg-black flex items-center justify-center overflow-hidden">
+            <img src={nazaiLogo} alt="NazAI" className="h-full w-full object-cover" />
           </div>
         </div>
       </header>
@@ -570,9 +584,7 @@ export default function GeneratorHome() {
           <div className="flex items-center justify-between mb-5">
             <div className="text-[11px] font-mono tracking-[0.3em] text-zinc-500">RECENT</div>
             {(recentWebsites.length > 0 || recentAgents.length > 0) && (
-              <span className="flex items-center gap-1 text-sm text-zinc-500">
-                Saved in NazAI Cloud <ChevronRight className="h-4 w-4" />
-              </span>
+              <span className="text-sm text-zinc-500">Saved in NazAI Cloud</span>
             )}
           </div>
 
@@ -714,6 +726,16 @@ export default function GeneratorHome() {
                       );
                     })}
                   </div>
+                  {agentsHasMore && (
+                    <button
+                      type="button"
+                      onClick={() => setAgentsLimit((l) => l + AGENTS_PAGE_SIZE)}
+                      disabled={agentsLoading}
+                      className="mt-4 w-full sm:w-auto px-4 py-2 rounded-lg text-xs font-mono uppercase tracking-wider border border-white/10 bg-white/[0.02] text-zinc-400 hover:bg-white/[0.06] hover:text-white transition-colors disabled:opacity-50"
+                    >
+                      {agentsLoading ? "Loading…" : "Load more agents"}
+                    </button>
+                  )}
                 </section>
               )}
 
@@ -764,6 +786,16 @@ export default function GeneratorHome() {
                       );
                     })}
                   </div>
+                  {websitesHasMore && (
+                    <button
+                      type="button"
+                      onClick={() => setWebsitesLimit((l) => l + WEBSITES_PAGE_SIZE)}
+                      disabled={websitesLoading}
+                      className="mt-4 w-full sm:w-auto px-4 py-2 rounded-lg text-xs font-mono uppercase tracking-wider border border-white/10 bg-white/[0.02] text-zinc-400 hover:bg-white/[0.06] hover:text-white transition-colors disabled:opacity-50"
+                    >
+                      {websitesLoading ? "Loading…" : "Load more websites"}
+                    </button>
+                  )}
                 </section>
               )}
             </div>

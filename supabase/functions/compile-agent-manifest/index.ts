@@ -8,6 +8,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
 import { pickRole } from "../_shared/agent-role-classifier.ts";
 import { deriveCronLabel, nextRunFromCron } from "../_shared/agent-schedule.ts";
+import { consumeGenerationCredit, NO_CREDITS_MESSAGE } from "../_shared/credits.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -392,16 +393,21 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
       if (existingAgentId && typeof existingAgentId === "string" && !existingAgentId.startsWith("local-")) {
         const { data: existing } = await supabase
           .from("agents")
-          .select("id, user_id, manifest, source_plan, schedule_cron")
+          .select("id, user_id, manifest, source_plan, schedule_cron, schedule_label")
           .eq("id", existingAgentId)
           .eq("user_id", user.id)
           .maybeSingle();
         if (existing) {
-          // Preserve prior schedule if the user didn't reset the role — otherwise
-          // adopt the new blueprint's schedule.
+          // Trust a freshly AI-derived, recognized cron (deriveCronLabel already
+          // validated it) as the new schedule -- this is what lets a chat edit
+          // like "run at 9am instead" actually take effect. Only when the
+          // compiler didn't produce a recognized cron this round do we fall back
+          // to the agent's current schedule, so a compile hiccup can't silently
+          // reset a custom schedule to the role's generic default.
           const priorCron = (existing.schedule_cron as string | null) ?? null;
-          const cron = priorCron || finalScheduleCron;
-          const label = priorCron ? blueprint.schedule_label : finalScheduleLabel;
+          const priorLabel = (existing.schedule_label as string | null) ?? null;
+          const cron = aiCronLabel ? finalScheduleCron : (priorCron || finalScheduleCron);
+          const label = aiCronLabel ? finalScheduleLabel : (priorLabel || finalScheduleLabel);
           const { error: updErr } = await supabase
             .from("agents")
             .update({
@@ -431,18 +437,22 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
       if (!agentId) {
         const { data: bySlug } = await supabase
           .from("agents")
-          .select("id, schedule_cron")
+          .select("id, schedule_cron, schedule_label")
           .eq("user_id", user.id)
           .eq("slug", slug)
           .maybeSingle();
         if (bySlug?.id) {
-          const cron = (bySlug.schedule_cron as string | null) || finalScheduleCron;
+          // Same trust-the-fresh-schedule rule as the existingAgentId path above.
+          const priorCron = (bySlug.schedule_cron as string | null) ?? null;
+          const priorLabel = (bySlug.schedule_label as string | null) ?? null;
+          const cron = aiCronLabel ? finalScheduleCron : (priorCron || finalScheduleCron);
+          const label = aiCronLabel ? finalScheduleLabel : (priorLabel || finalScheduleLabel);
           const { error: updErr } = await supabase
             .from("agents")
             .update({
               name: normalized.name, goal: normalized.goal,
               manifest: normalized, source_plan: effectivePlan.slice(0, 8000),
-              role, schedule_cron: cron, schedule_label: finalScheduleLabel,
+              role, schedule_cron: cron, schedule_label: label,
               next_run_at: nextRunFromCron(cron),
               business_profile_id: businessProfileId ?? null,
             })
@@ -460,6 +470,14 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
       }
 
       if (!agentId) {
+        // Charge one credit for creating a brand-new agent -- both update
+        // paths above (existingAgentId and same-slug fallback) are edits to
+        // an agent the user already paid to create, so refining one via
+        // chat stays free. This is the only place a genuinely new agent is
+        // ever inserted, so it's the only place that should ever be charged.
+        const credit = await consumeGenerationCredit(user.id);
+        if (!credit.ok) return json({ error: NO_CREDITS_MESSAGE, code: "no_credits", manifest: normalized, agentId: null }, 402);
+
         const { data: inserted, error: insErr } = await supabase
           .from("agents")
           .insert({

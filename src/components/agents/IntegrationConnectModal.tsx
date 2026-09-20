@@ -300,16 +300,21 @@ export default function IntegrationConnectModal({
     return null;
   }, [integration.name]);
   const isGoogle = googleKind !== null;
-  const isComingSoon = useMemo(
-    () => /^(youtube)$/i.test(integration.name.trim()),
-    [integration.name],
-  );
   const isFigma = useMemo(() => /^figma$/i.test(integration.name.trim()), [integration.name]);
   const isCanva = useMemo(() => /^canva$/i.test(integration.name.trim()), [integration.name]);
   const isShopify = useMemo(() => /^shopify$/i.test(integration.name.trim()), [integration.name]);
   const isSlack = useMemo(() => /^slack$/i.test(integration.name.trim()), [integration.name]);
   const isNotion = useMemo(() => /^notion$/i.test(integration.name.trim()), [integration.name]);
   const isRealOAuth = isGoogle || isFigma || isCanva || isShopify || isSlack || isNotion;
+  // Every provider that isn't wired to a real OAuth redirect above used to
+  // fall through to a full realistic sign-in flow (email -> password ->
+  // "finding your account" -> a fabricated account preview -> "Connected"),
+  // which then persisted a row with a literally fabricated
+  // oauth_sim_<uuid> token and no agent tool ever able to use it. A user
+  // saw a completely convincing "Connected to Instagram as you" success
+  // screen for a capability that could never do anything. Route anything
+  // that isn't real OAuth to the honest "Coming soon" screen instead.
+  const isComingSoon = !isRealOAuth;
 
   const isGmail = isGoogle; // legacy alias
   const providerKey = isGoogle ? "Gmail" : integration.name;

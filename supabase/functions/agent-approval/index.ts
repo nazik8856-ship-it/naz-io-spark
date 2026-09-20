@@ -13,6 +13,7 @@ import { runControlGate } from "../_shared/control-gate.ts";
 import { claimRowOnce, releaseRowClaim } from "../_shared/idempotency.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { validateOutboundUrl } from "../_shared/url-safety.ts";
+import { PROVIDER_WRITE_KINDS } from "../_shared/provider-writes.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -222,6 +223,17 @@ serve(async (req) => {
         await logEvent("approval_granted", { original_event_id: eventId, action: actionType, ok: false, summary: `POST exception: ${msg}` });
         return json({ ok: false, error: msg }, 500);
       }
+    }
+
+    // Provider writes (Slack/Shopify/Notion/Canva/Figma/Calendar) have no real
+    // dispatch-on-approve path yet -- falling into the generic branch below
+    // would log "approval_granted, ok:true" and tell the operator it was
+    // "Approved & executed" when nothing happened at all. Say so plainly
+    // instead of claiming a fake success.
+    if (PROVIDER_WRITE_KINDS.has(actionType)) {
+      const msg = `Approving "${actionType}" doesn't perform it yet in this build — do this manually for now. Support for automatically carrying out this action is coming soon.`;
+      await logEvent("approval_granted", { original_event_id: eventId, action: actionType, note, ok: false, summary: msg });
+      return json({ ok: false, resolved: "not_supported", error: "manual_action_required", message: msg });
     }
 
     // Generic request_approval (or unknown action): just record approval so agent can resume.

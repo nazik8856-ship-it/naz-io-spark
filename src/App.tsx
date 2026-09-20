@@ -137,10 +137,12 @@ const App = () => (
 
                 {/* Mission Generator & Dashboard */}
                 <Route path="/generate" element={<Generator />} />
-                <Route path="/generator-home" element={<GeneratorHome />} />
                 <Route path="/pricing" element={<Pricing />} />
                 <Route path="/website-preview/:id" element={<WebsitePreview />} />
-                <Route path="/generated/:kind/:id" element={<GeneratedDashboard />} />
+                <Route element={<AuthGuard />}>
+                  <Route path="/generator-home" element={<GeneratorHome />} />
+                  <Route path="/generated/:kind/:id" element={<GeneratedDashboard />} />
+                </Route>
                 <Route path="/unsubscribe" element={<Unsubscribe />} />
                 <Route path="/privacy" element={<Privacy />} />
                 <Route path="/terms" element={<Terms />} />

@@ -108,6 +108,15 @@ serve(async (req) => {
 function json(b: unknown, s = 200) { return new Response(JSON.stringify(b), { status: s, headers: { ...corsHeaders, "Content-Type": "application/json" } }); }
 
 // Lightweight cron interpreter for the few presets we use. Falls back to +1h.
+//
+// This used to be missing the "every N hours" shape ("M */N * * *", e.g. the
+// ops_finance role blueprint's default "0 */6 * * *") entirely -- it isn't
+// "*/N * * * *" (that's every-N-minutes, matched first), isn't a plain HH:MM
+// daily time, and isn't a weekly D field, so it fell all the way through to
+// the +1h fallback below. Every agent scheduled for "every N hours" was
+// silently re-armed for one hour later on each tick instead, drifting to an
+// hourly cadence from its very first run. Matches the same regex already
+// used (and test-covered) in ../_shared/agent-schedule.ts's nextRunFromCron.
 function computeNextRun(cron: string | null): string {
   const now = new Date();
   if (!cron) { now.setHours(now.getHours() + 1); return now.toISOString(); }
@@ -123,6 +132,9 @@ function computeNextRun(cron: string | null): string {
     if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
     return next.toISOString();
   }
+  // "M */N * * *"  every N hours
+  m = cron.match(/^(\d+)\s+\*\/(\d+)\s+\*\s+\*\s+\*$/);
+  if (m) { now.setHours(now.getHours() + parseInt(m[2], 10)); return now.toISOString(); }
   // "M H * * D"  weekly
   m = cron.match(/^(\d+)\s+(\d+)\s+\*\s+\*\s+(\d+)$/);
   if (m) {

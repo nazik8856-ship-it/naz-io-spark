@@ -26,6 +26,7 @@ import {
   History,
   Undo2,
   X,
+  Inbox,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -37,6 +38,18 @@ import ExecutionLog from "@/components/execution/ExecutionLog";
 import { useExecutionLog } from "@/hooks/useExecutionLog";
 import { buildStaticSiteHtml } from "@/lib/static-site-export";
 import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 
 type WebsiteView = "preview" | "code";
 type Device = "desktop" | "tablet" | "phone";
@@ -92,9 +105,18 @@ export default function GeneratedDashboard() {
   const [domainInput, setDomainInput] = useState("");
   const [savingDomain, setSavingDomain] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [leadsOpen, setLeadsOpen] = useState(false);
+  const [loadingLeads, setLoadingLeads] = useState(false);
+  const [leads, setLeads] = useState<{ id: string; page_slug: string | null; section_kind: string; fields: Record<string, unknown>; created_at: string }[]>([]);
   const [versions, setVersions] = useState<{ id: string; label: string | null; created_at: string }[]>([]);
   const [loadingVersions, setLoadingVersions] = useState(false);
   const [restoringVersionId, setRestoringVersionId] = useState<string | null>(null);
+  const [restoreConfirm, setRestoreConfirm] = useState<{ id: string; label: string | null } | null>(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deletingSite, setDeletingSite] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameValue, setRenameValue] = useState("");
+  const [renaming, setRenaming] = useState(false);
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [chatBusy, setChatBusy] = useState(false);
   // Real-time step log for website chat actions (replaces the generic spinner).
@@ -299,9 +321,16 @@ export default function GeneratedDashboard() {
         setWebsite(immediateWebsite);
         setPages(immediatePages);
         cacheWebsitePreview(id, immediateWebsite, immediatePages);
-        if (!immediatePages.some((p: any) => p.slug === selectedPage)) {
-          setSelectedPage(immediatePages[0]?.slug || "");
-        }
+        // Read the LIVE selectedPage via the functional updater, not the
+        // `selectedPage` closed over when this async handler started. A chat
+        // edit can take several seconds; if the user switches tabs to a
+        // different, still-valid page while it's in flight, comparing
+        // against the stale closure value would wrongly conclude their
+        // now-current tab "doesn't exist" and snap them back to page one the
+        // moment the edit lands -- silently discarding their manual navigation.
+        setSelectedPage((prevSelected) =>
+          immediatePages.some((p: any) => p.slug === prevSelected) ? prevSelected : (immediatePages[0]?.slug || ""),
+        );
       }
       websiteLog.done("apply", manifest?.pages?.length ? `${manifest.pages.length} page(s) updated` : "No structural changes");
       websiteLog.begin("persist");
@@ -490,13 +519,23 @@ export default function GeneratedDashboard() {
       toast.error("Export failed");
     }
   };
-  const renameSite = async () => {
-    const next = prompt("Rename website", website?.name || "");
-    if (!next || next === website?.name) return;
-    const { error } = await supabase.from("websites").update({ name: next }).eq("id", id!);
-    if (error) return toast.error(error.message);
-    setWebsite((w: any) => ({ ...w, name: next }));
-    toast.success("Renamed");
+  const renameSite = () => {
+    setRenameValue(website?.name || "");
+    setRenameOpen(true);
+  };
+  const confirmRename = async () => {
+    const next = renameValue.trim();
+    if (!next || next === website?.name) { setRenameOpen(false); return; }
+    setRenaming(true);
+    try {
+      const { error } = await supabase.from("websites").update({ name: next }).eq("id", id!);
+      if (error) { toast.error(error.message); return; }
+      setWebsite((w: any) => ({ ...w, name: next }));
+      toast.success("Renamed");
+      setRenameOpen(false);
+    } finally {
+      setRenaming(false);
+    }
   };
   const duplicateSite = async () => {
     if (!website) return;
@@ -532,12 +571,19 @@ export default function GeneratedDashboard() {
     toast.success("Duplicated");
     navigate(`/generated/website/${data.id}`);
   };
-  const deleteSite = async () => {
-    if (!id || !confirm("Delete this website? This cannot be undone.")) return;
-    const { error } = await supabase.from("websites").delete().eq("id", id);
-    if (error) return toast.error(error.message);
-    toast.success("Deleted");
-    navigate("/generator-home");
+  const deleteSite = () => setDeleteConfirmOpen(true);
+  const confirmDeleteSite = async () => {
+    if (!id) return;
+    setDeletingSite(true);
+    try {
+      const { error } = await supabase.from("websites").delete().eq("id", id);
+      if (error) { toast.error(error.message); return; }
+      toast.success("Deleted");
+      navigate("/generator-home");
+    } finally {
+      setDeletingSite(false);
+      setDeleteConfirmOpen(false);
+    }
   };
 
   const openHistory = async () => {
@@ -554,9 +600,23 @@ export default function GeneratedDashboard() {
     setLoadingVersions(false);
   };
 
+  const openLeads = async () => {
+    setLeadsOpen(true);
+    setLoadingLeads(true);
+    const { data, error } = await supabase
+      .from("website_form_submissions")
+      .select("id, page_slug, section_kind, fields, created_at")
+      .eq("website_id", id!)
+      .order("created_at", { ascending: false })
+      .limit(100);
+    if (error) toast.error(error.message);
+    setLeads((data as typeof leads) || []);
+    setLoadingLeads(false);
+  };
+
   const restoreVersion = async (versionId: string) => {
     if (!id) return;
-    if (!confirm("Restore this version? Your current content will be saved as a new version first, so you can undo this too.")) return;
+    setRestoreConfirm(null);
     setRestoringVersionId(versionId);
     try {
       const { error } = await supabase.rpc("restore_website_version", { _version_id: versionId });
@@ -566,7 +626,9 @@ export default function GeneratedDashboard() {
       if (site) setWebsite(site);
       if (pgs) setPages(pgs);
       if (site && pgs) cacheWebsitePreview(id, site, pgs);
-      if (pgs && pgs.length && !pgs.some((p: any) => p.slug === selectedPage)) setSelectedPage(pgs[0].slug);
+      if (pgs && pgs.length) {
+        setSelectedPage((prevSelected) => (pgs.some((p: any) => p.slug === prevSelected) ? prevSelected : pgs[0].slug));
+      }
       setPreviewKey((k) => k + 1);
       setTurns((t) => [...t, { role: "assistant", content: `✓ Restored a previous version of "${site?.name || "the site"}".`, time: "just now" }]);
       toast.success("Version restored");
@@ -687,6 +749,7 @@ export default function GeneratedDashboard() {
                     {[
                       { icon: Pencil, label: "Rename", onClick: renameSite },
                       { icon: Copy, label: "Duplicate", onClick: duplicateSite },
+                      { icon: Inbox, label: "Leads", onClick: openLeads },
                       { icon: History, label: "Version history", onClick: openHistory },
                       { icon: Download, label: "Export", onClick: exportSite },
                       { icon: Trash2, label: "Delete", onClick: deleteSite, danger: true },
@@ -1002,7 +1065,7 @@ export default function GeneratedDashboard() {
                   </div>
                   <button
                     disabled={restoringVersionId === v.id}
-                    onClick={() => restoreVersion(v.id)}
+                    onClick={() => setRestoreConfirm({ id: v.id, label: v.label })}
                     className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-semibold text-cyan-200 border border-cyan-400/30 bg-cyan-400/10 hover:bg-cyan-400/20 transition disabled:opacity-50"
                   >
                     {restoringVersionId === v.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Undo2 className="h-3 w-3" />}
@@ -1014,6 +1077,132 @@ export default function GeneratedDashboard() {
           </div>
         </div>
       )}
+      {leadsOpen && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+          onClick={() => setLeadsOpen(false)}
+        >
+          <div
+            className="w-full max-w-lg max-h-[70vh] flex flex-col rounded-2xl border border-white/10 bg-[#0a0f1e] shadow-[0_20px_80px_-20px_rgba(34,211,238,0.3)] p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center gap-2">
+                <Inbox className="h-4 w-4 text-cyan-300" />
+                <h3 className="text-white font-semibold">Leads</h3>
+              </div>
+              <button onClick={() => setLeadsOpen(false)} className="text-white/40 hover:text-white">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <p className="text-xs text-white/50 mb-4">
+              Everyone who submitted a form on this site — a copy is also emailed to you when it happens.
+            </p>
+            <div className="flex-1 min-h-0 overflow-y-auto space-y-2">
+              {loadingLeads && (
+                <div className="flex items-center gap-2 text-xs text-white/50 py-4 justify-center">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading…
+                </div>
+              )}
+              {!loadingLeads && leads.length === 0 && (
+                <p className="text-xs text-white/40 text-center py-6">No submissions yet — they'll show up here as soon as someone fills out a form on your site.</p>
+              )}
+              {!loadingLeads && leads.map((lead) => (
+                <div key={lead.id} className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2.5">
+                  <div className="flex items-center justify-between gap-3 mb-1.5">
+                    <span className="text-[10px] uppercase tracking-wide text-cyan-300/80 font-semibold">
+                      {lead.section_kind}{lead.page_slug ? ` · ${lead.page_slug}` : ""}
+                    </span>
+                    <span className="text-[10px] text-white/40 font-mono shrink-0">{new Date(lead.created_at).toLocaleString()}</span>
+                  </div>
+                  <div className="space-y-0.5">
+                    {Object.entries(lead.fields || {}).map(([key, value]) => (
+                      <div key={key} className="text-xs text-white/80 flex gap-1.5">
+                        <span className="text-white/40 capitalize shrink-0">{key}:</span>
+                        <span className="break-words">{String(value)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+      <Dialog open={renameOpen} onOpenChange={(open) => { if (!open) setRenameOpen(false); }}>
+        <DialogContent className="bg-[#0a0f1e] border-white/10 text-white">
+          <DialogHeader>
+            <DialogTitle>Rename website</DialogTitle>
+          </DialogHeader>
+          <Input
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") confirmRename(); }}
+            placeholder="Website name"
+            autoFocus
+            className="bg-white/[0.04] border-white/10 text-white"
+          />
+          <DialogFooter>
+            <button
+              onClick={() => setRenameOpen(false)}
+              className="px-3 py-1.5 rounded-md text-xs text-zinc-300 hover:bg-white/5 transition"
+            >
+              Cancel
+            </button>
+            <button
+              disabled={renaming || !renameValue.trim()}
+              onClick={confirmRename}
+              className="px-3 py-1.5 rounded-md text-xs font-semibold text-cyan-200 border border-cyan-400/30 bg-cyan-400/10 hover:bg-cyan-400/20 transition disabled:opacity-50"
+            >
+              {renaming ? "Saving…" : "Save"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={(open) => { if (!open) setDeleteConfirmOpen(false); }}>
+        <AlertDialogContent className="bg-[#0a0f1e] border-white/10 text-white">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete "{website?.name || "this website"}"?</AlertDialogTitle>
+            <AlertDialogDescription className="text-zinc-400">
+              This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingSite} className="bg-transparent border-white/10 text-zinc-200 hover:bg-white/5 hover:text-white">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deletingSite}
+              onClick={(e) => { e.preventDefault(); confirmDeleteSite(); }}
+              className="bg-red-500/20 text-red-300 border border-red-500/30 hover:bg-red-500/30"
+            >
+              {deletingSite ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={!!restoreConfirm} onOpenChange={(open) => { if (!open) setRestoreConfirm(null); }}>
+        <AlertDialogContent className="bg-[#0a0f1e] border-white/10 text-white">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Restore "{restoreConfirm?.label || "this version"}"?</AlertDialogTitle>
+            <AlertDialogDescription className="text-zinc-400">
+              Your current content will be saved as a new version first, so you can undo this too.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={!!restoringVersionId} className="bg-transparent border-white/10 text-zinc-200 hover:bg-white/5 hover:text-white">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={!!restoringVersionId}
+              onClick={(e) => { e.preventDefault(); if (restoreConfirm) restoreVersion(restoreConfirm.id); }}
+              className="bg-cyan-400/20 text-cyan-200 border border-cyan-400/30 hover:bg-cyan-400/30"
+            >
+              {restoringVersionId ? "Restoring…" : "Restore"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

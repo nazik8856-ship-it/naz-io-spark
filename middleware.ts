@@ -62,6 +62,17 @@ export default async function middleware(request: Request) {
     .replace(/<meta property="og:url" content=".*?"\s*\/>/s, `<meta property="og:url" content="${shareUrl}" />`)
     .replace(/<meta name="twitter:title" content=".*?"\s*\/>/s, `<meta name="twitter:title" content="${title}" />`)
     .replace(/<meta name="twitter:description" content=".*?"\s*\/>/s, `<meta name="twitter:description" content="${description}" />`)
+    // og:image/twitter:image point at NazAI's own product screenshot -- there's
+    // no per-business image to swap in, and showing NazAI's screenshot under a
+    // business's own title/description is worse than showing no image at all.
+    // Strip them (and downgrade twitter:card off "summary_large_image", which
+    // requires an image) so unfurls fall back to a plain text card instead.
+    .replace(/<meta property="og:image" content=".*?"\s*\/>\s*/s, "")
+    .replace(/<meta name="twitter:image" content=".*?"\s*\/>\s*/s, "")
+    .replace(/<meta name="twitter:card" content="summary_large_image"\s*\/>/s, `<meta name="twitter:card" content="summary" />`)
+    // twitter:site attributes the card to NazAI's own @NazAI_net handle --
+    // also not appropriate for a business's own shared link.
+    .replace(/<meta name="twitter:site" content=".*?"\s*\/>\s*/s, "")
     // The JSON-LD SoftwareApplication block describes the NazAI product
     // itself, not the generated business — it doesn't apply to this route.
     .replace(/<script type="application\/ld\+json">[\s\S]*?<\/script>/, "");
@@ -78,8 +89,16 @@ export default async function middleware(request: Request) {
       "referrer-policy": "strict-origin-when-cross-origin",
       "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()",
       "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+      // frame-ancestors 'self' (not 'none') -- this route is the one place
+      // the app legitimately frames itself: GeneratedDashboard's own live
+      // preview iframe loads exactly this path with ?embed=1. CSP's
+      // frame-ancestors overrides X-Frame-Options in every browser that
+      // supports it, so a stricter 'none' here silently blocked that
+      // same-origin iframe from ever rendering, regardless of X-Frame-Options
+      // saying SAMEORIGIN was fine -- the two headers contradicted each
+      // other and the more restrictive one always won.
       "content-security-policy":
-        "default-src 'self'; script-src 'self' 'unsafe-eval' https://us-assets.i.posthog.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://api.fontshare.com; img-src 'self' https: data: blob:; font-src 'self' data: https://fonts.gstatic.com https://api.fontshare.com https://cdn.fontshare.com; connect-src 'self' https://ekuodpaaiugzywfcmjeo.supabase.co wss://ekuodpaaiugzywfcmjeo.supabase.co https://us.i.posthog.com https://us-assets.i.posthog.com https://o4512076695666688.ingest.de.sentry.io; frame-src 'self' https:; object-src 'none'; base-uri 'self'; frame-ancestors 'none';",
+        "default-src 'self'; script-src 'self' 'unsafe-eval' https://us-assets.i.posthog.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://api.fontshare.com; img-src 'self' https: data: blob:; font-src 'self' data: https://fonts.gstatic.com https://api.fontshare.com https://cdn.fontshare.com; connect-src 'self' https://ekuodpaaiugzywfcmjeo.supabase.co wss://ekuodpaaiugzywfcmjeo.supabase.co https://us.i.posthog.com https://us-assets.i.posthog.com https://o4512076695666688.ingest.de.sentry.io; frame-src 'self' https:; object-src 'none'; base-uri 'self'; frame-ancestors 'self';",
     },
   });
 }

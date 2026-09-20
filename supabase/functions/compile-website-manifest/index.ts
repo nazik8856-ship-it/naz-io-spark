@@ -4,6 +4,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
+import { consumeGenerationCredit, NO_CREDITS_MESSAGE } from "../_shared/credits.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -309,6 +310,25 @@ function normalize(raw: unknown, prompt: string): Manifest {
     design_rationale: typeof themeRaw.design_rationale === "string" ? themeRaw.design_rationale : undefined,
   };
   const pagesIn = Array.isArray(r.pages) ? r.pages : [];
+  // Slugs must be unique -- they're the page's route, its nav link, and its
+  // React key/tab identity downstream (GeneratedDashboard's preview tabs).
+  // The AI can return two pages that slugify to the same value (e.g. "About"
+  // and "about-us" both -> "about", or a flat-out duplicate slug field);
+  // without dedup, the second page silently overwrites the first's route and
+  // the site ends up with an unreachable page and a broken nav link.
+  const usedSlugs = new Set<string>(["home"]);
+  const dedupeSlug = (candidate: string, fallbackIdx: number): string => {
+    const base = candidate || `page-${fallbackIdx + 1}`;
+    if (!usedSlugs.has(base)) {
+      usedSlugs.add(base);
+      return base;
+    }
+    let n = 2;
+    while (usedSlugs.has(`${base}-${n}`)) n++;
+    const unique = `${base}-${n}`;
+    usedSlugs.add(unique);
+    return unique;
+  };
   const pagesBuilt: Page[] = pagesIn.slice(0, 6).map((p, idx) => {
     const pp = (p ?? {}) as Record<string, unknown>;
     const sectionsIn = Array.isArray(pp.sections) ? pp.sections : [];
@@ -332,7 +352,7 @@ function normalize(raw: unknown, prompt: string): Manifest {
       })
       .filter((x): x is Section => !!x);
     const title = typeof pp.title === "string" && pp.title.trim() ? pp.title.trim() : (idx === 0 ? name : `Page ${idx + 1}`);
-    const slug = idx === 0 ? "home" : slugify(String(pp.slug ?? title));
+    const slug = idx === 0 ? "home" : dedupeSlug(slugify(String(pp.slug ?? title)), idx);
     return {
       slug,
       title,
@@ -576,7 +596,24 @@ serve(async (req) => {
         return json({ error: "Could not understand that request. Try rephrasing more specifically." }, 500);
       }
 
-      const nextManifest = normalize(refined.manifest ?? currentManifest, existing.prompt || prompt);
+      // The model's own JSON output isn't validated for having a usable
+      // `manifest` before this point. Two real failure modes if it's not:
+      // - `manifest` omitted entirely -> normalize(currentManifest) rebuilds
+      //   the untouched site, but the response still claims success ("✓
+      //   Applied your changes") even though nothing changed.
+      // - `manifest` present but degenerate (e.g. `{}`) -> normalize()
+      //   doesn't detect that as "no manifest"; it manufactures a brand-new
+      //   minimal site ("Untitled Site", one default hero page) and that
+      //   gets written straight over the user's real content.
+      // A real website always has at least one page, so require that as the
+      // minimum signal the model actually returned something usable, and
+      // fail loudly instead of silently no-op'ing or overwriting.
+      const refinedManifestRaw = refined.manifest as Record<string, unknown> | undefined;
+      if (!refinedManifestRaw || typeof refinedManifestRaw !== "object" || !Array.isArray(refinedManifestRaw.pages) || refinedManifestRaw.pages.length === 0) {
+        console.error("refine AI returned no usable manifest", { intent: refined.intent, hasManifest: !!refinedManifestRaw });
+        return json({ error: "Couldn't apply that edit — the AI didn't return a usable update. Nothing was changed; please try again or rephrase your request." }, 502);
+      }
+      const nextManifest = normalize(refinedManifestRaw, existing.prompt || prompt);
 
       // A linked/uploaded asset is an executable instruction, not prose. If the
       // model omitted the exact URL, fail visibly instead of claiming success.
@@ -664,7 +701,16 @@ serve(async (req) => {
       manifest = fallbackManifest(compilePrompt);
     }
 
-    if (!save || !user) return json({ manifest });
+    if (!save) return json({ manifest });
+    // A caller that asked to save (the frontend's default) but has no
+    // resolved session used to fall into the same branch as "preview only"
+    // above, silently returning {manifest} with no website_id and no error
+    // at status 200. The frontend's own check (`!resp.ok || !body?.website_id`)
+    // then had nothing to show but a generic `Website compile failed (200)` --
+    // a real auth failure disguised as a mysteriously-empty success. Fail
+    // loudly with the same wording compile-agent-manifest already uses for
+    // this exact case.
+    if (!user) return json({ error: "Not authenticated — sign in to save your website.", manifest }, 401);
 
     // REBUILD: regenerate this same website in place, replacing all of its pages.
     if (rebuildWebsiteId) {
@@ -722,6 +768,14 @@ serve(async (req) => {
         route_reason: routeInfo.reason,
       });
     }
+
+    // Charge one credit for creating a brand-new website -- editing/refining
+    // or rebuilding an existing one (both handled above, before this point)
+    // stays free, so iterating on what you've already built never drains
+    // your balance. This is the only place a genuinely new website is ever
+    // inserted, so it's the only place that should ever be charged.
+    const credit = await consumeGenerationCredit(user.id);
+    if (!credit.ok) return json({ error: NO_CREDITS_MESSAGE, code: "no_credits" }, 402);
 
     const { data: siteRow, error: siteErr } = await supabase
       .from("websites")

@@ -4,6 +4,14 @@
 // pixel-perfect copy of the live WebsitePreview renderer (no motion, no
 // generated SVG signatures), but every page's real copy, links, and basic
 // layout are present in plain HTML/CSS a user can open or deploy as-is.
+//
+// The contact form posts to the same website-form-submit edge function the
+// live NazAI-hosted preview uses (verify_jwt=false, so a plain fetch with no
+// API key works) -- an exported file used to just alert() and throw the
+// submission away, which is the same "lead goes into a black hole" bug the
+// live preview had before it got a real backend.
+import { SUPABASE_FUNCTIONS_URL } from "@/integrations/supabase/client";
+
 type Field = Record<string, unknown>;
 
 function esc(v: unknown): string {
@@ -32,7 +40,7 @@ function resolveHref(href: string, pages: { slug: string }[]): string {
 // have real multi-page routing without a zip of separate files, so all
 // pages ship in one document and switch visibility client-side).
 
-function renderSection(section: Field, pages: { slug: string }[]): string {
+function renderSection(section: Field, pages: { slug: string }[], websiteId: string, pageSlug: string): string {
   const c = (section.content as Field) || {};
   const type = str(section, "type");
   const href = (v: string) => esc(resolveHref(v, pages));
@@ -49,7 +57,7 @@ function renderSection(section: Field, pages: { slug: string }[]): string {
     case "gallery":
       return `<section><h2>${esc(str(c, "heading"))}</h2><div class="grid">${arr(c, "items").map((it) => `<figure>${str(it, "asset_url") ? `<img src="${esc(str(it, "asset_url"))}" alt="${esc(str(it, "caption"))}"/>` : ""}<figcaption>${esc(str(it, "caption"))}</figcaption></figure>`).join("")}</div></section>`;
     case "contact":
-      return `<section><h2>${esc(str(c, "heading"))}</h2><p>${esc(str(c, "body"))}</p><ul class="meta">${str(c, "email") ? `<li>${esc(str(c, "email"))}</li>` : ""}${str(c, "phone") ? `<li>${esc(str(c, "phone"))}</li>` : ""}${str(c, "address") ? `<li>${esc(str(c, "address"))}</li>` : ""}</ul><form onsubmit="alert('Connect this form to your own backend.'); return false;">${(strArr(c, "form_fields").length ? strArr(c, "form_fields") : ["Name", "Email", "Message"]).map((f) => `<label>${esc(f)}${f.toLowerCase().includes("message") ? `<textarea rows="4"></textarea>` : `<input/>`}</label>`).join("")}<button type="submit">Send</button></form></section>`;
+      return `<section><h2>${esc(str(c, "heading"))}</h2><p>${esc(str(c, "body"))}</p><ul class="meta">${str(c, "email") ? `<li>${esc(str(c, "email"))}</li>` : ""}${str(c, "phone") ? `<li>${esc(str(c, "phone"))}</li>` : ""}${str(c, "address") ? `<li>${esc(str(c, "address"))}</li>` : ""}</ul><form onsubmit="return handleLeadFormSubmit(event)" data-website-id="${esc(websiteId)}" data-page-slug="${esc(pageSlug)}" data-section-kind="contact">${(strArr(c, "form_fields").length ? strArr(c, "form_fields") : ["Name", "Email", "Message"]).map((f) => `<label>${esc(f)}${f.toLowerCase().includes("message") ? `<textarea name="${esc(f)}" rows="4"></textarea>` : `<input name="${esc(f)}"/>`}</label>`).join("")}<button type="submit">Send</button></form></section>`;
     case "pricing":
       return `<section><h2>${esc(str(c, "heading"))}</h2><div class="grid">${arr(c, "items").length ? "" : arr(c, "tiers").map((t) => `<div class="card"><h3>${esc(str(t, "name"))}</h3><p class="price">${esc(str(t, "price"))}${str(t, "period") ? `/${esc(str(t, "period"))}` : ""}</p><ul>${strArr(t, "features").map((f) => `<li>${esc(f)}</li>`).join("")}</ul><a class="btn btn-primary" href="${href(str(t, "cta_href"))}">${esc(str(t, "cta") || "Choose")}</a></div>`).join("")}</div></section>`;
     case "faq":
@@ -142,15 +150,44 @@ export function buildStaticSiteHtml(website: Field, pages: Field[]): string {
   // All pages ship in one file, switched client-side (isPageHref/showPage) --
   // a single download that works when opened directly (file://) or hosted
   // anywhere, with no server-side routing required.
+  const websiteId = str(website, "id");
   const pageBlocks = pageList.map((p, i) => {
     const page = pages[i] as Field;
     const sections = arr(page, "sections");
-    return `<div data-page="${esc(p.slug)}" class="${i === 0 ? "active" : ""}">${sections.map((s) => renderSection(s as Field, pageList)).join("\n")}</div>`;
+    return `<div data-page="${esc(p.slug)}" class="${i === 0 ? "active" : ""}">${sections.map((s) => renderSection(s as Field, pageList, websiteId, p.slug)).join("\n")}</div>`;
   }).join("\n");
 
   const pageSlugs = JSON.stringify(pageList.map((p) => p.slug));
   const script = `
     var PAGE_SLUGS = ${pageSlugs};
+    var LEAD_FORM_ENDPOINT = ${JSON.stringify(`${SUPABASE_FUNCTIONS_URL}/website-form-submit`)};
+    function handleLeadFormSubmit(e) {
+      e.preventDefault();
+      var form = e.target;
+      var btn = form.querySelector('button[type="submit"]');
+      var fields = {};
+      Array.prototype.forEach.call(form.querySelectorAll('input[name], textarea[name]'), function (el) {
+        fields[el.name] = el.value;
+      });
+      if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+      fetch(LEAD_FORM_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          websiteId: form.getAttribute('data-website-id'),
+          pageSlug: form.getAttribute('data-page-slug'),
+          sectionKind: form.getAttribute('data-section-kind'),
+          fields: fields,
+        }),
+      }).then(function (res) {
+        if (!res.ok) throw new Error('submit failed');
+        form.innerHTML = '<p style="opacity:.85">Thanks — we\\'ll be in touch.</p>';
+      }).catch(function () {
+        if (btn) { btn.disabled = false; btn.textContent = 'Send'; }
+        alert('Something went wrong sending this — please try again or contact us directly.');
+      });
+      return false;
+    }
     function showPage(slug) {
       document.querySelectorAll('main > div[data-page]').forEach(function (el) {
         el.classList.toggle('active', el.getAttribute('data-page') === slug);
