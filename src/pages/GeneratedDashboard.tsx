@@ -26,6 +26,7 @@ import {
   History,
   Undo2,
   X,
+  Inbox,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -92,6 +93,9 @@ export default function GeneratedDashboard() {
   const [domainInput, setDomainInput] = useState("");
   const [savingDomain, setSavingDomain] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [leadsOpen, setLeadsOpen] = useState(false);
+  const [loadingLeads, setLoadingLeads] = useState(false);
+  const [leads, setLeads] = useState<{ id: string; page_slug: string | null; section_kind: string; fields: Record<string, unknown>; created_at: string }[]>([]);
   const [versions, setVersions] = useState<{ id: string; label: string | null; created_at: string }[]>([]);
   const [loadingVersions, setLoadingVersions] = useState(false);
   const [restoringVersionId, setRestoringVersionId] = useState<string | null>(null);
@@ -554,6 +558,20 @@ export default function GeneratedDashboard() {
     setLoadingVersions(false);
   };
 
+  const openLeads = async () => {
+    setLeadsOpen(true);
+    setLoadingLeads(true);
+    const { data, error } = await supabase
+      .from("website_form_submissions")
+      .select("id, page_slug, section_kind, fields, created_at")
+      .eq("website_id", id!)
+      .order("created_at", { ascending: false })
+      .limit(100);
+    if (error) toast.error(error.message);
+    setLeads((data as typeof leads) || []);
+    setLoadingLeads(false);
+  };
+
   const restoreVersion = async (versionId: string) => {
     if (!id) return;
     if (!confirm("Restore this version? Your current content will be saved as a new version first, so you can undo this too.")) return;
@@ -687,6 +705,7 @@ export default function GeneratedDashboard() {
                     {[
                       { icon: Pencil, label: "Rename", onClick: renameSite },
                       { icon: Copy, label: "Duplicate", onClick: duplicateSite },
+                      { icon: Inbox, label: "Leads", onClick: openLeads },
                       { icon: History, label: "Version history", onClick: openHistory },
                       { icon: Download, label: "Export", onClick: exportSite },
                       { icon: Trash2, label: "Delete", onClick: deleteSite, danger: true },
@@ -1008,6 +1027,58 @@ export default function GeneratedDashboard() {
                     {restoringVersionId === v.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Undo2 className="h-3 w-3" />}
                     Restore
                   </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+      {leadsOpen && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+          onClick={() => setLeadsOpen(false)}
+        >
+          <div
+            className="w-full max-w-lg max-h-[70vh] flex flex-col rounded-2xl border border-white/10 bg-[#0a0f1e] shadow-[0_20px_80px_-20px_rgba(34,211,238,0.3)] p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center gap-2">
+                <Inbox className="h-4 w-4 text-cyan-300" />
+                <h3 className="text-white font-semibold">Leads</h3>
+              </div>
+              <button onClick={() => setLeadsOpen(false)} className="text-white/40 hover:text-white">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <p className="text-xs text-white/50 mb-4">
+              Everyone who submitted a form on this site — a copy is also emailed to you when it happens.
+            </p>
+            <div className="flex-1 min-h-0 overflow-y-auto space-y-2">
+              {loadingLeads && (
+                <div className="flex items-center gap-2 text-xs text-white/50 py-4 justify-center">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading…
+                </div>
+              )}
+              {!loadingLeads && leads.length === 0 && (
+                <p className="text-xs text-white/40 text-center py-6">No submissions yet — they'll show up here as soon as someone fills out a form on your site.</p>
+              )}
+              {!loadingLeads && leads.map((lead) => (
+                <div key={lead.id} className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2.5">
+                  <div className="flex items-center justify-between gap-3 mb-1.5">
+                    <span className="text-[10px] uppercase tracking-wide text-cyan-300/80 font-semibold">
+                      {lead.section_kind}{lead.page_slug ? ` · ${lead.page_slug}` : ""}
+                    </span>
+                    <span className="text-[10px] text-white/40 font-mono shrink-0">{new Date(lead.created_at).toLocaleString()}</span>
+                  </div>
+                  <div className="space-y-0.5">
+                    {Object.entries(lead.fields || {}).map(([key, value]) => (
+                      <div key={key} className="text-xs text-white/80 flex gap-1.5">
+                        <span className="text-white/40 capitalize shrink-0">{key}:</span>
+                        <span className="break-words">{String(value)}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               ))}
             </div>
