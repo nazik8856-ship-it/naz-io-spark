@@ -38,6 +38,18 @@ import ExecutionLog from "@/components/execution/ExecutionLog";
 import { useExecutionLog } from "@/hooks/useExecutionLog";
 import { buildStaticSiteHtml } from "@/lib/static-site-export";
 import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 
 type WebsiteView = "preview" | "code";
 type Device = "desktop" | "tablet" | "phone";
@@ -99,6 +111,12 @@ export default function GeneratedDashboard() {
   const [versions, setVersions] = useState<{ id: string; label: string | null; created_at: string }[]>([]);
   const [loadingVersions, setLoadingVersions] = useState(false);
   const [restoringVersionId, setRestoringVersionId] = useState<string | null>(null);
+  const [restoreConfirm, setRestoreConfirm] = useState<{ id: string; label: string | null } | null>(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deletingSite, setDeletingSite] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameValue, setRenameValue] = useState("");
+  const [renaming, setRenaming] = useState(false);
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [chatBusy, setChatBusy] = useState(false);
   // Real-time step log for website chat actions (replaces the generic spinner).
@@ -494,13 +512,23 @@ export default function GeneratedDashboard() {
       toast.error("Export failed");
     }
   };
-  const renameSite = async () => {
-    const next = prompt("Rename website", website?.name || "");
-    if (!next || next === website?.name) return;
-    const { error } = await supabase.from("websites").update({ name: next }).eq("id", id!);
-    if (error) return toast.error(error.message);
-    setWebsite((w: any) => ({ ...w, name: next }));
-    toast.success("Renamed");
+  const renameSite = () => {
+    setRenameValue(website?.name || "");
+    setRenameOpen(true);
+  };
+  const confirmRename = async () => {
+    const next = renameValue.trim();
+    if (!next || next === website?.name) { setRenameOpen(false); return; }
+    setRenaming(true);
+    try {
+      const { error } = await supabase.from("websites").update({ name: next }).eq("id", id!);
+      if (error) { toast.error(error.message); return; }
+      setWebsite((w: any) => ({ ...w, name: next }));
+      toast.success("Renamed");
+      setRenameOpen(false);
+    } finally {
+      setRenaming(false);
+    }
   };
   const duplicateSite = async () => {
     if (!website) return;
@@ -536,12 +564,19 @@ export default function GeneratedDashboard() {
     toast.success("Duplicated");
     navigate(`/generated/website/${data.id}`);
   };
-  const deleteSite = async () => {
-    if (!id || !confirm("Delete this website? This cannot be undone.")) return;
-    const { error } = await supabase.from("websites").delete().eq("id", id);
-    if (error) return toast.error(error.message);
-    toast.success("Deleted");
-    navigate("/generator-home");
+  const deleteSite = () => setDeleteConfirmOpen(true);
+  const confirmDeleteSite = async () => {
+    if (!id) return;
+    setDeletingSite(true);
+    try {
+      const { error } = await supabase.from("websites").delete().eq("id", id);
+      if (error) { toast.error(error.message); return; }
+      toast.success("Deleted");
+      navigate("/generator-home");
+    } finally {
+      setDeletingSite(false);
+      setDeleteConfirmOpen(false);
+    }
   };
 
   const openHistory = async () => {
@@ -574,7 +609,7 @@ export default function GeneratedDashboard() {
 
   const restoreVersion = async (versionId: string) => {
     if (!id) return;
-    if (!confirm("Restore this version? Your current content will be saved as a new version first, so you can undo this too.")) return;
+    setRestoreConfirm(null);
     setRestoringVersionId(versionId);
     try {
       const { error } = await supabase.rpc("restore_website_version", { _version_id: versionId });
@@ -1021,7 +1056,7 @@ export default function GeneratedDashboard() {
                   </div>
                   <button
                     disabled={restoringVersionId === v.id}
-                    onClick={() => restoreVersion(v.id)}
+                    onClick={() => setRestoreConfirm({ id: v.id, label: v.label })}
                     className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-semibold text-cyan-200 border border-cyan-400/30 bg-cyan-400/10 hover:bg-cyan-400/20 transition disabled:opacity-50"
                   >
                     {restoringVersionId === v.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Undo2 className="h-3 w-3" />}
@@ -1085,6 +1120,80 @@ export default function GeneratedDashboard() {
           </div>
         </div>
       )}
+      <Dialog open={renameOpen} onOpenChange={(open) => { if (!open) setRenameOpen(false); }}>
+        <DialogContent className="bg-[#0a0f1e] border-white/10 text-white">
+          <DialogHeader>
+            <DialogTitle>Rename website</DialogTitle>
+          </DialogHeader>
+          <Input
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") confirmRename(); }}
+            placeholder="Website name"
+            autoFocus
+            className="bg-white/[0.04] border-white/10 text-white"
+          />
+          <DialogFooter>
+            <button
+              onClick={() => setRenameOpen(false)}
+              className="px-3 py-1.5 rounded-md text-xs text-zinc-300 hover:bg-white/5 transition"
+            >
+              Cancel
+            </button>
+            <button
+              disabled={renaming || !renameValue.trim()}
+              onClick={confirmRename}
+              className="px-3 py-1.5 rounded-md text-xs font-semibold text-cyan-200 border border-cyan-400/30 bg-cyan-400/10 hover:bg-cyan-400/20 transition disabled:opacity-50"
+            >
+              {renaming ? "Saving…" : "Save"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={(open) => { if (!open) setDeleteConfirmOpen(false); }}>
+        <AlertDialogContent className="bg-[#0a0f1e] border-white/10 text-white">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete "{website?.name || "this website"}"?</AlertDialogTitle>
+            <AlertDialogDescription className="text-zinc-400">
+              This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingSite} className="bg-transparent border-white/10 text-zinc-200 hover:bg-white/5 hover:text-white">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deletingSite}
+              onClick={(e) => { e.preventDefault(); confirmDeleteSite(); }}
+              className="bg-red-500/20 text-red-300 border border-red-500/30 hover:bg-red-500/30"
+            >
+              {deletingSite ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={!!restoreConfirm} onOpenChange={(open) => { if (!open) setRestoreConfirm(null); }}>
+        <AlertDialogContent className="bg-[#0a0f1e] border-white/10 text-white">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Restore "{restoreConfirm?.label || "this version"}"?</AlertDialogTitle>
+            <AlertDialogDescription className="text-zinc-400">
+              Your current content will be saved as a new version first, so you can undo this too.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={!!restoringVersionId} className="bg-transparent border-white/10 text-zinc-200 hover:bg-white/5 hover:text-white">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={!!restoringVersionId}
+              onClick={(e) => { e.preventDefault(); if (restoreConfirm) restoreVersion(restoreConfirm.id); }}
+              className="bg-cyan-400/20 text-cyan-200 border border-cyan-400/30 hover:bg-cyan-400/30"
+            >
+              {restoringVersionId ? "Restoring…" : "Restore"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
