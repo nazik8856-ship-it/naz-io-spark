@@ -4,7 +4,6 @@ import { ArrowLeft, FileText, Download } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 // Stale generated types: control-system tables aren't in types.ts yet.
 const anyDb = supabase as any;
-import { useAuth } from "@/hooks/useAuth";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { toast } from "@/hooks/use-toast";
 import { buildComplianceReport } from "@/lib/compliance-report";
@@ -20,7 +19,6 @@ const daysAgoIso = (n: number) => new Date(Date.now() - n * 24 * 60 * 60 * 1000)
  */
 export default function ControlComplianceReport() {
   const navigate = useNavigate();
-  const { user } = useAuth();
   const { accountId } = useActiveAccount();
   const [from, setFrom] = useState(daysAgoIso(30));
   const [to, setTo] = useState(todayIso());
@@ -29,15 +27,22 @@ export default function ControlComplianceReport() {
   const [monthlyEmail, setMonthlyEmail] = useState(false);
 
   useEffect(() => {
-    if (!user) return;
-    anyDb.from("profiles").select("compliance_report_monthly_enabled").eq("id", user.id).maybeSingle()
+    // This is the account's own setting (the monthly-report cron reads it
+    // per profiles row, one row per account) -- not the viewer's. It was
+    // reading/writing `user.id` (whoever is logged in) instead of
+    // `accountId` (the account currently selected via the account
+    // switcher), so a team member managing a different account was
+    // silently toggling their OWN account's subscription instead of the
+    // one they were actually looking at.
+    if (!accountId) return;
+    anyDb.from("profiles").select("compliance_report_monthly_enabled").eq("id", accountId).maybeSingle()
       .then(({ data }) => setMonthlyEmail(!!(data as { compliance_report_monthly_enabled?: boolean } | null)?.compliance_report_monthly_enabled));
-  }, [user]);
+  }, [accountId]);
 
   const toggleMonthlyEmail = async (checked: boolean) => {
-    if (!user) return;
+    if (!accountId) return;
     setMonthlyEmail(checked);
-    const { error } = await anyDb.from("profiles").update({ compliance_report_monthly_enabled: checked }).eq("id", user.id);
+    const { error } = await anyDb.from("profiles").update({ compliance_report_monthly_enabled: checked }).eq("id", accountId);
     if (error) {
       setMonthlyEmail(!checked);
       toast({ title: "Couldn't save that", description: error.message, variant: "destructive" });

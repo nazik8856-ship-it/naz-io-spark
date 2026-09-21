@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 // Stale generated types: control-system tables aren't in types.ts yet.
 const anyDb = supabase as any;
 import { useAuth } from "@/hooks/useAuth";
+import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { toast } from "@/hooks/use-toast";
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
@@ -32,19 +33,25 @@ type VerifyResult = {
 export default function ControlAuditVerify() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { accountId } = useActiveAccount();
   const [from, setFrom] = useState(daysAgoIso(30));
   const [to, setTo] = useState(todayIso());
   const [verifying, setVerifying] = useState(false);
   const [result, setResult] = useState<VerifyResult | null>(null);
 
   const verify = async () => {
-    if (!user) return;
+    if (!user || !accountId) return;
     setVerifying(true);
     setResult(null);
     const fromIso = new Date(`${from}T00:00:00.000Z`).toISOString();
     const toIso = new Date(`${to}T23:59:59.999Z`).toISOString();
+    // Was verifying auth.uid()'s own account regardless of which account
+    // was selected via the account switcher -- a team member checking a
+    // different account's audit trail silently got their own account's
+    // results back instead. The RPC now takes an explicit account param
+    // and checks membership, same as get_account_owner_contact.
     const { data, error } = await anyDb.rpc("verify_decision_signatures_batch", {
-      _from: fromIso, _to: toIso, _limit: 20000,
+      _from: fromIso, _to: toIso, _limit: 20000, _account_owner_id: accountId,
     });
     setVerifying(false);
     if (error) {
