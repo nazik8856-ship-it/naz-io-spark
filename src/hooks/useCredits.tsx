@@ -73,10 +73,21 @@ export function useCredits(userId: string | undefined) {
 
   // Cross-session realtime: any update to this user's profile row updates the
   // local balance (e.g. a deduction on another tab or a server-side top-up).
+  //
+  // Channel name includes a random suffix -- this hook is called from more
+  // than one component at once (CreditBalance, PaymentWindow), and
+  // supabase.channel(topic) returns the SAME channel object for a repeated
+  // topic string rather than a fresh one. A second .on() call on a channel
+  // the first instance already .subscribe()'d throws ("cannot add
+  // `postgres_changes` callbacks ... after `subscribe()`"), which crashed
+  // /generator-home into the app's top-level ErrorBoundary in production.
+  // The suffix only needs to be unique per mounted instance -- the filter
+  // below is what actually scopes which row's changes this listens to, not
+  // the channel name.
   useEffect(() => {
     if (!userId) return;
     const channel = supabase
-      .channel(`profiles:${userId}`)
+      .channel(`profiles:${userId}:${Math.random().toString(36).slice(2)}`)
       .on(
         "postgres_changes",
         {
