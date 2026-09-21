@@ -337,8 +337,12 @@ async function enforceAccountSpendCap(
     return { ...status, tripped: true, over_cap: true };
   }
 
-  // ---- 90% — warn once per day -----------------------------------------
-  if (status.pct >= 90 && !row?.warned_at && !row?.capped_at) {
+  // ---- 80% — warn once per day -------------------------------------------
+  // Was 90% -- moved to 80% (Pillar 1 day) to match the daily digest's own
+  // SPEND_WARN_PCT and the in-app SpendCapPanel's warning color, and to
+  // give an owner more real runway to react before the automatic stop at
+  // 100% rather than a warning that lands only 10 points from the wall.
+  if (status.pct >= 80 && !row?.warned_at && !row?.capped_at) {
     const text =
       `⚠️ NazAI daily AI spend is at ${Math.round(status.pct)}% of its cap — ` +
       `${money(status.spent_usd)} of ${money(status.cap_usd)} across ${status.calls} calls today. ` +
@@ -418,7 +422,8 @@ async function enforceAgentSpendCap(
     return;
   }
 
-  if (status.pct >= 90 && !row?.warned_at && !row?.capped_at) {
+  // Same 80% threshold as the account-wide warning above (was 90%).
+  if (status.pct >= 80 && !row?.warned_at && !row?.capped_at) {
     const text =
       `⚠️ One agent's AI spend is at ${Math.round(status.pct)}% of its own cap — ` +
       `${money(status.spent_usd)} of ${money(status.cap_usd)} across ${status.calls} calls today. ` +

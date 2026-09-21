@@ -4,7 +4,6 @@ import { ArrowLeft, TrendingUp, Download } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 // Stale generated types: control-system tables aren't in types.ts yet.
 const anyDb = supabase as any;
-import { useAuth } from "@/hooks/useAuth";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { toast } from "@/hooks/use-toast";
 import { buildRoiReport, projectMonthlySpend, type DecisionForRoi } from "@/lib/roi-report";
@@ -25,7 +24,6 @@ type ForecastRow = { label: string; projected: number };
  */
 export default function ControlRoiReport() {
   const navigate = useNavigate();
-  const { user } = useAuth();
   const { accountId } = useActiveAccount();
   const [from, setFrom] = useState(daysAgoIso(30));
   const [to, setTo] = useState(todayIso());
@@ -35,15 +33,20 @@ export default function ControlRoiReport() {
   const [monthlyEmail, setMonthlyEmail] = useState(false);
 
   useEffect(() => {
-    if (!user) return;
-    anyDb.from("profiles").select("roi_report_monthly_enabled").eq("id", user.id).maybeSingle()
+    // Account-level setting (the monthly-report cron reads it per profiles
+    // row, one row per account) -- was reading/writing `user.id` (whoever
+    // is logged in) instead of `accountId` (the account currently selected
+    // via the account switcher), so a team member managing a different
+    // account was silently toggling their OWN account's subscription.
+    if (!accountId) return;
+    anyDb.from("profiles").select("roi_report_monthly_enabled").eq("id", accountId).maybeSingle()
       .then(({ data }) => setMonthlyEmail(!!(data as { roi_report_monthly_enabled?: boolean } | null)?.roi_report_monthly_enabled));
-  }, [user]);
+  }, [accountId]);
 
   const toggleMonthlyEmail = async (checked: boolean) => {
-    if (!user) return;
+    if (!accountId) return;
     setMonthlyEmail(checked);
-    const { error } = await anyDb.from("profiles").update({ roi_report_monthly_enabled: checked }).eq("id", user.id);
+    const { error } = await anyDb.from("profiles").update({ roi_report_monthly_enabled: checked }).eq("id", accountId);
     if (error) {
       setMonthlyEmail(!checked);
       toast({ title: "Couldn't save that", description: error.message, variant: "destructive" });

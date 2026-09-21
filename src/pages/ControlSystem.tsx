@@ -1,13 +1,12 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, X, Sparkles } from "lucide-react";
+import { ArrowLeft, X, Sparkles, Gauge } from "lucide-react";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import LiveAgentChat from "@/components/agents/LiveAgentChat";
 import DecisionCard, { type ControlDecision } from "@/components/control/DecisionCard";
-import KillSwitchPanel from "@/components/control/KillSwitchPanel";
 import HardRulesPanel from "@/components/control/HardRulesPanel";
-import CircuitBreakerPanel from "@/components/control/CircuitBreakerPanel";
-import SpendCapPanel from "@/components/control/SpendCapPanel";
+import SpendSafetyStatusBadge from "@/components/control/SpendSafetyStatusBadge";
+import { useSpendSafetyStatus } from "@/hooks/useSpendSafetyStatus";
 
 
 import DryRunToggle from "@/components/control/DryRunToggle";
@@ -25,6 +24,7 @@ import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
 type Turn = { role: "user" | "assistant"; content: string; node?: ReactNode };
 
 const TEMPLATES_NUDGE_DISMISSED_KEY = "nazai_templates_nudge_dismissed";
+const SPEND_NUDGE_DISMISSED_KEY = "nazai_spend_nudge_dismissed";
 
 /**
  * AI CONTROL SYSTEM
@@ -38,6 +38,8 @@ export default function ControlSystem() {
   const [streaming, setStreaming] = useState(false);
   const [dryRun, setDryRun] = useState(false);
   const [showTemplatesNudge, setShowTemplatesNudge] = useState(false);
+  const [spendNudgeDismissed, setSpendNudgeDismissed] = useState(false);
+  const spendStatus = useSpendSafetyStatus(accountId);
 
   useEffect(() => {
     if (!accountId) return;
@@ -67,6 +69,29 @@ export default function ControlSystem() {
       localStorage.setItem(TEMPLATES_NUDGE_DISMISSED_KEY, accountId);
     } catch { /* best effort -- worst case it reappears next visit */ }
   };
+
+  useEffect(() => {
+    if (!accountId) return;
+    try {
+      if (localStorage.getItem(SPEND_NUDGE_DISMISSED_KEY) === accountId) setSpendNudgeDismissed(true);
+    } catch { /* localStorage unavailable -- fall through, banner just won't persist dismissal */ }
+  }, [accountId]);
+
+  const dismissSpendNudge = () => {
+    setSpendNudgeDismissed(true);
+    try {
+      localStorage.setItem(SPEND_NUDGE_DISMISSED_KEY, accountId);
+    } catch { /* best effort -- worst case it reappears next visit */ }
+  };
+
+  // Pillar 1 first-run nudge: a brand-new account gets a silent $5/day
+  // default (spend-guard.ts's DEFAULT_DAILY_CAP_USD) with nothing ever
+  // prompting them to choose a real number -- confirmed live: every
+  // account today has zero rows in ai_spend_caps. SpendCapPanel's own
+  // inline "Default -- not set" tag only helps someone who already opened
+  // that panel; this surfaces the same fact where a first-time visitor
+  // actually lands, same pattern as the templates nudge above.
+  const showSpendNudge = !spendStatus.loading && !spendStatus.capIsCustom && !spendNudgeDismissed;
 
   const handleSend = async (text: string) => {
     const history = turns
@@ -285,13 +310,32 @@ export default function ControlSystem() {
         </div>
       )}
 
+      {showSpendNudge && (
+        <div className="flex items-center gap-3 border-b border-amber-500/20 bg-amber-500/[0.06] px-6 py-2.5">
+          <Gauge className="h-4 w-4 shrink-0 text-amber-300" />
+          <p className="text-xs text-amber-100">
+            You haven't set a daily AI spend limit — a silent $5.00/day default is applying right now. Choose a number you actually picked.
+          </p>
+          <button
+            onClick={() => navigate("/control-system/spend-safety")}
+            className="ml-auto shrink-0 rounded border border-amber-500/40 bg-amber-500/10 px-3 py-1 text-[11px] font-mono uppercase tracking-wider text-amber-300 hover:bg-amber-500/20"
+          >
+            Set spend limit
+          </button>
+          <button
+            onClick={dismissSpendNudge}
+            aria-label="Dismiss"
+            className="shrink-0 text-amber-300/60 hover:text-amber-200"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
 
+      <SpendSafetyStatusBadge />
       <StrictnessPanel />
-      <KillSwitchPanel />
-      <SpendCapPanel />
       <RetentionPanel />
 
-      <CircuitBreakerPanel />
       <HardRulesPanel />
       <PolicyOverviewPanel />
       <NotificationPreferencesPanel />

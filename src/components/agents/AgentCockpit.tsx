@@ -15,6 +15,7 @@ import { AlertTriangle } from "lucide-react";
 import AskUserPrompt from "./AskUserPrompt";
 import { pendingClarification } from "@/lib/agent-clarifications";
 import AgentHealthBadge from "./AgentHealthBadge";
+import AgentSpendSafetyBadge from "./AgentSpendSafetyBadge";
 import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
 
 type OutputItem = {
@@ -563,6 +564,7 @@ export default function AgentCockpit({ agentId, manifest, onOpenBlueprint, isLoc
       {/* Status + actions bar (the generated dashboard renders its own hero) */}
       <div className="flex flex-wrap items-center gap-2">
         <AgentHealthBadge agentId={agentId} />
+        <AgentSpendSafetyBadge agentId={agentId} />
         <button
           onClick={runNow}
           disabled={running || isLocalOnly}

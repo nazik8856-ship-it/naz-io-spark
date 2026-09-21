@@ -1047,7 +1047,7 @@ serve(async (req) => {
     if (!res.ok) return json({ error: "gateway_error", message: (await res.text()).slice(0, 400) }, 502);
 
     const data = await res.json();
-    // Meter this gateway call against the org's daily spend cap (warns at 90%,
+    // Meter this gateway call against the org's daily spend cap (warns at 80%,
     // auto-trips the kill switch at 100%).
     // "Knowledge & autonomy" plan, item 7: a sandbox key's real model call
     // still happens (same judgment as a real key), but its cost must never

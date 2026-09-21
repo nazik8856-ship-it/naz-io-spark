@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 // Stale generated types: control-system tables aren't in types.ts yet.
 const anyDb = supabase as any;
 import { useAuth } from "@/hooks/useAuth";
+import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { toast } from "@/hooks/use-toast";
 
 // The AI Control System's own governance/audit tables -- decisions,
@@ -35,6 +36,15 @@ type DeletionRequest = { id: string; requested_at: string; execute_at: string; s
 export default function ControlAccountData() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { accountId } = useActiveAccount();
+  // This page is deliberately owner-only, not delegable -- but every query
+  // and RPC below acts on `user.id` (whoever is logged in) regardless of
+  // which account is selected in the switcher. A team member who switched
+  // to viewing a different account and opened this page got no indication
+  // of that: "Export my data" and "Schedule deletion" silently ran against
+  // THEIR OWN account instead of the one they thought they were managing.
+  // Block and explain instead of silently acting on the wrong account.
+  const viewingOtherAccount = !!accountId && !!user && accountId !== user.id;
   const [exporting, setExporting] = useState(false);
   const [pending, setPending] = useState<DeletionRequest | null>(null);
   const [confirmText, setConfirmText] = useState("");
@@ -130,22 +140,33 @@ export default function ControlAccountData() {
           separate, bigger action.
         </p>
 
-        <section className="mt-6 rounded-xl border border-white/10 bg-white/[0.03] p-4">
-          <h2 className="font-mono text-xs uppercase tracking-wider text-zinc-400">Export</h2>
-          <p className="mt-1 text-[11px] text-zinc-500">Everything above, as one JSON file, right now.</p>
-          <button
-            onClick={exportData}
-            disabled={exporting}
-            className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/40 px-3 py-1.5 text-xs font-semibold text-cyan-300 disabled:opacity-40"
-          >
-            <Download className="h-3.5 w-3.5" /> {exporting ? "Exporting…" : "Export my data (.json)"}
-          </button>
-        </section>
+        {viewingOtherAccount ? (
+          <section className="mt-6 rounded-xl border border-amber-500/30 bg-amber-500/[0.05] p-4">
+            <h2 className="font-mono text-xs uppercase tracking-wider text-amber-300">Not available here</h2>
+            <p className="mt-2 text-sm text-zinc-300">
+              Export and deletion are owner-only and never delegated to an invited team member, even one with
+              full access -- they always act on your own account, never the one you're currently viewing.
+              Switch back to your own account from the account switcher to use them.
+            </p>
+          </section>
+        ) : (
+          <>
+            <section className="mt-6 rounded-xl border border-white/10 bg-white/[0.03] p-4">
+              <h2 className="font-mono text-xs uppercase tracking-wider text-zinc-400">Export</h2>
+              <p className="mt-1 text-[11px] text-zinc-500">Everything above, as one JSON file, right now.</p>
+              <button
+                onClick={exportData}
+                disabled={exporting}
+                className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/40 px-3 py-1.5 text-xs font-semibold text-cyan-300 disabled:opacity-40"
+              >
+                <Download className="h-3.5 w-3.5" /> {exporting ? "Exporting…" : "Export my data (.json)"}
+              </button>
+            </section>
 
-        <section className="mt-6 rounded-xl border border-rose-500/25 bg-rose-500/[0.03] p-4">
-          <h2 className="font-mono text-xs uppercase tracking-wider text-rose-300">Delete</h2>
+            <section className="mt-6 rounded-xl border border-rose-500/25 bg-rose-500/[0.03] p-4">
+              <h2 className="font-mono text-xs uppercase tracking-wider text-rose-300">Delete</h2>
 
-          {pending ? (
+              {pending ? (
             <div className="mt-2 space-y-2">
               <p className="text-sm text-zinc-300">
                 Deletion scheduled for <span className="font-semibold text-rose-300">{new Date(pending.execute_at).toLocaleString()}</span>.
@@ -180,7 +201,9 @@ export default function ControlAccountData() {
               </div>
             </div>
           )}
-        </section>
+            </section>
+          </>
+        )}
       </main>
     </div>
   );
