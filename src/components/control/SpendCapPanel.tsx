@@ -140,7 +140,10 @@ export default function SpendCapPanel() {
   };
 
   const pct = cap > 0 ? Math.min(100, (spent / cap) * 100) : 0;
-  const color = pct >= 100 ? "#ef4444" : pct >= 90 ? "#f59e0b" : "#22c55e";
+  // 80%, not 90% -- matches the daily digest email's own SPEND_WARN_PCT
+  // threshold (_shared/digest.ts), so the in-app warning and the proactive
+  // email tell the same story instead of two different thresholds.
+  const color = pct >= 100 ? "#ef4444" : pct >= 80 ? "#f59e0b" : "#22c55e";
 
   return (
     <div className="px-6 py-3 border-b border-white/5 space-y-2">
@@ -228,15 +231,15 @@ export default function SpendCapPanel() {
         </p>
       )}
 
-      {hasCap && pct >= 90 && (
+      {hasCap && pct >= 80 && (
         <p className="text-[11px]" style={{ color }}>
           {pct >= 100
             ? scopeAgentId
               ? "Cap reached — this agent is halted until tomorrow (UTC) or until an owner turns it back on. Other agents on this account are unaffected."
               : "Cap reached — AI actions are halted until tomorrow (UTC) or until an owner turns the kill switch off."
             : scopeAgentId
-              ? "Over 90% of this agent's own cap used today. At 100% only this agent stops."
-              : "Over 90% of today's cap used. At 100% the kill switch trips automatically."}
+              ? "Over 80% of this agent's own cap used today. At 100% only this agent stops."
+              : "Over 80% of today's cap used. At 100% the kill switch trips automatically."}
         </p>
       )}
     </div>

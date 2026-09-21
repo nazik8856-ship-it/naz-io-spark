@@ -10,16 +10,26 @@ const REVEAL_CODE = "killswitch";
 const REVEAL_KEY = "nazai_ks_reveal";
 
 /**
- * ACCOUNT KILL SWITCH + PLATFORM KILL SWITCH (hidden operator controls).
- * Not visible or reachable for normal users: it only renders after the
- * operator types the reveal code, or loads the page with ?ops=killswitch.
- * The account switch flips profiles.kill_switch for the acting platform
- * owner's OWN account only -- previously mislabeled "global" here, which
- * was actively misleading now that a REAL platform-wide switch exists
- * below it (platform_settings, checked by control-gate.ts before every
- * other layer, for every account). Flips of either are logged to
- * agent_decisions (source: kill_switch_flip / platform_kill_switch_flip)
- * with the acting user's id.
+ * ACCOUNT KILL SWITCH (visible to any account owner) + PLATFORM KILL SWITCH
+ * (hidden operator controls).
+ *
+ * Pillar 1 fix (2026-09-21): this whole component used to sit behind the
+ * same secret reveal code -- meaning a normal business owner had no way to
+ * ever discover their OWN account's kill switch, the one piece of this
+ * pillar's "you can always stop it right now" promise that actually
+ * requires a deliberate manual action. Only the genuinely cross-tenant
+ * controls (the platform-wide switch and the consequential-sweeps pause,
+ * which affect every account, not just this one) still require the reveal
+ * code; the account-level switch below now renders for any account owner,
+ * revealed or not.
+ *
+ * The account switch flips profiles.kill_switch for the acting owner's OWN
+ * account only -- previously mislabeled "global" here, which was actively
+ * misleading now that a REAL platform-wide switch exists below it
+ * (platform_settings, checked by control-gate.ts before every other layer,
+ * for every account). Flips of either are logged to agent_decisions
+ * (source: kill_switch_flip / platform_kill_switch_flip) with the acting
+ * user's id.
  */
 export default function KillSwitchPanel() {
   const { user } = useAuth();
@@ -83,14 +93,14 @@ export default function KillSwitchPanel() {
   }, [user]);
 
   useEffect(() => {
-    if (!revealed || !user || !isOwner) return;
+    if (!user || !isOwner) return;
     supabase
       .from("profiles")
       .select("kill_switch")
       .eq("id", user.id)
       .maybeSingle()
       .then(({ data }) => setOn(Boolean((data as { kill_switch?: boolean } | null)?.kill_switch)));
-  }, [revealed, user]);
+  }, [user, isOwner]);
 
   useEffect(() => {
     if (!revealed || !user || !isPlatformAdmin) return;
@@ -224,10 +234,13 @@ export default function KillSwitchPanel() {
     }
   }, [sweepsBusy, sweepsOn, user, isPlatformAdmin]);
 
-  if (!revealed || !user || (!isOwner && !isPlatformAdmin)) return null;
+  // Owners always see their own account's switch; the reveal code is only
+  // required to unlock the platform-wide/sweeps sections below, and only
+  // matters for someone who is a platform admin but not this account's owner.
+  if (!user || (!isOwner && !(revealed && isPlatformAdmin))) return null;
 
   return (
-    <div className="mx-6 mb-3 space-y-2">
+    <div className="mb-3 space-y-2">
       {isOwner && (
         <div
           className="flex items-center gap-3 rounded-xl border px-4 py-3"
@@ -261,7 +274,7 @@ export default function KillSwitchPanel() {
         </div>
       )}
 
-      {isPlatformAdmin && (
+      {revealed && isPlatformAdmin && (
         <div
           className="flex items-center gap-3 rounded-xl border px-4 py-3"
           style={{
@@ -296,7 +309,7 @@ export default function KillSwitchPanel() {
         </div>
       )}
 
-      {isPlatformAdmin && (
+      {revealed && isPlatformAdmin && (
         <div
           className="flex items-center gap-3 rounded-xl border px-4 py-3"
           style={{

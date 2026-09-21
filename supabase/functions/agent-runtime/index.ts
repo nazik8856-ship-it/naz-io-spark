@@ -1393,7 +1393,7 @@ Rules:
       }
       const data = await resp.json();
       // Meter this reasoning-loop call against the org's daily spend cap
-      // (warns at 90%, auto-trips the kill switch at 100%) -- same call
+      // (warns at 80%, auto-trips the kill switch at 100%) -- same call
       // shape control-engine already uses for its own gateway calls.
       await recordAiSpend(supabase, userId, gw.model, data?.usage, "agent-runtime", agentId);
       runSpendUsd += estimateCostUsd(gw.model, data?.usage);
