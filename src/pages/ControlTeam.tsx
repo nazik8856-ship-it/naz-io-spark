@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 // Stale generated types: control-system tables aren't in types.ts yet.
 const anyDb = supabase as any;
 import { useAuth } from "@/hooks/useAuth";
+import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { toast } from "@/hooks/use-toast";
 import { ACCOUNT_PERMISSIONS, PERMISSION_LABEL, type AccountPermission } from "@/lib/account-switcher";
 import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
@@ -33,10 +34,20 @@ const ROLE_LABEL: Record<Role, string> = { owner: "Owner", approver: "Approver",
  * owner-level write (policy, spend/strictness, integrations) by default --
  * `permissions` (null) below narrows that to a specific subset instead of
  * the single bundled owner switch, if the account owner chooses to.
+ *
+ * Deliberately owner-only, not delegable -- account-invite's own doc
+ * comment says "invite a teammate to the CALLER's account," and every
+ * query here uses user.id regardless of which account is selected via the
+ * account switcher. Unlike ControlAccountData.tsx (fixed 2026-09-21), this
+ * page had no guard at all for that: a delegated team member viewing a
+ * different account silently saw/managed their OWN team roster with zero
+ * indication. Same fix as that page: block and explain instead.
  */
 export default function ControlTeam() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { accountId } = useActiveAccount();
+  const viewingOtherAccount = !!accountId && !!user && accountId !== user.id;
   const [members, setMembers] = useState<MemberRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [email, setEmail] = useState("");
@@ -44,7 +55,7 @@ export default function ControlTeam() {
   const [inviting, setInviting] = useState(false);
 
   const load = useCallback(async () => {
-    if (!user) return;
+    if (!user || viewingOtherAccount) return;
     setLoading(true);
     const { data, error } = await anyDb
       .from("account_members")
@@ -54,7 +65,7 @@ export default function ControlTeam() {
     if (error) toast({ title: "Couldn't load your team", description: error.message, variant: "destructive" });
     setMembers((data ?? []) as unknown as MemberRow[]);
     setLoading(false);
-  }, [user]);
+  }, [user, viewingOtherAccount]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -135,6 +146,17 @@ export default function ControlTeam() {
           gets below, instead of granting all of it by default.
         </p>
 
+        {viewingOtherAccount ? (
+          <section className="mt-6 rounded-xl border border-amber-500/30 bg-amber-500/[0.05] p-4">
+            <h2 className="font-mono text-xs uppercase tracking-wider text-amber-300">Not available here</h2>
+            <p className="mt-2 text-sm text-zinc-300">
+              Team management is owner-only and never delegated to an invited team member, even one with full
+              access -- it always acts on your own account, never the one you're currently viewing. Switch back
+              to your own account from the account switcher to use it.
+            </p>
+          </section>
+        ) : (
+        <>
         <div className="mt-6 flex flex-wrap items-end gap-2 rounded border border-white/10 bg-white/[0.02] p-3">
           <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
             Email
@@ -265,6 +287,8 @@ export default function ControlTeam() {
               );
             })}
           </ul>
+        )}
+        </>
         )}
       </main>
     </div>

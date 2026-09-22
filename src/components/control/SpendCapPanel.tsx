@@ -23,7 +23,7 @@ type AgentOption = { id: string; name: string };
  * scoped to whichever level tripped it (account-wide or just that agent)
  * until the next UTC day.
  */
-export default function SpendCapPanel() {
+export default function SpendCapPanel({ onSaved }: { onSaved?: () => void }) {
   const { accountId, role, permissions } = useActiveAccount();
   const canWrite = hasPermission(role, permissions, "spend");
   const [agents, setAgents] = useState<AgentOption[]>([]);
@@ -137,6 +137,11 @@ export default function SpendCapPanel() {
       title: scopeAgentId ? "Agent spend cap updated" : "Daily AI spend cap updated",
       description: `Now ${money(value)} per day${scopeAgentId ? " for this agent" : ""}.`,
     });
+    // Lets a parent page (ControlSpendSafety) refresh its own separately-
+    // fetched "has a custom cap" state -- this panel and useSpendSafetyStatus
+    // each track that independently, so without this the page's "no cap
+    // set" nudge and stat tile kept showing stale data right after a save.
+    onSaved?.();
   };
 
   const pct = cap > 0 ? Math.min(100, (spent / cap) * 100) : 0;
