@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, FlaskConical } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { toast } from "@/hooks/use-toast";
 import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
 
@@ -27,6 +28,7 @@ const VERDICT_STYLE: Record<string, string> = {
  */
 export default function ControlRuleSimulator() {
   const navigate = useNavigate();
+  const { accountId } = useActiveAccount();
   const [actionType, setActionType] = useState("");
   const [provider, setProvider] = useState("");
   const [description, setDescription] = useState("");
@@ -62,6 +64,10 @@ export default function ControlRuleSimulator() {
         draft_safety_rule: useDraftSafety
           ? { pattern: draftSafetyPattern.trim(), severity: draftSafetySeverity }
           : null,
+        // Was missing entirely -- the function silently fell back to
+        // testing the CALLER's own rules regardless of the account
+        // selected via the switcher.
+        account_id: accountId || undefined,
       },
     });
     setBusy(false);

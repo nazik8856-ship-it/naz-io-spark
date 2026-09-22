@@ -55,7 +55,9 @@ Deno.serve(async (req) => {
   const userId = userData.user.id;
 
   // increment_rate_limit is service_role-only -- a separate admin client is
-  // needed purely for this check, the rest of the handler stays on userClient.
+  // needed purely for this check, the rest of the handler stays on userClient
+  // for is_account_member (which reads auth.uid() from the JWT) and reuses
+  // this same admin client afterward for the account's rule/safety reads.
   const admin = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
@@ -81,6 +83,13 @@ Deno.serve(async (req) => {
   // rules apply), matching how the real gate behaves for a chat-driven
   // action with no agentId.
   const agentId = body?.agent_id ? String(body.agent_id) : null;
+  // Was ALWAYS userId regardless of which account was selected via the
+  // account switcher -- a delegated team member testing a hypothetical
+  // action "against your current rules" (this tool's own stated purpose)
+  // silently got THEIR OWN account's rules back instead of the account
+  // they were viewing. Same fix as verify_decision_signatures_batch:
+  // accept an explicit account id and check membership.
+  const requestedAccountId = body?.account_id ? String(body.account_id) : userId;
 
   if (!actionType) return json({ error: "action_type required" }, 400);
   if (!description) return json({ error: "description required" }, 400);
@@ -91,14 +100,25 @@ Deno.serve(async (req) => {
     return json({ error: "draft_safety_rule needs pattern and severity" }, 400);
   }
 
-  const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  let accountId = userId;
+  if (requestedAccountId !== userId) {
+    // "viewer" (any active membership) is enough -- read-only, no write,
+    // same tier HardRulesPanel/ControlCoverageGaps already allow for
+    // reading an account's rules.
+    const { data: isMember } = await userClient.rpc(
+      "is_account_member",
+      { _account_owner_id: requestedAccountId, _min_role: "viewer" },
+    );
+    if (!isMember) return json({ error: "not authorized for that account" }, 403);
+    accountId = requestedAccountId;
+  }
 
   // ---- 1: the account's CURRENT live hard rules — what would actually
   // happen right now, for comparison against the draft.
   const { data: liveRulesRaw } = await admin
     .from("hard_rules")
     .select("id, rule_text, action_type_pattern, effect, provider, enabled, shadow_mode, agent_id")
-    .eq("user_id", userId);
+    .eq("user_id", accountId);
   const liveRulesAllAgents = ((liveRulesRaw ?? []) as {
     id: string; rule_text: string; action_type_pattern: string; effect: string; provider: string | null;
     enabled?: boolean; shadow_mode?: boolean; agent_id?: string | null;
@@ -118,7 +138,7 @@ Deno.serve(async (req) => {
   const { data: customSafetyRaw } = await admin
     .from("safety_rules")
     .select("id, name, category, pattern, severity, enabled, agent_id, shadow_mode")
-    .eq("user_id", userId)
+    .eq("user_id", accountId)
     .eq("enabled", true);
   const customSafetyAllAgents = ((customSafetyRaw ?? []) as Record<string, unknown>[]).map((r) => ({
     id: String(r.id),
