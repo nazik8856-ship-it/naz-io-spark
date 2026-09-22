@@ -161,12 +161,17 @@ export default function KillSwitchPanel() {
       }).select("id").maybeSingle();
 
       // Real-time alert (Slack if connected, prominent server log otherwise).
+      // account_id: a delegated owner-tier member flipping a DIFFERENT
+      // account's switch (accountId !== user.id) must alert on the
+      // affected account, not their own -- same account_id resolution
+      // control-engine's main decide route now uses.
       supabase.functions.invoke("control-engine", {
         body: {
           alert_event: "kill_switch_flip",
           enabled: next,
           decision_id: (logged as { id?: string } | null)?.id ?? null,
           actor: user.email ?? user.id,
+          account_id: accountId,
         },
       }).catch(() => { /* alerting must never block the flip */ });
 

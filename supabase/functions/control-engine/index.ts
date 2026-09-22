@@ -406,6 +406,27 @@ serve(async (req) => {
       return resolveAccountScope(userClient, userId, requested, "policy");
     };
 
+    // 2026-09-22 fix: the MAIN decide route below (control-system-decide's
+    // chat, and its own kill-switch-flip alert relay) had never accepted
+    // an account_id at all -- confirmed the code's own comment above was
+    // accurate. Every review/execute/spend/log action in that route ran
+    // against the CALLER's own account regardless of which account was
+    // selected via the account switcher on the Control System page. Same
+    // resolution pattern as resolvePolicyScopeUserId above, but no single
+    // existing permission category (policy/spend/integrations) covers "use
+    // the account's AI to review and execute an action" -- it touches all
+    // three -- so this doesn't narrow by permission; any owner-tier team
+    // member is authorized, same bar the three policy-version routes use.
+    const resolveDecideAccountId = async (): Promise<string | null> => {
+      if (isInternal) return userId;
+      const requested = body?.account_id;
+      if (typeof requested !== "string" || !requested || requested === userId) return userId;
+      const userClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
+        global: { headers: { Authorization: req.headers.get("Authorization") || "" } },
+      });
+      return resolveAccountScope(userClient, userId, requested);
+    };
+
     // ---- POST /control-engine/approvals/:id/execute -------------------------
     // The ONLY path that carries out an action queued for human approval.
     // Quorum is re-checked here from the stored sign-off log — a row with
@@ -776,12 +797,21 @@ serve(async (req) => {
     const provider = String(body?.provider || "unknown").trim() || "unknown";
     const description = String(body?.description || "").trim();
 
+    // The account this decide call actually acts on -- the caller's own
+    // account by default, or a different one only if genuinely authorized
+    // (see resolveDecideAccountId above). Named `accountId` throughout the
+    // rest of this route rather than `userId` -- every read/write below
+    // (rules, spend, business profile, execution, logging) belongs to
+    // whichever account this resolves to, not necessarily the caller.
+    const accountId = await resolveDecideAccountId();
+    if (!accountId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
+
     // ---- SAFETY ALERT RELAY -------------------------------------------------
     // The kill-switch panel posts here after a manual flip so the notification
     // goes out server-side (Slack if connected, prominent log otherwise).
     if (body?.alert_event === "kill_switch_flip") {
       const enabled = body?.enabled === true || body?.enabled === "true";
-      const via = await sendCriticalAlert(supabase, userId, {
+      const via = await sendCriticalAlert(supabase, accountId, {
         event: enabled ? "kill_switch_on" : "kill_switch_off",
         summary: enabled
           ? "All AI actions for this account are halted immediately. Nothing will be scored or executed until it is turned back off."
@@ -824,7 +854,7 @@ serve(async (req) => {
     // (live + shadow), circuit breaker, and the deterministic safety scanner.
     // Everything it stops is already logged to agent_decisions.
     const gate = await runControlGate(supabase, {
-      userId,
+      userId: accountId,
       actionType,
       provider,
       description,
@@ -898,7 +928,7 @@ serve(async (req) => {
     if (agentId) {
       const { data: agent } = await supabase
         .from("agents").select("confidence_threshold, user_id").eq("id", agentId).maybeSingle();
-      if (agent && (agent as { user_id?: string }).user_id !== userId) {
+      if (agent && (agent as { user_id?: string }).user_id !== accountId) {
         return json({ error: "Not authorized for this agent" }, 403);
       }
       const t = Number((agent as { confidence_threshold?: number } | null)?.confidence_threshold);
@@ -908,13 +938,13 @@ serve(async (req) => {
     // One org-level dial that scales every tolerance below -- an agent
     // with its own strictness override uses that instead of the account
     // default (Wave 5 session 1's per-agent policy scoping, closed out).
-    const strictness = await loadStrictness(supabase, userId, agentId);
+    const strictness = await loadStrictness(supabase, accountId, agentId);
 
     // Business context for the FIT check — latest profile for this user.
     const { data: profile } = await supabase
       .from("business_profiles")
       .select("company_name, one_liner, industry, tone, audience, offers, channels, inferred_kpis")
-      .eq("user_id", userId)
+      .eq("user_id", accountId)
       .order("version", { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -941,7 +971,7 @@ serve(async (req) => {
       const { data: kbRows } = await supabase
         .from("knowledge_base_entries")
         .select("id, entry_text, action_type_pattern, provider")
-        .eq("user_id", userId)
+        .eq("user_id", accountId)
         .eq("enabled", true);
       const relevant = selectRelevantKnowledgeBaseEntries((kbRows ?? []) as KnowledgeBaseEntry[], actionType, provider);
       knowledgeBaseBlock = buildKnowledgeBasePromptBlock(relevant);
@@ -949,7 +979,7 @@ serve(async (req) => {
 
     // Fit/value learning: what actually happened the last times a human
     // overrode a "not a fit" verdict on a similar action.
-    const fitEvidence = await loadFitEvidence(supabase, userId, {
+    const fitEvidence = await loadFitEvidence(supabase, accountId, {
       actionType, provider, description,
     });
 
@@ -967,7 +997,7 @@ serve(async (req) => {
     let precedentPromptBlock = "";
     if (trustedApiKeyId) {
       try {
-        const queryEmbedding = await generateEmbeddingWithinBudget(supabase, userId, trustedApiKeyId, buildEmbeddingInput({ actionType, provider, description, params }));
+        const queryEmbedding = await generateEmbeddingWithinBudget(supabase, accountId, trustedApiKeyId, buildEmbeddingInput({ actionType, provider, description, params }));
         if (queryEmbedding) {
           const precedentRows = await loadPrecedentForPrompt(supabase, trustedApiKeyId, formatEmbeddingLiteral(queryEmbedding));
           precedentPromptBlock = buildPrecedentPromptBlock(precedentRows);
@@ -1054,7 +1084,7 @@ serve(async (req) => {
     // count toward the account's real daily spend ledger/cap -- skip the
     // write entirely rather than recording and immediately reversing it.
     const spendAfter = countsTowardRealUsage(trustedIsTest)
-      ? await recordAiSpend(supabase, userId, MODEL, data?.usage, "control-engine", agentId, trustedApiKeyId)
+      ? await recordAiSpend(supabase, accountId, MODEL, data?.usage, "control-engine", agentId, trustedApiKeyId)
       : { enabled: false, cap_usd: 0, spent_usd: 0, calls: 0, pct: 0, over_cap: false, day: new Date().toISOString().slice(0, 10) };
 
     const call = data?.choices?.[0]?.message?.tool_calls?.[0];
@@ -1078,7 +1108,7 @@ serve(async (req) => {
     // weekly job, on real measured outcomes) widens the effective threshold
     // for any decision scored inside that exact range, until a human
     // clears the flag -- fail toward more review, never less.
-    const activeConfidenceFlags = await loadActiveConfidenceBucketFlags(supabase, userId);
+    const activeConfidenceFlags = await loadActiveConfidenceBucketFlags(supabase, accountId);
     // "Knowledge & autonomy" plan, item 9: the SAME per-action-type
     // override list item 10 (last round) already uses for on_uncertain,
     // applied here to the confidence threshold -- a REPLACEMENT of the
@@ -1165,7 +1195,7 @@ serve(async (req) => {
         }
       : null;
 
-    const decisionId = await logDecision(supabase, { userId, agentId, runId }, {
+    const decisionId = await logDecision(supabase, { userId: accountId, agentId, runId }, {
       decision: `${decision.toUpperCase()} ${actionType} (${provider})`,
       reasoning: `${reason}\n${reasoning}` + (injection.detected ? `\nInjection signals: ${injection.matches.map((m) => `${m.rule} in ${m.field}`).join(", ")}` : ""),
       alternatives,
@@ -1215,7 +1245,7 @@ serve(async (req) => {
           let recheckOutcome: GateOutcome = "block";
           let recheckSource: "hard_rule" | "safety_scanner" | null = null;
           try {
-            const { data: pv } = await supabase.rpc("get_active_policy_version", { _user_id: userId });
+            const { data: pv } = await supabase.rpc("get_active_policy_version", { _user_id: accountId });
             const row = (Array.isArray(pv) ? pv[0] : pv) as { snapshot?: PolicySnapshot } | null;
             activeSnapshot = (row?.snapshot ?? {}) as PolicySnapshot;
             const evalResult = evaluateAction(
@@ -1273,7 +1303,7 @@ serve(async (req) => {
           // original action.
           if (forcedResolution.resolution === "approved" && trustedApiKeyId) {
             try {
-              const narrowedEmbedding = await generateEmbeddingWithinBudget(supabase, userId, trustedApiKeyId, buildEmbeddingInput({
+              const narrowedEmbedding = await generateEmbeddingWithinBudget(supabase, accountId, trustedApiKeyId, buildEmbeddingInput({
                 actionType, provider, description: effectiveDescription, params: effectiveParams,
               }));
               if (narrowedEmbedding) {
@@ -1310,7 +1340,7 @@ serve(async (req) => {
         }
       }
       const outcome = await createPendingApproval(supabase, {
-        userId,
+        userId: accountId,
         decisionId: decisionId ?? null,
         agentId,
         runId,
@@ -1374,7 +1404,7 @@ serve(async (req) => {
       const { data: conns } = await supabase
         .from("agent_integrations")
         .select("provider")
-        .eq("user_id", userId)
+        .eq("user_id", accountId)
         .eq("status", "connected");
       const connected = ((conns || []) as { provider: string }[]).map((c) => c.provider);
       const offer = canOfferTool(actionType, connected);
@@ -1386,7 +1416,7 @@ serve(async (req) => {
       // assessed. Claiming earlier would occupy the key for a write that
       // never happens, permanently 409-ing a legitimate retry.
       if (wouldExecute && idempotencyKey) {
-        idemClaim = await claimIdempotencyKey(supabase, userId, idempotencyKey);
+        idemClaim = await claimIdempotencyKey(supabase, accountId, idempotencyKey);
       }
 
       if (!cap || !offer.offerable) {
@@ -1407,12 +1437,12 @@ serve(async (req) => {
       } else {
         // Capture whatever the compensating action will need BEFORE we write.
         const undoState = reversibility.reversible
-          ? await captureUndoState(actionType, supabase, userId, agentId || "", params as Record<string, unknown>)
+          ? await captureUndoState(actionType, supabase, accountId, agentId || "", params as Record<string, unknown>)
           : null;
         try {
-          const result = await runProviderWrite(actionType, supabase, userId, agentId || "", params as Record<string, unknown>);
+          const result = await runProviderWrite(actionType, supabase, accountId, agentId || "", params as Record<string, unknown>);
           executed = result.ok;
-          if (idempotencyKey && !result.ok) await releaseIdempotencyKey(supabase, userId, idempotencyKey);
+          if (idempotencyKey && !result.ok) await releaseIdempotencyKey(supabase, accountId, idempotencyKey);
           execution = {
             ok: result.ok,
             summary: result.summary,
@@ -1429,7 +1459,7 @@ serve(async (req) => {
           if (result.ok) {
             const p = params as Record<string, unknown>;
             const { data: revRow } = await supabase.from("action_reversals").insert({
-              user_id: userId,
+              user_id: accountId,
               decision_id: decisionId,
               agent_id: agentId,
               run_id: runId,
@@ -1459,7 +1489,7 @@ serve(async (req) => {
           executed = false;
           execution = { ok: false, summary: String((err as Error)?.message || err), url: null, ref: null, target: null, verification: null };
           executionNote = `Approved, but running the action threw an error: ${execution.summary}`;
-          if (idempotencyKey && idemClaim?.status === "claimed") await releaseIdempotencyKey(supabase, userId, idempotencyKey);
+          if (idempotencyKey && idemClaim?.status === "claimed") await releaseIdempotencyKey(supabase, accountId, idempotencyKey);
         }
       }
     } else {
@@ -1472,7 +1502,7 @@ serve(async (req) => {
     if (decisionId && execution) {
       try {
         await supabase.from("decision_outcomes").insert({
-          user_id: userId,
+          user_id: accountId,
           decision_id: decisionId,
           agent_id: agentId,
           provider,
@@ -1524,7 +1554,7 @@ serve(async (req) => {
       const { data: after } = await supabase
         .from("circuit_breakers")
         .select("tripped, failure_rate, attempts, failures, trip_count, tripped_at")
-        .eq("user_id", userId)
+        .eq("user_id", accountId)
         .eq("action_type", actionType)
         .maybeSingle();
       breakerState = (after as Record<string, unknown> | null) ?? null;
@@ -1599,7 +1629,7 @@ serve(async (req) => {
     // running that write again. Only meaningful on a genuine success; a
     // failure already released the claim above so a retry can try for real.
     if (idempotencyKey && idemClaim?.status === "claimed" && executed) {
-      await saveIdempotencyResponse(supabase, userId, idempotencyKey, responseBody);
+      await saveIdempotencyResponse(supabase, accountId, idempotencyKey, responseBody);
     }
 
     return json(responseBody);

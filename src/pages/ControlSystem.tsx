@@ -101,7 +101,10 @@ export default function ControlSystem() {
     setStreaming(true);
     try {
       const { data, error } = await supabase.functions.invoke("control-system-decide", {
-        body: { message: text, history, dry_run: dryRun },
+        // Was missing entirely -- the entire review/execute flow silently
+        // ran against the caller's own account regardless of which account
+        // was selected via the switcher.
+        body: { message: text, history, dry_run: dryRun, account_id: accountId || undefined },
       });
       if (error) throw error;
       const d = data as ControlDecision & { error?: string; message?: string; mode?: string; reply?: string };

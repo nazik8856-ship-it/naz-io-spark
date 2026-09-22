@@ -12,6 +12,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildCapabilityBlock } from "../_shared/capability-registry.ts";
 import { pickAiGateway, callAiGateway } from "../_shared/ai-gateway.ts";
+import { resolveAccountScope } from "../_shared/account-scope.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -82,11 +83,29 @@ serve(async (req) => {
     const dryRun = body?.dry_run === true;
     if (!message) return json({ error: "message required" }, 400);
 
+    // Was ALWAYS userId regardless of which account was selected via the
+    // account switcher on the Control System page -- a delegated team
+    // member's "review this action" chat silently reviewed/spent/executed
+    // against THEIR OWN account instead of the one they were viewing.
+    // control-engine independently resolves + re-verifies this same
+    // account_id (never trusts this layer's resolution as authorization on
+    // its own); resolving it here too so this function's OWN context
+    // (recent decisions, connected integrations) matches the account the
+    // decision itself will actually run against.
+    const userClient = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_ANON_KEY")!,
+      { global: { headers: { Authorization: authHeader } } },
+    );
+    const requestedAccountId = body?.account_id;
+    const accountId = await resolveAccountScope(userClient, userId, requestedAccountId);
+    if (!accountId) return json({ error: "forbidden", message: "You don't have owner access on that account." }, 403);
+
     // Recent decision history — lets the assistant explain past verdicts.
     const { data: recent } = await supabase
       .from("agent_decisions")
       .select("decision, reasoning, confidence_score, created_at")
-      .eq("user_id", userId)
+      .eq("user_id", accountId)
       .order("created_at", { ascending: false })
       .limit(10);
     const historyBlock = (recent || []).length
@@ -102,7 +121,7 @@ serve(async (req) => {
     const { data: connsRows } = await supabase
       .from("agent_integrations")
       .select("provider")
-      .eq("user_id", userId)
+      .eq("user_id", accountId)
       .eq("status", "connected");
     const connectedProviders = ((connsRows ?? []) as { provider: string }[]).map((c) => c.provider);
     const capabilityBlock = buildCapabilityBlock(connectedProviders);
@@ -178,7 +197,7 @@ serve(async (req) => {
         Authorization: `Bearer ${token}`,
         apikey: Deno.env.get("SUPABASE_ANON_KEY") || "",
       },
-      body: JSON.stringify({ action_type: actionType, provider, description, params, agentId, dry_run: dryRun }),
+      body: JSON.stringify({ action_type: actionType, provider, description, params, agentId, dry_run: dryRun, account_id: accountId }),
     });
     const engine = await engineRes.json().catch(() => ({}));
     if (!engineRes.ok || engine?.error) {
