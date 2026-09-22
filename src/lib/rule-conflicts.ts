@@ -24,6 +24,7 @@ export type HardRuleForConflict = {
   enabled?: boolean;
   shadow_mode?: boolean;
   created_at: string;
+  agent_id?: string | null;
 };
 
 export type RuleConflict = {
@@ -53,12 +54,25 @@ function providersCanOverlap(a?: string | null, b?: string | null): boolean {
   return a.toLowerCase() === b.toLowerCase();
 }
 
+// Two hard rules scoped to DIFFERENT specific agents never both come into
+// play for the same decision (control-gate.ts's selectRulesForAgent scopes
+// each decision to exactly one agent's own rules + the account-wide
+// fallback) -- they can never conflict, no matter how their patterns
+// overlap. A rule scoped to agent_id null (account-wide) is always in
+// play alongside any agent-scoped rule, so those pairs are still checked.
+function agentScopesCanCoexist(a?: string | null, b?: string | null): boolean {
+  if (!a || !b) return true; // either side account-wide -> always in play together
+  return a === b;
+}
+
 /**
  * Pure — pairs of live (enabled, non-shadow) hard rules whose scope can
- * overlap but whose effect differs. Only the pair with the strictly older
- * `winner` is reported per overlapping pair (evaluation order in the gate
- * is oldest-first, so the older rule is what customers should trust is
- * actually enforced).
+ * overlap but whose effect differs. Precedence mirrors the real gate
+ * (control-gate.ts's selectRulesForAgent): an agent-scoped rule ALWAYS
+ * wins over an account-wide one for that agent's own decisions, regardless
+ * of which was created first -- only when both rules share the same scope
+ * (same agent, or both account-wide) does the older one win, matching the
+ * gate's oldest-first evaluation order within a single scope.
  */
 export function findRuleConflicts(rules: HardRuleForConflict[]): RuleConflict[] {
   const live = rules
@@ -69,11 +83,17 @@ export function findRuleConflicts(rules: HardRuleForConflict[]): RuleConflict[] 
   const conflicts: RuleConflict[] = [];
   for (let i = 0; i < live.length; i++) {
     for (let j = i + 1; j < live.length; j++) {
-      const winner = live[i];
-      const shadowed = live[j];
-      if (winner.effect === shadowed.effect) continue;
-      if (!providersCanOverlap(winner.provider, shadowed.provider)) continue;
-      if (!patternsCanOverlap(winner.action_type_pattern, shadowed.action_type_pattern)) continue;
+      const a = live[i];
+      const b = live[j];
+      if (a.effect === b.effect) continue;
+      if (!providersCanOverlap(a.provider, b.provider)) continue;
+      if (!patternsCanOverlap(a.action_type_pattern, b.action_type_pattern)) continue;
+      if (!agentScopesCanCoexist(a.agent_id, b.agent_id)) continue;
+      // a is older than b (sorted above). An agent-scoped rule beats an
+      // account-wide one regardless of age; otherwise age decides.
+      const aIsAgentScoped = !!a.agent_id;
+      const bIsAgentScoped = !!b.agent_id;
+      const [winner, shadowed] = bIsAgentScoped && !aIsAgentScoped ? [b, a] : [a, b];
       conflicts.push({ winner, shadowed });
     }
   }

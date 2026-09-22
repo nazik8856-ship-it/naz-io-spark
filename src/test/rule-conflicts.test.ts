@@ -62,4 +62,27 @@ describe("findRuleConflicts", () => {
   it("no rules at all is an empty list, not a crash", () => {
     expect(findRuleConflicts([])).toEqual([]);
   });
+
+  it("two rules scoped to different specific agents never conflict, even with overlapping patterns and different effects", () => {
+    const a = rule({ id: "a", action_type_pattern: "*", effect: "always_block", agent_id: "agent-1" });
+    const b = rule({ id: "b", action_type_pattern: "send_email", effect: "always_require_approval", agent_id: "agent-2" });
+    expect(findRuleConflicts([a, b])).toEqual([]);
+  });
+
+  it("an agent-scoped rule beats an OLDER account-wide rule for that agent, regardless of age", () => {
+    const accountWide = rule({ id: "account-wide", action_type_pattern: "*", effect: "always_block", created_at: "2026-01-01T00:00:00Z" });
+    const agentScoped = rule({ id: "agent-scoped", action_type_pattern: "send_email", effect: "always_require_approval", created_at: "2026-02-01T00:00:00Z", agent_id: "agent-1" });
+    const conflicts = findRuleConflicts([accountWide, agentScoped]);
+    expect(conflicts.length).toBe(1);
+    expect(conflicts[0].winner.id).toBe("agent-scoped");
+    expect(conflicts[0].shadowed.id).toBe("account-wide");
+  });
+
+  it("two rules scoped to the SAME agent still resolve by age, like account-wide rules do", () => {
+    const older = rule({ id: "older", action_type_pattern: "*", effect: "always_block", created_at: "2026-01-01T00:00:00Z", agent_id: "agent-1" });
+    const newer = rule({ id: "newer", action_type_pattern: "send_email", effect: "always_require_approval", created_at: "2026-02-01T00:00:00Z", agent_id: "agent-1" });
+    const conflicts = findRuleConflicts([newer, older]);
+    expect(conflicts[0].winner.id).toBe("older");
+    expect(conflicts[0].shadowed.id).toBe("newer");
+  });
 });

@@ -54,4 +54,20 @@ describe("summarizeHardRules", () => {
   it("no rules at all returns empty lists, not a crash", () => {
     expect(summarizeHardRules([])).toEqual({ blocked: [], needsApproval: [] });
   });
+
+  it("an agent-scoped rule is described as agent-specific, not a blanket account-wide statement", () => {
+    const { blocked } = summarizeHardRules(
+      [{ rule_text: "no wire transfers", action_type_pattern: "*", effect: "always_block", agent_id: "agent-1" }],
+      (id) => (id === "agent-1" ? "Support Bot" : id),
+    );
+    expect(blocked[0]).toContain("Support Bot");
+    expect(blocked[0]).not.toBe("This AI cannot any action — \"no wire transfers\".");
+  });
+
+  it("an account-wide rule (no agent_id) still reads as a blanket statement", () => {
+    const { blocked } = summarizeHardRules([
+      { rule_text: "no wire transfers", action_type_pattern: "*", effect: "always_block" },
+    ]);
+    expect(blocked[0]).toContain("This AI cannot");
+  });
 });
