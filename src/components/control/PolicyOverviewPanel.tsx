@@ -6,31 +6,45 @@ import { summarizeHardRules, type HardRuleForSummary } from "@/lib/policy-summar
 import { findRuleConflicts, type HardRuleForConflict } from "@/lib/rule-conflicts";
 
 type Rule = HardRuleForSummary & HardRuleForConflict;
+type AgentOption = { id: string; name: string };
 
 /**
  * POLICY OVERVIEW — a plain-English restatement of every live hard rule
  * ("this AI cannot...", "this AI needs your approval to..."), plus a
- * warning when two live rules overlap in scope but disagree on effect (the
- * older one silently wins that overlap — first-match-wins evaluation
- * order). Read-only: purely a review aid, no enforcement lives here.
+ * warning when two live rules overlap in scope but disagree on effect.
+ * Read-only: purely a review aid, no enforcement lives here.
+ *
+ * 2026-09-22 fix: neither this panel nor its two backing libs
+ * (rule-conflicts.ts, policy-summary.ts) ever fetched or used agent_id,
+ * even though hard_rules is genuinely per-agent-scoped in the real gate
+ * (control-gate.ts) -- HardRulesPanel and ControlCoverageGaps both already
+ * fetch and use it. Two rules on different agents that never actually
+ * compete for the same decision were flagged as a live conflict, and an
+ * agent-specific rule was restated as if it applied to every agent.
  */
 export default function PolicyOverviewPanel() {
   const { accountId } = useActiveAccount();
   const [open, setOpen] = useState(false);
   const [rules, setRules] = useState<Rule[]>([]);
+  const [agents, setAgents] = useState<AgentOption[]>([]);
 
   const load = useCallback(async () => {
     if (!accountId) return;
-    const { data } = await supabase
-      .from("hard_rules")
-      .select("id, rule_text, action_type_pattern, effect, provider, enabled, shadow_mode, created_at")
-      .eq("user_id", accountId);
+    const [{ data }, { data: agentRows }] = await Promise.all([
+      supabase
+        .from("hard_rules")
+        .select("id, rule_text, action_type_pattern, effect, provider, enabled, shadow_mode, created_at, agent_id")
+        .eq("user_id", accountId),
+      supabase.from("agents").select("id, name").eq("user_id", accountId),
+    ]);
     setRules((data ?? []) as Rule[]);
+    setAgents((agentRows ?? []) as AgentOption[]);
   }, [accountId]);
 
   useEffect(() => { void load(); }, [load]);
 
-  const { blocked, needsApproval } = summarizeHardRules(rules);
+  const agentName = (id: string) => agents.find((a) => a.id === id)?.name ?? "an agent";
+  const { blocked, needsApproval } = summarizeHardRules(rules, agentName);
   const conflicts = findRuleConflicts(rules);
 
   return (
@@ -54,13 +68,21 @@ export default function PolicyOverviewPanel() {
               <p className="flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-wider text-amber-400">
                 <AlertTriangle className="h-3.5 w-3.5" /> Overlapping rules with different effects
               </p>
-              {conflicts.map((c, i) => (
-                <p key={i} className="rounded-lg border border-amber-500/25 bg-amber-500/[0.04] px-3 py-2 text-[12px] text-zinc-300">
-                  <span className="text-amber-300">"{c.winner.rule_text}"</span> (older, applies first) overlaps{" "}
-                  <span className="text-amber-300">"{c.shadowed.rule_text}"</span> (newer) — they disagree on effect,
-                  so the newer rule can never independently apply where they overlap.
-                </p>
-              ))}
+              {conflicts.map((c, i) => {
+                const winnerIsAgentOverride = !!c.winner.agent_id && !c.shadowed.agent_id;
+                const winnerLabel = winnerIsAgentOverride
+                  ? `applies for ${agentName(c.winner.agent_id!)}`
+                  : "older, applies first";
+                const shadowedLabel = winnerIsAgentOverride ? "account-wide default" : "newer";
+                return (
+                  <p key={i} className="rounded-lg border border-amber-500/25 bg-amber-500/[0.04] px-3 py-2 text-[12px] text-zinc-300">
+                    <span className="text-amber-300">"{c.winner.rule_text}"</span> ({winnerLabel}) overlaps{" "}
+                    <span className="text-amber-300">"{c.shadowed.rule_text}"</span> ({shadowedLabel}) — they disagree
+                    on effect, so the {shadowedLabel === "account-wide default" ? "account-wide rule" : "newer rule"} can
+                    never independently apply where they overlap.
+                  </p>
+                );
+              })}
             </div>
           )}
 

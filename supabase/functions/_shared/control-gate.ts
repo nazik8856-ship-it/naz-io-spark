@@ -37,6 +37,7 @@ import { alignPrecedentSignals, evaluatePrecedentForAutoApprove, shouldRejectOnP
 import { buildPrecedentCitationRecord, recordPrecedentCitation } from "./precedent-citation.ts";
 import { isWithinQuietHours, summarizeQuietHoursEscalation, type QuietHoursConfig } from "./quiet-hours.ts";
 import { isCallbackFailureTrouble, summarizePolicyDowngrade } from "./policy-downgrade.ts";
+import { claimRowOnce } from "./idempotency.ts";
 import { resolveEffectiveOnUncertain, type ActionTypeOverride } from "./action-type-policy.ts";
 
 export const BREAKER_WINDOW = 10;
@@ -50,6 +51,12 @@ export const BREAKER_FAIL_RATE = 0.5;
 // "trial" instead of blocked outright -- if it succeeds the breaker clears,
 // if it fails it re-trips immediately and the cooldown timer restarts.
 export const BREAKER_COOLDOWN_MS = 15 * 60_000;
+// A claimed half-open trial that never resolves (the request crashed or
+// timed out before reaching recordBreakerAttempt) must not permanently
+// block every future trial -- treat a claim older than this as stale and
+// re-claimable. Long enough for any real action to finish, short enough
+// that a genuinely stuck claim self-heals well within one cooldown window.
+export const HALF_OPEN_CLAIM_STALE_MS = 2 * 60_000;
 
 // The exact set agent_decisions_source_check (migrations) currently allows.
 // 2026-08-23: found that "agent_kill_switch"/"agent_ai_spend_cap" had been
@@ -834,10 +841,11 @@ async function runControlGateInner(
   type Breaker = {
     id: string; recent_outcomes: string[]; tripped: boolean;
     trip_count: number; tripped_at: string | null; failure_rate: number; last_reason: string | null;
+    half_open_claimed_at: string | null;
   };
   const breakerQuery = admin
     .from("circuit_breakers")
-    .select("id, recent_outcomes, tripped, trip_count, tripped_at, failure_rate, last_reason")
+    .select("id, recent_outcomes, tripped, trip_count, tripped_at, failure_rate, last_reason, half_open_claimed_at")
     .eq("user_id", userId)
     .eq("action_type", actionType);
   const { data: breakerRow } = await (agentId ? breakerQuery.eq("agent_id", agentId) : breakerQuery.is("agent_id", null)).maybeSingle();
@@ -848,10 +856,48 @@ async function runControlGateInner(
   // blocked forever until a human clicks reset. Every OTHER gate layer
   // still runs normally for this attempt -- this only bypasses the
   // breaker's own outright block.
-  const isHalfOpenTrial = !!(
+  //
+  // 2026-09-22 fix: this was a plain read with no exclusivity -- two
+  // concurrent attempts for the same action_type right after the cooldown
+  // elapsed both independently computed isHalfOpenTrial=true and both got
+  // let through, contradicting "exactly the next attempt." Claim the trial
+  // atomically (claimRowOnce on half_open_claimed_at, same pattern already
+  // used for pending_approvals/executed_at elsewhere) -- only the request
+  // that wins the claim is treated as the trial; everyone else falls back
+  // to being outright blocked, same as a normal tripped breaker. A dry run
+  // never claims (it never reaches recordAttempt to release it either), so
+  // it just reports cooldown-eligibility for display without consuming the
+  // one real slot. A claim older than HALF_OPEN_CLAIM_STALE_MS is treated
+  // as abandoned and reclaimable, so a crashed trial can't wedge the
+  // breaker open forever.
+  const cooldownEligible = !!(
     breaker?.tripped && breaker.tripped_at &&
     (Date.now() - new Date(breaker.tripped_at).getTime() > BREAKER_COOLDOWN_MS)
   );
+  const claimIsStale = !!(
+    breaker?.half_open_claimed_at &&
+    (Date.now() - new Date(breaker.half_open_claimed_at).getTime() > HALF_OPEN_CLAIM_STALE_MS)
+  );
+  let isHalfOpenTrial = false;
+  if (cooldownEligible && breaker?.id) {
+    if (ctx.dryRun) {
+      isHalfOpenTrial = !breaker.half_open_claimed_at || claimIsStale;
+    } else if (!breaker.half_open_claimed_at) {
+      isHalfOpenTrial = await claimRowOnce(admin, "circuit_breakers", breaker.id, "half_open_claimed_at");
+    } else if (claimIsStale) {
+      // claimRowOnce only claims a NULL column -- a stale (non-null but
+      // old) claim needs its own atomic "claim if null OR stale" update so
+      // reclaiming a crashed trial can't race with a fresh claim either.
+      const { data } = await admin
+        .from("circuit_breakers")
+        .update({ half_open_claimed_at: new Date().toISOString() })
+        .eq("id", breaker.id)
+        .lt("half_open_claimed_at", new Date(Date.now() - HALF_OPEN_CLAIM_STALE_MS).toISOString())
+        .select("id")
+        .maybeSingle();
+      isHalfOpenTrial = !!data;
+    }
+  }
 
   const recordAttempt = async (failed: boolean, why: string) => {
     if (ctx.dryRun) return null;
@@ -1427,6 +1473,10 @@ export async function recordBreakerAttempt(
       trip_count: (breaker?.trip_count ?? 0) + (shouldTrip ? 1 : 0),
       last_reason: failed ? why.slice(0, 400) : null,
       last_attempt_at: new Date().toISOString(),
+      // Release the half-open claim now that the trial has resolved (either
+      // way) -- if it re-tripped, the next cooldown period needs a fresh
+      // claim available; if it recovered, this is moot but harmless.
+      ...(isTrial ? { half_open_claimed_at: null } : {}),
     };
     // Two partial unique indexes back this table now (account-wide vs.
     // per-agent), so a plain upsert can no longer infer the right conflict

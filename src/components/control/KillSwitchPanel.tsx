@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 // platform_settings (2026-08-27) isn't in the generated Supabase types yet.
 const anyDb = supabase as any;
 import { useAuth } from "@/hooks/useAuth";
+import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { toast } from "@/hooks/use-toast";
 
 const REVEAL_CODE = "killswitch";
@@ -23,16 +24,33 @@ const REVEAL_KEY = "nazai_ks_reveal";
  * code; the account-level switch below now renders for any account owner,
  * revealed or not.
  *
- * The account switch flips profiles.kill_switch for the acting owner's OWN
- * account only -- previously mislabeled "global" here, which was actively
- * misleading now that a REAL platform-wide switch exists below it
- * (platform_settings, checked by control-gate.ts before every other layer,
- * for every account). Flips of either are logged to agent_decisions
- * (source: kill_switch_flip / platform_kill_switch_flip) with the acting
- * user's id.
+ * The account switch flips profiles.kill_switch for the VIEWED account
+ * (useActiveAccount, same as every other per-account panel) -- previously
+ * mislabeled "global" here, which was actively misleading now that a REAL
+ * platform-wide switch exists below it (platform_settings, checked by
+ * control-gate.ts before every other layer, for every account). Flips of
+ * either are logged to agent_decisions (source: kill_switch_flip /
+ * platform_kill_switch_flip); the account-level flip is logged against the
+ * affected account (accountId), the acting user identified in the text.
+ *
+ * 2026-09-22 fix: two bugs, found together while re-verifying Pillar 1.
+ * (1) This whole component read/wrote `user.id` regardless of the account
+ * switcher, so a delegated team member managing a different account
+ * silently saw and flipped their OWN account's switch instead. (2) isOwner
+ * was gated on the GLOBAL user_roles table (a single-row "platform owner"
+ * concept, confirmed live: exactly 1 row, for the actual site operator) --
+ * meaning every other real account owner had isOwner=false and never even
+ * saw their own account's switch. The DB trigger (guard_kill_switch) had
+ * the same gap independently: it authorized the global owner or an
+ * explicitly-invited account_members "owner" row, never "this is your own
+ * account" -- confirmed live that account_members has zero rows in
+ * production, so no account's real owner could have flipped their own
+ * switch even by hitting the RPC directly. Fixed in a migration alongside
+ * this: guard_kill_switch now also allows auth.uid() = old.id.
  */
 export default function KillSwitchPanel() {
   const { user } = useAuth();
+  const { accountId } = useActiveAccount();
   const [revealed, setRevealed] = useState(false);
   const [isOwner, setIsOwner] = useState(false);
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
@@ -63,18 +81,18 @@ export default function KillSwitchPanel() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Owner-only gate: verified against the user_roles table (RLS-protected),
-  // and enforced again at the database level by the kill-switch trigger.
+  // Owner-of-THIS-account gate: you always own your own account
+  // (accountId === user.id, the default state before any delegation), or
+  // you're a team member explicitly invited with the "owner" role on the
+  // account currently being viewed (is_account_member). Enforced again,
+  // independently, at the database level by the kill-switch trigger.
   useEffect(() => {
-    if (!user) { setIsOwner(false); return; }
-    supabase
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", user.id)
-      .eq("role", "owner")
-      .maybeSingle()
-      .then(({ data }) => setIsOwner(Boolean(data)));
-  }, [user]);
+    if (!user || !accountId) { setIsOwner(false); return; }
+    if (accountId === user.id) { setIsOwner(true); return; }
+    anyDb
+      .rpc("is_account_member", { _account_owner_id: accountId, _min_role: "owner" })
+      .then(({ data }: { data: unknown }) => setIsOwner(Boolean(data)));
+  }, [user, accountId]);
 
   // Broader than the account switch's isOwner gate above (admin OR owner,
   // matching platform_settings' own RLS write policy and
@@ -83,24 +101,32 @@ export default function KillSwitchPanel() {
   // single account's switch.
   useEffect(() => {
     if (!user) { setIsPlatformAdmin(false); return; }
+    // .maybeSingle() throws away the result (silently, since its error was
+    // never checked) whenever a user holds BOTH an "admin" and an "owner"
+    // row -- unique(user_id, role) allows exactly that -- hiding the
+    // platform controls from someone who should have them, with no
+    // indication anything went wrong. .limit(1) has no such failure mode.
     supabase
       .from("user_roles")
       .select("role")
       .eq("user_id", user.id)
       .in("role", ["admin", "owner"])
-      .maybeSingle()
-      .then(({ data }) => setIsPlatformAdmin(Boolean(data)));
+      .limit(1)
+      .then(({ data, error }) => {
+        if (error) { setIsPlatformAdmin(false); return; }
+        setIsPlatformAdmin((data?.length ?? 0) > 0);
+      });
   }, [user]);
 
   useEffect(() => {
-    if (!user || !isOwner) return;
+    if (!user || !isOwner || !accountId) return;
     supabase
       .from("profiles")
       .select("kill_switch")
-      .eq("id", user.id)
+      .eq("id", accountId)
       .maybeSingle()
       .then(({ data }) => setOn(Boolean((data as { kill_switch?: boolean } | null)?.kill_switch)));
-  }, [user, isOwner]);
+  }, [user, isOwner, accountId]);
 
   useEffect(() => {
     if (!revealed || !user || !isPlatformAdmin) return;
@@ -117,15 +143,15 @@ export default function KillSwitchPanel() {
   }, [revealed, user, isPlatformAdmin]);
 
   const toggle = useCallback(async () => {
-    if (!user || busy || !isOwner) return;
+    if (!user || busy || !isOwner || !accountId) return;
     const next = !on;
     setBusy(true);
     try {
-      const { error } = await supabase.from("profiles").update({ kill_switch: next }).eq("id", user.id);
+      const { error } = await supabase.from("profiles").update({ kill_switch: next }).eq("id", accountId);
       if (error) throw error;
       setOn(next);
       const { data: logged } = await supabase.from("agent_decisions").insert({
-        user_id: user.id,
+        user_id: accountId,
         decision: next ? "block" : "allow",
         reasoning: `Kill switch turned ${next ? "ON" : "OFF"} by ${user.email ?? user.id}`,
         alternatives_considered: [],
@@ -135,12 +161,17 @@ export default function KillSwitchPanel() {
       }).select("id").maybeSingle();
 
       // Real-time alert (Slack if connected, prominent server log otherwise).
+      // account_id: a delegated owner-tier member flipping a DIFFERENT
+      // account's switch (accountId !== user.id) must alert on the
+      // affected account, not their own -- same account_id resolution
+      // control-engine's main decide route now uses.
       supabase.functions.invoke("control-engine", {
         body: {
           alert_event: "kill_switch_flip",
           enabled: next,
           decision_id: (logged as { id?: string } | null)?.id ?? null,
           actor: user.email ?? user.id,
+          account_id: accountId,
         },
       }).catch(() => { /* alerting must never block the flip */ });
 
@@ -155,7 +186,7 @@ export default function KillSwitchPanel() {
     } finally {
       setBusy(false);
     }
-  }, [busy, on, user, isOwner]);
+  }, [busy, on, user, isOwner, accountId]);
 
   const togglePlatform = useCallback(async () => {
     if (!user || platformBusy || !isPlatformAdmin) return;

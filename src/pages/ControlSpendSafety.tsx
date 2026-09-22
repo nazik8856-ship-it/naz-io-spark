@@ -112,7 +112,7 @@ export default function ControlSpendSafety() {
           <section>
             <h2 className="mb-2 text-sm font-semibold text-zinc-300">Daily spend limit</h2>
             <div className="rounded-xl border border-white/10 overflow-hidden">
-              <SpendCapPanel />
+              <SpendCapPanel onSaved={status.refetch} />
             </div>
           </section>
 
