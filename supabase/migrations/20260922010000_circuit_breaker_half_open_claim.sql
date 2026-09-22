@@ -1,0 +1,11 @@
+-- Circuit breaker half-open trial had no exclusivity: control-gate.ts
+-- computed isHalfOpenTrial from a plain read of tripped_at, so two
+-- concurrent attempts for the same action_type right after the 15-minute
+-- cooldown elapsed could BOTH be let through as "the" trial, contradicting
+-- the documented "exactly the next attempt" invariant. This column lets
+-- the gate atomically claim the trial slot (UPDATE ... WHERE
+-- half_open_claimed_at IS NULL, same claimRowOnce pattern already used for
+-- pending_approvals/executed_at) so only the winning request is treated as
+-- the trial; a claim older than HALF_OPEN_CLAIM_STALE_MS is reclaimable so
+-- a crashed trial can't wedge the breaker open forever.
+ALTER TABLE public.circuit_breakers ADD COLUMN half_open_claimed_at timestamptz;
