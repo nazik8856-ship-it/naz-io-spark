@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Plus, SlidersHorizontal, X, Upload, Link2, Box, FileSpreadsheet, Database, Check } from "lucide-react";
+import { Plus, SlidersHorizontal, X, Upload, Link2, Box, FileSpreadsheet, Database, Check, Loader2 } from "lucide-react";
 import { IntegrationLogo } from "@/components/IntegrationLogos";
 import { supabase, SUPABASE_FUNCTIONS_URL, SUPABASE_ANON } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import IntegrationConnectModal from "@/components/agents/IntegrationConnectModal";
 import { useIntegrationOAuthMessages } from "@/hooks/useIntegrationOAuthMessages";
+import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
 
 export type Attachment = {
   id: string;
@@ -54,6 +55,7 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
   const [urlInput, setUrlInput] = useState("");
   const [projects, setProjects] = useState<Array<{ id: string; label: string; text: string }>>([]);
   const [connected, setConnected] = useState<Array<{ provider: string; hasSnapshot: boolean; snapshotText?: string }>>([]);
+  const [disconnecting, setDisconnecting] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
   const csvInputRef = useRef<HTMLInputElement>(null);
   const plusBtnRef = useRef<HTMLButtonElement>(null);
@@ -191,6 +193,35 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
 
   const add = (a: Attachment) => onChange([...attachments, a]);
   const remove = (id: string) => onChange(attachments.filter((a) => a.id !== id));
+
+  // Was previously rendered as a static, non-interactive "connected" label
+  // with no way to disconnect -- exactly what got NazAI's Figma app
+  // rejected ("app is already connected... there does not appear to be a
+  // way to disconnect so that we can test"). Google surfaces (Drive/
+  // Calendar/Analytics) share ONE underlying agent_integrations row keyed
+  // by provider "Gmail" (see loadConnected's expansion above and
+  // IntegrationConnectModal's identical providerKey mapping) -- there's no
+  // per-service row to selectively remove, so disconnecting any one of them
+  // disconnects the whole Google grant, same as the modal already does.
+  const disconnectIntegration = async (item: { id: string; label: string; providerKey: string }) => {
+    const isGoogleFamily = /^Google/i.test(item.providerKey);
+    const backingProvider = isGoogleFamily ? "Gmail" : item.providerKey;
+    setDisconnecting((prev) => new Set(prev).add(item.id));
+    try {
+      const { error } = await supabase.functions.invoke("integration-connect", {
+        body: { action: "disconnect", provider: backingProvider, agentId: null },
+      });
+      if (error) throw new Error((await extractFunctionErrorMessage(error)) ?? error.message ?? "Disconnect failed");
+      setConnected((prev) =>
+        prev.filter((x) => (isGoogleFamily ? !x.provider.startsWith("google") && x.provider !== "gmail" : x.provider !== item.providerKey.toLowerCase())),
+      );
+      toast.success(`${item.label} disconnected`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Disconnect failed");
+    } finally {
+      setDisconnecting((prev) => { const next = new Set(prev); next.delete(item.id); return next; });
+    }
+  };
 
   const handleFiles = async (files: FileList | null, isCsv: boolean) => {
     if (!files) return;
@@ -403,9 +434,15 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
                       <Check className="h-3 w-3" /> attached
                     </span>
                   ) : c ? (
-                    <span className="flex items-center gap-1 text-[10px] text-emerald-400">
-                      <Check className="h-3 w-3" /> connected
-                    </span>
+                    <button
+                      type="button"
+                      disabled={disconnecting.has(i.id)}
+                      onClick={(e) => { e.stopPropagation(); disconnectIntegration(i); }}
+                      className="flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border border-red-400/40 text-red-300 hover:bg-red-400/10 hover:text-red-200 transition disabled:opacity-60"
+                    >
+                      {disconnecting.has(i.id) ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                      Disconnect
+                    </button>
                   ) : (
                     <button
                       type="button"
