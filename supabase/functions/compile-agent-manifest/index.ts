@@ -182,6 +182,42 @@ Rules:
 - automations: 3-6 entries. Each is a real "MONITORS source → IF condition → THEN action" rule with concrete integrations (Shopify, Stripe, QuickBooks, HubSpot, Gmail, Slack, GA4, Meta Ads, Xero, Klaviyo, WooCommerce, Notion, etc.). Mark requiresApproval=true for anything that sends/charges/posts externally.
 - Never reveal it is an LLM. Always act in-character.`;
 
+const STOPWORDS = new Set([
+  "the", "a", "an", "and", "or", "but", "to", "of", "in", "on", "for", "with",
+  "is", "are", "be", "this", "that", "it", "as", "at", "by", "from", "into",
+  "about", "please", "just", "also", "make", "can", "you", "i", "we", "my", "our",
+]);
+function wordsOf(text: string): Set<string> {
+  return new Set(
+    text.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((w) => w.length > 2 && !STOPWORDS.has(w)),
+  );
+}
+function jaccardSimilarity(a: string, b: string): number {
+  const wa = wordsOf(a), wb = wordsOf(b);
+  if (!wa.size || !wb.size) return 0;
+  let inter = 0;
+  for (const w of wa) if (wb.has(w)) inter++;
+  const union = wa.size + wb.size - inter;
+  return union === 0 ? 0 : inter / union;
+}
+// Detects when the current edit request is substantially the same as one of
+// the operator's last few messages -- a strong signal the previous attempt
+// silently failed to apply and they're now repeating themselves.
+function detectRepeatedRequest(current: string, recentTurns: { role: string; content: string }[]): boolean {
+  const priorUserMessages = recentTurns.filter((t) => t?.role === "user" && typeof t.content === "string").map((t) => t.content).slice(-4);
+  return priorUserMessages.some((msg) => jaccardSimilarity(current, msg) >= 0.6);
+}
+// True when two manifests are functionally identical -- catches the case
+// where the model "agreed" with an edit request but the compiled manifest
+// didn't actually change, so a fake "Updated" summary is never shown.
+function manifestsEquivalent(a: unknown, b: unknown): boolean {
+  try {
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch {
+    return false;
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
@@ -189,7 +225,7 @@ serve(async (req) => {
     if (!gw) return json({ error: "Missing OPENAI_API_KEY (or LOVABLE_API_KEY)" }, 500);
 
     const body = await req.json();
-    const { plan, save = true, businessProfileId, userPrompt = "", intakeAnswers = {}, role: roleHint, existingAgentId = null } = body || {};
+    const { plan, save = true, businessProfileId, userPrompt = "", intakeAnswers = {}, role: roleHint, existingAgentId = null, recentTurns = [] } = body || {};
     if (!plan || typeof plan !== "string") return json({ error: "plan required" }, 400);
 
     const authHeader = req.headers.get("Authorization") ?? "";
@@ -255,14 +291,24 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
     // manifest built from the role blueprint so the agent ALWAYS appears.
     let normalized: Manifest;
     let usedFallback = false;
+    // A repeated near-identical edit request is a strong signal the previous
+    // attempt silently failed to apply -- tell the model explicitly so it
+    // double-checks rather than agreeing again without changing anything.
+    const isRepeatedRequest = existingAgentRow
+      ? detectRepeatedRequest(plan, Array.isArray(recentTurns) ? recentTurns : [])
+      : false;
+    const loopClause = isRepeatedRequest
+      ? "\n\nIMPORTANT: The operator has asked for a very similar change recently, which suggests the previous attempt did not actually apply. Re-read the EXISTING AGENT content above carefully, confirm whether this specific change is already reflected, and make sure the requested change is unambiguously and visibly applied in the manifest you return this time."
+      : "";
     try {
       const resp = await callAiGateway({
-        model: gw.model,
+        model: gw.deepModel,
         messages: [
           { role: "system", content: `You are NazAI Agent Compiler.\n\n${MANIFEST_SCHEMA_DOC}` },
-          { role: "user", content: `Compile this plan into the Agent Manifest JSON. Return only the JSON object.${profileBlock}${blueprintBlock}${intakeBlock}\n\nPLAN:\n${effectivePlan}` },
+          { role: "user", content: `Compile this plan into the Agent Manifest JSON. Return only the JSON object.${profileBlock}${blueprintBlock}${intakeBlock}\n\nPLAN:\n${effectivePlan}${loopClause}` },
         ],
-        temperature: 0.2,
+        temperature: isRepeatedRequest ? 0.1 : 0.2,
+        response_format: { type: "json_object" },
       }, gw);
       if (!resp.ok) throw new Error(`gateway ${resp.status}`);
       const data = await resp.json();
@@ -376,7 +422,19 @@ default automations (REUSE these patterns, adapted to the business): ${JSON.stri
     (normalized as unknown as Record<string, unknown>).schedule_label = finalScheduleLabel;
     (normalized as unknown as Record<string, unknown>).schedule_cron = finalScheduleCron;
 
-
+    // An edit that "agreed" with the request but produced a byte-identical
+    // manifest never actually changed anything -- surface that honestly
+    // instead of saving a no-op and telling the operator it was applied.
+    if (existingAgentRow && !usedFallback && manifestsEquivalent(existingAgentRow.manifest, normalized)) {
+      return json({
+        error: isRepeatedRequest
+          ? "That change still doesn't seem to be taking effect — the compiler produced the same agent again. Try describing the specific field to change (e.g. the exact time, tool, or rule) so it's unambiguous."
+          : "That request didn't change anything the compiler could apply — try being more specific about what should be different.",
+        code: "no_change",
+        manifest: normalized,
+        agentId: existingAgentId,
+      }, 422);
+    }
 
     let agentId: string | null = null;
     let mode: "created" | "updated" = "created";

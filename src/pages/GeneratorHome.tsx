@@ -446,6 +446,11 @@ export default function GeneratorHome() {
           setCompiling(false);
           return;
         }
+        // Same fallback-visibility fix as the website path: an AI failure during
+        // compile silently drops into a generic role-blueprint template.
+        if (body?.usedFallback) {
+          toast.warning("Something went wrong compiling a custom agent — this is a generic starter for the role. Try regenerating for an agent built for your business.");
+        }
         navigate(`/generated/agent/${body.agentId}`);
       } catch (e) {
         const timedOut = e instanceof DOMException && e.name === "AbortError";
