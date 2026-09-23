@@ -7,7 +7,7 @@ import { toCsv } from "@/lib/csv";
 import { filterBySearch } from "@/lib/search-filter";
 import { type TraceEntry } from "@/components/control/GateTraceList";
 import { DecisionExplanationPanel } from "@/components/control/DecisionExplanationPanel";
-import type { PrecedentCitationRecord } from "@/lib/decision-explanation";
+import type { PrecedentCitationRecord, ApprovalResolution } from "@/lib/decision-explanation";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 
 type DecisionRow = {
@@ -37,6 +37,7 @@ export default function ControlPendingDecisions() {
   const navigate = useNavigate();
   const { accountId } = useActiveAccount();
   const [rows, setRows] = useState<DecisionRow[]>([]);
+  const [approvalsByDecision, setApprovalsByDecision] = useState<Map<string, ApprovalResolution[]>>(new Map());
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -63,8 +64,33 @@ export default function ControlPendingDecisions() {
       .order("created_at", { ascending: false })
       .limit(100);
     if (error) toast({ title: "Couldn't load decisions", description: error.message, variant: "destructive" });
-    setRows((data ?? []) as DecisionRow[]);
+    const fetched = (data ?? []) as DecisionRow[];
+    setRows(fetched);
     setLoading(false);
+
+    // A decision can still be sitting here with human_response left null
+    // while it was actually already resolved through the approvals queue
+    // (record_approval_signoff never writes back to human_response) --
+    // pulled in separately so "Explain" doesn't say "no human was involved".
+    const ids = fetched.map((r) => r.id);
+    if (ids.length) {
+      const { data: approvalRows } = await supabase
+        .from("pending_approvals")
+        .select("decision_id, status, resolved_at, comment")
+        .eq("user_id", accountId)
+        .in("decision_id", ids)
+        .in("status", ["approved", "rejected"])
+        .order("resolved_at", { ascending: true });
+      const grouped = new Map<string, ApprovalResolution[]>();
+      for (const r of (approvalRows ?? []) as { decision_id: string; status: string; resolved_at: string | null; comment: string | null }[]) {
+        const list = grouped.get(r.decision_id) ?? [];
+        list.push({ vote: r.status as "approved" | "rejected", resolvedAt: r.resolved_at, comment: r.comment });
+        grouped.set(r.decision_id, list);
+      }
+      setApprovalsByDecision(grouped);
+    } else {
+      setApprovalsByDecision(new Map());
+    }
   }, [accountId]);
 
   useEffect(() => { load(); }, [load]);
@@ -249,6 +275,7 @@ export default function ControlPendingDecisions() {
                         createdAt={row.created_at}
                         gateTrace={row.gate_trace}
                         precedentCitations={row.precedent_citations}
+                        approvalResolutions={approvalsByDecision.get(row.id)}
                       />
                     )}
                   </td>

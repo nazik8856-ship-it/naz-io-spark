@@ -36,14 +36,44 @@ Deno.test("finalizeTrace: layers pushed out of order still come back in canonica
 
 Deno.test("finalizeTrace: a stop at kill_switch leaves every later layer as not_reached, earlier ones untouched", () => {
   const pushed: TraceEntry[] = [
+    { layer: "platform_kill_switch", label: "Platform kill switch", status: "ok", detail: null },
     { layer: "spend_cap", label: "Daily AI spend cap", status: "ok", detail: null },
-    { layer: "kill_switch", label: "Global kill switch", status: "stopped", detail: "Kill switch is on" },
+    { layer: "kill_switch", label: "Account kill switch", status: "stopped", detail: "Kill switch is on" },
   ];
   const trace = finalizeTrace(pushed);
-  assertEquals(trace.length, 6);
-  assertEquals(trace[0], { layer: "spend_cap", label: "Daily AI spend cap", status: "ok", detail: null });
-  assertEquals(trace[1].status, "stopped");
-  for (const e of trace.slice(2)) assertEquals(e.status, "not_reached");
+  assertEquals(trace.length, TRACE_LAYER_ORDER.length);
+  assertEquals(trace[0], { layer: "platform_kill_switch", label: "Platform kill switch", status: "ok", detail: null });
+  assertEquals(trace[1], { layer: "spend_cap", label: "Daily AI spend cap", status: "ok", detail: null });
+  assertEquals(trace[2].status, "stopped");
+  for (const e of trace.slice(3)) assertEquals(e.status, "not_reached");
+});
+
+Deno.test("finalizeTrace: a platform kill switch stop is preserved, not discarded as unrecognized", () => {
+  // Regression test for the exact bug this list previously had: pushing a
+  // layer this canonical list didn't know about (platform_kill_switch,
+  // agent_spend_cap) used to be silently dropped by finalizeTrace, so a
+  // block from either one rendered as ALL SIX layers "not_reached" instead
+  // of showing the one that actually fired.
+  const pushed: TraceEntry[] = [
+    { layer: "platform_kill_switch", label: "Platform kill switch", status: "stopped", detail: "A platform operator has paused every account" },
+  ];
+  const trace = finalizeTrace(pushed);
+  const entry = trace.find((e) => e.layer === "platform_kill_switch")!;
+  assertEquals(entry.status, "stopped");
+  assertEquals(entry.detail, "A platform operator has paused every account");
+  for (const e of trace.filter((e) => e.layer !== "platform_kill_switch")) assertEquals(e.status, "not_reached");
+});
+
+Deno.test("finalizeTrace: an agent spend cap stop is preserved, not discarded as unrecognized", () => {
+  const pushed: TraceEntry[] = [
+    { layer: "spend_cap", label: "Daily AI spend cap", status: "ok", detail: null },
+    { layer: "kill_switch", label: "Account kill switch", status: "ok", detail: null },
+    { layer: "agent_spend_cap", label: "Agent spend cap", status: "stopped", detail: "$5.00 of $5.00 across 10 calls (this agent only)" },
+  ];
+  const trace = finalizeTrace(pushed);
+  const entry = trace.find((e) => e.layer === "agent_spend_cap")!;
+  assertEquals(entry.status, "stopped");
+  assertEquals(entry.detail, "$5.00 of $5.00 across 10 calls (this agent only)");
 });
 
 Deno.test("finalizeTrace: a skipped anomaly layer (no agentId) is preserved, not overwritten as not_reached", () => {
@@ -57,8 +87,8 @@ Deno.test("finalizeTrace: a skipped anomaly layer (no agentId) is preserved, not
   assertEquals(anomalyEntry.detail, "No agent tied to this action.");
 });
 
-Deno.test("finalizeTrace: TRACE_LAYER_ORDER has exactly the 6 documented layers, no duplicates", () => {
+Deno.test("finalizeTrace: TRACE_LAYER_ORDER has exactly the 8 documented layers, no duplicates", () => {
   const layers = TRACE_LAYER_ORDER.map((l) => l.layer);
-  assertEquals(layers.length, 6);
-  assertEquals(new Set(layers).size, 6);
+  assertEquals(layers.length, 8);
+  assertEquals(new Set(layers).size, 8);
 });

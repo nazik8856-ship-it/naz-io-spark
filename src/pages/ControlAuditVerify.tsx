@@ -18,6 +18,14 @@ type VerifyResult = {
   unsigned: number;
   mismatched_count: number;
   mismatched: MismatchedRow[];
+  // Added alongside signing_key_id 'v3': a decision's core fields
+  // (decision, reasoning, confidence, source, gate_trace, escalated,
+  // action_type, provider) and its human_response are now signed
+  // SEPARATELY -- human_response is the one field the append-only guard
+  // deliberately lets change after insert, so it needs its own signature
+  // stamped at that later moment rather than being baked into the
+  // insert-time one. This counts real mismatches there specifically.
+  human_response_mismatched_count: number;
   checked_at: string;
 };
 
@@ -27,8 +35,15 @@ type VerifyResult = {
  * checked it for more than one record at a time, and no customer-facing
  * tool existed at all. Recomputes the signature for every decision in a
  * range and reports whether the stored record still matches what was
- * actually signed at creation — proof the audit trail hasn't been
- * altered, not just a claim that it hasn't.
+ * actually signed at creation.
+ *
+ * IMPORTANT: this only proves what's actually in the signed payload.
+ * Records signed under 'v1'/'v2' (before this page's own copy was
+ * corrected) only cover decision/reasoning/confidence/source/agent_run_id/
+ * created_at -- NOT gate_trace, escalated, action_type, or provider. Newer
+ * ('v3') records cover all of those. A human response, when present, is
+ * always checked against its OWN separate signature (see
+ * human_response_mismatched_count above), never the record's main one.
  */
 export default function ControlAuditVerify() {
   const navigate = useNavigate();
@@ -63,7 +78,7 @@ export default function ControlAuditVerify() {
 
   if (!user) return null;
 
-  const allGood = result && result.mismatched_count === 0;
+  const allGood = result && result.mismatched_count === 0 && result.human_response_mismatched_count === 0;
 
   return (
     <div className="min-h-screen w-full text-white" style={{ backgroundColor: "#020617" }}>
@@ -83,9 +98,12 @@ export default function ControlAuditVerify() {
           <ShieldCheck className="h-5 w-5 text-cyan-300" /> Audit trail verification
         </h1>
         <p className="mt-1 text-sm text-zinc-400">
-          Every decision is signed with a server-side key when it's written. This recomputes that
-          signature for every decision in the range and reports whether the record still matches —
-          proof nothing has been altered since it was logged.
+          Every decision is signed with a server-side key when it's written, and a human response
+          (if any) gets its own separate signature when it's recorded. This recomputes both for
+          every decision in the range and reports whether they still match — proof those specific
+          fields haven't been altered since they were signed. Records signed before this check
+          covered gate trace, escalation, action type, and provider have narrower coverage; the
+          per-decision "Explain" view on Decision History names exactly what's covered for that row.
         </p>
 
         <div className="mt-6 flex flex-wrap items-end gap-2 rounded border border-white/10 bg-white/[0.02] p-3">
@@ -114,7 +132,12 @@ export default function ControlAuditVerify() {
               {allGood ? <CheckCircle2 className="h-5 w-5 text-emerald-400" /> : <AlertTriangle className="h-5 w-5 text-rose-400" />}
               <div className="text-sm">
                 <p className={allGood ? "text-emerald-300" : "text-rose-300"}>
-                  {allGood ? "Every signed decision matches its original content." : `${result.mismatched_count} decision(s) don't match what was originally signed.`}
+                  {allGood
+                    ? "Every signed decision (and every signed human response) matches its original content."
+                    : [
+                        result.mismatched_count > 0 ? `${result.mismatched_count} decision(s) don't match what was originally signed` : null,
+                        result.human_response_mismatched_count > 0 ? `${result.human_response_mismatched_count} human response(s) don't match what was originally signed` : null,
+                      ].filter(Boolean).join("; ") + "."}
                 </p>
                 <p className="mt-0.5 text-[11px] text-zinc-500">
                   {result.checked} checked · {result.verified} verified · {result.unsigned} predate signing

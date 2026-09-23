@@ -8,6 +8,26 @@
 import type { TraceEntry } from "./gate-trace.ts";
 import type { PrecedentCitationRecord } from "./precedent-citation.ts";
 
+// A resolved pending_approvals row referencing this decision -- covers BOTH
+// a normal escalation resolved through the approvals queue (ControlApprovals.tsx,
+// record_approval_signoff) and a later dispute/re-review of an already-
+// resolved decision (decision-dispute.ts reuses the same table). Neither
+// path ever writes back to agent_decisions.human_response (that column is
+// only ever set by ControlPendingDecisions.tsx's own direct-update flow or
+// an ask_user tool response), so without this, "no human was involved" kept
+// showing even after a human fully resolved the exact dispute/escalation
+// being asked about.
+export type ApprovalResolution = { vote: "approved" | "rejected"; resolvedAt: string | null; comment: string | null };
+
+// A break-glass override: a human bypassing an earlier hard-rule/safety-
+// scanner BLOCK (control-engine/index.ts's own /override route). It's
+// modeled in the DB as a SEPARATE agent_decisions row (source: "human_override",
+// override_of: <this decision's id>) -- the original blocked decision itself
+// is never mutated beyond an overridden_at timestamp, so without this, the
+// original decision's own explanation had no way to ever say "a human later
+// overrode this."
+export type DecisionOverride = { reasoning: string | null; createdAt: string; actionType: string | null; provider: string | null };
+
 export type DecisionExplanationInput = {
   decisionText: string;
   reasoning: string | null;
@@ -20,6 +40,14 @@ export type DecisionExplanationInput = {
   createdAt: string;
   gateTrace: TraceEntry[] | null;
   precedentCitations: PrecedentCitationRecord | null;
+  // Oldest first. Empty/omitted when nothing was ever escalated or disputed
+  // through the approvals queue for this decision.
+  approvalResolutions?: ApprovalResolution[] | null;
+  // Oldest first. Empty/omitted when this decision was never overridden.
+  // Practically at most one entry -- the override route claims an atomic
+  // "only once" lock on the original decision -- but the shape stays a list
+  // so a lock ever loosened doesn't silently truncate the audit trail.
+  overrides?: DecisionOverride[] | null;
 };
 
 /** Pure -- the first whitespace-separated word of the stored decision text, uppercased. Same convention roi-report.ts's classifyDecisionOutcome and this round's plan-escalation.ts already use to read a real verdict off free-text. */
@@ -53,6 +81,24 @@ const SOURCE_LABELS: Record<string, string> = {
   platform_kill_switch: "NazAI's platform-wide emergency stop",
 };
 
+// KillSwitchPanel.tsx logs a switch TOGGLE itself (distinct from
+// "kill_switch"/"platform_kill_switch", which mark an ACTION blocked
+// because a switch was already on) under these two sources. It isn't an
+// action NazAI took at all -- decisionText is literally the bare word
+// "block"/"allow" standing in for the switch's new state, and confidence_score
+// is a meaningless hardcoded 100 -- so it needs its own opening sentence
+// entirely, not the generic "NazAI blocked/allowed this action" template
+// (which, before this, fell through to quoting the raw source string:
+// `...decided by "kill_switch_flip".`).
+const SWITCH_FLIP_SOURCES = new Set(["kill_switch_flip", "platform_kill_switch_flip"]);
+
+/** Pure -- the opening sentence for a kill-switch/platform-kill-switch TOGGLE event, never a normal gated decision. */
+function describeSwitchFlip(source: string, decisionText: string, when: string): string {
+  const turnedOn = leadingVerdict(decisionText) === "BLOCK";
+  const switchLabel = source === "platform_kill_switch_flip" ? "NazAI's platform-wide kill switch" : "this account's kill switch";
+  return `On ${when}, a human turned ${switchLabel} ${turnedOn ? "ON" : "OFF"}.`;
+}
+
 /**
  * Pure -- composes one plain-English paragraph narrative from whatever
  * pieces this decision actually has. Every input is optional/nullable
@@ -63,6 +109,7 @@ const SOURCE_LABELS: Record<string, string> = {
 export function buildDecisionExplanation(input: DecisionExplanationInput): string {
   const paragraphs: string[] = [];
 
+  const isSwitchFlip = input.source != null && SWITCH_FLIP_SOURCES.has(input.source);
   const verdict = leadingVerdict(input.decisionText);
   const verb = VERDICT_VERBS[verdict] ?? "processed";
   const what = input.actionType
@@ -70,13 +117,17 @@ export function buildDecisionExplanation(input: DecisionExplanationInput): strin
     : "this action";
   const when = new Date(input.createdAt).toISOString().slice(0, 10);
   const sourceLabel = input.source ? SOURCE_LABELS[input.source] ?? `"${input.source}"` : null;
-  paragraphs.push(
-    sourceLabel
-      ? `On ${when}, NazAI ${verb} ${what}, decided by ${sourceLabel}.`
-      : `On ${when}, NazAI ${verb} ${what}.`,
-  );
+  if (isSwitchFlip) {
+    paragraphs.push(describeSwitchFlip(input.source as string, input.decisionText, when));
+  } else {
+    paragraphs.push(
+      sourceLabel
+        ? `On ${when}, NazAI ${verb} ${what}, decided by ${sourceLabel}.`
+        : `On ${when}, NazAI ${verb} ${what}.`,
+    );
+  }
 
-  if (input.confidenceScore != null) {
+  if (input.confidenceScore != null && !isSwitchFlip) {
     paragraphs.push(`NazAI's own judgment scored this at ${input.confidenceScore}% confidence.`);
   }
 
@@ -108,15 +159,56 @@ export function buildDecisionExplanation(input: DecisionExplanationInput): strin
     );
   }
 
-  if (input.escalated) {
-    paragraphs.push(
-      input.humanResponse
-        ? `This was escalated for a second look, and a human resolved it: ${input.humanResponse}.`
-        : "This was escalated for a second look and is awaiting (or was awaiting) human review.",
-    );
+  if (input.overrides && input.overrides.length) {
+    paragraphs.push(describeOverrides(input.overrides));
+  }
+
+  // A resolution here means a human decided this through the pending_approvals/
+  // record_approval_signoff queue -- which never writes back to this row's own
+  // human_response column (that column is only ever set by the direct-update
+  // ControlPendingDecisions.tsx flow or an ask_user tool response). Without
+  // consulting approvalResolutions too, a decision that was escalated (or later
+  // disputed) and fully resolved by a human through that queue would still
+  // fall through to "No human was involved" -- true of the human_response
+  // column, false of what actually happened.
+  const resolutions = input.approvalResolutions ?? [];
+  if (isSwitchFlip) {
+    paragraphs.push("This was a manual action taken directly by a human -- no AI judgment or approval queue was involved.");
+  } else if (input.escalated) {
+    if (input.humanResponse) {
+      paragraphs.push(`This was escalated for a second look, and a human resolved it: ${input.humanResponse}.`);
+    } else if (resolutions.length) {
+      paragraphs.push(describeApprovalResolutions(resolutions, "This was escalated for a second look."));
+    } else {
+      paragraphs.push("This was escalated for a second look and is awaiting (or was awaiting) human review.");
+    }
+  } else if (resolutions.length) {
+    paragraphs.push(describeApprovalResolutions(resolutions, "This wasn't escalated at the time, but a human later reviewed it -- for example through a dispute or re-review request."));
   } else {
     paragraphs.push("No human was involved in resolving this decision.");
   }
 
   return paragraphs.join("\n\n");
+}
+
+/** Pure -- one sentence naming the most recent human resolution from the approvals queue, noting when there were several (e.g. a decision disputed more than once). */
+function describeApprovalResolutions(resolutions: ApprovalResolution[], lead: string): string {
+  const last = resolutions[resolutions.length - 1];
+  const verb = last.vote === "approved" ? "approved" : "rejected";
+  const when = last.resolvedAt ? ` on ${new Date(last.resolvedAt).toISOString().slice(0, 10)}` : "";
+  const countNote = resolutions.length > 1 ? ` (reviewed ${resolutions.length} times in total; this is the most recent)` : "";
+  const commentNote = last.comment ? ` The reviewer noted: ${last.comment}` : "";
+  return `${lead} A human ${verb} it${when}.${countNote}${commentNote}`;
+}
+
+/** Pure -- one sentence naming that this block was later overridden by a human, and why. */
+function describeOverrides(overrides: DecisionOverride[]): string {
+  if (overrides.length === 1) {
+    const o = overrides[0];
+    const when = new Date(o.createdAt).toISOString().slice(0, 10);
+    return `A human later overrode this block on ${when}${o.reasoning ? `, with reasoning: "${o.reasoning}"` : ""}.`;
+  }
+  const last = overrides[overrides.length - 1];
+  const when = new Date(last.createdAt).toISOString().slice(0, 10);
+  return `A human later overrode this block ${overrides.length} separate times, most recently on ${when}${last.reasoning ? `, with reasoning: "${last.reasoning}"` : ""}.`;
 }
