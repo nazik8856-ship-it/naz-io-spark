@@ -758,13 +758,20 @@ serve(async (req) => {
       // effect once needs a real answer, not the same false confirmation.
       const normalizedCurrent = normalize(currentManifest, existing.prompt || prompt);
       if (manifestsEquivalent(normalizedCurrent, nextManifest)) {
+        // This is NOT necessarily a failure -- it also fires (correctly) when
+        // the request is already satisfied, e.g. asking for a footer link
+        // that ensureLegalPages already auto-added. A flat "didn't work" here
+        // reads as a bug report when the site may already match what was
+        // asked. `code: "no_change"` lets the frontend show this as a neutral
+        // "nothing to change" note instead of a hard failure.
         const identifiedNote = identifiedEdits.length
-          ? ` (identified as: ${identifiedEdits.join("; ")})`
+          ? ` Identified: ${identifiedEdits.join("; ")}.`
           : "";
         return json({
           error: isRepeatedRequest
-            ? `That edit still didn't produce a visible change${identifiedNote}. Try naming the exact page and section (e.g. "on the Pricing page, change the headline") so it's unambiguous.`
-            : `That request didn't result in any visible change to the site${identifiedNote}. Try being more specific about which page or section to edit.`,
+            ? `Still no visible change after a second attempt.${identifiedNote} Either the site already matches this (check the live preview) or the request needs to name the exact page and section (e.g. "on the Pricing page, change the headline").`
+            : `No visible change was needed — the site may already match this request.${identifiedNote} If something's still missing, name the exact page or section to edit.`,
+          code: "no_change",
           identified_edits: identifiedEdits,
         }, 422);
       }
