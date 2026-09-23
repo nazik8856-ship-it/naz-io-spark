@@ -7,7 +7,9 @@ import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { toast } from "@/hooks/use-toast";
 import { filterBySearch } from "@/lib/search-filter";
 import { classifyDecisionOutcome, type DecisionOutcome } from "@/lib/roi-report";
-import { GateTraceList, type TraceEntry } from "@/components/control/GateTraceList";
+import { type TraceEntry } from "@/components/control/GateTraceList";
+import { DecisionExplanationPanel } from "@/components/control/DecisionExplanationPanel";
+import type { PrecedentCitationRecord } from "@/lib/decision-explanation";
 
 // action_type/provider (2026-08-23) and gate_trace (2026-08-18) aren't in
 // the generated Supabase types yet.
@@ -27,6 +29,8 @@ type DecisionRow = {
   provider: string | null;
   created_at: string;
   gate_trace: TraceEntry[] | null;
+  human_response: string | null;
+  precedent_citations: PrecedentCitationRecord | null;
 };
 
 type AgentOption = { id: string; name: string };
@@ -95,7 +99,7 @@ export default function ControlDecisionHistory() {
     const toIso = new Date(`${to}T23:59:59.999Z`).toISOString();
     let query = anyDb
       .from("agent_decisions")
-      .select("id, decision, reasoning, confidence_score, escalated, source, agent_id, action_type, provider, created_at, gate_trace")
+      .select("id, decision, reasoning, confidence_score, escalated, source, agent_id, action_type, provider, created_at, gate_trace, human_response, precedent_citations")
       .eq("user_id", accountId)
       .gte("created_at", fromIso)
       .lte("created_at", toIso)
@@ -247,17 +251,27 @@ export default function ControlDecisionHistory() {
                           {row.action_type}{row.action_type && row.provider ? " · " : ""}{row.provider}
                         </div>
                       )}
-                      {row.gate_trace && row.gate_trace.length > 0 && (
-                        <>
-                          <button
-                            onClick={() => toggleTrace(row.id)}
-                            className="mt-1 flex items-center gap-1 font-mono text-[10px] uppercase text-zinc-500 hover:text-zinc-300"
-                          >
-                            {expanded.has(row.id) ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                            Why
-                          </button>
-                          {expanded.has(row.id) && <GateTraceList trace={row.gate_trace} />}
-                        </>
+                      <button
+                        onClick={() => toggleTrace(row.id)}
+                        className="mt-1 flex items-center gap-1 font-mono text-[10px] uppercase text-zinc-500 hover:text-zinc-300"
+                      >
+                        {expanded.has(row.id) ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                        Explain
+                      </button>
+                      {expanded.has(row.id) && (
+                        <DecisionExplanationPanel
+                          decision={row.decision}
+                          reasoning={row.reasoning}
+                          confidenceScore={row.confidence_score}
+                          source={row.source}
+                          escalated={row.escalated}
+                          humanResponse={row.human_response}
+                          actionType={row.action_type}
+                          provider={row.provider}
+                          createdAt={row.created_at}
+                          gateTrace={row.gate_trace}
+                          precedentCitations={row.precedent_citations}
+                        />
                       )}
                     </td>
                     <td className="py-3 pr-3 font-mono text-[11px] text-zinc-400">{row.confidence_score}%</td>
