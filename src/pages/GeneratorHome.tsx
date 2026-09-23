@@ -382,6 +382,13 @@ export default function GeneratorHome() {
           setCompiling(false);
           return;
         }
+        // Was previously silent: an AI failure during generation drops into
+        // a generic 3-flavor fallback template with no signal at all -- the
+        // response looks like a normal success. Tell the user plainly so
+        // they know to regenerate rather than assume this is their real site.
+        if (body?.used_fallback) {
+          toast.warning("Something went wrong generating a custom design — this is a starter template. Try regenerating for a design built for your business.");
+        }
         // Seed the standalone preview before navigation. The database remains
         // authoritative, but this removes the empty-frame window while the new
         // workspace performs its first owner-protected read.
