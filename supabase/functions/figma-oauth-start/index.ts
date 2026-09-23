@@ -4,6 +4,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { signState, buildAuthUrl, scopesForGroups, FIGMA_DEFAULT_GROUPS } from "../_shared/figma.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
+import { runInBackground } from "../_shared/background.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -68,7 +69,10 @@ Deno.serve(async (req) => {
     // Single-use, mirroring Canva/Notion/Shopify/Slack's own DB-backed
     // transaction pattern -- verifyState's HMAC + expiry check alone let a
     // leaked/replayed state be redeemed more than once inside its window.
-    await admin.from("figma_oauth_transactions").delete().lt("expires_at", new Date().toISOString());
+    runInBackground(
+      admin.from("figma_oauth_transactions").delete().lt("expires_at", new Date().toISOString()),
+      "figma-oauth-transactions-cleanup",
+    );
     const { error: txErr } = await admin.from("figma_oauth_transactions").insert({ state, user_id: user.id });
     if (txErr) throw new Error(`Could not initialize Figma OAuth: ${txErr.message}`);
     return new Response(JSON.stringify({ url: buildAuthUrl(state, scopes) }), {

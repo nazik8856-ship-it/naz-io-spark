@@ -535,13 +535,30 @@ export default function IntegrationConnectModal({
     setError(null);
     setOauthLoading(true);
     oauthLog.start([
+      { id: "window", label: "Opening the provider sign-in window…" },
       { id: "session", label: "Validating your NazAI session…" },
       { id: "link", label: `Requesting authorization link from ${opts.label}…` },
-      { id: "window", label: "Opening the provider sign-in window…" },
       { id: "await", label: `Waiting for ${opts.label} authorization…` },
       { id: "exchange", label: "Exchanging authorization code for tokens…" },
       { id: "verify", label: "Verifying the connected account…" },
     ]);
+    // Open the popup FIRST, synchronously, before any network round trip --
+    // this is how other platforms make "Connect" feel instant. The old order
+    // (await a session refresh, then await the auth-link request, THEN call
+    // window.open) meant the user clicked and watched nothing happen for a
+    // beat, and a popup opened after an await is also far more likely to be
+    // blocked than one opened synchronously inside the click handler. This
+    // blank window gets navigated to the real provider URL once it's ready.
+    oauthLog.begin("window");
+    const popup = window.open("about:blank", `${kind}_oauth`, "width=560,height=720");
+    if (!popup) {
+      oauthLog.fail("window", "Popup blocked. Please allow popups and retry.");
+      setOauthLoading(false);
+      setError("Popup blocked. Please allow popups and retry.");
+      toast.error("Popup blocked. Please allow popups and retry.");
+      return;
+    }
+    oauthLog.done("window", "Provider window opened");
     try {
       oauthLog.begin("session");
       let { data: sessionData } = await supabase.auth.getSession();
@@ -578,10 +595,8 @@ export default function IntegrationConnectModal({
         throw new Error(errMsg || "No authorization URL returned");
       }
       oauthLog.done("link", "Authorization URL received");
-      oauthLog.begin("window");
-      const popup = window.open(url, `${kind}_oauth`, "width=560,height=720");
-      if (!popup) throw new Error("Popup blocked. Please allow popups and retry.");
-      oauthLog.done("window", "Provider window opened");
+      if (popup.closed) throw new Error("The provider window was closed. Please try again.");
+      popup.location.href = url;
       oauthLog.begin("await", `Waiting for ${opts.label} authorization…`);
       setPendingOAuth({ source: opts.source, label: opts.label });
       const timer = setInterval(() => {
@@ -619,6 +634,10 @@ export default function IntegrationConnectModal({
         }
       }, 300);
     } catch (e) {
+      // The popup was opened blank before this try block, so a failure here
+      // (session refresh, the auth-link request, etc.) leaves it dangling
+      // pointed at about:blank unless it's closed explicitly.
+      if (!popup.closed) popup.close();
       const active = ["session", "link", "window", "await"].find(
         (idc) => oauthLog.steps.find((s2) => s2.id === idc)?.status === "active",
       );
