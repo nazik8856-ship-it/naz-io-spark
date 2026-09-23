@@ -12,6 +12,14 @@ import OAuthReturnHandler from "@/components/OAuthReturnHandler";
 import IntegrationOAuthMessageBridge from "@/components/integrations/IntegrationOAuthMessageBridge";
 import { AuthGuard } from "@/components/AuthGuard";
 import { Sentry } from "@/lib/sentry";
+import { useBuildFreshnessCheck } from "@/hooks/useBuildFreshnessCheck";
+
+// Runs the stale-bundle check (see useBuildFreshnessCheck.ts) from inside the
+// tree so it can use hooks; renders nothing itself.
+function BuildFreshnessWatcher() {
+  useBuildFreshnessCheck();
+  return null;
+}
 
 // ─── Route Components ─────────────────────────────────────────────────────────
 // Retry lazy imports once after a hard reload when the browser is holding a
@@ -204,6 +212,7 @@ const App = () => (
                   calls (including the new connect/disconnect confirmations) was a
                   silent no-op with nothing rendered. */}
               <SonnerToaster position="bottom-right" />
+              <BuildFreshnessWatcher />
               <PaymentWindow />
               <OutOfCreditsModal />
             </Suspense>

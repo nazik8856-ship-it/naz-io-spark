@@ -262,17 +262,30 @@ export default function GeneratedDashboard() {
       });
       if (resp.error) {
         let detail = resp.error.message || "Refine failed";
+        let code: string | undefined;
         try {
           const ctx: any = (resp.error as any).context;
           if (ctx && typeof ctx.json === "function") {
             const body = await ctx.json();
             if (body?.error) detail = body.error;
+            if (body?.code) code = body.code;
           } else if (ctx && typeof ctx.text === "function") {
             const txt = await ctx.text();
-            try { const parsed = JSON.parse(txt); if (parsed?.error) detail = parsed.error; } catch { if (txt) detail = txt; }
+            try {
+              const parsed = JSON.parse(txt);
+              if (parsed?.error) detail = parsed.error;
+              if (parsed?.code) code = parsed.code;
+            } catch { if (txt) detail = txt; }
           }
         } catch { /* keep base message */ }
-        throw new Error(detail);
+        // "no_change" isn't necessarily a failure -- it also fires when the
+        // request is already satisfied (e.g. the auto-added footer links).
+        // Tag it on the thrown error so the catch block can show a neutral
+        // note instead of "Couldn't apply that: ..." framing, which reads as
+        // a bug report when the site may already match what was asked.
+        const err = new Error(detail) as Error & { code?: string };
+        err.code = code;
+        throw err;
       }
       const responseData = (resp.data as any) || {};
       const summary = responseData.summary || "Updated.";
@@ -360,10 +373,19 @@ export default function GeneratedDashboard() {
       setChatTone(null);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
+      const code = e instanceof Error ? (e as Error & { code?: string }).code : undefined;
       const activeStep = websiteLog.steps.find((s2) => s2.status === "active");
-      websiteLog.fail(activeStep?.id || "compile", msg);
-      setTurns((t) => [...t, { role: "assistant", content: `Couldn't apply that: ${msg}`, time: "just now" }]);
-      toast.error(msg);
+      if (code === "no_change") {
+        // Not a failure -- the site may already match the request (e.g. the
+        // auto-added footer links). "Couldn't apply that" framing here would
+        // read as a bug when nothing actually needs fixing.
+        websiteLog.finish(msg);
+        setTurns((t) => [...t, { role: "assistant", content: `ℹ️ ${msg}`, time: "just now" }]);
+      } else {
+        websiteLog.fail(activeStep?.id || "compile", msg);
+        setTurns((t) => [...t, { role: "assistant", content: `Couldn't apply that: ${msg}`, time: "just now" }]);
+        toast.error(msg);
+      }
     } finally {
       setChatBusy(false);
     }
