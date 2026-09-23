@@ -5,6 +5,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { buildAuthUrl, resolveCanvaScopes, generatePkce, generateRandomBase64Url, isConfigured } from "../_shared/canva.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
+import { runInBackground } from "../_shared/background.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -65,7 +66,10 @@ Deno.serve(async (req) => {
 
     // Keep the verifier out of the browser and out of OAuth state. The callback
     // atomically consumes this short-lived row using the opaque random state.
-    await admin.from("canva_oauth_transactions").delete().lt("expires_at", new Date().toISOString());
+    runInBackground(
+      admin.from("canva_oauth_transactions").delete().lt("expires_at", new Date().toISOString()),
+      "canva-oauth-transactions-cleanup",
+    );
     const { error: transactionError } = await admin.from("canva_oauth_transactions").insert({
       state,
       user_id: user.id,

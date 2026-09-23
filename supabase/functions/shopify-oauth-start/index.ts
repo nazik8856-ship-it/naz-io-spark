@@ -4,6 +4,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { buildAuthUrl, isConfigured, normalizeShop, SHOPIFY_SCOPES } from "../_shared/shopify.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
+import { runInBackground } from "../_shared/background.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -66,7 +67,10 @@ Deno.serve(async (req) => {
     const origin = typeof body.origin === "string" ? body.origin : "";
 
     const state = randomState();
-    await admin.from("shopify_oauth_transactions").delete().lt("expires_at", new Date().toISOString());
+    runInBackground(
+      admin.from("shopify_oauth_transactions").delete().lt("expires_at", new Date().toISOString()),
+      "shopify-oauth-transactions-cleanup",
+    );
     const { error: txErr } = await admin.from("shopify_oauth_transactions").insert({
       state,
       user_id: user.id,
