@@ -9,8 +9,14 @@
 // settle after the response goes out); falls back to plain fire-and-forget
 // with error logging on a runtime that doesn't expose it (e.g. some local
 // dev setups), which is still strictly better than blocking every request.
-export function runInBackground(promise: Promise<unknown>, label: string): void {
-  const settled = promise.catch((err) => {
+export function runInBackground(thenable: PromiseLike<unknown>, label: string): void {
+  // Supabase's query builders (e.g. `admin.from(...).delete()...`) are
+  // thenables, not real Promises -- they implement `.then()` but not
+  // `.catch()`/`.finally()`. Calling `.catch()` on one directly throws
+  // "promise.catch is not a function" (confirmed live, in production,
+  // exactly on this call). Promise.resolve() normalizes it into a real
+  // Promise first.
+  const settled = Promise.resolve(thenable).catch((err) => {
     console.error(`[background:${label}] failed`, err);
   });
   const rt = (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } }).EdgeRuntime;
