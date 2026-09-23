@@ -11,6 +11,48 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+const STOPWORDS = new Set([
+  "the", "a", "an", "and", "or", "to", "of", "in", "on", "for", "is", "it",
+  "this", "that", "please", "can", "you", "i", "want", "would", "like", "my",
+  "me", "with", "be", "make", "add", "change", "update", "edit", "again",
+]);
+
+// Loop detection — a user re-sending essentially the SAME edit request a
+// couple of turns later is the strongest available signal that the
+// previous attempt silently didn't take effect (the refine call reported
+// "Applied your changes" but nothing visibly changed, or changed the wrong
+// thing). Cheap word-overlap similarity, not embeddings -- good enough to
+// catch "make the hero bigger" / "make the hero text bigger please" as the
+// same ask without a second model call.
+function wordsOf(text: string): Set<string> {
+  return new Set(
+    text.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((w) => w.length > 2 && !STOPWORDS.has(w)),
+  );
+}
+function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
+  if (!a.size || !b.size) return 0;
+  let intersection = 0;
+  for (const w of a) if (b.has(w)) intersection++;
+  return intersection / (a.size + b.size - intersection);
+}
+function detectRepeatedRequest(prompt: string, recentTurns: unknown[]): boolean {
+  const promptWords = wordsOf(prompt);
+  if (promptWords.size < 2) return false;
+  const recentUserTurns = (Array.isArray(recentTurns) ? recentTurns : [])
+    .filter((t: any) => t?.role === "user" && typeof t?.content === "string")
+    .slice(-4, -1); // exclude the current turn itself, look at the ones just before it
+  return recentUserTurns.some((t: any) => jaccardSimilarity(promptWords, wordsOf(String(t.content))) >= 0.6);
+}
+
+// Did the refine call actually change anything? A model call that returns
+// the manifest byte-identical to what went in (a real, observed failure
+// mode: it "agrees" with the request but doesn't act on it) must never be
+// reported to the user as a successful edit -- that's exactly the "says
+// applied, nothing visibly changed, user asks again" loop.
+function manifestsEquivalent(a: Manifest, b: Manifest): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 const SECTION_TYPES = [
   "hero", "about", "services", "testimonials", "gallery", "contact",
   "pricing", "faq", "stats", "process", "cta", "logos", "feature-split", "custom",
@@ -86,13 +128,13 @@ F. THEMATIC COHESION — every element reinforces the same subject
 - Include a stats section (with concrete numbers — years, clients, cups, sessions, projects) when it fits the brief — the motif markers plus dense typography make it a signature moment.
 - Include process/services variants that reinforce the theme with numbered steps or zigzag imagery.
 
-F. MOTION — the renderer provides scroll reveal, card 3D tilt, magnetic buttons, and section background shifts by default. Choose motion level:
+G. MOTION — the renderer provides scroll reveal, card 3D tilt, magnetic buttons, and section background shifts by default. Choose motion level:
 - "subtle" for professional/luxury/finance/editorial.
 - "expressive" for consumer, creative, fashion, agency.
 - "kinetic" only if the brand is explicitly playful, gaming, or hype.
 - "none" only if requested.
 
-G. CONTENT — specific, scannable, opinionated
+H. CONTENT — specific, scannable, opinionated
 - Copy must be concrete: what the business does, for whom, with real industry language. Every headline is a promise or a stance, not a category label.
 - No lorem ipsum, no "Coming soon", no "Feature 1 / Feature 2".
 
@@ -167,7 +209,7 @@ When the user supplies an exact image URL or uploaded image and asks to place/us
 
 Rules:
 - 3-6 pages total. First page slug MUST be "home" and MUST start with a hero.
-- Every site should include hero + at least one of (about|services|feature-split) + a contact or cta section.
+- FIRST-ATTEMPT COMPLETENESS: this is very likely the ONLY generation the user will see before judging the product — do not ship a thin starting point that assumes they'll fill in the gaps by chatting further. The "home" page alone must include, at minimum: hero, about OR feature-split, services (with at least 3 real items), and one more of (testimonials|gallery|stats|faq|process) chosen to fit the business. In addition, there MUST be a dedicated "contact" page containing a real "contact" section with concrete "form_fields" (e.g. ["name","email","message"]) — a "cta" teaser section alone never satisfies this; a customer must have an actual working form to fill in on the first attempt, not a button that only leads to a promise of one. Every button/CTA anywhere in the manifest (hero, cta section, pricing tier) is genuinely pressable: it MUST have a resolvable href per MULTIPAGE NAVIGATION below — never an empty/omitted href "for later".
 - Vary section variants across pages so the site doesn't feel templated.
 - Copy must be specific to the described business — mention what it actually does, for whom, with real language.
 - No lorem ipsum, no "Coming soon", no placeholder text.
@@ -289,23 +331,32 @@ function normalize(raw: unknown, prompt: string): Manifest {
   const paletteRaw = (themeRaw.palette ?? {}) as Record<string, string>;
   const fontRaw = (themeRaw.font ?? {}) as Record<string, string>;
   const theme: Theme = {
+    // These defaults only kick in when the model's output is partial (a
+    // real failure mode, especially without a hard JSON-mode guarantee) --
+    // they used to reproduce the EXACT "generic AI design" clichés
+    // SCHEMA_DOC's own CORE DIRECTIVE tells the model to avoid: a blue
+    // (#00A3FF) -> purple (#7C3AED) pair reads as the flagged "purple ->
+    // pink gradients" cliché, and Inter for both heading and body is
+    // flagged verbatim. A malformed response should degrade toward
+    // "plain but on-brand," not toward the one look this whole prompt is
+    // engineered to prevent.
     palette: {
       bg: paletteRaw.bg || "#0B0B0F",
       surface: paletteRaw.surface || "#151520",
       text: paletteRaw.text || "#F4F4F5",
-      accent: paletteRaw.accent || "#00A3FF",
-      accentSecondary: paletteRaw.accentSecondary || "#7C3AED",
+      accent: paletteRaw.accent || "#E8834A",
+      accentSecondary: paletteRaw.accentSecondary || "#1B7A72",
       muted: paletteRaw.muted,
       border: paletteRaw.border,
     },
     font: {
-      heading: fontRaw.heading || "Inter",
+      heading: fontRaw.heading || "Sora",
       body: fontRaw.body || "Inter",
       mono: fontRaw.mono,
       display: fontRaw.display,
     },
     vibe: typeof themeRaw.vibe === "string" ? themeRaw.vibe : "modern, clean, confident",
-    layout: typeof themeRaw.layout === "string" ? themeRaw.layout : "centered",
+    layout: typeof themeRaw.layout === "string" ? themeRaw.layout : "asymmetric",
     motion: typeof themeRaw.motion === "string" ? themeRaw.motion : "subtle",
     design_rationale: typeof themeRaw.design_rationale === "string" ? themeRaw.design_rationale : undefined,
   };
@@ -559,23 +610,32 @@ serve(async (req) => {
         }).filter(Boolean).join("\n")
         : "";
 
+      // Loop detection: the user re-asking for essentially the same thing a
+      // couple of turns later means the previous attempt didn't visibly
+      // land. Tell the model explicitly rather than silently repeating
+      // whatever weak transformation produced that non-result.
+      const isRepeatedRequest = detectRepeatedRequest(prompt, recentTurns);
+      const loopClause = isRepeatedRequest
+        ? "\n\nIMPORTANT: This looks like a REPEATED request — a similar message appeared a turn or two ago, which means the previous attempt did not produce a visible change. Do not repeat the same shallow edit. Re-read the CURRENT MANIFEST field-by-field, locate the EXACT page/section/field the request refers to, and make sure your returned manifest is CONCRETELY different at that exact location — not just semantically equivalent. If you genuinely cannot identify which section the request refers to, set \"intent\" to \"mixed\" and use \"summary\" to name the specific section names you found and ask which one, rather than guessing again."
+        : "";
+
       let refined: { intent?: string; summary?: string; manifest?: unknown } = {};
       try {
         const resp = await callAiGateway({
-          model: gw.model,
+          model: gw.deepModel,
           messages: [
             { role: "system", content: `${REFINE_DOC}\n\n${SCHEMA_DOC}` },
             {
               role: "user",
               content: visualAttachments.length
                 ? [
-                    { type: "text", text: `CURRENT MANIFEST (do not regenerate untouched parts):\n${JSON.stringify(currentManifest)}\n\n${conversation ? `RECENT CONVERSATION (use only to resolve references and continuity):\n${conversation}\n\n` : ""}USER REQUEST + ANALYZED INTENT:\n${prompt}\n\nAttached images are shown below — copy their exact URLs byte-for-byte into the target section/item's asset_url so they render in the site. First infer the user's real expectation, then execute it as a coordinated design change: visual signature, palette, typography, copy, hierarchy, imagery, and micro-interactions must still feel like one deliberate system. Preserve every detail not requested or required for coherence. Return the JSON envelope { intent, summary, manifest }.` },
+                    { type: "text", text: `CURRENT MANIFEST (do not regenerate untouched parts):\n${JSON.stringify(currentManifest)}\n\n${conversation ? `RECENT CONVERSATION (use only to resolve references and continuity):\n${conversation}\n\n` : ""}USER REQUEST + ANALYZED INTENT:\n${prompt}\n\nAttached images are shown below — copy their exact URLs byte-for-byte into the target section/item's asset_url so they render in the site. First infer the user's real expectation, then execute it as a coordinated design change: visual signature, palette, typography, copy, hierarchy, imagery, and micro-interactions must still feel like one deliberate system. Preserve every detail not requested or required for coherence. Return the JSON envelope { intent, summary, manifest }.${loopClause}` },
                     ...visualAttachments.map((a: any) => ({ type: "image_url", image_url: { url: a.assetUrl || a.url } })),
                   ]
-                : `CURRENT MANIFEST (do not regenerate untouched parts):\n${JSON.stringify(currentManifest)}\n\n${conversation ? `RECENT CONVERSATION (use only to resolve references and continuity):\n${conversation}\n\n` : ""}USER REQUEST + ANALYZED INTENT:\n${prompt}\n\nFirst infer the user's real expectation, then execute it as a coordinated design change: visual signature, palette, typography, copy, hierarchy, imagery, and micro-interactions must still feel like one deliberate system. Preserve every detail not requested or required for coherence. Return the JSON envelope { intent, summary, manifest }.`,
+                : `CURRENT MANIFEST (do not regenerate untouched parts):\n${JSON.stringify(currentManifest)}\n\n${conversation ? `RECENT CONVERSATION (use only to resolve references and continuity):\n${conversation}\n\n` : ""}USER REQUEST + ANALYZED INTENT:\n${prompt}\n\nFirst infer the user's real expectation, then execute it as a coordinated design change: visual signature, palette, typography, copy, hierarchy, imagery, and micro-interactions must still feel like one deliberate system. Preserve every detail not requested or required for coherence. Return the JSON envelope { intent, summary, manifest }.${loopClause}`,
             },
           ],
-          temperature: 0.4,
+          temperature: isRepeatedRequest ? 0.2 : 0.4,
           response_format: { type: "json_object" },
         }, gw);
         if (resp.status === 429) throw new Error("gateway rate limited");
@@ -614,6 +674,24 @@ serve(async (req) => {
         return json({ error: "Couldn't apply that edit — the AI didn't return a usable update. Nothing was changed; please try again or rephrase your request." }, 502);
       }
       const nextManifest = normalize(refinedManifestRaw, existing.prompt || prompt);
+
+      // A model call that returns the manifest unchanged (byte-for-byte) is
+      // exactly the failure mode loop detection above exists to catch: it
+      // "agreed" with the request but didn't act on it. Normalize the
+      // BEFORE manifest through the same function for a fair comparison
+      // (currentManifest is a raw DB read, nextManifest went through
+      // normalize's own defaulting/cleanup). Report this honestly instead
+      // of the generic "Applied your changes" the summary would otherwise
+      // claim — a customer who already saw the SAME message land with no
+      // effect once needs a real answer, not the same false confirmation.
+      const normalizedCurrent = normalize(currentManifest, existing.prompt || prompt);
+      if (manifestsEquivalent(normalizedCurrent, nextManifest)) {
+        return json({
+          error: isRepeatedRequest
+            ? "That edit still didn't produce a visible change. Try naming the exact page and section (e.g. \"on the Pricing page, change the headline\") so it's unambiguous."
+            : "That request didn't result in any visible change to the site. Try being more specific about which page or section to edit.",
+        }, 422);
+      }
 
       // A linked/uploaded asset is an executable instruction, not prose. If the
       // model omitted the exact URL, fail visibly instead of claiming success.
@@ -680,14 +758,33 @@ serve(async (req) => {
 
     // ============ FRESH COMPILE PATH (also used for rebuild / new-site chat routes) ============
     let manifest: Manifest;
+    // Any AI failure here (rate limit aside, already handled above) used to
+    // silently drop into the generic 3-flavor fallbackManifest with no
+    // signal at all -- the response looked like a normal success, so a user
+    // had no way to know they got a boilerplate template instead of a real
+    // generation for their business. Threaded through every response below
+    // that returns `manifest` so the frontend can tell the difference.
+    let usedFallback = false;
     try {
       const resp = await callAiGateway({
-        model: gw.model,
+        // This is the single call every fresh generation is judged on, and
+        // SCHEMA_DOC asks for genuinely hard creative-writing + design
+        // judgment (brand-specific copy, deliberate asymmetric layout,
+        // self-critique) -- exactly the "genuinely hard reasoning" case
+        // ai-gateway.ts's deep tier exists for, not the fast/cheap default.
+        model: gw.deepModel,
         messages: [
           { role: "system", content: `You are NazAI Website Compiler.\n\n${SCHEMA_DOC}` },
           { role: "user", content: `Compile this website brief into the JSON manifest. Follow user-specified style STRICTLY; invent a distinct identity where the brief is silent. Return only the JSON object.\n\nBRIEF:\n${compilePrompt}` },
         ],
         temperature: 0.85,
+        // Was missing here (present on the refine and intent-routing calls)
+        // -- relying solely on the "Return STRICT JSON only" prompt
+        // instruction meant a higher chance of invalid JSON on exactly the
+        // call that matters most, silently dropping the whole generation
+        // into the generic 3-flavor fallbackManifest below with no signal
+        // to the user that they got a template instead of a real one.
+        response_format: { type: "json_object" },
       }, gw);
       if (resp.status === 429) return json({ error: "Rate limited. Please retry in a moment." }, 429);
       if (resp.status === 402) return json({ error: "AI credits exhausted for this workspace." }, 402);
@@ -699,9 +796,10 @@ serve(async (req) => {
     } catch (err) {
       console.error("compile-website-manifest AI failure", err);
       manifest = fallbackManifest(compilePrompt);
+      usedFallback = true;
     }
 
-    if (!save) return json({ manifest });
+    if (!save) return json({ manifest, used_fallback: usedFallback });
     // A caller that asked to save (the frontend's default) but has no
     // resolved session used to fall into the same branch as "preview only"
     // above, silently returning {manifest} with no website_id and no error
@@ -764,7 +862,10 @@ serve(async (req) => {
         pages: manifest.pages,
         intent: "rebuild",
         rebuilt: true,
-        summary: `Regenerated "${manifest.name}" from scratch — ${manifest.pages.length} page${manifest.pages.length === 1 ? "" : "s"} with a completely new design.`,
+        summary: usedFallback
+          ? `Something went wrong generating a custom design for "${manifest.name}" — showing a starter template instead. Try rebuilding again or refining it via chat.`
+          : `Regenerated "${manifest.name}" from scratch — ${manifest.pages.length} page${manifest.pages.length === 1 ? "" : "s"} with a completely new design.`,
+        used_fallback: usedFallback,
         route_reason: routeInfo.reason,
       });
     }
@@ -821,11 +922,14 @@ serve(async (req) => {
       manifest,
       website_id: siteRow.id,
       pages: pagesOut,
+      used_fallback: usedFallback,
       ...(routeInfo.route === "new"
         ? {
             intent: "new",
             created_new: true,
-            summary: `Built a separate new website — "${manifest.name}" (${manifest.pages.length} page${manifest.pages.length === 1 ? "" : "s"}). Opening it now; your previous site is untouched.`,
+            summary: usedFallback
+              ? `Something went wrong generating a custom design for "${manifest.name}" — showing a starter template instead. Try regenerating or refining it via chat.`
+              : `Built a separate new website — "${manifest.name}" (${manifest.pages.length} page${manifest.pages.length === 1 ? "" : "s"}). Opening it now; your previous site is untouched.`,
             route_reason: routeInfo.reason,
           }
         : {}),

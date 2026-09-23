@@ -379,7 +379,14 @@ export default function GeneratedDashboard() {
       agentLog.done("auth", "Session valid");
       agentLog.begin("compile");
       const resp = await supabase.functions.invoke("compile-agent-manifest", {
-        body: { plan: text, existingAgentId: id, save: true },
+        body: {
+          plan: text,
+          existingAgentId: id,
+          save: true,
+          recentTurns: [...agentTurns, { role: "user", content: text }]
+            .slice(-6)
+            .map(({ role, content }) => ({ role, content })),
+        },
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });
       if (resp.error) {

@@ -382,6 +382,13 @@ export default function GeneratorHome() {
           setCompiling(false);
           return;
         }
+        // Was previously silent: an AI failure during generation drops into
+        // a generic 3-flavor fallback template with no signal at all -- the
+        // response looks like a normal success. Tell the user plainly so
+        // they know to regenerate rather than assume this is their real site.
+        if (body?.used_fallback) {
+          toast.warning("Something went wrong generating a custom design — this is a starter template. Try regenerating for a design built for your business.");
+        }
         // Seed the standalone preview before navigation. The database remains
         // authoritative, but this removes the empty-frame window while the new
         // workspace performs its first owner-protected read.
@@ -438,6 +445,11 @@ export default function GeneratorHome() {
           toast.error(body?.error || `Agent compile failed (${resp.status})`);
           setCompiling(false);
           return;
+        }
+        // Same fallback-visibility fix as the website path: an AI failure during
+        // compile silently drops into a generic role-blueprint template.
+        if (body?.usedFallback) {
+          toast.warning("Something went wrong compiling a custom agent — this is a generic starter for the role. Try regenerating for an agent built for your business.");
         }
         navigate(`/generated/agent/${body.agentId}`);
       } catch (e) {
