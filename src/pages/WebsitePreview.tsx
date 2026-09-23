@@ -16,6 +16,13 @@ type Theme = {
   design_rationale?: string;
 };
 
+// Auto-injected legal pages (see compile-website-manifest's ensureLegalPages)
+// belong in the footer only -- they'd otherwise clutter the primary nav on
+// every generated site. Keep these slug sets in sync with the compiler's.
+const PRIVACY_SLUG_ALIASES = new Set(["privacy-policy", "privacy", "privacy-notice"]);
+const TERMS_SLUG_ALIASES = new Set(["terms", "terms-of-service", "terms-conditions", "terms-and-conditions", "tos"]);
+const LEGAL_SLUGS = new Set([...PRIVACY_SLUG_ALIASES, ...TERMS_SLUG_ALIASES]);
+
 type Section = { type: string; variant?: string; content: Record<string, unknown> };
 type Page = {
   id: string;
@@ -828,7 +835,7 @@ export default function WebsitePreview() {
           {site.name}
         </button>
         <nav className="flex items-center gap-5 overflow-x-auto">
-          {pages.map((pg) => (
+          {pages.filter((pg) => !LEGAL_SLUGS.has(pg.slug)).map((pg) => (
             <button
               key={pg.id}
               onClick={() => ctaNav.go(pg.slug)}
@@ -893,6 +900,26 @@ export default function WebsitePreview() {
           <MotifIcon path={motif.path} color={p.accent} size={16} strokeWidth={1.6} />
         </div>
         © {new Date().getFullYear()} {site.name} · {site.tagline}
+        {(() => {
+          const privacyPage = pages.find((pg) => PRIVACY_SLUG_ALIASES.has(pg.slug));
+          const termsPage = pages.find((pg) => TERMS_SLUG_ALIASES.has(pg.slug));
+          if (!privacyPage && !termsPage) return null;
+          return (
+            <div className="mt-3 flex items-center justify-center gap-3">
+              {privacyPage && (
+                <button type="button" onClick={() => ctaNav.go(privacyPage.slug)} className="underline decoration-dotted opacity-80 hover:opacity-100">
+                  Privacy Policy
+                </button>
+              )}
+              {privacyPage && termsPage && <span aria-hidden="true">·</span>}
+              {termsPage && (
+                <button type="button" onClick={() => ctaNav.go(termsPage.slug)} className="underline decoration-dotted opacity-80 hover:opacity-100">
+                  Terms of Service
+                </button>
+              )}
+            </div>
+          );
+        })()}
       </footer>
     </div>
     </CtaNavCtx.Provider>

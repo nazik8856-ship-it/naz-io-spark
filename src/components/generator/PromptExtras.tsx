@@ -8,6 +8,16 @@ import { toast } from "sonner";
 import IntegrationConnectModal from "@/components/agents/IntegrationConnectModal";
 import { useIntegrationOAuthMessages } from "@/hooks/useIntegrationOAuthMessages";
 import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export type Attachment = {
   id: string;
@@ -65,6 +75,7 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
   const [plusPos, setPlusPos] = useState<{ left: number; bottom: number } | null>(null);
   const [tunerPos, setTunerPos] = useState<{ left: number; bottom: number } | null>(null);
   const [connectTarget, setConnectTarget] = useState<{ name: string; category: string } | null>(null);
+  const [confirmDisconnect, setConfirmDisconnect] = useState<{ id: string; label: string; providerKey: string } | null>(null);
 
   const computePos = (btn: HTMLButtonElement | null) => {
     if (!btn) return null;
@@ -437,7 +448,7 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
                     <button
                       type="button"
                       disabled={disconnecting.has(i.id)}
-                      onClick={(e) => { e.stopPropagation(); disconnectIntegration(i); }}
+                      onClick={(e) => { e.stopPropagation(); setConfirmDisconnect(i); }}
                       className="flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border border-red-400/40 text-red-300 hover:bg-red-400/10 hover:text-red-200 transition disabled:opacity-60"
                     >
                       {disconnecting.has(i.id) ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
@@ -509,6 +520,30 @@ export default function PromptExtras({ attachments, onChange, tone, onToneChange
           onChange={() => { loadConnected(); }}
         />
       )}
+
+      <AlertDialog open={!!confirmDisconnect} onOpenChange={(open) => { if (!open) setConfirmDisconnect(null); }}>
+        <AlertDialogContent className="bg-zinc-950 border-white/10 text-white">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Disconnect {confirmDisconnect?.label}?</AlertDialogTitle>
+            <AlertDialogDescription className="text-zinc-400">
+              NazAI will no longer be able to pull data from {confirmDisconnect?.label}. You can reconnect it again at any time.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="bg-transparent border-white/10 text-zinc-200 hover:bg-white/5 hover:text-white">No</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                const target = confirmDisconnect;
+                setConfirmDisconnect(null);
+                if (target) disconnectIntegration(target);
+              }}
+              className="bg-red-500/20 text-red-200 border border-red-400/30 hover:bg-red-500/30"
+            >
+              Yes, disconnect
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
