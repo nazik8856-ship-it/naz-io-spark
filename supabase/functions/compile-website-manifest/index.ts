@@ -323,6 +323,66 @@ function fallbackManifest(prompt: string): Manifest {
   };
 }
 
+// A footer link to a Privacy Policy / Terms page is table-stakes on a real
+// business site, but leaving it to the model meant it only showed up when a
+// user thought to ask via chat. Auto-inject both on every normalize() pass
+// (fresh compiles AND refine edits) so the very first generation already has
+// them -- recognizing existing slugs first so a model-authored legal page
+// is never duplicated.
+const PRIVACY_SLUG_ALIASES = new Set(["privacy-policy", "privacy", "privacy-notice"]);
+const TERMS_SLUG_ALIASES = new Set(["terms", "terms-of-service", "terms-conditions", "terms-and-conditions", "tos"]);
+
+function legalPage(kind: "privacy" | "terms", name: string): Page {
+  const year = new Date().getFullYear();
+  if (kind === "privacy") {
+    return {
+      slug: "privacy-policy",
+      title: "Privacy Policy",
+      seo_description: `How ${name} collects, uses, and protects your information.`.slice(0, 160),
+      sections: [{
+        type: "about",
+        variant: "editorial",
+        content: {
+          heading: "Privacy Policy",
+          body: `Last updated ${year}. This page explains what information ${name} collects when you use this site, how it's used, and the choices available to you.`,
+          bullets: [
+            `Information we collect: contact details you submit through forms on this site (such as name, email, and message), plus standard technical data like browser type and pages visited.`,
+            `How we use it: to respond to inquiries, provide the services you request, and improve this site's content and performance.`,
+            `Cookies & analytics: this site may use cookies or similar technology to understand how visitors use it. You can control cookies through your browser settings.`,
+            `Sharing: we do not sell your personal information. We only share it with service providers who help us operate this site, under confidentiality obligations.`,
+            `Your rights: you may request access to, correction of, or deletion of your information at any time via the contact page.`,
+          ],
+        },
+      }],
+    };
+  }
+  return {
+    slug: "terms",
+    title: "Terms of Service",
+    seo_description: `The terms and conditions for using ${name}'s website and services.`.slice(0, 160),
+    sections: [{
+      type: "about",
+      variant: "editorial",
+      content: {
+        heading: "Terms of Service",
+        body: `Last updated ${year}. By using this site, you agree to the following terms with ${name}.`,
+        bullets: [
+          `Use of this site: content is provided for general informational purposes and may be updated at any time without notice.`,
+          `Submissions: any information you submit through this site must be accurate, and you're responsible for keeping any account credentials secure.`,
+          `Intellectual property: the content, branding, and design of this site belong to ${name} and may not be copied or reused without permission.`,
+          `Limitation of liability: ${name} is not liable for indirect or incidental damages arising from use of this site, to the fullest extent permitted by law.`,
+          `Changes: these terms may be updated periodically; continued use of the site after changes means you accept the updated terms.`,
+        ],
+      },
+    }],
+  };
+}
+
+function ensureLegalPages(pages: Page[], name: string): void {
+  if (!pages.some((p) => PRIVACY_SLUG_ALIASES.has(p.slug.toLowerCase()))) pages.push(legalPage("privacy", name));
+  if (!pages.some((p) => TERMS_SLUG_ALIASES.has(p.slug.toLowerCase()))) pages.push(legalPage("terms", name));
+}
+
 function normalize(raw: unknown, prompt: string): Manifest {
   const r = (raw ?? {}) as Record<string, unknown>;
   const name = typeof r.name === "string" && r.name.trim() ? r.name.trim() : "Untitled Site";
@@ -434,21 +494,25 @@ function normalize(raw: unknown, prompt: string): Manifest {
     }
   }
 
+  ensureLegalPages(pages, name);
+
   return { name, tagline, theme, pages };
 }
 
 const REFINE_DOC = `You are NazAI Website Refiner. The user is editing an EXISTING generated website via chat.
 
-Your job in 5 steps:
+Your job in 6 steps — READ, IDENTIFY, CLASSIFY, PLAN, EXECUTE, VERIFY. Do not skip straight from reading to writing a manifest; the intermediate identifiedEdits list is a required output, not internal scratch work.
+
 1. READ the user's message AND the "--- Analyzed context ---" block carefully. Every attachment (uploaded file, image, URL, CSV/JSON data, integration snapshot, referenced project, tone selection) has already been analyzed for you. Treat every listed key fact, requirement, tone, and raw attached row as an EXECUTABLE instruction, not background trivia.
-2. CLASSIFY intent as one of:
+2. IDENTIFY the concrete, atomic edits being asked for as a short list (1-6 items). Each item must name the specific page/section/field it targets, e.g. "Pricing page — change the 'Pro' tier price to $49/mo", "Home page — add a testimonials section", "Hero — replace headline with the new tagline". This list is returned verbatim as "identifiedEdits" — write it BEFORE deciding how to implement it, so every edit below traces back to one of these items.
+3. CLASSIFY intent as one of:
    - "theme": palette, fonts, vibe, motion, layout style (also triggered by tone selection or palette_hints)
    - "copy": headlines/subheads/body copy/CTA text on existing sections
    - "content": add/remove/reorder sections or pages, add items to lists, materialize attached data (CSV rows → pricing tiers/services/gallery/stats, integration rows → real cards/lists, referenced project facts → about/services copy)
    - "structural": rename site, change tagline, major restructure
    - "mixed": any combination
-3. Produce an UPDATED full manifest. PRESERVE everything the user did NOT ask to change. Apply the minimum edits that satisfy intent + every analyzed requirement, then keep everything else byte-identical to the current manifest.
-4. EXECUTE, do not merely describe:
+4. PLAN + STRUCTURE an UPDATED full manifest that implements every item in identifiedEdits. PRESERVE everything the user did NOT ask to change. Apply the minimum edits that satisfy intent + every analyzed requirement, then keep everything else byte-identical to the current manifest.
+5. EXECUTE, do not merely describe:
    - Uploaded/linked image → put its exact URL byte-for-byte in the target section/item's asset_url.
    - Uploaded/attached data (CSV, JSON, exports) → turn actual rows into visible content (pricing tiers, service items, gallery captions, stats numbers, FAQ pairs, testimonial quotes — whichever section type matches the data shape).
    - Integration snapshot data → surface concrete values (real product names, real event titles, real metrics) into the appropriate section instead of placeholder copy.
@@ -456,11 +520,12 @@ Your job in 5 steps:
    - Tone selection → rewrite the copy of any section you touch to match that tone; if user asked for a tone shift only, apply it across all copy.
    - Palette/layout hints from analysis → apply them to theme when relevant.
    - Requested navigation/redirect ("Book Now button should open a booking form", "add a Contact page and link the hero CTA to it", "Learn More should go to /services") → create the destination page if missing, ensure it contains the interactive section (booking/quote/newsletter/contact/pricing), and set the correct "cta_primary_href"/"cta_secondary_href"/"cta_href" on the source button. If the user supplies an external URL (Calendly, Stripe, mailto:, tel:), copy it verbatim into the href.
-5. SELF-CHECK the final manifest against the request AND every listed key fact / requirement / exact asset. The summary must name only changes that are visibly present in the returned manifest. Never say an edit was applied if the relevant field/content is absent.
+6. VERIFY — walk identifiedEdits one by one against the manifest you are about to return. Every single item MUST be concretely visible in it; if one isn't, go back and apply it before responding — never ship a manifest that leaves an identified edit undone. Also self-check against every listed key fact / requirement / exact asset from analysis. The summary must name only changes that are visibly present in the returned manifest. Never say an edit was applied if the relevant field/content is absent.
 
 Return STRICT JSON only:
 {
   "intent": "theme"|"copy"|"content"|"structural"|"mixed",
+  "identifiedEdits": string[],   // 1-6 short items from step 2 — exactly what you identified, each naming the page/section/field it targets
   "summary": string,
   "manifest": { ...full manifest, same shape as compile }
 }`;
@@ -616,10 +681,10 @@ serve(async (req) => {
       // whatever weak transformation produced that non-result.
       const isRepeatedRequest = detectRepeatedRequest(prompt, recentTurns);
       const loopClause = isRepeatedRequest
-        ? "\n\nIMPORTANT: This looks like a REPEATED request — a similar message appeared a turn or two ago, which means the previous attempt did not produce a visible change. Do not repeat the same shallow edit. Re-read the CURRENT MANIFEST field-by-field, locate the EXACT page/section/field the request refers to, and make sure your returned manifest is CONCRETELY different at that exact location — not just semantically equivalent. If you genuinely cannot identify which section the request refers to, set \"intent\" to \"mixed\" and use \"summary\" to name the specific section names you found and ask which one, rather than guessing again."
+        ? "\n\nIMPORTANT: This looks like a REPEATED request — a similar message appeared a turn or two ago, which means the previous attempt did not produce a visible change. Do not repeat the same shallow edit. Re-read the CURRENT MANIFEST field-by-field, locate the EXACT page/section/field the request refers to, and make sure every item in identifiedEdits is CONCRETELY different in your returned manifest at that exact location — not just semantically equivalent. If you genuinely cannot identify which section the request refers to, set \"intent\" to \"mixed\", leave identifiedEdits naming the section names you considered, and use \"summary\" to ask which one, rather than guessing again."
         : "";
 
-      let refined: { intent?: string; summary?: string; manifest?: unknown } = {};
+      let refined: { intent?: string; identifiedEdits?: unknown; summary?: string; manifest?: unknown } = {};
       try {
         const resp = await callAiGateway({
           model: gw.deepModel,
@@ -629,10 +694,10 @@ serve(async (req) => {
               role: "user",
               content: visualAttachments.length
                 ? [
-                    { type: "text", text: `CURRENT MANIFEST (do not regenerate untouched parts):\n${JSON.stringify(currentManifest)}\n\n${conversation ? `RECENT CONVERSATION (use only to resolve references and continuity):\n${conversation}\n\n` : ""}USER REQUEST + ANALYZED INTENT:\n${prompt}\n\nAttached images are shown below — copy their exact URLs byte-for-byte into the target section/item's asset_url so they render in the site. First infer the user's real expectation, then execute it as a coordinated design change: visual signature, palette, typography, copy, hierarchy, imagery, and micro-interactions must still feel like one deliberate system. Preserve every detail not requested or required for coherence. Return the JSON envelope { intent, summary, manifest }.${loopClause}` },
+                    { type: "text", text: `CURRENT MANIFEST (do not regenerate untouched parts):\n${JSON.stringify(currentManifest)}\n\n${conversation ? `RECENT CONVERSATION (use only to resolve references and continuity):\n${conversation}\n\n` : ""}USER REQUEST + ANALYZED INTENT:\n${prompt}\n\nAttached images are shown below — copy their exact URLs byte-for-byte into the target section/item's asset_url so they render in the site. First infer the user's real expectation, then execute it as a coordinated design change: visual signature, palette, typography, copy, hierarchy, imagery, and micro-interactions must still feel like one deliberate system. Preserve every detail not requested or required for coherence. Return the JSON envelope { intent, identifiedEdits, summary, manifest }.${loopClause}` },
                     ...visualAttachments.map((a: any) => ({ type: "image_url", image_url: { url: a.assetUrl || a.url } })),
                   ]
-                : `CURRENT MANIFEST (do not regenerate untouched parts):\n${JSON.stringify(currentManifest)}\n\n${conversation ? `RECENT CONVERSATION (use only to resolve references and continuity):\n${conversation}\n\n` : ""}USER REQUEST + ANALYZED INTENT:\n${prompt}\n\nFirst infer the user's real expectation, then execute it as a coordinated design change: visual signature, palette, typography, copy, hierarchy, imagery, and micro-interactions must still feel like one deliberate system. Preserve every detail not requested or required for coherence. Return the JSON envelope { intent, summary, manifest }.${loopClause}`,
+                : `CURRENT MANIFEST (do not regenerate untouched parts):\n${JSON.stringify(currentManifest)}\n\n${conversation ? `RECENT CONVERSATION (use only to resolve references and continuity):\n${conversation}\n\n` : ""}USER REQUEST + ANALYZED INTENT:\n${prompt}\n\nFirst infer the user's real expectation, then execute it as a coordinated design change: visual signature, palette, typography, copy, hierarchy, imagery, and micro-interactions must still feel like one deliberate system. Preserve every detail not requested or required for coherence. Return the JSON envelope { intent, identifiedEdits, summary, manifest }.${loopClause}`,
             },
           ],
           temperature: isRepeatedRequest ? 0.2 : 0.4,
@@ -674,6 +739,13 @@ serve(async (req) => {
         return json({ error: "Couldn't apply that edit — the AI didn't return a usable update. Nothing was changed; please try again or rephrase your request." }, 502);
       }
       const nextManifest = normalize(refinedManifestRaw, existing.prompt || prompt);
+      // The model's step-2 output from REFINE_DOC — the concrete, atomic edits
+      // it identified from the request before deciding how to implement them.
+      // Surfaced to the user so "identifies the wished edits" is a real,
+      // visible artifact of the pipeline, not just an internal instruction.
+      const identifiedEdits: string[] = Array.isArray(refined.identifiedEdits)
+        ? (refined.identifiedEdits as unknown[]).filter((x): x is string => typeof x === "string" && x.trim().length > 0).slice(0, 6)
+        : [];
 
       // A model call that returns the manifest unchanged (byte-for-byte) is
       // exactly the failure mode loop detection above exists to catch: it
@@ -686,10 +758,14 @@ serve(async (req) => {
       // effect once needs a real answer, not the same false confirmation.
       const normalizedCurrent = normalize(currentManifest, existing.prompt || prompt);
       if (manifestsEquivalent(normalizedCurrent, nextManifest)) {
+        const identifiedNote = identifiedEdits.length
+          ? ` (identified as: ${identifiedEdits.join("; ")})`
+          : "";
         return json({
           error: isRepeatedRequest
-            ? "That edit still didn't produce a visible change. Try naming the exact page and section (e.g. \"on the Pricing page, change the headline\") so it's unambiguous."
-            : "That request didn't result in any visible change to the site. Try being more specific about which page or section to edit.",
+            ? `That edit still didn't produce a visible change${identifiedNote}. Try naming the exact page and section (e.g. "on the Pricing page, change the headline") so it's unambiguous.`
+            : `That request didn't result in any visible change to the site${identifiedNote}. Try being more specific about which page or section to edit.`,
+          identified_edits: identifiedEdits,
         }, 422);
       }
 
@@ -751,6 +827,7 @@ serve(async (req) => {
         website_id: previousWebsiteId,
         pages: nextManifest.pages,
         intent: refined.intent || "mixed",
+        identified_edits: identifiedEdits,
         summary: refined.summary || "Applied your changes.",
         refined: true,
       });

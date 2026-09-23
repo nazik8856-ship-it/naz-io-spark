@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider } from "@/hooks/useAuth";
 import { ActiveAccountProvider } from "@/hooks/useActiveAccount";
 import { Toaster } from "@/components/ui/toaster";
+import { Toaster as SonnerToaster } from "@/components/ui/sonner";
 import { lazy, Suspense } from "react";
 import EntranceSplash from "@/components/EntranceSplash";
 import PaymentWindow from "@/components/payments/PaymentWindow";
@@ -197,6 +198,12 @@ const App = () => (
               </Routes>
 
               <Toaster />
+              {/* sonner's own Toaster -- dozens of components (Generator, agents,
+                  integrations) call sonner's `toast()` directly, but no <Toaster/>
+                  from the "sonner" package was ever mounted, so every one of those
+                  calls (including the new connect/disconnect confirmations) was a
+                  silent no-op with nothing rendered. */}
+              <SonnerToaster position="bottom-right" />
               <PaymentWindow />
               <OutOfCreditsModal />
             </Suspense>

@@ -220,12 +220,12 @@ export default function GeneratedDashboard() {
     setTurns((t) => [...t, { role: "user", content: text, time: "just now" }]);
     setChatBusy(true);
     websiteLog.start([
-      { id: "analyze", label: "Analyzing your request…" },
+      { id: "analyze", label: "Reading your request…" },
       { id: "auth", label: "Validating session…" },
-      { id: "compile", label: "Asking the website compiler to apply changes…" },
-      { id: "apply", label: "Applying the updated design…" },
+      { id: "compile", label: "Identifying the requested edits…" },
+      { id: "apply", label: "Structuring the updated manifest…" },
       { id: "persist", label: "Saving and re-reading the saved pages…" },
-      { id: "preview", label: "Refreshing the live preview…" },
+      { id: "preview", label: "Deploying to your live preview…" },
     ]);
     try {
       websiteLog.begin("analyze");
@@ -278,12 +278,15 @@ export default function GeneratedDashboard() {
       const summary = responseData.summary || "Updated.";
       const intent = responseData.intent || "mixed";
       const manifest = responseData.manifest;
+      const identifiedEdits: string[] = Array.isArray(responseData.identified_edits) ? responseData.identified_edits : [];
       websiteLog.done(
         "compile",
         responseData.created_new
           ? "New website generated"
           : responseData.rebuilt
           ? "Full rebuild produced"
+          : identifiedEdits.length
+          ? `${identifiedEdits.length} edit${identifiedEdits.length === 1 ? "" : "s"} identified`
           : `${intent} edit produced`,
       );
 
@@ -348,7 +351,10 @@ export default function GeneratedDashboard() {
       const tail = responseData.rebuilt
         ? " _(full regeneration — the preview now shows the new build)_"
         : ` _(${intent} edit — visible in the refreshed preview)_`;
-      setTurns((t) => [...t, { role: "assistant", content: `✓ ${summary}${analyzedNote}${tail}`, time: "just now" }]);
+      const editsList = identifiedEdits.length && !responseData.created_new && !responseData.rebuilt
+        ? `\n${identifiedEdits.map((e) => `- ${e}`).join("\n")}`
+        : "";
+      setTurns((t) => [...t, { role: "assistant", content: `✓ ${summary}${editsList}${analyzedNote}${tail}`, time: "just now" }]);
 
       setChatAttachments([]);
       setChatTone(null);
