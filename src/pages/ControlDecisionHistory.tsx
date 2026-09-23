@@ -9,7 +9,7 @@ import { filterBySearch } from "@/lib/search-filter";
 import { classifyDecisionOutcome, type DecisionOutcome } from "@/lib/roi-report";
 import { type TraceEntry } from "@/components/control/GateTraceList";
 import { DecisionExplanationPanel } from "@/components/control/DecisionExplanationPanel";
-import type { PrecedentCitationRecord } from "@/lib/decision-explanation";
+import type { PrecedentCitationRecord, ApprovalResolution, DecisionOverride } from "@/lib/decision-explanation";
 
 // action_type/provider (2026-08-23) and gate_trace (2026-08-18) aren't in
 // the generated Supabase types yet.
@@ -71,6 +71,8 @@ export default function ControlDecisionHistory() {
   const { accountId } = useActiveAccount();
   const [rows, setRows] = useState<DecisionRow[]>([]);
   const [agents, setAgents] = useState<AgentOption[]>([]);
+  const [approvalsByDecision, setApprovalsByDecision] = useState<Map<string, ApprovalResolution[]>>(new Map());
+  const [overridesByDecision, setOverridesByDecision] = useState<Map<string, DecisionOverride[]>>(new Map());
   const [loading, setLoading] = useState(true);
   const [limit, setLimit] = useState(PAGE_SIZE);
   const [hasMore, setHasMore] = useState(false);
@@ -121,8 +123,53 @@ export default function ControlDecisionHistory() {
     }
     const fetched = (data ?? []) as DecisionRow[];
     setHasMore(fetched.length > limit);
-    setRows(fetched.slice(0, limit));
+    const pageRows = fetched.slice(0, limit);
+    setRows(pageRows);
     setAgents((agentRows ?? []) as AgentOption[]);
+
+    // record_approval_signoff (backing both a normal escalation's
+    // resolution and a later /dispute re-review) never writes back to
+    // agent_decisions.human_response -- pulled in separately so "Explain"
+    // doesn't say "no human was involved" when one actually resolved it
+    // through the approvals queue.
+    const ids = pageRows.map((r) => r.id);
+    if (ids.length) {
+      const { data: approvalRows } = await anyDb
+        .from("pending_approvals")
+        .select("decision_id, status, resolved_at, comment")
+        .eq("user_id", accountId)
+        .in("decision_id", ids)
+        .in("status", ["approved", "rejected"])
+        .order("resolved_at", { ascending: true });
+      const grouped = new Map<string, ApprovalResolution[]>();
+      for (const r of (approvalRows ?? []) as { decision_id: string; status: string; resolved_at: string | null; comment: string | null }[]) {
+        const list = grouped.get(r.decision_id) ?? [];
+        list.push({ vote: r.status as "approved" | "rejected", resolvedAt: r.resolved_at, comment: r.comment });
+        grouped.set(r.decision_id, list);
+      }
+      setApprovalsByDecision(grouped);
+
+      // A break-glass override is modeled as a SEPARATE agent_decisions row
+      // (override_of pointing back at the blocked decision) -- the original
+      // row is never mutated beyond an overridden_at timestamp, so without
+      // this, "Explain" had no way to ever say "a human later overrode this".
+      const { data: overrideRows } = await anyDb
+        .from("agent_decisions")
+        .select("override_of, reasoning, created_at, action_type, provider")
+        .eq("user_id", accountId)
+        .in("override_of", ids)
+        .order("created_at", { ascending: true });
+      const overrideGroups = new Map<string, DecisionOverride[]>();
+      for (const r of (overrideRows ?? []) as { override_of: string; reasoning: string | null; created_at: string; action_type: string | null; provider: string | null }[]) {
+        const list = overrideGroups.get(r.override_of) ?? [];
+        list.push({ reasoning: r.reasoning, createdAt: r.created_at, actionType: r.action_type, provider: r.provider });
+        overrideGroups.set(r.override_of, list);
+      }
+      setOverridesByDecision(overrideGroups);
+    } else {
+      setApprovalsByDecision(new Map());
+      setOverridesByDecision(new Map());
+    }
   }, [accountId, sourceFilter, escalatedFilter, agentFilter, from, to, limit]);
 
   useEffect(() => { load(); }, [load]);
@@ -271,6 +318,8 @@ export default function ControlDecisionHistory() {
                           createdAt={row.created_at}
                           gateTrace={row.gate_trace}
                           precedentCitations={row.precedent_citations}
+                          approvalResolutions={approvalsByDecision.get(row.id)}
+                          overrides={overridesByDecision.get(row.id)}
                         />
                       )}
                     </td>

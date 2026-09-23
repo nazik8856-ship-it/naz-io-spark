@@ -950,13 +950,20 @@ async function runControlGateInner(
     status: killed ? "stopped" : "ok",
     detail: killed ? "Kill switch is on for this account" : null,
   });
-  if (agentSpend?.has_cap || agentKilled) {
+  // Always represent this layer when there's an agent context (not just
+  // when it actually has a cap/kill switch configured) -- leaving it
+  // unpushed when neither applies used to fall back to finalizeTrace's
+  // generic "not_reached," which reads as "we never checked" when the
+  // truth is "we checked and there was nothing configured to trip."
+  if (agentId) {
     trace.push({
       layer: "agent_spend_cap", label: "Agent spend cap",
-      status: (agentSpend?.over_cap || agentKilled) ? "stopped" : "ok",
+      status: (agentSpend?.over_cap || agentKilled) ? "stopped" : agentSpend?.has_cap ? "ok" : "skipped",
       detail: agentSpend?.over_cap
         ? `$${agentSpend.spent_usd.toFixed(2)} of $${agentSpend.cap_usd.toFixed(2)} across ${agentSpend.calls} calls (this agent only)`
-        : agentKilled ? "This agent's own kill switch is on" : null,
+        : agentKilled ? "This agent's own kill switch is on"
+        : agentSpend?.has_cap ? null
+        : "No per-agent spend cap configured for this agent",
     });
   }
 

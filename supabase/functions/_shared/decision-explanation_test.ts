@@ -115,6 +115,147 @@ Deno.test("buildDecisionExplanation: an unrecognized source falls back to quotin
   assert(text.includes('"some_future_source"'));
 });
 
+// Regression for item 3: record_approval_signoff (backing both a normal
+// escalation's resolution and a later /dispute re-review) never writes back
+// to agent_decisions.human_response -- so without consulting
+// approvalResolutions too, a decision a human fully resolved through that
+// queue kept reading as "no human was involved" / "awaiting review".
+Deno.test("buildDecisionExplanation: an escalated decision resolved via the approvals queue (no human_response) reports the real resolution, not 'awaiting'", () => {
+  const text = buildDecisionExplanation(baseInput({
+    escalated: true,
+    humanResponse: null,
+    approvalResolutions: [{ vote: "approved", resolvedAt: "2026-08-21T12:00:00Z", comment: "Looks fine, one-off exception." }],
+  }));
+  assert(text.includes("A human approved it"));
+  assert(text.includes("2026-08-21"));
+  assert(text.includes("Looks fine, one-off exception."));
+  assert(!text.includes("No human was involved"));
+  assert(!text.includes("awaiting"));
+});
+
+Deno.test("buildDecisionExplanation: a disputed decision that was never escalated at the time still reports the human's re-review", () => {
+  const text = buildDecisionExplanation(baseInput({
+    escalated: false,
+    humanResponse: null,
+    approvalResolutions: [{ vote: "rejected", resolvedAt: "2026-08-22T09:00:00Z", comment: null }],
+  }));
+  assert(text.includes("wasn't escalated at the time, but a human later reviewed it"));
+  assert(text.includes("A human rejected it"));
+  assert(!text.includes("No human was involved"));
+});
+
+Deno.test("buildDecisionExplanation: multiple approval resolutions (a decision disputed more than once) surface the most recent and note the total count", () => {
+  const text = buildDecisionExplanation(baseInput({
+    escalated: true,
+    humanResponse: null,
+    approvalResolutions: [
+      { vote: "rejected", resolvedAt: "2026-08-20T09:00:00Z", comment: null },
+      { vote: "approved", resolvedAt: "2026-08-25T09:00:00Z", comment: "Re-reviewed with more context." },
+    ],
+  }));
+  assert(text.includes("A human approved it"));
+  assert(text.includes("2026-08-25"));
+  assert(text.includes("reviewed 2 times in total"));
+});
+
+Deno.test("buildDecisionExplanation: an explicit human_response still takes priority over approvalResolutions (its own text is the more specific source)", () => {
+  const text = buildDecisionExplanation(baseInput({
+    escalated: true,
+    humanResponse: "approved",
+    approvalResolutions: [{ vote: "approved", resolvedAt: "2026-08-21T12:00:00Z", comment: null }],
+  }));
+  assert(text.includes("a human resolved it: approved"));
+  assert(!text.includes("A human approved it on"), "should not double-report via both paths");
+});
+
+Deno.test("buildDecisionExplanation: no approvalResolutions and not escalated still reads as no human involvement (unchanged default)", () => {
+  const text = buildDecisionExplanation(baseInput({ escalated: false, approvalResolutions: null }));
+  assert(text.includes("No human was involved"));
+});
+
+// Regression for item 4: a break-glass override of a hard-rule/safety-scanner
+// BLOCK is modeled as a SEPARATE agent_decisions row (override_of pointing
+// back at the original) -- the original row itself is never mutated beyond
+// an overridden_at timestamp, so without this, the original block's own
+// explanation had no way to ever say "a human later overrode this."
+Deno.test("buildDecisionExplanation: a single override is reported plainly, with its reasoning and date", () => {
+  const text = buildDecisionExplanation(baseInput({
+    decisionText: "BLOCK delete_record (Notion)",
+    source: "hard_rule",
+    overrides: [{ reasoning: "Customer confirmed by phone this record is stale.", createdAt: "2026-08-21T15:00:00Z", actionType: "delete_record", provider: "Notion" }],
+  }));
+  assert(text.includes("A human later overrode this block on 2026-08-21"));
+  assert(text.includes("Customer confirmed by phone this record is stale."));
+});
+
+Deno.test("buildDecisionExplanation: multiple overrides note the total count and surface the most recent", () => {
+  const text = buildDecisionExplanation(baseInput({
+    decisionText: "BLOCK delete_record (Notion)",
+    source: "hard_rule",
+    overrides: [
+      { reasoning: "First attempt.", createdAt: "2026-08-20T09:00:00Z", actionType: "delete_record", provider: "Notion" },
+      { reasoning: "Retried after the first write failed.", createdAt: "2026-08-20T09:05:00Z", actionType: "delete_record", provider: "Notion" },
+    ],
+  }));
+  assert(text.includes("2 separate times"));
+  assert(text.includes("Retried after the first write failed."));
+  assert(!text.includes("First attempt."), "only the most recent override's reasoning should be quoted");
+});
+
+Deno.test("buildDecisionExplanation: no overrides is unchanged -- no override sentence appears at all", () => {
+  const text = buildDecisionExplanation(baseInput({ overrides: null }));
+  assert(!text.includes("overrode"));
+});
+
+// Regression for item 5: kill-switch-family TOGGLE events (KillSwitchPanel.tsx,
+// source: kill_switch_flip / platform_kill_switch_flip) previously fell
+// through to the generic template and rendered the raw source string --
+// `...decided by "kill_switch_flip".` -- for the single highest-stakes
+// governance action in the product.
+Deno.test("buildDecisionExplanation: an account kill-switch flip ON reads as a real sentence, never the raw source string", () => {
+  const text = buildDecisionExplanation(baseInput({
+    decisionText: "block",
+    reasoning: "Kill switch turned ON by owner@acme.com",
+    confidenceScore: 100,
+    source: "kill_switch_flip",
+    escalated: false,
+    actionType: null,
+    provider: null,
+  }));
+  assert(text.includes("a human turned this account's kill switch ON"));
+  assert(!text.includes('"kill_switch_flip"'));
+  assert(!text.includes("% confidence"), "a manual toggle has no AI confidence score to report");
+  assert(text.includes("manual action taken directly by a human"));
+  assert(!text.includes("No human was involved"));
+  assert(!text.includes("awaiting"));
+});
+
+Deno.test("buildDecisionExplanation: an account kill-switch flip OFF reads distinctly from ON", () => {
+  const text = buildDecisionExplanation(baseInput({
+    decisionText: "allow",
+    reasoning: "Kill switch turned OFF by owner@acme.com",
+    source: "kill_switch_flip",
+    actionType: null,
+    provider: null,
+  }));
+  assert(text.includes("a human turned this account's kill switch OFF"));
+});
+
+Deno.test("buildDecisionExplanation: a platform kill-switch flip names the platform, not the account, and never reads as a pending escalation", () => {
+  const text = buildDecisionExplanation(baseInput({
+    decisionText: "block",
+    reasoning: "PLATFORM kill switch turned ON by admin@nazai.com -- affects every account, not just this one.",
+    source: "platform_kill_switch_flip",
+    escalated: true,
+    actionType: null,
+    provider: null,
+  }));
+  assert(text.includes("a human turned NazAI's platform-wide kill switch ON"));
+  assert(!text.includes('"platform_kill_switch_flip"'));
+  assert(!text.includes("escalated for a second look"));
+  assert(!text.includes("awaiting"));
+});
+
 Deno.test("buildDecisionExplanation: every verdict word maps to a real, distinct plain-English verb", () => {
   const allow = buildDecisionExplanation(baseInput({ decisionText: "ALLOW x (y)" }));
   const block = buildDecisionExplanation(baseInput({ decisionText: "BLOCK x (y)" }));

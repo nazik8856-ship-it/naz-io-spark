@@ -1335,16 +1335,24 @@ Deno.test("nothing trips: the gate allows, safety scan still returned but unmatc
   assertFalse(result.safety.matched);
 });
 
-Deno.test("trace: a clean allow (no agentId) shows every layer ok except anomaly, which is skipped", async () => {
+Deno.test("trace: a clean allow (no agentId) shows every layer ok except anomaly (skipped) and agent_spend_cap (not_reached, no agent)", async () => {
   const result = await runControlGate(fakeSupabase().client, baseCtx); // baseCtx has no agentId
-  assertEquals(result.trace.length, 6);
+  assertEquals(result.trace.length, 8);
   const byLayer = Object.fromEntries(result.trace.map((e) => [e.layer, e.status]));
+  assertEquals(byLayer.platform_kill_switch, "ok");
   assertEquals(byLayer.spend_cap, "ok");
   assertEquals(byLayer.kill_switch, "ok");
+  assertEquals(byLayer.agent_spend_cap, "not_reached");
   assertEquals(byLayer.hard_rules, "ok");
   assertEquals(byLayer.circuit_breaker, "ok");
   assertEquals(byLayer.safety_scanner, "ok");
   assertEquals(byLayer.anomaly_detector, "skipped");
+});
+
+Deno.test("trace: a clean allow WITH an agentId but no per-agent cap shows agent_spend_cap as skipped, not not_reached", async () => {
+  const result = await runControlGate(fakeSupabase().client, { ...baseCtx, agentId: "agent-no-cap" });
+  const byLayer = Object.fromEntries(result.trace.map((e) => [e.layer, e.status]));
+  assertEquals(byLayer.agent_spend_cap, "skipped");
 });
 
 Deno.test("trace: a clean allow WITH an agentId and enough history shows anomaly as ok too, not skipped", async () => {
@@ -1375,14 +1383,36 @@ Deno.test("trace: a clean allow WITH an agentId and enough history shows anomaly
 Deno.test("trace: a kill-switch block leaves hard_rules/circuit_breaker/safety_scanner/anomaly as not_reached", async () => {
   const { client } = fakeSupabase({ profiles: { data: { kill_switch: true }, error: null } });
   const result = await runControlGate(client, baseCtx);
-  assertEquals(result.trace.length, 6);
+  assertEquals(result.trace.length, 8);
   const byLayer = Object.fromEntries(result.trace.map((e) => [e.layer, e.status]));
+  assertEquals(byLayer.platform_kill_switch, "ok");
   assertEquals(byLayer.spend_cap, "ok");
   assertEquals(byLayer.kill_switch, "stopped");
+  assertEquals(byLayer.agent_spend_cap, "not_reached");
   assertEquals(byLayer.hard_rules, "not_reached");
   assertEquals(byLayer.circuit_breaker, "not_reached");
   assertEquals(byLayer.safety_scanner, "not_reached");
   assertEquals(byLayer.anomaly_detector, "not_reached");
+});
+
+Deno.test("trace: a platform-kill-switch block is preserved in the trace, not discarded (regression for the finalizeTrace drop bug)", async () => {
+  const { client } = fakeSupabase({ platform_settings: { data: { kill_switch: true }, error: null } });
+  const result = await runControlGate(client, baseCtx);
+  const byLayer = Object.fromEntries(result.trace.map((e) => [e.layer, e.status]));
+  assertEquals(byLayer.platform_kill_switch, "stopped");
+  // Every other layer correctly never ran -- but critically, this decision's
+  // trace is NOT "all 6 layers not_reached" the way it was before this fix.
+  assertEquals(byLayer.spend_cap, "not_reached");
+});
+
+Deno.test("trace: an agent-level spend cap block is preserved in the trace, not discarded (regression for the finalizeTrace drop bug)", async () => {
+  const { client } = fakeSupabase({
+    ai_spend_caps: { data: { daily_cap_usd: 5, enabled: true }, error: null },
+    ai_spend_daily: { data: { cost_usd: 5, calls: 10 }, error: null },
+  });
+  const result = await runControlGate(client, { ...baseCtx, agentId: "agent-over-cap" });
+  const byLayer = Object.fromEntries(result.trace.map((e) => [e.layer, e.status]));
+  assertEquals(byLayer.agent_spend_cap, "stopped");
 });
 
 Deno.test("trace: a hard-rule block leaves circuit_breaker/safety_scanner/anomaly as not_reached, spend/kill/hard_rules ok or stopped", async () => {

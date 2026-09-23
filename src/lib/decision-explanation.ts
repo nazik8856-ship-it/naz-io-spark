@@ -16,6 +16,19 @@ export type PrecedentCitationRecord = {
   citedDecisions: { decisionId: string; similarity: number; nonAllow: boolean }[];
 };
 
+// A resolved pending_approvals row referencing this decision -- covers BOTH a
+// normal escalation resolved through the approvals queue (ControlApprovals.tsx,
+// record_approval_signoff) and a later dispute/re-review of an already-resolved
+// decision (decision-dispute.ts reuses the same table). Neither path ever
+// writes back to agent_decisions.human_response.
+export type ApprovalResolution = { vote: "approved" | "rejected"; resolvedAt: string | null; comment: string | null };
+
+// A break-glass override: a human bypassing an earlier hard-rule/safety-
+// scanner BLOCK. Modeled as a SEPARATE agent_decisions row (source:
+// "human_override", override_of: <this decision's id>) -- the original
+// blocked decision is never mutated beyond an overridden_at timestamp.
+export type DecisionOverride = { reasoning: string | null; createdAt: string; actionType: string | null; provider: string | null };
+
 export type DecisionExplanationInput = {
   decisionText: string;
   reasoning: string | null;
@@ -28,6 +41,11 @@ export type DecisionExplanationInput = {
   createdAt: string;
   gateTrace: TraceEntry[] | null;
   precedentCitations: PrecedentCitationRecord | null;
+  // Oldest first. Empty/omitted when nothing was ever escalated or disputed
+  // through the approvals queue for this decision.
+  approvalResolutions?: ApprovalResolution[] | null;
+  // Oldest first. Empty/omitted when this decision was never overridden.
+  overrides?: DecisionOverride[] | null;
 };
 
 function leadingVerdict(decisionText: string): string {
@@ -60,10 +78,25 @@ const SOURCE_LABELS: Record<string, string> = {
   platform_kill_switch: "NazAI's platform-wide emergency stop",
 };
 
+// KillSwitchPanel.tsx logs a switch TOGGLE itself (distinct from
+// "kill_switch"/"platform_kill_switch", which mark an ACTION blocked because
+// a switch was already on) under these two sources -- not an action NazAI
+// took at all, so it gets its own opening sentence instead of the generic
+// template (which otherwise quoted the raw source string).
+const SWITCH_FLIP_SOURCES = new Set(["kill_switch_flip", "platform_kill_switch_flip"]);
+
+/** Pure -- the opening sentence for a kill-switch/platform-kill-switch TOGGLE event, never a normal gated decision. Kept in lockstep with the edge-function original. */
+function describeSwitchFlip(source: string, decisionText: string, when: string): string {
+  const turnedOn = leadingVerdict(decisionText) === "BLOCK";
+  const switchLabel = source === "platform_kill_switch_flip" ? "NazAI's platform-wide kill switch" : "this account's kill switch";
+  return `On ${when}, a human turned ${switchLabel} ${turnedOn ? "ON" : "OFF"}.`;
+}
+
 /** Pure -- composes one plain-English narrative from whatever pieces this decision actually has. Kept in lockstep with the edge-function original. */
 export function buildDecisionExplanation(input: DecisionExplanationInput): string {
   const paragraphs: string[] = [];
 
+  const isSwitchFlip = input.source != null && SWITCH_FLIP_SOURCES.has(input.source);
   const verdict = leadingVerdict(input.decisionText);
   const verb = VERDICT_VERBS[verdict] ?? "processed";
   const what = input.actionType
@@ -71,13 +104,17 @@ export function buildDecisionExplanation(input: DecisionExplanationInput): strin
     : "this action";
   const when = new Date(input.createdAt).toISOString().slice(0, 10);
   const sourceLabel = input.source ? SOURCE_LABELS[input.source] ?? `"${input.source}"` : null;
-  paragraphs.push(
-    sourceLabel
-      ? `On ${when}, NazAI ${verb} ${what}, decided by ${sourceLabel}.`
-      : `On ${when}, NazAI ${verb} ${what}.`,
-  );
+  if (isSwitchFlip) {
+    paragraphs.push(describeSwitchFlip(input.source as string, input.decisionText, when));
+  } else {
+    paragraphs.push(
+      sourceLabel
+        ? `On ${when}, NazAI ${verb} ${what}, decided by ${sourceLabel}.`
+        : `On ${when}, NazAI ${verb} ${what}.`,
+    );
+  }
 
-  if (input.confidenceScore != null) {
+  if (input.confidenceScore != null && !isSwitchFlip) {
     paragraphs.push(`NazAI's own judgment scored this at ${input.confidenceScore}% confidence.`);
   }
 
@@ -109,15 +146,48 @@ export function buildDecisionExplanation(input: DecisionExplanationInput): strin
     );
   }
 
-  if (input.escalated) {
-    paragraphs.push(
-      input.humanResponse
-        ? `This was escalated for a second look, and a human resolved it: ${input.humanResponse}.`
-        : "This was escalated for a second look and is awaiting (or was awaiting) human review.",
-    );
+  if (input.overrides && input.overrides.length) {
+    paragraphs.push(describeOverrides(input.overrides));
+  }
+
+  const resolutions = input.approvalResolutions ?? [];
+  if (isSwitchFlip) {
+    paragraphs.push("This was a manual action taken directly by a human -- no AI judgment or approval queue was involved.");
+  } else if (input.escalated) {
+    if (input.humanResponse) {
+      paragraphs.push(`This was escalated for a second look, and a human resolved it: ${input.humanResponse}.`);
+    } else if (resolutions.length) {
+      paragraphs.push(describeApprovalResolutions(resolutions, "This was escalated for a second look."));
+    } else {
+      paragraphs.push("This was escalated for a second look and is awaiting (or was awaiting) human review.");
+    }
+  } else if (resolutions.length) {
+    paragraphs.push(describeApprovalResolutions(resolutions, "This wasn't escalated at the time, but a human later reviewed it -- for example through a dispute or re-review request."));
   } else {
     paragraphs.push("No human was involved in resolving this decision.");
   }
 
   return paragraphs.join("\n\n");
+}
+
+/** Pure -- one sentence naming the most recent human resolution from the approvals queue, noting when there were several (e.g. a decision disputed more than once). Kept in lockstep with the edge-function original. */
+function describeApprovalResolutions(resolutions: ApprovalResolution[], lead: string): string {
+  const last = resolutions[resolutions.length - 1];
+  const verb = last.vote === "approved" ? "approved" : "rejected";
+  const when = last.resolvedAt ? ` on ${new Date(last.resolvedAt).toISOString().slice(0, 10)}` : "";
+  const countNote = resolutions.length > 1 ? ` (reviewed ${resolutions.length} times in total; this is the most recent)` : "";
+  const commentNote = last.comment ? ` The reviewer noted: ${last.comment}` : "";
+  return `${lead} A human ${verb} it${when}.${countNote}${commentNote}`;
+}
+
+/** Pure -- one sentence naming that this block was later overridden by a human, and why. Kept in lockstep with the edge-function original. */
+function describeOverrides(overrides: DecisionOverride[]): string {
+  if (overrides.length === 1) {
+    const o = overrides[0];
+    const when = new Date(o.createdAt).toISOString().slice(0, 10);
+    return `A human later overrode this block on ${when}${o.reasoning ? `, with reasoning: "${o.reasoning}"` : ""}.`;
+  }
+  const last = overrides[overrides.length - 1];
+  const when = new Date(last.createdAt).toISOString().slice(0, 10);
+  return `A human later overrode this block ${overrides.length} separate times, most recently on ${when}${last.reasoning ? `, with reasoning: "${last.reasoning}"` : ""}.`;
 }

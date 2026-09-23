@@ -4,9 +4,19 @@
 // safety scanner: ok, anomaly: ok, model: allow" instead of just the final
 // verdict — the trust-legibility half of "why did this get blocked/allowed."
 
+// platform_kill_switch and agent_spend_cap were added to control-gate.ts's
+// own checks (and pushed onto its `trace` array) well after this canonical
+// list was written, and this list was never updated to match. Because
+// finalizeTrace() below only ever emits layers it recognizes here, those two
+// pushed entries were silently DISCARDED -- when either one actually
+// stopped an action, the customer-facing trace showed all layers as
+// "not_reached" instead of showing the one that fired, exactly backwards
+// from the trace's entire purpose. Fixed by teaching this list about both.
 export type TraceLayer =
+  | "platform_kill_switch"
   | "spend_cap"
   | "kill_switch"
+  | "agent_spend_cap"
   | "hard_rules"
   | "circuit_breaker"
   | "safety_scanner"
@@ -23,8 +33,10 @@ export type TraceEntry = {
 
 /** Canonical order and human labels — the same order control-gate.ts checks them in. */
 export const TRACE_LAYER_ORDER: { layer: TraceLayer; label: string }[] = [
+  { layer: "platform_kill_switch", label: "Platform kill switch" },
   { layer: "spend_cap", label: "Daily AI spend cap" },
-  { layer: "kill_switch", label: "Global kill switch" },
+  { layer: "kill_switch", label: "Account kill switch" },
+  { layer: "agent_spend_cap", label: "Agent spend cap" },
   { layer: "hard_rules", label: "Hard rules" },
   { layer: "circuit_breaker", label: "Circuit breaker" },
   { layer: "safety_scanner", label: "Safety scanner" },

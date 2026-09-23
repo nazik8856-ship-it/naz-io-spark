@@ -1088,6 +1088,42 @@ Deno.serve(async (req) => {
     if (error) return json({ error: error.message }, 500);
     if (!row) return json({ error: "not_found", message: "No decision with this id exists for your account." }, 404);
 
+    // record_approval_signoff (the quorum-approval RPC backing both a normal
+    // escalation's resolution and a later /dispute re-review) only ever
+    // updates its own pending_approvals row -- it never writes back to this
+    // decision's own human_response column. Without pulling these in
+    // separately, a decision a human fully resolved this way still read as
+    // "no human was involved".
+    const { data: resolutionRows } = await admin
+      .from("pending_approvals")
+      .select("status, resolved_at, comment")
+      .eq("decision_id", decisionId)
+      .in("status", ["approved", "rejected"])
+      .order("resolved_at", { ascending: true });
+    const approvalResolutions = (resolutionRows ?? []).map((r: { status: string; resolved_at: string | null; comment: string | null }) => ({
+      vote: r.status as "approved" | "rejected",
+      resolvedAt: r.resolved_at,
+      comment: r.comment,
+    }));
+
+    // A break-glass override of this decision (control-engine/index.ts's
+    // /override route) is modeled as a SEPARATE agent_decisions row --
+    // override_of pointing back at this id -- the original blocked row is
+    // never mutated beyond an overridden_at timestamp, so without this
+    // query, /explain had no way to ever say "a human later overrode this".
+    const { data: overrideRows } = await admin
+      .from("agent_decisions")
+      .select("reasoning, created_at, action_type, provider")
+      .eq("override_of", decisionId)
+      .eq("user_id", userId)
+      .order("created_at", { ascending: true });
+    const overrides = (overrideRows ?? []).map((r: { reasoning: string | null; created_at: string; action_type: string | null; provider: string | null }) => ({
+      reasoning: r.reasoning,
+      createdAt: r.created_at,
+      actionType: r.action_type,
+      provider: r.provider,
+    }));
+
     type Row = {
       decision: string; reasoning: string | null; confidence_score: number | null; source: string | null;
       escalated: boolean; human_response: string | null; action_type: string | null; provider: string | null;
@@ -1106,6 +1142,8 @@ Deno.serve(async (req) => {
       createdAt: d.created_at,
       gateTrace: (d.gate_trace as Parameters<typeof buildDecisionExplanation>[0]["gateTrace"]) ?? null,
       precedentCitations: (d.precedent_citations as Parameters<typeof buildDecisionExplanation>[0]["precedentCitations"]) ?? null,
+      approvalResolutions,
+      overrides,
     });
 
     return json({
