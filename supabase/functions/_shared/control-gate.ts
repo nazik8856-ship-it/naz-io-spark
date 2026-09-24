@@ -197,6 +197,12 @@ type HardRule = {
   // it matches -- shown in the decision reasoning when it actually
   // fires. Optional: an existing rule with none set yet just omits it.
   rationale?: string | null;
+  // Pillar 3 top-10 item 10: only meaningful when effect is
+  // "always_require_approval" -- the quorum this specific rule's escalation
+  // needs, 1-5. Null/unset falls back to createPendingApproval's own
+  // default (2 for high risk), same as every rule created before this
+  // column existed.
+  required_approvals?: number | null;
 };
 
 /** Shape of a policy_versions.snapshot row (built by build_policy_snapshot). */
@@ -574,14 +580,31 @@ export async function createPendingApproval(
       return { approvalId: id, autoResolved: true, resolution: delegated.resolution };
     }
     // A resolution nobody needs to act on shouldn't page anyone -- only a
-    // real, still-pending queue entry fires the human-facing webhook.
+    // real, still-pending queue entry fires anything here.
     if (id && !auto.autoResolved) {
+      // This is the account's OWN webhook integration (a no-op for the
+      // common case of an account with none configured) -- it was never a
+      // human-facing signal on its own, despite the stale comment that used
+      // to say so.
       await triggerWebhooks(admin, input.userId, "approval_created", {
         approval_id: id,
         action_type: input.actionType,
         provider: input.provider,
         risk_tier: input.riskTier ?? "medium",
         reason: input.reason,
+      });
+      // Pillar 3 top-10 item 7: previously the FIRST time a human heard
+      // about a new pending approval, at all, was approval-escalated --
+      // hours later, risk-scaled (4h for high risk). Not incident-worthy
+      // (see incidents.ts's own INCIDENT_KINDS list): a brand-new approval
+      // is routine, expected human-in-the-loop flow, not something that's
+      // gone wrong yet.
+      await sendCriticalAlert(admin, input.userId, {
+        event: "approval_created",
+        summary: `A ${input.riskTier ?? "medium"} risk "${input.actionType}" action needs your review before it can run.`,
+        decisionId: input.decisionId,
+        actionType: input.actionType,
+        provider: input.provider,
       });
     }
     return { approvalId: id, autoResolved: auto.autoResolved, resolution: auto.resolution };
@@ -790,7 +813,7 @@ async function runControlGateInner(
   if (!snapshotRules) {
     const { data: hardRules } = await admin
       .from("hard_rules")
-      .select("id, rule_text, action_type_pattern, effect, provider, enabled, shadow_mode, agent_id, rationale")
+      .select("id, rule_text, action_type_pattern, effect, provider, enabled, shadow_mode, agent_id, rationale, required_approvals")
       .eq("user_id", userId)
       // Deterministic match order: oldest rule wins a tie between two
       // enabled, overlapping rules. Without this, Postgres's return order
@@ -1047,6 +1070,12 @@ async function runControlGateInner(
         userId, decisionId, agentId, runId, actionType, provider,
         description: ctx.description, params: ctx.params, reason, riskTier: "high", origin: ctx.origin,
         apiKeyId, planId,
+        // Pillar 3 top-10 item 10: this rule's own configured quorum, when
+        // set -- undefined (not null) so createPendingApproval's own
+        // `input.requiredApprovals ?? (riskTier === "high" ? 2 : 1)`
+        // fallback still applies for every rule created before this column
+        // existed.
+        requiredApprovals: matched.required_approvals ?? undefined,
       });
       approvalId = outcome.approvalId;
       if (outcome.autoResolved) {

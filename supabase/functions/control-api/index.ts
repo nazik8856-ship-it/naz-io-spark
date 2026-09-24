@@ -59,6 +59,7 @@ import { summarizeAttestationCounts, distinctPolicyVersions, buildAttestationCan
 import { buildDecisionExplanation } from "../_shared/decision-explanation.ts";
 import { hasOpenReview, buildDisputeReasonText } from "../_shared/decision-dispute.ts";
 import { triggerWebhooks } from "../_shared/webhooks.ts";
+import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
 import { parseRespondRequest, findRelevantContext, summarizeSourcesUsed, type ResponseContextEntry, type ResponseSource } from "../_shared/response-context.ts";
 import { cacheKeyFor, findExactCachedResponse, findNearDuplicateCachedResponse, storeCachedResponse } from "../_shared/response-cache.ts";
 import { generateLocalEmbedding } from "../_shared/local-embeddings.ts";
@@ -1243,6 +1244,17 @@ Deno.serve(async (req) => {
         provider: decisionRow.provider ?? "unknown",
         risk_tier: "medium",
         reason: reasonText,
+      });
+      // Pillar 3 top-10 item 7: same gap as control-gate.ts's own
+      // createPendingApproval -- triggerWebhooks above is the account's own
+      // webhook integration (a no-op with none configured), never a
+      // human-facing signal on its own.
+      await sendCriticalAlert(admin, userId, {
+        event: "approval_created",
+        summary: `A dispute/re-review was requested for decision ${decisionId} and needs your review.`,
+        decisionId,
+        actionType: decisionRow.action_type,
+        provider: decisionRow.provider,
       });
     }
 

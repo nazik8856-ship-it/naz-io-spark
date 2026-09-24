@@ -388,6 +388,40 @@ Deno.test("a matching always_require_approval hard rule queues an approval inste
   assertEquals(result.approvalId, "approval-1");
 });
 
+// Regression for Pillar 3 top-10 item 10: quorum.ts/createPendingApproval
+// fully support up to 5 distinct sign-offs, but no caller ever requested
+// more than 2 -- a hard rule's own required_approvals now flows all the
+// way through to the pending_approvals row it creates.
+Deno.test("a hard rule's own required_approvals is passed through to the pending_approvals row", async () => {
+  const { client, inserts } = fakeSupabase({
+    hard_rules: {
+      data: [{
+        id: "r2", rule_text: "High-value orders need three sign-offs",
+        action_type_pattern: "shopify_create_draft_order", effect: "always_require_approval",
+        provider: null, enabled: true, required_approvals: 3,
+      }],
+      error: null,
+    },
+    pending_approvals: { data: { id: "approval-1" }, error: null },
+  });
+  await runControlGate(client, { ...baseCtx, actionType: "shopify_create_draft_order", provider: "Shopify" });
+  const inserted = (inserts.pending_approvals ?? [])[0] as { required_approvals?: number } | undefined;
+  assertEquals(inserted?.required_approvals, 3);
+});
+
+Deno.test("a hard rule with no required_approvals set falls back to the platform default (2, for high risk)", async () => {
+  const { client, inserts } = fakeSupabase({
+    hard_rules: {
+      data: [{ id: "r2", rule_text: "High-value orders need a human", action_type_pattern: "shopify_create_draft_order", effect: "always_require_approval", provider: null, enabled: true }],
+      error: null,
+    },
+    pending_approvals: { data: { id: "approval-1" }, error: null },
+  });
+  await runControlGate(client, { ...baseCtx, actionType: "shopify_create_draft_order", provider: "Shopify" });
+  const inserted = (inserts.pending_approvals ?? [])[0] as { required_approvals?: number } | undefined;
+  assertEquals(inserted?.required_approvals, 2);
+});
+
 // ---- "zero human review" plan, item 1: per-API-key auto-resolve policy ----
 
 const requireApprovalHardRuleTables = {
@@ -658,6 +692,31 @@ Deno.test("createPendingApproval: shadow_on_uncertain='human_review' has nothing
   });
   await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
   assertEquals(inserts.api_key_shadow_observations, undefined);
+});
+
+// ---- Pillar 3 top-10 item 7: a human is notified the moment a genuine
+// approval is created, not only hours later once it's overdue ----
+
+Deno.test("createPendingApproval: a genuinely pending row (no auto-resolve) fires a human-facing critical alert", async () => {
+  const { client, inserts } = fakeSupabase({
+    api_keys: { data: { on_uncertain: "human_review" }, error: null },
+    pending_approvals: { data: { id: "approval-1" }, error: null },
+  });
+  const outcome = await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
+  assertFalse(outcome.autoResolved);
+  const alertInsert = (inserts.critical_alerts ?? []).find((a) => (a as { event?: string }).event === "approval_created");
+  assert(alertInsert, "a genuinely pending approval must fire an approval_created critical alert immediately, not just once overdue");
+});
+
+Deno.test("createPendingApproval: an auto-resolved outcome never fires the approval_created alert -- nobody needs to review it", async () => {
+  const { client, inserts } = fakeSupabase({
+    api_keys: { data: { on_uncertain: "auto_allow" }, error: null },
+    pending_approvals: { data: { id: "approval-1" }, error: null },
+  });
+  const outcome = await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
+  assert(outcome.autoResolved);
+  const alertInsert = (inserts.critical_alerts ?? []).find((a) => (a as { event?: string }).event === "approval_created");
+  assertEquals(alertInsert, undefined);
 });
 
 Deno.test("createPendingApproval: shadow-mode observation is recorded even when the real outcome came from forcedResolution", async () => {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Check, X, Clock, ShieldAlert } from "lucide-react";
+import { ArrowLeft, Check, X, Clock, ShieldAlert, ChevronDown, ChevronRight } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 // Stale generated types: control-system tables aren't in types.ts yet.
 const anyDb = supabase as any;
@@ -13,6 +13,9 @@ import { filterBySearch } from "@/lib/search-filter";
 import { actorName, buildActorNameMap } from "@/lib/actor-names";
 import { suggestAssignee, isOutOfOffice } from "@/lib/approval-assignment";
 import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
+import { DecisionExplanationPanel } from "@/components/control/DecisionExplanationPanel";
+import type { PrecedentCitationRecord, DeferredDetail } from "@/lib/decision-explanation";
+import type { TraceEntry } from "@/components/control/GateTraceList";
 
 type Approval = {
   id: string;
@@ -22,6 +25,11 @@ type Approval = {
   action_type: string;
   provider: string;
   description: string;
+  // Pillar 3 top-10 item 9: this was fetched via select("*") already but
+  // never rendered anywhere on this page -- an approver signed off on the
+  // hand-written `description` string above, never the real structured
+  // payload the action would actually run with.
+  params: unknown;
   reason: string;
   risk_tier: string;
   origin: string;
@@ -36,6 +44,37 @@ type Approval = {
   escalated_at: string | null;
   assigned_to: string | null;
 };
+
+// The linked agent_decisions row (when decision_id is set) -- lets this page
+// show the same "why" narrative (gate trace, precedent, confidence, source)
+// Decision History/Pending Decisions/Live Feed already show, instead of
+// leaving the "Why" drill-down every other decision surface has completely
+// absent from the one page where a human actually signs something off.
+type LinkedDecision = {
+  decision: string;
+  reasoning: string | null;
+  confidence_score: number | null;
+  source: string | null;
+  escalated: boolean;
+  human_response: string | null;
+  action_type: string | null;
+  provider: string | null;
+  created_at: string;
+  gate_trace: TraceEntry[] | null;
+  precedent_citations: PrecedentCitationRecord | null;
+  deferred_detail: { why_not_now?: string; what_would_change_it?: string; improvement_steps?: string[]; reconsider_when?: string } | null;
+  modified_params: Record<string, unknown> | null;
+};
+
+function toDeferredDetail(raw: LinkedDecision["deferred_detail"]): DeferredDetail | null {
+  if (!raw) return null;
+  return {
+    whyNotNow: raw.why_not_now ?? "",
+    whatWouldChangeIt: raw.what_would_change_it ?? "",
+    improvementSteps: raw.improvement_steps ?? [],
+    reconsiderWhen: raw.reconsider_when ?? "",
+  };
+}
 
 type MemberForAssignment = { member_id: string | null; email: string; ooo_until: string | null };
 type ApprovalEvent = { approval_id: string; event_type: "assigned" | "escalated"; actor_id: string | null; target_id: string | null; note: string | null; created_at: string };
@@ -71,6 +110,14 @@ export default function ControlApprovals() {
   const [assignable, setAssignable] = useState<MemberForAssignment[]>([]);
   const [events, setEvents] = useState<Record<string, ApprovalEvent[]>>({});
   const [reassigning, setReassigning] = useState<string | null>(null);
+  const [linkedDecisions, setLinkedDecisions] = useState<Record<string, LinkedDecision>>({});
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggleExplain = (id: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
 
   const load = useCallback(async () => {
     if (!user || !accountId) return;
@@ -110,6 +157,23 @@ export default function ControlApprovals() {
       const grouped: Record<string, ApprovalEvent[]> = {};
       for (const e of (evs ?? []) as ApprovalEvent[]) (grouped[e.approval_id] ??= []).push(e);
       setEvents(grouped);
+    }
+
+    // Pillar 3 top-10 item 9: the linked decision has the real gate reasoning
+    // (gate trace, precedent, confidence, source) every other decision
+    // surface already shows via DecisionExplanationPanel -- this page never
+    // fetched it at all, so "Why" simply didn't exist here.
+    const decisionIds = [...new Set(rows.map((r) => r.decision_id).filter((id): id is string => !!id))];
+    if (decisionIds.length) {
+      const { data: decisions } = await anyDb
+        .from("agent_decisions")
+        .select("id, decision, reasoning, confidence_score, source, escalated, human_response, action_type, provider, created_at, gate_trace, precedent_citations, deferred_detail, modified_params")
+        .in("id", decisionIds);
+      const byId: Record<string, LinkedDecision> = {};
+      for (const d of (decisions ?? []) as (LinkedDecision & { id: string })[]) byId[d.id] = d;
+      setLinkedDecisions(byId);
+    } else {
+      setLinkedDecisions({});
     }
     setLoading(false);
   }, [user, accountId]);
@@ -278,6 +342,44 @@ export default function ControlApprovals() {
       </div>
       <p className="mt-2 text-sm text-zinc-200">{row.description || "No description supplied."}</p>
       <p className="mt-1 text-xs text-zinc-400">{row.reason}</p>
+      {row.params != null && typeof row.params === "object" && Object.keys(row.params as Record<string, unknown>).length > 0 && (
+        <pre className="mt-2 max-h-40 overflow-auto rounded border border-white/10 bg-black/40 p-2 text-[10px] leading-relaxed text-zinc-400">
+          {JSON.stringify(row.params, null, 2)}
+        </pre>
+      )}
+
+      {row.decision_id && (
+        <div className="mt-2">
+          <button
+            onClick={() => toggleExplain(row.id)}
+            className="flex items-center gap-1 font-mono text-[10px] uppercase text-zinc-500 hover:text-zinc-300"
+          >
+            {expanded.has(row.id) ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+            Why
+          </button>
+          {expanded.has(row.id) && (
+            linkedDecisions[row.decision_id] ? (
+              <DecisionExplanationPanel
+                decision={linkedDecisions[row.decision_id].decision}
+                reasoning={linkedDecisions[row.decision_id].reasoning}
+                confidenceScore={linkedDecisions[row.decision_id].confidence_score}
+                source={linkedDecisions[row.decision_id].source}
+                escalated={linkedDecisions[row.decision_id].escalated}
+                humanResponse={linkedDecisions[row.decision_id].human_response}
+                actionType={linkedDecisions[row.decision_id].action_type}
+                provider={linkedDecisions[row.decision_id].provider}
+                createdAt={linkedDecisions[row.decision_id].created_at}
+                gateTrace={linkedDecisions[row.decision_id].gate_trace}
+                precedentCitations={linkedDecisions[row.decision_id].precedent_citations}
+                deferredDetail={toDeferredDetail(linkedDecisions[row.decision_id].deferred_detail)}
+                modifiedParams={linkedDecisions[row.decision_id].modified_params}
+              />
+            ) : (
+              <p className="mt-1 text-[10px] text-zinc-600">No linked decision record found.</p>
+            )
+          )}
+        </div>
+      )}
 
       {row.status === "pending" && canSignOff && (
         <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
