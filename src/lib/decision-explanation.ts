@@ -29,6 +29,15 @@ export type ApprovalResolution = { vote: "approved" | "rejected"; resolvedAt: st
 // blocked decision is never mutated beyond an overridden_at timestamp.
 export type DecisionOverride = { reasoning: string | null; createdAt: string; actionType: string | null; provider: string | null };
 
+// A "deferred" verdict's rich explanation -- previously only ever returned
+// in the live chat response's `deferred` field and never persisted.
+export type DeferredDetail = {
+  whyNotNow: string;
+  whatWouldChangeIt: string;
+  improvementSteps: string[];
+  reconsiderWhen: string;
+};
+
 export type DecisionExplanationInput = {
   decisionText: string;
   reasoning: string | null;
@@ -46,6 +55,11 @@ export type DecisionExplanationInput = {
   approvalResolutions?: ApprovalResolution[] | null;
   // Oldest first. Empty/omitted when this decision was never overridden.
   overrides?: DecisionOverride[] | null;
+  // Only present when this was (originally) a DEFERRED verdict.
+  deferredDetail?: DeferredDetail | null;
+  // Only present for a "modify" verdict with a genuine, non-empty narrower
+  // params object.
+  modifiedParams?: Record<string, unknown> | null;
 };
 
 function leadingVerdict(decisionText: string): string {
@@ -122,6 +136,14 @@ export function buildDecisionExplanation(input: DecisionExplanationInput): strin
     paragraphs.push(`Reasoning given at the time: ${input.reasoning.trim()}`);
   }
 
+  if (input.deferredDetail) {
+    paragraphs.push(describeDeferred(input.deferredDetail));
+  }
+
+  if (input.modifiedParams && Object.keys(input.modifiedParams).length) {
+    paragraphs.push(`It was narrowed to this instead: ${JSON.stringify(input.modifiedParams)}`);
+  }
+
   if (input.gateTrace && input.gateTrace.length) {
     const checked = input.gateTrace.filter((t) => t.status !== "not_reached");
     if (checked.length) {
@@ -178,6 +200,17 @@ function describeApprovalResolutions(resolutions: ApprovalResolution[], lead: st
   const countNote = resolutions.length > 1 ? ` (reviewed ${resolutions.length} times in total; this is the most recent)` : "";
   const commentNote = last.comment ? ` The reviewer noted: ${last.comment}` : "";
   return `${lead} A human ${verb} it${when}.${countNote}${commentNote}`;
+}
+
+/** Pure -- expands a deferred verdict's rich guidance into the narrative. Kept in lockstep with the edge-function original. */
+function describeDeferred(d: DeferredDetail): string {
+  const steps = d.improvementSteps.length
+    ? ` Steps that would help: ${d.improvementSteps.join("; ")}.`
+    : "";
+  return (
+    `Why not now: ${d.whyNotNow} What would change it: ${d.whatWouldChangeIt}${steps} ` +
+    `Reconsider when: ${d.reconsiderWhen}`
+  );
 }
 
 /** Pure -- one sentence naming that this block was later overridden by a human, and why. Kept in lockstep with the edge-function original. */

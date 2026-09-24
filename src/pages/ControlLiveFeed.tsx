@@ -5,7 +5,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { classifyDecisionOutcome, type DecisionOutcome } from "@/lib/roi-report";
-import { GateTraceList, type TraceEntry } from "@/components/control/GateTraceList";
+import { type TraceEntry } from "@/components/control/GateTraceList";
+import { DecisionExplanationPanel } from "@/components/control/DecisionExplanationPanel";
+import type { PrecedentCitationRecord, DeferredDetail } from "@/lib/decision-explanation";
 
 const MAX_ROWS = 200;
 
@@ -19,7 +21,23 @@ type DecisionRow = {
   agent_id: string | null;
   created_at: string;
   gate_trace: TraceEntry[] | null;
+  human_response: string | null;
+  action_type: string | null;
+  provider: string | null;
+  precedent_citations: PrecedentCitationRecord | null;
+  deferred_detail: { why_not_now?: string; what_would_change_it?: string; improvement_steps?: string[]; reconsider_when?: string } | null;
+  modified_params: Record<string, unknown> | null;
 };
+
+function toDeferredDetail(raw: DecisionRow["deferred_detail"]): DeferredDetail | null {
+  if (!raw) return null;
+  return {
+    whyNotNow: raw.why_not_now ?? "",
+    whatWouldChangeIt: raw.what_would_change_it ?? "",
+    improvementSteps: raw.improvement_steps ?? [],
+    reconsiderWhen: raw.reconsider_when ?? "",
+  };
+}
 
 type AgentOption = { id: string; name: string };
 
@@ -65,7 +83,7 @@ export default function ControlLiveFeed() {
     const [{ data }, { data: agentRows }] = await Promise.all([
       supabase
         .from("agent_decisions")
-        .select("id, decision, reasoning, source, escalated, confidence_score, agent_id, created_at, gate_trace")
+        .select("id, decision, reasoning, source, escalated, confidence_score, agent_id, created_at, gate_trace, human_response, action_type, provider, precedent_citations, deferred_detail, modified_params")
         .eq("user_id", accountId)
         .order("created_at", { ascending: false })
         .limit(50),
@@ -152,17 +170,38 @@ export default function ControlLiveFeed() {
                   <span>· confidence {r.confidence_score}</span>
                   {r.escalated && <span className="text-amber-300">· escalated</span>}
                 </div>
-                {r.gate_trace && r.gate_trace.length > 0 && (
-                  <>
-                    <button
-                      onClick={() => toggleTrace(r.id)}
-                      className="mt-1 flex items-center gap-1 font-mono text-[10px] uppercase text-zinc-500 hover:text-zinc-300"
-                    >
-                      {expanded.has(r.id) ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                      Why
-                    </button>
-                    {expanded.has(r.id) && <GateTraceList trace={r.gate_trace} />}
-                  </>
+                {/* Pillar 2 top-10 item 10: this button used to only appear
+                    when gate_trace was non-empty -- kill-switch flips,
+                    circuit-breaker trips, and break-glass overrides never
+                    populate gate_trace at all (they're logged directly, not
+                    through the control gate's own trace-building path), so
+                    "Why" never appeared for exactly the events customers
+                    most want explained. DecisionExplanationPanel composes a
+                    real narrative from whatever the row actually has, gate
+                    trace or not, so this is now unconditional. */}
+                <button
+                  onClick={() => toggleTrace(r.id)}
+                  className="mt-1 flex items-center gap-1 font-mono text-[10px] uppercase text-zinc-500 hover:text-zinc-300"
+                >
+                  {expanded.has(r.id) ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                  Why
+                </button>
+                {expanded.has(r.id) && (
+                  <DecisionExplanationPanel
+                    decision={r.decision}
+                    reasoning={r.reasoning}
+                    confidenceScore={r.confidence_score}
+                    source={r.source}
+                    escalated={r.escalated}
+                    humanResponse={r.human_response}
+                    actionType={r.action_type}
+                    provider={r.provider}
+                    createdAt={r.created_at}
+                    gateTrace={r.gate_trace}
+                    precedentCitations={r.precedent_citations}
+                    deferredDetail={toDeferredDetail(r.deferred_detail)}
+                    modifiedParams={r.modified_params}
+                  />
                 )}
               </li>
             );

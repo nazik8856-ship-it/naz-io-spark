@@ -43,6 +43,7 @@ import { resolveApiKeyAuth } from "../_shared/control-api-auth.ts";
 import { runControlGate } from "../_shared/control-gate.ts";
 import { checkIpRateLimit, checkRateLimit, resolveConfiguredRateLimit, computeWindowStart } from "../_shared/rate-limit.ts";
 import { getApiKeySpendStatus } from "../_shared/spend-guard.ts";
+import { deterministicAlternatives } from "../_shared/decision-scoring.ts";
 import { checkApiVersion, CONTROL_API_VERSION } from "../_shared/api-versioning.ts";
 import { parseControlApiAction, MAX_BATCH_ACTIONS, type ParsedControlApiAction } from "../_shared/control-api-action.ts";
 import { decodeExportCursor, clampExportLimit, exportCursorFilter, buildExportPage, groupOutcomesByDecision, type ExportableOutcome } from "../_shared/decision-export.ts";
@@ -372,7 +373,7 @@ async function judgeOneActionInner(
           user_id: userId,
           decision: `BLOCK ${actionType} (${provider})`.slice(0, 400),
           reasoning: reason,
-          alternatives_considered: [],
+          alternatives_considered: deterministicAlternatives("ai_spend_cap", false),
           confidence_score: 100,
           // Reuses the existing "ai_spend_cap" source -- this is the
           // exact same kind of block as the account-wide/per-agent one,
@@ -1081,7 +1082,7 @@ Deno.serve(async (req) => {
 
     const { data: row, error } = await admin
       .from("agent_decisions")
-      .select("decision, reasoning, confidence_score, source, escalated, human_response, action_type, provider, created_at, gate_trace, precedent_citations")
+      .select("decision, reasoning, confidence_score, source, escalated, human_response, action_type, provider, created_at, gate_trace, precedent_citations, deferred_detail, modified_params")
       .eq("id", decisionId)
       .eq("user_id", userId)
       .maybeSingle();
@@ -1128,6 +1129,8 @@ Deno.serve(async (req) => {
       decision: string; reasoning: string | null; confidence_score: number | null; source: string | null;
       escalated: boolean; human_response: string | null; action_type: string | null; provider: string | null;
       created_at: string; gate_trace: unknown; precedent_citations: unknown;
+      deferred_detail: { why_not_now?: string; what_would_change_it?: string; improvement_steps?: string[]; reconsider_when?: string } | null;
+      modified_params: Record<string, unknown> | null;
     };
     const d = row as Row;
     const explanation = buildDecisionExplanation({
@@ -1144,6 +1147,15 @@ Deno.serve(async (req) => {
       precedentCitations: (d.precedent_citations as Parameters<typeof buildDecisionExplanation>[0]["precedentCitations"]) ?? null,
       approvalResolutions,
       overrides,
+      deferredDetail: d.deferred_detail
+        ? {
+            whyNotNow: d.deferred_detail.why_not_now ?? "",
+            whatWouldChangeIt: d.deferred_detail.what_would_change_it ?? "",
+            improvementSteps: d.deferred_detail.improvement_steps ?? [],
+            reconsiderWhen: d.deferred_detail.reconsider_when ?? "",
+          }
+        : null,
+      modifiedParams: d.modified_params,
     });
 
     return json({

@@ -28,6 +28,17 @@ export type ApprovalResolution = { vote: "approved" | "rejected"; resolvedAt: st
 // overrode this."
 export type DecisionOverride = { reasoning: string | null; createdAt: string; actionType: string | null; provider: string | null };
 
+// A "deferred" verdict's rich explanation (control-engine/index.ts's own
+// fitDefers branch) -- previously only ever returned in the live chat
+// response's `deferred` field and never persisted (agent_decisions.deferred_detail,
+// added alongside this type), so it was gone the moment the turn ended.
+export type DeferredDetail = {
+  whyNotNow: string;
+  whatWouldChangeIt: string;
+  improvementSteps: string[];
+  reconsiderWhen: string;
+};
+
 export type DecisionExplanationInput = {
   decisionText: string;
   reasoning: string | null;
@@ -48,6 +59,11 @@ export type DecisionExplanationInput = {
   // "only once" lock on the original decision -- but the shape stays a list
   // so a lock ever loosened doesn't silently truncate the audit trail.
   overrides?: DecisionOverride[] | null;
+  // Only present when this was (originally) a DEFERRED verdict.
+  deferredDetail?: DeferredDetail | null;
+  // Pillar 2 top-10 item 9: only present for a "modify" verdict with a
+  // genuine, non-empty narrower params object (see extractNarrowedAction).
+  modifiedParams?: Record<string, unknown> | null;
 };
 
 /** Pure -- the first whitespace-separated word of the stored decision text, uppercased. Same convention roi-report.ts's classifyDecisionOutcome and this round's plan-escalation.ts already use to read a real verdict off free-text. */
@@ -135,6 +151,14 @@ export function buildDecisionExplanation(input: DecisionExplanationInput): strin
     paragraphs.push(`Reasoning given at the time: ${input.reasoning.trim()}`);
   }
 
+  if (input.deferredDetail) {
+    paragraphs.push(describeDeferred(input.deferredDetail));
+  }
+
+  if (input.modifiedParams && Object.keys(input.modifiedParams).length) {
+    paragraphs.push(`It was narrowed to this instead: ${JSON.stringify(input.modifiedParams)}`);
+  }
+
   if (input.gateTrace && input.gateTrace.length) {
     const checked = input.gateTrace.filter((t) => t.status !== "not_reached");
     if (checked.length) {
@@ -199,6 +223,17 @@ function describeApprovalResolutions(resolutions: ApprovalResolution[], lead: st
   const countNote = resolutions.length > 1 ? ` (reviewed ${resolutions.length} times in total; this is the most recent)` : "";
   const commentNote = last.comment ? ` The reviewer noted: ${last.comment}` : "";
   return `${lead} A human ${verb} it${when}.${countNote}${commentNote}`;
+}
+
+/** Pure -- expands a deferred verdict's rich guidance into the narrative. */
+function describeDeferred(d: DeferredDetail): string {
+  const steps = d.improvementSteps.length
+    ? ` Steps that would help: ${d.improvementSteps.join("; ")}.`
+    : "";
+  return (
+    `Why not now: ${d.whyNotNow} What would change it: ${d.whatWouldChangeIt}${steps} ` +
+    `Reconsider when: ${d.reconsiderWhen}`
+  );
 }
 
 /** Pure -- one sentence naming that this block was later overridden by a human, and why. */
