@@ -71,6 +71,7 @@ const DETERMINISTIC_ALTERNATIVES_BY_SOURCE: Record<string, string[]> = {
   anomaly_detector: ["Retry after this agent's normal activity baseline updates"],
   gate_error: ["Retry once NazAI's own gate error is resolved"],
   gate_error_fail_open: ["Retry once NazAI's own gate error is resolved"],
+  control_engine_unreachable: ["Retry once the control engine is reachable again, for a full model-reviewed verdict"],
 };
 
 export function deterministicAlternatives(source: string, escalated: boolean): string[] {

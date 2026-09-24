@@ -94,6 +94,15 @@ export const AGENT_DECISION_SOURCES = [
   // silently blended together in a report or audit query grouped by
   // source.
   "gate_error_fail_open",
+  // Pillar 3 top-10 item 6: agent-runtime's own fallback path (control-engine
+  // unreachable) previously ran ONLY this file's deterministic layers and
+  // treated "nothing matched" as a clean allow -- unlike every other caller,
+  // which always runs full model-based risk/fit scoring on TOP of these same
+  // deterministic layers before ever deciding "allow" for real. Distinct
+  // from "gate_error"/"gate_error_fail_open" (this file's OWN internal
+  // errors) -- this means the SEPARATE control-engine service specifically
+  // could not be reached, so its model review never ran at all.
+  "control_engine_unreachable",
 ] as const;
 export type AgentDecisionSource = typeof AGENT_DECISION_SOURCES[number];
 
