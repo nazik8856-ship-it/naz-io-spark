@@ -33,6 +33,52 @@ export const normalizeAlternatives = (alternatives: unknown): string[] =>
     ? [alternatives.slice(0, 200)]
     : [];
 
+// Pillar 2 top-10 item 7: every deterministic stop (control-gate.ts's logStop,
+// and spend-guard.ts's account/agent kill-switch auto-trips) previously wrote
+// alternatives_considered as a hardcoded `[]` -- "no alternatives" is honest
+// for a genuine dead end, but every one of these actually has a real, honest
+// path forward (wait for a reset, ask an owner to change a setting, retry
+// differently) the same way a model-judged verdict's own free-text
+// alternatives list always does. Pure and keyed only on (source, escalated)
+// -- never fabricates "the model considered X", since no model was ever
+// involved in any of these. `source` is a plain string (not control-gate.ts's
+// AgentDecisionSource union) so this stays a leaf module both control-gate.ts
+// and spend-guard.ts can import without a cycle.
+const DETERMINISTIC_ALTERNATIVES_BY_SOURCE: Record<string, string[]> = {
+  platform_kill_switch: ["Retry once a platform operator lifts the platform-wide pause"],
+  kill_switch: ["Ask an account owner to turn the account kill switch off"],
+  agent_kill_switch: ["Ask an account owner to turn this agent's kill switch off"],
+  ai_spend_cap: [
+    "Wait until tomorrow (UTC), when the daily spend cap resets",
+    "Ask an account owner to raise the daily AI spend cap",
+  ],
+  agent_ai_spend_cap: [
+    "Wait until tomorrow (UTC), when this agent's spend cap resets",
+    "Ask an account owner to raise this agent's own spend cap",
+  ],
+  hard_rule: [
+    "Ask an account owner to edit or disable the matched hard rule",
+    "Retry with different action parameters that don't match the rule",
+  ],
+  safety_scanner: [
+    "Ask an account owner to adjust or disable the matched safety rule",
+    "Retry with content that doesn't match the flagged pattern",
+  ],
+  circuit_breaker: [
+    "Wait for the circuit breaker's cooldown to elapse and let a recovery trial through",
+    "Reset it manually in the Control System breaker panel",
+  ],
+  anomaly_detector: ["Retry after this agent's normal activity baseline updates"],
+  gate_error: ["Retry once NazAI's own gate error is resolved"],
+  gate_error_fail_open: ["Retry once NazAI's own gate error is resolved"],
+};
+
+export function deterministicAlternatives(source: string, escalated: boolean): string[] {
+  const alternatives = [...(DETERMINISTIC_ALTERNATIVES_BY_SOURCE[source] ?? [])];
+  if (escalated) alternatives.push("Wait for a human to approve or reject it via the approval queue");
+  return alternatives;
+}
+
 /* ---------------------------------------------------------------------------
  * ORG STRICTNESS
  * One dial (loose / balanced / strict) that scales every tolerance in the
@@ -173,6 +219,27 @@ export const logDecision = async (
     /** "Real precedent memory" plan, item 1: the raw action, present only when the caller has it in scope (control-engine's model-scored path does) -- used solely to build this decision's embedding, never stored on the row itself, which only ever answers "what happened," not the exact payload. Omitted entirely (agent-runtime) means no embedding is attempted, same as apiKeyId being null. */
     description?: string | null;
     params?: unknown;
+    /** Pillar 2 top-10 item 8: a "deferred" verdict's rich explanation --
+     * previously only ever returned in the live response, never persisted,
+     * so it was gone the moment the chat turn ended. Only meaningful when
+     * `decision` starts with "DEFERRED"; the caller is responsible for
+     * passing null once a verdict has moved away from deferred (e.g. via
+     * auto-resolution), same as it already does for the response's own
+     * `deferred` field, so stale guidance never ships alongside a decision
+     * that isn't actually deferred anymore. */
+    deferred?: {
+      why_not_now: string;
+      what_would_change_it: string;
+      improvement_steps: string[];
+      reconsider_when: string;
+    } | null;
+    /** Pillar 2 top-10 item 9: a "modify" verdict's actual narrowed params --
+     * the real structured payload suggested instead of the original action --
+     * were computed and used internally for the auto-narrow-retry re-check,
+     * but never saved anywhere. Pass the caller's own extractNarrowedAction()
+     * result (already validated as genuine/non-empty) directly; null for
+     * every non-"modify" verdict. */
+    modifiedParams?: Record<string, unknown> | null;
   },
 ): Promise<string | null> => {
   try {
@@ -194,6 +261,8 @@ export const logDecision = async (
       api_key_id: d.apiKeyId ?? null,
       is_test: d.isTest === true,
       plan_id: d.planId ?? null,
+      deferred_detail: d.deferred ?? null,
+      modified_params: d.modifiedParams ?? null,
     }).select("id").single();
     const decisionId = (data as { id?: string } | null)?.id ?? null;
     if (decisionId) {

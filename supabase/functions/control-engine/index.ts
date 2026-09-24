@@ -10,6 +10,7 @@ import { resolveAccountScope } from "../_shared/account-scope.ts";
 import {
   readConfidence,
   normalizeAlternatives,
+  deterministicAlternatives,
   logDecision,
   thresholdForRisk,
   loadStrictness,
@@ -1195,6 +1196,14 @@ serve(async (req) => {
         }
       : null;
 
+    // Pillar 2 top-10 item 9: the real structured narrower params for a
+    // "modify" verdict were computed further below (extractNarrowedAction)
+    // purely for the auto-narrow-retry re-check, then discarded -- history
+    // showed the free-text `modification` summary but never the actual
+    // payload it referred to. Pure and safe to compute here, before that
+    // later re-check block even runs.
+    const narrowedParamsForHistory = extractNarrowedAction(decision, modifiedParams);
+
     const decisionId = await logDecision(supabase, { userId: accountId, agentId, runId }, {
       decision: `${decision.toUpperCase()} ${actionType} (${provider})`,
       reasoning: `${reason}\n${reasoning}` + (injection.detected ? `\nInjection signals: ${injection.matches.map((m) => `${m.rule} in ${m.field}`).join(", ")}` : ""),
@@ -1212,6 +1221,13 @@ serve(async (req) => {
       planId,
       description,
       params,
+      // Persisted from the model's ORIGINAL verdict, same as the `decision`
+      // text field itself just above (which also never reflects a later
+      // auto-resolution) -- this is item 8's whole fix: previously this rich
+      // explanation only ever reached the live response's `deferred` field
+      // and was never written to the row at all.
+      deferred,
+      modifiedParams: narrowedParamsForHistory,
     });
 
     await recordShadowHits(decisionId ?? null, decision);
@@ -1666,7 +1682,11 @@ serve(async (req) => {
           user_id: userId,
           decision: "BLOCK control-engine (unexpected error)".slice(0, 400),
           reasoning: `Blocked — control-engine hit an unhandled error and failed closed.\n${message}`.slice(0, 800),
-          alternatives_considered: [],
+          // `escalated: true` below is a severity flag for sendCriticalAlert/
+          // incident-opening, not a real pending_approvals row -- pass false
+          // so deterministicAlternatives doesn't append an approval-queue
+          // alternative that doesn't actually exist for this event.
+          alternatives_considered: deterministicAlternatives("gate_error", false),
           confidence_score: 100,
           source: "gate_error",
           escalated: true,

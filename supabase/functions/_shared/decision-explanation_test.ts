@@ -256,6 +256,65 @@ Deno.test("buildDecisionExplanation: a platform kill-switch flip names the platf
   assert(!text.includes("awaiting"));
 });
 
+// Regression for item 8: a deferred verdict's rich explanation (why not now,
+// what would change it, improvement steps, reconsider when) was previously
+// only ever returned in the live chat response, never persisted -- gone the
+// moment the turn ended. buildDecisionExplanation now renders it whenever
+// it's present on the row (agent_decisions.deferred_detail).
+Deno.test("buildDecisionExplanation: a deferred verdict's rich detail is rendered in full", () => {
+  const text = buildDecisionExplanation(baseInput({
+    decisionText: "DEFERRED send_campaign (Mailchimp)",
+    deferredDetail: {
+      whyNotNow: "This doesn't serve what your business is working on right now.",
+      whatWouldChangeIt: "A clearer tie to a current priority or KPI.",
+      improvementSteps: ["Link this campaign to an active Q3 goal.", "Get sign-off from marketing."],
+      reconsiderWhen: "Revisit once the goal or setup changes.",
+    },
+  }));
+  assert(text.includes("Why not now: This doesn't serve what your business is working on right now."));
+  assert(text.includes("What would change it: A clearer tie to a current priority or KPI."));
+  assert(text.includes("Steps that would help: Link this campaign to an active Q3 goal.; Get sign-off from marketing."));
+  assert(text.includes("Reconsider when: Revisit once the goal or setup changes."));
+});
+
+Deno.test("buildDecisionExplanation: no deferred detail means no deferred section at all", () => {
+  const text = buildDecisionExplanation(baseInput({ deferredDetail: null }));
+  assert(!text.includes("Why not now:"));
+});
+
+Deno.test("buildDecisionExplanation: a deferred verdict with no improvement steps skips that line cleanly", () => {
+  const text = buildDecisionExplanation(baseInput({
+    deferredDetail: {
+      whyNotNow: "No current fit.",
+      whatWouldChangeIt: "A new priority.",
+      improvementSteps: [],
+      reconsiderWhen: "Next quarter.",
+    },
+  }));
+  assert(!text.includes("Steps that would help"));
+  assert(text.includes("Why not now: No current fit."));
+});
+
+// Regression for item 9: a "modify" verdict's actual narrowed parameters
+// were computed (extractNarrowedAction) and used internally for the
+// auto-narrow-retry re-check, but never saved anywhere -- history showed
+// the action was narrowed but never what it was narrowed TO.
+Deno.test("buildDecisionExplanation: a modify verdict's narrowed params are rendered", () => {
+  const text = buildDecisionExplanation(baseInput({
+    decisionText: "MODIFY send_email (Gmail)",
+    modifiedParams: { to: ["one-recipient@example.com"], subject: "Narrowed subject" },
+  }));
+  assert(text.includes("It was narrowed to this instead:"));
+  assert(text.includes("one-recipient@example.com"));
+});
+
+Deno.test("buildDecisionExplanation: no modifiedParams (or an empty object) renders no narrowing line", () => {
+  const text = buildDecisionExplanation(baseInput({ modifiedParams: null }));
+  assert(!text.includes("narrowed to this instead"));
+  const text2 = buildDecisionExplanation(baseInput({ modifiedParams: {} }));
+  assert(!text2.includes("narrowed to this instead"));
+});
+
 Deno.test("buildDecisionExplanation: every verdict word maps to a real, distinct plain-English verb", () => {
   const allow = buildDecisionExplanation(baseInput({ decisionText: "ALLOW x (y)" }));
   const block = buildDecisionExplanation(baseInput({ decisionText: "BLOCK x (y)" }));

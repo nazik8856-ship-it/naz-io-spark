@@ -4,12 +4,12 @@
 // separately, the gate trace -- the same composed explanation the external
 // Control API has offered third-party integrators since decision-explanation.ts
 // shipped was never available to a human operator inside the app itself.
-import { buildDecisionExplanation, type PrecedentCitationRecord, type ApprovalResolution, type DecisionOverride } from "@/lib/decision-explanation";
+import { buildDecisionExplanation, type PrecedentCitationRecord, type ApprovalResolution, type DecisionOverride, type DeferredDetail } from "@/lib/decision-explanation";
 import { GateTraceList, type TraceEntry } from "@/components/control/GateTraceList";
 
 export function DecisionExplanationPanel({
   decision, reasoning, confidenceScore, source, escalated, humanResponse,
-  actionType, provider, createdAt, gateTrace, precedentCitations, approvalResolutions, overrides,
+  actionType, provider, createdAt, gateTrace, precedentCitations, approvalResolutions, overrides, deferredDetail, modifiedParams,
 }: {
   decision: string;
   reasoning: string | null;
@@ -24,6 +24,8 @@ export function DecisionExplanationPanel({
   precedentCitations: PrecedentCitationRecord | null;
   approvalResolutions?: ApprovalResolution[] | null;
   overrides?: DecisionOverride[] | null;
+  deferredDetail?: DeferredDetail | null;
+  modifiedParams?: Record<string, unknown> | null;
 }) {
   const narrative = buildDecisionExplanation({
     decisionText: decision,
@@ -39,6 +41,8 @@ export function DecisionExplanationPanel({
     precedentCitations,
     approvalResolutions,
     overrides,
+    deferredDetail,
+    modifiedParams,
   });
   return (
     <div className="mt-2 space-y-2 rounded border border-white/10 bg-black/20 p-3">

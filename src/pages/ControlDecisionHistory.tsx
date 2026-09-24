@@ -9,7 +9,7 @@ import { filterBySearch } from "@/lib/search-filter";
 import { classifyDecisionOutcome, type DecisionOutcome } from "@/lib/roi-report";
 import { type TraceEntry } from "@/components/control/GateTraceList";
 import { DecisionExplanationPanel } from "@/components/control/DecisionExplanationPanel";
-import type { PrecedentCitationRecord, ApprovalResolution, DecisionOverride } from "@/lib/decision-explanation";
+import type { PrecedentCitationRecord, ApprovalResolution, DecisionOverride, DeferredDetail } from "@/lib/decision-explanation";
 
 // action_type/provider (2026-08-23) and gate_trace (2026-08-18) aren't in
 // the generated Supabase types yet.
@@ -31,7 +31,19 @@ type DecisionRow = {
   gate_trace: TraceEntry[] | null;
   human_response: string | null;
   precedent_citations: PrecedentCitationRecord | null;
+  deferred_detail: { why_not_now?: string; what_would_change_it?: string; improvement_steps?: string[]; reconsider_when?: string } | null;
+  modified_params: Record<string, unknown> | null;
 };
+
+function toDeferredDetail(raw: DecisionRow["deferred_detail"]): DeferredDetail | null {
+  if (!raw) return null;
+  return {
+    whyNotNow: raw.why_not_now ?? "",
+    whatWouldChangeIt: raw.what_would_change_it ?? "",
+    improvementSteps: raw.improvement_steps ?? [],
+    reconsiderWhen: raw.reconsider_when ?? "",
+  };
+}
 
 type AgentOption = { id: string; name: string };
 
@@ -101,7 +113,7 @@ export default function ControlDecisionHistory() {
     const toIso = new Date(`${to}T23:59:59.999Z`).toISOString();
     let query = anyDb
       .from("agent_decisions")
-      .select("id, decision, reasoning, confidence_score, escalated, source, agent_id, action_type, provider, created_at, gate_trace, human_response, precedent_citations")
+      .select("id, decision, reasoning, confidence_score, escalated, source, agent_id, action_type, provider, created_at, gate_trace, human_response, precedent_citations, deferred_detail, modified_params")
       .eq("user_id", accountId)
       .gte("created_at", fromIso)
       .lte("created_at", toIso)
@@ -320,6 +332,8 @@ export default function ControlDecisionHistory() {
                           precedentCitations={row.precedent_citations}
                           approvalResolutions={approvalsByDecision.get(row.id)}
                           overrides={overridesByDecision.get(row.id)}
+                          deferredDetail={toDeferredDetail(row.deferred_detail)}
+                          modifiedParams={row.modified_params}
                         />
                       )}
                     </td>

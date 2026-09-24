@@ -7,7 +7,7 @@ import { toCsv } from "@/lib/csv";
 import { filterBySearch } from "@/lib/search-filter";
 import { type TraceEntry } from "@/components/control/GateTraceList";
 import { DecisionExplanationPanel } from "@/components/control/DecisionExplanationPanel";
-import type { PrecedentCitationRecord, ApprovalResolution } from "@/lib/decision-explanation";
+import type { PrecedentCitationRecord, ApprovalResolution, DeferredDetail } from "@/lib/decision-explanation";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 
 type DecisionRow = {
@@ -25,7 +25,19 @@ type DecisionRow = {
   action_type: string | null;
   provider: string | null;
   precedent_citations: PrecedentCitationRecord | null;
+  deferred_detail: { why_not_now?: string; what_would_change_it?: string; improvement_steps?: string[]; reconsider_when?: string } | null;
+  modified_params: Record<string, unknown> | null;
 };
+
+function toDeferredDetail(raw: DecisionRow["deferred_detail"]): DeferredDetail | null {
+  if (!raw) return null;
+  return {
+    whyNotNow: raw.why_not_now ?? "",
+    whatWouldChangeIt: raw.what_would_change_it ?? "",
+    improvementSteps: raw.improvement_steps ?? [],
+    reconsiderWhen: raw.reconsider_when ?? "",
+  };
+}
 
 const CONFIDENCE_BAR = 60;
 
@@ -55,7 +67,7 @@ export default function ControlPendingDecisions() {
     if (!accountId) return;
     const { data, error } = await supabase
       .from("agent_decisions")
-      .select("id,decision,reasoning,confidence_score,escalated,source,agent_id,agent_run_id,human_response,created_at,gate_trace,action_type,provider,precedent_citations")
+      .select("id,decision,reasoning,confidence_score,escalated,source,agent_id,agent_run_id,human_response,created_at,gate_trace,action_type,provider,precedent_citations,deferred_detail,modified_params")
       .eq("user_id", accountId)
       .is("human_response", null)
       // Deferred "not a fit" verdicts are included too: overriding one is the
@@ -276,6 +288,8 @@ export default function ControlPendingDecisions() {
                         gateTrace={row.gate_trace}
                         precedentCitations={row.precedent_citations}
                         approvalResolutions={approvalsByDecision.get(row.id)}
+                        deferredDetail={toDeferredDetail(row.deferred_detail)}
+                        modifiedParams={row.modified_params}
                       />
                     )}
                   </td>

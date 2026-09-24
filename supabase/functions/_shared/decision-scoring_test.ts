@@ -8,6 +8,7 @@ import {
   labelFromScore,
   readConfidence,
   normalizeAlternatives,
+  deterministicAlternatives,
   normalizeStrictness,
   thresholdForRisk,
   irreversibleNeedsHuman,
@@ -90,6 +91,36 @@ Deno.test("normalizeAlternatives: an empty/blank string or anything else is an e
   assertEquals(normalizeAlternatives("   "), []);
   assertEquals(normalizeAlternatives(null), []);
   assertEquals(normalizeAlternatives(42), []);
+});
+
+// ---- deterministicAlternatives ----------------------------------------------
+// Regression for Pillar 2 top-10 item 7: every deterministic BLOCK (hard
+// rules, safety scanner, kill switch, spend cap, circuit breaker) used to
+// hardcode alternatives_considered to `[]` -- the "alternatives considered"
+// section silently only ever appeared for model-judged verdicts.
+
+Deno.test("deterministicAlternatives: a hard-rule block gets real, non-empty alternatives", () => {
+  const alts = deterministicAlternatives("hard_rule", false);
+  assert(alts.length > 0);
+  assert(alts.every((a) => typeof a === "string" && a.length > 0));
+});
+
+Deno.test("deterministicAlternatives: every named deterministic source in the top-10 gets a non-empty list", () => {
+  for (const source of ["hard_rule", "safety_scanner", "kill_switch", "ai_spend_cap", "circuit_breaker"]) {
+    assert(deterministicAlternatives(source, false).length > 0, `${source} should have real alternatives`);
+  }
+});
+
+Deno.test("deterministicAlternatives: an escalated (real approval-queue) stop appends the human-review alternative", () => {
+  const notEscalated = deterministicAlternatives("hard_rule", false);
+  const escalated = deterministicAlternatives("hard_rule", true);
+  assertEquals(escalated.length, notEscalated.length + 1);
+  assert(escalated[escalated.length - 1].includes("approval queue"));
+});
+
+Deno.test("deterministicAlternatives: an unrecognized source never crashes and returns an empty (or human-review-only) list", () => {
+  assertEquals(deterministicAlternatives("some_future_source", false), []);
+  assertEquals(deterministicAlternatives("some_future_source", true).length, 1);
 });
 
 // ---- normalizeStrictness / thresholdForRisk / irreversibleNeedsHuman / fitDefers ---

@@ -12,6 +12,7 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0
 import { slackPostMessage } from "./provider-writes.ts";
 import { sendCriticalAlert } from "./critical-alerts.ts";
 import { triggerWebhooks } from "./webhooks.ts";
+import { deterministicAlternatives } from "./decision-scoring.ts";
 
 export const DEFAULT_DAILY_CAP_USD = 5.0;
 
@@ -310,7 +311,11 @@ async function enforceAccountSpendCap(
         user_id: userId,
         decision: "KILL_SWITCH_ON (daily AI spend cap)",
         reasoning: text,
-        alternatives_considered: [],
+        // `escalated: true` below is a severity/visibility flag for this
+        // auto-trip event, not a real pending_approvals row -- so the
+        // approval-queue alternative deterministicAlternatives would append
+        // for an actually-escalated gate stop doesn't apply here.
+        alternatives_considered: deterministicAlternatives("ai_spend_cap", false),
         confidence_score: 100,
         source: "ai_spend_cap",
         escalated: true,
@@ -396,16 +401,26 @@ async function enforceAgentSpendCap(
         agent_id: agentId,
         decision: "AGENT_KILL_SWITCH_ON (daily AI spend cap)",
         reasoning: text,
-        alternatives_considered: [],
+        // See the account-wide trip above: `escalated: true` here is a
+        // severity flag, not a real pending_approvals row.
+        alternatives_considered: deterministicAlternatives("agent_ai_spend_cap", false),
         confidence_score: 100,
-        source: "ai_spend_cap",
+        // Pillar 2 top-10 item 6: this reused the account-wide "ai_spend_cap"
+        // source even though only ONE agent tripped -- decision-explanation.ts's
+        // SOURCE_LABELS then rendered "the account's daily AI spend cap" for a
+        // block that reasoning (and reality) says only affected this agent.
+        // "agent_ai_spend_cap" already exists and is used correctly by
+        // control-gate.ts's own per-request agent-cap block; this was the one
+        // path (an auto-trip via the daily digest/enforcement sweep, not a
+        // live request) that never got updated to match.
+        source: "agent_ai_spend_cap",
         escalated: true,
       }).select("id").maybeSingle();
       const agentKillSwitchDecisionId = (logged as { id?: string } | null)?.id ?? null;
       if (agentKillSwitchDecisionId) {
         try {
           await triggerWebhooks(admin, userId, "decision_logged", {
-            id: agentKillSwitchDecisionId, decision: "AGENT_KILL_SWITCH_ON (daily AI spend cap)", source: "ai_spend_cap", escalated: true, agent_id: agentId,
+            id: agentKillSwitchDecisionId, decision: "AGENT_KILL_SWITCH_ON (daily AI spend cap)", source: "agent_ai_spend_cap", escalated: true, agent_id: agentId,
           });
         } catch { /* ignore */ }
       }

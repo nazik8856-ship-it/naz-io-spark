@@ -22,7 +22,7 @@ import { clearExpiredSpendKillSwitch, clearExpiredAgentSpendKillSwitch, getSpend
 import { sendCriticalAlert } from "./critical-alerts.ts";
 import { scanAction, type SafetyRule, type SafetyScan } from "./safety-scanner.ts";
 import { countTodaySuccesses, detectAnomaly, loadAgentBaseline, type AnomalyCheck } from "./anomaly-detector.ts";
-import { loadStrictness } from "./decision-scoring.ts";
+import { loadStrictness, deterministicAlternatives } from "./decision-scoring.ts";
 import { finalizeTrace, type TraceEntry } from "./gate-trace.ts";
 import { ruleMatchesAction, selectRulesForAgent } from "./rule-matching.ts";
 import { triggerWebhooks } from "./webhooks.ts";
@@ -654,7 +654,7 @@ async function runControlGateInner(
         step_index: stepIndex,
         decision: decision.slice(0, 400),
         reasoning: reasoning.slice(0, 800),
-        alternatives_considered: [],
+        alternatives_considered: deterministicAlternatives(source, escalated),
         confidence_score: 100,
         source,
         escalated,
@@ -1307,7 +1307,7 @@ async function runControlGateInner(
         step_index: stepIndex,
         decision: `${failOpen ? "ALLOW" : "BLOCK"} ${actionType} (${provider})`.slice(0, 400),
         reasoning: `${reason}\n${message}`.slice(0, 800),
-        alternatives_considered: [],
+        alternatives_considered: deterministicAlternatives(source, false),
         confidence_score: 100,
         source,
         escalated: true,
@@ -1509,7 +1509,7 @@ export async function recordBreakerAttempt(
           step_index: input.stepIndex ?? null,
           decision: `CIRCUIT_BREAKER_TRIPPED ${actionType} (${provider})`.slice(0, 400),
           reasoning: tripReason.slice(0, 800),
-          alternatives_considered: [],
+          alternatives_considered: deterministicAlternatives("circuit_breaker", false),
           confidence_score: 100,
           source: "circuit_breaker_trip" satisfies AgentDecisionSource,
           escalated: true,
