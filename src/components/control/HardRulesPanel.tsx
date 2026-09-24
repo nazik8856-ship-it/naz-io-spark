@@ -20,6 +20,10 @@ type HardRule = {
   shadow_mode: boolean;
   created_at: string;
   agent_id: string | null;
+  // Pillar 3 top-10 item 10: only meaningful when effect is
+  // "always_require_approval" -- how many distinct people must sign off.
+  // Null means "use the platform default" (2).
+  required_approvals: number | null;
 };
 
 type AgentOption = { id: string; name: string };
@@ -56,6 +60,7 @@ export default function HardRulesPanel() {
   const [text, setText] = useState("");
   const [scope, setScope] = useState("*");
   const [effect, setEffect] = useState<Effect>("always_block");
+  const [requiredApprovals, setRequiredApprovals] = useState(2);
   const [shadow, setShadow] = useState(true);
   const [busy, setBusy] = useState(false);
   // Which agent this new rule applies to -- "" means account-wide (the
@@ -70,7 +75,7 @@ export default function HardRulesPanel() {
     const [{ data }, { data: agentRows }, { data: profile }] = await Promise.all([
       anyDb
         .from("hard_rules")
-        .select("id, rule_text, action_type_pattern, effect, provider, shadow_mode, created_at, agent_id")
+        .select("id, rule_text, action_type_pattern, effect, provider, shadow_mode, created_at, agent_id, required_approvals")
         .eq("user_id", accountId)
         .order("created_at", { ascending: false }),
       anyDb.from("agents").select("id, name").eq("user_id", accountId).order("name"),
@@ -115,6 +120,7 @@ export default function HardRulesPanel() {
       effect,
       shadow_mode: shadow,
       agent_id: appliesToAgentId || null,
+      required_approvals: effect === "always_require_approval" ? requiredApprovals : null,
     });
     setBusy(false);
     if (error) {
@@ -274,6 +280,18 @@ export default function HardRulesPanel() {
                 <option value="always_block">Always block</option>
                 <option value="always_require_approval">Always require approval</option>
               </select>
+              {effect === "always_require_approval" && (
+                <select
+                  value={requiredApprovals}
+                  onChange={(e) => setRequiredApprovals(Number(e.target.value))}
+                  aria-label="Approvers required"
+                  className="rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-zinc-300 outline-none"
+                >
+                  {[1, 2, 3, 4, 5].map((n) => (
+                    <option key={n} value={n}>{n} approver{n === 1 ? "" : "s"} required</option>
+                  ))}
+                </select>
+              )}
               <select
                 value={shadow ? "shadow" : "live"}
                 onChange={(e) => setShadow(e.target.value === "shadow")}
@@ -339,7 +357,9 @@ export default function HardRulesPanel() {
                       <p className="text-[11px] font-mono text-zinc-500">
                         {SCOPES.find((s) => s.pattern === r.action_type_pattern)?.label ?? r.action_type_pattern}
                         {" · "}
-                        {r.effect === "always_block" ? "always blocked" : "approval required"}
+                        {r.effect === "always_block"
+                          ? "always blocked"
+                          : `approval required (${r.required_approvals ?? 2} approver${(r.required_approvals ?? 2) === 1 ? "" : "s"})`}
                         {" · "}
                         <span className={r.agent_id ? "text-cyan-400" : ""}>{agentName(r.agent_id)}</span>
                       </p>

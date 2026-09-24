@@ -38,8 +38,23 @@ Deno.test("an unrecognized risk_tier value falls back to the medium threshold", 
   assert(isOverdueForEscalation({ created_at: hoursAgo(13), risk_tier: "weird", status: "pending", escalated_at: null }, NOW));
 });
 
-Deno.test("an already-escalated approval never escalates a second time", () => {
+// Regression for Pillar 3 top-10 item 3: escalation alerts used to fire
+// exactly once, ever, then go silent no matter how much longer the approval
+// sat afterward. escalated_at now means "when was the last nudge," so the
+// same risk-scaled threshold re-applies from that timestamp instead of from
+// created_at, giving a genuine repeat cadence.
+Deno.test("a recently re-escalated approval doesn't escalate again before its threshold elapses since the LAST nudge", () => {
   assertFalse(isOverdueForEscalation({ created_at: hoursAgo(100), risk_tier: "high", status: "pending", escalated_at: hoursAgo(1) }, NOW));
+});
+
+Deno.test("an approval escalates AGAIN once the threshold has elapsed since its last nudge, no matter how old the original escalation is", () => {
+  assert(isOverdueForEscalation({ created_at: hoursAgo(1000), risk_tier: "high", status: "pending", escalated_at: hoursAgo(4) }, NOW));
+  assert(isOverdueForEscalation({ created_at: hoursAgo(1000), risk_tier: "high", status: "pending", escalated_at: hoursAgo(100) }, NOW));
+});
+
+Deno.test("repeat escalation still scales by risk tier, measured from the last nudge", () => {
+  assertFalse(isOverdueForEscalation({ created_at: hoursAgo(1000), risk_tier: "low", status: "pending", escalated_at: hoursAgo(23.9) }, NOW));
+  assert(isOverdueForEscalation({ created_at: hoursAgo(1000), risk_tier: "low", status: "pending", escalated_at: hoursAgo(24) }, NOW));
 });
 
 Deno.test("a resolved (not pending) approval never escalates, no matter how old", () => {

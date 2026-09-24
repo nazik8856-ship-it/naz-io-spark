@@ -2,8 +2,10 @@
 //
 // Fires ONLY for kill-switch trips (manual or automatic), hard-rule blocks,
 // circuit-breaker trips, self-audit regressions, gate errors (the gate
-// itself failing closed on an unexpected exception), escalated pending
-// approvals (untouched past the risk-scaled threshold), a severely
+// itself failing closed on an unexpected exception), a newly created
+// pending approval that needs a human's review, escalated pending
+// approvals (untouched past the risk-scaled threshold, repeating every
+// threshold interval it stays unresolved), a severely
 // miscalibrated confidence bucket (the model claims a confidence range it
 // doesn't actually earn), a break-glass override of a blocked action, a
 // correlated (multi-agent, fleet-wide) circuit breaker trip, an audit
@@ -39,6 +41,13 @@ export type CriticalAlertEvent =
   // "gate_error" for this outcome, even though both originate from the
   // exact same catch block in control-gate.ts.
   | "gate_error_fail_open"
+  // Pillar 3 top-10 item 7: fired the moment a genuine (non-auto-resolved,
+  // non-callback) pending_approvals row is created -- previously the ONLY
+  // human-facing signal for a new approval was triggerWebhooks' own
+  // "approval_created" event, which does nothing at all for an account with
+  // no webhook configured (most of them). Before this, the first time a
+  // human heard about it was approval-escalated hours later.
+  | "approval_created"
   | "approval_escalated"
   | "confidence_miscalibrated"
   | "break_glass_override"
@@ -99,6 +108,7 @@ export const LABELS: Record<CriticalAlertEvent, string> = {
   self_audit_regression: "🧪 Weekly control-system self-audit found a regression",
   gate_error: "🚨 Control gate hit an unexpected error and failed closed",
   gate_error_fail_open: "⚠️ Control gate hit an unexpected error and failed OPEN (per API key policy)",
+  approval_created: "📥 A new approval needs a human's review",
   approval_escalated: "⏰ A pending approval has been waiting too long",
   confidence_miscalibrated: "📉 The model is overconfident in a real confidence range",
   break_glass_override: "🔓 A blocked action was overridden by a human",
@@ -128,7 +138,7 @@ export function decisionLink(decisionId?: string | null): string | null {
 async function persistAlert(
   admin: SupabaseClient,
   userId: string,
-  opts: { event: CriticalAlertEvent; summary: string; decisionId?: string | null; actionType?: string | null; provider?: string | null; actor?: string | null },
+  opts: { event: CriticalAlertEvent; summary: string; decisionId?: string | null; actionType?: string | null; provider?: string | null; actor?: string | null; skipIncident?: boolean },
   deliveredVia: "slack" | "log",
 ): Promise<string | null> {
   let alertId: string | null = null;
@@ -146,7 +156,7 @@ async function persistAlert(
     alertId = (data as { id?: string } | null)?.id ?? null;
   } catch { /* the alert itself must never depend on this succeeding */ }
 
-  if (isIncidentWorthy(opts.event)) {
+  if (isIncidentWorthy(opts.event) && !opts.skipIncident) {
     await openIncident(admin, userId, {
       kind: opts.event,
       summary: opts.summary,
@@ -236,6 +246,15 @@ export async function sendCriticalAlert(
     actionType?: string | null;
     provider?: string | null;
     actor?: string | null;
+    // Pillar 3 top-10 item 3: openIncident() has no dedup logic -- it
+    // inserts a fresh incidents row on every call, with no awareness that
+    // an earlier call already opened one for the same underlying problem.
+    // That was never reachable before an incident-worthy event could fire
+    // more than once for the same thing; approval-escalation-sweep's new
+    // repeat-nudge behavior makes it reachable, so a repeat nudge about an
+    // approval already escalated once passes this to avoid spawning a new
+    // incident every time it re-fires.
+    skipIncident?: boolean;
   },
 ): Promise<"slack" | "log"> {
   const link = decisionLink(opts.decisionId);

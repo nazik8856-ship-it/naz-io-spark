@@ -95,7 +95,7 @@ Deno.test("every known CriticalAlertEvent has a real, non-empty label", () => {
   const knownEvents: CriticalAlertEvent[] = [
     "kill_switch_on", "kill_switch_off", "kill_switch_auto",
     "hard_rule_block", "circuit_breaker_trip", "self_audit_regression",
-    "gate_error", "gate_error_fail_open", "approval_escalated", "confidence_miscalibrated",
+    "gate_error", "gate_error_fail_open", "approval_created", "approval_escalated", "confidence_miscalibrated",
     "break_glass_override", "correlated_breaker_trip", "audit_integrity_failure",
     "webhook_delivery_exhausted", "integration_revoked", "control_api_abuse", "auto_resolution_share_spike",
     "precedent_pipeline_stale", "control_api_coordinated_abuse", "on_uncertain_auto_downgraded",
@@ -129,6 +129,42 @@ Deno.test("a break_glass_override event opens an incident linked to the alert (2
   assertEquals(incidents.length, 1);
   assertEquals(incidents[0].kind, "break_glass_override");
   assertEquals(incidents[0].alert_id, "alert-1");
+});
+
+// Regression for Pillar 3 top-10 item 3: openIncident() has no dedup logic
+// of its own -- it inserts a fresh incidents row on every call. That was
+// never reachable before an incident-worthy event could fire more than once
+// for the same underlying problem; approval-escalation-sweep's new
+// repeat-nudge behavior makes it reachable, so skipIncident lets a repeat
+// nudge still alert (Slack/log + critical_alerts) without spawning a
+// duplicate incident for an approval already escalated once.
+Deno.test("an incident-worthy event with skipIncident:true still alerts, but opens no incident", async () => {
+  const { client, inserted, incidents } = fakeSupabase({ slackConnected: false });
+  await sendCriticalAlert(client, "user-1", {
+    event: "circuit_breaker_trip", summary: "still tripped", actionType: "send_email", skipIncident: true,
+  });
+  assertEquals(inserted.length, 1);
+  assertEquals(incidents.length, 0);
+});
+
+Deno.test("an incident-worthy event with skipIncident:false (or omitted) opens an incident as normal", async () => {
+  const { incidents: incidentsFalse } = await (async () => {
+    const f = fakeSupabase({ slackConnected: false });
+    await sendCriticalAlert(f.client, "user-1", { event: "circuit_breaker_trip", summary: "tripped", skipIncident: false });
+    return f;
+  })();
+  assertEquals(incidentsFalse.length, 1);
+});
+
+// Regression for Pillar 3 top-10 item 7: a brand-new pending approval is
+// routine human-in-the-loop flow, not something that's gone wrong yet --
+// only approval_escalated (an approval that's been ignored past its
+// threshold) should ever open an incident.
+Deno.test("an approval_created event alerts but does NOT open an incident", async () => {
+  const { client, inserted, incidents } = fakeSupabase({ slackConnected: false });
+  await sendCriticalAlert(client, "user-1", { event: "approval_created", summary: "needs review", actionType: "send_email" });
+  assertEquals(inserted.length, 1);
+  assertEquals(incidents.length, 0);
 });
 
 Deno.test("a deliberate kill_switch_on event does NOT open an incident", async () => {
