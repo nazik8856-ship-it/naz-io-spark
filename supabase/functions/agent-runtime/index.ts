@@ -12,7 +12,7 @@ import {
   type Corrector,
 } from "../_shared/tool-retry.ts";
 import { PROVIDER_WRITE_KINDS } from "../_shared/provider-writes.ts";
-import { runControlGate } from "../_shared/control-gate.ts";
+import { runControlGate, createPendingApproval } from "../_shared/control-gate.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
 import { claimIdempotencyKey, saveIdempotencyResponse, releaseIdempotencyKey, buildRealActionKey } from "../_shared/idempotency.ts";
 import { timingSafeEqual } from "../_shared/timing-safe.ts";
@@ -27,6 +27,7 @@ import {
   readConfidence,
   normalizeAlternatives,
   logDecision as logDecisionRow,
+  deterministicAlternatives,
 } from "../_shared/decision-scoring.ts";
 import {
   CAPABILITY_REGISTRY,
@@ -1331,7 +1332,19 @@ Rules:
         }
       }
       // Fallback: the deterministic layers still run locally, so a network
-      // problem can never turn into an ungated real action.
+      // problem can never turn into an unassessed real action. But unlike
+      // every OTHER caller of this same gate -- control-engine's own
+      // /decide route always runs full model-based risk/fit scoring on TOP
+      // of these same deterministic layers before ever deciding "allow" for
+      // real -- this fallback has nowhere to send it for that review: the
+      // service that would run it is exactly what's unreachable right now.
+      // Pillar 3 top-10 item 6: treating a deterministic "nothing matched"
+      // here as the same clean allow it would be after a real model review
+      // was the actual inconsistency -- a network blip could silently drop
+      // an action from full risk scoring to "nothing explicitly forbids
+      // it," with no difference visible anywhere in the audit trail.
+      // Escalate for a human instead, honestly labeled so it's never
+      // confused with a normal, fully-reviewed decision.
       const gate = await runControlGate(supabase, {
         userId,
         actionType: a.actionType,
@@ -1343,13 +1356,57 @@ Rules:
         stepIndex: a.stepIndex,
         origin: "agent-runtime",
       });
+      if (!gate.ok) {
+        return {
+          ok: false,
+          verdict: gate.verdict,
+          reason: gate.reason,
+          decisionId: gate.decisionId,
+          approvalId: gate.approvalId,
+          source: gate.source,
+          safety: gate.safety.matched ? gate.safety : null,
+          shadowRules: gate.shadowRules,
+          via: "local-gate",
+          breakerHalfOpenTrial: gate.circuitBreakerHalfOpenTrial,
+        };
+      }
+      const unreachableReason =
+        "Escalated for a human — the control engine could not be reached, so this action's risk " +
+        "and business fit could not be model-reviewed. Nothing about the action itself was flagged " +
+        "by the deterministic checks that did run.";
+      const decisionId = await logDecisionRow(supabase, { userId, agentId, runId }, {
+        decision: `REQUIRE_APPROVAL ${a.actionType} (${a.provider})`,
+        reasoning: unreachableReason,
+        alternatives: deterministicAlternatives("control_engine_unreachable", true),
+        score: 0,
+        stepIndex: a.stepIndex,
+        escalated: true,
+        source: "control_engine_unreachable",
+        actionType: a.actionType,
+        provider: a.provider,
+        description: a.description,
+        params: a.params,
+      });
+      const approval = await createPendingApproval(supabase, {
+        userId,
+        decisionId,
+        agentId,
+        runId,
+        actionType: a.actionType,
+        provider: a.provider,
+        description: a.description,
+        params: a.params,
+        reason: unreachableReason,
+        riskTier: "high",
+        origin: "agent-runtime",
+      });
       return {
-        ok: gate.ok,
-        verdict: gate.verdict,
-        reason: gate.reason,
-        decisionId: gate.decisionId,
-        approvalId: gate.approvalId,
-        source: gate.source,
+        ok: false,
+        verdict: "require_approval",
+        reason: unreachableReason,
+        decisionId,
+        approvalId: approval.approvalId,
+        source: "control_engine_unreachable",
         safety: gate.safety.matched ? gate.safety : null,
         shadowRules: gate.shadowRules,
         via: "local-gate",

@@ -94,6 +94,15 @@ export const AGENT_DECISION_SOURCES = [
   // silently blended together in a report or audit query grouped by
   // source.
   "gate_error_fail_open",
+  // Pillar 3 top-10 item 6: agent-runtime's own fallback path (control-engine
+  // unreachable) previously ran ONLY this file's deterministic layers and
+  // treated "nothing matched" as a clean allow -- unlike every other caller,
+  // which always runs full model-based risk/fit scoring on TOP of these same
+  // deterministic layers before ever deciding "allow" for real. Distinct
+  // from "gate_error"/"gate_error_fail_open" (this file's OWN internal
+  // errors) -- this means the SEPARATE control-engine service specifically
+  // could not be reached, so its model review never ran at all.
+  "control_engine_unreachable",
 ] as const;
 export type AgentDecisionSource = typeof AGENT_DECISION_SOURCES[number];
 
@@ -481,6 +490,14 @@ export async function createPendingApproval(
     const { data } = await admin.from("pending_approvals").insert({
       user_id: input.userId,
       decision_id: input.decisionId,
+      // Pillar 3 top-10 item 4: previously only used in-memory to decide
+      // whether to auto-resolve at creation time, then discarded --
+      // stuck-approval-sweep had no way to find this row's api key later
+      // except by joining through decision_id, which some rows never end up
+      // with (control-engine's auto_narrow "modify" flow, when logDecision
+      // itself doesn't return an id). Persisting it here makes the row
+      // itself the source of truth, decision_id or not.
+      api_key_id: input.apiKeyId ?? null,
       requester_id: input.userId,
       agent_id: input.agentId ?? null,
       run_id: input.runId ?? null,

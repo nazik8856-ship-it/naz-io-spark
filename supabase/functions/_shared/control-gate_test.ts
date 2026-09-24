@@ -226,6 +226,8 @@ const CURRENT_MIGRATION_ALLOWS = new Set([
   "external_api", "platform_kill_switch",
   "kill_switch_flip", "platform_kill_switch_flip",
   "gate_error_fail_open",
+  // Pillar 3 top-10 item 6.
+  "control_engine_unreachable",
 ]);
 
 Deno.test("an agent's own kill switch blocks only that agent, source is a constraint-valid value, and a real decisionId is produced", async () => {
@@ -717,6 +719,31 @@ Deno.test("createPendingApproval: an auto-resolved outcome never fires the appro
   assert(outcome.autoResolved);
   const alertInsert = (inserts.critical_alerts ?? []).find((a) => (a as { event?: string }).event === "approval_created");
   assertEquals(alertInsert, undefined);
+});
+
+// Regression for Pillar 3 top-10 item 4: stuck-approval-sweep previously
+// could only learn a row's api key by joining through decision_id ->
+// agent_decisions.api_key_id -- a row whose decision_id ever came back null
+// (control-engine's auto_narrow flow, observed live) was permanently
+// unreachable no matter how long it sat. api_key_id is now persisted
+// directly on the pending_approvals row itself at creation time.
+Deno.test("createPendingApproval: persists api_key_id directly on the row, not just through decision_id", async () => {
+  const { client, inserts } = fakeSupabase({
+    api_keys: { data: { on_uncertain: "human_review" }, error: null },
+    pending_approvals: { data: { id: "approval-1" }, error: null },
+  });
+  await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: "key-1" });
+  const inserted = (inserts.pending_approvals ?? [])[0] as { api_key_id?: string | null } | undefined;
+  assertEquals(inserted?.api_key_id, "key-1");
+});
+
+Deno.test("createPendingApproval: api_key_id is null on the row when the call didn't come through an api key", async () => {
+  const { client, inserts } = fakeSupabase({
+    pending_approvals: { data: { id: "approval-1" }, error: null },
+  });
+  await createPendingApproval(client, { ...pendingApprovalBaseInput, apiKeyId: undefined });
+  const inserted = (inserts.pending_approvals ?? [])[0] as { api_key_id?: string | null } | undefined;
+  assertEquals(inserted?.api_key_id ?? null, null);
 });
 
 Deno.test("createPendingApproval: shadow-mode observation is recorded even when the real outcome came from forcedResolution", async () => {

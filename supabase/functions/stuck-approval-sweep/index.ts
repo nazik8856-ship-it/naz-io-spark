@@ -31,6 +31,7 @@ type Row = {
   id: string;
   user_id: string;
   decision_id: string | null;
+  api_key_id: string | null;
   action_type: string;
   provider: string;
   risk_tier: string;
@@ -57,7 +58,7 @@ Deno.serve(async (req) => {
 
   const { data: rows, error } = await admin
     .from("pending_approvals")
-    .select("id, user_id, decision_id, action_type, provider, risk_tier, created_at")
+    .select("id, user_id, decision_id, api_key_id, action_type, provider, risk_tier, created_at")
     .eq("status", "pending");
   if (error) return json({ error: error.message }, 500);
 
@@ -68,14 +69,14 @@ Deno.serve(async (req) => {
     checked++;
 
     // Only a row that traces back to a real, still-known api key is even
-    // eligible -- no decision_id (a chat/agent-driven approval, which
-    // never carries one) or no api_key_id on that decision (an internal
-    // origin) both mean "not this sweep's job," same as a key that kept
-    // human_review.
-    if (!row.decision_id) continue;
-    const { data: decisionRow } = await admin
-      .from("agent_decisions").select("api_key_id").eq("id", row.decision_id).maybeSingle();
-    const apiKeyId = (decisionRow as { api_key_id?: string | null } | null)?.api_key_id ?? null;
+    // eligible -- a genuinely internal/chat-driven approval (no api key at
+    // all, ctx.apiKeyId never set) means "not this sweep's job," same as a
+    // key that kept human_review. Read directly off the row itself (item 4:
+    // previously joined through decision_id -> agent_decisions.api_key_id,
+    // which left any row whose decision_id came back null -- e.g.
+    // control-engine's auto_narrow "modify" flow -- permanently unreachable
+    // here no matter how long it sat).
+    const apiKeyId = row.api_key_id;
     if (!apiKeyId) continue;
 
     const { data: keyRow } = await admin

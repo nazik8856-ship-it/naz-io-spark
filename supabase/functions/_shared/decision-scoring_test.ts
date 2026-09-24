@@ -123,6 +123,14 @@ Deno.test("deterministicAlternatives: an unrecognized source never crashes and r
   assertEquals(deterministicAlternatives("some_future_source", true).length, 1);
 });
 
+// Regression for Pillar 3 top-10 item 6: agent-runtime's control-engine
+// fallback path.
+Deno.test("deterministicAlternatives: control_engine_unreachable has real alternatives", () => {
+  const alts = deterministicAlternatives("control_engine_unreachable", true);
+  assert(alts.length > 1, "must have its own alternative plus the appended human-review one");
+  assert(alts.some((a) => /control engine/i.test(a)));
+});
+
 // ---- normalizeStrictness / thresholdForRisk / irreversibleNeedsHuman / fitDefers ---
 
 Deno.test("normalizeStrictness: only 'loose'/'strict' are recognized, everything else is 'balanced'", () => {

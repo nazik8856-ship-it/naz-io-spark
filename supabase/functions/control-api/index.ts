@@ -1222,6 +1222,11 @@ Deno.serve(async (req) => {
     const { data: inserted, error: insertErr } = await admin.from("pending_approvals").insert({
       user_id: userId,
       decision_id: decisionId,
+      // Pillar 3 top-10 item 4: this insert bypasses createPendingApproval
+      // entirely, so it needs its own api_key_id -- otherwise this row would
+      // be silently unreachable to stuck-approval-sweep, which reads the
+      // column directly off the row rather than joining through decision_id.
+      api_key_id: auth.keyId,
       requester_id: userId,
       agent_id: decisionRow.agent_id,
       run_id: decisionRow.agent_run_id,

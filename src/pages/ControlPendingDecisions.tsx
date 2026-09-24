@@ -50,6 +50,7 @@ export default function ControlPendingDecisions() {
   const { accountId } = useActiveAccount();
   const [rows, setRows] = useState<DecisionRow[]>([]);
   const [approvalsByDecision, setApprovalsByDecision] = useState<Map<string, ApprovalResolution[]>>(new Map());
+  const [liveApprovalByDecision, setLiveApprovalByDecision] = useState<Map<string, { requiredApprovals: number; signOffs: number }>>(new Map());
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -86,36 +87,87 @@ export default function ControlPendingDecisions() {
     // pulled in separately so "Explain" doesn't say "no human was involved".
     const ids = fetched.map((r) => r.id);
     if (ids.length) {
-      const { data: approvalRows } = await supabase
+      const { data: approvalRows, error: approvalError } = await supabase
         .from("pending_approvals")
-        .select("decision_id, status, resolved_at, comment")
+        .select("decision_id, status, resolved_at, comment, required_approvals, approvals")
         .eq("user_id", accountId)
         .in("decision_id", ids)
-        .in("status", ["approved", "rejected"])
         .order("resolved_at", { ascending: true });
+      if (approvalError) {
+        toast({ title: "Couldn't load approval history", description: approvalError.message, variant: "destructive" });
+      }
       const grouped = new Map<string, ApprovalResolution[]>();
-      for (const r of (approvalRows ?? []) as { decision_id: string; status: string; resolved_at: string | null; comment: string | null }[]) {
-        const list = grouped.get(r.decision_id) ?? [];
-        list.push({ vote: r.status as "approved" | "rejected", resolvedAt: r.resolved_at, comment: r.comment });
-        grouped.set(r.decision_id, list);
+      // A decision with a LIVE pending_approvals row is already going through
+      // the multi-approver quorum queue (ControlApprovals.tsx) -- this page's
+      // own one-click Allow/Reject must not let a single person short-circuit
+      // that, or a rule configured to require N sign-offs (item 10) means
+      // nothing the moment anyone opens this page instead.
+      const live = new Map<string, { requiredApprovals: number; signOffs: number }>();
+      for (const r of (approvalRows ?? []) as {
+        decision_id: string; status: string; resolved_at: string | null; comment: string | null;
+        required_approvals: number | null; approvals: unknown;
+      }[]) {
+        if (r.status === "approved" || r.status === "rejected") {
+          const list = grouped.get(r.decision_id) ?? [];
+          list.push({ vote: r.status as "approved" | "rejected", resolvedAt: r.resolved_at, comment: r.comment });
+          grouped.set(r.decision_id, list);
+        } else if (r.status === "pending") {
+          const signOffs = new Set(
+            (Array.isArray(r.approvals) ? (r.approvals as { by?: string }[]) : [])
+              .map((s) => String(s?.by ?? ""))
+              .filter(Boolean),
+          ).size;
+          live.set(r.decision_id, { requiredApprovals: r.required_approvals ?? 1, signOffs });
+        }
       }
       setApprovalsByDecision(grouped);
+      setLiveApprovalByDecision(live);
     } else {
       setApprovalsByDecision(new Map());
+      setLiveApprovalByDecision(new Map());
     }
   }, [accountId]);
 
   useEffect(() => { load(); }, [load]);
 
   const respond = async (row: DecisionRow, response: "allowed" | "rejected") => {
+    // This page's Allow/Reject is a single click by whoever is looking at it
+    // -- fine for a decision only this table gates, but a decision already
+    // sitting in the multi-approver queue (pending_approvals, item 10's
+    // required_approvals) must be resolved THERE, through real quorum, or
+    // one person could rubber-stamp a call the account explicitly configured
+    // to need several sign-offs.
+    const live = liveApprovalByDecision.get(row.id);
+    if (live) {
+      toast({
+        title: "Needs sign-off in the Approvals queue",
+        description: `This decision requires ${live.requiredApprovals} approval${live.requiredApprovals === 1 ? "" : "s"} (${live.signOffs} recorded so far) — resolve it from Control System → Approvals, not here.`,
+        variant: "destructive",
+      });
+      return;
+    }
     setBusy(row.id);
-    const { error } = await supabase
+    // RLS only lets the account OWNER write human_response (team members can
+    // read this page but not this column) -- a team member's update matches
+    // zero rows and comes back with no `error` at all, so the affected row
+    // count (via .select()) is checked explicitly instead of trusting a
+    // clean response to mean the write actually happened.
+    const { data, error } = await supabase
       .from("agent_decisions")
       .update({ human_response: response })
-      .eq("id", row.id);
+      .eq("id", row.id)
+      .select("id");
     setBusy(null);
     if (error) {
       toast({ title: "Couldn't record that", description: error.message, variant: "destructive" });
+      return;
+    }
+    if (!data || data.length === 0) {
+      toast({
+        title: "Not recorded",
+        description: "You don't have permission to respond to this decision — only the account owner can.",
+        variant: "destructive",
+      });
       return;
     }
     toast({ title: response === "allowed" ? "Allowed" : "Rejected", description: "Response recorded on the decision." });
@@ -295,22 +347,31 @@ export default function ControlPendingDecisions() {
                   </td>
                   <td className="py-3 pr-3 font-mono text-[11px] text-zinc-400">{row.confidence_score}%</td>
                   <td className="py-3">
-                    <div className="flex gap-2">
+                    {liveApprovalByDecision.has(row.id) ? (
                       <button
-                        disabled={busy === row.id}
-                        onClick={() => respond(row, "allowed")}
-                        className="flex items-center gap-1 rounded border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 font-mono text-[11px] uppercase text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-50"
+                        onClick={() => navigate("/control-system/approvals")}
+                        className="flex items-center gap-1 rounded border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 font-mono text-[10px] uppercase text-amber-300 hover:bg-amber-500/20"
                       >
-                        <Check className="h-3.5 w-3.5" /> Allow
+                        {liveApprovalByDecision.get(row.id)!.signOffs}/{liveApprovalByDecision.get(row.id)!.requiredApprovals} sign-offs — go to Approvals
                       </button>
-                      <button
-                        disabled={busy === row.id}
-                        onClick={() => respond(row, "rejected")}
-                        className="flex items-center gap-1 rounded border border-rose-500/40 bg-rose-500/10 px-2.5 py-1 font-mono text-[11px] uppercase text-rose-300 hover:bg-rose-500/20 disabled:opacity-50"
-                      >
-                        <X className="h-3.5 w-3.5" /> Reject
-                      </button>
-                    </div>
+                    ) : (
+                      <div className="flex gap-2">
+                        <button
+                          disabled={busy === row.id}
+                          onClick={() => respond(row, "allowed")}
+                          className="flex items-center gap-1 rounded border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 font-mono text-[11px] uppercase text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-50"
+                        >
+                          <Check className="h-3.5 w-3.5" /> Allow
+                        </button>
+                        <button
+                          disabled={busy === row.id}
+                          onClick={() => respond(row, "rejected")}
+                          className="flex items-center gap-1 rounded border border-rose-500/40 bg-rose-500/10 px-2.5 py-1 font-mono text-[11px] uppercase text-rose-300 hover:bg-rose-500/20 disabled:opacity-50"
+                        >
+                          <X className="h-3.5 w-3.5" /> Reject
+                        </button>
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}
