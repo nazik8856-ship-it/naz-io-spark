@@ -481,6 +481,14 @@ export async function createPendingApproval(
     const { data } = await admin.from("pending_approvals").insert({
       user_id: input.userId,
       decision_id: input.decisionId,
+      // Pillar 3 top-10 item 4: previously only used in-memory to decide
+      // whether to auto-resolve at creation time, then discarded --
+      // stuck-approval-sweep had no way to find this row's api key later
+      // except by joining through decision_id, which some rows never end up
+      // with (control-engine's auto_narrow "modify" flow, when logDecision
+      // itself doesn't return an id). Persisting it here makes the row
+      // itself the source of truth, decision_id or not.
+      api_key_id: input.apiKeyId ?? null,
       requester_id: input.userId,
       agent_id: input.agentId ?? null,
       run_id: input.runId ?? null,
