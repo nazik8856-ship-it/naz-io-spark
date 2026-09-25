@@ -150,4 +150,19 @@ describe("recentGateErrors", () => {
   it("no gate_error rows returns an empty array, not a crash", () => {
     expect(recentGateErrors([{ source: "hard_rule", reasoning: "x", created_at: "2026-08-20T00:00:00Z" }])).toEqual([]);
   });
+
+  // Correctness-audit fix (Pillar 5): gate_error_fail_open is the exact same
+  // gate-itself-crashed event as gate_error, just for a key configured to
+  // fail open instead of closed -- excluding it understated both this list
+  // and the uptime percentage's error count.
+  it("also includes gate_error_fail_open rows, not just gate_error", () => {
+    const rows = [
+      { source: "gate_error", reasoning: "provider timeout", created_at: "2026-08-25T00:00:00Z" },
+      { source: "gate_error_fail_open", reasoning: "failed open per key policy", created_at: "2026-08-27T00:00:00Z" },
+      { source: "hard_rule", reasoning: "blocked on purpose", created_at: "2026-08-26T00:00:00Z" },
+    ];
+    const result = recentGateErrors(rows);
+    expect(result).toHaveLength(2);
+    expect(result[0]).toEqual({ reasoning: "failed open per key policy", created_at: "2026-08-27T00:00:00Z" });
+  });
 });

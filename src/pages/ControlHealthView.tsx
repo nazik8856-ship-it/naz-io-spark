@@ -5,7 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { toast } from "@/hooks/use-toast";
-import { pctOf, alertDeliverySplit, isTrendingDown, gateLatencyStats, isAuditIntegritySweepFailing, engineUptimeStats, recentGateErrors, type GateLatencyStats, type AuditIntegrityRunSummary, type GateErrorEvent } from "@/lib/control-health";
+import { pctOf, alertDeliverySplit, isTrendingDown, gateLatencyStats, isAuditIntegritySweepFailing, engineUptimeStats, recentGateErrors, GATE_ERROR_SOURCES, type GateLatencyStats, type AuditIntegrityRunSummary, type GateErrorEvent } from "@/lib/control-health";
 import { computeSlaStats, type SlaStats } from "@/lib/approval-sla";
 import { actorName, buildActorNameMap } from "@/lib/actor-names";
 import { classifyAnomalyCoverage } from "@/lib/anomaly-coverage";
@@ -66,7 +66,7 @@ export default function ControlHealthView() {
     setLoading(true);
     const since = new Date(Date.now() - WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
-    const [decisions, alerts, breakers, runs, incidents, resolvedApprovals, members, anomalyTotalRes, anomalyAgentlessRes, auditRunRes, correlatedRes] = await Promise.all([
+    const [decisions, alerts, breakers, runs, incidents, resolvedApprovals, members, anomalyTotalRes, anomalyAgentlessRes, auditRunRes, correlatedRes, cleanAllowRes] = await Promise.all([
       anyDb.from("agent_decisions").select("source, gate_duration_ms, reasoning, created_at").eq("user_id", accountId).gte("created_at", since),
       supabase.from("critical_alerts").select("delivered_via").eq("user_id", accountId).gte("created_at", since),
       supabase.from("circuit_breakers").select("action_type, tripped, failure_rate, trip_count").eq("user_id", accountId).eq("tripped", true),
@@ -78,11 +78,26 @@ export default function ControlHealthView() {
       anyDb.from("agent_decisions").select("id", { count: "exact", head: true }).eq("user_id", accountId).gte("created_at", since).is("agent_id", null),
       anyDb.from("audit_integrity_runs").select("mismatched_count, unsigned, created_at").eq("user_id", accountId).order("created_at", { ascending: false }).limit(1),
       anyDb.from("incidents").select("id", { count: "exact", head: true }).eq("user_id", accountId).eq("status", "open").eq("kind", "correlated_breaker_trip"),
+      // Correctness-audit fix: a clean mode="fast" allow never gets its own
+      // agent_decisions row (see clean_allow_counts's own migration comment)
+      // -- without folding this into the denominator, an account seeing
+      // mostly clean fast-mode traffic reports a gate-error rate/uptime far
+      // worse than reality, since almost all of its real successful calls
+      // are invisible to `total` while every failure still shows up above.
+      // Same fix already applied to the platform-wide /status route and the
+      // per-key api-keys performance report.
+      anyDb.from("clean_allow_counts").select("count").eq("user_id", accountId).gte("window_start", since),
     ]);
 
     const decisionRows = (decisions.data ?? []) as { source: string; gate_duration_ms: number | null; reasoning: string | null; created_at: string }[];
-    const total = decisionRows.length;
-    const gateErrors = decisionRows.filter((d) => d.source === "gate_error").length;
+    const extraCleanAllows = ((cleanAllowRes.data ?? []) as { count: number }[]).reduce((sum, r) => sum + r.count, 0);
+    const total = decisionRows.length + Math.max(0, extraCleanAllows);
+    // Correctness-audit fix: "gate_error" alone was only ever half the
+    // crash signal -- gate_error_fail_open is the exact same gate-itself-
+    // threw event, just for a key configured to fail open. Both already
+    // count as downtime for the platform-wide status route and the per-key
+    // report; this stat silently missed the fail-open half.
+    const gateErrors = decisionRows.filter((d) => GATE_ERROR_SOURCES.has(d.source)).length;
     setTotalDecisions(total);
     setGateErrorCount(gateErrors);
     setGateErrorPct(pctOf(gateErrors, total));
