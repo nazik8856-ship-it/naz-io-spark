@@ -1,7 +1,7 @@
 // Real tests for per-user notification recipient resolution.
 //
 // Run with: deno test --allow-none supabase/functions/_shared/notification-preferences_test.ts
-import { resolveNotificationRecipients } from "./notification-preferences.ts";
+import { resolveNotificationRecipients, resolveAssignedRecipient } from "./notification-preferences.ts";
 
 function assert(cond: boolean, msg = "assertion failed"): asserts cond {
   if (!cond) throw new Error(msg);
@@ -91,4 +91,101 @@ Deno.test("critical_alert_email_enabled: a team member who explicitly opted in D
     "critical_alert_email_enabled",
   );
   assertEquals(recipients, [{ recipientId: "owner-1", email: "owner@x.com" }, { recipientId: "member-1", email: "teammate@x.com" }]);
+});
+
+// ---- resolveAssignedRecipient (Pillar 4) -----------------------------------
+// An approval's assigned_to is a real, human-set delegation, but nothing
+// that actually sends a notification looked at it -- these exercise the
+// OOO+fallback redirect logic, re-checked at notification time (not merely
+// trusted from whenever the assignment itself was made).
+
+// deno-lint-ignore no-explicit-any
+type AnyRow = Record<string, any>;
+
+class FakeMemberQuery {
+  filters: Record<string, unknown> = {};
+  constructor(private rows: AnyRow[]) {}
+  select() { return this; }
+  eq(col: string, val: unknown) { this.filters[col] = val; return this; }
+  async maybeSingle() {
+    const row = this.rows.find((r) => Object.entries(this.filters).every(([k, v]) => r[k] === v));
+    return { data: row ?? null, error: null };
+  }
+}
+
+function fakeAdminFor(accountMembers: AnyRow[], ownerEmail: string | null = "owner@x.com") {
+  return {
+    auth: { admin: { getUserById: async (_id: string) => ({ data: { user: ownerEmail ? { email: ownerEmail } : null } }) } },
+    from(table: string) {
+      if (table === "account_members") return new FakeMemberQuery(accountMembers);
+      return new FakeMemberQuery([]);
+    },
+    // deno-lint-ignore no-explicit-any
+  } as any;
+}
+
+Deno.test("resolveAssignedRecipient: no assignee at all resolves to null", async () => {
+  const admin = fakeAdminFor([]);
+  assertEquals(await resolveAssignedRecipient(admin, "owner-1", null), null);
+  assertEquals(await resolveAssignedRecipient(admin, "owner-1", undefined), null);
+});
+
+Deno.test("resolveAssignedRecipient: assigned to the account owner resolves their own email", async () => {
+  const admin = fakeAdminFor([], "owner@x.com");
+  const recipient = await resolveAssignedRecipient(admin, "owner-1", "owner-1");
+  assertEquals(recipient, { recipientId: "owner-1", email: "owner@x.com" });
+});
+
+Deno.test("resolveAssignedRecipient: an active, non-OOO member resolves to themself", async () => {
+  const admin = fakeAdminFor([
+    { account_owner_id: "owner-1", member_id: "member-1", email: "reviewer@x.com", status: "active", ooo_until: null, ooo_fallback_member_id: null },
+  ]);
+  const recipient = await resolveAssignedRecipient(admin, "owner-1", "member-1");
+  assertEquals(recipient, { recipientId: "member-1", email: "reviewer@x.com" });
+});
+
+Deno.test("resolveAssignedRecipient: an OOO member with a valid active fallback redirects to the fallback", async () => {
+  const future = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const admin = fakeAdminFor([
+    { account_owner_id: "owner-1", member_id: "member-1", email: "reviewer@x.com", status: "active", ooo_until: future, ooo_fallback_member_id: "member-2" },
+    { account_owner_id: "owner-1", member_id: "member-2", email: "fallback@x.com", status: "active" },
+  ]);
+  const recipient = await resolveAssignedRecipient(admin, "owner-1", "member-1");
+  assertEquals(recipient, { recipientId: "member-2", email: "fallback@x.com" });
+});
+
+Deno.test("resolveAssignedRecipient: OOO with a fallback that is no longer active falls back to the original assignee", async () => {
+  const future = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const admin = fakeAdminFor([
+    { account_owner_id: "owner-1", member_id: "member-1", email: "reviewer@x.com", status: "active", ooo_until: future, ooo_fallback_member_id: "member-2" },
+  ]);
+  const recipient = await resolveAssignedRecipient(admin, "owner-1", "member-1");
+  assertEquals(recipient, { recipientId: "member-1", email: "reviewer@x.com" });
+});
+
+Deno.test("resolveAssignedRecipient: an OOO period that has already ended is not redirected", async () => {
+  const past = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const admin = fakeAdminFor([
+    { account_owner_id: "owner-1", member_id: "member-1", email: "reviewer@x.com", status: "active", ooo_until: past, ooo_fallback_member_id: "member-2" },
+    { account_owner_id: "owner-1", member_id: "member-2", email: "fallback@x.com", status: "active" },
+  ]);
+  const recipient = await resolveAssignedRecipient(admin, "owner-1", "member-1");
+  assertEquals(recipient, { recipientId: "member-1", email: "reviewer@x.com" });
+});
+
+Deno.test("resolveAssignedRecipient: assigned to a member who is no longer active resolves to null", async () => {
+  const admin = fakeAdminFor([
+    { account_owner_id: "owner-1", member_id: "member-1", email: "reviewer@x.com", status: "revoked", ooo_until: null, ooo_fallback_member_id: null },
+  ]);
+  assertEquals(await resolveAssignedRecipient(admin, "owner-1", "member-1"), null);
+});
+
+Deno.test("resolveAssignedRecipient: OOO redirected to the account owner as fallback resolves the owner's email", async () => {
+  const future = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const admin = fakeAdminFor(
+    [{ account_owner_id: "owner-1", member_id: "member-1", email: "reviewer@x.com", status: "active", ooo_until: future, ooo_fallback_member_id: "owner-1" }],
+    "owner@x.com",
+  );
+  const recipient = await resolveAssignedRecipient(admin, "owner-1", "member-1");
+  assertEquals(recipient, { recipientId: "owner-1", email: "owner@x.com" });
 });

@@ -85,6 +85,26 @@ Deno.test("no Slack connected: alert is still persisted to critical_alerts, deli
   assertEquals(inserted[0].user_id, "user-1");
 });
 
+// Pillar 4: assignedTo threads through to resolveAssignedRecipient's
+// personal, OOO-aware delivery for the specific approval reviewer -- this
+// only exercises that passing it never breaks the normal alert (env vars
+// for the outbound email fetch itself aren't set in this test process, same
+// as sendCriticalAlertEmail's own pre-existing untested fetch call, so this
+// checks non-interference, not the fetch payload itself; resolveAssigned
+// Recipient's own OOO/fallback logic is covered directly in
+// notification-preferences_test.ts).
+Deno.test("assignedTo does not interfere with normal alert persistence", async () => {
+  const { client, inserted } = fakeSupabase({ slackConnected: false });
+  const via = await sendCriticalAlert(client, "user-1", {
+    event: "approval_escalated",
+    summary: "Waiting too long.",
+    assignedTo: "member-1",
+  });
+  assertEquals(via, "log");
+  assertEquals(inserted.length, 1);
+  assertEquals(inserted[0].event, "approval_escalated");
+});
+
 Deno.test("every known CriticalAlertEvent has a real, non-empty label", () => {
   // LABELS is keyed by a string union, so a missing entry is only ever a
   // silent runtime `undefined`, never a compile error — exactly how
