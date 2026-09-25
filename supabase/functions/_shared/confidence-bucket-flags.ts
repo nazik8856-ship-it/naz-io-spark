@@ -12,18 +12,35 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 export type ActiveConfidenceFlag = { bucket_min: number; bucket_max: number };
 
-/** Every currently-active (uncleared) flag for this account. Never throws. */
+type StoredConfidenceFlag = ActiveConfidenceFlag & { api_key_id: string | null };
+
+/**
+ * Every currently-active (uncleared) flag that actually applies to THIS
+ * decision -- a genuine account-wide flag (api_key_id null), or one scoped
+ * to this exact api key. Never throws.
+ *
+ * Correctness-audit fix: flagBucketIfNew has always correctly scoped a flag
+ * to one specific api key when given one (item 5's own stated intent --
+ * "so it's never confused with an account-wide flag or another key's"), but
+ * this loader never filtered by api_key_id at all -- every caller (control-
+ * engine) got every active flag for the whole account, so a miscalibration
+ * flag raised for API Key A's own traffic silently widened the escalation
+ * threshold for API Key B's completely unrelated decisions too, and even
+ * for internal/chat-driven decisions with no api key at all.
+ */
 export async function loadActiveConfidenceBucketFlags(
   admin: SupabaseClient,
   userId: string,
+  apiKeyId: string | null = null,
 ): Promise<ActiveConfidenceFlag[]> {
   try {
     const { data } = await admin
       .from("confidence_bucket_flags")
-      .select("bucket_min, bucket_max")
+      .select("bucket_min, bucket_max, api_key_id")
       .eq("user_id", userId)
       .is("cleared_at", null);
-    return (data ?? []) as ActiveConfidenceFlag[];
+    const rows = (data ?? []) as StoredConfidenceFlag[];
+    return rows.filter((f) => f.api_key_id == null || f.api_key_id === apiKeyId);
   } catch {
     return [];
   }

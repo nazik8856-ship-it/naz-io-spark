@@ -87,12 +87,12 @@ function fakeSupabase(tables: Record<string, Row> = {}) {
   return { client: client as any, inserted };
 }
 
-Deno.test("loadActiveConfidenceBucketFlags: returns the configured rows", async () => {
+Deno.test("loadActiveConfidenceBucketFlags: returns an account-wide flag regardless of apiKeyId", async () => {
   const { client } = fakeSupabase({
-    confidence_bucket_flags: { data: [{ bucket_min: 40, bucket_max: 60 }], error: null },
+    confidence_bucket_flags: { data: [{ bucket_min: 40, bucket_max: 60, api_key_id: null }], error: null },
   });
-  const flags = await loadActiveConfidenceBucketFlags(client, "user-1");
-  assertEquals(flags, [{ bucket_min: 40, bucket_max: 60 }]);
+  assertEquals(await loadActiveConfidenceBucketFlags(client, "user-1"), [{ bucket_min: 40, bucket_max: 60, api_key_id: null }]);
+  assertEquals(await loadActiveConfidenceBucketFlags(client, "user-1", "key-1"), [{ bucket_min: 40, bucket_max: 60, api_key_id: null }]);
 });
 
 Deno.test("loadActiveConfidenceBucketFlags: a query failure returns an empty list, never throws", async () => {
@@ -100,6 +100,56 @@ Deno.test("loadActiveConfidenceBucketFlags: a query failure returns an empty lis
   // deno-lint-ignore no-explicit-any
   const flags = await loadActiveConfidenceBucketFlags(client as any, "user-1");
   assertEquals(flags, []);
+});
+
+// Regression for the cross-key leakage fix: flagBucketIfNew has always
+// correctly scoped a key-specific flag, but loadActiveConfidenceBucketFlags
+// never filtered by it, so control-engine widened every key's threshold
+// using flags meant for a completely different key.
+
+Deno.test("loadActiveConfidenceBucketFlags: a flag scoped to a DIFFERENT api key is excluded", async () => {
+  const { client } = fakeSupabase({
+    confidence_bucket_flags: { data: [{ bucket_min: 40, bucket_max: 60, api_key_id: "key-A" }], error: null },
+  });
+  assertEquals(await loadActiveConfidenceBucketFlags(client, "user-1", "key-B"), []);
+});
+
+Deno.test("loadActiveConfidenceBucketFlags: a flag scoped to THIS api key is included", async () => {
+  const { client } = fakeSupabase({
+    confidence_bucket_flags: { data: [{ bucket_min: 40, bucket_max: 60, api_key_id: "key-A" }], error: null },
+  });
+  assertEquals(await loadActiveConfidenceBucketFlags(client, "user-1", "key-A"), [{ bucket_min: 40, bucket_max: 60, api_key_id: "key-A" }]);
+});
+
+Deno.test("loadActiveConfidenceBucketFlags: an internal/chat-driven call (no api key) only sees account-wide flags, never a key-specific one", async () => {
+  const { client } = fakeSupabase({
+    confidence_bucket_flags: {
+      data: [
+        { bucket_min: 40, bucket_max: 60, api_key_id: "key-A" },
+        { bucket_min: 70, bucket_max: 90, api_key_id: null },
+      ],
+      error: null,
+    },
+  });
+  assertEquals(await loadActiveConfidenceBucketFlags(client, "user-1", null), [{ bucket_min: 70, bucket_max: 90, api_key_id: null }]);
+});
+
+Deno.test("loadActiveConfidenceBucketFlags: a key sees both its own flag and the account-wide one, but not another key's", async () => {
+  const { client } = fakeSupabase({
+    confidence_bucket_flags: {
+      data: [
+        { bucket_min: 10, bucket_max: 20, api_key_id: "key-A" },
+        { bucket_min: 30, bucket_max: 40, api_key_id: "key-B" },
+        { bucket_min: 50, bucket_max: 60, api_key_id: null },
+      ],
+      error: null,
+    },
+  });
+  const flags = await loadActiveConfidenceBucketFlags(client, "user-1", "key-A");
+  assertEquals(flags, [
+    { bucket_min: 10, bucket_max: 20, api_key_id: "key-A" },
+    { bucket_min: 50, bucket_max: 60, api_key_id: null },
+  ]);
 });
 
 Deno.test("flagBucketIfNew: inserts a new flag when none is active for this bucket", async () => {
