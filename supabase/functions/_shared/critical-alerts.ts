@@ -23,7 +23,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { slackPostMessage } from "./provider-writes.ts";
 import { isIncidentWorthy, openIncident } from "./incidents.ts";
-import { resolveNotificationRecipients, type MemberRow, type PreferenceRow } from "./notification-preferences.ts";
+import { resolveNotificationRecipients, resolveAssignedRecipient, type MemberRow, type PreferenceRow } from "./notification-preferences.ts";
 import { reportEdgeMessage } from "./sentry.ts";
 
 export type CriticalAlertEvent =
@@ -49,6 +49,14 @@ export type CriticalAlertEvent =
   // human heard about it was approval-escalated hours later.
   | "approval_created"
   | "approval_escalated"
+  // Pillar 4: agent-runtime's own low-confidence escalation (escalateLowConfidence)
+  // only ever logged an agent_events row and paused -- no sweep, no alert,
+  // nothing outside that specific agent's own cockpit page ever surfaced
+  // it. A rarely-triggered or scheduled agent could sit paused on a real
+  // question indefinitely with zero visibility anywhere. Same "alert
+  // immediately, don't wait for an escalation threshold" posture as
+  // approval_created -- routine human-in-the-loop, not incident-worthy.
+  | "agent_clarification_needed"
   | "confidence_miscalibrated"
   | "break_glass_override"
   | "correlated_breaker_trip"
@@ -110,6 +118,7 @@ export const LABELS: Record<CriticalAlertEvent, string> = {
   gate_error_fail_open: "⚠️ Control gate hit an unexpected error and failed OPEN (per API key policy)",
   approval_created: "📥 A new approval needs a human's review",
   approval_escalated: "⏰ A pending approval has been waiting too long",
+  agent_clarification_needed: "❓ An agent paused mid-run and needs your input",
   confidence_miscalibrated: "📉 The model is overconfident in a real confidence range",
   break_glass_override: "🔓 A blocked action was overridden by a human",
   correlated_breaker_trip: "🕸️ Multiple agents tripped the same circuit breaker",
@@ -224,6 +233,51 @@ async function sendCriticalAlertEmail(
 }
 
 /**
+ * Pillar 4: personal, OOO-aware delivery for the ONE person actually
+ * assigned to review a specific approval -- independent of the general
+ * critical-alert subscriber broadcast above (Slack posts to a shared
+ * channel, not a personal DM, and the assignee may not even be subscribed
+ * to critical-alert emails at all). Sent regardless of whether the
+ * broadcast went to Slack or fell through to log+email, since neither of
+ * those reliably reaches the specific person on the hook. Never throws.
+ */
+async function sendAssignedRecipientEmail(
+  admin: SupabaseClient,
+  userId: string,
+  opts: { event: CriticalAlertEvent; summary: string; decisionId?: string | null; actionType?: string | null; provider?: string | null; assignedTo?: string | null },
+  alertId: string | null,
+): Promise<void> {
+  if (!opts.assignedTo) return;
+  try {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!supabaseUrl || !serviceKey) return;
+
+    const recipient = await resolveAssignedRecipient(admin, userId, opts.assignedTo);
+    if (!recipient) return;
+
+    const link = decisionLink(opts.decisionId);
+    await fetch(`${supabaseUrl}/functions/v1/send-transactional-email`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+      body: JSON.stringify({
+        templateName: "critical-alert",
+        recipientEmail: recipient.email,
+        idempotencyKey: `critical-alert-assigned-${alertId ?? `${userId}-${opts.event}`}-${recipient.recipientId}`,
+        templateData: {
+          eventLabel: LABELS[opts.event],
+          summary: opts.summary,
+          actionType: opts.actionType ?? null,
+          provider: opts.provider ?? null,
+          actor: null,
+          decisionUrl: link,
+        },
+      }),
+    }).catch(() => null);
+  } catch { /* the assignee's personal notification must never break alerting */ }
+}
+
+/**
  * Already opens an incident automatically (via persistAlert -> openIncident)
  * for any event isIncidentWorthy() returns true for -- callers must NEVER
  * also call openIncident directly afterward for the same event. Found
@@ -255,6 +309,11 @@ export async function sendCriticalAlert(
     // approval already escalated once passes this to avoid spawning a new
     // incident every time it re-fires.
     skipIncident?: boolean;
+    // Pillar 4: the specific person (or their OOO fallback) actually on the
+    // hook for this approval, when known -- gets a personal email on top of
+    // the general broadcast below, since neither Slack (a shared channel)
+    // nor the critical-alert subscriber list is guaranteed to reach them.
+    assignedTo?: string | null;
   },
 ): Promise<"slack" | "log"> {
   const link = decisionLink(opts.decisionId);
@@ -304,7 +363,8 @@ export async function sendCriticalAlert(
         text,
       });
       if (res.ok) {
-        await persistAlert(admin, userId, opts, "slack");
+        const slackAlertId = await persistAlert(admin, userId, opts, "slack");
+        await sendAssignedRecipientEmail(admin, userId, opts, slackAlertId);
         return "slack";
       }
       console.error(`[CONTROL ALERT] Slack delivery failed: ${res.summary}`);
@@ -316,5 +376,6 @@ export async function sendCriticalAlert(
   console.error(`[CONTROL ALERT] ${LABELS[opts.event]} — ${text.replace(/\n/g, " | ")}`);
   const alertId = await persistAlert(admin, userId, opts, "log");
   await sendCriticalAlertEmail(admin, userId, opts, alertId);
+  await sendAssignedRecipientEmail(admin, userId, opts, alertId);
   return "log";
 }

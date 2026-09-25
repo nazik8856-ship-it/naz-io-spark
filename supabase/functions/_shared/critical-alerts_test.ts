@@ -85,6 +85,26 @@ Deno.test("no Slack connected: alert is still persisted to critical_alerts, deli
   assertEquals(inserted[0].user_id, "user-1");
 });
 
+// Pillar 4: assignedTo threads through to resolveAssignedRecipient's
+// personal, OOO-aware delivery for the specific approval reviewer -- this
+// only exercises that passing it never breaks the normal alert (env vars
+// for the outbound email fetch itself aren't set in this test process, same
+// as sendCriticalAlertEmail's own pre-existing untested fetch call, so this
+// checks non-interference, not the fetch payload itself; resolveAssigned
+// Recipient's own OOO/fallback logic is covered directly in
+// notification-preferences_test.ts).
+Deno.test("assignedTo does not interfere with normal alert persistence", async () => {
+  const { client, inserted } = fakeSupabase({ slackConnected: false });
+  const via = await sendCriticalAlert(client, "user-1", {
+    event: "approval_escalated",
+    summary: "Waiting too long.",
+    assignedTo: "member-1",
+  });
+  assertEquals(via, "log");
+  assertEquals(inserted.length, 1);
+  assertEquals(inserted[0].event, "approval_escalated");
+});
+
 Deno.test("every known CriticalAlertEvent has a real, non-empty label", () => {
   // LABELS is keyed by a string union, so a missing entry is only ever a
   // silent runtime `undefined`, never a compile error — exactly how
@@ -95,7 +115,7 @@ Deno.test("every known CriticalAlertEvent has a real, non-empty label", () => {
   const knownEvents: CriticalAlertEvent[] = [
     "kill_switch_on", "kill_switch_off", "kill_switch_auto",
     "hard_rule_block", "circuit_breaker_trip", "self_audit_regression",
-    "gate_error", "gate_error_fail_open", "approval_created", "approval_escalated", "confidence_miscalibrated",
+    "gate_error", "gate_error_fail_open", "approval_created", "approval_escalated", "agent_clarification_needed", "confidence_miscalibrated",
     "break_glass_override", "correlated_breaker_trip", "audit_integrity_failure",
     "webhook_delivery_exhausted", "integration_revoked", "control_api_abuse", "auto_resolution_share_spike",
     "precedent_pipeline_stale", "control_api_coordinated_abuse", "on_uncertain_auto_downgraded",
@@ -163,6 +183,16 @@ Deno.test("an incident-worthy event with skipIncident:false (or omitted) opens a
 Deno.test("an approval_created event alerts but does NOT open an incident", async () => {
   const { client, inserted, incidents } = fakeSupabase({ slackConnected: false });
   await sendCriticalAlert(client, "user-1", { event: "approval_created", summary: "needs review", actionType: "send_email" });
+  assertEquals(inserted.length, 1);
+  assertEquals(incidents.length, 0);
+});
+
+// Pillar 4: same routine, expected human-in-the-loop posture as
+// approval_created -- an agent pausing for a low-confidence step is
+// normal operation, not evidence anything is broken.
+Deno.test("an agent_clarification_needed event alerts but does NOT open an incident", async () => {
+  const { client, inserted, incidents } = fakeSupabase({ slackConnected: false });
+  await sendCriticalAlert(client, "user-1", { event: "agent_clarification_needed", summary: "needs your answer" });
   assertEquals(inserted.length, 1);
   assertEquals(incidents.length, 0);
 });

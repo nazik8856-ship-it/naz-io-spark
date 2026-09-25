@@ -28,6 +28,7 @@ type Row = PendingApprovalLike & {
   action_type: string;
   provider: string;
   decision_id: string | null;
+  assigned_to: string | null;
 };
 
 Deno.serve(async (req) => {
@@ -42,7 +43,7 @@ Deno.serve(async (req) => {
 
   const { data: rows, error } = await admin
     .from("pending_approvals")
-    .select("id, user_id, action_type, provider, risk_tier, created_at, escalated_at, status, decision_id")
+    .select("id, user_id, action_type, provider, risk_tier, created_at, escalated_at, status, decision_id, assigned_to")
     .eq("status", "pending");
   if (error) return json({ error: error.message }, 500);
 
@@ -79,6 +80,11 @@ Deno.serve(async (req) => {
       // openIncident() has no dedup logic, so a repeat nudge about the SAME
       // still-stuck approval must not spawn another one.
       skipIncident: isRepeatNudge,
+      // Pillar 4: the whole point of an escalation is that someone specific
+      // needs to look -- if this approval was ever manually delegated,
+      // that person (or their current OOO fallback) gets a personal email
+      // on top of the general subscriber broadcast above.
+      assignedTo: row.assigned_to,
     });
     await triggerWebhooks(admin, row.user_id, "approval_escalated", {
       approval_id: row.id, action_type: row.action_type, provider: row.provider, risk_tier: row.risk_tier,

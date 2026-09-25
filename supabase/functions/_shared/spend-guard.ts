@@ -13,6 +13,7 @@ import { slackPostMessage } from "./provider-writes.ts";
 import { sendCriticalAlert } from "./critical-alerts.ts";
 import { triggerWebhooks } from "./webhooks.ts";
 import { deterministicAlternatives } from "./decision-scoring.ts";
+import { claimRowOnce } from "./idempotency.ts";
 
 export const DEFAULT_DAILY_CAP_USD = 5.0;
 
@@ -294,7 +295,23 @@ async function enforceAccountSpendCap(
   const row = dayRow as { id?: string; warned_at?: string | null; capped_at?: string | null } | null;
 
   // ---- 100% — auto-trip the account-wide kill switch ---------------------
+  // Pillar 4: claim capped_at ATOMICALLY, BEFORE any side effect -- two
+  // concurrent calls both crossing the cap at once (two parallel agent runs
+  // spending right up to it together) previously both read capped_at as
+  // unset and BOTH tripped the kill switch, each logging its own
+  // KILL_SWITCH_ON decision and firing its own critical alert. Only the
+  // caller that actually wins the claim gets to run the real side effects;
+  // a loser sees `claimed === false` and skips them entirely, same
+  // claimRowOnce primitive already used for pending_approvals.executed_at
+  // and the circuit breaker's half_open_claimed_at.
   if (status.spent_usd >= status.cap_usd && !row?.capped_at) {
+    if (!row?.id) {
+      console.error("[SPEND CAP] over cap but no ai_spend_daily row to claim against -- skipping trip");
+      return { ...status, tripped: true, over_cap: true };
+    }
+    const claimed = await claimRowOnce(admin, "ai_spend_daily", row.id, "capped_at");
+    if (!claimed) return { ...status, tripped: true, over_cap: true };
+
     const text =
       `🛑 NazAI daily AI spend cap reached — ${money(status.spent_usd)} of ${money(status.cap_usd)} ` +
       `across ${status.calls} calls today. The kill switch has been switched on automatically: ` +
@@ -333,7 +350,6 @@ async function enforceAccountSpendCap(
         summary: text,
         decisionId: (logged as { id?: string } | null)?.id ?? null,
       });
-      if (row?.id) await admin.from("ai_spend_daily").update({ capped_at: new Date().toISOString() }).eq("id", row.id);
     } catch (err) {
       console.error("[SPEND CAP] failed to trip kill switch:", String((err as Error)?.message || err));
     }
@@ -347,16 +363,16 @@ async function enforceAccountSpendCap(
   // SPEND_WARN_PCT and the in-app SpendCapPanel's warning color, and to
   // give an owner more real runway to react before the automatic stop at
   // 100% rather than a warning that lands only 10 points from the wall.
-  if (status.pct >= 80 && !row?.warned_at && !row?.capped_at) {
-    const text =
-      `⚠️ NazAI daily AI spend is at ${Math.round(status.pct)}% of its cap — ` +
-      `${money(status.spent_usd)} of ${money(status.cap_usd)} across ${status.calls} calls today. ` +
-      `At 100% the kill switch trips automatically and AI actions stop until tomorrow.`;
-    await notifyOrg(admin, userId, text);
-    if (row?.id) {
-      try {
-        await admin.from("ai_spend_daily").update({ warned_at: new Date().toISOString() }).eq("id", row.id);
-      } catch (_) { /* ignore */ }
+  // Same atomic-claim treatment as the 100% trip above -- two concurrent
+  // calls landing at 80% together previously could both fire the warning.
+  if (status.pct >= 80 && !row?.warned_at && !row?.capped_at && row?.id) {
+    const claimed = await claimRowOnce(admin, "ai_spend_daily", row.id, "warned_at");
+    if (claimed) {
+      const text =
+        `⚠️ NazAI daily AI spend is at ${Math.round(status.pct)}% of its cap — ` +
+        `${money(status.spent_usd)} of ${money(status.cap_usd)} across ${status.calls} calls today. ` +
+        `At 100% the kill switch trips automatically and AI actions stop until tomorrow.`;
+      await notifyOrg(admin, userId, text);
     }
     return { ...status, warned: true };
   }
@@ -383,7 +399,17 @@ async function enforceAgentSpendCap(
     .maybeSingle();
   const row = dayRow as { id?: string; warned_at?: string | null; capped_at?: string | null } | null;
 
+  // Pillar 4: same atomic-claim fix as enforceAccountSpendCap above -- see
+  // its own comment for why capped_at/warned_at must be claimed BEFORE any
+  // side effect, not updated after.
   if (status.spent_usd >= status.cap_usd && !row?.capped_at) {
+    if (!row?.id) {
+      console.error("[SPEND CAP] agent over cap but no ai_spend_daily row to claim against -- skipping trip");
+      return;
+    }
+    const claimed = await claimRowOnce(admin, "ai_spend_daily", row.id, "capped_at");
+    if (!claimed) return;
+
     const text =
       `🛑 Agent-level AI spend cap reached for one agent — ${money(status.spent_usd)} of ${money(status.cap_usd)} ` +
       `across ${status.calls} calls today. This agent's kill switch has been switched on automatically: ` +
@@ -429,7 +455,6 @@ async function enforceAgentSpendCap(
         summary: text,
         decisionId: (logged as { id?: string } | null)?.id ?? null,
       });
-      if (row?.id) await admin.from("ai_spend_daily").update({ capped_at: new Date().toISOString() }).eq("id", row.id);
     } catch (err) {
       console.error("[SPEND CAP] failed to trip agent kill switch:", String((err as Error)?.message || err));
     }
@@ -438,16 +463,14 @@ async function enforceAgentSpendCap(
   }
 
   // Same 80% threshold as the account-wide warning above (was 90%).
-  if (status.pct >= 80 && !row?.warned_at && !row?.capped_at) {
-    const text =
-      `⚠️ One agent's AI spend is at ${Math.round(status.pct)}% of its own cap — ` +
-      `${money(status.spent_usd)} of ${money(status.cap_usd)} across ${status.calls} calls today. ` +
-      `At 100% that agent's kill switch trips automatically; other agents are unaffected.`;
-    await notifyOrg(admin, userId, text);
-    if (row?.id) {
-      try {
-        await admin.from("ai_spend_daily").update({ warned_at: new Date().toISOString() }).eq("id", row.id);
-      } catch (_) { /* ignore */ }
+  if (status.pct >= 80 && !row?.warned_at && !row?.capped_at && row?.id) {
+    const claimed = await claimRowOnce(admin, "ai_spend_daily", row.id, "warned_at");
+    if (claimed) {
+      const text =
+        `⚠️ One agent's AI spend is at ${Math.round(status.pct)}% of its own cap — ` +
+        `${money(status.spent_usd)} of ${money(status.cap_usd)} across ${status.calls} calls today. ` +
+        `At 100% that agent's kill switch trips automatically; other agents are unaffected.`;
+      await notifyOrg(admin, userId, text);
     }
   }
 }
