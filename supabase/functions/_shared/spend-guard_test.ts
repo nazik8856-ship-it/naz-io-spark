@@ -278,3 +278,91 @@ Deno.test("recordAiSpend: apiKeyId omitted sends _api_key_id: null, never undefi
   const call = rpcCalls.find((c) => c.name === "record_ai_spend");
   assertEquals((call!.args as { _api_key_id?: string | null })._api_key_id, null);
 });
+
+// ---- Pillar 4: atomic capped_at/warned_at claim (TOCTOU race fix) ----------
+// enforceAccountSpendCap/enforceAgentSpendCap previously read capped_at,
+// then ran the kill-switch trip + decision log + alert, THEN wrote
+// capped_at -- two concurrent calls both crossing the cap together could
+// each independently trip and each log/alert. claimRowOnce now claims
+// capped_at ATOMICALLY first; a second, losing caller must see zero side
+// effects. Sequenced fake: the first `ai_spend_daily` read still finds
+// capped_at unset, but the update-based claim (`.is("capped_at", null)`)
+// comes back empty, exactly like a real losing UPDATE ... WHERE capped_at
+// IS NULL would once a concurrent winner already claimed it.
+
+class SequencedFakeQuery implements PromiseLike<Row> {
+  constructor(private resolve: () => Row) {}
+  select() { return this; }
+  eq() { return this; }
+  is() { return this; }
+  order() { return this; }
+  limit() { return this; }
+  insert() { return this; }
+  update() { return this; }
+  maybeSingle() { return this; }
+  single() { return this; }
+  // deno-lint-ignore no-explicit-any
+  then<TResult1 = Row, TResult2 = never>(
+    onfulfilled?: ((value: Row) => TResult1 | PromiseLike<TResult1>) | null,
+    onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
+    // deno-lint-ignore no-explicit-any
+  ): any {
+    return Promise.resolve(this.resolve()).then(onfulfilled ?? undefined, onrejected ?? undefined);
+  }
+}
+
+function fakeSupabaseLosingClaim() {
+  const calls: { table: string }[] = [];
+  let aiSpendDailyCallCount = 0;
+  const client = {
+    from(table: string) {
+      calls.push({ table });
+      if (table === "ai_spend_caps") {
+        return new SequencedFakeQuery(() => ({ data: { daily_cap_usd: 5, enabled: true }, error: null }));
+      }
+      if (table === "ai_spend_daily") {
+        aiSpendDailyCallCount++;
+        // 1st call: enforceAccountSpendCap's own read -- capped_at still null.
+        // 2nd call: claimRowOnce's atomic update -- a concurrent winner
+        // already claimed it, so the UPDATE ... WHERE capped_at IS NULL
+        // matches zero rows.
+        if (aiSpendDailyCallCount === 1) return new SequencedFakeQuery(() => ({ data: { id: "d1", warned_at: null, capped_at: null }, error: null }));
+        return new SequencedFakeQuery(() => ({ data: null, error: null }));
+      }
+      return new SequencedFakeQuery(() => ({ data: null, error: null }));
+    },
+    rpc() { return new SequencedFakeQuery(() => ({ data: null, error: null })); },
+  };
+  // deno-lint-ignore no-explicit-any
+  return { client: client as any, calls };
+}
+
+Deno.test("recordAiSpend: losing the capped_at claim to a concurrent caller skips the kill-switch trip entirely", async () => {
+  const { client, calls } = fakeSupabaseLosingClaim();
+  await recordAiSpend(client, "user-1", "openai/gpt-5-mini", { prompt_tokens: 100, completion_tokens: 100 }, "test", null);
+  assertFalse(calls.some((c) => c.table === "profiles"), "a losing claim must never flip the kill switch");
+  assertFalse(calls.some((c) => c.table === "agent_decisions"), "a losing claim must never log a duplicate KILL_SWITCH_ON decision");
+});
+
+function fakeSupabaseWinningClaim() {
+  const calls: { table: string }[] = [];
+  const client = {
+    from(table: string) {
+      calls.push({ table });
+      if (table === "ai_spend_caps") return new SequencedFakeQuery(() => ({ data: { daily_cap_usd: 5, enabled: true }, error: null }));
+      if (table === "ai_spend_daily") return new SequencedFakeQuery(() => ({ data: { id: "d1", warned_at: null, capped_at: null }, error: null }));
+      if (table === "agent_decisions") return new SequencedFakeQuery(() => ({ data: { id: "decision-1" }, error: null }));
+      return new SequencedFakeQuery(() => ({ data: null, error: null }));
+    },
+    rpc() { return new SequencedFakeQuery(() => ({ data: null, error: null })); },
+  };
+  // deno-lint-ignore no-explicit-any
+  return { client: client as any, calls };
+}
+
+Deno.test("recordAiSpend: winning the capped_at claim still trips the kill switch normally", async () => {
+  const { client, calls } = fakeSupabaseWinningClaim();
+  await recordAiSpend(client, "user-1", "openai/gpt-5-mini", { prompt_tokens: 100, completion_tokens: 100 }, "test", null);
+  assert(calls.some((c) => c.table === "profiles"), "the winning claim must still flip the kill switch");
+  assert(calls.some((c) => c.table === "agent_decisions"), "the winning claim must still log the KILL_SWITCH_ON decision");
+});
