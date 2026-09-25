@@ -71,6 +71,16 @@ export function isAuditIntegritySweepFailing(latest: AuditIntegrityRunSummary): 
 // purpose (hard_rule/safety_scanner/kill_switch/etc, none of which are
 // gate_error). Uptime is that count's complement -- the customer-facing
 // framing every status page uses -- not a new signal.
+//
+// Pillar 5 correctness-audit fix: "gate_error" alone was only ever HALF the
+// crash signal -- "gate_error_fail_open" is the exact same gate-itself-threw
+// event, just for a key configured to fail open instead of closed. The
+// platform-wide /control-api/v1/status route and the per-key api-keys
+// performance report both already count both sources (see key-performance.
+// ts's own GATE_ERROR_SOURCES); this file's uptime/recent-errors stats
+// silently excluded gate_error_fail_open, understating the real error rate.
+export const GATE_ERROR_SOURCES = new Set(["gate_error", "gate_error_fail_open"]);
+
 export type EngineUptimeStats = { uptimePct: number | null; errorCount: number; total: number };
 
 /**
@@ -86,18 +96,18 @@ export function engineUptimeStats(errorCount: number, total: number): EngineUpti
 export type GateErrorEvent = { reasoning: string | null; created_at: string };
 
 /**
- * Pure -- the most recent gate_error decisions, newest first, capped. Gives
- * a customer the WHAT (what actually failed) behind the uptime percentage,
- * not just a number -- a 99.8% 30-day uptime could be one blip 29 days ago
- * or an ongoing problem today, and only the actual recent events tell them
- * which.
+ * Pure -- the most recent gate-crash decisions (gate_error or
+ * gate_error_fail_open), newest first, capped. Gives a customer the WHAT
+ * (what actually failed) behind the uptime percentage, not just a number --
+ * a 99.8% 30-day uptime could be one blip 29 days ago or an ongoing problem
+ * today, and only the actual recent events tell them which.
  */
 export function recentGateErrors<T extends { source: string; reasoning: string | null; created_at: string }>(
   rows: T[],
   limit = 5,
 ): GateErrorEvent[] {
   return rows
-    .filter((r) => r.source === "gate_error")
+    .filter((r) => GATE_ERROR_SOURCES.has(r.source))
     .slice()
     .sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0))
     .slice(0, limit)

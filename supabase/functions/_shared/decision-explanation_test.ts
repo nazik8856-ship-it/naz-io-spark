@@ -115,6 +115,15 @@ Deno.test("buildDecisionExplanation: an unrecognized source falls back to quotin
   assert(text.includes('"some_future_source"'));
 });
 
+// Regression for the Pillar 4 fix that added this source: it was missing
+// from SOURCE_LABELS, so the "Why" panel fell through to the raw
+// `"control_engine_unreachable"` quoting above instead of a real sentence.
+Deno.test("buildDecisionExplanation: control_engine_unreachable gets a real label, not the raw-string fallback", () => {
+  const text = buildDecisionExplanation(baseInput({ source: "control_engine_unreachable", escalated: true }));
+  assert(!text.includes('"control_engine_unreachable"'));
+  assert(text.includes("control engine being unreachable"));
+});
+
 // Regression for item 3: record_approval_signoff (backing both a normal
 // escalation's resolution and a later /dispute re-review) never writes back
 // to agent_decisions.human_response -- so without consulting

@@ -1109,7 +1109,7 @@ serve(async (req) => {
     // weekly job, on real measured outcomes) widens the effective threshold
     // for any decision scored inside that exact range, until a human
     // clears the flag -- fail toward more review, never less.
-    const activeConfidenceFlags = await loadActiveConfidenceBucketFlags(supabase, accountId);
+    const activeConfidenceFlags = await loadActiveConfidenceBucketFlags(supabase, accountId, trustedApiKeyId);
     // "Knowledge & autonomy" plan, item 9: the SAME per-action-type
     // override list item 10 (last round) already uses for on_uncertain,
     // applied here to the confidence threshold -- a REPLACEMENT of the

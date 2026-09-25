@@ -95,6 +95,7 @@ const SOURCE_LABELS: Record<string, string> = {
   gate_error: "an unexpected error in NazAI's own gate (failed closed)",
   gate_error_fail_open: "an unexpected error in NazAI's own gate (this key is configured to fail open)",
   platform_kill_switch: "NazAI's platform-wide emergency stop",
+  control_engine_unreachable: "the control engine being unreachable, so this ran through the deterministic gate only, with no full model review",
 };
 
 // KillSwitchPanel.tsx logs a switch TOGGLE itself (distinct from
