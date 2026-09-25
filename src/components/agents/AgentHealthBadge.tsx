@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Activity } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/hooks/useAuth";
+import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { computeAgentHealth, type RiskLabel } from "@/lib/agent-health";
 
 const WINDOW_DAYS = 30;
@@ -26,11 +26,11 @@ const RISK_LABEL: Record<RiskLabel, string> = {
  * agent_decisions / pending_approvals rows the control gate already writes.
  */
 export default function AgentHealthBadge({ agentId }: { agentId: string }) {
-  const { user } = useAuth();
+  const { accountId } = useActiveAccount();
   const [state, setState] = useState<{ score: number; risk: RiskLabel } | null>(null);
 
   useEffect(() => {
-    if (!user) return;
+    if (!accountId) return;
     let cancelled = false;
     const since = new Date(Date.now() - WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
@@ -39,14 +39,14 @@ export default function AgentHealthBadge({ agentId }: { agentId: string }) {
         supabase
           .from("agent_decisions")
           .select("source")
-          .eq("user_id", user.id)
+          .eq("user_id", accountId)
           .eq("agent_id", agentId)
           .gte("created_at", since)
           .in("source", ["anomaly_detector", "circuit_breaker_trip"]),
         supabase
           .from("pending_approvals")
           .select("status")
-          .eq("user_id", user.id)
+          .eq("user_id", accountId)
           .eq("agent_id", agentId)
           .gte("created_at", since)
           .in("status", ["approved", "rejected"]),
@@ -65,7 +65,7 @@ export default function AgentHealthBadge({ agentId }: { agentId: string }) {
     })();
 
     return () => { cancelled = true; };
-  }, [agentId, user]);
+  }, [agentId, accountId]);
 
   if (!state) return null;
 
