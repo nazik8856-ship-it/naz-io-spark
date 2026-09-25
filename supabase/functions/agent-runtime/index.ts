@@ -19,6 +19,7 @@ import { timingSafeEqual } from "../_shared/timing-safe.ts";
 import { recordAiSpend, estimateCostUsd } from "../_shared/spend-guard.ts";
 import { pickAiGateway, callAiGateway, type GatewayConfig } from "../_shared/ai-gateway.ts";
 import { triggerWebhooks } from "../_shared/webhooks.ts";
+import { sendCriticalAlert } from "../_shared/critical-alerts.ts";
 import { validateOutboundUrl } from "../_shared/url-safety.ts";
 import { reportEdgeException } from "../_shared/sentry.ts";
 import { deriveRunOutcome, type AgentEvent } from "../_shared/agent-outcome.ts";
@@ -881,6 +882,21 @@ serve(async (req) => {
         confidence_score: args.score,
         threshold: confidenceThreshold,
       });
+      // Pillar 4: this used to be the ONLY signal that the agent needs a
+      // human at all -- nothing sweeps or alerts on a paused agent_events
+      // row, so a rarely-triggered or scheduled agent could sit here
+      // indefinitely with zero visibility outside its own cockpit page.
+      // Fires immediately, same "don't wait for an escalation threshold"
+      // posture as a genuine pending_approvals row's approval_created alert.
+      try {
+        await sendCriticalAlert(supabase, userId, {
+          event: "agent_clarification_needed",
+          summary: `An agent paused mid-run, only ${args.score}% sure about "${args.decisionText}" — it needs your answer to continue.`,
+          decisionId: args.decisionId,
+          actionType: null,
+          provider: null,
+        });
+      } catch { /* alerting must never break the pause itself */ }
       return { outcome: "paused" };
     };
 

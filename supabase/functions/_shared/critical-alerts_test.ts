@@ -115,7 +115,7 @@ Deno.test("every known CriticalAlertEvent has a real, non-empty label", () => {
   const knownEvents: CriticalAlertEvent[] = [
     "kill_switch_on", "kill_switch_off", "kill_switch_auto",
     "hard_rule_block", "circuit_breaker_trip", "self_audit_regression",
-    "gate_error", "gate_error_fail_open", "approval_created", "approval_escalated", "confidence_miscalibrated",
+    "gate_error", "gate_error_fail_open", "approval_created", "approval_escalated", "agent_clarification_needed", "confidence_miscalibrated",
     "break_glass_override", "correlated_breaker_trip", "audit_integrity_failure",
     "webhook_delivery_exhausted", "integration_revoked", "control_api_abuse", "auto_resolution_share_spike",
     "precedent_pipeline_stale", "control_api_coordinated_abuse", "on_uncertain_auto_downgraded",
@@ -183,6 +183,16 @@ Deno.test("an incident-worthy event with skipIncident:false (or omitted) opens a
 Deno.test("an approval_created event alerts but does NOT open an incident", async () => {
   const { client, inserted, incidents } = fakeSupabase({ slackConnected: false });
   await sendCriticalAlert(client, "user-1", { event: "approval_created", summary: "needs review", actionType: "send_email" });
+  assertEquals(inserted.length, 1);
+  assertEquals(incidents.length, 0);
+});
+
+// Pillar 4: same routine, expected human-in-the-loop posture as
+// approval_created -- an agent pausing for a low-confidence step is
+// normal operation, not evidence anything is broken.
+Deno.test("an agent_clarification_needed event alerts but does NOT open an incident", async () => {
+  const { client, inserted, incidents } = fakeSupabase({ slackConnected: false });
+  await sendCriticalAlert(client, "user-1", { event: "agent_clarification_needed", summary: "needs your answer" });
   assertEquals(inserted.length, 1);
   assertEquals(incidents.length, 0);
 });

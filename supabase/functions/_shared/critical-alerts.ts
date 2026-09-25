@@ -49,6 +49,14 @@ export type CriticalAlertEvent =
   // human heard about it was approval-escalated hours later.
   | "approval_created"
   | "approval_escalated"
+  // Pillar 4: agent-runtime's own low-confidence escalation (escalateLowConfidence)
+  // only ever logged an agent_events row and paused -- no sweep, no alert,
+  // nothing outside that specific agent's own cockpit page ever surfaced
+  // it. A rarely-triggered or scheduled agent could sit paused on a real
+  // question indefinitely with zero visibility anywhere. Same "alert
+  // immediately, don't wait for an escalation threshold" posture as
+  // approval_created -- routine human-in-the-loop, not incident-worthy.
+  | "agent_clarification_needed"
   | "confidence_miscalibrated"
   | "break_glass_override"
   | "correlated_breaker_trip"
@@ -110,6 +118,7 @@ export const LABELS: Record<CriticalAlertEvent, string> = {
   gate_error_fail_open: "⚠️ Control gate hit an unexpected error and failed OPEN (per API key policy)",
   approval_created: "📥 A new approval needs a human's review",
   approval_escalated: "⏰ A pending approval has been waiting too long",
+  agent_clarification_needed: "❓ An agent paused mid-run and needs your input",
   confidence_miscalibrated: "📉 The model is overconfident in a real confidence range",
   break_glass_override: "🔓 A blocked action was overridden by a human",
   correlated_breaker_trip: "🕸️ Multiple agents tripped the same circuit breaker",
