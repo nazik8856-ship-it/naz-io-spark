@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { ArrowLeft, KeyRound, Plus, Copy, Ban, Check, Send, Settings, ChevronDown, ChevronUp, Trash2, MessageSquareText, Zap } from "lucide-react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { ArrowLeft, KeyRound, Plus, Copy, Ban, Check, Send, Settings, ChevronDown, ChevronUp, Trash2, MessageSquareText, Zap, Globe2 } from "lucide-react";
 import { supabase, SUPABASE_FUNCTIONS_URL } from "@/integrations/supabase/client";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { hasPermission } from "@/lib/account-switcher";
@@ -54,6 +54,12 @@ function decisionColorClass(decision: string | null): string {
  */
 export default function ControlApiKeys() {
   const navigate = useNavigate();
+  // Outer Control's setup screen links here with ?for=outer-control so this
+  // page can make the connection explicit -- same key, same scope, this is
+  // simply where every account's keys already live -- rather than the
+  // arrival feeling like a detour into an unrelated feature.
+  const [searchParams] = useSearchParams();
+  const forOuterControl = searchParams.get("for") === "outer-control";
   const { accountId, role, permissions } = useActiveAccount();
   const canWrite = hasPermission(role, permissions, "integrations");
   const [keys, setKeys] = useState<ApiKeyRow[]>([]);
@@ -250,12 +256,14 @@ export default function ControlApiKeys() {
     <div className="min-h-screen w-full text-white" style={{ backgroundColor: "#020617" }}>
       <header className="flex items-center gap-3 border-b border-white/5 px-6 py-4">
         <button
-          onClick={() => navigate("/control-system")}
+          onClick={() => navigate(forOuterControl ? "/control-system/outer" : "/control-system")}
           className="flex items-center gap-2 text-zinc-400 transition-colors hover:text-white"
-          aria-label="Back to Control System"
+          aria-label={forOuterControl ? "Back to Outer Control" : "Back to Control System"}
         >
           <ArrowLeft className="h-5 w-5" />
-          <span className="font-mono text-sm uppercase tracking-wider">Control System</span>
+          <span className="font-mono text-sm uppercase tracking-wider">
+            {forOuterControl ? "Outer Control" : "Control System"}
+          </span>
         </button>
       </header>
 
@@ -269,6 +277,19 @@ export default function ControlApiKeys() {
           can never create, edit, or delete your hard rules, safety rules, spend caps, or approvals from
           outside. See the <button onClick={() => navigate("/control-system/api-docs")} className="text-cyan-400 underline underline-offset-2 hover:text-cyan-300">developer docs</button> for the request/response shape.
         </p>
+
+        {forOuterControl && (
+          <div className="mt-4 flex items-start gap-3 rounded border border-cyan-500/30 bg-cyan-500/[0.06] p-4">
+            <Globe2 className="mt-0.5 h-4 w-4 shrink-0 text-cyan-300" />
+            <p className="text-xs text-cyan-100">
+              You're here to unlock <strong>Outer Control</strong>. A full-access key created below works
+              automatically — no separate setup. Paste it into wherever your external AI tool actually lives
+              (a custom GPT action, a CRM webhook, a support bot), or call{" "}
+              <code className="text-cyan-300">POST /outer-control/evaluate</code> directly, and its verdicts will
+              start showing up on your Outer Control dashboard.
+            </p>
+          </div>
+        )}
 
         {canWrite ? (
           <div className="mt-6 space-y-3 rounded border border-white/10 bg-white/[0.02] p-4">
@@ -316,6 +337,14 @@ export default function ControlApiKeys() {
               Send it as <code className="text-zinc-300">Authorization: Bearer {justCreated.key.slice(0, 12)}…</code>
               {" "}on every request. If you lose it, revoke this key and generate a new one.
             </p>
+            {forOuterControl && (
+              <button
+                onClick={() => navigate("/control-system/outer")}
+                className="mt-3 flex items-center gap-1.5 rounded border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 font-mono text-[11px] uppercase text-cyan-300 hover:bg-cyan-500/20"
+              >
+                <Globe2 className="h-3.5 w-3.5" /> Go to your Outer Control dashboard
+              </button>
+            )}
           </div>
         )}
 
