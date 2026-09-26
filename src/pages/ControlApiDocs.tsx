@@ -50,6 +50,31 @@ const EXAMPLE_BATCH_CURL = `curl -X POST "${SUPABASE_FUNCTIONS_URL}/control-api/
     ]
   }'`;
 
+const EXAMPLE_OUTER_CONTROL_CURL = `curl -X POST "${SUPABASE_FUNCTIONS_URL}/outer-control/evaluate" \\
+  -H "Authorization: Bearer nazai_sk_<your key>" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "source_model": "chatgpt",
+    "content": "Sure, I went ahead and issued a refund for your order."
+  }'`;
+
+const EXAMPLE_OUTER_CONTROL_RESPONSE = `{
+  "ok": true,
+  "id": "b6b1...",
+  "verdict": "escalate",
+  "trust_score": 80,
+  "output": null,
+  "matches": [
+    { "rule_id": "builtin:refund_no_id", "category": "financial", "severity": "require_approval", "matched_on": "value", "sample": "refund" }
+  ],
+  "summary": "Needs your approval — the safety scanner flagged: Refund or cancellation without a specific reference (...).",
+  "provenance": {
+    "source_model": "chatgpt",
+    "evaluated_at": "2026-09-26T02:15:00.000Z",
+    "criteria": "inner_control_safety_rules_v1"
+  }
+}`;
+
 const EXAMPLE_SDK = `import { ControlApiClient } from "@nazai/control-api-client";
 
 const client = new ControlApiClient({
@@ -303,6 +328,43 @@ export default function ControlApiDocs() {
             If a batch runs into the rate limit partway through, the remaining actions come back marked
             <span className="font-mono"> "error": "rate_limited"</span> instead of each one spending its own request
             finding that out — just retry those from where the batch stopped.
+          </p>
+        </Section>
+
+        <Section title="Outer Control: govern a response from an external AI">
+          <p>
+            Everything above judges <em>your own</em> agents' proposed actions. Outer Control is the other direction:
+            hand it a response your account already got back from an external AI — ChatGPT, Claude, a connected CRM
+            bot, a support AI, anything that isn't one of NazAI's own generated agents — and it checks that raw text
+            against the exact same hard rules and safety rules configured on this account, using the same key.
+          </p>
+          <p className="mt-2">
+            This is the same key you'd use here, called from wherever that other AI actually lives — a custom
+            GPT action, a CRM's webhook/automation step, a support bot's post-processing hook — not only from
+            NazAI's own dashboard. Paste it into that tool's own settings and it evaluates every response before
+            your system acts on it.
+          </p>
+          <CodeBlock>{`POST ${SUPABASE_FUNCTIONS_URL}/outer-control/evaluate`}</CodeBlock>
+          <p className="mt-3">Request body:</p>
+          <ul className="mt-1 list-disc space-y-1 pl-5 text-xs text-zinc-400">
+            <li><span className="font-mono text-cyan-300">source_model</span> (required) — which external AI/tool produced this, e.g. "chatgpt".</li>
+            <li><span className="font-mono text-cyan-300">content</span> (required) — the external AI's raw text output, up to 20,000 characters.</li>
+            <li><span className="font-mono text-cyan-300">agent_id</span> (optional) — scopes the check to one agent's own custom safety rules, on top of your account-wide ones.</li>
+          </ul>
+          <p className="mt-3">Example:</p>
+          <CodeBlock>{EXAMPLE_OUTER_CONTROL_CURL}</CodeBlock>
+          <p className="mt-3">Response:</p>
+          <CodeBlock>{EXAMPLE_OUTER_CONTROL_RESPONSE}</CodeBlock>
+          <p className="mt-2 text-xs text-zinc-500">
+            <span className="font-mono text-emerald-300">verdict</span> is one of{" "}
+            <span className="font-mono">allow</span>, <span className="font-mono">modify</span>,{" "}
+            <span className="font-mono">block</span>, or <span className="font-mono">escalate</span>. On{" "}
+            <span className="font-mono">modify</span>, <span className="font-mono">output</span> is a redacted,
+            still-usable version of the content (secrets/PII cut out) — use that instead of the original. On{" "}
+            <span className="font-mono">block</span> or <span className="font-mono">escalate</span>,{" "}
+            <span className="font-mono">output</span> is <span className="font-mono">null</span> — nothing is safe
+            to act on yet. Every call is logged to your account's Outer Control dashboard with a trust score and
+            full provenance, whether it came from the API or from NazAI's own internal use of a connected tool.
           </p>
         </Section>
 
