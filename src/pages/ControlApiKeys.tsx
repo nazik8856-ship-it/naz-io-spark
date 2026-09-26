@@ -6,6 +6,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { hasPermission } from "@/lib/account-switcher";
 import { toast } from "@/hooks/use-toast";
+import { ToastAction } from "@/components/ui/toast";
 import { findStaleResponseRules, RESPONSE_RULE_STALE_WINDOW_DAYS } from "@/lib/response-rule-effectiveness";
 import { extractFunctionErrorMessage } from "@/lib/supabase-function-error";
 import { posthog } from "@/lib/posthog";
@@ -197,6 +198,40 @@ export default function ControlApiKeys() {
     }
   };
 
+  // Fires automatically after every test request, success or failure --
+  // reading the inline result box below is easy to miss, especially once
+  // it's scrolled out of view after a long "Send test request" round trip.
+  // Outer Control's success toast carries a real navigation action (not
+  // just a link in prose) straight to the dashboard that same call now
+  // shows up on, since that's the whole point of running this test.
+  const notifyTestOutcome = (status: number, body: Record<string, unknown>, target: typeof testTarget) => {
+    const ok = status >= 200 && status < 300;
+    if (!ok) {
+      const detail =
+        typeof body.message === "string" ? body.message
+          : typeof body.error === "string" ? body.error
+          : `HTTP ${status || "network error"}`;
+      toast({ title: "Test request failed", description: detail, variant: "destructive" });
+      return;
+    }
+    if (target === "outer_control") {
+      const verdict = typeof body.verdict === "string" ? body.verdict : "unknown";
+      const trust = typeof body.trust_score === "number" ? ` · Trust score: ${body.trust_score}` : "";
+      toast({
+        title: "Outer Control evaluation succeeded",
+        description: `Verdict: ${verdict}${trust}`,
+        action: (
+          <ToastAction altText="Go to the Outer Control dashboard" onClick={() => navigate("/control-system/outer")}>
+            Dashboard
+          </ToastAction>
+        ),
+      });
+      return;
+    }
+    const verdict = typeof body.verdict === "string" ? `Verdict: ${body.verdict}` : `HTTP ${status}`;
+    toast({ title: "Test request succeeded", description: verdict });
+  };
+
   const runTest = async () => {
     if (!testKey.trim()) {
       toast({ title: "Paste a key first", variant: "destructive" });
@@ -218,8 +253,11 @@ export default function ControlApiKeys() {
         });
         const body = await resp.json().catch(() => ({}));
         setTestResult({ status: resp.status, body });
+        notifyTestOutcome(resp.status, body, "outer_control");
       } catch (e) {
-        setTestResult({ status: 0, body: { error: e instanceof Error ? e.message : "Network error" } });
+        const body = { error: e instanceof Error ? e.message : "Network error" };
+        setTestResult({ status: 0, body });
+        notifyTestOutcome(0, body, "outer_control");
       } finally {
         setTestBusy(false);
       }
@@ -241,8 +279,11 @@ export default function ControlApiKeys() {
         });
         const body = await resp.json().catch(() => ({}));
         setTestResult({ status: resp.status, body });
+        notifyTestOutcome(resp.status, body, "respond");
       } catch (e) {
-        setTestResult({ status: 0, body: { error: e instanceof Error ? e.message : "Network error" } });
+        const body = { error: e instanceof Error ? e.message : "Network error" };
+        setTestResult({ status: 0, body });
+        notifyTestOutcome(0, body, "respond");
       } finally {
         setTestBusy(false);
       }
@@ -276,8 +317,11 @@ export default function ControlApiKeys() {
       });
       const body = await resp.json().catch(() => ({}));
       setTestResult({ status: resp.status, body });
+      notifyTestOutcome(resp.status, body, "verdict");
     } catch (e) {
-      setTestResult({ status: 0, body: { error: e instanceof Error ? e.message : "Network error" } });
+      const body = { error: e instanceof Error ? e.message : "Network error" };
+      setTestResult({ status: 0, body });
+      notifyTestOutcome(0, body, "verdict");
     } finally {
       setTestBusy(false);
     }
