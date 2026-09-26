@@ -130,7 +130,12 @@ Deno.serve(async (req) => {
     try {
       const [decisions, events, incidents, alerts, deliveries, approvals, changes, watchObs, responseGenerations, revokedKeys] = await Promise.all([
         admin.from("agent_decisions").delete().eq("user_id", p.id).lt("created_at", cutoff).select("id"),
-        admin.from("agent_events").delete().eq("user_id", p.id).lt("created_at", cutoff).select("id"),
+        // An unresolved 'pending_approval' (resolved_at IS NULL) or an
+        // unanswered 'clarification_request' (no later clarification_answer
+        // referencing it) is still live work -- see this RPC's own comment
+        // (delete_expired_agent_events_protects_unresolved migration) for
+        // why a plain age-based delete here silently stranded either one.
+        admin.rpc("delete_expired_agent_events", { _user_id: p.id, _cutoff: cutoff }),
         admin.from("incidents").delete().eq("user_id", p.id).eq("status", "resolved").lt("resolved_at", cutoff).select("id"),
         admin.from("critical_alerts").delete().eq("user_id", p.id).lt("created_at", cutoff).select("id"),
         admin.from("webhook_deliveries").delete().eq("user_id", p.id).lt("created_at", cutoff).select("id"),
