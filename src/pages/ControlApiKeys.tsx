@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowLeft, KeyRound, Plus, Copy, Ban, Check, Send, Settings, ChevronDown, ChevronUp, Trash2, MessageSquareText, Zap, Globe2 } from "lucide-react";
+import { ArrowLeft, KeyRound, Plus, Copy, Ban, Check, Send, Settings, ChevronDown, ChevronUp, Trash2, MessageSquareText, Zap, Globe2, Mail } from "lucide-react";
 import { supabase, SUPABASE_FUNCTIONS_URL } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
 import { useActiveAccount } from "@/hooks/useActiveAccount";
 import { hasPermission } from "@/lib/account-switcher";
 import { toast } from "@/hooks/use-toast";
@@ -60,6 +61,7 @@ export default function ControlApiKeys() {
   // arrival feeling like a detour into an unrelated feature.
   const [searchParams] = useSearchParams();
   const forOuterControl = searchParams.get("for") === "outer-control";
+  const { user } = useAuth();
   const { accountId, role, permissions } = useActiveAccount();
   const canWrite = hasPermission(role, permissions, "integrations");
   const [keys, setKeys] = useState<ApiKeyRow[]>([]);
@@ -252,8 +254,10 @@ export default function ControlApiKeys() {
     }
   };
 
+  const initial = (user?.email ?? "N")[0]?.toUpperCase() ?? "N";
+
   return (
-    <div className="min-h-screen w-full text-white" style={{ backgroundColor: "#020617" }}>
+    <div className="circuit-bg min-h-screen w-full text-white">
       <header className="flex items-center gap-3 border-b border-white/5 px-6 py-4">
         <button
           onClick={() => navigate(forOuterControl ? "/control-system/outer" : "/control-system")}
@@ -265,6 +269,45 @@ export default function ControlApiKeys() {
             {forOuterControl ? "Outer Control" : "Control System"}
           </span>
         </button>
+
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            onClick={() => navigate("/control-system")}
+            aria-label="Notification preferences"
+            className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400 transition-colors hover:text-white"
+          >
+            <Mail className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => navigate("/account")}
+            aria-label="Account settings"
+            className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400 transition-colors hover:text-white"
+          >
+            <Settings className="h-4 w-4" />
+          </button>
+          {user?.email && (
+            <button
+              onClick={() => navigate("/account")}
+              className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 py-1 pl-1 pr-3 text-xs text-zinc-300 hover:bg-white/10"
+            >
+              <span
+                className="flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-bold text-white"
+                style={{ background: "linear-gradient(135deg, #22d3ee, #34d399)" }}
+              >
+                {initial}
+              </span>
+              <span className="hidden sm:inline">{user.email}</span>
+            </button>
+          )}
+          <button
+            onClick={() => navigate("/dashboard")}
+            className="flex items-center gap-1.5 rounded-full border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider text-cyan-300 hover:bg-cyan-500/20"
+          >
+            <Zap className="h-3.5 w-3.5" />
+            AI Hub
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 status-pulse" />
+          </button>
+        </div>
       </header>
 
       <main className="mx-auto w-full max-w-2xl px-6 py-8">
@@ -279,7 +322,7 @@ export default function ControlApiKeys() {
         </p>
 
         {forOuterControl && (
-          <div className="mt-4 flex items-start gap-3 rounded border border-cyan-500/30 bg-cyan-500/[0.06] p-4">
+          <div className="mt-4 flex items-start gap-3 rounded-xl border border-cyan-500/30 bg-cyan-500/[0.06] p-4">
             <Globe2 className="mt-0.5 h-4 w-4 shrink-0 text-cyan-300" />
             <p className="text-xs text-cyan-100">
               You're here to unlock <strong>Outer Control</strong>. A full-access key created below works
@@ -292,7 +335,7 @@ export default function ControlApiKeys() {
         )}
 
         {canWrite ? (
-          <div className="mt-6 space-y-3 rounded border border-white/10 bg-white/[0.02] p-4">
+          <div className="mt-6 space-y-3 hud-glass rounded-2xl p-4">
             <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
               Key name
               <input
@@ -305,19 +348,19 @@ export default function ControlApiKeys() {
             <button
               disabled={busy}
               onClick={create}
-              className="flex items-center gap-1.5 rounded border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 font-mono text-[11px] uppercase text-cyan-300 hover:bg-cyan-500/20 disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-full border border-cyan-500/40 bg-cyan-500/10 px-4 py-1.5 font-mono text-[11px] uppercase text-cyan-300 hover:bg-cyan-500/20 disabled:opacity-50"
             >
               <Plus className="h-3.5 w-3.5" /> Generate key
             </button>
           </div>
         ) : (
-          <p className="mt-6 rounded border border-white/10 bg-white/[0.02] p-4 text-sm text-zinc-500">
+          <p className="mt-6 hud-glass rounded-2xl p-4 text-sm text-zinc-500">
             Only an account owner can generate or revoke API keys. You can view the keys below.
           </p>
         )}
 
         {justCreated && (
-          <div className="mt-4 rounded border border-amber-500/40 bg-amber-500/10 p-4">
+          <div className="mt-4 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4">
             <p className="font-mono text-[11px] uppercase tracking-wider text-amber-300">
               Copy this now — it won't be shown again
             </p>
@@ -327,7 +370,7 @@ export default function ControlApiKeys() {
               </code>
               <button
                 onClick={copyKey}
-                className="flex shrink-0 items-center gap-1 rounded border border-white/15 px-2 py-1.5 text-[10px] font-mono uppercase text-zinc-300 hover:bg-white/5"
+                className="flex shrink-0 items-center gap-1 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-[10px] font-mono uppercase text-zinc-300 hover:bg-white/10"
               >
                 {copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
                 {copied ? "Copied" : "Copy"}
@@ -340,7 +383,7 @@ export default function ControlApiKeys() {
             {forOuterControl && (
               <button
                 onClick={() => navigate("/control-system/outer")}
-                className="mt-3 flex items-center gap-1.5 rounded border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 font-mono text-[11px] uppercase text-cyan-300 hover:bg-cyan-500/20"
+                className="mt-3 flex items-center gap-1.5 rounded-full border border-cyan-500/40 bg-cyan-500/10 px-4 py-1.5 font-mono text-[11px] uppercase text-cyan-300 hover:bg-cyan-500/20"
               >
                 <Globe2 className="h-3.5 w-3.5" /> Go to your Outer Control dashboard
               </button>
@@ -351,13 +394,13 @@ export default function ControlApiKeys() {
         {loading ? (
           <p className="mt-8 font-mono text-xs uppercase text-zinc-500">Loading…</p>
         ) : keys.length === 0 ? (
-          <p className="mt-6 rounded border border-white/10 bg-white/[0.02] p-4 text-sm text-zinc-500">
+          <p className="mt-6 hud-glass rounded-2xl p-4 text-sm text-zinc-500">
             No API keys yet.
           </p>
         ) : (
           <ul className="mt-6 space-y-3">
             {keys.map((k) => (
-              <li key={k.id} className="rounded border border-white/10 bg-white/[0.02] p-3">
+              <li key={k.id} className="hud-glass rounded-2xl p-4">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <div className="truncate text-sm text-zinc-200">{k.name}</div>
@@ -380,17 +423,17 @@ export default function ControlApiKeys() {
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
                     {k.revoked_at ? (
-                      <span className="rounded border border-white/15 px-2 py-1 text-[10px] font-mono uppercase text-zinc-500">
+                      <span className="rounded-full border border-white/15 px-2.5 py-1 text-[10px] font-mono uppercase text-zinc-500">
                         Revoked
                       </span>
                     ) : (
                       <>
-                        <span className="rounded border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-[10px] font-mono uppercase text-emerald-300">
+                        <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-mono uppercase text-emerald-300 shadow-[0_0_12px_-2px_rgba(52,211,153,0.5)]">
                           Active
                         </span>
                         <button
                           onClick={() => setExpandedKeyId(expandedKeyId === k.id ? null : k.id)}
-                          className="flex items-center gap-1 rounded border border-white/15 px-2 py-1.5 text-[10px] font-mono uppercase text-zinc-300 hover:bg-white/5"
+                          className="flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-[10px] font-mono uppercase text-zinc-300 hover:bg-white/10"
                         >
                           <Settings className="h-3.5 w-3.5" />
                           Settings
@@ -399,7 +442,7 @@ export default function ControlApiKeys() {
                         {canWrite && (
                           <button
                             onClick={() => revoke(k)}
-                            className="flex items-center gap-1 rounded border border-rose-500/30 px-2 py-1.5 text-[10px] font-mono uppercase text-rose-300 hover:bg-rose-500/10"
+                            className="flex items-center gap-1 rounded-full border border-rose-500/40 bg-rose-500/10 px-3 py-1.5 text-[10px] font-mono uppercase text-rose-300 hover:bg-rose-500/20"
                           >
                             <Ban className="h-3.5 w-3.5" /> Revoke
                           </button>
@@ -426,7 +469,7 @@ export default function ControlApiKeys() {
           </ul>
         )}
 
-        <div className="mt-10 rounded border border-white/10 bg-white/[0.02] p-4">
+        <div className="mt-10 hud-glass rounded-2xl p-4">
           <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-200">
             <Send className="h-4 w-4 text-cyan-400" /> Test the API
           </h2>
