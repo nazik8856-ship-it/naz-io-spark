@@ -19,14 +19,16 @@ type EvaluationRow = {
   created_at: string;
 };
 
-const VERDICT_STYLE: Record<Verdict, { label: string; dot: string; text: string; border: string; bg: string }> = {
-  allow: { label: "Allow", dot: "bg-emerald-400", text: "text-emerald-300", border: "border-emerald-500/40", bg: "bg-emerald-500/10" },
-  modify: { label: "Modify", dot: "bg-cyan-400", text: "text-cyan-300", border: "border-cyan-500/40", bg: "bg-cyan-500/10" },
-  escalate: { label: "Escalate", dot: "bg-amber-400", text: "text-amber-300", border: "border-amber-500/40", bg: "bg-amber-500/10" },
-  block: { label: "Block", dot: "bg-rose-400", text: "text-rose-300", border: "border-rose-500/40", bg: "bg-rose-500/10" },
+// Status colors, reserved for verdict meaning only (never reused as a
+// generic categorical series elsewhere on this page) -- each is always
+// paired with a text label, never color alone, per every badge and the
+// legend below.
+const VERDICT_STYLE: Record<Verdict, { label: string; hex: string; text: string; border: string; bg: string }> = {
+  allow: { label: "Allow", hex: "#34d399", text: "text-emerald-300", border: "border-emerald-500/40", bg: "bg-emerald-500/10" },
+  modify: { label: "Modify", hex: "#22d3ee", text: "text-cyan-300", border: "border-cyan-500/40", bg: "bg-cyan-500/10" },
+  escalate: { label: "Escalate", hex: "#fbbf24", text: "text-amber-300", border: "border-amber-500/40", bg: "bg-amber-500/10" },
+  block: { label: "Block", hex: "#fb7185", text: "text-rose-300", border: "border-rose-500/40", bg: "bg-rose-500/10" },
 };
-
-const HEX_CLIP = "polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%)";
 
 function timeAgo(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();
@@ -36,6 +38,103 @@ function timeAgo(iso: string): string {
   const hr = Math.floor(min / 60);
   if (hr < 24) return `${hr}h ago`;
   return `${Math.floor(hr / 24)}d ago`;
+}
+
+// ---- Verdict network: a fixed, organic node layout computed once (a
+// seeded pseudo-random scatter, not Math.random, so it's stable across
+// renders/reloads) with each node wired to its two nearest neighbors --
+// this is a status overview, not an analytical chart, so the connecting
+// lines are pure structure (neutral, never carrying data) and every node's
+// color IS its verdict, always paired with a hover title (never color
+// alone). Reused for however many of the most recent evaluations exist;
+// empty slots render as small unlit dots. ------------------------------
+const NETWORK_NODE_COUNT = 20;
+const NETWORK_VIEWBOX = { w: 400, h: 190 };
+
+function seededRandom(seed: number): number {
+  const x = Math.sin(seed * 999.7) * 10000;
+  return x - Math.floor(x);
+}
+
+const NETWORK_LAYOUT: { x: number; y: number }[] = Array.from({ length: NETWORK_NODE_COUNT }, (_, i) => ({
+  x: 24 + seededRandom(i * 2 + 1) * (NETWORK_VIEWBOX.w - 48),
+  y: 22 + seededRandom(i * 2 + 2) * (NETWORK_VIEWBOX.h - 44),
+}));
+
+function nearestNeighborEdges(points: { x: number; y: number }[], k: number): [number, number][] {
+  const seen = new Set<string>();
+  const edges: [number, number][] = [];
+  points.forEach((p, i) => {
+    const nearest = points
+      .map((q, j) => ({ j, d: (q.x - p.x) ** 2 + (q.y - p.y) ** 2 }))
+      .filter((e) => e.j !== i)
+      .sort((a, b) => a.d - b.d)
+      .slice(0, k);
+    for (const { j } of nearest) {
+      const key = i < j ? `${i}:${j}` : `${j}:${i}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        edges.push([i, j]);
+      }
+    }
+  });
+  return edges;
+}
+
+const NETWORK_EDGES = nearestNeighborEdges(NETWORK_LAYOUT, 2);
+
+function VerdictNetwork({ verdicts }: { verdicts: (Verdict | null)[] }) {
+  return (
+    <svg viewBox={`0 0 ${NETWORK_VIEWBOX.w} ${NETWORK_VIEWBOX.h}`} className="w-full h-auto" role="img" aria-label="Verdict health network">
+      <g stroke="rgba(255,255,255,0.08)" strokeWidth="1">
+        {NETWORK_EDGES.map(([a, b], i) => (
+          <line key={i} x1={NETWORK_LAYOUT[a].x} y1={NETWORK_LAYOUT[a].y} x2={NETWORK_LAYOUT[b].x} y2={NETWORK_LAYOUT[b].y} />
+        ))}
+      </g>
+      {NETWORK_LAYOUT.map((p, i) => {
+        const v = verdicts[i];
+        const hex = v ? VERDICT_STYLE[v].hex : "rgba(255,255,255,0.18)";
+        return (
+          <g key={i}>
+            {v && <circle cx={p.x} cy={p.y} r={11} fill={hex} opacity={0.18} />}
+            <circle cx={p.x} cy={p.y} r={v ? 5 : 2.5} fill={hex}>
+              <title>{v ? VERDICT_STYLE[v].label : "No data yet"}</title>
+            </circle>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+// ---- Stat-tile sparklines: 7 daily buckets, a thin 2px de-emphasis line
+// (never the accent) with only the CURRENT (most recent) point picked out
+// in the tile's own accent -- no axis, no gridlines, no per-point labels,
+// per the stat-tile trend spec. -----------------------------------------
+function Sparkline({ values, accent }: { values: (number | null)[]; accent: string }) {
+  const w = 96;
+  const h = 28;
+  const nums = values.map((v) => v ?? 0);
+  const max = Math.max(1, ...nums);
+  const points = nums.map((v, i) => {
+    const x = (i / (nums.length - 1)) * w;
+    const y = h - 2 - (v / max) * (h - 6);
+    return { x, y };
+  });
+  const last = points[points.length - 1];
+  return (
+    <svg width={w} height={h} className="overflow-visible" role="img" aria-label="7-day trend">
+      <polyline
+        points={points.map((p) => `${p.x},${p.y}`).join(" ")}
+        fill="none"
+        stroke="rgba(161,161,170,0.45)"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx={last.x} cy={last.y} r="3" fill={accent} />
+    </svg>
+  );
 }
 
 function Header({ navigate }: { navigate: ReturnType<typeof useNavigate> }) {
@@ -134,12 +233,12 @@ function SetupRequired({ navigate }: { navigate: ReturnType<typeof useNavigate> 
  * OUTER CONTROL SYSTEM — the layer that governs a response from an
  * EXTERNAL AI (ChatGPT, Claude, a connected CRM bot, etc.), as distinct
  * from the Inner Control System page this links back to, which governs
- * NazAI's own generated agents. Deliberately built with its own visual
- * language (glass panels, a verdict-health honeycomb) rather than reusing
- * Inner Control's terminal/mono styling, so the two are easy to tell apart
- * at a glance while the toggle in either header jumps straight to the
- * other. Gated behind having a real API key (see SetupRequired above) --
- * only the header and toggle are always reachable.
+ * NazAI's own generated agents. Its own visual language (the circuit-bg
+ * texture, glass panels, a verdict-health node network) rather than
+ * reusing Inner Control's terminal/mono styling, so the two are easy to
+ * tell apart at a glance while the toggle in either header jumps straight
+ * to the other. Gated behind having a real API key (see SetupRequired
+ * above) -- only the header and toggle are always reachable.
  */
 export default function OuterControlSystem() {
   const navigate = useNavigate();
@@ -184,6 +283,27 @@ export default function OuterControlSystem() {
     return { total, avgTrust, nonAllow };
   }, [rows]);
 
+  // 7 daily buckets, oldest to newest, feeding each stat tile's own
+  // sparkline -- real day-over-day shape, not a decorative squiggle.
+  const dailyBuckets = useMemo(() => {
+    const days = Array.from({ length: 7 }, () => ({ count: 0, trustSum: 0, nonAllow: 0 }));
+    const now = Date.now();
+    const dayMs = 24 * 60 * 60 * 1000;
+    for (const r of rows) {
+      const age = now - new Date(r.created_at).getTime();
+      const dayIndex = 6 - Math.floor(age / dayMs);
+      if (dayIndex < 0 || dayIndex > 6) continue;
+      days[dayIndex].count += 1;
+      days[dayIndex].trustSum += r.trust_score;
+      if (r.verdict !== "allow") days[dayIndex].nonAllow += 1;
+    }
+    return {
+      counts: days.map((d) => d.count),
+      avgTrusts: days.map((d) => (d.count ? Math.round(d.trustSum / d.count) : null)),
+      nonAllowPcts: days.map((d) => (d.count ? Math.round((d.nonAllow / d.count) * 100) : null)),
+    };
+  }, [rows]);
+
   // Once a key exists, the only remaining milestone is real traffic --
   // 50% "ready, nothing's called it yet" vs 100% "actively governing."
   const setupPercent = rows.length === 0 ? 50 : 100;
@@ -191,18 +311,14 @@ export default function OuterControlSystem() {
     ? "Key ready — call POST /outer-control/evaluate to see your first verdict here"
     : "Outer Control is actively governing your connected external AI output";
 
-  // Honeycomb: up to 24 of the most recent evaluations, newest first,
-  // each cell colored by its own verdict -- a real, if small, live map of
-  // recent traffic rather than a purely decorative graphic. Unfilled
-  // cells (no data yet) render as a dim, unlit hex.
-  const hexCells = useMemo(() => {
-    const cells: (Verdict | null)[] = rows.slice(0, 24).map((r) => r.verdict);
-    while (cells.length < 24) cells.push(null);
+  const networkVerdicts = useMemo(() => {
+    const cells: (Verdict | null)[] = rows.slice(0, NETWORK_NODE_COUNT).map((r) => r.verdict);
+    while (cells.length < NETWORK_NODE_COUNT) cells.push(null);
     return cells;
   }, [rows]);
 
   return (
-    <div className="min-h-screen w-full text-white" style={{ backgroundColor: "#050810" }}>
+    <div className="circuit-bg min-h-screen w-full text-white">
       <Header navigate={navigate} />
 
       {loading && (
@@ -233,60 +349,56 @@ export default function OuterControlSystem() {
             </div>
           </div>
 
-          {/* Stat tiles */}
+          {/* Stat tiles, each with a real 7-day sparkline */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="hud-glass rounded-2xl px-5 py-4">
-              <div className="text-[11px] font-mono uppercase tracking-wider text-zinc-400">Evaluations (7d)</div>
-              <div className="mt-1 text-3xl font-semibold">{stats.total}</div>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-[11px] font-mono uppercase tracking-wider text-zinc-400">Evaluations (7d)</div>
+                  <div className="mt-1 text-3xl font-semibold">{stats.total}</div>
+                </div>
+                <Sparkline values={dailyBuckets.counts} accent="#22d3ee" />
+              </div>
               <div className="mt-1 text-xs text-zinc-500">External AI responses checked against your criteria</div>
             </div>
             <div className="hud-glass rounded-2xl px-5 py-4">
-              <div className="text-[11px] font-mono uppercase tracking-wider text-zinc-400">Avg trust score</div>
-              <div className="mt-1 text-3xl font-semibold">{stats.avgTrust ?? "—"}</div>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-[11px] font-mono uppercase tracking-wider text-zinc-400">Avg trust score</div>
+                  <div className="mt-1 text-3xl font-semibold">{stats.avgTrust ?? "—"}</div>
+                </div>
+                <Sparkline values={dailyBuckets.avgTrusts} accent="#34d399" />
+              </div>
               <div className="mt-1 text-xs text-zinc-500">100 minus a cost per rule match, floored at 0</div>
             </div>
             <div className="hud-glass rounded-2xl px-5 py-4">
-              <div className="text-[11px] font-mono uppercase tracking-wider text-zinc-400">Non-allow rate</div>
-              <div className="mt-1 text-3xl font-semibold">
-                {stats.total ? `${Math.round((stats.nonAllow / stats.total) * 100)}%` : "—"}
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-[11px] font-mono uppercase tracking-wider text-zinc-400">Non-allow rate</div>
+                  <div className="mt-1 text-3xl font-semibold">
+                    {stats.total ? `${Math.round((stats.nonAllow / stats.total) * 100)}%` : "—"}
+                  </div>
+                </div>
+                <Sparkline values={dailyBuckets.nonAllowPcts} accent="#fbbf24" />
               </div>
               <div className="mt-1 text-xs text-zinc-500">Modified, escalated, or blocked in the last 7 days</div>
             </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-            {/* Verdict health honeycomb */}
+            {/* Verdict health network */}
             <div className="hud-glass rounded-2xl px-6 py-6 lg:col-span-3">
               <div className="flex items-center gap-2 text-[11px] font-mono uppercase tracking-wider text-zinc-400">
                 <ShieldCheck className="h-3.5 w-3.5 text-cyan-300" />
                 Verdict health — most recent evaluations
               </div>
-              <div className="mt-5 flex flex-wrap gap-2">
-                {hexCells.map((v, i) => {
-                  const style = v ? VERDICT_STYLE[v] : null;
-                  return (
-                    <div
-                      key={i}
-                      title={v ? VERDICT_STYLE[v].label : "No data yet"}
-                      className={`h-9 w-9 shrink-0 ${style ? style.bg : "bg-white/[0.03]"}`}
-                      style={{
-                        clipPath: HEX_CLIP,
-                        border: `1px solid ${style ? "currentColor" : "rgba(255,255,255,0.08)"}`,
-                        color: style
-                          ? style.dot.includes("emerald") ? "#34d399"
-                            : style.dot.includes("cyan") ? "#22d3ee"
-                              : style.dot.includes("amber") ? "#fbbf24"
-                                : "#fb7185"
-                          : undefined,
-                      }}
-                    />
-                  );
-                })}
+              <div className="mt-4">
+                <VerdictNetwork verdicts={networkVerdicts} />
               </div>
-              <div className="mt-5 flex flex-wrap gap-4 text-[11px] font-mono uppercase tracking-wider">
+              <div className="mt-4 flex flex-wrap gap-4 text-[11px] font-mono uppercase tracking-wider">
                 {(Object.keys(VERDICT_STYLE) as Verdict[]).map((v) => (
                   <div key={v} className="flex items-center gap-1.5 text-zinc-400">
-                    <span className={`h-2 w-2 rounded-full ${VERDICT_STYLE[v].dot}`} />
+                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: VERDICT_STYLE[v].hex }} />
                     {VERDICT_STYLE[v].label}
                   </div>
                 ))}
