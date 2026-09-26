@@ -110,6 +110,9 @@ verify_jwt = true
 [functions.control-api]
 verify_jwt = false
 
+[functions.outer-control]
+verify_jwt = false
+
 
 
 
