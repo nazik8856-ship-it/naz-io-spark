@@ -214,22 +214,24 @@ export default function ControlApiKeys() {
       toast({ title: "Test request failed", description: detail, variant: "destructive" });
       return;
     }
-    if (target === "outer_control") {
-      const verdict = typeof body.verdict === "string" ? body.verdict : "unknown";
-      const trust = typeof body.trust_score === "number" ? ` · Trust score: ${body.trust_score}` : "";
-      toast({
-        title: "Outer Control evaluation succeeded",
-        description: `Verdict: ${verdict}${trust}`,
-        action: (
-          <ToastAction altText="Go to the Outer Control dashboard" onClick={() => navigate("/control-system/outer")}>
-            Dashboard
-          </ToastAction>
-        ),
-      });
-      return;
-    }
-    const verdict = typeof body.verdict === "string" ? `Verdict: ${body.verdict}` : `HTTP ${status}`;
-    toast({ title: "Test request succeeded", description: verdict });
+    // Every successful test -- whichever endpoint it hit -- offers the same
+    // way to go see it land for real, not just Outer Control's own: this
+    // panel writes to Outer Control's dashboard-visible history via its own
+    // route, but a human running any of these tests wants the same "go
+    // check it" next step regardless of which radio was selected.
+    const title = target === "outer_control" ? "Outer Control evaluation succeeded" : "Test request succeeded";
+    const verdict = typeof body.verdict === "string" ? body.verdict : null;
+    const trust = typeof body.trust_score === "number" ? ` · Trust score: ${body.trust_score}` : "";
+    const description = verdict ? `Verdict: ${verdict}${trust}` : `HTTP ${status}`;
+    toast({
+      title,
+      description,
+      action: (
+        <ToastAction altText="Go to the Outer Control dashboard" onClick={() => navigate("/control-system/outer")}>
+          Check the dashboard
+        </ToastAction>
+      ),
+    });
   };
 
   const runTest = async () => {
