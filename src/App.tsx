@@ -61,6 +61,7 @@ const Privacy = lazyWithReload(() => import("./pages/Privacy"));
 const Terms = lazyWithReload(() => import("./pages/Terms"));
 const Insights = lazyWithReload(() => import("./pages/Insights"));
 const ControlSystem = lazyWithReload(() => import("./pages/ControlSystem"));
+const OuterControlSystem = lazyWithReload(() => import("./pages/OuterControlSystem"));
 const ControlApprovals = lazyWithReload(() => import("./pages/ControlApprovals"));
 const ControlSafetyRules = lazyWithReload(() => import("./pages/ControlSafetyRules"));
 const ControlPolicy = lazyWithReload(() => import("./pages/ControlPolicy"));
@@ -159,6 +160,7 @@ const App = () => (
                 <Route path="/terms" element={<Terms />} />
                 <Route path="/insights" element={<Insights />} />
                 <Route path="/control-system" element={<ControlSystem />} />
+                <Route path="/control-system/outer" element={<OuterControlSystem />} />
                 <Route path="/team/accept" element={<AcceptInvite />} />
                 <Route path="/control-system/approvals" element={<ControlApprovals />} />
                 <Route path="/control-system/safety-rules" element={<ControlSafetyRules />} />

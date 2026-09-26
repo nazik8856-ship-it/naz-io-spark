@@ -142,6 +142,17 @@ export default function ControlSystem() {
           <ArrowLeft className="h-5 w-5" />
           <span className="text-sm font-mono uppercase tracking-wider">Back</span>
         </button>
+        <div className="ml-2 flex items-center rounded-full border border-white/10 bg-white/5 p-1 text-[11px] font-mono uppercase tracking-wider">
+          <button className="rounded-full px-3 py-1 text-white" style={{ background: "linear-gradient(135deg, rgba(0,242,255,0.25), rgba(212,175,55,0.25))" }}>
+            Inner
+          </button>
+          <button
+            onClick={() => navigate("/control-system/outer")}
+            className="rounded-full px-3 py-1 text-zinc-400 hover:text-white transition-colors"
+          >
+            Outer
+          </button>
+        </div>
         <nav className="ml-auto flex items-center gap-2">
           <AccountSwitcher />
           <button
