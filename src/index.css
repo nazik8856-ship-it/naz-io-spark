@@ -167,6 +167,20 @@
     @apply bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-cyan-400;
   }
 
+  /* Faint repeating circuit-trace texture + two soft corner glows, dark
+     navy base -- used on pages that want the "tech hub" feel (API Keys)
+     without the pure-black flat background the rest of Control System
+     uses. Kept as one reusable class rather than inlined per page. */
+  .circuit-bg {
+    background-color: #050b14;
+    background-image:
+      radial-gradient(circle at 8% 12%, rgba(45, 212, 191, 0.10), transparent 35%),
+      radial-gradient(circle at 92% 88%, rgba(56, 189, 248, 0.10), transparent 35%),
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140' viewBox='0 0 140 140'%3E%3Cg fill='none' stroke='%2322d3ee' stroke-opacity='0.12'%3E%3Cpath d='M10 10H70V70H130'/%3E%3Cpath d='M10 130V90H50V50'/%3E%3Cpath d='M130 130H90V90'/%3E%3C/g%3E%3Cg fill='%2322d3ee' fill-opacity='0.35'%3E%3Ccircle cx='10' cy='10' r='2'/%3E%3Ccircle cx='70' cy='70' r='2'/%3E%3Ccircle cx='130' cy='130' r='2'/%3E%3Ccircle cx='50' cy='50' r='1.5'/%3E%3C/g%3E%3C/svg%3E");
+    background-repeat: no-repeat, no-repeat, repeat;
+    background-size: auto, auto, 140px 140px;
+  }
+
   .hud-glass {
     background: var(--nazai-glass) !important;
     backdrop-filter: blur(16px) saturate(180%) !important;
